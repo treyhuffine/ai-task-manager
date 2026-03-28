@@ -1,0 +1,1 @@
+More intentional deck planning. Group by area and drag around. Closer to the final form you'll see. It needs to be a little more intelligent. Goal focused and based on context you give it and other intelligent factors.

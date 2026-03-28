@@ -34,15 +34,15 @@ These have urgency signals — time-specific language, deadlines. The AI detects
 
 Contrast: "Buy oat milk." "Check SEO results." "Email Jake about the demo." — no urgency signal. These marinate. The batch pass picks them up a few minutes later, or the user handles them and dismisses. Either way, no rush, no mind-reading needed.
 
-### 2. Thinking Thread
+### 2. Evolving Notes
 
 You're on a walk. A thought about onboarding surfaces. You capture it. Five minutes later, a different angle on the same idea. Ten minutes later, a quick task. Twenty minutes later, back to onboarding with a new connection your subconscious surfaced.
 
 The captures are interleaved and non-linear, but some belong together. The user shouldn't have to manually connect them — they just keep capturing.
 
-Days later, the same topic resurfaces. The user captures another fragment. The AI reconnects it to the earlier thread.
+Days later, the same topic resurfaces. The user captures another fragment. The AI reconnects it to the earlier note.
 
-**AI behavior:** During the batch pass, the AI sees all recent stream items together and notices: "three of these are about onboarding UX." It creates a thinking thread (a note with `is_thread = 1`) and groups the fragments. Future fragments that relate get appended. The LLM reasons about relationships from raw text — no embeddings needed for threading.
+**AI behavior:** During the batch pass, the AI sees all recent stream items together and notices: "three of these are about onboarding UX." It creates a new note and groups the fragments. Future fragments that relate get appended to the same note. The LLM reasons about relationships from raw text — no embeddings needed.
 
 ### 3. Brain Dump
 
@@ -85,15 +85,15 @@ The stream naturally serves as working memory without being a separate concept:
 - No second inbox, no scratchpad, no badge count
 - The stream empties itself over time: processed items show annotations and fade, dismissed items disappear, daily sweep catches the rest
 
-## Thinking Threads
+## Note Accumulation
 
-Threads are notes that accumulate fragments over time (`is_thread = 1` on the notes table):
+Any note can be appended to over time — there is no separate "thread" flag or entity:
 
-- AI detects related stream items during batch processing → creates a thread note
-- New fragments that relate get appended with timestamps
-- Thread title evolves as the AI understands the topic
-- At critical mass, AI offers synthesis: "You've had 5 thoughts about onboarding UX. Want me to consolidate into a structured note?"
-- If threading is wrong: one-tap "Separate" or "Move to [other note]"
+- AI detects related stream items during batch processing → creates a new note grouping them
+- New fragments that relate get appended with timestamps to the existing note
+- Note title evolves as the AI understands the topic
+- At critical mass, AI offers synthesis: "You've had 5 thoughts about onboarding UX. Want me to consolidate into a structured document?"
+- If grouping is wrong: one-tap "Separate" or "Move to [other note]"
 - No embeddings for matching — the LLM reads all recent stream items + active note summaries in raw text and reasons about relationships directly
 
 ## Fleeting Notes and Decay

@@ -7,23 +7,23 @@ import type { areas, stream, tasks, taskCompletions, notes } from '@/lib/db/sche
 // ─── Areas ────────────────────────────────────────────────────
 
 export type AreaRecord = InferSelectModel<typeof areas>;
-export type CreateAreaInput = InferInsertModel<typeof areas>;
-export type UpdateAreaInput = Partial<Omit<CreateAreaInput, 'id'>>;
+export type CreateAreaInput = Omit<InferInsertModel<typeof areas>, 'id'>;
+export type UpdateAreaInput = Partial<CreateAreaInput>;
 export type AreaStatus = AreaRecord['status'];
 
 // ─── Stream ───────────────────────────────────────────────────
 
 export type StreamRecord = InferSelectModel<typeof stream>;
-export type CreateStreamInput = InferInsertModel<typeof stream>;
-export type UpdateStreamInput = Partial<Omit<CreateStreamInput, 'id'>>;
+export type CreateStreamInput = Omit<InferInsertModel<typeof stream>, 'id'>;
+export type UpdateStreamInput = Partial<CreateStreamInput>;
 export type StreamSource = StreamRecord['source'];
 export type StreamStatus = StreamRecord['status'];
 
 // ─── Tasks ────────────────────────────────────────────────────
 
 export type TaskRecord = InferSelectModel<typeof tasks>;
-export type CreateTaskInput = InferInsertModel<typeof tasks>;
-export type UpdateTaskInput = Partial<Omit<CreateTaskInput, 'id'>>;
+export type CreateTaskInput = Omit<InferInsertModel<typeof tasks>, 'id'>;
+export type UpdateTaskInput = Partial<CreateTaskInput>;
 export type TaskStatus = NonNullable<TaskRecord['status']>;
 export type Energy = NonNullable<TaskRecord['energy']>;
 export type Effort = NonNullable<TaskRecord['effort']>;
@@ -31,21 +31,27 @@ export type Effort = NonNullable<TaskRecord['effort']>;
 // ─── Task Completions ─────────────────────────────────────────
 
 export type TaskCompletionRecord = InferSelectModel<typeof taskCompletions>;
-export type CreateTaskCompletionInput = InferInsertModel<typeof taskCompletions>;
+export type CreateTaskCompletionInput = Omit<InferInsertModel<typeof taskCompletions>, 'id'>;
 
 // ─── Notes ────────────────────────────────────────────────────
 
 export type NoteRecord = InferSelectModel<typeof notes>;
-export type CreateNoteInput = InferInsertModel<typeof notes>;
-export type UpdateNoteInput = Partial<Omit<CreateNoteInput, 'id'>>;
+export type CreateNoteInput = Omit<InferInsertModel<typeof notes>, 'id'>;
+export type UpdateNoteInput = Partial<CreateNoteInput>;
+export type NoteStatus = NonNullable<NoteRecord['status']>;
 
 // ─── Filters (query params) ──────────────────────────────────
+
+export interface AreaFilter {
+  status?: AreaStatus;
+}
 
 export interface TaskFilter {
   status?: TaskStatus | TaskStatus[];
   area_id?: string | null;
   parent_id?: string | null;
   energy?: Energy;
+  q?: string;
   limit?: number;
   offset?: number;
   order_by?: string;
@@ -54,6 +60,13 @@ export interface TaskFilter {
 export interface NoteFilter {
   area_id?: string | null;
   task_id?: string | null;
+  status?: NoteStatus;
+  limit?: number;
+  offset?: number;
+}
+
+export interface StreamFilter {
+  status?: StreamStatus;
   limit?: number;
   offset?: number;
 }

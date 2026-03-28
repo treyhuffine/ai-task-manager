@@ -47,3 +47,12 @@ export function useDeleteTask() {
     onSuccess: () => qc.invalidateQueries({ queryKey: TASKS_KEY }),
   });
 }
+
+export function useCompleteTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+      tasksApi.complete(id, note),
+    onSuccess: () => qc.invalidateQueries({ queryKey: TASKS_KEY }),
+  });
+}

@@ -7,6 +7,7 @@ export const areas = sqliteTable('areas', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
+  image_url: text('image_url'),
   notes: text('notes'),
   user_context: text('user_context'),
   status: text('status', { enum: ['active', 'inactive', 'archived'] }).notNull().default('active'),
@@ -94,12 +95,13 @@ export const notes = sqliteTable('notes', {
   stream_item_id: text('stream_item_id').references(() => stream.id),
   title: text('title'),
   body: text('body').notNull(),
-  is_thread: integer('is_thread', { mode: 'boolean' }).notNull().default(false),
   url: text('url'),
+  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
   context_tags: text('context_tags', { mode: 'json' }).$type<string[]>().default([]),
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
   updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_notes_area_id').on(table.area_id),
   index('idx_notes_task_id').on(table.task_id),
+  index('idx_notes_status').on(table.status),
 ]);

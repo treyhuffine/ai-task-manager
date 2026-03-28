@@ -4,6 +4,7 @@ import { tasks } from '@/lib/db/schema';
 import { eq, inArray, and, desc, sql, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { CreateTaskInput } from '@/db/types';
+import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,7 +35,11 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(tasks.energy, params.get('energy') as 'deep' | 'light'));
     }
 
-    const limit = params.get('limit') ? parseInt(params.get('limit')!, 10) : 100;
+    if (params.get('q')) {
+      conditions.push(sql`${tasks.title} LIKE ${'%' + params.get('q')! + '%'}`);
+    }
+
+    const limit = params.get('limit') ? parseInt(params.get('limit')!, 10) : 10000;
     const offset = params.get('offset') ? parseInt(params.get('offset')!, 10) : 0;
 
     const rows = db
@@ -81,6 +86,7 @@ export async function POST(request: NextRequest) {
       .returning()
       .get();
 
+    void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
     return Response.json(row, { status: 201 });
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 400 });

@@ -846,8 +846,8 @@ CREATE TABLE items (
 
   -- Dates
   hard_deadline TEXT,                  -- ISO date, only if there's an actual immovable deadline
-  soft_deadline TEXT,                  -- "Would be nice by" date
-  snooze_until TEXT,                   -- Don't surface before this datetime
+  resurface_after TEXT,               -- Boomerang resurfacing: don't surface before this datetime (guilt-free)
+  reminder_at TEXT,                   -- Time-specific alert ("pick up kids at 3pm")
 
   -- People
   person_id TEXT REFERENCES people(id),
@@ -998,7 +998,7 @@ Return JSON:
   "urgency_score": 0.0-1.0,
   "effort_estimate": "tiny | small | medium | large | unknown",
   "hard_deadline": "ISO date if mentioned, or null",
-  "soft_deadline": "ISO date if implied, or null",
+  "resurface_after": "ISO date if implied but not a hard deadline, or null",
   "person_id": "matching person ID or null",
   "waiting_on": false,
   "ai_notes": "brief reasoning for your categorization"

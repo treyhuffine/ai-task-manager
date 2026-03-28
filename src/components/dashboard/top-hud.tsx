@@ -1,7 +1,8 @@
 "use client";
 
-import { Sun, Moon, Search, Plus } from 'lucide-react';
+import { Sun, Moon, Search } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { CreateMenu } from './create-menu';
 
 export function TopHud() {
   const { theme, toggleTheme, agents } = useDashboard();
@@ -35,9 +36,7 @@ export function TopHud() {
         <button className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all">
           <Search size={14} />
         </button>
-        <button className="flex items-center gap-2 px-3 py-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-lg shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95">
-          <Plus size={14} /> CREATE
-        </button>
+        <CreateMenu />
       </div>
     </header>
   );

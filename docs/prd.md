@@ -1,5 +1,7 @@
 # Eon — Product Requirements Document
 
+> **Note:** The deck experience (sections 5.3, 6.1, 6.4) has been redesigned. See [`deck-v2-spec.md`](./deck-v2-spec.md) for the authoritative spec. Key changes: unified priority stack (no deep/light split), no energy toggle, no context blocks in MVP, no review/confirm ceremony, progressive disclosure escape hatches, chat-driven deck modifications. The strategic vision and core problems in this PRD remain current.
+
 ## Why
 
 Helping people live deliberately instead of accidentally.
@@ -219,7 +221,7 @@ Eon operates through three continuous loops:
 
 **Execution Loop** (**seconds** to minutes): Open app -> See recommendation -> Act on it or adjust -> Next. The user's job is to do. The AI's job is to decide what's next.
 
-**Maintenance Loop** (continuous, amortized): AI promotes stream items, resurfaces stale tasks, decays low-intent ideas, detects drifting projects, threads related thinking, flags overcommitment, and prunes. The user's job is micro-corrections when the AI gets something wrong (one tap). There is no weekly review.
+**Maintenance Loop** (continuous, amortized): AI promotes stream items, resurfaces stale tasks, decays low-intent ideas, detects drifting projects, groups related thinking into notes, flags overcommitment, and prunes. The user's job is micro-corrections when the AI gets something wrong (one tap). There is no weekly review.
 
 ### 5.2 Entity Model
 
@@ -280,13 +282,15 @@ The user captures "work out 4x/week" and the AI sets `recurrence: "4x per week"`
 
 #### Notes
 
-Non-actionable captures: learning, thinking, reference material, journal entries, and **thinking threads** — evolving collections of related fragments the AI groups over time. Notes are **not tasks** — they don't have sort positions, deadlines, energy classification, or deck eligibility. They're content that exists in the system for the AI to reference and the user to search.
+Non-actionable captures: learning, thinking, reference material, journal entries, and evolving collections of related fragments the AI groups over time. Notes are **not tasks** — they don't have sort positions, deadlines, energy classification, or deck eligibility. They're content that exists in the system for the AI to reference and the user to search.
 
 Examples: "Key insight from AI podcast: agents work better with explicit tool definitions." "Quarterly reflection on Bounce strategy." "Interview questions I like."
 
 Notes can belong to an area, link to a task, or float free as orphans. A note about OAuth2 best practices while working on auth → linked to the auth task. A note on startup strategy → under the "Entrepreneurship & Building" area. A random insight from a walk → orphan. All are first-class.
 
-**Thinking threads** are notes that accumulate over time. When the AI detects related fragments across stream captures (during burst-end or daily sweep passes), it groups them into a single note with timestamped fragments. As the user returns to the topic across hours or days, new fragments get appended to the existing thread. When a thread reaches critical mass, the AI offers to synthesize the fragments into a structured note. Threads are just notes — no separate entity, no special data model.
+Notes have **status**: `active | archived`. Active notes are visible by default. Archived notes are hidden but searchable. The AI can archive stale notes during radar sweeps, and the user can archive manually. No `done` status — notes don't complete.
+
+**Any note can be appended to.** When the AI detects related fragments across stream captures (during burst-end or daily sweep passes), it groups them into a single note with timestamped fragments. As the user returns to the topic across hours or days, new fragments get appended to the existing note. When a note reaches critical mass, the AI offers to synthesize the fragments into a structured document. There is no separate "thread" entity or flag — the AI decides when to append vs. create new based on semantic relationships.
 
 The AI uses notes as context for routing and planning: "You noted last week that Bounce should focus on churn — I'm prioritizing retention-related tasks."
 
@@ -551,13 +555,13 @@ The stream is **not** an activity feed. It contains only things you personally c
    - **Everything else** → let it marinate. The AI doesn't try to classify intent. It waits to see what develops.
 3. Marinating items benefit from patience:
    - The user might handle it themselves in 2 minutes and dismiss it (zero cruft)
-   - More related thoughts might come in, giving the AI better context for threading
-   - The burst-end batch (~2-3 min after a flurry settles) processes accumulated items together — with full context for threading, note-append detection, and better classification
-   - The daily sweep catches anything still sitting: AI recommends promote, thread, or dismiss. Items the AI isn't sure about get elevated to the user in the daily brief.
+   - More related thoughts might come in, giving the AI better context for grouping
+   - The burst-end batch (~2-3 min after a flurry settles) processes accumulated items together — with full context for grouping, note-append detection, and better classification
+   - The daily sweep catches anything still sitting: AI recommends promote, append to note, or dismiss. Items the AI isn't sure about get elevated to the user in the daily brief.
 4. For immediately processed items: confirmation toast with one-tap correction chips (reassign area, adjust sort, flip task↔note, edit)
 
 **Every stream item has exactly three exits:**
-- **Promoted** — AI creates an entity (task, note, decision, or appended to existing thread)
+- **Promoted** — AI creates an entity (task, note, decision, or appended to existing note)
 - **Dismissed** — user swipes it away, or it was transient and they handled it themselves
 - **Elevated** — AI surfaced it in the daily brief for the user's call
 
@@ -575,16 +579,16 @@ For intentional brain dumps — after meetings, during planning, clearing mental
 - **Post-processing:** Summary card with placement context: "From your dump: 3 Bounce tasks (placed in your top 15), 1 personal errand (mid working set), 1 flagged for your review. [Looks right] [Review each]"
 - Each item shows what the AI did and where it was placed, with one-tap corrections. Ten seconds — the user confirms or adjusts while the context is fresh.
 
-#### Thinking Threads
+#### Note Accumulation
 
-Some thoughts develop over hours or days — you capture a fragment on a walk, another angle surfaces at dinner, a connection clicks the next morning. The user never explicitly threads these. The AI notices semantic relationships across recent stream items and existing notes:
+Some thoughts develop over hours or days — you capture a fragment on a walk, another angle surfaces at dinner, a connection clicks the next morning. The user never explicitly groups these. The AI notices semantic relationships across recent stream items and existing notes:
 
 - Related fragments within a burst → grouped into a new note with a working title
 - New fragment relates to an existing note → appended with a timestamp
-- Thread reaches critical mass → AI offers to synthesize fragments into a structured note
-- If the AI threads wrongly: one-tap "Separate" or "Move to [other note]"
+- Note reaches critical mass → AI offers to synthesize fragments into a structured document
+- If the AI groups wrongly: one-tap "Separate" or "Move to [other note]"
 
-No embeddings needed for threading. The LLM receives all recent stream items and active note summaries as raw text in the triage context and reasons about relationships directly (see Section 8.1).
+Any note can be appended to — there is no separate "thread" flag or entity. The AI decides when to append vs. create new. No embeddings needed for this. The LLM receives all recent stream items and active note summaries as raw text in the triage context and reasons about relationships directly (see Section 8.1).
 
 #### The Stream as Working Memory (Recent Captures View)
 
@@ -943,6 +947,7 @@ CREATE TABLE task_completions (
 -- ============================================================
 -- NOTES: Non-actionable captures (learning, thinking, reference)
 -- Notes are NOT tasks. No sort positions, no deadlines, no deck.
+-- Any note can be appended to by the AI (thinking threads are just notes the AI keeps adding to).
 -- ============================================================
 CREATE TABLE notes (
   id TEXT PRIMARY KEY,
@@ -951,8 +956,8 @@ CREATE TABLE notes (
   stream_item_id TEXT REFERENCES stream(id),       -- link back to originating stream item (if promoted from stream)
   title TEXT,                                      -- optional: not all notes need a title
   body TEXT NOT NULL,                               -- rich markdown content
-  is_thread INTEGER NOT NULL DEFAULT 0,            -- 1 if this note accumulates fragments over time (thinking thread)
   url TEXT,                                        -- optional: if present, note is a "bookmark" in the UI
+  status TEXT NOT NULL DEFAULT 'active',            -- active | archived (no 'done' — notes don't complete)
   context_tags TEXT DEFAULT '[]',                   -- AI-inferred tags for search/filtering
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1300,7 +1305,7 @@ These heuristics are used by all three processing passes (immediate, batch, swee
 
 This is where the AI does the real thinking. It sees multiple captures together, in context, with patience. The batch pass enables:
 - **Classification with context:** "Buy oat milk" is clearly a task even without urgency. With no time pressure, the AI classifies it here alongside everything else from the burst.
-- **Threading:** "Three of these fragments are about onboarding UX → create a note that groups them"
+- **Grouping:** "Three of these fragments are about onboarding UX → create a note that groups them"
 - **Append detection:** "This fragment relates to an existing note → append rather than create new"
 - **Brain dump processing:** A paragraph-style brain dump gets split and each segment handled
 - **Self-resolution detection:** "User captured 'check SEO results' 10 minutes ago and already dismissed it — skip"
@@ -1319,7 +1324,7 @@ Uses the "fast" tier model. Batch processing multiple items in one call is cheap
 
 **Behavior:** The AI reviews every item still sitting in the stream and presents recommendations in the daily brief:
 - **Promote** — "This should be a task for tomorrow" → one-tap confirm
-- **Thread** — "This connects to your notes on [topic]" → one-tap confirm
+- **Append** — "This connects to your notes on [topic]" → one-tap confirm
 - **Recommend dismissal** — "This seems transient" → one-tap confirm to archive. The AI never silently dismisses — it recommends, and the user confirms. Dismissed items go to recently archived (recoverable for 30 days).
 - **Elevate** — "Not sure about this one. Task, note, or dismiss?" → user decides
 
@@ -1330,7 +1335,7 @@ This appears in the daily brief as a lightweight section: "3 thoughts from yeste
 #### The Guarantee
 
 Every stream item exits through exactly one of three doors:
-1. **Promoted** — AI created an entity (task, note, decision, or appended to thread)
+1. **Promoted** — AI created an entity (task, note, decision, or appended to existing note)
 2. **Dismissed** — User removed it, or it was transient and handled
 3. **Elevated** — AI surfaced it for the user's decision in the daily brief
 
@@ -1345,7 +1350,7 @@ The key insight: **the AI's job at capture time is not to classify intent — it
 - Getting urgency wrong is low-cost (a non-urgent item processed immediately is fine; just slightly wasteful)
 - Getting intent wrong is high-cost (a task misrouted to the wrong area erodes trust)
 
-Everything non-urgent benefits from patience. The user might handle it themselves (zero cruft). More related thoughts might come in (better threading). The batch pass has full context for smarter classification. The daily sweep is the safety net. The system trades a few minutes of latency for dramatically better accuracy.
+Everything non-urgent benefits from patience. The user might handle it themselves (zero cruft). More related thoughts might come in (better grouping). The batch pass has full context for smarter classification. The daily sweep is the safety net. The system trades a few minutes of latency for dramatically better accuracy.
 
 ### 8.2 How the Deck Works
 
@@ -1701,7 +1706,7 @@ Eon is **model-agnostic**. Users bring their own API keys (direct provider keys 
 | Job               | Tier Required       | Rationale                                                            | Default Mapping                                  |
 | ----------------- | ------------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
 | Urgency detection | Fast (cheapest)     | High volume, needs to be instant, binary decision (urgent or not)    | Haiku, GPT-4o-mini, Flash                        |
-| Stream batch      | Fast (cheapest)     | Multiple items per call, amortizes cost, needs threading reasoning   | Haiku, GPT-4o-mini, Flash                        |
+| Stream batch      | Fast (cheapest)     | Multiple items per call, amortizes cost, needs grouping reasoning    | Haiku, GPT-4o-mini, Flash                        |
 | Embedding         | Embedding model     | Runs on every capture + edit, must be cheap and fast                 | text-embedding-3-small, nomic-embed-text (local) |
 | Deck ranking      | Rule-based (no LLM) | Reads from AI-sorted active list, deterministic, fast                | N/A                                              |
 | Deck rerank       | Standard            | Needs reasoning but bounded scope, structured output                 | Sonnet, GPT-4o, Pro                              |
@@ -1875,7 +1880,7 @@ Multi-step orchestrations implemented as plain async functions that chain atomic
 1. Collect all `pending` stream items from current burst + last 48 hours
 2. Load titles + first ~200 chars of active notes (touched in 30 days)
 3. Filter out items already dismissed by user (self-resolved, zero cruft)
-4. Single LLM call with full context: classify each remaining item, detect threads, identify note-append opportunities
+4. Single LLM call with full context: classify each remaining item, detect related notes, identify note-append opportunities
 5. For each item: promote (create entity or append to existing note), or leave for daily sweep
 6. `logActivity` for each promotion
 
@@ -2104,7 +2109,7 @@ When tasks are delegated to AI (Stage 2), a separate **executor agent** handles 
       completions.ts              -- logCompletion, getCompletions
     workflows/                    -- Composite async functions (chain tools + LLM reasoning, no framework imports)
       stream-capture.ts           -- Raw text → stream + urgency check → immediate processing if urgent
-      stream-batch.ts             -- Burst-end batch: classify marinating items, thread detection, note-append
+      stream-batch.ts             -- Burst-end batch: classify marinating items, note grouping, note-append
       stream-sweep.ts             -- Daily sweep of remaining unprocessed items (runs within daily-brief)
       task-complete.ts            -- Handle completion (one-time vs recurring, parent update, deck refill)
       deck-generate.ts            -- State → ranked deck (rule-based, no LLM)
@@ -2241,12 +2246,12 @@ The priority is proving the routing engine, building community, and earning trus
 - Capture input UI (global text box, Cmd+K shortcut) → items land in stream
 - Brain dump mode (Cmd+Shift+K) → larger text area, batch processing on close
 - `stream-capture` workflow: raw text → stream → urgency check → immediate processing if urgent, marinate if not
-- `stream-batch` workflow: process burst of captures together — threading, note-append detection, batch classification
+- `stream-batch` workflow: process burst of captures together — note grouping, note-append detection, batch classification
 - Semantic search: search bar queries both FTS5 (keyword) and `vec_embeddings` (semantic), merged and ranked by relevance
 - Chat agent for natural language interaction (capture via chat, search, basic task management)
 - Basic task list grouped by area, with orphan section
 - Basic notes list grouped by area, with orphan section
-- One-tap correction chips on promoted items (including flip task/note, reassign, separate/merge threads)
+- One-tap correction chips on promoted items (including flip task/note, reassign, separate/move between notes)
 - One-tap dismiss on stream items
 - Area CRUD (manual for now, with status: active/inactive/archived)
 - Agent activity log (write-only for now)

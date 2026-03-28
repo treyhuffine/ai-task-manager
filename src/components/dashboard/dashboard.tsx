@@ -6,10 +6,13 @@ import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
 import { BottomHud } from './bottom-hud';
 import { FocusView } from './focus-view';
+import { SearchOverlay } from '@/components/shared/search-overlay';
+import { NoteSlideout } from '@/components/notes/note-slideout';
+import { TaskSlideout } from '@/components/tasks/task-slideout';
 import { cn } from '@/lib/utils';
 
 function DashboardShell() {
-  const { theme } = useDashboard();
+  const { theme, openNoteId, closeNote, openTaskId, closeTask } = useDashboard();
 
   return (
     <div className={cn(
@@ -25,6 +28,9 @@ function DashboardShell() {
 
         <BottomHud />
         <FocusView />
+        <SearchOverlay />
+        <NoteSlideout noteId={openNoteId} onClose={closeNote} />
+        <TaskSlideout taskId={openTaskId} onClose={closeTask} />
       </div>
     </div>
   );

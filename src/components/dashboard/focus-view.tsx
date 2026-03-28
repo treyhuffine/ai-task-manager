@@ -6,12 +6,13 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 
 export function FocusView() {
-  const { theme, isFocusMode, setIsFocusMode, tasks } = useDashboard();
+  const { theme, isFocusMode, exitFocusMode, focusTask } = useDashboard();
   const isDark = theme === 'dark';
-  const focusTask = tasks[0];
+
+  if (!focusTask) return null;
 
   return (
-    <Dialog.Root open={isFocusMode} onOpenChange={setIsFocusMode}>
+    <Dialog.Root open={isFocusMode} onOpenChange={(open) => { if (!open) exitFocusMode(); }}>
       <Dialog.Portal>
         <div className={isDark ? 'dark' : ''}>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm" />
@@ -26,18 +27,16 @@ export function FocusView() {
                 <div className="w-2.5 h-2.5 rounded-full bg-orange-500 mt-2 shadow-[0_0_10px_rgba(249,115,22,0.4)]" />
                 <div className="flex-1">
                   <h2 className="text-3xl font-medium tracking-tight text-foreground mb-1.5">
-                    {focusTask.text}
+                    {focusTask.title}
                   </h2>
                   <div className="flex items-center gap-3 text-[10.5px] font-bold text-muted-foreground">
                     <span className="uppercase tracking-[0.1em]">{focusTask.project}</span>
-                    <span>{"\u00B7"}</span>
-                    <span>{focusTask.due}</span>
-                    {focusTask.status === 'ready' && (
-                      <span className="text-orange-500/90 italic tracking-tight flex items-center gap-1">
-                        <Sparkles size={10} /> Agent unblocked
-                      </span>
-                    )}
                   </div>
+                  {focusTask.context && (
+                    <p className="mt-3 text-[11px] text-muted-foreground leading-relaxed">
+                      {focusTask.context}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className={cn(

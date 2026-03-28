@@ -3,6 +3,13 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, Agent, Task, StreamEvent } from '@/types/dashboard';
 
+interface FocusTask {
+  title: string;
+  project: string;
+  context?: string;
+  taskId: string;
+}
+
 interface DashboardState {
   theme: Theme;
   activeView: ActiveView;
@@ -11,11 +18,14 @@ interface DashboardState {
   dividerPosition: number;
   focusedPanel: PanelId;
   isFocusMode: boolean;
+  focusTask: FocusTask | null;
   workMode: WorkMode;
   selectedProject: string;
   agents: Agent[];
   tasks: Task[];
   streamEvents: StreamEvent[];
+  openNoteId: string | null;
+  openTaskId: string | null;
 }
 
 interface DashboardActions {
@@ -27,9 +37,15 @@ interface DashboardActions {
   setFocusedPanel: (panel: PanelId) => void;
   resetLayout: () => void;
   setIsFocusMode: (focus: boolean) => void;
+  enterFocusMode: (task: FocusTask) => void;
+  exitFocusMode: () => void;
   toggleFocusMode: () => void;
   setWorkMode: (mode: WorkMode) => void;
   setSelectedProject: (project: string) => void;
+  openNote: (noteId: string) => void;
+  closeNote: () => void;
+  openTask: (taskId: string) => void;
+  closeTask: () => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -70,11 +86,29 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [dividerPosition, setDividerPosition] = useState(DEFAULT_DIVIDER_POSITION);
   const [focusedPanel, setFocusedPanel] = useState<PanelId>('a');
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [focusTask, setFocusTask] = useState<FocusTask | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>(null);
   const [selectedProject, setSelectedProject] = useState('All Projects');
+  const [openNoteId, setOpenNoteId] = useState<string | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+
+  const openNote = useCallback((noteId: string) => setOpenNoteId(noteId), []);
+  const closeNote = useCallback(() => setOpenNoteId(null), []);
+  const openTask = useCallback((taskId: string) => setOpenTaskId(taskId), []);
+  const closeTask = useCallback(() => setOpenTaskId(null), []);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  }, []);
+
+  const enterFocusMode = useCallback((task: FocusTask) => {
+    setFocusTask(task);
+    setIsFocusMode(true);
+  }, []);
+
+  const exitFocusMode = useCallback(() => {
+    setIsFocusMode(false);
+    setFocusTask(null);
   }, []);
 
   const toggleFocusMode = useCallback(() => {
@@ -102,6 +136,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       dividerPosition,
       focusedPanel,
       isFocusMode,
+      focusTask,
       workMode,
       selectedProject,
       agents: MOCK_AGENTS,
@@ -115,9 +150,17 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setFocusedPanel,
       resetLayout,
       setIsFocusMode,
+      enterFocusMode,
+      exitFocusMode,
       toggleFocusMode,
       setWorkMode,
       setSelectedProject,
+      openNoteId,
+      openNote,
+      closeNote,
+      openTaskId,
+      openTask,
+      closeTask,
     }}>
       {children}
     </DashboardContext.Provider>

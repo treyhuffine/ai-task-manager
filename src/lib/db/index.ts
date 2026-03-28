@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import * as sqliteVec from 'sqlite-vec';
 import fs from 'fs';
 import path from 'path';
 import * as schema from './schema';
@@ -48,6 +49,7 @@ export function getDb(dbPath?: string): DB {
   }
 
   const sqlite = new Database(resolvedPath);
+  sqliteVec.load(sqlite);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
 
@@ -58,8 +60,22 @@ export function getDb(dbPath?: string): DB {
     sqlite.exec(schemaSql);
   }
 
+  // Migrations — ALTER TABLE ADD COLUMN (ignore if already exists)
+  const migrations = [
+    'ALTER TABLE areas ADD COLUMN image_url TEXT',
+  ];
+  for (const migration of migrations) {
+    try { sqlite.exec(migration); } catch { /* column already exists */ }
+  }
+
   rawInstance = sqlite;
   dbInstance = drizzle(sqlite, { schema });
   currentPath = resolvedPath;
   return dbInstance;
+}
+
+export function getRawDb(dbPath?: string): Database.Database {
+  // Ensure the DB is initialized
+  getDb(dbPath);
+  return rawInstance!;
 }

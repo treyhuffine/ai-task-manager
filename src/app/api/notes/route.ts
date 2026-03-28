@@ -4,6 +4,7 @@ import { notes } from '@/lib/db/schema';
 import { eq, and, desc, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { CreateNoteInput } from '@/db/types';
+import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +21,11 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(notes.task_id, params.get('task_id')!));
     }
 
-    const limit = params.get('limit') ? parseInt(params.get('limit')!, 10) : 100;
+    if (params.get('status')) {
+      conditions.push(eq(notes.status, params.get('status') as 'active' | 'archived'));
+    }
+
+    const limit = params.get('limit') ? parseInt(params.get('limit')!, 10) : 10000;
     const offset = params.get('offset') ? parseInt(params.get('offset')!, 10) : 0;
 
     const rows = db
@@ -57,7 +62,7 @@ export async function POST(request: NextRequest) {
       .values({
         ...body,
         id: uuidv7(),
-        is_thread: body.is_thread ?? false,
+        status: body.status ?? 'active',
         context_tags: body.context_tags ?? [],
         created_at: now,
         updated_at: now,
@@ -65,6 +70,7 @@ export async function POST(request: NextRequest) {
       .returning()
       .get();
 
+    void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
     return Response.json(row, { status: 201 });
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 400 });

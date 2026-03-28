@@ -42,7 +42,7 @@ export function PanelLayout() {
   return (
     <div ref={containerRef} className="flex-1 flex min-h-0 overflow-hidden relative">
       {/* Panel A */}
-      <div style={{ width: `${dividerPosition}%` }} className="flex flex-col min-w-0">
+      <div style={{ width: `${dividerPosition}%` }} className="flex flex-col min-w-0 min-h-0">
         <ContentPanel panelId="a" />
       </div>
 
@@ -56,7 +56,7 @@ export function PanelLayout() {
       </div>
 
       {/* Panel B */}
-      <div style={{ width: `${100 - dividerPosition}%` }} className="flex flex-col min-w-0">
+      <div style={{ width: `${100 - dividerPosition}%` }} className="flex flex-col min-w-0 min-h-0">
         <ContentPanel panelId="b" />
       </div>
 

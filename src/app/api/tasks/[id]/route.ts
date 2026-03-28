@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { tasks } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { UpdateTaskInput } from '@/db/types';
+import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 
 export async function GET(
   _request: NextRequest,
@@ -44,6 +45,7 @@ export async function PATCH(
       .returning()
       .get();
 
+    void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
     return Response.json(row);
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 400 });
@@ -63,6 +65,7 @@ export async function DELETE(
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
+    deleteEmbedding('task', id);
     return new Response(null, { status: 204 });
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 });
