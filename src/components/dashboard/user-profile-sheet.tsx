@@ -12,11 +12,23 @@ import {
 import { User } from 'lucide-react'
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state'
 
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
+  if (seconds < 5) return 'just now'
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ago`
+}
+
 export function UserProfileSheet() {
   const { data: userState } = useUserState()
   const updateUserState = useUpdateUserState()
   const [open, setOpen] = useState(false)
   const [description, setDescription] = useState('')
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
+  const [, setTick] = useState(0)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -30,11 +42,21 @@ export function UserProfileSheet() {
       setDescription(value)
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(() => {
-        updateUserState.mutate({ description: value })
+        updateUserState.mutate(
+          { description: value },
+          { onSuccess: () => setLastSavedAt(new Date()) }
+        )
       }, 500)
     },
     [updateUserState]
   )
+
+  // Tick every 30s to keep "Last saved" text fresh
+  useEffect(() => {
+    if (!lastSavedAt) return
+    const interval = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(interval)
+  }, [lastSavedAt])
 
   useEffect(() => {
     return () => {
@@ -67,7 +89,11 @@ export function UserProfileSheet() {
             className="w-full h-96 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-y"
           />
           <p className="mt-2 text-[11px] text-muted-foreground/60">
-            Auto-saved
+            {updateUserState.isPending
+              ? 'Saving...'
+              : lastSavedAt
+                ? `Last saved ${timeAgo(lastSavedAt)}`
+                : 'Auto-saved'}
           </p>
         </div>
       </SheetContent>

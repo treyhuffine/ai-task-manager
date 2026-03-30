@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useCallback, useRef, useState } from 'react'
+import { Dialog } from 'radix-ui'
 import {
   X, Trash2, MoreHorizontal, Archive, Check,
   Clock, Timer, Flame, Zap, Lock, Repeat, Sparkles,
@@ -75,16 +76,6 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
     }
   }, [isOpen])
 
-  // Escape to close
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
-
   // Drag to resize
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -118,7 +109,7 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
   // Auto-size title textarea when task loads, focus title if new
   useEffect(() => {
     if (task && titleRef.current) {
-      const isNew = task.title.trim() === '' && !task.body
+      const isNew = !task.title?.trim() && !task.body
       titleRef.current.value = isNew ? '' : task.title
       titleRef.current.style.height = 'auto'
       titleRef.current.style.height = titleRef.current.scrollHeight + 'px'
@@ -215,8 +206,6 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
     }
   }, [])
 
-  if (!isOpen) return null
-
   const isDone = task?.status === 'done'
 
   const formatDate = (iso: string | null | undefined) => {
@@ -232,26 +221,28 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
   }
 
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className={cn(
-          'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
-          isVisible ? 'opacity-100' : 'opacity-0'
-        )}
-        onClick={onClose}
-        aria-hidden
-      />
+    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
+      <Dialog.Portal>
+        {/* Overlay */}
+        <Dialog.Overlay
+          className={cn(
+            'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
+            isVisible ? 'opacity-100' : 'opacity-0'
+          )}
+        />
 
-      {/* Slideout panel */}
-      <div
-        ref={containerRef}
-        className={cn(
-          'fixed top-0 right-0 bottom-0 z-50 flex transition-transform duration-150 ease-out',
-          isVisible ? 'translate-x-0' : 'translate-x-full'
-        )}
-        style={{ width: `min(${width}px, 100vw)` }}
-      >
+        {/* Slideout panel */}
+        <Dialog.Content
+          ref={containerRef}
+          className={cn(
+            'fixed top-0 right-0 bottom-0 z-50 flex transition-transform duration-150 ease-out outline-none',
+            isVisible ? 'translate-x-0' : 'translate-x-full'
+          )}
+          style={{ width: `min(${width}px, 100vw)` }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => { if (isResizing) e.preventDefault() }}
+        >
+          <Dialog.Title className="sr-only">Task</Dialog.Title>
         {/* Resize handle */}
         <div
           className={cn(
@@ -561,7 +552,8 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
             />
           </div>
         </div>
-      </div>
-    </>
+      </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }

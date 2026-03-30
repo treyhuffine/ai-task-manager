@@ -90,6 +90,7 @@ export interface DeckItem {
   taskId: string;
   subtasks?: SubtaskItem[];
   continuityContext?: string; // "Last session: got OAuth working"
+  manuallyAdded?: boolean;    // True when user added via quick-add
 }
 
 /** An item the AI surfaced on radar */

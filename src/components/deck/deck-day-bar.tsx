@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Check, Circle, CheckCircle2, ChevronDown } from 'lucide-react';
+import { Plus, Check, Circle, CheckCircle2, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { DeckItem, RoutineItem } from '@/types/dashboard';
 
@@ -9,9 +9,11 @@ interface DeckDayBarProps {
   completedItems: DeckItem[];
   routines: RoutineItem[];
   onRoutineComplete: (id: string) => void;
+  quickAddOpen: boolean;
+  onToggleQuickAdd: () => void;
 }
 
-export function DeckDayBar({ completedItems, routines, onRoutineComplete }: DeckDayBarProps) {
+export function DeckDayBar({ completedItems, routines, onRoutineComplete, quickAddOpen, onToggleQuickAdd }: DeckDayBarProps) {
   const [openDropdown, setOpenDropdown] = useState<'completed' | 'routines' | null>(null);
 
   const toggle = (which: 'completed' | 'routines') => {
@@ -24,8 +26,20 @@ export function DeckDayBar({ completedItems, routines, onRoutineComplete }: Deck
   return (
     <div className="relative">
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-border/50">
-        {/* Completed dropdown trigger — left side, hidden when 0 */}
-        <div>
+        {/* Left side — add task button + completed count */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onToggleQuickAdd}
+            className={cn(
+              'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors',
+              quickAddOpen
+                ? 'border-primary/30 bg-primary/5 text-primary'
+                : 'border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground',
+            )}
+          >
+            <Plus className="w-3 h-3" />
+            Add task
+          </button>
           {completedCount > 0 && (
             <button
               onClick={() => toggle('completed')}

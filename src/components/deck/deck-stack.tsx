@@ -19,6 +19,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
+import { useDashboard } from '@/contexts/dashboard-context';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import type { DeckItem, SubtaskItem } from '@/types/dashboard';
 
@@ -190,6 +191,7 @@ function SortableDeckItemCard({
   onSubtaskDefer: (itemId: string, subtaskId: string) => void;
   onSubtaskFocus?: (itemId: string, subtaskId: string) => void;
 }) {
+  const { openTask } = useDashboard();
   const {
     attributes,
     listeners,
@@ -269,15 +271,23 @@ function SortableDeckItemCard({
 
       <div className="pl-6 pr-20">
         {/* Title */}
-        <div className="text-sm font-medium leading-snug">
+        <button
+          onClick={() => openTask(item.taskId)}
+          className="text-sm font-medium leading-snug text-left hover:text-primary transition-colors"
+        >
           {item.parentTitle && (
             <span className="text-muted-foreground font-normal">{item.parentTitle} · </span>
           )}
           {item.title}
-        </div>
+        </button>
 
         {/* Pills */}
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          {item.manuallyAdded && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
+              You added
+            </span>
+          )}
           {item.areaName && <Pill>{item.areaName}</Pill>}
           {item.effort && <Pill>{item.effort}</Pill>}
           {item.estimatedMinutes && <Pill>~{item.estimatedMinutes}m</Pill>}

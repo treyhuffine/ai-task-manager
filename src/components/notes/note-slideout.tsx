@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useCallback, useRef, useState } from 'react'
+import { Dialog } from 'radix-ui'
 import { X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles } from 'lucide-react'
 import { NoteEditor } from '@/components/editor/rich-editor'
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes'
@@ -51,16 +52,6 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
       setIsVisible(false)
     }
   }, [isOpen])
-
-  // Escape to close
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
 
   // Drag to resize
   const handleResizeStart = useCallback(
@@ -157,29 +148,29 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
     }
   }, [])
 
-  if (!isOpen) return null
-
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className={cn(
-          'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
-          isVisible ? 'opacity-100' : 'opacity-0'
-        )}
-        onClick={onClose}
-        aria-hidden
-      />
+    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
+      <Dialog.Portal>
+        {/* Overlay */}
+        <Dialog.Overlay
+          className={cn(
+            'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
+            isVisible ? 'opacity-100' : 'opacity-0'
+          )}
+        />
 
-      {/* Slideout panel */}
-      <div
-        ref={containerRef}
-        className={cn(
-          'fixed top-0 right-0 bottom-0 z-50 flex transition-transform duration-150 ease-out',
-          isVisible ? 'translate-x-0' : 'translate-x-full'
-        )}
-        style={{ width: `min(${width}px, 100vw)` }}
-      >
+        {/* Slideout panel */}
+        <Dialog.Content
+          ref={containerRef}
+          className={cn(
+            'fixed top-0 right-0 bottom-0 z-50 flex transition-transform duration-150 ease-out outline-none',
+            isVisible ? 'translate-x-0' : 'translate-x-full'
+          )}
+          style={{ width: `min(${width}px, 100vw)` }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => { if (isResizing) e.preventDefault() }}
+        >
+          <Dialog.Title className="sr-only">Note</Dialog.Title>
         {/* Resize handle */}
         <div
           className={cn(
@@ -296,7 +287,8 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
             />
           </div>
         </div>
-      </div>
-    </>
+      </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }

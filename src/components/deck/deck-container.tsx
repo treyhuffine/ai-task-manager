@@ -9,6 +9,7 @@ import { DeckStack } from './deck-stack';
 import { DeckMoreOptions } from './deck-more-options';
 import { DeckTaskBrowser } from './deck-task-browser';
 import { DeckDayBar } from './deck-day-bar';
+import { DeckQuickAddCard } from './deck-quick-add';
 import { CheckInIntake } from './check-in-intake';
 import type {
   DeckPlan,
@@ -97,6 +98,7 @@ export function DeckContainer() {
   const [routines, setRoutines] = useState<RoutineItem[]>(MOCK_ROUTINES);
   const [moreOptionsCollapsed, setMoreOptionsCollapsed] = useState(true);
   const [taskBrowserOpen, setTaskBrowserOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // ─── Filtered items ─────────────────────────────────────────
 
@@ -423,6 +425,13 @@ export function DeckContainer() {
     setPlan(prev => prev ? { ...prev, items: prev.items.filter(i => i.taskId !== taskId) } : null);
   }, []);
 
+  const handleQuickAdd = useCallback((task: TaskRecord) => {
+    const item = taskToDeckItem(task, areaMap, parentMap);
+    item.manuallyAdded = true;
+    item.rationale = '';
+    setPlan(prev => prev ? { ...prev, items: [...prev.items, item] } : null);
+  }, [areaMap, parentMap]);
+
   const deckTaskIds = useMemo(() => {
     if (!plan) return new Set<string>();
     return new Set(plan.items.map(i => i.taskId));
@@ -450,6 +459,8 @@ export function DeckContainer() {
             completedItems={completedItems}
             routines={routines}
             onRoutineComplete={handleRoutineComplete}
+            quickAddOpen={quickAddOpen}
+            onToggleQuickAdd={() => setQuickAddOpen(o => !o)}
           />
         </>
       )}
@@ -491,6 +502,12 @@ export function DeckContainer() {
               onSubtaskDefer={handleSubtaskDefer}
               onSubtaskFocus={handleSubtaskFocus}
             />
+            {quickAddOpen && (
+              <DeckQuickAddCard
+                onTaskCreated={handleQuickAdd}
+                onClose={() => setQuickAddOpen(false)}
+              />
+            )}
           </div>
         )}
       </div>
