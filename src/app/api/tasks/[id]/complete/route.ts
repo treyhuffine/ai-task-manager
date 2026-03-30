@@ -68,6 +68,7 @@ export async function POST(
       return Response.json({ task: updated, recurring: false });
     }
   } catch (err) {
+    console.error('[POST /api/tasks/:id/complete]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useCallback, useRef, useState } from 'react'
-import { X, Trash2, MoreHorizontal, ExternalLink, Archive } from 'lucide-react'
+import { X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles } from 'lucide-react'
 import { NoteEditor } from '@/components/editor/rich-editor'
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes'
 import { AreaSelect } from '@/components/shared/area-select'
@@ -12,7 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { SlideoutChat } from '@/components/ai-elements/slideout-chat'
+import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat'
 import { cn } from '@/lib/utils'
 
 const DEFAULT_WIDTH = 1000
@@ -29,6 +29,8 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
   const { data: note } = useNote(noteId ?? '')
   const updateNote = useUpdateNote()
   const deleteNote = useDeleteNote()
+  const chat = useDocumentChat('note', note ?? null)
+  const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
@@ -36,7 +38,8 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
   const [wordCount, setWordCount] = useState(0)
   const [charCount, setCharCount] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Animate in
   useEffect(() => {
@@ -89,12 +92,12 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
     [width]
   )
 
-  // Debounced save
+  // Debounced save — separate timers so title and body don't cancel each other
   const handleTitleChange = useCallback(
     (title: string) => {
       if (!noteId) return
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => {
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
+      titleTimerRef.current = setTimeout(() => {
         updateNote.mutate({ id: noteId, title })
       }, 500)
     },
@@ -109,8 +112,8 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
       setWordCount(text ? text.split(/\s+/).length : 0)
       setCharCount(body.length)
 
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => {
+      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = setTimeout(() => {
         updateNote.mutate({ id: noteId, body })
       }, 500)
     },
@@ -146,10 +149,11 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
     onClose()
   }, [noteId, deleteNote, onClose])
 
-  // Cleanup save timer
+  // Cleanup save timers
   useEffect(() => {
     return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
+      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     }
   }, [])
 
@@ -250,7 +254,7 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
           {/* Editor area + Chat */}
           <div className="flex-1 flex overflow-hidden relative">
             {/* Main content */}
-            <div className="flex-1 overflow-y-auto min-w-0">
+            <div className="flex-1 overflow-y-auto min-w-0 relative">
               {note ? (
                 <>
                   <div className="px-16 py-0">
@@ -264,11 +268,20 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
                     onBodyChange={handleBodyChange}
                     autoFocusTitle={!note.title && note.body.trim().length === 0}
                     hideFooter
+                    disabled={aiBusy}
                   />
                 </>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                   Loading...
+                </div>
+              )}
+              {aiBusy && (
+                <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-auto transition-opacity duration-200">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground/80 bg-card/90 border border-border/50 rounded-full px-4 py-2 shadow-md">
+                    <Sparkles size={14} className="text-primary/70 animate-pulse" />
+                    <span>AI is editing...</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -278,6 +291,8 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
               slideoutWidth={width}
               collapseThreshold={740}
               contextLabel="this note"
+              chat={chat}
+              disabled={!note}
             />
           </div>
         </div>

@@ -47,11 +47,19 @@ export const deckResponseSchema = z.object({
 
 export type DeckResponse = z.infer<typeof deckResponseSchema>;
 
-// ─── System prompt ──────────────────────────────────────────────
+// ─── Context-gathering prompt (Phase 2) ─────────────────────────
+
+export const CONTEXT_GATHERING_PROMPT = `You are a context-gathering step in a task prioritization pipeline for Eon, a personal productivity app. You will receive the user's active tasks, areas, and context for the day.
+
+You have a searchKnowledgeBase tool that searches the user's notes, stream-of-consciousness entries, and tasks using semantic + keyword hybrid search. Use it to find context that would help make better prioritization decisions — notes related to a task's topic, recent stream entries about what the user has been thinking about, or connections between areas.
+
+Search as much or as little as makes sense. If the task list and context are straightforward, you may not need to search at all. If there are ambiguous priorities, rich areas, or user context that hints at deeper threads, search to surface relevant background.`;
+
+// ─── System prompt (Phase 3) ────────────────────────────────────
 
 export const DECK_SYSTEM_PROMPT = `You are the prioritization engine for Eon, a personal productivity app. The user is sitting down to work and needs clarity on what to focus on today.
 
-You will receive their active tasks (roughly pre-ordered by current priority), areas of life/work, recent completions, and optional context for today.
+You will receive their active tasks (roughly pre-ordered by current priority), areas of life/work, recent completions, optional context for today, and optionally additional context surfaced from their knowledge base (notes, stream entries, related tasks).
 
 YOUR JOB: Pick ${DECK_MIN_ITEMS}-${DECK_MAX_ITEMS} tasks for the deck (the priority stack) and ${ALT_MIN_ITEMS}-${ALT_MAX_ITEMS} alternatives. Return task IDs from the provided list — never invent tasks.
 
@@ -93,6 +101,7 @@ interface PromptData {
     subtasks?: { id: string; title: string; completed: boolean }[];
   }[];
   areas: {
+    id: string;
     name: string;
     userContext?: string | null;
     status: string;
@@ -117,8 +126,8 @@ export function buildDeckPrompt(data: PromptData): string {
   // Areas
   if (data.areas.length > 0) {
     const areaLines = data.areas.map(a => {
-      const ctx = a.userContext ? `: "${a.userContext}"` : '';
-      return `- ${a.name}${ctx} (${a.status})`;
+      const ctx = a.userContext ? ` — "${a.userContext}"` : '';
+      return `- [${a.id}] ${a.name}${ctx} (${a.status})`;
     });
     sections.push(`[Areas]\n${areaLines.join('\n')}`);
   }

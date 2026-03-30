@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
 
     return Response.json(rows);
   } catch (err) {
+    console.error('[GET /api/stream]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
 }
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
     void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
     return Response.json(row, { status: 201 });
   } catch (err) {
+    console.error('[POST /api/stream]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }
 }

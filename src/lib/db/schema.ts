@@ -1,6 +1,18 @@
 import { sqliteTable, text, integer, index, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
+// ─── User State ────────────────────────────────────────────────
+
+export const userState = sqliteTable('user_state', {
+  id: integer('id').primaryKey(),
+  active_area_id: text('active_area_id').references(() => areas.id),
+  active_parent_task_id: text('active_parent_task_id'),
+  active_energy: text('active_energy', { enum: ['deep', 'light'] }),
+  available_minutes: integer('available_minutes'),
+  description: text('description').notNull().default(''),
+  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+});
+
 // ─── Areas ────────────────────────────────────────────────────
 
 export const areas = sqliteTable('areas', {
@@ -67,6 +79,7 @@ export const tasks = sqliteTable('tasks', {
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
   updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
   completed_at: text('completed_at'),
+  last_viewed_at: text('last_viewed_at'),
 }, (table) => [
   index('idx_tasks_status').on(table.status),
   index('idx_tasks_area_id').on(table.area_id),
@@ -100,6 +113,7 @@ export const notes = sqliteTable('notes', {
   context_tags: text('context_tags', { mode: 'json' }).$type<string[]>().default([]),
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
   updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  last_viewed_at: text('last_viewed_at'),
 }, (table) => [
   index('idx_notes_area_id').on(table.area_id),
   index('idx_notes_task_id').on(table.task_id),

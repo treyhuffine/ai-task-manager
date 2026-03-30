@@ -27,6 +27,7 @@ export async function PATCH(
 
     return Response.json(row);
   } catch (err) {
+    console.error('[PATCH /api/stream/:id]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }
 }

@@ -19,7 +19,7 @@ import { CollapsibleHeading } from './collapsible-heading'
 import { EditorBubbleMenu } from './editor-bubble-menu'
 import { EditorGutterMenu } from './editor-floating-menu'
 import { SlashCommands } from './slash-commands'
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, type RefObject } from 'react'
 
 const lowlight = createLowlight(common)
 
@@ -52,9 +52,18 @@ export function RichEditor({
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
 
+  // Freeze initial content so useEditor only uses it on creation.
+  // We handle subsequent updates ourselves via the sync effect below.
+  const initialContentRef = useRef(content)
+
+  // Track whether we're in the middle of an external (prop-driven) sync so
+  // the onUpdate handler can skip firing onChange, which would trigger a
+  // debounced save that could overwrite the AI's DB write with stale content.
+  const isSyncingRef = useRef(false)
+  const prevContentRef = useRef(content)
+
   const editor = useEditor({
     immediatelyRender: false,
-    editable,
     extensions: [
       StarterKit.configure({
         heading: false,
@@ -97,8 +106,8 @@ export function RichEditor({
       CharacterCount,
       SlashCommands,
     ],
-    content,
-    ...(content ? { contentType: 'markdown' as any } : {}),
+    content: initialContentRef.current,
+    ...(initialContentRef.current ? { contentType: 'markdown' as any } : {}),
     editorProps: {
       attributes: {
         class: 'rich-editor-body outline-none',
@@ -110,13 +119,53 @@ export function RichEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      if (onChangeRef.current) {
-        const md = (editor as any).getMarkdown?.() ?? ''
-        onChangeRef.current(md)
-      }
+      // During external syncs, suppress onChange to avoid re-saving stale content
+      if (isSyncingRef.current) return
+      const md = (editor as any).getMarkdown?.() ?? ''
+      prevContentRef.current = md
+      onChangeRef.current?.(md)
     },
     autofocus: autoFocus ? autoFocus : false,
   })
+
+  // Sync editable state at runtime (e.g. disable while AI is working).
+  // Pass emitUpdate=false to prevent setEditable from firing onUpdate,
+  // which would trigger onChange with stale content before the content sync runs.
+  useEffect(() => {
+    if (editor && editor.isEditable !== editable) {
+      editor.setEditable(editable, false)
+    }
+  }, [editor, editable])
+
+  // Sync external content changes (e.g. AI tool updates) into the editor.
+  // Deferred via queueMicrotask because TipTap's setContent calls flushSync,
+  // which can't run inside a React useEffect (commit phase).
+  useEffect(() => {
+    if (!editor || content === prevContentRef.current) return
+    prevContentRef.current = content
+
+    const currentMd = (editor as any).getMarkdown?.() ?? ''
+    if (currentMd === content) return
+
+    // Capture values for the deferred callback
+    const markdownToSet = content
+    queueMicrotask(() => {
+      // Editor may have been destroyed by the time this runs
+      if (editor.isDestroyed) return
+      isSyncingRef.current = true
+      try {
+        const jsonContent = editor.markdown?.parse(markdownToSet)
+        if (jsonContent) {
+          const { from } = editor.state.selection
+          editor.commands.setContent(jsonContent, { emitUpdate: false })
+          const maxPos = editor.state.doc.content.size
+          editor.commands.setTextSelection(Math.min(from, maxPos))
+        }
+      } finally {
+        isSyncingRef.current = false
+      }
+    })
+  }, [editor, content])
 
   if (!editor) {
     return (
@@ -153,6 +202,8 @@ export interface NoteEditorProps {
   autoFocusTitle?: boolean
   /** Hide the built-in word/character count footer (e.g. when shown elsewhere) */
   hideFooter?: boolean
+  /** Disable editing (e.g. while AI is working) */
+  disabled?: boolean
 }
 
 export function NoteEditor({
@@ -162,7 +213,10 @@ export function NoteEditor({
   onBodyChange,
   autoFocusTitle = false,
   hideFooter = false,
+  disabled = false,
 }: NoteEditorProps) {
+  const titleRef = useRef<HTMLTextAreaElement>(null)
+
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter') {
@@ -186,10 +240,22 @@ export function NoteEditor({
     [onTitleChange]
   )
 
+  // Sync title when it changes externally (e.g. AI tool update)
+  useEffect(() => {
+    if (titleRef.current && document.activeElement !== titleRef.current) {
+      if (titleRef.current.value !== (title ?? '')) {
+        titleRef.current.value = title ?? ''
+        titleRef.current.style.height = 'auto'
+        titleRef.current.style.height = titleRef.current.scrollHeight + 'px'
+      }
+    }
+  }, [title])
+
   return (
     <div className="note-editor w-full mx-auto pb-16 px-16">
       {/* Title */}
       <textarea
+        ref={titleRef}
         className="note-title w-full text-[2.5rem] font-bold leading-tight bg-transparent border-none outline-none resize-none overflow-hidden text-foreground placeholder:text-muted-foreground/40"
         placeholder="Note title"
         defaultValue={title}
@@ -197,6 +263,7 @@ export function NoteEditor({
         onKeyDown={handleTitleKeyDown}
         autoFocus={autoFocusTitle}
         rows={1}
+        disabled={disabled}
         data-gramm="false"
         data-gramm_editor="false"
         data-enable-grammarly="false"
@@ -207,6 +274,7 @@ export function NoteEditor({
         <RichEditor
           content={body}
           onChange={onBodyChange}
+          editable={!disabled}
           autoFocus={autoFocusTitle ? false : 'start'}
           hideFooter={hideFooter}
         />

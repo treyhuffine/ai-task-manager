@@ -2,7 +2,12 @@
 // Source of truth: src/lib/db/schema.ts
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
-import type { areas, stream, tasks, taskCompletions, notes } from '@/lib/db/schema';
+import type { userState, areas, stream, tasks, taskCompletions, notes } from '@/lib/db/schema';
+
+// ─── User State ────────────────────────────────────────────────
+
+export type UserStateRecord = InferSelectModel<typeof userState>;
+export type UpdateUserStateInput = Partial<Omit<InferInsertModel<typeof userState>, 'id'>>;
 
 // ─── Areas ────────────────────────────────────────────────────
 

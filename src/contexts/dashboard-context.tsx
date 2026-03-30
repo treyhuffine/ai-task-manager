@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, type ReactNode, useEffect } from 'react';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, Agent, Task, StreamEvent } from '@/types/dashboard';
 
 interface FocusTask {
@@ -96,6 +96,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const closeNote = useCallback(() => setOpenNoteId(null), []);
   const openTask = useCallback((taskId: string) => setOpenTaskId(taskId), []);
   const closeTask = useCallback(() => setOpenTaskId(null), []);
+
+  // Sync dark class to <html> so Radix portals (Sheet, Dialog, etc.) inherit it
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');

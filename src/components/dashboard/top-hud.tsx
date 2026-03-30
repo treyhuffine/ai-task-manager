@@ -3,6 +3,7 @@
 import { Sun, Moon, Search } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { CreateMenu } from './create-menu';
+import { UserProfileSheet } from './user-profile-sheet';
 
 export function TopHud() {
   const { theme, toggleTheme, agents } = useDashboard();
@@ -33,7 +34,11 @@ export function TopHud() {
         >
           {isDark ? <Sun size={14} /> : <Moon size={14} />}
         </button>
-        <button className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all">
+        <UserProfileSheet />
+        <button
+          onClick={() => document.dispatchEvent(new CustomEvent('open-search'))}
+          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
+        >
           <Search size={14} />
         </button>
         <CreateMenu />

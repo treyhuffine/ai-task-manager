@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useRef, useState } from 'react'
 import {
   X, Trash2, MoreHorizontal, Archive, Check,
-  Clock, Timer, Flame, Zap, Lock, Repeat,
+  Clock, Timer, Flame, Zap, Lock, Repeat, Sparkles,
 } from 'lucide-react'
 import { ChevronLeft } from 'lucide-react'
 import { useTask, useUpdateTask, useDeleteTask, useCompleteTask } from '@/hooks/use-tasks'
@@ -17,7 +17,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
-import { SlideoutChat } from '@/components/ai-elements/slideout-chat'
+import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat'
 import { cn } from '@/lib/utils'
 import type { Energy, Effort } from '@/db/types'
 
@@ -51,6 +51,8 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
   const updateTask = useUpdateTask()
   const deleteTask = useDeleteTask()
   const completeTask = useCompleteTask()
+  const chat = useDocumentChat('task', task ?? null)
+  const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
@@ -59,7 +61,8 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
   const [editingBoomerang, setEditingBoomerang] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLTextAreaElement>(null)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Animate in
   useEffect(() => {
@@ -126,6 +129,17 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
     }
   }, [task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Sync title when it changes externally (e.g. AI tool update)
+  useEffect(() => {
+    if (task && titleRef.current && document.activeElement !== titleRef.current) {
+      if (titleRef.current.value !== task.title) {
+        titleRef.current.value = task.title
+        titleRef.current.style.height = 'auto'
+        titleRef.current.style.height = titleRef.current.scrollHeight + 'px'
+      }
+    }
+  }, [task?.title]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const saveField = useCallback(
     (field: string, value: unknown) => {
       if (!taskId) return
@@ -139,8 +153,8 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
       const target = e.currentTarget
       target.style.height = 'auto'
       target.style.height = target.scrollHeight + 'px'
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => {
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
+      titleTimerRef.current = setTimeout(() => {
         saveField('title', target.value.trim())
       }, 500)
     },
@@ -164,8 +178,8 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
   const handleBodyChange = useCallback(
     (markdown: string) => {
       if (!taskId) return
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => {
+      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = setTimeout(() => {
         saveField('body', markdown || null)
       }, 500)
     },
@@ -196,7 +210,8 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
   // Cleanup
   useEffect(() => {
     return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
+      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     }
   }, [])
 
@@ -307,7 +322,7 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
           {/* Body + Chat */}
           <div className="flex-1 flex overflow-hidden relative">
             {/* Main content */}
-            <div className="flex-1 overflow-y-auto min-w-0">
+            <div className="flex-1 overflow-y-auto min-w-0 relative">
               {task ? (
                 <div className="space-y-0">
                   {/* Type label / parent breadcrumb */}
@@ -336,6 +351,7 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
                       defaultValue={task.title}
                       onInput={handleTitleInput}
                       onKeyDown={handleTitleKeyDown}
+                      disabled={aiBusy}
                       rows={1}
                       data-gramm="false"
                       data-gramm_editor="false"
@@ -513,6 +529,7 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
                       key={task.id}
                       content={task.body ?? ''}
                       onChange={handleBodyChange}
+                      editable={!aiBusy}
                       placeholder="Add notes, details, or type '/' for commands..."
                       hideFooter
                     />
@@ -524,6 +541,14 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
                   Loading...
                 </div>
               )}
+              {aiBusy && (
+                <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-auto transition-opacity duration-200">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground/80 bg-card/90 border border-border/50 rounded-full px-4 py-2 shadow-md">
+                    <Sparkles size={14} className="text-primary/70 animate-pulse" />
+                    <span>AI is editing...</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* AI Chat panel / bubble */}
@@ -531,6 +556,8 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
               slideoutWidth={width}
               collapseThreshold={740}
               contextLabel="this task"
+              chat={chat}
+              disabled={!task}
             />
           </div>
         </div>

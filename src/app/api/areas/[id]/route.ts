@@ -19,6 +19,7 @@ export async function GET(
 
     return Response.json(row);
   } catch (err) {
+    console.error('[GET /api/areas/:id]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
 }
@@ -46,6 +47,7 @@ export async function PATCH(
 
     return Response.json(row);
   } catch (err) {
+    console.error('[PATCH /api/areas/:id]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }
 }

@@ -63,6 +63,8 @@ export async function upsertEmbedding(
   entityId: string,
   textContent: string,
 ): Promise<void> {
+  if (!textContent.trim()) return;
+
   const db = getRawDb();
   const hash = computeContentHash(textContent);
 

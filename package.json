@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:web": "next dev",
+    "dev": "next dev --port ${PORT:-4224}",
+    "dev:web": "next dev --port ${PORT:-4224}",
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",
     "build": "next build",
     "start": "next start",
@@ -57,6 +57,7 @@
     "better-sqlite3": "^12.6.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "drizzle-orm": "^0.45.1",
     "drizzle-zod": "^0.8.3",
     "fractional-indexing": "^3.2.0",

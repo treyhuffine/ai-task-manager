@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
 
     return Response.json(results);
   } catch (err) {
+    console.error('[GET /api/search]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
 }

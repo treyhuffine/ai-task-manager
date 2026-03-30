@@ -18,8 +18,15 @@ export async function GET(
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
+    // Fire-and-forget: mark as viewed
+    db.update(tasks)
+      .set({ last_viewed_at: new Date().toISOString() })
+      .where(eq(tasks.id, id))
+      .run();
+
     return Response.json(row);
   } catch (err) {
+    console.error('[GET /api/tasks/:id]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
 }
@@ -48,6 +55,7 @@ export async function PATCH(
     void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
     return Response.json(row);
   } catch (err) {
+    console.error('[PATCH /api/tasks/:id]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }
 }
@@ -68,6 +76,7 @@ export async function DELETE(
     deleteEmbedding('task', id);
     return new Response(null, { status: 204 });
   } catch (err) {
+    console.error('[DELETE /api/tasks/:id]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
 }

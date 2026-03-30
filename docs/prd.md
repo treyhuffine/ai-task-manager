@@ -792,6 +792,8 @@ Store facts and user overrides. Derive everything else. Keep manual state minima
 
 **Config:** User configuration (API keys, model-to-tier mapping, preferences) lives in `.env` at the project root.
 
+**Full schema DDL:** See [`docs/schema-full.sql`](schema-full.sql) for the complete aspirational schema. The runtime source of truth is `src/lib/db/schema.ts` — tables are added there incrementally as features ship.
+
 ```sql
 -- ============================================================
 -- AREAS: Stable life/work domains

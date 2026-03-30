@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
 
     return Response.json(rows);
   } catch (err) {
+    console.error('[GET /api/tasks]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
 }
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
     void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
     return Response.json(row, { status: 201 });
   } catch (err) {
+    console.error('[POST /api/tasks]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }
 }
