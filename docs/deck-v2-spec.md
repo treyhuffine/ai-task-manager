@@ -275,8 +275,8 @@ The deck should feel like guidance from a trusted advisor, not a todo list manag
 
 ```typescript
 interface DeckPlan {
-  /** One-line day shape context. Absent if nothing notable. */
-  dayContext?: string;
+  /** One-line day framing. Absent if nothing notable. */
+  framing?: string;
 
   /** Ranked priority stack — THE deck */
   items: DeckItem[];
@@ -335,7 +335,7 @@ interface RadarItem {
 
 Key changes from v1:
 - No `deepWork[]` / `lightTasks[]` / `routines[]` split — one `items[]` array
-- No `summary` — replaced by optional `dayContext` one-liner
+- No `summary` — replaced by optional `framing` one-liner
 - No `worthNoting` — urgent items ranked in the list with rationale
 - No `meta.workingSetSize` — showing "5 of 34 tasks" adds anxiety, not value
 - Added `radarItems`

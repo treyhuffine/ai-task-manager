@@ -16,6 +16,23 @@ import { TaskPicker } from '@/components/shared/task-picker';
 import { cn } from '@/lib/utils';
 import type { NoteRecord } from '@/db/types';
 
+/** Strip markdown syntax for plain-text previews */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')       // headings
+    .replace(/(\*\*|__)(.*?)\1/g, '$2') // bold
+    .replace(/(\*|_)(.*?)\1/g, '$2')    // italic
+    .replace(/~~(.*?)~~/g, '$1')        // strikethrough
+    .replace(/`{1,3}[^`]*`{1,3}/g, (m) => m.replace(/`/g, '')) // inline code
+    .replace(/^\s*[-*+]\s+/gm, '')      // unordered list markers
+    .replace(/^\s*\d+\.\s+/gm, '')      // ordered list markers
+    .replace(/^\s*>\s?/gm, '')          // blockquotes
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // links
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images
+    .replace(/\n{2,}/g, ' ')            // collapse blank lines to space
+    .trim();
+}
+
 function formatRelativeDate(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
@@ -35,8 +52,9 @@ interface NoteRowProps {
 }
 
 export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
-  const displayTitle = note.title || note.body.split('\n')[0].slice(0, 80);
-  const bodyPreview = note.title ? note.body : note.body.split('\n').slice(1).join('\n');
+  const displayTitle = note.title || stripMarkdown(note.body.split('\n')[0]).slice(0, 80);
+  const rawPreview = note.title ? note.body : note.body.split('\n').slice(1).join('\n');
+  const bodyPreview = rawPreview ? stripMarkdown(rawPreview) : '';
 
   return (
     <div

@@ -2,7 +2,8 @@
 // Source of truth: src/lib/db/schema.ts
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
-import type { userState, areas, stream, tasks, taskCompletions, notes } from '@/lib/db/schema';
+import type { userState, areas, stream, tasks, taskCompletions, notes, decks } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative } from '@/lib/db/schema';
 
 // ─── User State ────────────────────────────────────────────────
 
@@ -45,10 +46,16 @@ export type CreateNoteInput = Omit<InferInsertModel<typeof notes>, 'id'>;
 export type UpdateNoteInput = Partial<CreateNoteInput>;
 export type NoteStatus = NonNullable<NoteRecord['status']>;
 
+// ─── Decks ───────────────────────────────────────────────────
+
+export type DeckRecord = InferSelectModel<typeof decks>;
+export type CreateDeckInput = Omit<InferInsertModel<typeof decks>, 'id'>;
+export type UpdateDeckInput = Partial<Omit<CreateDeckInput, 'created_at'>>;
+
 // ─── Filters (query params) ──────────────────────────────────
 
 export interface AreaFilter {
-  status?: AreaStatus;
+  status?: AreaStatus | 'all';
 }
 
 export interface TaskFilter {

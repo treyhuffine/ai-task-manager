@@ -25,24 +25,44 @@ export type DeckGenerationContext = z.infer<typeof deckGenerationContextSchema>;
 // ─── Response schema (what the AI returns via generateObject) ───
 
 export const deckResponseSchema = z.object({
-  dayContext: z.string().nullable().describe(
-    'One-line summary of the day shape. Only include if the user context or task landscape meaningfully shapes the day. Null if nothing notable.'
-  ),
-  items: z.array(z.object({
-    taskId: z.string().describe('The task ID from the provided task list'),
-    rationale: z.string().describe('One sentence: why this task, why this position in the ranking'),
-    continuityContext: z.string().nullable().describe(
-      'If the task has recent progress or subtask completion, a brief note like "Last session: got OAuth working, error handling next". Null if not applicable.'
+  items: z
+    .array(
+      z.object({
+        taskId: z.string().describe('The task ID from the provided task list'),
+        rationale: z
+          .string()
+          .describe('One sentence: why this task, why this position in the ranking'),
+        continuityContext: z
+          .string()
+          .nullable()
+          .describe(
+            'If the task has recent progress or subtask completion, a brief note like "Last session: got OAuth working, error handling next". Null if not applicable.',
+          ),
+      }),
+    )
+    .min(DECK_MIN_ITEMS)
+    .max(DECK_MAX_ITEMS)
+    .describe('The priority stack — ranked list of tasks to focus on today, most important first'),
+  alternatives: z
+    .array(
+      z.object({
+        taskId: z.string().describe('The task ID from the provided task list'),
+        reason: z
+          .string()
+          .describe('Why this task did not make the deck but is worth knowing about'),
+      }),
+    )
+    .min(ALT_MIN_ITEMS)
+    .max(ALT_MAX_ITEMS)
+    .describe(
+      'Tasks the AI considered but ranked lower — good candidates if the user finishes the deck or wants to swap',
     ),
-  })).min(DECK_MIN_ITEMS).max(DECK_MAX_ITEMS).describe(
-    'The priority stack — ranked list of tasks to focus on today, most important first'
-  ),
-  alternatives: z.array(z.object({
-    taskId: z.string().describe('The task ID from the provided task list'),
-    reason: z.string().describe('Why this task did not make the deck but is worth knowing about'),
-  })).min(ALT_MIN_ITEMS).max(ALT_MAX_ITEMS).describe(
-    'Tasks the AI considered but ranked lower — good candidates if the user finishes the deck or wants to swap'
-  ),
+  framing: z
+    .string()
+    .nullable()
+    .describe(
+      "One-line summary of the recommended shape of the user's day. Only include if the user context or task landscape meaningfully shapes the day. Null if nothing notable.",
+    ),
 });
 
 export type DeckResponse = z.infer<typeof deckResponseSchema>;
@@ -77,7 +97,7 @@ FOR EACH DECK ITEM: Write a rationale — one sentence explaining why this task 
 
 FOR ALTERNATIVES: Explain why they didn't make the cut. "Lower priority than today's deadlines" is better than "not as important."
 
-dayContext: If the user's context or the task landscape shapes the day (time constraints, heavy deadlines, energy signals), write one line. Otherwise omit entirely.`;
+framing: If the user's context or the task landscape shapes the day (time constraints, heavy deadlines, energy signals), write one line. Otherwise omit entirely.`;
 
 // ─── Prompt builder ─────────────────────────────────────────────
 
@@ -125,7 +145,7 @@ export function buildDeckPrompt(data: PromptData): string {
 
   // Areas
   if (data.areas.length > 0) {
-    const areaLines = data.areas.map(a => {
+    const areaLines = data.areas.map((a) => {
       const ctx = a.userContext ? ` — "${a.userContext}"` : '';
       return `- [${a.id}] ${a.name}${ctx} (${a.status})`;
     });
@@ -149,9 +169,11 @@ export function buildDeckPrompt(data: PromptData): string {
     if (t.description) parts.push(`   ${t.description}`);
     if (t.userContext) parts.push(`   user note: ${t.userContext}`);
     if (t.subtasks && t.subtasks.length > 0) {
-      const done = t.subtasks.filter(s => s.completed).length;
-      const remaining = t.subtasks.filter(s => !s.completed).map(s => s.title);
-      parts.push(`   subtasks: ${done}/${t.subtasks.length} done${remaining.length > 0 ? ` (remaining: ${remaining.join(', ')})` : ''}`);
+      const done = t.subtasks.filter((s) => s.completed).length;
+      const remaining = t.subtasks.filter((s) => !s.completed).map((s) => s.title);
+      parts.push(
+        `   subtasks: ${done}/${t.subtasks.length} done${remaining.length > 0 ? ` (remaining: ${remaining.join(', ')})` : ''}`,
+      );
     }
     return parts.join('\n');
   });
@@ -159,7 +181,7 @@ export function buildDeckPrompt(data: PromptData): string {
 
   // Recent completions
   if (data.recentCompletions.length > 0) {
-    const compLines = data.recentCompletions.map(c => {
+    const compLines = data.recentCompletions.map((c) => {
       const area = c.areaName ? ` (${c.areaName})` : '';
       return `- "${c.taskTitle}"${area} — completed ${c.completedAt}`;
     });

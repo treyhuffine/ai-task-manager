@@ -1,9 +1,9 @@
 "use client";
 
 import {
-  Sparkles, ChevronDown,
+  Layers, ChevronDown,
   Send, Users, Gavel, Calendar,
-  Settings, Mic, Square, MessageSquare,
+  Mic, Square, MessageSquare,
   Zap, Radar, Shuffle, Clock, AlertCircle, Battery, Trophy, TrendingDown, MoreHorizontal,
 } from 'lucide-react';
 import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
@@ -16,6 +16,7 @@ import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
 import { usePendingStreamCount } from '@/hooks/use-stream';
+import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import {
   Conversation,
   ConversationContent,
@@ -38,11 +39,10 @@ const CORE_TABS: { id: PanelTab; label: string }[] = [
 ];
 
 const MORE_TABS: { id: MorePanelTab; label: string; icon: typeof Users }[] = [
-  { id: 'people', label: 'People & Contacts', icon: Users },
-  { id: 'decisions', label: 'Decisions Log', icon: Gavel },
-  { id: 'calendar', label: 'Calendar View', icon: Calendar },
-  { id: 'integrations', label: 'Integration Center', icon: Sparkles },
-  { id: 'settings', label: 'Conductor Settings', icon: Settings },
+  { id: 'areas', label: 'Areas', icon: Layers },
+  { id: 'people', label: 'Contacts', icon: Users },
+  { id: 'decisions', label: 'Decisions', icon: Gavel },
+  { id: 'calendar', label: 'Calendar', icon: Calendar },
 ];
 
 const MORE_TAB_IDS = new Set<string>(MORE_TABS.map(t => t.id));
@@ -289,6 +289,7 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
 
   const isMoreTab = MORE_TAB_IDS.has(activeTab);
   const pendingStreamCount = usePendingStreamCount();
+  const [areasSheetOpen, setAreasSheetOpen] = useState(false);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -357,7 +358,14 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
               {MORE_TABS.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => { setPanelTab(panelId, tab.id); setMoreOpen(false); }}
+                  onClick={() => {
+                    if (tab.id === 'areas') {
+                      setAreasSheetOpen(true);
+                    } else {
+                      setPanelTab(panelId, tab.id);
+                    }
+                    setMoreOpen(false);
+                  }}
                   className={cn(
                     'w-full flex items-center gap-3 px-3 py-2 text-[11px] transition-all',
                     activeTab === tab.id
@@ -383,6 +391,8 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
         {activeTab === 'notes' && <NoteList />}
         {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
       </div>
+
+      <AreasSheet open={areasSheetOpen} onOpenChange={setAreasSheetOpen} />
     </div>
   );
 }

@@ -3,7 +3,7 @@ export type WorkMode = 'light' | 'deep' | null;
 export type ActiveView = 'command' | string; // 'command' or an agent id
 
 export type PanelTab = 'deck' | 'chat' | 'tasks' | 'stream' | 'notes';
-export type MorePanelTab = 'people' | 'decisions' | 'calendar' | 'integrations' | 'settings';
+export type MorePanelTab = 'areas' | 'people' | 'decisions' | 'calendar';
 export type AnyPanelTab = PanelTab | MorePanelTab;
 export type PanelId = 'a' | 'b';
 
@@ -166,7 +166,8 @@ export interface DeckMeta {
 
 /** The full deck output from the AI */
 export interface DeckPlan {
-  dayContext?: string;          // One-line day shape context. Absent if nothing notable.
+  deckId?: string;              // Persisted deck ID (for PATCH updates)
+  framing?: string;             // One-line day framing. Absent if nothing notable.
   items: DeckItem[];            // Ranked priority stack — THE deck
   alternatives: AlternativeItem[]; // Tasks AI considered but ranked lower
   radarItems?: RadarItem[];     // Radar items to surface in "more options"

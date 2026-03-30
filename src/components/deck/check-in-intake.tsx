@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { ArrowRight, ArrowLeft, Zap, Calendar, Target } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Zap, Calendar, Target, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ContextChip } from '@/types/dashboard';
 
@@ -11,16 +11,32 @@ const DEFAULT_CHIPS: ContextChip[] = [
   { id: 'focus-area', label: 'Need to focus', selected: false },
 ];
 
+const CHIP_ICONS: Record<string, React.ReactNode> = {
+  'low-energy': <Zap size={9} className="inline mr-1 -mt-px" />,
+  'packed-cal': <Calendar size={9} className="inline mr-1 -mt-px" />,
+  'focus-area': <Target size={9} className="inline mr-1 -mt-px" />,
+  'continue-previous': <History size={9} className="inline mr-1 -mt-px" />,
+};
+
 interface CheckInIntakeProps {
   onSubmit: (context: string, chips: string[]) => void;
   onSkip: () => void;
+  hasPreviousDeck?: boolean;
   collapsed?: boolean;
   onExpand?: () => void;
 }
 
-export function CheckInIntake({ onSubmit, onSkip, collapsed, onExpand }: CheckInIntakeProps) {
+export function CheckInIntake({ onSubmit, onSkip, hasPreviousDeck, collapsed, onExpand }: CheckInIntakeProps) {
   const [text, setText] = useState('');
-  const [chips, setChips] = useState<ContextChip[]>(DEFAULT_CHIPS);
+
+  const allChips: ContextChip[] = [
+    ...DEFAULT_CHIPS,
+    ...(hasPreviousDeck
+      ? [{ id: 'continue-previous', label: 'Incorporate previous deck', selected: false }]
+      : []),
+  ];
+
+  const [chips, setChips] = useState<ContextChip[]>(allChips);
 
   if (collapsed) {
     return (
@@ -78,9 +94,7 @@ export function CheckInIntake({ onSubmit, onSkip, collapsed, onExpand }: CheckIn
                 : 'bg-card border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground'
             )}
           >
-            {chip.id === 'low-energy' && <Zap size={9} className="inline mr-1 -mt-px" />}
-            {chip.id === 'packed-cal' && <Calendar size={9} className="inline mr-1 -mt-px" />}
-            {chip.id === 'focus-area' && <Target size={9} className="inline mr-1 -mt-px" />}
+            {CHIP_ICONS[chip.id]}
             {chip.label}
           </button>
         ))}

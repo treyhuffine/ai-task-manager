@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useTasks } from '@/hooks/use-tasks';
+import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
 import { useAreas } from '@/hooks/use-areas';
 import { DeckConductor } from './deck-conductor';
 import { DeckStack } from './deck-stack';
@@ -11,6 +11,8 @@ import { DeckTaskBrowser } from './deck-task-browser';
 import { DeckDayBar } from './deck-day-bar';
 import { DeckQuickAddCard } from './deck-quick-add';
 import { CheckInIntake } from './check-in-intake';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import type {
   DeckPlan,
   DeckItem,
@@ -18,8 +20,8 @@ import type {
   RoutineItem,
   WorkMode,
 } from '@/types/dashboard';
-import type { DeckGenerationContext, DeckResponse } from '@/lib/ai/deck-generation';
-import type { TaskRecord } from '@/db/types';
+import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
+import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem } from '@/db/types';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -59,6 +61,152 @@ const MOCK_ROUTINES: RoutineItem[] = [
 ];
 
 
+// ─── Previous deck preview ──────────────────────────────────────
+
+function PreviousDeckPreview({
+  deck,
+  tasks,
+  areaMap,
+  onResume,
+}: {
+  deck: DeckRecord;
+  tasks: TaskRecord[];
+  areaMap: Map<string, string>;
+  onResume: () => void;
+}) {
+  const taskById = new Map<string, TaskRecord>();
+  tasks.forEach(t => taskById.set(t.id, t));
+
+  const items = (deck.items as DbDeckItem[])
+    .map(item => {
+      const task = taskById.get(item.taskId);
+      if (!task) return null;
+      return {
+        title: task.title,
+        areaName: task.area_id ? areaMap.get(task.area_id) : undefined,
+        done: task.status === 'done',
+      };
+    })
+    .filter(Boolean) as { title: string; areaName?: string; done: boolean }[];
+
+  const hasIncomplete = items.some(item => !item.done);
+
+  // Hide if all tasks are completed or no items remain
+  if (items.length === 0 || !hasIncomplete) return null;
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex items-center justify-between mb-2.5">
+        <p className="text-[11px] text-muted-foreground font-medium">Previous deck</p>
+        <button
+          onClick={onResume}
+          className="text-[10px] text-primary hover:text-primary/80 font-medium transition-colors"
+        >
+          Resume this deck
+        </button>
+      </div>
+      <div className="space-y-1">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-center gap-2 py-0.5">
+            <span className={cn(
+              'text-xs truncate flex-1',
+              item.done ? 'text-muted-foreground/40 line-through' : 'text-muted-foreground',
+            )}>
+              {item.title}
+            </span>
+            {item.areaName && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground/60 shrink-0">
+                {item.areaName}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Hydrate a persisted DeckRecord into a client DeckPlan ──────
+
+function hydrateDeckRecord(
+  record: DeckRecord,
+  tasks: TaskRecord[],
+  areaMap: Map<string, string>,
+  parentMap: Map<string, string>,
+): DeckPlan {
+  const taskById = new Map<string, TaskRecord>();
+  tasks.forEach(t => taskById.set(t.id, t));
+
+  const items: DeckItem[] = [];
+  for (const dbItem of (record.items as DbDeckItem[])) {
+    const task = taskById.get(dbItem.taskId);
+    if (!task) continue;
+    const item = taskToDeckItem(task, areaMap, parentMap);
+    item.rationale = dbItem.rationale;
+    if (dbItem.continuityContext) item.continuityContext = dbItem.continuityContext;
+    if (dbItem.source === 'user') item.manuallyAdded = true;
+
+    const childTasks = tasks.filter(t => t.parent_id === task.id);
+    if (childTasks.length > 0) {
+      item.subtasks = childTasks.map(ct => ({
+        id: ct.id,
+        title: ct.title,
+        effort: ct.effort ? EFFORT_SHORT[ct.effort] ?? ct.effort : undefined,
+        completed: ct.status === 'done',
+      }));
+    }
+    items.push(item);
+  }
+
+  const alternatives: AlternativeItem[] = [];
+  for (const dbAlt of (record.alternatives as { taskId: string; reason: string }[])) {
+    const task = taskById.get(dbAlt.taskId);
+    if (!task) continue;
+    alternatives.push({
+      id: task.id,
+      title: task.title,
+      parentTitle: task.parent_id ? parentMap.get(task.parent_id) : undefined,
+      areaId: task.area_id ?? undefined,
+      areaName: task.area_id ? areaMap.get(task.area_id) : undefined,
+      energy: task.energy ?? undefined,
+      effort: task.effort ? EFFORT_SHORT[task.effort] ?? task.effort : undefined,
+      reason: dbAlt.reason,
+      taskId: task.id,
+    });
+  }
+
+  return {
+    deckId: record.id,
+    framing: record.framing ?? undefined,
+    items,
+    alternatives,
+    radarItems: [],
+    generatedAt: record.created_at,
+  };
+}
+
+// ─── Persist deck mutations ─────────────────────────────────────
+
+function persistDeck(deckId: string, plan: DeckPlan) {
+  const items: DbDeckItem[] = plan.items.map(item => ({
+    taskId: item.taskId,
+    rationale: item.rationale,
+    continuityContext: item.continuityContext ?? null,
+    source: item.manuallyAdded ? 'user' as const : 'ai' as const,
+  }));
+
+  const alternatives = plan.alternatives.map(alt => ({
+    taskId: alt.taskId,
+    reason: alt.reason,
+  }));
+
+  fetch(`/api/deck/${deckId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, alternatives }),
+  }).catch(err => console.error('Failed to persist deck:', err));
+}
+
 // ─── Main container ─────────────────────────────────────────────
 
 type DeckPhase = 'intake' | 'deck';
@@ -70,6 +218,7 @@ export function DeckContainer() {
 
   const { data: tasks } = useTasks({ status: 'active', limit: 50 });
   const { data: areas } = useAreas();
+  const completeTask = useCompleteTask();
 
   const areaMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -99,6 +248,39 @@ export function DeckContainer() {
   const [moreOptionsCollapsed, setMoreOptionsCollapsed] = useState(true);
   const [taskBrowserOpen, setTaskBrowserOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+
+  // ─── Load latest deck on mount ────────────────────────────────
+
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [previousDeck, setPreviousDeck] = useState<DeckRecord | null>(null);
+  const [activeDeckRecord, setActiveDeckRecord] = useState<DeckRecord | null>(null);
+
+  useEffect(() => {
+    if (!tasks || initialLoadDone) return;
+
+    // Dev helper: add ?forcePreviousDeck=true to URL to test "resume previous deck" flow
+    const forceAsPrevious = new URLSearchParams(window.location.search).has('forcePreviousDeck');
+
+    fetch('/api/deck')
+      .then(res => res.json())
+      .then((record: DeckRecord | null) => {
+        if (record) {
+          const recordDate = record.created_at.slice(0, 10);
+          const todayStr = new Date().toISOString().slice(0, 10);
+          if (recordDate === todayStr && !forceAsPrevious) {
+            const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
+            setPlan(hydrated);
+            setActiveDeckRecord(record);
+            setPhase('deck');
+          } else {
+            // Stash it so the intake can offer "resume previous deck"
+            setPreviousDeck(record);
+          }
+        }
+      })
+      .catch(err => console.error('Failed to load latest deck:', err))
+      .finally(() => setInitialLoadDone(true));
+  }, [tasks, areaMap, parentMap, initialLoadDone]);
 
   // ─── Filtered items ─────────────────────────────────────────
 
@@ -156,59 +338,10 @@ export function DeckContainer() {
         return;
       }
 
-      const aiResponse: DeckResponse = await res.json();
-
-      // Build a lookup of all tasks (including subtasks) for hydration
-      const taskById = new Map<string, TaskRecord>();
-      tasks.forEach(t => taskById.set(t.id, t));
-
-      // Hydrate AI response into full DeckItems
-      const items: DeckItem[] = [];
-      for (const ai of aiResponse.items) {
-        const task = taskById.get(ai.taskId);
-        if (!task) continue;
-        const item = taskToDeckItem(task, areaMap, parentMap);
-        item.rationale = ai.rationale;
-        if (ai.continuityContext) item.continuityContext = ai.continuityContext;
-
-        // Attach subtasks
-        const childTasks = tasks.filter(t => t.parent_id === task.id);
-        if (childTasks.length > 0) {
-          item.subtasks = childTasks.map(ct => ({
-            id: ct.id,
-            title: ct.title,
-            effort: ct.effort ? EFFORT_SHORT[ct.effort] ?? ct.effort : undefined,
-            completed: ct.status === 'done',
-          }));
-        }
-
-        items.push(item);
-      }
-
-      const alternatives: AlternativeItem[] = [];
-      for (const ai of aiResponse.alternatives) {
-        const task = taskById.get(ai.taskId);
-        if (!task) continue;
-        alternatives.push({
-          id: task.id,
-          title: task.title,
-          parentTitle: task.parent_id ? parentMap.get(task.parent_id) : undefined,
-          areaId: task.area_id ?? undefined,
-          areaName: task.area_id ? areaMap.get(task.area_id) : undefined,
-          energy: task.energy ?? undefined,
-          effort: task.effort ? EFFORT_SHORT[task.effort] ?? task.effort : undefined,
-          reason: ai.reason,
-          taskId: task.id,
-        });
-      }
-
-      setPlan({
-        dayContext: aiResponse.dayContext ?? undefined,
-        items,
-        alternatives,
-        radarItems: [],
-        generatedAt: new Date().toISOString(),
-      });
+      const record: DeckRecord = await res.json();
+      const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
+      setPlan(hydrated);
+      setActiveDeckRecord(record);
       setPhase('deck');
     } catch (err) {
       console.error('Deck generation error:', err);
@@ -258,6 +391,16 @@ export function DeckContainer() {
     generateDeck();
   }, [generateDeck]);
 
+  const handleResumePrevious = useCallback(() => {
+    if (!previousDeck || !tasks) return;
+    const hydrated = hydrateDeckRecord(previousDeck, tasks, areaMap, parentMap);
+    setPlan(hydrated);
+    setActiveDeckRecord(previousDeck);
+    setPreviousDeck(null);
+    setMoreOptionsCollapsed(true);
+    setPhase('deck');
+  }, [previousDeck, tasks, areaMap, parentMap]);
+
   // ─── Deck interaction handlers ──────────────────────────────
 
   const handleComplete = useCallback((id: string) => {
@@ -265,9 +408,12 @@ export function DeckContainer() {
     const item = plan.items.find(i => i.id === id);
     if (item) {
       setCompletedItems(prev => [...prev, item]);
-      setPlan(prev => prev ? { ...prev, items: prev.items.filter(i => i.id !== id) } : null);
+      const updated = { ...plan, items: plan.items.filter(i => i.id !== id) };
+      setPlan(updated);
+      if (plan.deckId) persistDeck(plan.deckId, updated);
+      completeTask.mutate({ id: item.taskId });
     }
-  }, [plan]);
+  }, [plan, completeTask]);
 
   const handleNotToday = useCallback((id: string) => {
     if (!plan) return;
@@ -284,11 +430,13 @@ export function DeckContainer() {
         reason: 'Moved from deck',
         taskId: item.taskId,
       };
-      setPlan(prev => prev ? {
-        ...prev,
-        items: prev.items.filter(i => i.id !== id),
-        alternatives: [alt, ...prev.alternatives],
-      } : null);
+      const updated = {
+        ...plan,
+        items: plan.items.filter(i => i.id !== id),
+        alternatives: [alt, ...plan.alternatives],
+      };
+      setPlan(updated);
+      if (plan.deckId) persistDeck(plan.deckId, updated);
     }
   }, [plan]);
 
@@ -308,11 +456,13 @@ export function DeckContainer() {
           effort: alt.effort,
           taskId: alt.taskId,
         };
-        setPlan(prev => prev ? {
-          ...prev,
-          items: [...prev.items, newItem],
-          alternatives: prev.alternatives.filter(a => a.id !== id),
-        } : null);
+        const updated = {
+          ...plan,
+          items: [...plan.items, newItem],
+          alternatives: plan.alternatives.filter(a => a.id !== id),
+        };
+        setPlan(updated);
+        if (plan.deckId) persistDeck(plan.deckId, updated);
       }
     } else {
       const radar = plan.radarItems?.find(r => r.id === id);
@@ -334,7 +484,12 @@ export function DeckContainer() {
   }, [plan]);
 
   const handleReorder = useCallback((newItems: DeckItem[]) => {
-    setPlan(prev => prev ? { ...prev, items: newItems } : null);
+    setPlan(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, items: newItems };
+      if (prev.deckId) persistDeck(prev.deckId, updated);
+      return updated;
+    });
   }, []);
 
   const handleFocus = useCallback((id: string) => {
@@ -401,6 +556,10 @@ export function DeckContainer() {
   // ─── Re-plan (restart flow) ─────────────────────────────────
 
   const handleReplan = useCallback(() => {
+    if (activeDeckRecord) {
+      setPreviousDeck(activeDeckRecord);
+      setActiveDeckRecord(null);
+    }
     setPlan(null);
     setCompletedItems([]);
     setAreaFilter(null);
@@ -409,7 +568,7 @@ export function DeckContainer() {
     setMoreOptionsCollapsed(false);
     setTaskBrowserOpen(false);
     setPhase('intake');
-  }, []);
+  }, [activeDeckRecord]);
 
   const handleViewAllTasks = useCallback(() => {
     setTaskBrowserOpen(true);
@@ -418,18 +577,34 @@ export function DeckContainer() {
 
   const handleAddFromBrowser = useCallback((task: TaskRecord) => {
     const item = taskToDeckItem(task, areaMap, parentMap);
-    setPlan(prev => prev ? { ...prev, items: [...prev.items, item] } : null);
+    item.manuallyAdded = true;
+    setPlan(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, items: [...prev.items, item] };
+      if (prev.deckId) persistDeck(prev.deckId, updated);
+      return updated;
+    });
   }, [areaMap, parentMap]);
 
   const handleRemoveFromBrowser = useCallback((taskId: string) => {
-    setPlan(prev => prev ? { ...prev, items: prev.items.filter(i => i.taskId !== taskId) } : null);
+    setPlan(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, items: prev.items.filter(i => i.taskId !== taskId) };
+      if (prev.deckId) persistDeck(prev.deckId, updated);
+      return updated;
+    });
   }, []);
 
   const handleQuickAdd = useCallback((task: TaskRecord) => {
     const item = taskToDeckItem(task, areaMap, parentMap);
     item.manuallyAdded = true;
     item.rationale = '';
-    setPlan(prev => prev ? { ...prev, items: [...prev.items, item] } : null);
+    setPlan(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, items: [...prev.items, item] };
+      if (prev.deckId) persistDeck(prev.deckId, updated);
+      return updated;
+    });
   }, [areaMap, parentMap]);
 
   const deckTaskIds = useMemo(() => {
@@ -466,14 +641,49 @@ export function DeckContainer() {
       )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {/* ─── Loading: fetching latest deck ─── */}
+        {phase === 'intake' && !initialLoadDone && (
+          <div className="px-4 py-3">
+            {/* Framing line */}
+            <Skeleton className="h-3 w-3/4 mb-3" />
+            {/* Deck item skeletons — matches flat layout: pl-6 title, pills, rationale */}
+            {[0.6, 0.5, 0.7, 0.55, 0.45].map((w, i) => (
+              <div key={i} className="pl-6 py-2 space-y-2">
+                <Skeleton className="h-3.5" style={{ width: `${w * 100}%` }} />
+                <div className="flex gap-1.5">
+                  <Skeleton className="h-4 w-14 rounded-md" />
+                  <Skeleton className="h-4 w-8 rounded-md" />
+                </div>
+                <Skeleton className="h-2.5 w-4/5" />
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ─── Intake: optional context before generation ─── */}
-        {phase === 'intake' && !generating && (
-          <CheckInIntake
-            onSubmit={handleIntakeSubmit}
-            onSkip={handleIntakeSkip}
-            collapsed={false}
-            onExpand={() => {}}
-          />
+        {phase === 'intake' && initialLoadDone && !generating && (
+          <>
+            <CheckInIntake
+              onSubmit={handleIntakeSubmit}
+              onSkip={handleIntakeSkip}
+              hasPreviousDeck={!!previousDeck && (previousDeck.items as DbDeckItem[]).some(item => {
+                const task = tasks?.find(t => t.id === item.taskId);
+                return task && task.status !== 'done';
+              })}
+              collapsed={false}
+              onExpand={() => {}}
+            />
+
+            {/* Previous deck preview */}
+            {previousDeck && tasks && (
+              <PreviousDeckPreview
+                deck={previousDeck}
+                tasks={tasks}
+                areaMap={areaMap}
+                onResume={handleResumePrevious}
+              />
+            )}
+          </>
         )}
 
         {/* ─── Generating state ─── */}
@@ -487,9 +697,9 @@ export function DeckContainer() {
         {/* ─── The deck ─── */}
         {phase === 'deck' && plan && (
           <div className="px-4 py-3">
-            {plan.dayContext && (
+            {plan.framing && (
               <p className="text-xs text-muted-foreground italic mb-3 leading-relaxed">
-                {plan.dayContext}
+                {plan.framing}
               </p>
             )}
             <DeckStack

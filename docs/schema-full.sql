@@ -175,6 +175,24 @@ CREATE TABLE notes (
 );
 
 -- ============================================================
+-- DECKS: Persisted daily deck plans
+-- JSON columns store ranked items and alternatives by task ID.
+-- Items track source (ai | user) for manual additions.
+-- ============================================================
+CREATE TABLE decks (
+  id TEXT PRIMARY KEY,
+  context TEXT,                                      -- user's free-text input from intake
+  context_tags TEXT DEFAULT '[]',                    -- JSON array: chips selected at intake
+  framing TEXT,                                      -- AI-generated one-liner about the day's shape
+  items TEXT NOT NULL DEFAULT '[]',                  -- JSON array: [{taskId, rationale, continuityContext, source}]
+  alternatives TEXT NOT NULL DEFAULT '[]',           -- JSON array: [{taskId, reason}]
+  search_context TEXT,                               -- serialised tool-call results from context-gathering phase
+  model TEXT,                                        -- which model generated this deck
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================
 -- GOALS: Strategic outcomes that give direction
 -- ============================================================
 CREATE TABLE goals (

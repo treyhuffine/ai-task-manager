@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server';
-import { generateObject, generateText, tool, stepCountIs } from 'ai';
+import { Output, generateText, tool, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
+import { uuidv7 } from 'uuidv7';
 import { getDb, getRawDb } from '@/lib/db';
-import { tasks, areas, taskCompletions } from '@/lib/db/schema';
+import { tasks, areas, taskCompletions, decks } from '@/lib/db/schema';
+import type { DeckItem } from '@/lib/db/schema';
 import { eq, and, desc, sql, isNull, isNotNull, gte, lte } from 'drizzle-orm';
 import { hybridSearch } from '@/lib/embeddings/search';
 import {
@@ -22,7 +24,7 @@ export const maxDuration = 60;
 function buildSearchTool(rawDb: ReturnType<typeof getRawDb>) {
   return tool({
     description:
-      'Search the user\'s knowledge base — tasks, notes, and stream-of-consciousness entries — using semantic + keyword hybrid search. Returns matching entities with relevance scores.',
+      "Search the user's knowledge base — tasks, notes, and stream-of-consciousness entries — using semantic + keyword hybrid search. Returns matching entities with relevance scores.",
     inputSchema: z.object({
       query: z.string().describe('Search query — a topic, keyword, or natural language phrase'),
     }),
@@ -129,7 +131,9 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
     const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
-    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
 
     // ═══════════════════════════════════════════════════════════════
     // Phase 1: Deterministic context (DB queries)
@@ -138,13 +142,7 @@ export async function POST(request: NextRequest) {
     const activeTasks = db
       .select()
       .from(tasks)
-      .where(
-        and(
-          eq(tasks.status, 'active'),
-          isNull(tasks.parent_id),
-          isNull(tasks.blocked_on),
-        )
-      )
+      .where(and(eq(tasks.status, 'active'), isNull(tasks.parent_id), isNull(tasks.blocked_on)))
       .orderBy(sql`sort_key ASC NULLS LAST`, desc(tasks.created_at))
       .limit(DECK_GENERATION_TASK_LIMIT)
       .all();
@@ -158,7 +156,7 @@ export async function POST(request: NextRequest) {
           isNotNull(tasks.hard_deadline),
           lte(tasks.hard_deadline, sevenDaysFromNow),
           isNull(tasks.blocked_on),
-        )
+        ),
       )
       .orderBy(tasks.hard_deadline)
       .all();
@@ -172,35 +170,37 @@ export async function POST(request: NextRequest) {
           isNotNull(tasks.recurrence),
           lte(tasks.next_recurrence_at, todayStr),
           isNull(tasks.blocked_on),
-        )
+        ),
       )
       .all();
 
-    const taskMap = new Map<string, typeof activeTasks[number]>();
+    const taskMap = new Map<string, (typeof activeTasks)[number]>();
     for (const t of activeTasks) taskMap.set(t.id, t);
     for (const t of deadlineTasks) taskMap.set(t.id, t);
     for (const t of recurringDue) taskMap.set(t.id, t);
 
     const allTasks = Array.from(taskMap.values());
 
-    const parentIds = allTasks.map(t => t.id);
-    const allSubtasks = parentIds.length > 0
-      ? db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.status, 'active'), isNotNull(tasks.parent_id)))
-          .all()
-          .filter(s => s.parent_id && taskMap.has(s.parent_id))
-      : [];
+    const parentIds = allTasks.map((t) => t.id);
+    const allSubtasks =
+      parentIds.length > 0
+        ? db
+            .select()
+            .from(tasks)
+            .where(and(eq(tasks.status, 'active'), isNotNull(tasks.parent_id)))
+            .all()
+            .filter((s) => s.parent_id && taskMap.has(s.parent_id))
+        : [];
 
-    const completedSubtasks = parentIds.length > 0
-      ? db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.status, 'done'), isNotNull(tasks.parent_id)))
-          .all()
-          .filter(s => s.parent_id && taskMap.has(s.parent_id))
-      : [];
+    const completedSubtasks =
+      parentIds.length > 0
+        ? db
+            .select()
+            .from(tasks)
+            .where(and(eq(tasks.status, 'done'), isNotNull(tasks.parent_id)))
+            .all()
+            .filter((s) => s.parent_id && taskMap.has(s.parent_id))
+        : [];
 
     const subtasksByParent = new Map<string, { id: string; title: string; completed: boolean }[]>();
     for (const s of [...allSubtasks, ...completedSubtasks]) {
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
       .orderBy(areas.sort_order)
       .all();
 
-    const areaMap = new Map(activeAreas.map(a => [a.id, a.name]));
+    const areaMap = new Map(activeAreas.map((a) => [a.id, a.name]));
 
     const recentCompletions = db
       .select({
@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
     const parentTitleMap = new Map<string, string>();
     for (const t of allTasks) parentTitleMap.set(t.id, t.title);
 
-    const promptTasks = allTasks.map(t => ({
+    const promptTasks = allTasks.map((t) => ({
       id: t.id,
       title: t.title,
       description: t.description,
@@ -257,14 +257,14 @@ export async function POST(request: NextRequest) {
       subtasks: subtasksByParent.get(t.id),
     }));
 
-    const promptAreas = activeAreas.map(a => ({
+    const promptAreas = activeAreas.map((a) => ({
       id: a.id,
       name: a.name,
       userContext: a.user_context,
       status: a.status,
     }));
 
-    const promptCompletions = recentCompletions.map(c => ({
+    const promptCompletions = recentCompletions.map((c) => ({
       taskTitle: c.taskTitle,
       completedAt: c.completedAt,
       areaName: c.areaId ? areaMap.get(c.areaId) : undefined,
@@ -304,14 +304,43 @@ export async function POST(request: NextRequest) {
 
     const model = process.env.MODEL_STANDARD || 'gpt-4o';
 
-    const result = await generateObject({
+    const result = await generateText({
       model: openai(model),
-      schema: deckResponseSchema,
+      output: Output.object({ schema: deckResponseSchema }),
       system: DECK_SYSTEM_PROMPT,
       prompt: enrichedPrompt,
     });
 
-    return Response.json(result.object);
+    const aiResponse = result.output;
+    if (!aiResponse) {
+      return Response.json({ error: 'No output generated' }, { status: 500 });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Persist deck
+    // ═══════════════════════════════════════════════════════════════
+
+    const deckItems: DeckItem[] = aiResponse.items.map((item) => ({
+      ...item,
+      source: 'ai' as const,
+    }));
+
+    const deck = db
+      .insert(decks)
+      .values({
+        id: uuidv7(),
+        context: generationContext.context ?? null,
+        context_tags: generationContext.contextTags ?? [],
+        framing: aiResponse.framing ?? null,
+        items: deckItems,
+        alternatives: aiResponse.alternatives,
+        search_context: searchContext || null,
+        model,
+      })
+      .returning()
+      .get();
+
+    return Response.json(deck);
   } catch (err) {
     console.error('[POST /api/deck/generate]', err);
     return Response.json({ error: String(err) }, { status: 500 });

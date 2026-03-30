@@ -99,6 +99,33 @@ export const taskCompletions = sqliteTable('task_completions', {
   index('idx_task_completions_task_id').on(table.task_id),
 ]);
 
+// ─── Decks ────────────────────────────────────────────────────
+
+export const decks = sqliteTable('decks', {
+  id: text('id').primaryKey(),
+  context: text('context'),
+  context_tags: text('context_tags', { mode: 'json' }).$type<string[]>().default([]),
+  framing: text('framing'),
+  items: text('items', { mode: 'json' }).$type<DeckItem[]>().notNull().default([]),
+  alternatives: text('alternatives', { mode: 'json' }).$type<DeckAlternative[]>().notNull().default([]),
+  search_context: text('search_context'),
+  model: text('model'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+});
+
+export interface DeckItem {
+  taskId: string;
+  rationale: string;
+  continuityContext: string | null;
+  source: 'ai' | 'user';
+}
+
+export interface DeckAlternative {
+  taskId: string;
+  reason: string;
+}
+
 // ─── Notes ────────────────────────────────────────────────────
 
 export const notes = sqliteTable('notes', {
