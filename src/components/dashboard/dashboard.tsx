@@ -9,10 +9,18 @@ import { FocusView } from './focus-view';
 import { SearchOverlay } from '@/components/shared/search-overlay';
 import { NoteSlideout } from '@/components/notes/note-slideout';
 import { TaskSlideout } from '@/components/tasks/task-slideout';
+import { AreaSlideout } from '@/components/dashboard/area-slideout';
+import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import { cn } from '@/lib/utils';
 
 function DashboardShell() {
-  const { theme, openNoteId, closeNote, openTaskId, closeTask } = useDashboard();
+  const {
+    theme,
+    openNoteId, openTaskId, openAreaId, areasListOpen,
+    popSlideout, closeAllSlideouts, slideoutStack,
+  } = useDashboard();
+
+  const hasHistory = slideoutStack.length > 1;
 
   return (
     <div className={cn(
@@ -29,8 +37,28 @@ function DashboardShell() {
         <BottomHud />
         <FocusView />
         <SearchOverlay />
-        <NoteSlideout noteId={openNoteId} onClose={closeNote} />
-        <TaskSlideout taskId={openTaskId} onClose={closeTask} />
+        <NoteSlideout
+          noteId={openNoteId}
+          onClose={popSlideout}
+          onCloseAll={closeAllSlideouts}
+          hasHistory={hasHistory}
+        />
+        <TaskSlideout
+          taskId={openTaskId}
+          onClose={popSlideout}
+          onCloseAll={closeAllSlideouts}
+          hasHistory={hasHistory}
+        />
+        <AreaSlideout
+          areaId={openAreaId}
+          onClose={popSlideout}
+          onCloseAll={closeAllSlideouts}
+          hasHistory={hasHistory}
+        />
+        <AreasSheet
+          open={areasListOpen}
+          onOpenChange={(open) => { if (!open) closeAllSlideouts() }}
+        />
       </div>
     </div>
   );

@@ -19,6 +19,7 @@ export const areas = sqliteTable('areas', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
+  emoji: text('emoji'),
   image_url: text('image_url'),
   notes: text('notes'),
   user_context: text('user_context'),

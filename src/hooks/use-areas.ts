@@ -11,6 +11,14 @@ export function useAreas(filter?: AreaFilter) {
   });
 }
 
+export function useArea(id: string | null) {
+  return useQuery({
+    queryKey: [...AREAS_KEY, id],
+    queryFn: () => areasApi.get(id!),
+    enabled: !!id,
+  });
+}
+
 export function useCreateArea() {
   const qc = useQueryClient();
   return useMutation({

@@ -2,8 +2,8 @@ import type { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 import { notes } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { getNote, updateNote, deleteNote } from '@/lib/db/queries';
 import type { UpdateNoteInput } from '@/db/types';
-import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 
 export async function GET(
   _request: NextRequest,
@@ -11,14 +11,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
-    const row = db.select().from(notes).where(eq(notes.id, id)).get();
+    const row = getNote(id);
 
     if (!row) {
       return Response.json({ error: 'Note not found' }, { status: 404 });
     }
 
     // Fire-and-forget: mark as viewed
+    const db = getDb();
     db.update(notes)
       .set({ last_viewed_at: new Date().toISOString() })
       .where(eq(notes.id, id))
@@ -37,22 +37,13 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
     const body: UpdateNoteInput = await request.json();
 
-    const existing = db.select().from(notes).where(eq(notes.id, id)).get();
-    if (!existing) {
+    const row = updateNote(id, body);
+    if (!row) {
       return Response.json({ error: 'Note not found' }, { status: 404 });
     }
 
-    const row = db
-      .update(notes)
-      .set({ ...body, updated_at: new Date().toISOString() })
-      .where(eq(notes.id, id))
-      .returning()
-      .get();
-
-    void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
     return Response.json(row);
   } catch (err) {
     console.error('[PATCH /api/notes/:id]', err);
@@ -66,14 +57,12 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
-    const result = db.delete(notes).where(eq(notes.id, id)).run();
+    const success = deleteNote(id);
 
-    if (result.changes === 0) {
+    if (!success) {
       return Response.json({ error: 'Note not found' }, { status: 404 });
     }
 
-    deleteEmbedding('note', id);
     return new Response(null, { status: 204 });
   } catch (err) {
     console.error('[DELETE /api/notes/:id]', err);

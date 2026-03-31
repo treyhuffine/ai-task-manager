@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { Dialog } from 'radix-ui'
-import { X, Plus, GripVertical, Archive, RotateCcw } from 'lucide-react'
+import { X, Plus, GripVertical } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -22,6 +22,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAreas, useUpdateArea } from '@/hooks/use-areas'
+import { useDashboard } from '@/contexts/dashboard-context'
 import { AreaCreateModal } from '@/components/dashboard/area-create-modal'
 import type { AreaRecord } from '@/db/types'
 import { cn } from '@/lib/utils'
@@ -35,7 +36,7 @@ interface AreasSheetProps {
   onOpenChange: (open: boolean) => void
 }
 
-function SortableAreaRow({ area }: { area: AreaRecord }) {
+function SortableAreaRow({ area, onOpen }: { area: AreaRecord; onOpen: (id: string) => void }) {
   const {
     attributes,
     listeners,
@@ -50,60 +51,6 @@ function SortableAreaRow({ area }: { area: AreaRecord }) {
     transition,
   }
 
-  const updateArea = useUpdateArea()
-  const [name, setName] = useState(area.name)
-  const [description, setDescription] = useState(area.description ?? '')
-  const [expanded, setExpanded] = useState(false)
-  const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const descTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    setName(area.name)
-    setDescription(area.description ?? '')
-  }, [area.name, area.description])
-
-  const saveName = useCallback(
-    (value: string) => {
-      setName(value)
-      if (nameTimerRef.current) clearTimeout(nameTimerRef.current)
-      nameTimerRef.current = setTimeout(() => {
-        const trimmed = value.trim()
-        if (trimmed && trimmed !== area.name) {
-          updateArea.mutate({ id: area.id, name: trimmed })
-        }
-      }, 500)
-    },
-    [area.id, area.name, updateArea]
-  )
-
-  const saveDescription = useCallback(
-    (value: string) => {
-      setDescription(value)
-      if (descTimerRef.current) clearTimeout(descTimerRef.current)
-      descTimerRef.current = setTimeout(() => {
-        if (value !== (area.description ?? '')) {
-          updateArea.mutate({ id: area.id, description: value || undefined })
-        }
-      }, 500)
-    },
-    [area.id, area.description, updateArea]
-  )
-
-  const handleArchive = useCallback(() => {
-    updateArea.mutate({ id: area.id, status: 'archived' })
-  }, [area.id, updateArea])
-
-  const handleRestore = useCallback(() => {
-    updateArea.mutate({ id: area.id, status: 'active' })
-  }, [area.id, updateArea])
-
-  useEffect(() => {
-    return () => {
-      if (nameTimerRef.current) clearTimeout(nameTimerRef.current)
-      if (descTimerRef.current) clearTimeout(descTimerRef.current)
-    }
-  }, [])
-
   const isArchived = area.status === 'archived'
 
   return (
@@ -111,17 +58,13 @@ function SortableAreaRow({ area }: { area: AreaRecord }) {
       ref={setNodeRef}
       style={style}
       className={cn(
-        'group border-b border-border last:border-b-0 transition-colors',
-        expanded ? 'bg-muted/30' : 'hover:bg-muted/20',
+        'group border-b border-border last:border-b-0 transition-colors hover:bg-muted/20 cursor-pointer',
         isArchived && 'opacity-60',
         isDragging && 'opacity-50 z-50 bg-background shadow-lg'
       )}
+      onClick={() => onOpen(area.id)}
     >
-      {/* Row header */}
-      <div
-        className="flex items-center gap-2 px-4 py-2.5 cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
+      <div className="flex items-center gap-2 px-4 py-2.5">
         <button
           className="touch-none p-0.5 rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors cursor-grab active:cursor-grabbing flex-shrink-0"
           {...attributes}
@@ -131,13 +74,17 @@ function SortableAreaRow({ area }: { area: AreaRecord }) {
           <GripVertical size={12} />
         </button>
 
-        {area.image_url && (
+        {area.image_url ? (
           <img
             src={area.image_url}
             alt=""
-            className="w-7 h-7 rounded-lg object-cover flex-shrink-0 border border-border"
+            className="w-7 h-7 rounded-lg object-cover flex-shrink-0"
           />
-        )}
+        ) : area.emoji ? (
+          <span className="text-lg flex-shrink-0">
+            {area.emoji}
+          </span>
+        ) : null}
 
         <div className="flex-1 min-w-0">
           <span className={cn(
@@ -146,7 +93,7 @@ function SortableAreaRow({ area }: { area: AreaRecord }) {
           )}>
             {area.name}
           </span>
-          {area.description && !expanded && (
+          {area.description && (
             <span className="text-[10px] text-muted-foreground/60 truncate block">
               {area.description}
             </span>
@@ -164,82 +111,13 @@ function SortableAreaRow({ area }: { area: AreaRecord }) {
           {area.status}
         </span>
       </div>
-
-      {/* Expanded editor */}
-      {expanded && (
-        <div className="px-4 pb-3 space-y-2.5">
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1 block">
-              Name
-            </label>
-            <input
-              value={name}
-              onChange={(e) => saveName(e.target.value)}
-              className="w-full text-sm font-medium bg-background border border-border rounded-lg px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1 block">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => saveDescription(e.target.value)}
-              placeholder="What does this area cover?"
-              className="w-full h-16 text-xs bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-
-          <div className="flex items-center justify-between pt-1">
-            <div className="flex items-center gap-1">
-              {(['active', 'inactive'] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    updateArea.mutate({ id: area.id, status: s })
-                  }}
-                  className={cn(
-                    'text-[10px] font-medium px-2.5 py-1 rounded-md transition-colors capitalize',
-                    area.status === s
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  )}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-1">
-              {isArchived ? (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleRestore() }}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
-                >
-                  <RotateCcw size={11} /> Restore
-                </button>
-              ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleArchive() }}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive px-2 py-1 rounded-md hover:bg-destructive/10 transition-colors"
-                >
-                  <Archive size={11} /> Archive
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 export function AreasSheet({ open, onOpenChange }: AreasSheetProps) {
   const { data: areas = [] } = useAreas({ status: 'all' })
+  const { openArea } = useDashboard()
   const updateArea = useUpdateArea()
   const queryClient = useQueryClient()
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -350,6 +228,10 @@ export function AreasSheet({ open, onOpenChange }: AreasSheetProps) {
           style={{ width: `min(${width}px, 100vw)` }}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onInteractOutside={(e) => { if (isResizing) e.preventDefault() }}
+          onEscapeKeyDown={(e) => {
+            e.preventDefault()
+            onOpenChange(false)
+          }}
         >
           <Dialog.Title className="sr-only">Areas</Dialog.Title>
 
@@ -408,7 +290,7 @@ export function AreasSheet({ open, onOpenChange }: AreasSheetProps) {
                   <SortableContext items={displayedAreas.map((a) => a.id)} strategy={verticalListSortingStrategy}>
                     <div>
                       {displayedAreas.map((area) => (
-                        <SortableAreaRow key={area.id} area={area} />
+                        <SortableAreaRow key={area.id} area={area} onOpen={(id) => openArea(id)} />
                       ))}
                     </div>
                   </SortableContext>

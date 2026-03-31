@@ -2,8 +2,8 @@ import type { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 import { tasks } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { getTask, updateTask, deleteTask } from '@/lib/db/queries';
 import type { UpdateTaskInput } from '@/db/types';
-import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 
 export async function GET(
   _request: NextRequest,
@@ -11,14 +11,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
-    const row = db.select().from(tasks).where(eq(tasks.id, id)).get();
+    const row = getTask(id);
 
     if (!row) {
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
     // Fire-and-forget: mark as viewed
+    const db = getDb();
     db.update(tasks)
       .set({ last_viewed_at: new Date().toISOString() })
       .where(eq(tasks.id, id))
@@ -37,22 +37,13 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
     const body: UpdateTaskInput = await request.json();
 
-    const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
-    if (!existing) {
+    const row = updateTask(id, body);
+    if (!row) {
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    const row = db
-      .update(tasks)
-      .set({ ...body, updated_at: new Date().toISOString() })
-      .where(eq(tasks.id, id))
-      .returning()
-      .get();
-
-    void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
     return Response.json(row);
   } catch (err) {
     console.error('[PATCH /api/tasks/:id]', err);
@@ -66,14 +57,12 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
-    const result = db.delete(tasks).where(eq(tasks.id, id)).run();
+    const success = deleteTask(id);
 
-    if (result.changes === 0) {
+    if (!success) {
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    deleteEmbedding('task', id);
     return new Response(null, { status: 204 });
   } catch (err) {
     console.error('[DELETE /api/tasks/:id]', err);

@@ -11,6 +11,7 @@ CREATE TABLE areas (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
+  emoji TEXT,                                       -- single emoji character for area icon
   image_url TEXT,
   notes TEXT,                                      -- strategic context, not a task
   user_context TEXT,                               -- natural language about priority, status, intent.

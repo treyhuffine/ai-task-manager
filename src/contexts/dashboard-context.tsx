@@ -10,6 +10,22 @@ interface FocusTask {
   taskId: string;
 }
 
+// ─── Slideout navigation stack ──────────────────────────────────
+// Each entry is a discriminated union. New slideout types just add a member.
+
+export type SlideoutEntry =
+  | { type: 'areas-list' }
+  | { type: 'area'; id: string }
+  | { type: 'task'; id: string }
+  | { type: 'note'; id: string };
+
+// Controls what the default close gesture (X / back button) does.
+// 'back'    — pop one level (navigate to previous slideout)
+// 'dismiss' — close everything
+export type SlideoutCloseBehavior = 'back' | 'dismiss';
+
+const SLIDEOUT_CLOSE_BEHAVIOR: SlideoutCloseBehavior = 'back';
+
 interface DashboardState {
   theme: Theme;
   activeView: ActiveView;
@@ -24,8 +40,13 @@ interface DashboardState {
   agents: Agent[];
   tasks: Task[];
   streamEvents: StreamEvent[];
+  // Derived from slideout stack for convenience — consumers don't need to know about the stack
   openNoteId: string | null;
   openTaskId: string | null;
+  openAreaId: string | null;
+  areasListOpen: boolean;
+  slideoutStack: SlideoutEntry[];
+  slideoutCloseBehavior: SlideoutCloseBehavior;
 }
 
 interface DashboardActions {
@@ -42,10 +63,19 @@ interface DashboardActions {
   toggleFocusMode: () => void;
   setWorkMode: (mode: WorkMode) => void;
   setSelectedProject: (project: string) => void;
+  // Convenience helpers that push onto the slideout stack
   openNote: (noteId: string) => void;
-  closeNote: () => void;
   openTask: (taskId: string) => void;
+  openArea: (areaId: string) => void;
+  openAreasList: () => void;
+  // Stack navigation
+  pushSlideout: (entry: SlideoutEntry) => void;
+  popSlideout: () => void;
+  closeAllSlideouts: () => void;
+  // Legacy close aliases — these call popSlideout or closeAll based on behavior setting
+  closeNote: () => void;
   closeTask: () => void;
+  closeArea: () => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -89,13 +119,41 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [focusTask, setFocusTask] = useState<FocusTask | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>(null);
   const [selectedProject, setSelectedProject] = useState('All Projects');
-  const [openNoteId, setOpenNoteId] = useState<string | null>(null);
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // ─── Slideout stack ──────────────────────────────────────────
+  const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>([]);
 
-  const openNote = useCallback((noteId: string) => setOpenNoteId(noteId), []);
-  const closeNote = useCallback(() => setOpenNoteId(null), []);
-  const openTask = useCallback((taskId: string) => setOpenTaskId(taskId), []);
-  const closeTask = useCallback(() => setOpenTaskId(null), []);
+  const pushSlideout = useCallback((entry: SlideoutEntry) => {
+    setSlideoutStack(prev => [...prev, entry]);
+  }, []);
+
+  const popSlideout = useCallback(() => {
+    setSlideoutStack(prev => prev.slice(0, -1));
+  }, []);
+
+  const closeAllSlideouts = useCallback(() => {
+    setSlideoutStack([]);
+  }, []);
+
+  // Default close = back or dismiss, based on config
+  const defaultClose = SLIDEOUT_CLOSE_BEHAVIOR === 'back' ? popSlideout : closeAllSlideouts;
+
+  // Convenience helpers — push onto the stack
+  const openNote = useCallback((noteId: string) => pushSlideout({ type: 'note', id: noteId }), [pushSlideout]);
+  const openTask = useCallback((taskId: string) => pushSlideout({ type: 'task', id: taskId }), [pushSlideout]);
+  const openArea = useCallback((areaId: string) => pushSlideout({ type: 'area', id: areaId }), [pushSlideout]);
+  const openAreasList = useCallback(() => pushSlideout({ type: 'areas-list' }), [pushSlideout]);
+
+  // Legacy close aliases
+  const closeNote = defaultClose;
+  const closeTask = defaultClose;
+  const closeArea = defaultClose;
+
+  // Derive individual IDs from top of stack for backward compat
+  const topSlideout = slideoutStack[slideoutStack.length - 1] ?? null;
+  const openNoteId = topSlideout?.type === 'note' ? topSlideout.id : null;
+  const openTaskId = topSlideout?.type === 'task' ? topSlideout.id : null;
+  const openAreaId = topSlideout?.type === 'area' ? topSlideout.id : null;
+  const areasListOpen = topSlideout?.type === 'areas-list';
 
   // Sync dark class to <html> so Radix portals (Sheet, Dialog, etc.) inherit it
   useEffect(() => {
@@ -166,6 +224,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       openTaskId,
       openTask,
       closeTask,
+      openAreaId,
+      openArea,
+      closeArea,
+      areasListOpen,
+      openAreasList,
+      slideoutStack,
+      slideoutCloseBehavior: SLIDEOUT_CLOSE_BEHAVIOR,
+      pushSlideout,
+      popSlideout,
+      closeAllSlideouts,
     }}>
       {children}
     </DashboardContext.Provider>

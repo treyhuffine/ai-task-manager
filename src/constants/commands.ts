@@ -11,6 +11,8 @@ export interface Hotkey {
 
 export const HOTKEYS = {
   search: { key: 'k', meta: true, label: '\u2318K' },
+  slideoutBack: { key: 'Escape', label: 'Esc' },
+  slideoutCloseAll: { key: 'Escape', shift: true, label: '\u21E7Esc' },
 } as const satisfies Record<string, Hotkey>;
 
 /** Check if a KeyboardEvent matches a Hotkey */

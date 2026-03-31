@@ -42,9 +42,11 @@ const EFFORT_OPTIONS: { value: Effort; label: string }[] = [
 interface TaskSlideoutProps {
   taskId: string | null
   onClose: () => void
+  onCloseAll: () => void
+  hasHistory: boolean
 }
 
-export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
+export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSlideoutProps) {
   const isOpen = taskId !== null
   const { data: task } = useTask(taskId)
   const { data: parentTask } = useTask(task?.parent_id ?? null)
@@ -221,9 +223,9 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
   }
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
+    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onCloseAll() }}>
       <Dialog.Portal>
-        {/* Overlay */}
+        {/* Overlay — clicking closes everything */}
         <Dialog.Overlay
           className={cn(
             'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
@@ -241,6 +243,11 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
           style={{ width: `min(${width}px, 100vw)` }}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onInteractOutside={(e) => { if (isResizing) e.preventDefault() }}
+          onEscapeKeyDown={(e) => {
+            e.preventDefault()
+            if (e.shiftKey) onCloseAll()
+            else onClose()
+          }}
         >
           <Dialog.Title className="sr-only">Task</Dialog.Title>
         {/* Resize handle */}
@@ -259,20 +266,28 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
         <div className="flex-1 flex flex-col bg-background border-l border-border overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 h-11 flex-shrink-0 border-b border-border">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 group/nav">
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                aria-label="Close"
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
+                aria-label={hasHistory ? 'Back' : 'Close'}
               >
-                <X size={16} />
+                {hasHistory ? <ChevronLeft size={16} /> : <X size={16} />}
+                <kbd className="hidden group-hover/nav:inline px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
+                  esc
+                </kbd>
               </button>
-
-              {task && (
-                <AreaSelect
-                  value={task.area_id}
-                  onChange={(areaId) => saveField('area_id', areaId)}
-                />
+              {hasHistory && (
+                <button
+                  onClick={onCloseAll}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors opacity-0 group-hover/nav:opacity-100 flex items-center gap-1.5"
+                  aria-label="Close all"
+                >
+                  <X size={14} />
+                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
+                    ⇧esc
+                  </kbd>
+                </button>
               )}
             </div>
 
@@ -316,11 +331,18 @@ export function TaskSlideout({ taskId, onClose }: TaskSlideoutProps) {
             <div className="flex-1 overflow-y-auto min-w-0 relative">
               {task ? (
                 <div className="space-y-0">
-                  {/* Type label / parent breadcrumb */}
+                  {/* Type label + area / parent breadcrumb */}
                   <div className="pt-4 px-10">
-                    <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
-                      {task.parent_id ? 'Subtask' : 'Task'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
+                        {task.parent_id ? 'Subtask' : 'Task'}
+                      </span>
+                      <span className="text-muted-foreground/30">·</span>
+                      <AreaSelect
+                        value={task.area_id}
+                        onChange={(areaId) => saveField('area_id', areaId)}
+                      />
+                    </div>
                     {task.parent_id && parentTask && (
                       <button
                         onClick={() => openTask(task.parent_id!)}

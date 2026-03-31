@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { Dialog } from 'radix-ui'
-import { X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles } from 'lucide-react'
+import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles } from 'lucide-react'
 import { NoteEditor } from '@/components/editor/rich-editor'
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes'
 import { AreaSelect } from '@/components/shared/area-select'
@@ -23,9 +23,11 @@ const MAX_WIDTH = 1400
 interface NoteSlideoutProps {
   noteId: string | null
   onClose: () => void
+  onCloseAll: () => void
+  hasHistory: boolean
 }
 
-export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
+export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSlideoutProps) {
   const isOpen = noteId !== null
   const { data: note } = useNote(noteId ?? '')
   const updateNote = useUpdateNote()
@@ -149,9 +151,9 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
   }, [])
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
+    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onCloseAll() }}>
       <Dialog.Portal>
-        {/* Overlay */}
+        {/* Overlay — clicking closes everything */}
         <Dialog.Overlay
           className={cn(
             'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
@@ -169,6 +171,11 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
           style={{ width: `min(${width}px, 100vw)` }}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onInteractOutside={(e) => { if (isResizing) e.preventDefault() }}
+          onEscapeKeyDown={(e) => {
+            e.preventDefault()
+            if (e.shiftKey) onCloseAll()
+            else onClose()
+          }}
         >
           <Dialog.Title className="sr-only">Note</Dialog.Title>
         {/* Resize handle */}
@@ -187,20 +194,28 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
         <div className="flex-1 flex flex-col bg-background border-l border-border overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 h-11 flex-shrink-0">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 group/nav">
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                aria-label="Close"
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
+                aria-label={hasHistory ? 'Back' : 'Close'}
               >
-                <X size={16} />
+                {hasHistory ? <ChevronLeft size={16} /> : <X size={16} />}
+                <kbd className="hidden group-hover/nav:inline px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
+                  esc
+                </kbd>
               </button>
-
-              {note && (
-                <AreaSelect
-                  value={note.area_id}
-                  onChange={handleAreaChange}
-                />
+              {hasHistory && (
+                <button
+                  onClick={onCloseAll}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors opacity-0 group-hover/nav:opacity-100 flex items-center gap-1.5"
+                  aria-label="Close all"
+                >
+                  <X size={14} />
+                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
+                    ⇧esc
+                  </kbd>
+                </button>
               )}
             </div>
 
@@ -248,8 +263,13 @@ export function NoteSlideout({ noteId, onClose }: NoteSlideoutProps) {
             <div className="flex-1 overflow-y-auto min-w-0 relative">
               {note ? (
                 <>
-                  <div className="px-16 py-0">
+                  <div className="px-16 py-0 flex items-center gap-2">
                     <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">Note</span>
+                    <span className="text-muted-foreground/30">·</span>
+                    <AreaSelect
+                      value={note.area_id}
+                      onChange={handleAreaChange}
+                    />
                   </div>
                   <NoteEditor
                     key={note.id}

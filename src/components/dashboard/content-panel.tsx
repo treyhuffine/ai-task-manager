@@ -5,9 +5,11 @@ import {
   Send, Users, Gavel, Calendar,
   Mic, Square, MessageSquare,
   Zap, Radar, Shuffle, Clock, AlertCircle, Battery, Trophy, TrendingDown, MoreHorizontal,
+  Wrench, Check, XCircle,
 } from 'lucide-react';
 import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
+import { isToolUIPart, getToolName } from 'ai';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import type { PanelId, PanelTab, MorePanelTab } from '@/types/dashboard';
@@ -16,7 +18,6 @@ import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
 import { usePendingStreamCount } from '@/hooks/use-stream';
-import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import {
   Conversation,
   ConversationContent,
@@ -27,6 +28,9 @@ import {
   MessageContent,
   MessageResponse,
 } from '@/components/ai-elements/message';
+import { EntityAwareText } from '@/components/ai-elements/entity-reference';
+import { Shimmer } from '@/components/ai-elements/shimmer';
+import { APP_NAME } from '@/constants/app';
 
 // ─── Tab definitions ───────────────────────────────────────────
 
@@ -64,6 +68,56 @@ const MORE_QUICK_ACTIONS = [
   { label: 'What did I accomplish today?', icon: Trophy, message: 'What did I accomplish today?' },
   { label: "What's falling behind?", icon: TrendingDown, message: "What's falling behind?" },
 ] as const;
+
+// ─── Tool call indicators ─────────────────────────────────────
+
+const TOOL_LABELS: Record<string, string> = {
+  listTasks: 'Listing tasks',
+  getTask: 'Reading task',
+  createTask: 'Creating task',
+  updateTask: 'Updating task',
+  deleteTask: 'Deleting task',
+  completeTask: 'Completing task',
+  listNotes: 'Listing notes',
+  getNote: 'Reading note',
+  createNote: 'Creating note',
+  updateNote: 'Updating note',
+  deleteNote: 'Deleting note',
+  listAreas: 'Listing areas',
+  getArea: 'Reading area',
+  createArea: 'Creating area',
+  updateArea: 'Updating area',
+  getDeck: 'Reading deck',
+  updateDeck: 'Updating deck',
+  regenerateDeck: 'Regenerating deck',
+  searchKnowledgeBase: 'Searching knowledge base',
+  getUserState: 'Reading user state',
+  updateUserState: 'Updating user state',
+};
+
+function ToolCallIndicator({ toolName, state }: { toolName: string; state?: string }) {
+  const label = TOOL_LABELS[toolName] ?? toolName;
+  const isDone = state === 'result' || state === 'output-available';
+  const isError = state === 'output-error';
+  const isRunning = !isDone && !isError;
+
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 py-0.5">
+      {isError ? (
+        <XCircle size={10} className="text-destructive/70" />
+      ) : isDone ? (
+        <Check size={10} className="text-primary/70" />
+      ) : (
+        <Wrench size={10} />
+      )}
+      {isRunning ? (
+        <Shimmer as="span" className="text-[11px]" duration={1.5}>{label}</Shimmer>
+      ) : (
+        <span>{label}</span>
+      )}
+    </div>
+  );
+}
 
 function ChatContent() {
   const { theme } = useDashboard();
@@ -113,11 +167,11 @@ function ChatContent() {
   return (
     <div className="flex flex-col h-full">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto px-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
             <MessageSquare size={24} className="opacity-30" />
-            <p className="text-[11px]">Start a conversation with Eon</p>
+            <p className="text-[11px]">Start a conversation with {APP_NAME}</p>
           </div>
         ) : (
           <Conversation className="h-full">
@@ -129,20 +183,33 @@ function ChatContent() {
                       return (
                         <Message from={message.role} key={`${message.id}-${i}`}>
                           <MessageContent>
-                            <MessageResponse>{part.text}</MessageResponse>
+                            <EntityAwareText
+                              text={part.text}
+                              renderMarkdown={(text, key) => (
+                                <MessageResponse key={key}>{text}</MessageResponse>
+                              )}
+                            />
                           </MessageContent>
                         </Message>
+                      );
+                    }
+                    if (isToolUIPart(part)) {
+                      return (
+                        <ToolCallIndicator
+                          key={`${message.id}-${i}`}
+                          toolName={getToolName(part)}
+                          state={part.state}
+                        />
                       );
                     }
                     return null;
                   })}
                 </Fragment>
               ))}
-              {isStreaming && messages.at(-1)?.role !== 'assistant' && (
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                  <span className="text-[11px]">Eon is thinking...</span>
-                </div>
+              {(status === 'submitted' || (isStreaming && messages.at(-1)?.role !== 'assistant')) && (
+                <Shimmer as="span" className="text-[11px]" duration={1.5}>
+                  {`${APP_NAME} is thinking...`}
+                </Shimmer>
               )}
             </ConversationContent>
             <ConversationScrollButton />
@@ -151,7 +218,7 @@ function ChatContent() {
       </div>
 
       {/* Quick actions + Input */}
-      <div className="flex-shrink-0 p-3 border-t border-border space-y-2">
+      <div className="shrink-0 p-3 border-t border-border space-y-2">
         {/* Quick action buttons */}
         <div className="flex items-center gap-1.5">
           {QUICK_ACTIONS.map((action) => (
@@ -279,6 +346,7 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
   const {
     panelATab, panelBTab, focusedPanel,
     setPanelTab, setFocusedPanel, theme,
+    openAreasList,
   } = useDashboard();
   const isDark = theme === 'dark';
 
@@ -289,7 +357,6 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
 
   const isMoreTab = MORE_TAB_IDS.has(activeTab);
   const pendingStreamCount = usePendingStreamCount();
-  const [areasSheetOpen, setAreasSheetOpen] = useState(false);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -310,7 +377,7 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
     >
       {/* Tab bar */}
       <div className={cn(
-        'flex items-center border-b border-border flex-shrink-0',
+        'flex items-center border-b border-border shrink-0',
         isDark ? 'bg-card/30' : 'bg-muted/30'
       )}>
         {CORE_TABS.map((tab) => (
@@ -360,7 +427,7 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
                   key={tab.id}
                   onClick={() => {
                     if (tab.id === 'areas') {
-                      setAreasSheetOpen(true);
+                      openAreasList();
                     } else {
                       setPanelTab(panelId, tab.id);
                     }
@@ -392,7 +459,6 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
         {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
       </div>
 
-      <AreasSheet open={areasSheetOpen} onOpenChange={setAreasSheetOpen} />
     </div>
   );
 }

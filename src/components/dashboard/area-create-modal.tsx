@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useRef, type FormEvent } from "react";
 import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
-import { X, Loader2, ImagePlus, Trash2 } from "lucide-react";
+import { X, Loader2, ImagePlus, Trash2, SmilePlus } from "lucide-react";
 import { useCreateArea } from "@/hooks/use-areas";
+import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { cn } from "@/lib/utils";
 
 interface AreaCreateModalProps {
@@ -14,6 +15,7 @@ interface AreaCreateModalProps {
 export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [emoji, setEmoji] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createArea = useCreateArea();
@@ -21,6 +23,7 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
   const resetForm = useCallback(() => {
     setName("");
     setDescription("");
+    setEmoji(null);
     setImagePreview(null);
   }, []);
 
@@ -53,6 +56,7 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
       {
         name: trimmedName,
         description: description.trim() || undefined,
+        emoji: emoji ?? undefined,
         image_url: imagePreview ?? undefined,
       },
       {
@@ -126,7 +130,7 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
 
             {/* Body */}
             <div className="p-5 space-y-4">
-              {/* Image upload */}
+              {/* Emoji / Image upload */}
               <div className="flex justify-center">
                 <input
                   ref={fileInputRef}
@@ -150,18 +154,51 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className={cn(
-                      "w-20 h-20 rounded-xl border-2 border-dashed border-border",
-                      "flex flex-col items-center justify-center gap-1",
-                      "text-muted-foreground hover:text-foreground hover:border-muted-foreground",
-                      "transition-colors cursor-pointer"
-                    )}
-                  >
-                    <ImagePlus size={20} />
-                    <span className="text-[9px] font-medium">Image</span>
-                  </button>
+                  <div className="flex gap-3">
+                    <div className="relative group">
+                      <EmojiPicker onSelect={(e) => setEmoji(e)}>
+                        <button
+                          className={cn(
+                            "w-20 h-20 rounded-xl border border-border",
+                            "flex flex-col items-center justify-center gap-1",
+                            "transition-colors cursor-pointer",
+                            emoji
+                              ? "text-4xl bg-accent/30"
+                              : "border-dashed border-2 text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+                          )}
+                        >
+                          {emoji ? (
+                            emoji
+                          ) : (
+                            <>
+                              <SmilePlus size={20} />
+                              <span className="text-[9px] font-medium">Emoji</span>
+                            </>
+                          )}
+                        </button>
+                      </EmojiPicker>
+                      {emoji && (
+                        <button
+                          onClick={() => setEmoji(null)}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cn(
+                        "w-20 h-20 rounded-xl border-2 border-dashed border-border",
+                        "flex flex-col items-center justify-center gap-1",
+                        "text-muted-foreground hover:text-foreground hover:border-muted-foreground",
+                        "transition-colors cursor-pointer"
+                      )}
+                    >
+                      <ImagePlus size={20} />
+                      <span className="text-[9px] font-medium">Image</span>
+                    </button>
+                  </div>
                 )}
               </div>
 

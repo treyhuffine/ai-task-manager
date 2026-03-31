@@ -1,7 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
-import { areas } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { getArea, updateArea } from '@/lib/db/queries';
 import type { UpdateAreaInput } from '@/db/types';
 
 export async function GET(
@@ -10,8 +8,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
-    const row = db.select().from(areas).where(eq(areas.id, id)).get();
+    const row = getArea(id);
 
     if (!row) {
       return Response.json({ error: 'Area not found' }, { status: 404 });
@@ -30,20 +27,12 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
     const body: UpdateAreaInput = await request.json();
 
-    const existing = db.select().from(areas).where(eq(areas.id, id)).get();
-    if (!existing) {
+    const row = updateArea(id, body);
+    if (!row) {
       return Response.json({ error: 'Area not found' }, { status: 404 });
     }
-
-    const row = db
-      .update(areas)
-      .set({ ...body, updated_at: new Date().toISOString() })
-      .where(eq(areas.id, id))
-      .returning()
-      .get();
 
     return Response.json(row);
   } catch (err) {
