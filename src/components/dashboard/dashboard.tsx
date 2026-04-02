@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from 'react';
 import { DashboardProvider, useDashboard } from '@/contexts/dashboard-context';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { TopHud } from './top-hud';
 import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
@@ -18,7 +20,20 @@ function DashboardShell() {
     theme,
     openNoteId, openTaskId, openAreaId, areasListOpen,
     popSlideout, closeAllSlideouts, slideoutStack,
+    triggerVoiceChat,
   } = useDashboard();
+
+  // Global hotkey for voice chat (Cmd+Shift+M)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (matchesHotkey(e, HOTKEYS.voiceChat)) {
+        e.preventDefault();
+        triggerVoiceChat();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [triggerVoiceChat]);
 
   const hasHistory = slideoutStack.length > 1;
 

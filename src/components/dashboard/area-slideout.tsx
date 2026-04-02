@@ -16,6 +16,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
+import { NoteIcon } from '@/components/shared/note-icon'
 import { cn } from '@/lib/utils'
 
 const DEFAULT_WIDTH = 640
@@ -442,7 +443,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                           onClick={() => openNote(note.id)}
                           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors hover:bg-card"
                         >
-                          <FileText size={13} className="text-muted-foreground/40 flex-shrink-0" />
+                          <NoteIcon body={note.body} size={13} className="text-muted-foreground/40 flex-shrink-0" />
                           <div className="min-w-0 flex-1">
                             <span className="text-[12px] font-medium text-foreground truncate block">
                               {note.title || 'Untitled'}

@@ -6,9 +6,10 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import {
   Search, Target, FileText, MessageSquare, X, Loader2,
   Plus, Sun, Moon, LayoutDashboard, ListTodo, StickyNote,
-  Radio, MessagesSquare,
+  Radio, MessagesSquare, Mic,
   type LucideIcon,
 } from 'lucide-react';
+import { NoteIcon } from '@/components/shared/note-icon';
 import { useSearch } from '@/hooks/use-search';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useCreateTask } from '@/hooks/use-tasks';
@@ -25,7 +26,7 @@ import type { AnyPanelTab } from '@/types/dashboard';
 // ── Icon lookup for palette commands ─────────────────────────
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon,
+  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic,
 };
 
 function CommandIcon({ name, size = 14 }: { name: string; size?: number }) {
@@ -54,10 +55,10 @@ function parseQuery(raw: string): { searchQuery: string; typeFilter: EntityTypeF
 // ── Recent items hook ────────────────────────────────────────
 // ── Entity icon helper ───────────────────────────────────────
 
-function EntityIcon({ type, className }: { type: string; className?: string }) {
+function EntityIcon({ type, hasBody, className }: { type: string; hasBody?: boolean; className?: string }) {
   switch (type) {
     case 'task': return <Target size={14} className={className} />;
-    case 'note': return <FileText size={14} className={className} />;
+    case 'note': return <NoteIcon body={hasBody ? 'x' : ''} size={14} className={className} />;
     case 'stream': return <MessageSquare size={14} className={className} />;
     default: return null;
   }
@@ -75,7 +76,7 @@ export function SearchOverlay() {
   const [rawQuery, setRawQuery] = useState('');
   const { searchQuery, typeFilter, isCommand } = parseQuery(rawQuery);
   const { data: results, isLoading } = useSearch(isCommand ? '' : searchQuery);
-  const { openTask, openNote, toggleTheme, theme, setPanelTab } = useDashboard();
+  const { openTask, openNote, toggleTheme, theme, setPanelTab, triggerVoiceChat } = useDashboard();
   const createTask = useCreateTask();
   const createNote = useCreateNote();
   const { data: recents } = useRecents(10, open);
@@ -118,6 +119,10 @@ export function SearchOverlay() {
         toggleTheme();
         setOpen(false);
         break;
+      case 'voice-chat':
+        setOpen(false);
+        triggerVoiceChat();
+        break;
       default:
         // go-* navigation commands
         if (cmd.id.startsWith('go-')) {
@@ -125,7 +130,7 @@ export function SearchOverlay() {
         }
         break;
     }
-  }, [createTask, createNote, openTask, openNote, toggleTheme, handleNavigate]);
+  }, [createTask, createNote, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat]);
 
   // Hotkey + custom event listeners
   useEffect(() => {
@@ -251,7 +256,7 @@ export function SearchOverlay() {
                   onSelect={() => handleSelect(item.entity_type, item.id)}
                   className={ITEM_CLASS}
                 >
-                  <EntityIcon type={item.entity_type} className="text-primary/60 flex-shrink-0" />
+                  <EntityIcon type={item.entity_type} hasBody={item.has_body} className="text-primary/60 flex-shrink-0" />
                   <span className="text-[12px] font-medium leading-tight line-clamp-1 flex-1">
                     {item.title || '(untitled)'}
                   </span>
@@ -311,7 +316,7 @@ function SearchResultItem({
       className="flex items-start gap-3 px-2 py-2 rounded-md text-left cursor-pointer data-[selected=true]:bg-muted/50"
     >
       <div className="mt-0.5 flex-shrink-0">
-        <EntityIcon type={result.entity_type} className="text-primary/60" />
+        <EntityIcon type={result.entity_type} hasBody={!!result.body?.trim()} className="text-primary/60" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[12px] font-medium leading-tight line-clamp-1">{title}</p>

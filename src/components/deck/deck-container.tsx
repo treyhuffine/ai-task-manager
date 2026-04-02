@@ -212,7 +212,7 @@ function persistDeck(deckId: string, plan: DeckPlan) {
 type DeckPhase = 'intake' | 'deck';
 
 export function DeckContainer() {
-  const { enterFocusMode } = useDashboard();
+  const { enterFocusMode, activeDeckId, clearActiveDeckId } = useDashboard();
 
   // ─── Fetch real data ──────────────────────────────────────────
 
@@ -281,6 +281,33 @@ export function DeckContainer() {
       .catch(err => console.error('Failed to load latest deck:', err))
       .finally(() => setInitialLoadDone(true));
   }, [tasks, areaMap, parentMap, initialLoadDone]);
+
+  // ─── Load specific deck when navigated from chat ────────────
+
+  useEffect(() => {
+    if (!activeDeckId || !tasks) return;
+
+    // If we already have this deck loaded, just clear the trigger
+    if (activeDeckRecord?.id === activeDeckId) {
+      clearActiveDeckId();
+      return;
+    }
+
+    fetch(`/api/deck/${activeDeckId}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Deck not found');
+        return res.json();
+      })
+      .then((record: DeckRecord) => {
+        const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
+        setPlan(hydrated);
+        setActiveDeckRecord(record);
+        setPhase('deck');
+        setInitialLoadDone(true);
+      })
+      .catch(err => console.error('Failed to load deck:', err))
+      .finally(() => clearActiveDeckId());
+  }, [activeDeckId, tasks, areaMap, parentMap, activeDeckRecord, clearActiveDeckId]);
 
   // ─── Filtered items ─────────────────────────────────────────
 

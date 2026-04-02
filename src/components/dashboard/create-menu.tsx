@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Plus, Brain, CheckSquare, FileText, Layers } from "lucide-react";
+import { Plus, CheckSquare, FileText, Layers } from "lucide-react";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { BrainDumpModal } from "./brain-dump-modal";
 import { AreaCreateModal } from "./area-create-modal";
 import { useCreateNote } from "@/hooks/use-notes";
 import { useCreateTask } from "@/hooks/use-tasks";
@@ -15,17 +14,11 @@ import { useDashboard } from "@/contexts/dashboard-context";
 
 export function CreateMenu() {
   const [open, setOpen] = useState(false);
-  const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   const [areaOpen, setAreaOpen] = useState(false);
 
   const createNote = useCreateNote();
   const createTask = useCreateTask();
   const { openNote, openTask } = useDashboard();
-
-  const handleBrainDump = useCallback(() => {
-    setOpen(false);
-    setBrainDumpOpen(true);
-  }, []);
 
   const handleNewTask = useCallback(() => {
     setOpen(false);
@@ -65,19 +58,7 @@ export function CreateMenu() {
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={8} className="w-[220px] p-1.5">
-          <div className="grid grid-cols-2 gap-1">
-            <button
-              onClick={handleBrainDump}
-              className="flex flex-col items-center gap-1.5 px-2 py-3 rounded-lg hover:bg-accent transition-colors group"
-            >
-              <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
-                <Brain size={16} className="text-amber-500" />
-              </div>
-              <span className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                Brain Dump
-              </span>
-            </button>
-
+          <div className="grid grid-cols-3 gap-1">
             <button
               onClick={handleNewTask}
               className="flex flex-col items-center gap-1.5 px-2 py-3 rounded-lg hover:bg-accent transition-colors group"
@@ -117,7 +98,6 @@ export function CreateMenu() {
         </PopoverContent>
       </Popover>
 
-      <BrainDumpModal open={brainDumpOpen} onOpenChange={setBrainDumpOpen} />
       <AreaCreateModal open={areaOpen} onOpenChange={setAreaOpen} />
     </>
   );

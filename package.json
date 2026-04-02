@@ -8,6 +8,7 @@
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",
     "build": "next build",
     "start": "next start",
+    "ts": "tsc --noEmit",
     "lint": "eslint",
     "db:seed": "tsx dev-seed/seed.ts",
     "db:reset": "tsx dev-seed/reset-and-seed.ts",
@@ -16,7 +17,11 @@
     "db:triage:codex": "rm -f dev-seed/raw/triage.json && tsx dev-seed/triage.ts --provider codex",
     "dev:seed-ui": "tsx dev-seed/serve.ts",
     "dev:seed-ui:kill": "lsof -ti :3333 | xargs kill -9 2>/dev/null || true",
-    "db:embed": "dotenv -e .env.local -- tsx src/lib/embeddings/backfill.ts"
+    "db:embed": "dotenv -e .env.local -- tsx src/lib/embeddings/backfill.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@agentex/agent": "^0.0.2",

@@ -5,6 +5,7 @@ export interface RecentItem {
   title: string;
   entity_type: 'task' | 'note';
   last_viewed_at: string;
+  has_body?: boolean;
 }
 
 export const recentsApi = {

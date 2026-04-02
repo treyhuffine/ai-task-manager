@@ -38,20 +38,32 @@ if sys.platform == "win32":
 
 # Model configurations for different precision variants
 MODEL_CONFIGS = {
+    # V3 — 25-language multilingual
     "parakeet-tdt-0.6b-v3": {
         "hf_id": "nemo-parakeet-tdt-0.6b-v3",
         "quantization": "int8",
-        "description": "INT8 (fastest)"
+        "description": "V3 INT8 (fastest, multilingual)"
     },
     "istupakov/parakeet-tdt-0.6b-v3-onnx": {
         "hf_id": "istupakov/parakeet-tdt-0.6b-v3-onnx",
         "quantization": None,
-        "description": "FP32"
+        "description": "V3 FP32 (multilingual)"
     },
     "grikdotnet/parakeet-tdt-0.6b-fp16": {
         "hf_id": "grikdotnet/parakeet-tdt-0.6b-fp16",
         "quantization": "fp16",
-        "description": "FP16"
+        "description": "V3 FP16 (multilingual)"
+    },
+    # V2 — English-only, slightly better English WER (~6.05% vs ~6.34%)
+    "parakeet-tdt-0.6b-v2": {
+        "hf_id": "nemo-parakeet-tdt-0.6b-v2",
+        "quantization": "int8",
+        "description": "V2 INT8 (fastest, English-optimized)"
+    },
+    "parakeet-tdt-0.6b-v2-fp32": {
+        "hf_id": "nemo-parakeet-tdt-0.6b-v2",
+        "quantization": None,
+        "description": "V2 FP32 (English-optimized)"
     },
 }
 

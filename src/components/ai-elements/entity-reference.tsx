@@ -4,12 +4,13 @@ import { type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useDashboard } from '@/contexts/dashboard-context'
 import { cn } from '@/lib/utils'
-import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap } from 'lucide-react'
+import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList } from 'lucide-react'
+import { NoteIcon } from '@/components/shared/note-icon'
 import type { TaskRecord, NoteRecord, AreaRecord } from '@/db/types'
 
 // ─── Types ──────────────────────────────────────────────────
 
-type EntityType = 'task' | 'note' | 'area'
+type EntityType = 'task' | 'note' | 'area' | 'deck'
 
 interface EntitySegment {
   type: 'text' | 'entity'
@@ -20,7 +21,7 @@ interface EntitySegment {
 
 // ─── Parser ─────────────────────────────────────────────────
 
-const ENTITY_PATTERN = /\[\[(task|note|area):([^\]]+)\]\]/g
+const ENTITY_PATTERN = /\[\[(task|note|area|deck):([^\]]+)\]\]/g
 
 export function parseEntityReferences(text: string): EntitySegment[] {
   const segments: EntitySegment[] = []
@@ -76,6 +77,13 @@ const ENTITY_CONFIG: Record<EntityType, {
     borderColor: 'border-l-emerald-500',
     iconColor: 'text-emerald-500',
     fetchUrl: (id) => `/api/areas/${id}`,
+  },
+  deck: {
+    icon: LayoutList,
+    label: 'Deck',
+    borderColor: 'border-l-violet-500',
+    iconColor: 'text-violet-500',
+    fetchUrl: (id) => `/api/deck/${id}`,
   },
 }
 
@@ -173,7 +181,7 @@ function NoteCard({ data, onClick }: { data: NoteRecord; onClick: () => void }) 
         ENTITY_CONFIG.note.borderColor,
       )}
     >
-      <FileText size={14} className={cn('flex-shrink-0 mt-0.5', ENTITY_CONFIG.note.iconColor)} />
+      <NoteIcon body={data.body} size={14} className={cn('flex-shrink-0 mt-0.5', ENTITY_CONFIG.note.iconColor)} />
       <div className="flex-1 min-w-0">
         {data.title && (
           <div className="text-xs font-medium text-foreground truncate">{data.title}</div>
@@ -226,10 +234,46 @@ function AreaCard({ data }: { data: AreaRecord & { emoji?: string } }) {
   )
 }
 
+// ─── Deck Card ───────────────────────────────────────────────
+
+function DeckCard({ data, onClick }: { data: { id: string; framing?: string | null; items: { taskId: string; rationale: string }[]; created_at: string }; onClick: () => void }) {
+  const itemCount = data.items?.length ?? 0
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-start gap-2.5 w-full rounded-lg border border-border border-l-2 bg-card px-3 py-2.5 text-left transition-colors hover:bg-accent/50',
+        ENTITY_CONFIG.deck.borderColor,
+      )}
+    >
+      <LayoutList size={14} className={cn('flex-shrink-0 mt-0.5', ENTITY_CONFIG.deck.iconColor)} />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium text-foreground">
+          Your new deck is ready
+        </div>
+        {data.framing && (
+          <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+            {data.framing}
+          </div>
+        )}
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="text-[10px] text-muted-foreground font-medium">
+            {itemCount} {itemCount === 1 ? 'item' : 'items'}
+          </span>
+          <span className="text-[10px] text-violet-500 font-medium">
+            View deck
+          </span>
+        </div>
+      </div>
+    </button>
+  )
+}
+
 // ─── EntityChip (orchestrator) ──────────────────────────────
 
 function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
-  const { openTask, openNote } = useDashboard()
+  const { openTask, openNote, openDeck } = useDashboard()
   const config = ENTITY_CONFIG[entityType]
 
   const { data, isLoading, isError } = useQuery({
@@ -283,6 +327,14 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
     return (
       <div className="my-1">
         <AreaCard data={data as AreaRecord & { emoji?: string }} />
+      </div>
+    )
+  }
+
+  if (entityType === 'deck') {
+    return (
+      <div className="my-1">
+        <DeckCard data={data} onClick={() => openDeck(entityId)} />
       </div>
     )
   }

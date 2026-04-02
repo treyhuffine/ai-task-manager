@@ -264,6 +264,13 @@ CREATE TABLE user_state (
   active_energy TEXT,                                 -- deep | light (energy toggle state)
   available_minutes INTEGER,                          -- inferred from calendar, not user-managed
   description TEXT NOT NULL DEFAULT '',               -- user's personal description/prompt for AI personalization
+  voice_auto_send INTEGER NOT NULL DEFAULT 1,          -- boolean: when true, voice input sends immediately;
+                                                       -- when false, voice transcription drops into the text box for editing
+  voice_model TEXT NOT NULL DEFAULT 'local/parakeet-tdt-0.6b-v3',  -- provider/model format: provider routes the request, model name passes through
+                                                       -- local/*: self-hosted at LOCAL_SPEECH_TO_TEXT_URL (parakeet-tdt-0.6b-v3, parakeet-tdt-0.6b-v2, etc.)
+                                                       -- groq/*: Groq cloud via GROQ_API_KEY (whisper-large-v3-turbo, etc.)
+                                                       -- openai/*: OpenAI cloud via OPENAI_API_KEY (whisper-1, etc.)
+                                                       -- web/speech-recognition: browser Speech API, no config needed
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

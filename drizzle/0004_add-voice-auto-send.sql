@@ -1,0 +1,1 @@
+ALTER TABLE `user_state` ADD `voice_auto_send` integer DEFAULT true NOT NULL;

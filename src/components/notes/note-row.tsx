@@ -1,8 +1,9 @@
 "use client";
 
 import {
-  FileText, ExternalLink, Archive, MoreHorizontal,
+  ExternalLink, Archive, MoreHorizontal,
 } from 'lucide-react';
+import { NoteIcon } from '@/components/shared/note-icon';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -66,7 +67,7 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
     >
       {/* Icon */}
       <div className="mt-0.5 text-muted-foreground/50 flex-shrink-0">
-        {note.url ? <ExternalLink size={14} /> : <FileText size={14} />}
+        {note.url ? <ExternalLink size={14} /> : <NoteIcon body={note.body} size={14} />}
       </div>
 
       {/* Content */}

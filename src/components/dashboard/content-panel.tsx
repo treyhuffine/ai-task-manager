@@ -3,9 +3,9 @@
 import {
   Layers, ChevronDown,
   Send, Users, Gavel, Calendar,
-  Mic, Square, MessageSquare,
+  Mic, Square, MessageSquare, Loader2, Pencil, X,
   Zap, Radar, Shuffle, Clock, AlertCircle, Battery, Trophy, TrendingDown, MoreHorizontal,
-  Wrench, Check, XCircle,
+  Wrench, Check, XCircle, AudioLines,
 } from 'lucide-react';
 import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
@@ -31,6 +31,9 @@ import {
 import { EntityAwareText } from '@/components/ai-elements/entity-reference';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { APP_NAME } from '@/constants/app';
+import { useVoiceInput } from '@/hooks/use-voice-input';
+import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
+import { LiveWaveform } from '@/components/ui/live-waveform';
 
 // ─── Tab definitions ───────────────────────────────────────────
 
@@ -119,16 +122,116 @@ function ToolCallIndicator({ toolName, state }: { toolName: string; state?: stri
   );
 }
 
-function ChatContent() {
-  const { theme } = useDashboard();
+// ─── Voice message badge with popover toggle ─────────────────
+
+function VoiceSentBadge({ voiceAutoSend, onToggleAutoSend }: { voiceAutoSend: boolean; onToggleAutoSend: () => void }) {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div className="flex justify-end relative" ref={popoverRef}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40 rounded-full px-2 py-0.5 transition-all"
+      >
+        <AudioLines size={10} />
+        <span>Sent with voice</span>
+        <ChevronDown size={8} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute top-full right-0 mt-1 w-56 rounded-lg border border-border bg-card shadow-xl z-50 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-foreground">Auto-send voice</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={voiceAutoSend}
+              onClick={onToggleAutoSend}
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors ${
+                voiceAutoSend ? 'bg-primary' : 'bg-muted'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-sm transition-transform ${
+                voiceAutoSend ? 'translate-x-4' : 'translate-x-0'
+              }`} />
+            </button>
+          </div>
+          <p className="text-[9px] text-muted-foreground leading-relaxed">
+            {voiceAutoSend
+              ? 'Voice input sends immediately.'
+              : 'Voice input goes to the text box for editing.'}
+            {' '}Also in profile settings.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatContent({ panelId }: { panelId: PanelId }) {
+  const { theme, voiceChatPanelTarget, clearVoiceChatTrigger } = useDashboard();
   const isDark = theme === 'dark';
   const [input, setInput] = useState('');
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const moreActionsRef = useRef<HTMLDivElement>(null);
   const { messages, sendMessage, status, stop } = useChat();
   const isStreaming = status === 'streaming';
+  const { data: userState } = useUserState();
+  const updateUserState = useUpdateUserState();
+  const voiceAutoSend = userState?.voice_auto_send ?? true;
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
+  // Track which message IDs were sent via voice
+  const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(new Set());
+  const pendingVoiceSendRef = useRef(false);
+
+  const voice = useVoiceInput();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const micButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Keep a ref to voice so the hotkey effect can read latest values
+  // without depending on toggleRecording identity (which changes on every
+  // isRecording flip and would re-trigger the effect).
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+
+  // Escape cancels recording
+  useEffect(() => {
+    if (!voice.isRecording) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        voiceRef.current.cancelRecording();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => document.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [voice.isRecording]);
+
+  // Respond to global voice chat hotkey trigger
+  useEffect(() => {
+    if (voiceChatPanelTarget !== panelId) return;
+    const v = voiceRef.current;
+    clearVoiceChatTrigger();
+    if (!v.isSupported) return;
+    v.toggleRecording();
+    // Focus the mic button so space bar can stop recording
+    requestAnimationFrame(() => micButtonRef.current?.focus());
+  }, [voiceChatPanelTarget, panelId, clearVoiceChatTrigger]);
+
+  const handleSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const text = input.trim();
     if (!text) return;
@@ -140,6 +243,46 @@ function ChatContent() {
     sendMessage({ text: message });
     setMoreActionsOpen(false);
   }, [sendMessage]);
+
+  // Send voice transcript
+  const handleVoiceSend = useCallback(() => {
+    const text = voice.transcript.trim();
+    if (!text) return;
+    pendingVoiceSendRef.current = true;
+    sendMessage({ text });
+    voice.clearTranscript();
+  }, [voice.transcript, voice.clearTranscript, sendMessage]);
+
+  // Mark the latest user message as voice-sent when pending
+  const voiceSentIdsRef = useRef(voiceSentIds);
+  voiceSentIdsRef.current = voiceSentIds;
+  useEffect(() => {
+    if (pendingVoiceSendRef.current && messages.length > 0) {
+      const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+      if (lastUserMsg && !voiceSentIdsRef.current.has(lastUserMsg.id)) {
+        setVoiceSentIds(prev => new Set(prev).add(lastUserMsg.id));
+      }
+      pendingVoiceSendRef.current = false;
+    }
+  }, [messages]);
+
+  // Auto-send: when voice_auto_send is on and transcript arrives, send immediately
+  useEffect(() => {
+    if (voiceAutoSend && voice.transcript.trim() && !voice.isRecording && !voice.isTranscribing) {
+      handleVoiceSend();
+    }
+  }, [voiceAutoSend, voice.transcript, voice.isRecording, voice.isTranscribing, handleVoiceSend]);
+
+  // Move transcript to text box for editing
+  const handleVoiceEdit = useCallback(() => {
+    setInput(prev => prev ? `${prev} ${voice.transcript.trim()}` : voice.transcript.trim());
+    voice.clearTranscript();
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [voice]);
+
+  const handleToggleAutoSend = useCallback(() => {
+    updateUserState.mutate({ voice_auto_send: !voiceAutoSend });
+  }, [updateUserState, voiceAutoSend]);
 
   // Close more actions on outside click
   useEffect(() => {
@@ -159,63 +302,181 @@ function ChatContent() {
       if (isStreaming) {
         stop();
       } else if (input.trim()) {
-        handleSubmit(e);
+        sendMessage({ text: input.trim() });
+        setInput('');
       }
     }
   };
 
+  // Show voice panel when transcribing or when there's a transcript to review (non-auto-send)
+  const hasTranscriptToReview = !voiceAutoSend && !!voice.transcript.trim() && !voice.isRecording && !voice.isTranscribing;
+  const showVoicePanel = voice.isTranscribing || hasTranscriptToReview;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-            <MessageSquare size={24} className="opacity-30" />
-            <p className="text-[11px]">Start a conversation with {APP_NAME}</p>
-          </div>
-        ) : (
-          <Conversation className="h-full">
-            <ConversationContent className="gap-4">
-              {messages.map((message) => (
-                <Fragment key={message.id}>
-                  {message.parts.map((part, i) => {
-                    if (part.type === 'text') {
-                      return (
-                        <Message from={message.role} key={`${message.id}-${i}`}>
-                          <MessageContent>
-                            <EntityAwareText
-                              text={part.text}
-                              renderMarkdown={(text, key) => (
-                                <MessageResponse key={key}>{text}</MessageResponse>
-                              )}
-                            />
-                          </MessageContent>
-                        </Message>
-                      );
-                    }
-                    if (isToolUIPart(part)) {
-                      return (
-                        <ToolCallIndicator
-                          key={`${message.id}-${i}`}
-                          toolName={getToolName(part)}
-                          state={part.state}
-                        />
-                      );
-                    }
-                    return null;
-                  })}
-                </Fragment>
-              ))}
-              {(status === 'submitted' || (isStreaming && messages.at(-1)?.role !== 'assistant')) && (
-                <Shimmer as="span" className="text-[11px]" duration={1.5}>
-                  {`${APP_NAME} is thinking...`}
-                </Shimmer>
+      {/* Messages area + floating mic overlay */}
+      <div className="flex-1 min-h-0 relative">
+        <div className="h-full overflow-y-auto">
+          {messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+              <MessageSquare size={24} className="opacity-30" />
+              <p className="text-[11px]">Start a conversation with {APP_NAME}</p>
+            </div>
+          ) : (
+            <Conversation className="h-full">
+              <ConversationContent className="gap-4">
+                {messages.map((message) => (
+                  <Fragment key={message.id}>
+                    {message.parts.map((part, i) => {
+                      if (part.type === 'text') {
+                        return (
+                          <Message from={message.role} key={`${message.id}-${i}`}>
+                            <MessageContent>
+                              <EntityAwareText
+                                text={part.text}
+                                renderMarkdown={(text, key) => (
+                                  <MessageResponse key={key}>{text}</MessageResponse>
+                                )}
+                              />
+                            </MessageContent>
+                            {message.role === 'user' && voiceSentIds.has(message.id) && i === 0 && (
+                              <VoiceSentBadge voiceAutoSend={voiceAutoSend} onToggleAutoSend={handleToggleAutoSend} />
+                            )}
+                          </Message>
+                        );
+                      }
+                      if (isToolUIPart(part)) {
+                        return (
+                          <ToolCallIndicator
+                            key={`${message.id}-${i}`}
+                            toolName={getToolName(part)}
+                            state={part.state}
+                          />
+                        );
+                      }
+                      return null;
+                    })}
+                  </Fragment>
+                ))}
+                {(status === 'submitted' || (isStreaming && messages.at(-1)?.role !== 'assistant')) && (
+                  <Shimmer as="span" className="text-[11px]" duration={1.5}>
+                    {`${APP_NAME} is thinking...`}
+                  </Shimmer>
+                )}
+              </ConversationContent>
+              <ConversationScrollButton />
+            </Conversation>
+          )}
+        </div>
+
+        {/* ── Floating mic button + waveform overlay ── */}
+        {voice.isSupported && !voice.isTranscribing && (
+          <div className="absolute bottom-3 left-0 right-0 z-10 flex justify-center pointer-events-none">
+            {/* Layout: waveform above, buttons below — change to "behind" layout by
+                swapping this to absolute positioning (see git history) */}
+            <div className="flex flex-col items-center gap-1.5">
+              {/* Waveform bar above the button */}
+              {voice.isRecording && (
+                <div className="w-72 px-2 opacity-70">
+                  <LiveWaveform
+                    active={voice.isRecording}
+                    stream={voice.stream}
+                    height={32}
+                    barWidth={2}
+                    barGap={1}
+                    barRadius={1}
+                    sensitivity={1.2}
+                    mode="static"
+                    fadeEdges
+                    className="text-foreground"
+                  />
+                </div>
               )}
-            </ConversationContent>
-            <ConversationScrollButton />
-          </Conversation>
+
+              <div className="pointer-events-auto flex items-center gap-1.5 group">
+              <button
+                ref={micButtonRef}
+                type="button"
+                onClick={voice.toggleRecording}
+                disabled={voice.isTranscribing}
+                className={cn(
+                  'w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95',
+                  'bg-primary text-primary-foreground shadow-primary/30',
+                  !voice.isRecording && 'hover:opacity-90 hover:scale-105',
+                  voice.isTranscribing && 'opacity-50 cursor-not-allowed'
+                )}
+                title={voice.isRecording ? 'Stop recording' : 'Voice input'}
+              >
+                {voice.isRecording ? <Square size={16} /> : <Mic size={18} />}
+              </button>
+              {voice.isRecording && (
+                <button
+                  type="button"
+                  onClick={voice.cancelRecording}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-card/80 backdrop-blur-sm border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-all active:scale-95"
+                  title="Cancel (Esc)"
+                >
+                  <X size={14} />
+                </button>
+              )}
+              {!voice.isRecording && (
+                <kbd className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-muted rounded text-[8px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                  {'\u2318'}J
+                </kbd>
+              )}
+            </div>
+            </div>
+          </div>
         )}
       </div>
+
+      {/* Voice panel: transcribing spinner or transcript bar */}
+      {showVoicePanel && (
+        <div className="shrink-0 px-3 py-2">
+          {voice.isTranscribing && (
+            <div className="flex items-center justify-center gap-2 py-1.5 px-4 rounded-full bg-muted/60 mx-auto w-fit">
+              <Loader2 size={12} className="text-muted-foreground animate-spin" />
+              <span className="text-[11px] text-muted-foreground">
+                Transcribing...
+              </span>
+            </div>
+          )}
+
+          {hasTranscriptToReview && (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 flex items-center gap-2">
+              <AudioLines size={12} className="text-primary shrink-0" />
+              <p className="flex-1 text-sm text-foreground truncate">{voice.transcript}</p>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={voice.clearTranscript}
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+                  title="Discard"
+                >
+                  <X size={14} />
+                </button>
+                <button
+                  onClick={handleVoiceEdit}
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+                  title="Edit in text box"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onClick={handleVoiceSend}
+                  className="w-7 h-7 rounded-md flex items-center justify-center bg-primary text-primary-foreground active:scale-95 transition-all"
+                  title="Send"
+                >
+                  <Send size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {voice.error && (
+            <p className="text-[10px] text-destructive mt-1">{voice.error}</p>
+          )}
+        </div>
+      )}
 
       {/* Quick actions + Input */}
       <div className="shrink-0 p-3 border-t border-border space-y-2">
@@ -275,22 +536,19 @@ function ChatContent() {
             )}
           </div>
         </div>
+
+        {/* Text input */}
         <form onSubmit={handleSubmit} className="relative group">
           <div className="absolute -inset-0.5 bg-primary/15 rounded-xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity" />
           <div className="relative bg-card border border-border rounded-xl p-1 flex items-center gap-2 focus-within:border-primary/30 transition-all">
-            <button
-              type="button"
-              className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center text-primary-foreground shadow-sm hover:opacity-90 active:scale-95 transition-all"
-            >
-              <Mic size={16} />
-            </button>
             <input
+              ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Tell Eon what's next..."
-              className="flex-1 bg-transparent border-none outline-none text-sm py-2 placeholder:text-muted-foreground"
+              placeholder="Execute your plan..."
+              className="flex-1 bg-transparent border-none outline-none text-sm py-2 pl-2 placeholder:text-muted-foreground"
             />
             {isStreaming ? (
               <button
@@ -344,14 +602,13 @@ interface ContentPanelProps {
 
 export function ContentPanel({ panelId }: ContentPanelProps) {
   const {
-    panelATab, panelBTab, focusedPanel,
+    panelATab, panelBTab,
     setPanelTab, setFocusedPanel, theme,
     openAreasList,
   } = useDashboard();
   const isDark = theme === 'dark';
 
   const activeTab = panelId === 'a' ? panelATab : panelBTab;
-  const isFocused = focusedPanel === panelId;
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -452,7 +709,7 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === 'deck' && <DeckContainer />}
-        {activeTab === 'chat' && <ChatContent />}
+        {activeTab === 'chat' && <ChatContent panelId={panelId} />}
         {activeTab === 'tasks' && <TaskList />}
         {activeTab === 'stream' && <StreamList />}
         {activeTab === 'notes' && <NoteList />}

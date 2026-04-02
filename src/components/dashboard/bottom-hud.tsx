@@ -18,10 +18,10 @@ export function BottomHud() {
         </span>
       </div>
 
-      <div className="flex items-center gap-5 text-[8.5px] font-bold text-muted-foreground uppercase tracking-[0.15em]">
-        <span className="hover:text-primary cursor-help transition-colors">{"\u2318"}K FOCUS</span>
-        <span className="hover:text-primary cursor-help transition-colors">{"\u2318"}I VOICE</span>
-        <span className="hover:text-primary cursor-help transition-colors">{"\u2318"}E EXECUTE</span>
+      <div className="flex items-center gap-4 text-[8.5px] text-muted-foreground">
+        <span className="flex items-center gap-1"><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{"\u2318"}K</kbd> search</span>
+        <span className="flex items-center gap-1"><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{"\u2318"}J</kbd> voice</span>
+        <span className="flex items-center gap-1"><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{"\u2318"}E</kbd> execute</span>
       </div>
     </footer>
   );

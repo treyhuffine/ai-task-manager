@@ -10,6 +10,8 @@ export const userState = sqliteTable('user_state', {
   active_energy: text('active_energy', { enum: ['deep', 'light'] }),
   available_minutes: integer('available_minutes'),
   description: text('description').notNull().default(''),
+  voice_auto_send: integer('voice_auto_send', { mode: 'boolean' }).notNull().default(true),
+  voice_model: text('voice_model').notNull().default('local/parakeet-tdt-0.6b-v3'),
   updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });
 

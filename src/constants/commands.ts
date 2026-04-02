@@ -11,6 +11,7 @@ export interface Hotkey {
 
 export const HOTKEYS = {
   search: { key: 'k', meta: true, label: '\u2318K' },
+  voiceChat: { key: 'j', meta: true, label: '\u2318J' },
   slideoutBack: { key: 'Escape', label: 'Esc' },
   slideoutCloseAll: { key: 'Escape', shift: true, label: '\u21E7Esc' },
 } as const satisfies Record<string, Hotkey>;
@@ -39,6 +40,9 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   // Create
   { id: 'create-task', label: 'Create task', keywords: 'new add task', icon: 'Plus', shortcut: 'T', group: 'create' },
   { id: 'create-note', label: 'Create note', keywords: 'new add note', icon: 'StickyNote', shortcut: 'N', group: 'create' },
+
+  // Voice
+  { id: 'voice-chat', label: 'Voice chat', keywords: 'voice mic record dictate speak', icon: 'Mic', shortcut: '\u2318J', group: 'navigate' },
 
   // Navigate
   { id: 'go-deck', label: 'Go to Deck', keywords: 'navigate deck dashboard', icon: 'LayoutDashboard', group: 'navigate' },

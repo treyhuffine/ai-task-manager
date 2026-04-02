@@ -47,6 +47,10 @@ interface DashboardState {
   areasListOpen: boolean;
   slideoutStack: SlideoutEntry[];
   slideoutCloseBehavior: SlideoutCloseBehavior;
+  // Voice chat hotkey trigger — set to a panel ID to tell that panel's ChatContent to start voice
+  voiceChatPanelTarget: PanelId | null;
+  // Deck navigation — set by chat [[deck:ID]] cards to show a specific deck
+  activeDeckId: string | null;
 }
 
 interface DashboardActions {
@@ -76,6 +80,12 @@ interface DashboardActions {
   closeNote: () => void;
   closeTask: () => void;
   closeArea: () => void;
+  // Voice chat hotkey
+  triggerVoiceChat: () => void;
+  clearVoiceChatTrigger: () => void;
+  // Deck navigation
+  openDeck: (deckId: string) => void;
+  clearActiveDeckId: () => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -119,6 +129,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [focusTask, setFocusTask] = useState<FocusTask | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>(null);
   const [selectedProject, setSelectedProject] = useState('All Projects');
+  // ─── Voice chat hotkey trigger ──────────────────────────────
+  const [voiceChatPanelTarget, setVoiceChatPanelTarget] = useState<PanelId | null>(null);
+  // ─── Deck navigation ──────────────────────────────────────
+  const [activeDeckId, setActiveDeckId] = useState<string | null>(null);
+
   // ─── Slideout stack ──────────────────────────────────────────
   const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>([]);
 
@@ -190,6 +205,51 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setFocusedPanel('a');
   }, []);
 
+  const triggerVoiceChat = useCallback(() => {
+    const aHasChat = panelATab === 'chat';
+    const bHasChat = panelBTab === 'chat';
+
+    let target: PanelId;
+    if (aHasChat && !bHasChat) {
+      target = 'a';
+    } else if (bHasChat && !aHasChat) {
+      target = 'b';
+    } else if (aHasChat && bHasChat) {
+      target = focusedPanel;
+    } else {
+      // Neither has chat — default to panel B (right)
+      target = 'b';
+      setPanelBTab('chat');
+    }
+
+    setVoiceChatPanelTarget(target);
+  }, [panelATab, panelBTab, focusedPanel]);
+
+  const clearVoiceChatTrigger = useCallback(() => {
+    setVoiceChatPanelTarget(null);
+  }, []);
+
+  const openDeck = useCallback((deckId: string) => {
+    setActiveDeckId(deckId);
+    // Switch a panel to deck tab — prefer whichever panel already has the deck,
+    // otherwise use the panel that doesn't have chat
+    const aHasDeck = panelATab === 'deck';
+    const bHasDeck = panelBTab === 'deck';
+    if (!aHasDeck && !bHasDeck) {
+      // Neither panel has deck — put it on whichever isn't chat
+      const aHasChat = panelATab === 'chat';
+      if (aHasChat) {
+        setPanelBTab('deck');
+      } else {
+        setPanelATab('deck');
+      }
+    }
+  }, [panelATab, panelBTab]);
+
+  const clearActiveDeckId = useCallback(() => {
+    setActiveDeckId(null);
+  }, []);
+
   return (
     <DashboardContext.Provider value={{
       theme,
@@ -234,6 +294,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       pushSlideout,
       popSlideout,
       closeAllSlideouts,
+      voiceChatPanelTarget,
+      triggerVoiceChat,
+      clearVoiceChatTrigger,
+      activeDeckId,
+      openDeck,
+      clearActiveDeckId,
     }}>
       {children}
     </DashboardContext.Provider>

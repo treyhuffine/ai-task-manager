@@ -436,7 +436,7 @@ const deckTools = {
     }),
     execute: async (params) => {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || 'http://localhost:3000';
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || `http://localhost:${process.env.PORT || 4224}`;
         console.log('[tool:regenerateDeck] calling', `${baseUrl}/api/deck/generate`);
         const res = await fetch(`${baseUrl}/api/deck/generate`, {
           method: 'POST',

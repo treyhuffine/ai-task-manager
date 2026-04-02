@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
         title: sql<string>`COALESCE(${notes.title}, substr(${notes.body}, 1, 60))`.as('title'),
         entity_type: sql<string>`'note'`.as('entity_type'),
         last_viewed_at: notes.last_viewed_at,
+        has_body: sql<boolean>`(length(trim(${notes.body})) > 0)`.as('has_body'),
       })
       .from(notes)
       .where(isNotNull(notes.last_viewed_at))
