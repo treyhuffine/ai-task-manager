@@ -11,7 +11,6 @@ export interface CreateDeviceBody {
 export interface CreateDeviceResponse {
   key: ApiKeyRecord;
   plaintext: string;
-  pairingUrl: string;
 }
 
 export const devicesApi = {

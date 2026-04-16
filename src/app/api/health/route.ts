@@ -8,6 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { APP_SHORT_ID } from '@/constants/app';
+import { getRunningPort } from '@/lib/auth/port';
 
 export const runtime = 'nodejs';
 
@@ -15,5 +16,6 @@ export function GET() {
   return NextResponse.json({
     ok: true,
     app: APP_SHORT_ID,
+    port: getRunningPort(),
   });
 }

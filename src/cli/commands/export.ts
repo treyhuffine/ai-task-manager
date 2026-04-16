@@ -6,7 +6,7 @@
  * tools (Obsidian, Logseq, static site generators). For a lossless backup,
  * copy the SQLite DB file directly.
  *
- *   <app> export                                 → everything to ./flow-export-<ts>/
+ *   <app> export                                 → everything to <data-dir>/exports/<app>-export-<ts>/
  *   <app> export --out ./backup                  → everything to ./backup/
  *   <app> export --tasks                         → tasks only
  *   <app> export --notes                         → notes only
@@ -27,6 +27,7 @@ import pc from 'picocolors';
 import { Command } from 'commander';
 import { listTasks, getTask, listNotes, getNote, listAreas, getArea } from '@/lib/db/queries';
 import { getUserDataDir } from '@/lib/config/paths';
+import { APP_SHORT_ID } from '@/constants/app';
 import {
   taskToMarkdown,
   noteToMarkdown,
@@ -239,7 +240,7 @@ function areaNameFor(id: string | null, map: Map<string, AreaRecord>): string | 
 
 function defaultOutDir(): string {
   const ts = new Date().toISOString().slice(0, 10);
-  return path.join(getUserDataDir(), 'exports', `flow-export-${ts}`);
+  return path.join(getUserDataDir(), 'exports', `${APP_SHORT_ID}-export-${ts}`);
 }
 
 function writeSingle(content: string, defaultName: string, out?: string) {

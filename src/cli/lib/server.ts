@@ -56,14 +56,51 @@ function canConnect(port: number): Promise<boolean> {
  * any other process on the port will either refuse connection or 401.
  */
 export async function isOurServerRunning(port: number, token: string): Promise<boolean> {
-  if (!(await canConnect(port))) return false;
+  return (await probeHealth(port, token)).status === 'ok';
+}
+
+export interface HealthInfo {
+  ok: boolean;
+  app: string;
+  port: number;
+}
+
+export type HealthProbe =
+  | { status: 'ok'; info: HealthInfo }
+  | { status: 'offline' }
+  | { status: 'unreachable'; detail: string }
+  | { status: 'unauthorized'; httpStatus: number }
+  | { status: 'unknown-app'; detail: string };
+
+/**
+ * Probe `/api/health` on a given port.
+ *
+ * Timeout is generous (10s) because the Next dev server compiles routes
+ * lazily — a cold first hit to `/api/health` often takes several seconds.
+ */
+export async function probeHealth(port: number, token: string): Promise<HealthProbe> {
+  if (!(await canConnect(port))) return { status: 'offline' };
   try {
-    const res = await fetch(`http://localhost:${port}/api/health`, {
+    // Use 127.0.0.1 (not `localhost`) to match canConnect() above — some
+    // macOS / dual-stack setups resolve `localhost` to `::1` first, which
+    // would fail when the Next server binds IPv4-only.
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
       headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(1000),
+      signal: AbortSignal.timeout(10_000),
     });
-    return res.ok;
-  } catch {
-    return false;
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', httpStatus: res.status };
+    }
+    if (!res.ok) {
+      return { status: 'unknown-app', detail: `HTTP ${res.status}` };
+    }
+    const body = (await res.json()) as Partial<HealthInfo>;
+    if (typeof body.port !== 'number' || typeof body.app !== 'string') {
+      return { status: 'unknown-app', detail: 'health response missing fields' };
+    }
+    return { status: 'ok', info: { ok: body.ok ?? true, app: body.app, port: body.port } };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { status: 'unreachable', detail };
   }
 }

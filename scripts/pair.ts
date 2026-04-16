@@ -2,17 +2,12 @@
 /**
  * `pnpm auth:pair`
  *
- * Prints the current host pairing URL. Creates one if missing.
+ * Thin wrapper around the CLI `pair` command for convenience.
  */
 
-import { ensureLocalToken } from '../src/lib/auth/bootstrap';
+import { pairCommand } from '../src/cli/commands/pair';
 
-function main() {
-  const info = ensureLocalToken();
-  if (info.created) {
-    console.log('Created new host token.');
-  }
-  console.log(info.pairingUrl);
-}
-
-main();
+pairCommand().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});

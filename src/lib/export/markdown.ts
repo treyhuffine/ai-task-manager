@@ -44,10 +44,20 @@ function yamlValue(v: unknown): string {
     return '[' + v.map((x) => yamlValue(x)).join(', ') + ']'
   }
   const s = String(v)
-  // Quote if it contains YAML-significant chars, leading/trailing whitespace,
-  // or could be mis-parsed as a number/bool/null.
-  if (/^\s|\s$|[:#\-&*!?|>'"%@`,\[\]{}]|^(true|false|null|yes|no|\d)/i.test(s) || s === '') {
-    return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
+  // Quote if it contains newlines, YAML-significant chars, leading/trailing
+  // whitespace, or could be mis-parsed as a number/bool/null. Newlines must be
+  // escaped inside the quoted form — a literal newline would break the
+  // frontmatter parse for everything after it.
+  if (/[\r\n]/.test(s) || /^\s|\s$|[:#\-&*!?|>'"%@`,\[\]{}]|^(true|false|null|yes|no|\d)/i.test(s) || s === '') {
+    return (
+      '"' +
+      s
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r') +
+      '"'
+    )
   }
   return s
 }
@@ -81,22 +91,33 @@ export function taskToMarkdown(
     energy: task.energy,
     effort: task.effort,
     estimated_minutes: task.estimated_minutes,
+    heartbeat_days: task.heartbeat_days,
     hard_deadline: task.hard_deadline,
     resurface_after: task.resurface_after,
     reminder_at: task.reminder_at,
     recurrence: task.recurrence,
+    next_recurrence_at: task.next_recurrence_at,
+    target_frequency: task.target_frequency,
     context_tags: task.context_tags,
+    attachments: task.attachments,
     blocked_on: task.blocked_on,
     blocked_since: task.blocked_since,
     outcome: task.outcome,
     times_deferred: task.times_deferred || null,
+    last_progress_at: task.last_progress_at,
     created_at: task.created_at,
     updated_at: task.updated_at,
     completed_at: task.completed_at,
   })
 
+  const parts: string[] = [frontmatter, '', `# ${task.title}`]
+  const description = (task.description ?? '').trim()
   const body = (task.body ?? '').trim()
-  const content = `${frontmatter}\n\n# ${task.title}\n${body ? '\n' + body + '\n' : ''}`
+  const userContext = (task.user_context ?? '').trim()
+  if (description) parts.push('', description)
+  if (body) parts.push('', body)
+  if (userContext) parts.push('', '## Context', '', userContext)
+  const content = parts.join('\n') + '\n'
   const filename = `${slugify(task.title) || task.id}.md`
   return { filename, content }
 }

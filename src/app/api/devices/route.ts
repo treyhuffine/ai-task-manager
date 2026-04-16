@@ -1,6 +1,5 @@
 import type { NextRequest } from 'next/server';
 import { createApiKey, listApiKeys } from '@/lib/db/queries';
-import { buildPairingUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { deviceTypeFromUserAgent } from '@/lib/auth/device-type';
 import type { CreateApiKeyInput, DeviceType } from '@/db/types';
 
@@ -52,16 +51,12 @@ export async function POST(request: NextRequest) {
     };
 
     const { key, token } = createApiKey(input);
-    const host = request.headers.get('host');
-    const proto = request.headers.get('x-forwarded-proto') ?? 'http';
-    const baseUrl = host ? `${proto}://${host}` : getLocalBaseUrl();
-    const pairingUrl = buildPairingUrl(token.plaintext, baseUrl);
-
+    // Client builds pairing URLs from `plaintext` + window.location /
+    // server-known base URLs — no need to return a pre-baked one here.
     return Response.json(
       {
         key,
         plaintext: token.plaintext,
-        pairingUrl,
       },
       { status: 201 },
     );

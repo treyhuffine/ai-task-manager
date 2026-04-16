@@ -35,7 +35,16 @@ program
 
 program
   .command('pair')
-  .description('Print the pairing URL (creates a token if missing)')
+  .description('Mint a new device key and print its pairing URL + QR')
+  .option('-n, --name <name>', 'label for the new device (shown in web UI)')
+  .option(
+    '-t, --type <type>',
+    'device type: desktop | laptop | phone | tablet | cli | other',
+  )
+  .option('--lan', 'use the LAN IP instead of the remote URL')
+  .option('--local', 'use localhost instead of the remote URL')
+  .option('--set-url <url>', 'save a public/tunnel base URL for off-network pairing')
+  .option('--clear-url', 'forget the saved public/tunnel base URL')
   .action(pairCommand);
 
 program

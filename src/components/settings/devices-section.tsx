@@ -4,9 +4,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, KeyRound, Plus, Trash2, Check, Loader2 } from 'lucide-react';
 import { devicesApi, type CreateDeviceResponse } from '@/lib/api/devices';
+import { settingsApi } from '@/lib/api/settings';
 import type { ApiKeyRecord, DeviceType } from '@/db/types';
 import { tokenDisplay } from '@/lib/auth/tokens';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { QrCode } from '@/components/settings/qr-code';
+import { RemoteBaseUrlSection } from '@/components/settings/remote-base-url';
 
 const DEVICE_TYPES: DeviceType[] = ['laptop', 'desktop', 'phone', 'tablet', 'cli', 'other'];
 
@@ -27,11 +31,16 @@ export function DevicesSection() {
     queryFn: () => devicesApi.list(),
   });
 
+  const { data: baseUrls } = useQuery({
+    queryKey: ['settings', 'base-url'],
+    queryFn: () => settingsApi.getBaseUrls(),
+  });
+
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState('');
   const [deviceType, setDeviceType] = useState<DeviceType>('phone');
   const [lastCreated, setLastCreated] = useState<CreateDeviceResponse | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: (input: { name: string; device_type: DeviceType }) =>
@@ -57,16 +66,70 @@ export function DevicesSection() {
     createMutation.mutate({ name: trimmed, device_type: deviceType });
   }, [createMutation, name, deviceType]);
 
-  const handleCopy = useCallback(async () => {
-    if (!lastCreated) return;
+  const handleCopy = useCallback(async (label: string, url: string) => {
     try {
-      await navigator.clipboard.writeText(lastCreated.pairingUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(url);
+      setCopiedLabel(label);
+      setTimeout(() => setCopiedLabel(null), 1500);
     } catch {
       // ignore
     }
-  }, [lastCreated]);
+  }, []);
+
+  // Build tab entries from server-known base URLs. Dedupe (e.g. if user is
+  // already on the LAN IP, the "current" URL == LAN URL). Default tab =
+  // remote when available, else whatever this browser is on.
+  const pairingTabs = useMemo(() => {
+    if (!lastCreated) return { tabs: [], defaultValue: '' };
+    const token = lastCreated.plaintext;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const norm = (u: string) => u.replace(/\/+$/, '');
+
+    const candidates: Array<{ id: string; label: string; base: string; hint: string }> = [];
+    if (baseUrls?.tunnel) {
+      candidates.push({
+        id: 'remote',
+        label: 'Remote',
+        base: baseUrls.tunnel,
+        hint: 'Off-network — anywhere with internet',
+      });
+    }
+    if (baseUrls?.lan) {
+      candidates.push({
+        id: 'lan',
+        label: 'Same network',
+        base: baseUrls.lan,
+        hint: 'Any device on the same Wi-Fi / LAN',
+      });
+    }
+    if (origin) {
+      candidates.push({
+        id: 'current',
+        label: 'This computer',
+        base: origin,
+        hint: 'The URL you are currently connected to',
+      });
+    }
+
+    // Dedupe by normalized base URL (preserve first occurrence / order).
+    const seen = new Set<string>();
+    const tabs = candidates
+      .filter((c) => {
+        const key = norm(c.base);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((c) => ({ ...c, url: `${norm(c.base)}/#t=${token}` }));
+
+    const defaultValue =
+      tabs.find((t) => t.id === 'remote')?.id ??
+      tabs.find((t) => t.id === 'current')?.id ??
+      tabs[0]?.id ??
+      '';
+
+    return { tabs, defaultValue };
+  }, [lastCreated, baseUrls]);
 
   const active = useMemo(
     () => (devices ?? []).filter((d) => !d.revoked_at),
@@ -74,7 +137,9 @@ export function DevicesSection() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <RemoteBaseUrlSection />
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <KeyRound size={14} className="text-muted-foreground" />
@@ -144,26 +209,45 @@ export function DevicesSection() {
         </div>
       )}
 
-      {lastCreated && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
-          <p className="text-xs font-medium text-foreground">
-            Pairing URL for &ldquo;{lastCreated.key.name}&rdquo;
-          </p>
-          <p className="text-[11px] text-muted-foreground/70">
-            This is shown once. Copy it and open it on the target device.
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              readOnly
-              value={lastCreated.pairingUrl}
-              className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-mono"
-              onFocus={(e) => e.currentTarget.select()}
-            />
-            <Button size="sm" variant="outline" onClick={handleCopy}>
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-              {copied ? 'Copied' : 'Copy'}
-            </Button>
+      {lastCreated && pairingTabs.tabs.length > 0 && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3">
+          <div>
+            <p className="text-xs font-medium text-foreground">
+              Pairing URL for &ldquo;{lastCreated.key.name}&rdquo;
+            </p>
+            <p className="text-[11px] text-muted-foreground/70">
+              Shown once. Scan or copy on the target device.
+            </p>
           </div>
+          <Tabs defaultValue={pairingTabs.defaultValue}>
+            <TabsList>
+              {pairingTabs.tabs.map((t) => (
+                <TabsTrigger key={t.id} value={t.id}>
+                  {t.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {pairingTabs.tabs.map((t) => (
+              <TabsContent key={t.id} value={t.id} className="mt-3">
+                <p className="text-[11px] text-muted-foreground/70 mb-2">{t.hint}</p>
+                <div className="flex gap-3 items-start">
+                  <QrCode value={t.url} size={140} />
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <input
+                      readOnly
+                      value={t.url}
+                      className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-mono"
+                      onFocus={(e) => e.currentTarget.select()}
+                    />
+                    <Button size="sm" variant="outline" onClick={() => handleCopy(t.id, t.url)}>
+                      {copiedLabel === t.id ? <Check size={12} /> : <Copy size={12} />}
+                      {copiedLabel === t.id ? 'Copied' : 'Copy URL'}
+                    </Button>
+                  </div>
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
         </div>
       )}
 

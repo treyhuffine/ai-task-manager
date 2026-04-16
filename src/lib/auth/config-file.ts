@@ -13,6 +13,9 @@ export interface AuthConfig {
   tunnelUrl: string | null;
   onboardedAt: string | null;
   voiceEnabled: boolean | null;
+  /** Last port the server was started on. Written by `start`, read by `pair`
+   *  so the CLI shows the right port even when invoked from a different shell. */
+  lastPort: number | null;
 }
 
 export function getAuthConfigDir(): string {
@@ -35,6 +38,7 @@ export function readAuthConfig(): AuthConfig | null {
       tunnelUrl: parsed.tunnelUrl ?? null,
       onboardedAt: parsed.onboardedAt ?? null,
       voiceEnabled: parsed.voiceEnabled ?? null,
+      lastPort: parsed.lastPort ?? null,
     };
   } catch (err) {
     console.error('[auth] failed to read config.json:', err);
@@ -46,12 +50,20 @@ export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
   ensureUserDataDir();
 
   const existing = readAuthConfig();
+
+  // Distinguish "caller didn't mention this field" (preserve existing) from
+  // "caller explicitly set it to null" (clear). `??` can't tell those apart,
+  // so use the `in` operator for presence detection.
+  const pick = <K extends keyof AuthConfig>(key: K): AuthConfig[K] =>
+    (key in config ? config[key] : existing?.[key]) ?? (null as AuthConfig[K]);
+
   const next: AuthConfig = {
     version: 1,
-    localToken: config.localToken ?? existing?.localToken ?? null,
-    tunnelUrl: config.tunnelUrl ?? existing?.tunnelUrl ?? null,
-    onboardedAt: config.onboardedAt ?? existing?.onboardedAt ?? null,
-    voiceEnabled: config.voiceEnabled ?? existing?.voiceEnabled ?? null,
+    localToken: pick('localToken'),
+    tunnelUrl: pick('tunnelUrl'),
+    onboardedAt: pick('onboardedAt'),
+    voiceEnabled: pick('voiceEnabled'),
+    lastPort: pick('lastPort'),
   };
 
   const p = getAuthConfigPath();

@@ -2,7 +2,7 @@ import { intro, outro, log, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import getPort from 'get-port';
 import { APP_NAME } from '@/constants/app';
-import { ensureLocalToken } from '@/lib/auth/bootstrap';
+import { ensureLocalToken, setRunningPort } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { startNextServer, waitForServer, isOurServerRunning } from '../lib/server';
@@ -59,6 +59,8 @@ export async function startCommand(opts: StartOptions) {
     log.warn(`Port ${preferredPort} in use — using ${port}`);
   }
   process.env.PORT = String(port);
+  // Persist so `pair` in another shell can reconstruct local URLs correctly.
+  setRunningPort(port);
 
   s.start(opts.dev ? 'Starting dev server' : 'Starting server');
   const child = startNextServer({ port, dev: opts.dev });
