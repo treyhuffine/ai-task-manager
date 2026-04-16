@@ -15,6 +15,7 @@ import {
   getUserState, updateUserState,
 } from '@/lib/db/queries';
 import { hybridSearch } from '@/lib/embeddings/search';
+import { readAuthConfig } from '@/lib/auth/config-file';
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -438,9 +439,13 @@ const deckTools = {
       try {
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || `http://localhost:${process.env.PORT || 4224}`;
         console.log('[tool:regenerateDeck] calling', `${baseUrl}/api/deck/generate`);
+        const localToken = readAuthConfig()?.localToken;
         const res = await fetch(`${baseUrl}/api/deck/generate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(localToken ? { Authorization: `Bearer ${localToken}` } : {}),
+          },
           body: JSON.stringify(params),
         });
 

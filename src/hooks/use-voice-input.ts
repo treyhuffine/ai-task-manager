@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getVoiceProvider, DEFAULT_VOICE_MODEL } from '@/constants/voice-models';
 import { useUserState } from '@/hooks/use-user-state';
+import { authFetch } from '@/lib/api/client';
 
 type VoiceProvider = 'local' | 'groq' | 'openai' | 'web' | null;
 
@@ -91,7 +92,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
 
     async function probe() {
       try {
-        const res = await fetch('/api/transcribe');
+        const res = await authFetch('/api/transcribe');
         const data = await res.json();
         if (cancelled) return;
 
@@ -194,7 +195,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
           if (voiceModelRef.current) {
             form.append('voice_model', voiceModelRef.current);
           }
-          const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+          const res = await authFetch('/api/transcribe', { method: 'POST', body: form });
           const data = await res.json();
 
           if (res.ok && data.text) {

@@ -21,8 +21,19 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "auth:pair": "tsx scripts/pair.ts",
+    "cli:dev": "tsx src/cli/index.ts",
+    "cli:build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
+  "bin": {
+    "flow": "./dist/cli/index.mjs"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@agentex/agent": "^0.0.2",
     "@ai-sdk/anthropic": "^3.0.63",
@@ -30,6 +41,7 @@
     "@ai-sdk/react": "^3.0.136",
     "@anthropic-ai/sdk": "^0.78.0",
     "@base-ui/react": "^1.2.0",
+    "@clack/prompts": "^1.2.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -66,16 +78,21 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "commander": "^14.0.3",
     "drizzle-orm": "^0.45.1",
     "drizzle-zod": "^0.8.3",
     "emoji-mart": "^5.6.0",
     "fractional-indexing": "^3.2.0",
+    "get-port": "^7.2.0",
     "googleapis": "^171.4.0",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.575.0",
     "motion": "^12.38.0",
+    "nanoid": "^5.1.9",
     "next": "16.1.6",
+    "open": "^11.0.0",
     "openai": "^6.26.0",
+    "picocolors": "^1.1.1",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -101,7 +118,9 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsup": "^8.5.1",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.4"
   }
 }

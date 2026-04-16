@@ -13,6 +13,8 @@ import { User, Mic, Globe, Server, Cloud, CheckCircle2, AlertCircle, ChevronDown
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state'
 import { VOICE_MODELS, VOICE_MODEL_MAP, DEFAULT_VOICE_MODEL, type VoiceModel } from '@/constants/voice-models'
 import type { ProviderStatus } from '@/hooks/use-voice-input'
+import { DevicesSection } from '@/components/settings/devices-section'
+import { authFetch } from '@/lib/api/client'
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
@@ -175,7 +177,7 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
 
     async function probe() {
       try {
-        const res = await fetch('/api/transcribe')
+        const res = await authFetch('/api/transcribe')
         const data = await res.json()
         if (!cancelled) setProviderStatus(data.providers)
       } catch {
@@ -374,6 +376,11 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
               </div>
             )}
 
+          </div>
+
+          {/* Devices */}
+          <div className="mt-8">
+            <DevicesSection />
           </div>
         </div>
       </SheetContent>

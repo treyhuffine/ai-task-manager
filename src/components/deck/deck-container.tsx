@@ -22,6 +22,7 @@ import type {
 } from '@/types/dashboard';
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem } from '@/db/types';
+import { authFetch } from '@/lib/api/client';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ function persistDeck(deckId: string, plan: DeckPlan) {
     reason: alt.reason,
   }));
 
-  fetch(`/api/deck/${deckId}`, {
+  authFetch(`/api/deck/${deckId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items, alternatives }),
@@ -261,7 +262,7 @@ export function DeckContainer() {
     // Dev helper: add ?forcePreviousDeck=true to URL to test "resume previous deck" flow
     const forceAsPrevious = new URLSearchParams(window.location.search).has('forcePreviousDeck');
 
-    fetch('/api/deck')
+    authFetch('/api/deck')
       .then(res => res.json())
       .then((record: DeckRecord | null) => {
         if (record) {
@@ -293,7 +294,7 @@ export function DeckContainer() {
       return;
     }
 
-    fetch(`/api/deck/${activeDeckId}`)
+    authFetch(`/api/deck/${activeDeckId}`)
       .then(res => {
         if (!res.ok) throw new Error('Deck not found');
         return res.json();
@@ -351,7 +352,7 @@ export function DeckContainer() {
     setGenerating(true);
 
     try {
-      const res = await fetch('/api/deck/generate', {
+      const res = await authFetch('/api/deck/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(generationContext),

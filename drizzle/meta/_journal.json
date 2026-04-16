@@ -43,6 +43,13 @@
       "when": 1775143402182,
       "tag": "0005_wonderful_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776355174479,
+      "tag": "0006_add-api-keys",
+      "breakpoints": true
     }
   ]
 }

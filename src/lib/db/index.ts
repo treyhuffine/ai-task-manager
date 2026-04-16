@@ -4,6 +4,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as sqliteVec from 'sqlite-vec';
 import fs from 'fs';
 import path from 'path';
+import { getDbPath } from '@/lib/config/paths';
 import * as schema from './schema';
 
 export type DB = BetterSQLite3Database<typeof schema>;
@@ -13,11 +14,7 @@ let rawInstance: Database.Database | null = null;
 let currentPath: string | null = null;
 
 export function getDefaultDbPath(): string {
-  return process.env.EON_DB_PATH ?? path.join(
-    process.env.HOME ?? process.env.USERPROFILE ?? '.',
-    '.eon',
-    'data.db'
-  );
+  return getDbPath();
 }
 
 export function resetDb(): void {

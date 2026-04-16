@@ -87,8 +87,8 @@ export function CreateMenu() {
               onClick={handleNewArea}
               className="flex flex-col items-center gap-1.5 px-2 py-3 rounded-lg hover:bg-accent transition-colors group"
             >
-              <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center group-hover:bg-violet-500/20 transition-colors">
-                <Layers size={16} className="text-violet-500" />
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center group-hover:bg-accent transition-colors">
+                <Layers size={16} className="text-foreground" />
               </div>
               <span className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">
                 Area

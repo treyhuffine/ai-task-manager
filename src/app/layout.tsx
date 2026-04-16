@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryProvider } from "@/providers/query-provider";
+import { PairingBootstrap } from "@/components/auth/pairing-bootstrap";
 import "./globals.css";
 import { APP_NAME } from "@/constants/app";
 
@@ -21,6 +22,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} dark`}>
       <body className="antialiased">
         <QueryProvider>
+          <PairingBootstrap />
           <TooltipProvider>{children}</TooltipProvider>
         </QueryProvider>
       </body>

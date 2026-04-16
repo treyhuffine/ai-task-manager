@@ -159,6 +159,21 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     else router.push('/')
   }, [router])
 
+  // Escape → back to main app (skips if another handler already consumed it)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const el = document.activeElement as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+        el.blur()
+        return
+      }
+      goBack()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [goBack])
+
   return (
     <div className="h-screen flex flex-col bg-background text-foreground font-sans overflow-hidden">
       {/* Content + Chat */}

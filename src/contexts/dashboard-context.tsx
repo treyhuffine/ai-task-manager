@@ -101,7 +101,7 @@ const DashboardContext = createContext<DashboardContextType | null>(null);
 const MOCK_AGENTS: Agent[] = [
   { id: "bounce", name: "Bounce", status: "active", task: "Building coach onboarding flow", color: "text-orange-500", bg: "bg-orange-500/10", progress: 65, icon: "\uD83C\uDFBE", lastUpdate: "Component ready in ~12 min" },
   { id: "insider", name: "InsiderFinance", status: "active", task: "Competitor pricing analysis", color: "text-blue-400", bg: "bg-blue-400/10", progress: 88, icon: "\uD83D\uDCCA", lastUpdate: "Found 3 new pricing tiers" },
-  { id: "ri", name: "Ri", status: "idle", task: null, color: "text-purple-400", bg: "bg-purple-400/10", progress: 0, icon: "\uD83E\uDDE0", lastUpdate: null },
+  { id: "ri", name: "Ri", status: "idle", task: null, color: "text-muted-foreground", bg: "bg-muted", progress: 0, icon: "\uD83E\uDDE0", lastUpdate: null },
 ];
 
 const MOCK_TASKS: Task[] = [
@@ -111,11 +111,11 @@ const MOCK_TASKS: Task[] = [
   { id: 4, text: "Bloom: pediatric sleep data sources", project: "Bloom", due: "Friday", status: "todo", color: "bg-emerald-500" },
   { id: 5, text: "Personal: March investor update", project: "Personal", due: "Mar 22", status: "todo", color: "bg-zinc-500" },
   { id: 6, text: "Eon contact sync bug", project: "Eon", due: null, status: "todo", color: "bg-pink-500" },
-  { id: 7, text: "Ri: plan v2 knowledge graph schema", project: "Ri", due: "Next Week", status: "todo", color: "bg-purple-500" },
+  { id: 7, text: "Ri: plan v2 knowledge graph schema", project: "Ri", due: "Next Week", status: "todo", color: "bg-muted-foreground" },
 ];
 
 const MOCK_STREAM_EVENTS: StreamEvent[] = [
-  { text: "Decided: Weaviate for Ri vector layer", time: "9:04 am", color: "bg-purple-400" },
+  { text: "Decided: Weaviate for Ri vector layer", time: "9:04 am", color: "bg-muted-foreground" },
   { text: "Insider agent: competitor price change flagged", time: "8:52 am", color: "bg-blue-400" },
   { text: "Rationale queued to Slack via Orchestrator", time: "8:10 am", color: "bg-zinc-500" },
 ];

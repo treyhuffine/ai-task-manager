@@ -144,7 +144,7 @@ export function CommandInput({ input, setInput, onSubmit, onSendMessage, isStrea
         {/* Text input */}
         <form onSubmit={onSubmit} className="relative group">
           {/* Glow effect on focus */}
-          <div className="absolute -inset-1 bg-primary/20 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
+          <div className="absolute -inset-1 bg-ring/20 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
 
           <div className={cn(
             'relative bg-card border border-border rounded-2xl p-1.5 flex items-center gap-3',

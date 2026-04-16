@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList } from 'lucide-react'
 import { NoteIcon } from '@/components/shared/note-icon'
 import type { TaskRecord, NoteRecord, AreaRecord } from '@/db/types'
+import { authFetch } from '@/lib/api/client'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -81,8 +82,8 @@ const ENTITY_CONFIG: Record<EntityType, {
   deck: {
     icon: LayoutList,
     label: 'Deck',
-    borderColor: 'border-l-violet-500',
-    iconColor: 'text-violet-500',
+    borderColor: 'border-l-foreground',
+    iconColor: 'text-foreground',
     fetchUrl: (id) => `/api/deck/${id}`,
   },
 }
@@ -261,7 +262,7 @@ function DeckCard({ data, onClick }: { data: { id: string; framing?: string | nu
           <span className="text-[10px] text-muted-foreground font-medium">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
           </span>
-          <span className="text-[10px] text-violet-500 font-medium">
+          <span className="text-[10px] text-foreground font-medium">
             View deck
           </span>
         </div>
@@ -279,7 +280,7 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
   const { data, isLoading, isError } = useQuery({
     queryKey: [entityType, entityId],
     queryFn: async () => {
-      const res = await fetch(config.fetchUrl(entityId))
+      const res = await authFetch(config.fetchUrl(entityId))
       if (!res.ok) throw new Error('Not found')
       return res.json()
     },

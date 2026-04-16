@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { LiveWaveform } from "@/components/ui/live-waveform"
 import { Mic, Square, RotateCcw, Loader2, Play } from "lucide-react"
+import { authFetch } from "@/lib/api/client"
 
 // ─── Models from sidecar MODEL_CONFIGS ──────────────────────
 // Order: INT8 models first (already loaded, lightweight), then heavier precision variants
@@ -131,7 +132,7 @@ export default function SttBenchPage() {
         form.append("file", blob, "recording.webm")
         form.append("model", model.id)
 
-        const res = await fetch("/api/stt-bench", {
+        const res = await authFetch("/api/stt-bench", {
           method: "POST",
           body: form,
         })

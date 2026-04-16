@@ -129,6 +129,33 @@ export interface DeckAlternative {
   reason: string;
 }
 
+// ─── API Keys ─────────────────────────────────────────────────
+
+export const apiKeys = sqliteTable('api_keys', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  device_type: text('device_type', {
+    enum: ['host', 'desktop', 'laptop', 'phone', 'tablet', 'cli', 'other'],
+  }).notNull().default('other'),
+  prefix: text('prefix').notNull(),
+  suffix: text('suffix').notNull(),
+  hash: text('hash').notNull().unique(),
+  env: text('env', { enum: ['live', 'test'] }).notNull().default('live'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  expires_at: text('expires_at'),
+  last_used_at: text('last_used_at'),
+  last_used_ip: text('last_used_ip'),
+  last_used_user_agent: text('last_used_user_agent'),
+  revoked_at: text('revoked_at'),
+  revoked_reason: text('revoked_reason'),
+}, (table) => [
+  index('idx_api_keys_hash').on(table.hash),
+  index('idx_api_keys_prefix').on(table.prefix),
+  index('idx_api_keys_revoked').on(table.revoked_at),
+]);
+
 // ─── Notes ────────────────────────────────────────────────────
 
 export const notes = sqliteTable('notes', {

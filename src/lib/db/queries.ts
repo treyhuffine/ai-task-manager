@@ -4,7 +4,7 @@
  */
 
 import { getDb, getRawDb } from '@/lib/db';
-import { tasks, notes, areas, stream, taskCompletions, decks, userState } from '@/lib/db/schema';
+import { tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys } from '@/lib/db/schema';
 import { eq, and, desc, asc, sql, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
@@ -15,7 +15,9 @@ import type {
   StreamRecord, CreateStreamInput,
   DeckRecord, UpdateDeckInput,
   UpdateUserStateInput,
+  ApiKeyRecord, CreateApiKeyInput,
 } from '@/db/types';
+import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -364,4 +366,73 @@ export function updateUserState(input: UpdateUserStateInput) {
     .where(eq(userState.id, 1))
     .returning()
     .get();
+}
+
+// ─── API Keys ─────────────────────────────────────────────────
+
+export function createApiKey(
+  input: CreateApiKeyInput,
+): { key: ApiKeyRecord; token: GeneratedToken } {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const token = generateToken(input.env ?? 'live');
+
+  const key = db
+    .insert(apiKeys)
+    .values({
+      ...input,
+      id: uuidv7(),
+      prefix: token.prefix,
+      suffix: token.suffix,
+      hash: token.hash,
+      env: token.env,
+      device_type: input.device_type ?? 'other',
+      created_at: now,
+      updated_at: now,
+    })
+    .returning()
+    .get();
+
+  return { key, token };
+}
+
+export function listApiKeys(options: { includeRevoked?: boolean } = {}): ApiKeyRecord[] {
+  const db = getDb();
+  const q = db.select().from(apiKeys);
+  const rows = options.includeRevoked
+    ? q.orderBy(desc(apiKeys.created_at)).all()
+    : q.where(isNull(apiKeys.revoked_at)).orderBy(desc(apiKeys.created_at)).all();
+  return rows;
+}
+
+export function findApiKeyByHash(hash: string): ApiKeyRecord | undefined {
+  const db = getDb();
+  return db.select().from(apiKeys).where(eq(apiKeys.hash, hash)).get();
+}
+
+export function revokeApiKey(id: string, reason?: string): ApiKeyRecord | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const row = db
+    .update(apiKeys)
+    .set({ revoked_at: now, revoked_reason: reason ?? null, updated_at: now })
+    .where(eq(apiKeys.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+export function touchApiKey(
+  id: string,
+  meta: { ip?: string | null; user_agent?: string | null } = {},
+): void {
+  const db = getDb();
+  db.update(apiKeys)
+    .set({
+      last_used_at: new Date().toISOString(),
+      last_used_ip: meta.ip ?? null,
+      last_used_user_agent: meta.user_agent ?? null,
+    })
+    .where(eq(apiKeys.id, id))
+    .run();
 }

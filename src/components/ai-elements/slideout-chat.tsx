@@ -19,6 +19,7 @@ import {
   MessageResponse,
 } from './message'
 import type { TaskRecord, NoteRecord } from '@/db/types'
+import { getAuthToken } from '@/lib/api/client'
 
 const CHAT_PANEL_MIN_WIDTH = 420
 
@@ -36,6 +37,10 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
     () =>
       new DefaultChatTransport({
         api: '/api/document-chat',
+        headers: (): Record<string, string> => {
+          const token = getAuthToken()
+          return token ? { Authorization: `Bearer ${token}` } : {}
+        },
         body: () => ({
           documentType,
           document: documentRef.current,

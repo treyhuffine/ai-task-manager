@@ -17,7 +17,7 @@ const ACTIONS = [
   { id: 'search', label: 'Search', icon: Search, color: 'text-blue-400', bg: 'bg-blue-400/10' },
   { id: 'task', label: 'New Task', icon: CheckSquare, color: 'text-primary', bg: 'bg-primary/10' },
   { id: 'note', label: 'New Note', icon: FileText, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-  { id: 'area', label: 'New Area', icon: Layers, color: 'text-violet-500', bg: 'bg-violet-500/10' },
+  { id: 'area', label: 'New Area', icon: Layers, color: 'text-foreground', bg: 'bg-muted' },
 ] as const;
 
 export function MobileCreateSheet() {

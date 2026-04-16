@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { isToolUIPart, getToolName } from 'ai';
+import { isToolUIPart, getToolName, DefaultChatTransport } from 'ai';
+import { getAuthToken } from '@/lib/api/client';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import type { PanelId, PanelTab, MorePanelTab } from '@/types/dashboard';
@@ -34,6 +35,15 @@ import { APP_NAME } from '@/constants/app';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { LiveWaveform } from '@/components/ui/live-waveform';
+
+// ─── Chat transport (adds auth header) ─────────────────────────
+
+const chatTransport = new DefaultChatTransport({
+  headers: (): Record<string, string> => {
+    const token = getAuthToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  },
+});
 
 // ─── Tab definitions ───────────────────────────────────────────
 
@@ -184,7 +194,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const [input, setInput] = useState('');
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const moreActionsRef = useRef<HTMLDivElement>(null);
-  const { messages, sendMessage, status, stop } = useChat();
+  const { messages, sendMessage, status, stop } = useChat({ transport: chatTransport });
   const isStreaming = status === 'streaming';
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
