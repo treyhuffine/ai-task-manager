@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import {
   Check, Circle, Clock, Repeat, Lock,
   MoreHorizontal, Archive, Timer, GripVertical,
-  Zap, Flame, ShieldAlert,
+  Zap, Flame, ShieldAlert, AlignLeft, ListTree,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -16,9 +16,10 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/components/ui/popover';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { AreaSelect } from '@/components/shared/area-select';
 import { cn } from '@/lib/utils';
-import type { TaskRecord, Energy, Effort } from '@/db/types';
+import type { TaskListRecord, Energy, Effort } from '@/db/types';
 
 const ENERGY_COLORS: Record<string, string> = {
   deep: 'text-orange-500',
@@ -56,7 +57,7 @@ function formatDate(iso: string | null): string | null {
 }
 
 interface TaskRowProps {
-  task: TaskRecord;
+  task: TaskListRecord;
   onComplete: (id: string) => void;
   onUpdate: (id: string, field: string, value: unknown) => void;
   onSnooze: (id: string, days: number) => void;
@@ -112,7 +113,13 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
         isDragging && 'opacity-50 shadow-lg',
         isDone && 'opacity-50',
       )}
-      onClick={() => onOpen?.(task.id)}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey) {
+          window.open(`/task/${task.id}`, '_blank')
+        } else {
+          onOpen?.(task.id)
+        }
+      }}
     >
       {/* Drag handle */}
       <button
@@ -252,6 +259,49 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-amber-500 uppercase tracking-wider">
               <Lock size={8} /> Blocked
             </span>
+          )}
+
+          {/* Has body */}
+          {task.body && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center px-1 py-0.5 text-foreground/60">
+                    <AlignLeft size={8} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-[300px] whitespace-pre-wrap text-xs leading-relaxed line-clamp-5">
+                  {task.body}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {/* Has subtasks */}
+          {task.subtask_count > 0 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-foreground/60 text-[8.5px] font-medium">
+                    <ListTree size={8} /> {task.subtask_count}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="block max-w-[280px] text-xs">
+                  <p className="font-semibold mb-1">{task.subtask_count} subtask{task.subtask_count === 1 ? '' : 's'}</p>
+                  <ul className="space-y-0.5">
+                    {task.subtask_preview?.split('|||').map((title, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <span className="mt-1.5 w-1 h-1 rounded-full bg-current flex-shrink-0" />
+                        <span className="line-clamp-1">{title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {task.subtask_count > 4 && (
+                    <p className="mt-1 text-[10px] opacity-70">+{task.subtask_count - 4} more</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </div>

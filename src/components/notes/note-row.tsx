@@ -63,7 +63,13 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
         'group flex items-start gap-1.5 px-2 py-2 rounded-lg transition-all border border-transparent cursor-pointer',
         'hover:bg-card hover:border-border',
       )}
-      onClick={() => onOpen?.(note.id)}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey) {
+          window.open(`/note/${note.id}`, '_blank')
+        } else {
+          onOpen?.(note.id)
+        }
+      }}
     >
       {/* Icon */}
       <div className="mt-0.5 text-muted-foreground/50 flex-shrink-0">

@@ -10,6 +10,11 @@ SILENCE_SEARCH_WINDOW = 30.0  # Search window in seconds around target split poi
 SILENCE_DETECT_TIMEOUT = 300  # Timeout for silence detection in seconds
 MIN_SPLIT_GAP = 5.0  # Minimum gap between split points to prevent 0-length chunks
 
+# Model memory management
+# True = evict cached models before loading a new one (only one model in memory at a time)
+# False = keep all loaded models cached (faster switching, higher memory usage)
+SINGLE_MODEL_MODE = True
+
 import sys
 
 sys.stdout = sys.stderr
@@ -139,7 +144,15 @@ def get_model(model_name):
     if model_name in model_cache:
         print(f"Using cached model: {model_name}")
         return model_cache[model_name]
-    
+
+    # In single-model mode, evict all cached models before loading a new one
+    if SINGLE_MODEL_MODE and model_cache:
+        evicted = list(model_cache.keys())
+        model_cache.clear()
+        import gc
+        gc.collect()
+        print(f"Single-model mode: evicted {evicted} to free memory")
+
     # Load new model
     print(f"Loading model: {model_name}")
     config = MODEL_CONFIGS[model_name]

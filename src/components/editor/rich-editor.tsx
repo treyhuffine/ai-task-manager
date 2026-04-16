@@ -204,6 +204,8 @@ export interface NoteEditorProps {
   hideFooter?: boolean
   /** Disable editing (e.g. while AI is working) */
   disabled?: boolean
+  /** Optional content rendered below the title */
+  metadata?: React.ReactNode
 }
 
 export function NoteEditor({
@@ -214,6 +216,7 @@ export function NoteEditor({
   autoFocusTitle = false,
   hideFooter = false,
   disabled = false,
+  metadata,
 }: NoteEditorProps) {
   const titleRef = useRef<HTMLTextAreaElement>(null)
 
@@ -268,6 +271,8 @@ export function NoteEditor({
         data-gramm_editor="false"
         data-enable-grammarly="false"
       />
+
+      {metadata}
 
       {/* Body — the gutter menu lives in the pl-16 space */}
       <div className="mt-6">

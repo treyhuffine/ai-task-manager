@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback } from 'react';
-import { FileText, Filter, Loader2 } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { FileText, Filter, ArrowDownAz, Loader2, Search } from 'lucide-react';
 import { useNotes, useUpdateNote } from '@/hooks/use-notes';
 import { useAreas } from '@/hooks/use-areas';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -16,7 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { NoteRow } from './note-row';
 import { cn } from '@/lib/utils';
-import type { NoteStatus } from '@/db/types';
+import type { NoteStatus, NoteRecord } from '@/db/types';
 
 export function NoteList() {
   const { theme, openNote } = useDashboard();
@@ -24,10 +25,12 @@ export function NoteList() {
 
   const [statusFilter, setStatusFilter] = useState<NoteStatus | 'all'>('active');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
+  const [sortBy, setSortBy] = useState<'last_viewed_at' | 'created_at' | 'updated_at'>('last_viewed_at');
 
   const filter = {
     ...(statusFilter !== 'all' ? { status: statusFilter as NoteStatus } : {}),
     ...(areaFilter !== 'all' ? { area_id: areaFilter } : {}),
+    order_by: sortBy,
   };
 
   const { data: notes, isLoading, error } = useNotes(filter);
@@ -88,41 +91,118 @@ export function NoteList() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Sort */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border">
+              <ArrowDownAz size={11} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+              <DropdownMenuRadioItem value="last_viewed_at" className="text-xs">Last viewed</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="created_at" className="text-xs">Created</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="updated_at" className="text-xs">Updated</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <div className="flex-1" />
+        <button
+          onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'note: ' } }))}
+          className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border"
+          title="Search notes"
+        >
+          <Search size={11} />
+        </button>
       </div>
 
       {/* Note list */}
-      <div className="flex-1 overflow-y-auto p-2">
-        {isLoading && (
-          <div className="flex items-center justify-center h-32 text-muted-foreground">
-            <Loader2 size={16} className="animate-spin" />
-          </div>
-        )}
-        {error && (
-          <div className="flex items-center justify-center h-32 text-destructive text-[11px]">
-            Failed to load notes
-          </div>
-        )}
-        {notes && notes.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
-            <FileText size={20} className="opacity-30" />
-            <p className="text-[11px]">No notes found</p>
-          </div>
-        )}
-        {notes && notes.length > 0 && (
-          <div className="space-y-0.5">
-            {notes.map((note) => (
-              <NoteRow
+      <VirtualNoteList
+        notes={notes}
+        isLoading={isLoading}
+        error={error}
+        onUpdate={handleUpdate}
+        onArchive={handleArchive}
+        onOpen={openNote}
+      />
+    </div>
+  );
+}
+
+/* ── Virtualized inner list ── */
+
+interface VirtualNoteListProps {
+  notes: NoteRecord[] | undefined;
+  isLoading: boolean;
+  error: Error | null;
+  onUpdate: (id: string, field: string, value: unknown) => void;
+  onArchive: (id: string) => void;
+  onOpen: (id: string) => void;
+}
+
+function VirtualNoteList({
+  notes, isLoading, error, onUpdate, onArchive, onOpen,
+}: VirtualNoteListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: notes?.length ?? 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 68,
+    overscan: 10,
+    getItemKey: (index) => notes?.[index]?.id ?? index,
+  });
+
+  return (
+    <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
+      {isLoading && (
+        <div className="flex items-center justify-center h-32 text-muted-foreground">
+          <Loader2 size={16} className="animate-spin" />
+        </div>
+      )}
+      {error && (
+        <div className="flex items-center justify-center h-32 text-destructive text-[11px]">
+          Failed to load notes
+        </div>
+      )}
+      {notes && notes.length === 0 && (
+        <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
+          <FileText size={20} className="opacity-30" />
+          <p className="text-[11px]">No notes found</p>
+        </div>
+      )}
+      {notes && notes.length > 0 && (
+        <div
+          style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const note = notes[virtualRow.index];
+            return (
+              <div
                 key={note.id}
-                note={note}
-                onUpdate={handleUpdate}
-                onArchive={handleArchive}
-                onOpen={openNote}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <NoteRow
+                  note={note}
+                  onUpdate={onUpdate}
+                  onArchive={onArchive}
+                  onOpen={onOpen}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -28,6 +28,7 @@ export type StreamStatus = StreamRecord['status'];
 // ─── Tasks ────────────────────────────────────────────────────
 
 export type TaskRecord = InferSelectModel<typeof tasks>;
+export type TaskListRecord = TaskRecord & { subtask_count: number; subtask_preview: string | null };
 export type CreateTaskInput = Omit<InferInsertModel<typeof tasks>, 'id'>;
 export type UpdateTaskInput = Partial<CreateTaskInput>;
 export type TaskStatus = NonNullable<TaskRecord['status']>;
@@ -75,6 +76,7 @@ export interface NoteFilter {
   status?: NoteStatus;
   limit?: number;
   offset?: number;
+  order_by?: string;
 }
 
 export interface StreamFilter {

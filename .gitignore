@@ -15,6 +15,7 @@
 code-archive
 .claude/settings.local.json
 .spec-workflow
+/examples
 
 # testing
 /coverage

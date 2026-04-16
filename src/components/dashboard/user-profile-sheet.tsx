@@ -147,10 +147,16 @@ function ModelCard({
   )
 }
 
-export function UserProfileSheet() {
+export function UserProfileSheet({ open: controlledOpen, onOpenChange, children }: {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  children?: React.ReactNode
+} = {}) {
   const { data: userState } = useUserState()
   const updateUserState = useUpdateUserState()
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
+  const setOpen = onOpenChange ?? setUncontrolledOpen
   const [description, setDescription] = useState('')
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
   const [, setTick] = useState(0)
@@ -233,14 +239,18 @@ export function UserProfileSheet() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <button
-          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
-          aria-label="User profile"
-        >
-          <User size={14} />
-        </button>
-      </SheetTrigger>
+      {children ? (
+        <SheetTrigger asChild>{children}</SheetTrigger>
+      ) : (
+        <SheetTrigger asChild>
+          <button
+            className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
+            aria-label="User profile"
+          >
+            <User size={14} />
+          </button>
+        </SheetTrigger>
+      )}
       <SheetContent side="right" className="w-full sm:!max-w-2xl">
         <SheetHeader>
           <SheetTitle>Your Profile</SheetTitle>

@@ -126,7 +126,8 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
     /* FTS query may fail on unusual input */
   }
 
-  return hits;
+  // Sort merged cross-table results by score descending, then cap
+  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 /**

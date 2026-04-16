@@ -118,7 +118,7 @@ function Subtasks({ items, onCollapse, actions }: { items: SubtaskItem[]; onColl
                 : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
             )}
           >
-            <span className="text-xs flex-1 min-w-0">
+            <span className="text-xs flex-1 min-w-0 break-words">
               {s.completed && <span className="mr-1 opacity-60">✓</span>}
               {s.title}
             </span>
@@ -269,11 +269,11 @@ function SortableDeckItemCard({
         )}
       </div>
 
-      <div className="pl-6 pr-20">
+      <div className="pl-6 pr-20 min-w-0 overflow-hidden">
         {/* Title */}
         <button
           onClick={() => openTask(item.taskId)}
-          className="text-sm font-medium leading-snug text-left hover:text-primary transition-colors"
+          className="text-sm font-medium leading-snug text-left hover:text-primary transition-colors max-w-full break-words"
         >
           {item.parentTitle && (
             <span className="text-muted-foreground font-normal">{item.parentTitle} · </span>
@@ -296,14 +296,14 @@ function SortableDeckItemCard({
 
         {/* Rationale */}
         {item.rationale && (
-          <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+          <p className="text-xs text-muted-foreground mt-2 leading-relaxed break-words">
             {item.rationale}
           </p>
         )}
 
         {/* Continuity context (if present, on first item) */}
         {item.continuityContext && index === 0 && (
-          <p className="text-xs text-muted-foreground/70 mt-1 italic leading-relaxed">
+          <p className="text-xs text-muted-foreground/70 mt-1 italic leading-relaxed break-words">
             {item.continuityContext}
           </p>
         )}

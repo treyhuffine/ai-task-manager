@@ -5,11 +5,11 @@
 
 import { getDb, getRawDb } from '@/lib/db';
 import { tasks, notes, areas, stream, taskCompletions, decks, userState } from '@/lib/db/schema';
-import { eq, and, desc, asc, sql, inArray, isNull, isNotNull, gte, lte, type SQL } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 import type {
-  TaskRecord, CreateTaskInput, UpdateTaskInput, TaskFilter,
+  TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter,
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
   AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
   StreamRecord, CreateStreamInput,
@@ -19,7 +19,7 @@ import type {
 
 // ─── Tasks ────────────────────────────────────────────────────
 
-export function listTasks(filter: TaskFilter = {}): TaskRecord[] {
+export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   const db = getDb();
   const conditions: SQL[] = [];
 
@@ -40,11 +40,25 @@ export function listTasks(filter: TaskFilter = {}): TaskRecord[] {
   const limit = filter.limit ?? 10000;
   const offset = filter.offset ?? 0;
 
+  const orderClauses = (() => {
+    switch (filter.order_by) {
+      case 'last_viewed_at': return [sql`last_viewed_at DESC NULLS LAST`, desc(tasks.created_at)];
+      case 'hard_deadline':  return [sql`hard_deadline ASC NULLS LAST`, desc(tasks.created_at)];
+      case 'created_at':     return [desc(tasks.created_at)];
+      case 'updated_at':     return [desc(tasks.updated_at)];
+      default:               return [sql`sort_key ASC NULLS LAST`, desc(tasks.created_at)];
+    }
+  })();
+
   return db
-    .select()
+    .select({
+      ...getTableColumns(tasks),
+      subtask_count: sql<number>`(SELECT COUNT(*) FROM tasks t2 WHERE t2.parent_id = ${sql.raw('"tasks"."id"')})`.as('subtask_count'),
+      subtask_preview: sql<string | null>`(SELECT GROUP_CONCAT(t3.title, '|||') FROM (SELECT title FROM tasks t3 WHERE t3.parent_id = ${sql.raw('"tasks"."id"')} LIMIT 4) t3)`.as('subtask_preview'),
+    })
     .from(tasks)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(sql`sort_key ASC NULLS LAST`, desc(tasks.created_at))
+    .orderBy(...orderClauses)
     .limit(limit)
     .offset(offset)
     .all();
@@ -186,11 +200,19 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
   const limit = filter.limit ?? 10000;
   const offset = filter.offset ?? 0;
 
+  const orderClauses = (() => {
+    switch (filter.order_by) {
+      case 'created_at':     return [desc(notes.created_at)];
+      case 'updated_at':     return [desc(notes.updated_at)];
+      default:               return [sql`last_viewed_at DESC NULLS LAST`, desc(notes.created_at)];
+    }
+  })();
+
   return db
     .select()
     .from(notes)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(notes.created_at))
+    .orderBy(...orderClauses)
     .limit(limit)
     .offset(offset)
     .all();

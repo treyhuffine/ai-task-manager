@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, type ReactNode, useEffect } from 'react';
-import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, Agent, Task, StreamEvent } from '@/types/dashboard';
+import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Agent, Task, StreamEvent } from '@/types/dashboard';
 
 interface FocusTask {
   title: string;
@@ -51,6 +51,9 @@ interface DashboardState {
   voiceChatPanelTarget: PanelId | null;
   // Deck navigation — set by chat [[deck:ID]] cards to show a specific deck
   activeDeckId: string | null;
+  // Mobile navigation
+  mobileTab: MobileTab;
+  mobileCreateOpen: boolean;
 }
 
 interface DashboardActions {
@@ -86,6 +89,9 @@ interface DashboardActions {
   // Deck navigation
   openDeck: (deckId: string) => void;
   clearActiveDeckId: () => void;
+  // Mobile navigation
+  setMobileTab: (tab: MobileTab) => void;
+  setMobileCreateOpen: (open: boolean) => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -133,6 +139,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [voiceChatPanelTarget, setVoiceChatPanelTarget] = useState<PanelId | null>(null);
   // ─── Deck navigation ──────────────────────────────────────
   const [activeDeckId, setActiveDeckId] = useState<string | null>(null);
+  // ─── Mobile navigation ──────────────────────────────────────
+  const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
+  const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
 
   // ─── Slideout stack ──────────────────────────────────────────
   const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>([]);
@@ -300,6 +309,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       activeDeckId,
       openDeck,
       clearActiveDeckId,
+      mobileTab,
+      setMobileTab,
+      mobileCreateOpen,
+      setMobileCreateOpen,
     }}>
       {children}
     </DashboardContext.Provider>

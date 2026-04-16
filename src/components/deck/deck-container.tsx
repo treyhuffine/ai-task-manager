@@ -667,7 +667,7 @@ export function DeckContainer() {
         </>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
         {/* ─── Loading: fetching latest deck ─── */}
         {phase === 'intake' && !initialLoadDone && (
           <div className="px-4 py-3">

@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
       area_id: params.get('area_id') ?? undefined,
       task_id: params.get('task_id') ?? undefined,
       status: (params.get('status') as 'active' | 'archived') ?? undefined,
+      order_by: params.get('order_by') ?? undefined,
       limit: params.get('limit') ? parseInt(params.get('limit')!, 10) : undefined,
       offset: params.get('offset') ? parseInt(params.get('offset')!, 10) : undefined,
     });

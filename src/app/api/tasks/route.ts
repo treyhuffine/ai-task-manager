@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
       parent_id: params.get('parent_id') ?? undefined,
       energy: (params.get('energy') as 'deep' | 'light') ?? undefined,
       q: params.get('q') ?? undefined,
+      order_by: params.get('order_by') ?? undefined,
       limit: params.get('limit') ? parseInt(params.get('limit')!, 10) : undefined,
       offset: params.get('offset') ? parseInt(params.get('offset')!, 10) : undefined,
     });

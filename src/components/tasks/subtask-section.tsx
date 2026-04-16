@@ -3,19 +3,18 @@
 import { useState, useCallback, useRef } from 'react'
 import { Check, ChevronRight, Plus, ArrowUpRight } from 'lucide-react'
 import { useTasks, useCreateTask, useCompleteTask, useUpdateTask } from '@/hooks/use-tasks'
-import { useDashboard } from '@/contexts/dashboard-context'
 import { cn } from '@/lib/utils'
 
 interface SubtaskSectionProps {
   parentId: string
+  onOpenTask?: (id: string) => void
 }
 
-export function SubtaskSection({ parentId }: SubtaskSectionProps) {
+export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
   const { data: subtasks } = useTasks({ parent_id: parentId })
   const createTask = useCreateTask()
   const completeTask = useCompleteTask()
   const updateTask = useUpdateTask()
-  const { openTask } = useDashboard()
 
   const [isExpanded, setIsExpanded] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
@@ -107,7 +106,7 @@ export function SubtaskSection({ parentId }: SubtaskSectionProps) {
               <div
                 key={subtask.id}
                 className="group flex items-center gap-2 py-1.5 px-1 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
-                onClick={() => openTask(subtask.id)}
+                onClick={() => onOpenTask?.(subtask.id)}
               >
                 {/* Checkbox */}
                 <button

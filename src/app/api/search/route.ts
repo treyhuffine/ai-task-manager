@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
       | 'hybrid'
       | 'keyword'
       | 'vector';
-    const limit = parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10);
+    const limit = parseInt(request.nextUrl.searchParams.get('limit') ?? '100', 10);
 
     if (!q || q.trim().length === 0) {
       return Response.json([]);

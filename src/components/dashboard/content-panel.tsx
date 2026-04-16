@@ -40,8 +40,8 @@ import { LiveWaveform } from '@/components/ui/live-waveform';
 const CORE_TABS: { id: PanelTab; label: string }[] = [
   { id: 'deck', label: 'Deck' },
   { id: 'chat', label: 'Chat' },
-  { id: 'tasks', label: 'Tasks' },
   { id: 'stream', label: 'Stream' },
+  { id: 'tasks', label: 'Tasks' },
   { id: 'notes', label: 'Notes' },
 ];
 
@@ -159,13 +159,11 @@ function VoiceSentBadge({ voiceAutoSend, onToggleAutoSend }: { voiceAutoSend: bo
               role="switch"
               aria-checked={voiceAutoSend}
               onClick={onToggleAutoSend}
-              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors ${
-                voiceAutoSend ? 'bg-primary' : 'bg-muted'
-              }`}
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors ${voiceAutoSend ? 'bg-primary' : 'bg-muted'
+                }`}
             >
-              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-sm transition-transform ${
-                voiceAutoSend ? 'translate-x-4' : 'translate-x-0'
-              }`} />
+              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-sm transition-transform ${voiceAutoSend ? 'translate-x-4' : 'translate-x-0'
+                }`} />
             </button>
           </div>
           <p className="text-[9px] text-muted-foreground leading-relaxed">
@@ -318,9 +316,20 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
       <div className="flex-1 min-h-0 relative">
         <div className="h-full overflow-y-auto">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-              <MessageSquare size={24} className="opacity-30" />
-              <p className="text-[11px]">Start a conversation with {APP_NAME}</p>
+            <div className="flex flex-col items-center justify-center h-full px-6 max-w-md mx-auto text-center">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <Zap size={20} className="text-primary" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Talk. {APP_NAME} handles the rest.</p>
+              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                Delegate tasks to agents, brain dump and let AI sort it into tasks and notes, set up your deck, or get briefed on what needs your attention.
+              </p>
+              <div className="flex flex-wrap justify-center gap-1.5 mt-4 text-[10px] text-muted-foreground/60">
+                <span className="px-2 py-1 rounded-md bg-muted/50">"Set up my day"</span>
+                <span className="px-2 py-1 rounded-md bg-muted/50">"Here's everything on my mind..."</span>
+                <span className="px-2 py-1 rounded-md bg-muted/50">"Brief me on the launch"</span>
+                <span className="px-2 py-1 rounded-md bg-muted/50">"What should I delegate?"</span>
+              </div>
             </div>
           ) : (
             <Conversation className="h-full">
@@ -394,37 +403,37 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
               )}
 
               <div className="pointer-events-auto flex items-center gap-1.5 group">
-              <button
-                ref={micButtonRef}
-                type="button"
-                onClick={voice.toggleRecording}
-                disabled={voice.isTranscribing}
-                className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95',
-                  'bg-primary text-primary-foreground shadow-primary/30',
-                  !voice.isRecording && 'hover:opacity-90 hover:scale-105',
-                  voice.isTranscribing && 'opacity-50 cursor-not-allowed'
-                )}
-                title={voice.isRecording ? 'Stop recording' : 'Voice input'}
-              >
-                {voice.isRecording ? <Square size={16} /> : <Mic size={18} />}
-              </button>
-              {voice.isRecording && (
                 <button
+                  ref={micButtonRef}
                   type="button"
-                  onClick={voice.cancelRecording}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-card/80 backdrop-blur-sm border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-all active:scale-95"
-                  title="Cancel (Esc)"
+                  onClick={voice.toggleRecording}
+                  disabled={voice.isTranscribing}
+                  className={cn(
+                    'w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95',
+                    'bg-primary text-primary-foreground shadow-primary/30',
+                    !voice.isRecording && 'hover:opacity-90 hover:scale-105',
+                    voice.isTranscribing && 'opacity-50 cursor-not-allowed'
+                  )}
+                  title={voice.isRecording ? 'Stop recording' : 'Voice input'}
                 >
-                  <X size={14} />
+                  {voice.isRecording ? <Square size={16} /> : <Mic size={18} />}
                 </button>
-              )}
-              {!voice.isRecording && (
-                <kbd className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-muted rounded text-[8px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                  {'\u2318'}J
-                </kbd>
-              )}
-            </div>
+                {voice.isRecording && (
+                  <button
+                    type="button"
+                    onClick={voice.cancelRecording}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-card/80 backdrop-blur-sm border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-all active:scale-95"
+                    title="Cancel (Esc)"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+                {!voice.isRecording && (
+                  <kbd className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-muted rounded text-[8px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    {'\u2318'}J
+                  </kbd>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -598,9 +607,11 @@ function MoreTabContent({ tab }: { tab: MorePanelTab }) {
 
 interface ContentPanelProps {
   panelId: PanelId;
+  /** When set, skip the tab bar and render only this content (used by mobile layout) */
+  mobileTab?: 'chat' | 'deck' | 'tasks' | 'notes' | 'stream';
 }
 
-export function ContentPanel({ panelId }: ContentPanelProps) {
+export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
   const {
     panelATab, panelBTab,
     setPanelTab, setFocusedPanel, theme,
@@ -608,7 +619,7 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
   } = useDashboard();
   const isDark = theme === 'dark';
 
-  const activeTab = panelId === 'a' ? panelATab : panelBTab;
+  const activeTab = mobileTab ?? (panelId === 'a' ? panelATab : panelBTab);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -629,82 +640,84 @@ export function ContentPanel({ panelId }: ContentPanelProps) {
 
   return (
     <div
-      className="flex flex-col h-full bg-background"
+      className="flex flex-col h-full min-w-0 bg-background"
       onMouseDown={() => setFocusedPanel(panelId)}
     >
-      {/* Tab bar */}
-      <div className={cn(
-        'flex items-center border-b border-border shrink-0',
-        isDark ? 'bg-card/30' : 'bg-muted/30'
-      )}>
-        {CORE_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setPanelTab(panelId, tab.id)}
-            className={cn(
-              'px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[0.08em] transition-all border-b-2',
-              activeTab === tab.id && !isMoreTab
-                ? 'text-primary border-primary'
-                : 'text-muted-foreground border-transparent hover:text-foreground'
-            )}
-          >
-            {tab.label}
-            {tab.id === 'stream' && pendingStreamCount >= 3 && (
-              <span className="ml-1.5 text-[8.5px] text-muted-foreground/60 font-mono">
-                {pendingStreamCount}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* Tab bar — hidden on mobile when mobileTab is set */}
+      {!mobileTab && (
+        <div className={cn(
+          'flex items-center border-b border-border shrink-0',
+          isDark ? 'bg-card/30' : 'bg-muted/30'
+        )}>
+          {CORE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setPanelTab(panelId, tab.id)}
+              className={cn(
+                'px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[0.08em] transition-all border-b-2',
+                activeTab === tab.id && !isMoreTab
+                  ? 'text-primary border-primary'
+                  : 'text-muted-foreground border-transparent hover:text-foreground'
+              )}
+            >
+              {tab.label}
+              {tab.id === 'stream' && pendingStreamCount >= 3 && (
+                <span className="ml-1.5 text-[8.5px] text-muted-foreground/60 font-mono">
+                  {pendingStreamCount}
+                </span>
+              )}
+            </button>
+          ))}
 
-        <div className="flex-1" />
+          <div className="flex-1" />
 
-        {/* More button */}
-        <div className="relative" ref={moreRef}>
-          <button
-            onClick={() => setMoreOpen(!moreOpen)}
-            className={cn(
-              'px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[0.08em] transition-all border-b-2 flex items-center gap-1',
-              isMoreTab
-                ? 'text-primary border-primary'
-                : 'text-muted-foreground border-transparent hover:text-foreground'
+          {/* More button */}
+          <div className="relative" ref={moreRef}>
+            <button
+              onClick={() => setMoreOpen(!moreOpen)}
+              className={cn(
+                'px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[0.08em] transition-all border-b-2 flex items-center gap-1',
+                isMoreTab
+                  ? 'text-primary border-primary'
+                  : 'text-muted-foreground border-transparent hover:text-foreground'
+              )}
+            >
+              More
+              <ChevronDown size={10} className={cn('transition-transform', moreOpen && 'rotate-180')} />
+            </button>
+
+            {moreOpen && (
+              <div className={cn(
+                'absolute right-0 top-full mt-1 w-52 rounded-lg border border-border shadow-xl z-50 py-1',
+                isDark ? 'bg-card' : 'bg-background'
+              )}>
+                {MORE_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      if (tab.id === 'areas') {
+                        openAreasList();
+                      } else {
+                        setPanelTab(panelId, tab.id);
+                      }
+                      setMoreOpen(false);
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-3 py-2 text-[11px] transition-all',
+                      activeTab === tab.id
+                        ? 'text-primary bg-primary/5'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    )}
+                  >
+                    <tab.icon size={14} />
+                    <span className="font-medium">{tab.label}</span>
+                  </button>
+                ))}
+              </div>
             )}
-          >
-            More
-            <ChevronDown size={10} className={cn('transition-transform', moreOpen && 'rotate-180')} />
-          </button>
-
-          {moreOpen && (
-            <div className={cn(
-              'absolute right-0 top-full mt-1 w-52 rounded-lg border border-border shadow-xl z-50 py-1',
-              isDark ? 'bg-card' : 'bg-background'
-            )}>
-              {MORE_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    if (tab.id === 'areas') {
-                      openAreasList();
-                    } else {
-                      setPanelTab(panelId, tab.id);
-                    }
-                    setMoreOpen(false);
-                  }}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2 text-[11px] transition-all',
-                    activeTab === tab.id
-                      ? 'text-primary bg-primary/5'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  )}
-                >
-                  <tab.icon size={14} />
-                  <span className="font-medium">{tab.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-hidden">

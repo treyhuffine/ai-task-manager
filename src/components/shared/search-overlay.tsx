@@ -79,7 +79,8 @@ export function SearchOverlay() {
   const { openTask, openNote, toggleTheme, theme, setPanelTab, triggerVoiceChat } = useDashboard();
   const createTask = useCreateTask();
   const createNote = useCreateNote();
-  const { data: recents } = useRecents(10, open);
+  const { data: recents } = useRecents(25, open);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Filter results by type if prefix is active
@@ -140,7 +141,21 @@ export function SearchOverlay() {
         setOpen((prev) => !prev);
       }
     };
-    const handleOpen = () => setOpen(true);
+    const handleOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.initialQuery) {
+        setRawQuery(detail.initialQuery);
+        // Collapse selection to end after cmdk focuses and selects the input
+        requestAnimationFrame(() => {
+          const el = inputRef.current;
+          if (el) {
+            const len = detail.initialQuery.length;
+            el.setSelectionRange(len, len);
+          }
+        });
+      }
+      setOpen(true);
+    };
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('open-search', handleOpen);
     return () => {
@@ -149,9 +164,9 @@ export function SearchOverlay() {
     };
   }, []);
 
-  // Reset query when opened
+  // Reset query when closed so next open starts fresh
   useEffect(() => {
-    if (open) setRawQuery('');
+    if (!open) setRawQuery('');
   }, [open]);
 
   // Scroll list to top when results change
@@ -186,11 +201,12 @@ export function SearchOverlay() {
       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setOpen(false)} />
 
       {/* Panel */}
-      <div className="relative mx-auto mt-[15vh] w-full max-w-lg bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
+      <div className="relative mx-auto mt-[15vh] w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
         {/* Input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
           <Search size={16} className="text-muted-foreground flex-shrink-0" />
           <Command.Input
+            ref={inputRef}
             value={rawQuery}
             onValueChange={setRawQuery}
             placeholder={isCommand ? 'Type a command...' : 'Search or type > for commands...'}
@@ -208,7 +224,7 @@ export function SearchOverlay() {
         </div>
 
         {/* Results */}
-        <Command.List ref={listRef} className="max-h-80 overflow-y-auto">
+        <Command.List ref={listRef} className="max-h-[60vh] overflow-y-auto">
           <Command.Empty className="p-8 text-center text-muted-foreground text-[11px]">
             {searchQuery.length > 0
               ? `No results for \u201c${searchQuery}\u201d`

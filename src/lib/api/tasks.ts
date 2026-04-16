@@ -1,14 +1,15 @@
 import { api } from './client';
 import type {
   TaskRecord,
+  TaskListRecord,
   CreateTaskInput,
   UpdateTaskInput,
   TaskFilter,
 } from '@/db/types';
 
 export const tasksApi = {
-  list(filter?: TaskFilter): Promise<TaskRecord[]> {
-    return api.get<TaskRecord[]>('/tasks', filter as Record<string, unknown>);
+  list(filter?: TaskFilter): Promise<TaskListRecord[]> {
+    return api.get<TaskListRecord[]>('/tasks', filter as Record<string, unknown>);
   },
 
   get(id: string): Promise<TaskRecord> {

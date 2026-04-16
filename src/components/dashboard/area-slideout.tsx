@@ -224,9 +224,9 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                 <button
                   onClick={onClose}
                   className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
-                  aria-label={hasHistory ? 'Back' : 'Close'}
+                  aria-label="Back"
                 >
-                  {hasHistory ? <ChevronLeft size={16} /> : <X size={16} />}
+                  <ChevronLeft size={16} />
                   <kbd className="hidden group-hover/nav:inline px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
                     esc
                   </kbd>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   DndContext,
   closestCenter,
@@ -17,7 +18,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { generateKeyBetween } from 'fractional-indexing';
-import { Target, Filter, ArrowDownAz, Loader2 } from 'lucide-react';
+import { Target, Filter, ArrowDownAz, Loader2, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTasks, useUpdateTask, useCompleteTask } from '@/hooks/use-tasks';
 import { useAreas } from '@/hooks/use-areas';
@@ -34,9 +35,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { TaskRow } from './task-row';
 import { cn } from '@/lib/utils';
-import type { TaskStatus, Energy } from '@/db/types';
+import type { TaskStatus, Energy, TaskListRecord } from '@/db/types';
 
-type SortOption = 'sort_key' | 'hard_deadline' | 'created_at' | 'updated_at';
+type SortOption = 'sort_key' | 'last_viewed_at' | 'hard_deadline' | 'created_at' | 'updated_at';
 
 export function TaskList() {
   const { theme, openTask } = useDashboard();
@@ -202,6 +203,7 @@ export function TaskList() {
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
               <DropdownMenuRadioItem value="sort_key" className="text-xs">AI order</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="last_viewed_at" className="text-xs">Last viewed</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="hard_deadline" className="text-xs">Deadline</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="created_at" className="text-xs">Created</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="updated_at" className="text-xs">Updated</DropdownMenuRadioItem>
@@ -210,46 +212,115 @@ export function TaskList() {
         </DropdownMenu>
 
         <div className="flex-1" />
+        <button
+          onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'task: ' } }))}
+          className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border"
+          title="Search tasks"
+        >
+          <Search size={11} />
+        </button>
       </div>
 
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto p-2">
-        {isLoading && (
-          <div className="flex items-center justify-center h-32 text-muted-foreground">
-            <Loader2 size={16} className="animate-spin" />
-          </div>
-        )}
-        {error && (
-          <div className="flex items-center justify-center h-32 text-destructive text-[11px]">
-            Failed to load tasks
-          </div>
-        )}
-        {tasks && tasks.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
-            <Target size={20} className="opacity-30" />
-            <p className="text-[11px]">No tasks found</p>
-          </div>
-        )}
-        {tasks && tasks.length > 0 && (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-              <div className="space-y-0.5">
-                {tasks.map((task) => (
-                  <TaskRow
+      <VirtualTaskList
+        tasks={tasks}
+        isLoading={isLoading}
+        error={error}
+        sensors={sensors}
+        onDragEnd={handleDragEnd}
+        onComplete={handleComplete}
+        onUpdate={handleUpdate}
+        onSnooze={handleSnooze}
+        onArchive={handleArchive}
+        onOpen={openTask}
+      />
+    </div>
+  );
+}
+
+/* ── Virtualized inner list ── */
+
+interface VirtualTaskListProps {
+  tasks: TaskListRecord[] | undefined;
+  isLoading: boolean;
+  error: Error | null;
+  sensors: ReturnType<typeof useSensors>;
+  onDragEnd: (event: DragEndEvent) => void;
+  onComplete: (id: string) => void;
+  onUpdate: (id: string, field: string, value: unknown) => void;
+  onSnooze: (id: string, days: number) => void;
+  onArchive: (id: string) => void;
+  onOpen: (id: string) => void;
+}
+
+function VirtualTaskList({
+  tasks, isLoading, error, sensors, onDragEnd,
+  onComplete, onUpdate, onSnooze, onArchive, onOpen,
+}: VirtualTaskListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: tasks?.length ?? 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 56,
+    overscan: 10,
+    getItemKey: (index) => tasks?.[index]?.id ?? index,
+  });
+
+  return (
+    <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
+      {isLoading && (
+        <div className="flex items-center justify-center h-32 text-muted-foreground">
+          <Loader2 size={16} className="animate-spin" />
+        </div>
+      )}
+      {error && (
+        <div className="flex items-center justify-center h-32 text-destructive text-[11px]">
+          Failed to load tasks
+        </div>
+      )}
+      {tasks && tasks.length === 0 && (
+        <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
+          <Target size={20} className="opacity-30" />
+          <p className="text-[11px]">No tasks found</p>
+        </div>
+      )}
+      {tasks && tasks.length > 0 && (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+            <div
+              style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const task = tasks[virtualRow.index];
+                return (
+                  <div
                     key={task.id}
-                    task={task}
-                    onComplete={handleComplete}
-                    onUpdate={handleUpdate}
-                    onSnooze={handleSnooze}
-                    onArchive={handleArchive}
-                    onOpen={openTask}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        )}
-      </div>
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <TaskRow
+                      task={task}
+                      onComplete={onComplete}
+                      onUpdate={onUpdate}
+                      onSnooze={onSnooze}
+                      onArchive={onArchive}
+                      onOpen={onOpen}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
     </div>
   );
 }

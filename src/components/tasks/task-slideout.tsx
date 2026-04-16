@@ -5,10 +5,12 @@ import { Dialog } from 'radix-ui'
 import {
   X, Trash2, MoreHorizontal, Archive, Check,
   Clock, Timer, Flame, Zap, Lock, Repeat, Sparkles,
+  ChevronLeft, Maximize2,
 } from 'lucide-react'
-import { ChevronLeft } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useTask, useUpdateTask, useDeleteTask, useCompleteTask } from '@/hooks/use-tasks'
 import { useDashboard } from '@/contexts/dashboard-context'
+import { HOTKEYS, matchesHotkey } from '@/constants/commands'
 import { RichEditor } from '@/components/editor/rich-editor'
 import { SubtaskSection } from './subtask-section'
 import { AreaSelect } from '@/components/shared/area-select'
@@ -51,6 +53,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const { data: task } = useTask(taskId)
   const { data: parentTask } = useTask(task?.parent_id ?? null)
   const { openTask } = useDashboard()
+  const router = useRouter()
   const updateTask = useUpdateTask()
   const deleteTask = useDeleteTask()
   const completeTask = useCompleteTask()
@@ -208,6 +211,19 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     }
   }, [])
 
+  // Cmd+Enter → open full page
+  useEffect(() => {
+    if (!isOpen || !taskId) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (matchesHotkey(e, HOTKEYS.openFullPage)) {
+        e.preventDefault()
+        router.push(`/task/${taskId}`)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, taskId, router])
+
   const isDone = task?.status === 'done'
 
   const formatDate = (iso: string | null | undefined) => {
@@ -265,14 +281,14 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
         {/* Panel content */}
         <div className="flex-1 flex flex-col bg-background border-l border-border overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 h-11 flex-shrink-0 border-b border-border">
+          <div className="flex items-center justify-between px-4 h-11 flex-shrink-0">
             <div className="flex items-center gap-1.5 group/nav">
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
-                aria-label={hasHistory ? 'Back' : 'Close'}
+                aria-label="Back"
               >
-                {hasHistory ? <ChevronLeft size={16} /> : <X size={16} />}
+                <ChevronLeft size={16} />
                 <kbd className="hidden group-hover/nav:inline px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
                   esc
                 </kbd>
@@ -292,6 +308,22 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
             </div>
 
             <div className="flex items-center gap-2">
+              <a
+                href={taskId ? `/task/${taskId}` : '#'}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey) return
+                  e.preventDefault()
+                  if (taskId) router.push(`/task/${taskId}`)
+                }}
+                className="group/expand p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
+                aria-label="Open full page"
+              >
+                <kbd className="hidden group-hover/expand:inline px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
+                  {HOTKEYS.openFullPage.label}
+                </kbd>
+                <Maximize2 size={14} />
+              </a>
+
               {task && (
                 <button
                   onClick={handleComplete}
@@ -534,7 +566,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                   </div>
 
                   {/* Subtasks */}
-                  <SubtaskSection parentId={task.id} />
+                  <SubtaskSection parentId={task.id} onOpenTask={openTask} />
 
                   {/* Body editor */}
                   <div className="px-10 pt-2 pb-8 task-slideout-editor">

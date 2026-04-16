@@ -2,9 +2,11 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { Dialog } from 'radix-ui'
-import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles } from 'lucide-react'
+import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles, Maximize2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { NoteEditor } from '@/components/editor/rich-editor'
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes'
+import { HOTKEYS, matchesHotkey } from '@/constants/commands'
 import { AreaSelect } from '@/components/shared/area-select'
 import {
   DropdownMenu,
@@ -32,6 +34,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const { data: note } = useNote(noteId ?? '')
   const updateNote = useUpdateNote()
   const deleteNote = useDeleteNote()
+  const router = useRouter()
   const chat = useDocumentChat('note', note ?? null)
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
 
@@ -142,6 +145,19 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     onClose()
   }, [noteId, deleteNote, onClose])
 
+  // Cmd+Enter → open full page
+  useEffect(() => {
+    if (!isOpen || !noteId) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (matchesHotkey(e, HOTKEYS.openFullPage)) {
+        e.preventDefault()
+        router.push(`/note/${noteId}`)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, noteId, router])
+
   // Cleanup save timers
   useEffect(() => {
     return () => {
@@ -198,9 +214,9 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
-                aria-label={hasHistory ? 'Back' : 'Close'}
+                aria-label="Back"
               >
-                {hasHistory ? <ChevronLeft size={16} /> : <X size={16} />}
+                <ChevronLeft size={16} />
                 <kbd className="hidden group-hover/nav:inline px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
                   esc
                 </kbd>
@@ -220,14 +236,21 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             </div>
 
             <div className="flex items-center gap-3">
-              {note && (
-                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-                  {wordCount} words · {charCount} chars
-                  {note.updated_at && (
-                    <> · Edited {new Date(note.updated_at).toLocaleDateString()}</>
-                  )}
-                </span>
-              )}
+              <a
+                href={noteId ? `/note/${noteId}` : '#'}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey) return
+                  e.preventDefault()
+                  if (noteId) router.push(`/note/${noteId}`)
+                }}
+                className="group/expand p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
+                aria-label="Open full page"
+              >
+                <kbd className="hidden group-hover/expand:inline px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60 font-sans">
+                  {HOTKEYS.openFullPage.label}
+                </kbd>
+                <Maximize2 size={14} />
+              </a>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -280,6 +303,15 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                     autoFocusTitle={!note.title && note.body.trim().length === 0}
                     hideFooter
                     disabled={aiBusy}
+                    metadata={
+                      <p className="text-[10px] text-muted-foreground/50 mt-1">
+                        Created {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {note.updated_at !== note.created_at && (
+                          <> &middot; Edited {new Date(note.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                        )}
+                        <> &middot; {wordCount} words &middot; {charCount} chars</>
+                      </p>
+                    }
                   />
                 </>
               ) : (

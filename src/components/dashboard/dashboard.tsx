@@ -13,6 +13,8 @@ import { NoteSlideout } from '@/components/notes/note-slideout';
 import { TaskSlideout } from '@/components/tasks/task-slideout';
 import { AreaSlideout } from '@/components/dashboard/area-slideout';
 import { AreasSheet } from '@/components/dashboard/areas-sheet';
+import { MobileLayout } from '@/components/mobile/mobile-layout';
+import { TabletLayout } from '@/components/mobile/tablet-layout';
 import { cn } from '@/lib/utils';
 
 function DashboardShell() {
@@ -42,14 +44,32 @@ function DashboardShell() {
       theme === 'dark' ? 'dark' : '',
     )}>
       <div className="flex flex-col h-screen bg-background text-foreground font-sans overflow-hidden antialiased transition-colors duration-300">
-        <TopHud />
+        {/* TopHud — hidden on mobile */}
+        <div className="hidden md:block">
+          <TopHud />
+        </div>
 
-        <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Mobile layout: <md */}
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden md:hidden">
+          <MobileLayout />
+        </div>
+
+        {/* Tablet layout: md–lg */}
+        <div className="hidden md:flex lg:hidden flex-1 min-h-0 overflow-hidden">
+          <TabletLayout />
+        </div>
+
+        {/* Desktop layout: ≥lg */}
+        <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
           <PowerRail />
           <PanelLayout />
         </div>
 
-        <BottomHud />
+        {/* BottomHud — hidden on mobile */}
+        <div className="hidden md:block">
+          <BottomHud />
+        </div>
+
         <FocusView />
         <SearchOverlay />
         <NoteSlideout
