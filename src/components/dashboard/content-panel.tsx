@@ -207,6 +207,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const voice = useVoiceInput();
   const inputRef = useRef<HTMLInputElement>(null);
   const micButtonRef = useRef<HTMLButtonElement>(null);
+  const [showUnsupportedHint, setShowUnsupportedHint] = useState(false);
 
   // Keep a ref to voice so the hotkey effect can read latest values
   // without depending on toggleRecording identity (which changes on every
@@ -233,7 +234,9 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
     if (voiceChatPanelTarget !== panelId) return;
     const v = voiceRef.current;
     clearVoiceChatTrigger();
-    if (!v.isSupported) return;
+    // Hotkey only supports the live-mic paths — file-capture needs a user gesture
+    // on the <input>, which a synthetic keypress can't deliver on mobile anyway.
+    if (v.captureMode !== 'media-recorder' && v.captureMode !== 'web-speech') return;
     v.toggleRecording();
     // Focus the mic button so space bar can stop recording
     requestAnimationFrame(() => micButtonRef.current?.focus());
@@ -389,7 +392,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
         </div>
 
         {/* ── Floating mic button + waveform overlay ── */}
-        {voice.isSupported && !voice.isTranscribing && (
+        {!voice.isTranscribing && (
           <div className="absolute bottom-3 left-0 right-0 z-10 flex justify-center pointer-events-none">
             {/* Layout: waveform above, buttons below — change to "behind" layout by
                 swapping this to absolute positioning (see git history) */}
@@ -412,19 +415,44 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                 </div>
               )}
 
+              {/* Inline "why is this disabled" bubble when nothing works */}
+              {showUnsupportedHint && voice.captureMode === null && voice.unsupportedReason && (
+                <div
+                  className="pointer-events-auto max-w-[18rem] rounded-lg border border-border bg-card/95 backdrop-blur-sm px-3 py-2 shadow-lg text-[11px] text-muted-foreground leading-snug"
+                  role="status"
+                >
+                  {voice.unsupportedReason}
+                </div>
+              )}
+
               <div className="pointer-events-auto flex items-center gap-1.5 group">
                 <button
                   ref={micButtonRef}
                   type="button"
-                  onClick={voice.toggleRecording}
+                  onClick={() => {
+                    if (voice.captureMode === null) {
+                      // Tapping a disabled mic surfaces the reason — tap again to dismiss
+                      setShowUnsupportedHint((v) => !v);
+                    } else {
+                      voice.toggleRecording();
+                    }
+                  }}
                   disabled={voice.isTranscribing}
                   className={cn(
                     'w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95',
                     'bg-primary text-primary-foreground shadow-primary/30',
-                    !voice.isRecording && 'hover:opacity-90 hover:scale-105',
-                    voice.isTranscribing && 'opacity-50 cursor-not-allowed'
+                    !voice.isRecording && voice.captureMode !== null && 'hover:opacity-90 hover:scale-105',
+                    voice.isTranscribing && 'opacity-50 cursor-not-allowed',
+                    voice.captureMode === null && 'opacity-50',
                   )}
-                  title={voice.isRecording ? 'Stop recording' : 'Voice input'}
+                  title={
+                    voice.captureMode === null
+                      ? voice.unsupportedReason ?? 'Voice unavailable'
+                      : voice.isRecording
+                        ? 'Stop recording'
+                        : 'Voice input'
+                  }
+                  aria-label={voice.isRecording ? 'Stop recording' : 'Voice input'}
                 >
                   {voice.isRecording ? <Square size={16} /> : <Mic size={18} />}
                 </button>
@@ -438,7 +466,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                     <X size={14} />
                   </button>
                 )}
-                {!voice.isRecording && (
+                {!voice.isRecording && voice.captureMode === 'media-recorder' && (
                   <kbd className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-muted rounded text-[8px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                     {'\u2318'}J
                   </kbd>
@@ -558,7 +586,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
 
         {/* Text input */}
         <form onSubmit={handleSubmit} className="relative group">
-          <div className="absolute -inset-0.5 bg-primary/15 rounded-xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity" />
+          <div className="pointer-events-none absolute -inset-0.5 bg-primary/15 rounded-xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity" />
           <div className="relative bg-card border border-border rounded-xl p-1 flex items-center gap-2 focus-within:border-primary/30 transition-all">
             <input
               ref={inputRef}
@@ -567,7 +595,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Execute your plan..."
-              className="flex-1 bg-transparent border-none outline-none text-sm py-2 pl-2 placeholder:text-muted-foreground"
+              className="flex-1 bg-transparent border-none outline-none text-base md:text-sm py-2 pl-2 placeholder:text-muted-foreground"
             />
             {isStreaming ? (
               <button

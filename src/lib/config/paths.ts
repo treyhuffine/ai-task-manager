@@ -35,6 +35,18 @@ export function getConfigPath(): string {
   return path.join(getUserDataDir(), 'config.json');
 }
 
+export function getCaptureDir(): string {
+  return path.join(getUserDataDir(), 'captures');
+}
+
+export function ensureCaptureDir(): string {
+  const dir = getCaptureDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  return dir;
+}
+
 export function ensureUserDataDir(): string {
   const dir = getUserDataDir();
   if (!fs.existsSync(dir)) {

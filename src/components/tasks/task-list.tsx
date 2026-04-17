@@ -6,7 +6,8 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -63,7 +64,10 @@ export function TaskList() {
   const queryKey = ['tasks', filter];
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    // Mouse: any small drag starts reorder
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    // Touch: long-press to reorder so normal taps/scrolls still work on mobile
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 

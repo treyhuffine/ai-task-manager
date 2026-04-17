@@ -94,8 +94,9 @@ export async function pairCommand(opts: PairOptions = {}) {
     process.exit(1);
   }
 
-  // Host token is used for the health probe only. It's NOT embedded in the
-  // pairing URL — each pair call mints a fresh per-device key below.
+  // Ensure the host token exists so pair URLs can later authenticate. It's
+  // NOT embedded in the pairing URL — each pair call mints a fresh
+  // per-device key below.
   const host = ensureLocalToken();
   if (host.created) console.log(pc.green('Initialized host.'));
 
@@ -103,7 +104,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   // have cached; if the server answers with a different port, trust the
   // server and refresh our cache.
   const cachedPort = getRunningPort();
-  const probe = await probeHealth(cachedPort, host.plaintext);
+  const probe = await probeHealth(cachedPort);
   if (probe.status === 'ok') {
     if (probe.info.port !== cachedPort) setRunningPort(probe.info.port);
   } else {
@@ -159,7 +160,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   console.log();
   console.log(
     pc.dim(
-      `Rename or revoke this device anytime from Profile → Devices in the web app.`,
+      `Rename or revoke this device anytime from the Devices sheet in the web app's top bar.`,
     ),
   );
 
@@ -276,13 +277,6 @@ function printProbeWarning(
       console.log(
         pc.yellow(
           `! Port ${port} is open but /api/health didn't respond (${probe.detail}). If the dev server is still compiling, try again in a few seconds.`,
-        ),
-      );
-      return;
-    case 'unauthorized':
-      console.log(
-        pc.yellow(
-          `! Server on port ${port} rejected the host token (HTTP ${probe.httpStatus}). The token in config may not match the server's database.`,
         ),
       );
       return;

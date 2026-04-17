@@ -9,11 +9,11 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { User, Mic, Globe, Server, Cloud, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react'
+import { SlidersHorizontal, Mic, Globe, Server, Cloud, CheckCircle2, AlertCircle, ChevronDown, Sun, Moon } from 'lucide-react'
+import { useDashboard } from '@/contexts/dashboard-context'
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state'
 import { VOICE_MODELS, VOICE_MODEL_MAP, DEFAULT_VOICE_MODEL, type VoiceModel } from '@/constants/voice-models'
 import type { ProviderStatus } from '@/hooks/use-voice-input'
-import { DevicesSection } from '@/components/settings/devices-section'
 import { authFetch } from '@/lib/api/client'
 
 function timeAgo(date: Date): string {
@@ -154,6 +154,8 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
   onOpenChange?: (open: boolean) => void
   children?: React.ReactNode
 } = {}) {
+  const { theme, toggleTheme } = useDashboard()
+  const isDark = theme === 'dark'
   const { data: userState } = useUserState()
   const updateUserState = useUpdateUserState()
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
@@ -247,17 +249,17 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
         <SheetTrigger asChild>
           <button
             className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
-            aria-label="User profile"
+            aria-label="Settings"
           >
-            <User size={14} />
+            <SlidersHorizontal size={14} />
           </button>
         </SheetTrigger>
       )}
       <SheetContent side="right" className="w-full sm:!max-w-2xl">
         <SheetHeader>
-          <SheetTitle>Your Profile</SheetTitle>
+          <SheetTitle>Settings</SheetTitle>
           <SheetDescription>
-            Describe yourself, your goals, and how you work. The AI uses this to personalize your experience.
+            Describe yourself, tune voice input, and theme. The AI uses your profile to personalize your experience.
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 px-6 pb-6 overflow-y-auto pt-0.5">
@@ -378,9 +380,44 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
 
           </div>
 
-          {/* Devices */}
-          <div className="mt-8">
-            <DevicesSection />
+          {/* Appearance */}
+          <div className="mt-8 space-y-4">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              {isDark ? <Moon size={14} /> : <Sun size={14} />}
+              Appearance
+            </h3>
+            <label className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border bg-background cursor-pointer group">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  {isDark ? (
+                    <Moon size={16} className="text-primary" />
+                  ) : (
+                    <Sun size={16} className="text-primary" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Dark mode</p>
+                  <p className="text-[11px] text-muted-foreground/60">
+                    Switch between light and dark themes for the whole app.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isDark}
+                onClick={toggleTheme}
+                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  isDark ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                    isDark ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </label>
           </div>
         </div>
       </SheetContent>

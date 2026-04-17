@@ -52,11 +52,12 @@ function canConnect(port: number): Promise<boolean> {
 
 /**
  * Confirms that *our* app is the thing listening on this port.
- * Relies on `/api/health` returning 200 when the bearer token is valid —
- * any other process on the port will either refuse connection or 401.
+ * Relies on `/api/health` returning 200 with the expected app name —
+ * any other process on the port will either refuse connection, return
+ * a non-200, or respond with a body that doesn't match.
  */
-export async function isOurServerRunning(port: number, token: string): Promise<boolean> {
-  return (await probeHealth(port, token)).status === 'ok';
+export async function isOurServerRunning(port: number): Promise<boolean> {
+  return (await probeHealth(port)).status === 'ok';
 }
 
 export interface HealthInfo {
@@ -69,7 +70,6 @@ export type HealthProbe =
   | { status: 'ok'; info: HealthInfo }
   | { status: 'offline' }
   | { status: 'unreachable'; detail: string }
-  | { status: 'unauthorized'; httpStatus: number }
   | { status: 'unknown-app'; detail: string };
 
 /**
@@ -77,20 +77,17 @@ export type HealthProbe =
  *
  * Timeout is generous (10s) because the Next dev server compiles routes
  * lazily — a cold first hit to `/api/health` often takes several seconds.
+ * `/api/health` is unauthenticated, so no token is required.
  */
-export async function probeHealth(port: number, token: string): Promise<HealthProbe> {
+export async function probeHealth(port: number): Promise<HealthProbe> {
   if (!(await canConnect(port))) return { status: 'offline' };
   try {
     // Use 127.0.0.1 (not `localhost`) to match canConnect() above — some
     // macOS / dual-stack setups resolve `localhost` to `::1` first, which
     // would fail when the Next server binds IPv4-only.
     const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
-      headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(10_000),
     });
-    if (res.status === 401 || res.status === 403) {
-      return { status: 'unauthorized', httpStatus: res.status };
-    }
     if (!res.ok) {
       return { status: 'unknown-app', detail: `HTTP ${res.status}` };
     }

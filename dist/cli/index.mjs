@@ -616,19 +616,15 @@ function canConnect(port) {
     });
   });
 }
-async function isOurServerRunning(port, token) {
-  return (await probeHealth(port, token)).status === "ok";
+async function isOurServerRunning(port) {
+  return (await probeHealth(port)).status === "ok";
 }
-async function probeHealth(port, token) {
+async function probeHealth(port) {
   if (!await canConnect(port)) return { status: "offline" };
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
-      headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(1e4)
     });
-    if (res.status === 401 || res.status === 403) {
-      return { status: "unauthorized", httpStatus: res.status };
-    }
     if (!res.ok) {
       return { status: "unknown-app", detail: `HTTP ${res.status}` };
     }
@@ -720,7 +716,7 @@ async function startCommand(opts) {
   const info = ensureLocalToken();
   resetDb();
   s.stop(info.created ? "Created new host token" : "Reusing existing token");
-  if (await isOurServerRunning(preferredPort, info.plaintext)) {
+  if (await isOurServerRunning(preferredPort)) {
     const url2 = info.pairingUrl;
     log.success(`Already running at http://localhost:${preferredPort}`);
     if (opts.open) await openBrowser(url2);
@@ -847,7 +843,7 @@ async function pairCommand(opts = {}) {
   const host = ensureLocalToken();
   if (host.created) console.log(pc2.green("Initialized host."));
   const cachedPort = getRunningPort();
-  const probe = await probeHealth(cachedPort, host.plaintext);
+  const probe = await probeHealth(cachedPort);
   if (probe.status === "ok") {
     if (probe.info.port !== cachedPort) setRunningPort(probe.info.port);
   } else {
@@ -876,7 +872,6 @@ async function pairCommand(opts = {}) {
   );
   console.log();
   console.log(await renderTerminalQr(primaryUrl));
-  console.log();
   console.log(pc2.bold(`${chosen.label} (primary):`));
   console.log(`  ${primaryUrl}`);
   if (alternates.length > 0) {
@@ -891,10 +886,9 @@ async function pairCommand(opts = {}) {
   console.log();
   console.log(pc2.dim(hintFor(chosen.source, getRemoteBaseUrl())));
   console.log();
-  console.log();
   console.log(
     pc2.dim(
-      `Rename or revoke this device anytime from Profile \u2192 Devices in the web app.`
+      `Rename or revoke this device anytime from the Devices sheet in the web app's top bar.`
     )
   );
   console.log();
@@ -977,13 +971,6 @@ function printProbeWarning(port, probe) {
       console.log(
         pc2.yellow(
           `! Port ${port} is open but /api/health didn't respond (${probe.detail}). If the dev server is still compiling, try again in a few seconds.`
-        )
-      );
-      return;
-    case "unauthorized":
-      console.log(
-        pc2.yellow(
-          `! Server on port ${port} rejected the host token (HTTP ${probe.httpStatus}). The token in config may not match the server's database.`
         )
       );
       return;
@@ -1111,7 +1098,7 @@ async function onboardCommand(opts) {
   const info = ensureLocalToken();
   resetDb();
   s.stop(info.created ? "Created new host token" : "Reusing existing token");
-  const serverRunning = await isOurServerRunning(port, info.plaintext);
+  const serverRunning = await isOurServerRunning(port);
   const alreadyOnboarded = getIsOnboarded();
   if (!alreadyOnboarded || opts.force) {
     if (opts.force && alreadyOnboarded) {

@@ -37,7 +37,7 @@ export async function startCommand(opts: StartOptions) {
   s.stop(info.created ? 'Created new host token' : 'Reusing existing token');
 
   // Short-circuit: our server is already up on the preferred port.
-  if (await isOurServerRunning(preferredPort, info.plaintext)) {
+  if (await isOurServerRunning(preferredPort)) {
     const url = info.pairingUrl;
     log.success(`Already running at http://localhost:${preferredPort}`);
     if (opts.open) await openBrowser(url);

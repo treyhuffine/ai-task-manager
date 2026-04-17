@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Plus, CheckSquare, FileText, Layers } from "lucide-react";
+import { Plus, CheckSquare, FileText, Layers, Zap } from "lucide-react";
 import {
   Popover,
   PopoverTrigger,
@@ -11,6 +11,7 @@ import { AreaCreateModal } from "./area-create-modal";
 import { useCreateNote } from "@/hooks/use-notes";
 import { useCreateTask } from "@/hooks/use-tasks";
 import { useDashboard } from "@/contexts/dashboard-context";
+import { HOTKEYS } from "@/constants/commands";
 
 export function CreateMenu() {
   const [open, setOpen] = useState(false);
@@ -18,7 +19,12 @@ export function CreateMenu() {
 
   const createNote = useCreateNote();
   const createTask = useCreateTask();
-  const { openNote, openTask } = useDashboard();
+  const { openNote, openTask, setQuickCaptureOpen } = useDashboard();
+
+  const handleQuickCapture = useCallback(() => {
+    setOpen(false);
+    setQuickCaptureOpen(true);
+  }, [setQuickCaptureOpen]);
 
   const handleNewTask = useCallback(() => {
     setOpen(false);
@@ -53,11 +59,32 @@ export function CreateMenu() {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button className="flex items-center gap-2 px-3 py-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-lg shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95">
+          <button className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-lg shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95">
             <Plus size={14} /> CREATE
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" sideOffset={8} className="w-[220px] p-1.5">
+        <PopoverContent align="end" sideOffset={8} className="w-[240px] p-1.5">
+          {/* Quick Capture — hero action, spans full width */}
+          <button
+            onClick={handleQuickCapture}
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent transition-colors group mb-1"
+          >
+            <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center group-hover:bg-amber-500/25 transition-colors flex-shrink-0">
+              <Zap size={16} className="text-amber-500" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-[11px] font-semibold text-foreground">Quick Capture</div>
+              <div className="text-[10px] text-muted-foreground truncate">
+                Type or speak — sort later
+              </div>
+            </div>
+            <kbd className="px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/70 font-sans flex-shrink-0">
+              {HOTKEYS.quickCapture.label}
+            </kbd>
+          </button>
+
+          <div className="h-px bg-border my-1" />
+
           <div className="grid grid-cols-3 gap-1">
             <button
               onClick={handleNewTask}

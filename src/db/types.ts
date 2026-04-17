@@ -57,6 +57,9 @@ export type UpdateDeckInput = Partial<Omit<CreateDeckInput, 'created_at'>>;
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type CreateApiKeyInput = Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>;
+// Only user-editable metadata is exposed — secret material and audit timestamps
+// stay internal and cannot be mutated via the API.
+export type UpdateApiKeyInput = Partial<Pick<CreateApiKeyInput, 'name' | 'description' | 'device_type'>>;
 export type DeviceType = NonNullable<ApiKeyRecord['device_type']>;
 
 // ─── Filters (query params) ──────────────────────────────────

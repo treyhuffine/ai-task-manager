@@ -1,9 +1,11 @@
 "use client";
 
+import { Sun, Moon } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 
 export function BottomHud() {
-  const { tasks } = useDashboard();
+  const { tasks, theme, toggleTheme } = useDashboard();
+  const isDark = theme === 'dark';
 
   return (
     <footer className="flex-shrink-0 h-7 border-t border-border bg-[--surface-hud] flex items-center px-4 justify-between select-none">
@@ -22,6 +24,14 @@ export function BottomHud() {
         <span className="flex items-center gap-1"><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{"\u2318"}K</kbd> search</span>
         <span className="flex items-center gap-1"><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{"\u2318"}J</kbd> voice</span>
         <span className="flex items-center gap-1"><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{"\u2318"}E</kbd> execute</span>
+        <div className="h-3 w-px bg-border" />
+        <button
+          onClick={toggleTheme}
+          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          className="p-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 transition-colors"
+        >
+          {isDark ? <Sun size={11} /> : <Moon size={11} />}
+        </button>
       </div>
     </footer>
   );

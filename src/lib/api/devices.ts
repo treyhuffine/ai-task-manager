@@ -13,6 +13,12 @@ export interface CreateDeviceResponse {
   plaintext: string;
 }
 
+export interface UpdateDeviceBody {
+  name?: string;
+  description?: string | null;
+  device_type?: DeviceType;
+}
+
 export const devicesApi = {
   list(opts?: { includeRevoked?: boolean }): Promise<ApiKeyRecord[]> {
     return api.get<ApiKeyRecord[]>('/devices', opts?.includeRevoked ? { include_revoked: 1 } : undefined);
@@ -20,6 +26,10 @@ export const devicesApi = {
 
   create(input: CreateDeviceBody): Promise<CreateDeviceResponse> {
     return api.post<CreateDeviceResponse>('/devices', input);
+  },
+
+  update(id: string, input: UpdateDeviceBody): Promise<ApiKeyRecord> {
+    return api.patch<ApiKeyRecord>(`/devices/${id}`, input);
   },
 
   revoke(id: string, reason?: string): Promise<void> {

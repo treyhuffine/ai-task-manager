@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DefaultChatTransport } from 'ai'
@@ -84,7 +84,17 @@ export function SlideoutChat({
   chat,
   disabled,
 }: SlideoutChatProps) {
-  const showPanel = slideoutWidth >= collapseThreshold
+  // Force bubble on mobile (<md = 768px). On md+, use the resize-driven threshold.
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)')
+    const update = () => setIsMobile(mql.matches)
+    update()
+    mql.addEventListener('change', update)
+    return () => mql.removeEventListener('change', update)
+  }, [])
+
+  const showPanel = !isMobile && slideoutWidth >= collapseThreshold
 
   if (showPanel) {
     return (

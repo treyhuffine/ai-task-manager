@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import {
-  CheckSquare, FileText, Activity, Layers, Sun, Moon, User, ChevronLeft,
+  CheckSquare, FileText, Activity, Layers, Sun, Moon, SlidersHorizontal, MonitorSmartphone, ChevronLeft,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { TaskList } from '@/components/tasks/task-list';
 import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { UserProfileSheet } from '@/components/dashboard/user-profile-sheet';
+import { DevicesSheet } from '@/components/dashboard/devices-sheet';
 import { cn } from '@/lib/utils';
 
 type MoreSubView = 'menu' | 'tasks' | 'notes' | 'stream';
@@ -90,6 +91,20 @@ export function MobileMoreView() {
           </span>
         </button>
 
+        <DevicesSheet>
+          <button
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left hover:bg-muted/50 active:bg-muted transition-colors"
+          >
+            <div className={cn(
+              'w-9 h-9 rounded-lg flex items-center justify-center',
+              isDark ? 'bg-secondary' : 'bg-muted'
+            )}>
+              <MonitorSmartphone size={18} className="text-muted-foreground" />
+            </div>
+            <span className="text-sm font-medium text-foreground">Devices</span>
+          </button>
+        </DevicesSheet>
+
         <UserProfileSheet>
           <button
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left hover:bg-muted/50 active:bg-muted transition-colors"
@@ -98,9 +113,9 @@ export function MobileMoreView() {
               'w-9 h-9 rounded-lg flex items-center justify-center',
               isDark ? 'bg-secondary' : 'bg-muted'
             )}>
-              <User size={18} className="text-muted-foreground" />
+              <SlidersHorizontal size={18} className="text-muted-foreground" />
             </div>
-            <span className="text-sm font-medium text-foreground">Profile</span>
+            <span className="text-sm font-medium text-foreground">Settings</span>
           </button>
         </UserProfileSheet>
       </div>

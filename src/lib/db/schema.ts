@@ -43,6 +43,9 @@ export const stream = sqliteTable('stream', {
   promoted_to_id: text('promoted_to_id'),
   promoted_at: text('promoted_at'),
   promotion_pass: text('promotion_pass'),
+  /** Path to saved audio file (relative to captures dir). Set when audio was
+   *  captured but transcription failed or no STT provider was available. */
+  audio_file: text('audio_file'),
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 

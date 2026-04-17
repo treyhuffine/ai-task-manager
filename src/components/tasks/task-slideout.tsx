@@ -266,10 +266,10 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
           }}
         >
           <Dialog.Title className="sr-only">Task</Dialog.Title>
-        {/* Resize handle */}
+        {/* Resize handle — desktop only */}
         <div
           className={cn(
-            'w-1.5 cursor-col-resize flex-shrink-0 group relative',
+            'hidden md:block w-1.5 cursor-col-resize flex-shrink-0 group relative',
             'hover:bg-primary/20 active:bg-primary/30 transition-colors',
             isResizing && 'bg-primary/30'
           )}

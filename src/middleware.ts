@@ -11,7 +11,17 @@ function unauthorized() {
   return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 }
 
+// Paths that bypass auth. `/api/health` is our cross-origin reachability
+// probe used by the CLI and the web UI's "Test connection" button. It only
+// returns { ok, app, port } — nothing sensitive — so it's safe to leave
+// unauthenticated, and CORS on the route handler lets browsers read it.
+const PUBLIC_PATHS = new Set<string>(['/api/health']);
+
 export function middleware(request: NextRequest) {
+  if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+
   const header = request.headers.get('authorization');
   if (!header || !header.startsWith('Bearer ')) {
     return unauthorized();

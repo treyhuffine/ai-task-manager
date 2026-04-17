@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Check, Circle, Clock, Repeat, Lock,
   MoreHorizontal, Archive, Timer, GripVertical,
@@ -81,6 +81,16 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
     isDragging,
   } = useSortable({ id: task.id });
 
+  // Mobile: long-press on the row drags. Desktop: drag from the handle only.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mql.matches);
+    update();
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, []);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -107,6 +117,8 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
     <div
       ref={setNodeRef}
       style={style}
+      {...attributes}
+      {...(isMobile ? listeners : {})}
       className={cn(
         'group flex items-start gap-1.5 px-2 py-2 rounded-lg transition-all border border-transparent cursor-pointer',
         'hover:bg-card hover:border-border',
@@ -121,12 +133,12 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
         }
       }}
     >
-      {/* Drag handle */}
+      {/* Drag handle — desktop only */}
       <button
-        {...attributes}
-        {...listeners}
-        className="mt-1 p-0.5 opacity-0 group-hover:opacity-40 hover:!opacity-100 cursor-grab active:cursor-grabbing text-muted-foreground transition-opacity"
+        {...(isMobile ? {} : listeners)}
+        className="hidden md:block mt-1 p-0.5 opacity-0 group-hover:opacity-40 hover:!opacity-100 cursor-grab active:cursor-grabbing text-muted-foreground transition-opacity"
         tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
       >
         <GripVertical size={12} />
       </button>

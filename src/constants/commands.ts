@@ -12,15 +12,19 @@ export interface Hotkey {
 export const HOTKEYS = {
   search: { key: 'k', meta: true, label: '\u2318K' },
   voiceChat: { key: 'j', meta: true, label: '\u2318J' },
+  quickCapture: { key: 'k', meta: true, shift: true, label: '\u2318\u21E7K' },
   slideoutBack: { key: 'Escape', label: 'Esc' },
   slideoutCloseAll: { key: 'Escape', shift: true, label: '\u21E7Esc' },
   openFullPage: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
 } as const satisfies Record<string, Hotkey>;
 
-/** Check if a KeyboardEvent matches a Hotkey */
+/** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */
 export function matchesHotkey(e: KeyboardEvent, hotkey: Hotkey): boolean {
-  if (hotkey.meta && !(e.metaKey || e.ctrlKey)) return false;
-  if (hotkey.shift && !e.shiftKey) return false;
+  const metaRequired = !!hotkey.meta;
+  const shiftRequired = !!hotkey.shift;
+  const metaHeld = e.metaKey || e.ctrlKey;
+  if (metaHeld !== metaRequired) return false;
+  if (e.shiftKey !== shiftRequired) return false;
   return e.key.toLowerCase() === hotkey.key.toLowerCase();
 }
 

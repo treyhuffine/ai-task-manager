@@ -7,6 +7,14 @@ import { authFetch } from '@/lib/api/client';
 
 type VoiceProvider = 'local' | 'groq' | 'openai' | 'web' | null;
 
+/**
+ * How the browser will capture audio:
+ *   - media-recorder: live mic via getUserMedia + MediaRecorder (secure contexts only)
+ *   - web-speech:     browser's built-in SpeechRecognition (no server round-trip)
+ *   - null:           nothing works; see `unsupportedReason` for why
+ */
+export type CaptureMode = 'media-recorder' | 'web-speech' | null;
+
 // ─── State machine ──────────────────────────────────────────────
 // Single source of truth for the recording lifecycle.
 //   idle → starting → recording → stopping → transcribing → idle
@@ -33,8 +41,12 @@ export interface UseVoiceInputReturn {
   setTranscript: (text: string) => void;
   /** Which STT provider is active */
   provider: VoiceProvider;
-  /** Voice input is available (at least one provider) */
+  /** Voice input is available (at least one provider + one capture mechanism) */
   isSupported: boolean;
+  /** How audio will be captured — drives UI affordance (live mic vs. native picker) */
+  captureMode: CaptureMode;
+  /** Human-readable reason when voice is unavailable (captureMode === null) */
+  unsupportedReason: string | null;
   /** Start recording */
   startRecording: () => void;
   /** Stop recording and begin transcription */
@@ -67,10 +79,12 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
 
   const [transcript, setTranscript] = useState('');
   const [provider, setProvider] = useState<VoiceProvider>(null);
-  const [isSupported, setIsSupported] = useState(false);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>(null);
+  const [unsupportedReason, setUnsupportedReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
+  const isSupported = captureMode !== null;
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -90,43 +104,99 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
   useEffect(() => {
     let cancelled = false;
 
+    // Capability detection — what the *browser* can do, independent of server providers.
+    // getUserMedia requires a secure context (HTTPS or localhost). `capture` on a file
+    // input does NOT, so it's our fallback for mobile-over-LAN-HTTP.
+    const hasMediaRecorder =
+      typeof navigator !== 'undefined' &&
+      !!navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === 'function' &&
+      typeof window.MediaRecorder !== 'undefined';
+    const hasWebSpeech =
+      typeof window !== 'undefined' &&
+      !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    const isInsecureContext =
+      typeof window !== 'undefined' && !window.isSecureContext;
+
+    function resolve(status: ProviderStatus | null): {
+      provider: VoiceProvider;
+      mode: CaptureMode;
+      reason: string | null;
+    } {
+      // Pick the best available server provider (user's choice → local → any).
+      const selected = voiceModelRef.current
+        ? (getVoiceProvider(voiceModelRef.current) as VoiceProvider)
+        : null;
+      let serverProvider: VoiceProvider = null;
+      if (selected && selected !== 'web' && status?.[selected]?.available) {
+        serverProvider = selected;
+      } else if (status?.local?.available) {
+        serverProvider = 'local';
+      } else if (status?.groq?.available) {
+        serverProvider = 'groq';
+      } else if (status?.openai?.available) {
+        serverProvider = 'openai';
+      }
+
+      // Server provider wins — but only if the browser can actually record live audio.
+      if (serverProvider) {
+        if (hasMediaRecorder) {
+          return { provider: serverProvider, mode: 'media-recorder', reason: null };
+        }
+        // Server is ready but the browser can't capture audio (insecure origin).
+        return {
+          provider: serverProvider,
+          mode: null,
+          reason: isInsecureContext
+            ? 'Voice requires HTTPS. Access this site over https:// (e.g. via Tailscale Serve) to enable the mic.'
+            : 'This browser does not support audio recording.',
+        };
+      }
+
+      // No server provider — try the browser's built-in recognition.
+      if (hasWebSpeech) {
+        return { provider: 'web', mode: 'web-speech', reason: null };
+      }
+
+      // Nothing works — diagnose which constraint to surface.
+      if (isInsecureContext) {
+        return {
+          provider: null,
+          mode: null,
+          reason:
+            'Voice requires HTTPS. Access this site over https:// (e.g. via Tailscale Serve) to enable the mic.',
+        };
+      }
+      return {
+        provider: null,
+        mode: null,
+        reason:
+          'No speech-to-text provider available. Run `pnpm dev:stt` to start Parakeet, or configure GROQ_API_KEY / OPENAI_API_KEY.',
+      };
+    }
+
     async function probe() {
+      let status: ProviderStatus | null = null;
       try {
         const res = await authFetch('/api/transcribe');
         const data = await res.json();
         if (cancelled) return;
-
-        const status: ProviderStatus = data.providers;
+        status = data.providers as ProviderStatus;
         setProviderStatus(status);
-
-        // Determine active provider from the selected voice model
-        const selectedProvider = voiceModelRef.current
-          ? getVoiceProvider(voiceModelRef.current) as VoiceProvider
-          : null;
-
-        if (selectedProvider && selectedProvider !== 'web' && status[selectedProvider]?.available) {
-          setProvider(selectedProvider);
-          setIsSupported(true);
-        } else if (status.local?.available) {
-          setProvider('local');
-          setIsSupported(true);
-        } else {
-          const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-          setProvider(hasSpeech ? 'web' : null);
-          setIsSupported(hasSpeech);
-        }
       } catch {
-        if (!cancelled) {
-          const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-          setProvider(hasSpeech ? 'web' : null);
-          setIsSupported(hasSpeech);
-        }
+        // Probe failed — fall through with null status; resolve() handles it.
       }
+      if (cancelled) return;
+
+      const { provider: p, mode, reason } = resolve(status);
+      setProvider(p);
+      setCaptureMode(mode);
+      setUnsupportedReason(reason);
     }
 
     probe();
     return () => { cancelled = true; };
-  }, [voiceModel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [voiceModel]);
 
   // ─── Mic lifecycle helpers ──────────────────────────────────
   const stopMic = useCallback(() => {
@@ -374,6 +444,8 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     setTranscript,
     provider,
     isSupported,
+    captureMode,
+    unsupportedReason,
     startRecording,
     stopRecording,
     toggleRecording,

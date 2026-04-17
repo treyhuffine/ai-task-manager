@@ -34,14 +34,16 @@ export async function onboardCommand(opts: OnboardOptions) {
 
   const port = Number(opts.port ?? 4224);
 
-  // Always ensure a token exists so we can probe /api/health below.
+  // Ensure the host token exists so later pairing URLs can authenticate.
+  // /api/health itself is unauthenticated — the token isn't needed for the
+  // probe below, only for the eventual app session.
   const s = spinner();
   s.start('Bootstrapping auth');
   const info = ensureLocalToken();
   resetDb();
   s.stop(info.created ? 'Created new host token' : 'Reusing existing token');
 
-  const serverRunning = await isOurServerRunning(port, info.plaintext);
+  const serverRunning = await isOurServerRunning(port);
   const alreadyOnboarded = getIsOnboarded();
 
   // ─── Branch 1: fresh install ────────────────────────────────────────

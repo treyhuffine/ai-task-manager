@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, Plus, Trash2, Check, Loader2 } from 'lucide-react';
-import { devicesApi, type CreateDeviceResponse } from '@/lib/api/devices';
+import { Copy, KeyRound, Pencil, Plus, Trash2, Check, Loader2, X } from 'lucide-react';
+import { devicesApi, type CreateDeviceResponse, type UpdateDeviceBody } from '@/lib/api/devices';
 import { settingsApi } from '@/lib/api/settings';
 import type { ApiKeyRecord, DeviceType } from '@/db/types';
 import { tokenDisplay } from '@/lib/auth/tokens';
@@ -60,6 +60,14 @@ export function DevicesSection() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateDeviceBody }) =>
+      devicesApi.update(id, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    },
+  });
+
   const handleCreate = useCallback(() => {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -94,20 +102,22 @@ export function DevicesSection() {
         hint: 'Off-network — anywhere with internet',
       });
     }
-    if (baseUrls?.lan) {
-      candidates.push({
-        id: 'lan',
-        label: 'Same network',
-        base: baseUrls.lan,
-        hint: 'Any device on the same Wi-Fi / LAN',
-      });
-    }
+
     if (origin) {
       candidates.push({
         id: 'current',
         label: 'This computer',
         base: origin,
         hint: 'The URL you are currently connected to',
+      });
+    }
+
+    if (baseUrls?.lan) {
+      candidates.push({
+        id: 'lan',
+        label: 'Same network',
+        base: baseUrls.lan,
+        hint: 'Any device on the same Wi-Fi / LAN',
       });
     }
 
@@ -248,6 +258,32 @@ export function DevicesSection() {
               </TabsContent>
             ))}
           </Tabs>
+
+          {/* Raw token — same for every URL above. Useful when pasting into
+              a device that already has flow open, or when the pairing URL's
+              hash fragment isn't preserved across the paste target. */}
+          <div className="pt-3 border-t border-primary/20 space-y-1.5">
+            <p className="text-[11px] text-muted-foreground/70">
+              Or paste just the token into any base URL as{' '}
+              <code className="font-mono text-foreground/80">/#t=&lt;token&gt;</code>.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={lastCreated.plaintext}
+                className="flex-1 min-w-0 rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-mono"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleCopy('token', lastCreated.plaintext)}
+              >
+                {copiedLabel === 'token' ? <Check size={12} /> : <Copy size={12} />}
+                {copiedLabel === 'token' ? 'Copied' : 'Copy token'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -264,6 +300,9 @@ export function DevicesSection() {
             device={d}
             onRevoke={() => revokeMutation.mutate(d.id)}
             revoking={revokeMutation.isPending && revokeMutation.variables === d.id}
+            onSave={(input) =>
+              updateMutation.mutateAsync({ id: d.id, input }).then(() => undefined)
+            }
           />
         ))}
       </div>
@@ -275,13 +314,104 @@ function DeviceRow({
   device,
   onRevoke,
   revoking,
+  onSave,
 }: {
   device: ApiKeyRecord;
   onRevoke: () => void;
   revoking: boolean;
+  onSave: (input: UpdateDeviceBody) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState(device.name);
+  const [draftType, setDraftType] = useState<DeviceType>(device.device_type);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const display = tokenDisplay(device.prefix, device.suffix, device.env);
+
+  const beginEdit = () => {
+    setDraftName(device.name);
+    setDraftType(device.device_type);
+    setError(null);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setError(null);
+  };
+
+  const commitEdit = async () => {
+    const trimmed = draftName.trim();
+    if (!trimmed) {
+      setError('Name cannot be empty.');
+      return;
+    }
+    const patch: UpdateDeviceBody = {};
+    if (trimmed !== device.name) patch.name = trimmed;
+    if (draftType !== device.device_type) patch.device_type = draftType;
+    if (Object.keys(patch).length === 0) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(patch);
+      setEditing(false);
+    } catch {
+      setError('Failed to save. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="rounded-lg border border-border bg-background p-3 space-y-2">
+        <label className="block">
+          <span className="text-[11px] text-muted-foreground/70">Name</span>
+          <input
+            autoFocus
+            type="text"
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            className="mt-1 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitEdit();
+              if (e.key === 'Escape') cancelEdit();
+            }}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] text-muted-foreground/70">Device type</span>
+          <select
+            value={draftType}
+            onChange={(e) => setDraftType(e.target.value as DeviceType)}
+            className="mt-1 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {DEVICE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-[11px] text-muted-foreground/60 font-mono truncate">{display}</p>
+        <div className="flex items-center gap-2 pt-1">
+          <Button size="sm" onClick={commitEdit} disabled={saving || !draftName.trim()}>
+            {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={cancelEdit} disabled={saving}>
+            Cancel
+          </Button>
+        </div>
+        {error && <p className="text-[11px] text-destructive">{error}</p>}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-border bg-background p-3 flex items-start justify-between gap-2">
       <div className="min-w-0 flex-1">
@@ -302,19 +432,29 @@ function DeviceRow({
             {revoking ? <Loader2 size={10} className="animate-spin" /> : null}
             Revoke
           </Button>
-          <Button size="xs" variant="ghost" onClick={() => setConfirming(false)}>
-            Cancel
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => setConfirming(false)}
+            aria-label="Cancel revoke"
+          >
+            <X size={12} />
           </Button>
         </div>
       ) : (
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={() => setConfirming(true)}
-          aria-label="Revoke device"
-        >
-          <Trash2 size={12} />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button size="xs" variant="ghost" onClick={beginEdit} aria-label="Edit device">
+            <Pencil size={12} />
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => setConfirming(true)}
+            aria-label="Revoke device"
+          >
+            <Trash2 size={12} />
+          </Button>
+        </div>
       )}
     </div>
   );

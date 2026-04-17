@@ -1,13 +1,13 @@
 "use client";
 
-import { Sun, Moon, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { CreateMenu } from './create-menu';
 import { UserProfileSheet } from './user-profile-sheet';
+import { DevicesSheet } from './devices-sheet';
 
 export function TopHud() {
-  const { theme, toggleTheme, agents } = useDashboard();
-  const isDark = theme === 'dark';
+  const { agents } = useDashboard();
   const activeAgentCount = agents.filter(a => a.status === 'active').length;
 
   return (
@@ -28,16 +28,12 @@ export function TopHud() {
       <div className="flex-1" />
 
       <div className="flex items-center gap-2">
-        <button
-          onClick={toggleTheme}
-          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-primary transition-all active:scale-95"
-        >
-          {isDark ? <Sun size={14} /> : <Moon size={14} />}
-        </button>
+        <DevicesSheet />
         <UserProfileSheet />
         <button
           onClick={() => document.dispatchEvent(new CustomEvent('open-search'))}
           className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
+          aria-label="Search"
         >
           <Search size={14} />
         </button>

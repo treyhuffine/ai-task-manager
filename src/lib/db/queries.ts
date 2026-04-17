@@ -15,7 +15,7 @@ import type {
   StreamRecord, CreateStreamInput,
   DeckRecord, UpdateDeckInput,
   UpdateUserStateInput,
-  ApiKeyRecord, CreateApiKeyInput,
+  ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
 } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 
@@ -408,6 +408,18 @@ export function listApiKeys(options: { includeRevoked?: boolean } = {}): ApiKeyR
 export function findApiKeyByHash(hash: string): ApiKeyRecord | undefined {
   const db = getDb();
   return db.select().from(apiKeys).where(eq(apiKeys.hash, hash)).get();
+}
+
+export function updateApiKey(id: string, input: UpdateApiKeyInput): ApiKeyRecord | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const row = db
+    .update(apiKeys)
+    .set({ ...input, updated_at: now })
+    .where(eq(apiKeys.id, id))
+    .returning()
+    .get();
+  return row ?? null;
 }
 
 export function revokeApiKey(id: string, reason?: string): ApiKeyRecord | null {

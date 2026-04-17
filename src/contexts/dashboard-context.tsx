@@ -54,6 +54,8 @@ interface DashboardState {
   // Mobile navigation
   mobileTab: MobileTab;
   mobileCreateOpen: boolean;
+  // Quick capture modal
+  quickCaptureOpen: boolean;
 }
 
 interface DashboardActions {
@@ -92,6 +94,9 @@ interface DashboardActions {
   // Mobile navigation
   setMobileTab: (tab: MobileTab) => void;
   setMobileCreateOpen: (open: boolean) => void;
+  // Quick capture
+  setQuickCaptureOpen: (open: boolean) => void;
+  toggleQuickCapture: () => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -142,6 +147,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // ─── Mobile navigation ──────────────────────────────────────
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
   const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
+  // ─── Quick capture ────────────────────────────────────────
+  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
+  const toggleQuickCapture = useCallback(() => setQuickCaptureOpen((prev) => !prev), []);
 
   // ─── Slideout stack ──────────────────────────────────────────
   const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>([]);
@@ -313,6 +321,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setMobileTab,
       mobileCreateOpen,
       setMobileCreateOpen,
+      quickCaptureOpen,
+      setQuickCaptureOpen,
+      toggleQuickCapture,
     }}>
       {children}
     </DashboardContext.Provider>
