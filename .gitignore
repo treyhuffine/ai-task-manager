@@ -32,6 +32,12 @@ code-archive
 .DS_Store
 *.pem
 
+# local sqlite stubs (real db lives in ~/.<app>/ — see src/lib/config/paths.ts)
+*.db
+*.db-shm
+*.db-wal
+*.db.bak
+
 # debug
 npm-debug.log*
 yarn-debug.log*
