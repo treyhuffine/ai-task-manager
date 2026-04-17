@@ -282,9 +282,9 @@ export function StreamList() {
                       </div>
                     </div>
 
-                    {/* Actions (pending only) */}
+                    {/* Actions (pending only) — always visible on mobile, hover on desktop */}
                     {isPending && (
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
                         <TaskActions
                           onPromote={() => handlePromoteToTask(item)}
                           onMerge={(taskId) => handleMergeIntoTask(item, taskId)}

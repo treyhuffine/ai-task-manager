@@ -21,6 +21,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { RowActionsMenu, type RowAction } from '@/components/shared/row-actions-menu';
 import type { DeckItem, SubtaskItem } from '@/types/dashboard';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -123,9 +124,9 @@ function Subtasks({ items, onCollapse, actions }: { items: SubtaskItem[]; onColl
               {s.title}
             </span>
 
-            {/* Hover actions */}
+            {/* Desktop hover actions */}
             {!s.completed && (
-              <div className="shrink-0 opacity-0 group-hover/subtask:opacity-100 transition-opacity flex items-center gap-0.5">
+              <div className="hidden md:flex shrink-0 opacity-0 group-hover/subtask:opacity-100 transition-opacity items-center gap-0.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -162,6 +163,19 @@ function Subtasks({ items, onCollapse, actions }: { items: SubtaskItem[]; onColl
                   </Tooltip>
                 )}
               </div>
+            )}
+
+            {/* Mobile overflow menu */}
+            {!s.completed && (
+              <RowActionsMenu
+                iconSize={14}
+                title="Subtask actions"
+                actions={[
+                  { id: 'done', label: 'Mark done', icon: Check, onClick: () => actions.onComplete(s.id) },
+                  { id: 'defer', label: 'Defer', icon: SkipForward, onClick: () => actions.onDefer(s.id) },
+                  ...(actions.onFocus ? [{ id: 'focus', label: 'Focus', icon: Crosshair, onClick: () => actions.onFocus!(s.id) } satisfies RowAction] : []),
+                ]}
+              />
             )}
           </div>
         ))}
@@ -230,8 +244,8 @@ function SortableDeckItemCard({
         <GripVertical className="w-4 h-4 text-muted-foreground/30" />
       </div>
 
-      {/* Hover actions — top right */}
-      <div className="absolute right-0 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+      {/* Desktop hover actions — top right */}
+      <div className="hidden md:flex absolute right-0 top-2 opacity-0 group-hover:opacity-100 transition-opacity items-center gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -267,6 +281,18 @@ function SortableDeckItemCard({
             <TooltipContent side="top">Focus</TooltipContent>
           </Tooltip>
         )}
+      </div>
+
+      {/* Mobile overflow menu — top right */}
+      <div className="absolute right-0 top-2">
+        <RowActionsMenu
+          title="Task actions"
+          actions={[
+            { id: 'done', label: 'Mark done', icon: Check, onClick: () => onComplete(item.id) },
+            { id: 'not-today', label: 'Not today', icon: SkipForward, onClick: () => onNotToday(item.id) },
+            ...(onFocus ? [{ id: 'focus', label: 'Focus', icon: Crosshair, onClick: () => onFocus(item.id) } satisfies RowAction] : []),
+          ]}
+        />
       </div>
 
       <div className="pl-6 pr-20 min-w-0 overflow-hidden">

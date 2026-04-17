@@ -248,6 +248,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const openDeck = useCallback((deckId: string) => {
     setActiveDeckId(deckId);
+    setMobileTab('deck');
     // Switch a panel to deck tab — prefer whichever panel already has the deck,
     // otherwise use the panel that doesn't have chat
     const aHasDeck = panelATab === 'deck';

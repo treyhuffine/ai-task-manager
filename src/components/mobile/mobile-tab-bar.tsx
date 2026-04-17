@@ -18,7 +18,7 @@ export function MobileTabBar() {
   const activeAgentCount = agents.filter(a => a.status === 'active').length;
 
   return (
-    <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[env(safe-area-inset-bottom)] select-none">
+    <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] select-none">
       {TABS.map((tab) => {
         const isCreate = tab.id === 'create';
         const isActive = !isCreate && mobileTab === tab.id;

@@ -1,14 +1,20 @@
 "use client";
 
-import { Search } from 'lucide-react';
+import { useState } from 'react';
+import { Search, Inbox, Zap } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { InboxComingSoonSheet } from '@/components/shared/inbox-coming-soon-sheet';
 import { CreateMenu } from './create-menu';
 import { UserProfileSheet } from './user-profile-sheet';
 import { DevicesSheet } from './devices-sheet';
 
+// Flip to false to hide (not yet launched)
+const SHOW_INBOX = true;
+
 export function TopHud() {
-  const { agents } = useDashboard();
+  const { agents, setQuickCaptureOpen } = useDashboard();
   const activeAgentCount = agents.filter(a => a.status === 'active').length;
+  const [inboxOpen, setInboxOpen] = useState(false);
 
   return (
     <header className="flex-shrink-0 h-10 border-b border-border flex items-center px-4 gap-4 bg-background z-50">
@@ -37,6 +43,27 @@ export function TopHud() {
         >
           <Search size={14} />
         </button>
+        <button
+          onClick={() => setQuickCaptureOpen(true)}
+          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
+          aria-label="Quick capture"
+          title="Quick capture"
+        >
+          <Zap size={14} />
+        </button>
+        {SHOW_INBOX && (
+          <>
+            <button
+              onClick={() => setInboxOpen(true)}
+              className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
+              aria-label="Inbox"
+              title="Inbox"
+            >
+              <Inbox size={14} />
+            </button>
+            <InboxComingSoonSheet open={inboxOpen} onOpenChange={setInboxOpen} />
+          </>
+        )}
         <CreateMenu />
       </div>
     </header>

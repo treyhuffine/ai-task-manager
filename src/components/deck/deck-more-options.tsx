@@ -48,16 +48,12 @@ export function DeckMoreOptions({
         <div className="px-4 pb-3 max-h-64 overflow-y-auto space-y-0.5">
           {/* Alternative items */}
           {alternatives.map(item => (
-            <div
+            <button
               key={item.id}
-              className="group/alt flex items-center gap-2 py-1.5 pl-1 rounded-md hover:bg-muted/50 transition-colors"
+              onClick={() => onPromote(item.id, 'alternative')}
+              className="group/alt w-full flex items-center gap-2 py-1.5 pl-1 rounded-md hover:bg-muted/50 active:bg-muted/70 transition-colors text-left"
             >
-              <button
-                onClick={() => onPromote(item.id, 'alternative')}
-                className="opacity-0 group-hover/alt:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
+              <Plus className="w-3.5 h-3.5 text-muted-foreground md:opacity-0 md:group-hover/alt:opacity-100 group-hover/alt:text-foreground transition-opacity flex-shrink-0" />
               <span className="text-xs text-muted-foreground flex-1 truncate">
                 {item.title}
               </span>
@@ -73,21 +69,17 @@ export function DeckMoreOptions({
                   </span>
                 )}
               </div>
-            </div>
+            </button>
           ))}
 
           {/* Radar items */}
           {radarItems.map(item => (
-            <div
+            <button
               key={item.id}
-              className="group/radar flex items-start gap-2 py-1.5 pl-1 rounded-md hover:bg-muted/50 transition-colors"
+              onClick={() => onPromote(item.id, 'radar')}
+              className="group/radar w-full flex items-start gap-2 py-1.5 pl-1 rounded-md hover:bg-muted/50 active:bg-muted/70 transition-colors text-left"
             >
-              <button
-                onClick={() => onPromote(item.id, 'radar')}
-                className="opacity-0 group-hover/radar:opacity-100 transition-opacity text-muted-foreground hover:text-foreground mt-0.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
+              <Plus className="w-3.5 h-3.5 text-muted-foreground md:opacity-0 md:group-hover/radar:opacity-100 group-hover/radar:text-foreground mt-0.5 transition-opacity flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-muted-foreground truncate">
@@ -101,7 +93,7 @@ export function DeckMoreOptions({
                   {item.reason}
                 </p>
               </div>
-            </div>
+            </button>
           ))}
 
           {/* View all tasks */}

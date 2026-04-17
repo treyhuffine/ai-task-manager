@@ -197,14 +197,17 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
                   <button
                     onClick={() => onRemoveFromDeck?.(task.id)}
                     className="shrink-0 transition-colors text-muted-foreground/30 hover:text-red-400"
+                    aria-label="Remove from deck"
                   >
-                    <Check className="w-3.5 h-3.5 group-hover/task:hidden" />
-                    <Minus className="w-3.5 h-3.5 hidden group-hover/task:block" />
+                    {/* Mobile: always show minus. Desktop: check that swaps to minus on hover */}
+                    <Check className="w-3.5 h-3.5 hidden md:block md:group-hover/task:hidden" />
+                    <Minus className="w-3.5 h-3.5 md:hidden md:group-hover/task:block" />
                   </button>
                 ) : (
                   <button
                     onClick={() => onAddToDeck(task)}
                     className="shrink-0 transition-colors text-muted-foreground hover:text-foreground"
+                    aria-label="Add to deck"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
