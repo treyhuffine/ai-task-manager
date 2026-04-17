@@ -4,11 +4,10 @@ import type { DeviceType, UpdateApiKeyInput } from '@/db/types';
 
 const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
   'host',
-  'desktop',
-  'laptop',
+  'computer',
   'phone',
   'tablet',
-  'cli',
+  'service',
   'other',
 ];
 

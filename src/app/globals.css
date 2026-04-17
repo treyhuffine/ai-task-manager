@@ -625,3 +625,15 @@
   color: var(--muted-foreground);
   opacity: 0.4;
 }
+
+/* Prevent iOS Safari from auto-zooming when focusing inputs with <16px text.
+ * Desktop keeps its original sizing; only the mobile viewport is bumped.
+ * Tailwind `md` breakpoint is 768px — we target everything below that. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select,
+  [contenteditable="true"] {
+    font-size: 16px;
+  }
+}

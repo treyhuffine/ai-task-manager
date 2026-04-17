@@ -139,7 +139,7 @@ export const apiKeys = sqliteTable('api_keys', {
   name: text('name').notNull(),
   description: text('description'),
   device_type: text('device_type', {
-    enum: ['host', 'desktop', 'laptop', 'phone', 'tablet', 'cli', 'other'],
+    enum: ['host', 'computer', 'phone', 'tablet', 'service', 'other'],
   }).notNull().default('other'),
   prefix: text('prefix').notNull(),
   suffix: text('suffix').notNull(),

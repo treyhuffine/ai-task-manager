@@ -139,8 +139,8 @@ export function TaskList() {
         'px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0',
         isDark ? 'bg-card/50' : 'bg-muted'
       )}>
-        {/* Status filter */}
-        <div className="flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
+        {/* Status filter — desktop inline segmented, mobile inside Filter dropdown */}
+        <div className="hidden md:flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
           {(['active', 'done', 'archived', 'all'] as const).map((s) => (
             <button
               key={s}
@@ -157,8 +157,8 @@ export function TaskList() {
           ))}
         </div>
 
-        {/* Energy filter */}
-        <div className="flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
+        {/* Energy filter — desktop inline segmented, mobile inside Filter dropdown */}
+        <div className="hidden md:flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
           {(['all', 'deep', 'light'] as const).map((e) => (
             <button
               key={e}
@@ -175,14 +175,37 @@ export function TaskList() {
           ))}
         </div>
 
-        {/* Area filter */}
+        {/* Filter dropdown — Area on desktop, Status+Energy+Area on mobile */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border">
               <Filter size={11} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44">
+          <DropdownMenuContent align="start" className="w-48">
+            <div className="md:hidden">
+              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Status</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={statusFilter}
+                onValueChange={(v) => setStatusFilter(v as TaskStatus | 'all')}
+              >
+                <DropdownMenuRadioItem value="active" className="text-xs">Active</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="done" className="text-xs">Done</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="archived" className="text-xs">Archived</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="all" className="text-xs">All</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Energy</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={energyFilter}
+                onValueChange={(v) => setEnergyFilter(v as Energy | 'all')}
+              >
+                <DropdownMenuRadioItem value="all" className="text-xs">All energies</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="deep" className="text-xs">Deep</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="light" className="text-xs">Light</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+            </div>
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Area</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={areaFilter} onValueChange={setAreaFilter}>
               <DropdownMenuRadioItem value="all" className="text-xs">All areas</DropdownMenuRadioItem>

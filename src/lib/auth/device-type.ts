@@ -9,12 +9,11 @@ export function deviceTypeFromUserAgent(ua: string | null | undefined): DeviceTy
   const s = ua.toLowerCase();
 
   if (/\b(curl|wget|httpie|node-fetch|undici|python-requests|go-http-client)\b/.test(s)) {
-    return 'cli';
+    return 'service';
   }
   if (/ipad|tablet|kindle|playbook|silk/.test(s)) return 'tablet';
   if (/iphone|android.*mobile|phone|ipod/.test(s)) return 'phone';
   if (/android/.test(s)) return 'tablet';
-  if (/macintosh|mac os x|linux|cros|x11/.test(s)) return 'laptop';
-  if (/windows/.test(s)) return 'desktop';
+  if (/macintosh|mac os x|linux|cros|x11|windows/.test(s)) return 'computer';
   return 'other';
 }

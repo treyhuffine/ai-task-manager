@@ -1,10 +1,40 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Check, AlertCircle, MonitorSmartphone, KeyRound, ChevronRight, Terminal } from 'lucide-react';
+import { Loader2, Check, AlertCircle, MonitorSmartphone, KeyRound, ChevronRight, Terminal, QrCode } from 'lucide-react';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { setAuthToken } from '@/lib/api/client';
+import { QrScannerModal } from '@/components/auth/qr-scanner-modal';
+
+/**
+ * Extract a pairing token from a scanned QR payload.
+ * QRs may encode either the full pair URL (`http://host/#t=<token>`)
+ * or — as a fallback — a raw token. This handles both.
+ */
+function extractTokenFromQr(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // Full URL form — parse the fragment for ?t=
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      const hash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash;
+      const params = new URLSearchParams(hash);
+      const t = params.get('t');
+      if (t) return t;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  // Raw token form — expect `<appId>_<env>_<chars>`
+  if (/^[a-z]+_[a-z]+_[A-Za-z0-9]+$/.test(trimmed)) return trimmed;
+
+  return null;
+}
 
 /**
  * Unpaired-browser landing page.
@@ -22,6 +52,7 @@ export default function PairPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [token, setToken] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [status, setStatus] = useState<
     | { kind: 'idle' }
     | { kind: 'validating' }
@@ -33,38 +64,63 @@ export default function PairPage() {
     inputRef.current?.focus();
   }, []);
 
-  const submit = async () => {
+  const validateAndSave = useCallback(
+    async (candidate: string) => {
+      setStatus({ kind: 'validating' });
+      try {
+        const res = await fetch('/api/user-state', {
+          headers: { authorization: `Bearer ${candidate}` },
+        });
+        if (res.status === 401 || res.status === 403) {
+          setStatus({
+            kind: 'error',
+            message: 'That token was rejected. It may have been revoked or mistyped.',
+          });
+          return;
+        }
+        if (!res.ok) {
+          setStatus({
+            kind: 'error',
+            message: `Server returned HTTP ${res.status}. Try again in a moment.`,
+          });
+          return;
+        }
+        setAuthToken(candidate);
+        setStatus({ kind: 'ok' });
+        router.replace('/');
+      } catch {
+        setStatus({
+          kind: 'error',
+          message: `Couldn't reach the server. Check your connection and try again.`,
+        });
+      }
+    },
+    [router],
+  );
+
+  const submit = useCallback(() => {
     const trimmed = token.trim();
     if (!trimmed) return;
-    setStatus({ kind: 'validating' });
-    try {
-      const res = await fetch('/api/user-state', {
-        headers: { authorization: `Bearer ${trimmed}` },
-      });
-      if (res.status === 401 || res.status === 403) {
+    void validateAndSave(trimmed);
+  }, [token, validateAndSave]);
+
+  const handleQrDecoded = useCallback(
+    (raw: string) => {
+      const extracted = extractTokenFromQr(raw);
+      if (!extracted) {
+        setScannerOpen(false);
         setStatus({
           kind: 'error',
-          message: 'That token was rejected. It may have been revoked or mistyped.',
+          message: `That QR code doesn't look like a ${APP_NAME} pairing code.`,
         });
         return;
       }
-      if (!res.ok) {
-        setStatus({
-          kind: 'error',
-          message: `Server returned HTTP ${res.status}. Try again in a moment.`,
-        });
-        return;
-      }
-      setAuthToken(trimmed);
-      setStatus({ kind: 'ok' });
-      router.replace('/');
-    } catch {
-      setStatus({
-        kind: 'error',
-        message: `Couldn't reach the server. Check your connection and try again.`,
-      });
-    }
-  };
+      setScannerOpen(false);
+      setToken(extracted);
+      void validateAndSave(extracted);
+    },
+    [validateAndSave],
+  );
 
   const validating = status.kind === 'validating';
 
@@ -144,6 +200,19 @@ export default function PairPage() {
                 </div>
               )}
 
+              <button
+                type="button"
+                onClick={() => {
+                  if (status.kind !== 'idle') setStatus({ kind: 'idle' });
+                  setScannerOpen(true);
+                }}
+                disabled={validating}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-border/50 bg-background/40 px-4 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-background/70 hover:border-border active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+              >
+                <QrCode size={16} />
+                Scan QR code
+              </button>
+
               <p className="text-xs text-muted-foreground/60">
                 You can also open a pair link directly — the token lives in the URL fragment as{' '}
                 <code className="rounded bg-muted px-1 mt-0.5 py-0.5 inline-block font-mono text-[10px] text-foreground/80">#t=&lt;token&gt;</code>
@@ -191,6 +260,12 @@ export default function PairPage() {
           Tokens are securely validated and stored in localStorage.
         </p>
       </div>
+
+      <QrScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onDecoded={handleQrDecoded}
+      />
     </div>
   );
 }

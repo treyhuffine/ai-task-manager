@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { QrCode } from '@/components/settings/qr-code';
 import { RemoteBaseUrlSection } from '@/components/settings/remote-base-url';
 
-const DEVICE_TYPES: DeviceType[] = ['laptop', 'desktop', 'phone', 'tablet', 'cli', 'other'];
+const DEVICE_TYPES: DeviceType[] = ['computer', 'phone', 'tablet', 'service', 'other'];
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return 'never';

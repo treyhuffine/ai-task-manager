@@ -8,14 +8,14 @@ describe('deviceTypeFromUserAgent', () => {
     expect(deviceTypeFromUserAgent('')).toBe('other');
   });
 
-  it('detects CLI tooling', () => {
-    expect(deviceTypeFromUserAgent('curl/8.4.0')).toBe('cli');
-    expect(deviceTypeFromUserAgent('Wget/1.21.3')).toBe('cli');
-    expect(deviceTypeFromUserAgent('HTTPie/3.2.1')).toBe('cli');
-    expect(deviceTypeFromUserAgent('node-fetch/1.0')).toBe('cli');
-    expect(deviceTypeFromUserAgent('undici/6.0')).toBe('cli');
-    expect(deviceTypeFromUserAgent('python-requests/2.31.0')).toBe('cli');
-    expect(deviceTypeFromUserAgent('Go-http-client/1.1')).toBe('cli');
+  it('detects service/programmatic access', () => {
+    expect(deviceTypeFromUserAgent('curl/8.4.0')).toBe('service');
+    expect(deviceTypeFromUserAgent('Wget/1.21.3')).toBe('service');
+    expect(deviceTypeFromUserAgent('HTTPie/3.2.1')).toBe('service');
+    expect(deviceTypeFromUserAgent('node-fetch/1.0')).toBe('service');
+    expect(deviceTypeFromUserAgent('undici/6.0')).toBe('service');
+    expect(deviceTypeFromUserAgent('python-requests/2.31.0')).toBe('service');
+    expect(deviceTypeFromUserAgent('Go-http-client/1.1')).toBe('service');
   });
 
   it('detects phones', () => {
@@ -41,18 +41,18 @@ describe('deviceTypeFromUserAgent', () => {
     expect(deviceTypeFromUserAgent(kindle)).toBe('tablet');
   });
 
-  it('detects laptop/desktop via OS', () => {
+  it('detects computers via OS', () => {
     const mac =
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
-    expect(deviceTypeFromUserAgent(mac)).toBe('laptop');
+    expect(deviceTypeFromUserAgent(mac)).toBe('computer');
 
     const linux =
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-    expect(deviceTypeFromUserAgent(linux)).toBe('laptop');
+    expect(deviceTypeFromUserAgent(linux)).toBe('computer');
 
     const windows =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-    expect(deviceTypeFromUserAgent(windows)).toBe('desktop');
+    expect(deviceTypeFromUserAgent(windows)).toBe('computer');
   });
 
   it('falls back to "other" for unknown UAs', () => {

@@ -5,6 +5,7 @@ import { ContentPanel } from '@/components/dashboard/content-panel';
 import { MobileAgentsView } from './mobile-agents-view';
 import { MobileMoreView } from './mobile-more-view';
 import { MobileTabBar } from './mobile-tab-bar';
+import { MobileTopBar } from './mobile-top-bar';
 import { MobileCreateSheet } from './mobile-create-sheet';
 
 export function MobileLayout() {
@@ -30,6 +31,7 @@ export function MobileLayout() {
 
   return (
     <>
+      <MobileTopBar />
       <div className="flex-1 min-h-0 overflow-hidden">
         {renderContent()}
       </div>

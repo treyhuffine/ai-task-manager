@@ -40,11 +40,10 @@ const BASE_URL_EXAMPLE = `https://${APP_SHORT_ID}.example.com`;
 /** Device types the CLI is willing to assign. Excludes 'host' — that's
  *  reserved for the internal host-machine token and minted elsewhere. */
 const ALLOWED_CLI_TYPES: readonly DeviceType[] = [
-  'desktop',
-  'laptop',
+  'computer',
   'phone',
   'tablet',
-  'cli',
+  'service',
   'other',
 ];
 
