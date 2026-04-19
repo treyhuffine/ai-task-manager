@@ -5,6 +5,7 @@ import { eq, desc } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { CreateStreamInput } from '@/db/types';
 import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
+import { syncEntity } from '@/lib/export/mirror';
 
 export async function GET(request: NextRequest) {
   try {
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
       .get();
 
     void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
+    void syncEntity('stream', row.id);
     return Response.json(row, { status: 201 });
   } catch (err) {
     console.error('[POST /api/stream]', err);

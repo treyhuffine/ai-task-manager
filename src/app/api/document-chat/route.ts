@@ -5,6 +5,7 @@ import { getDb } from '@/lib/db';
 import { tasks, notes } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
+import { syncEntity } from '@/lib/export/mirror';
 
 export const maxDuration = 60;
 
@@ -90,6 +91,7 @@ function buildTaskTools(documentId: string) {
           .get();
         if (!row) return { success: false, error: 'Task not found' };
         void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+        void syncEntity('task', row.id);
         return { success: true, title: row.title };
       },
     }),
@@ -109,6 +111,7 @@ function buildTaskTools(documentId: string) {
           .get();
         if (!row) return { success: false, error: 'Task not found' };
         void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+        void syncEntity('task', row.id);
         return { success: true, bodyLength: row.body?.length ?? 0 };
       },
     }),
@@ -177,6 +180,7 @@ function buildNoteTools(documentId: string) {
           .get();
         if (!row) return { success: false, error: 'Note not found' };
         void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
+        void syncEntity('note', row.id);
         return { success: true, title: row.title };
       },
     }),
@@ -196,6 +200,7 @@ function buildNoteTools(documentId: string) {
           .get();
         if (!row) return { success: false, error: 'Note not found' };
         void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
+        void syncEntity('note', row.id);
         return { success: true, bodyLength: row.body?.length ?? 0 };
       },
     }),
@@ -218,6 +223,7 @@ function buildNoteTools(documentId: string) {
           .returning()
           .get();
         if (!row) return { success: false, error: 'Note not found' };
+        void syncEntity('note', row.id);
         const updatedFields = Object.keys(props).filter(k => (props as Record<string, unknown>)[k] !== undefined);
         return { success: true, updated: updatedFields };
       },

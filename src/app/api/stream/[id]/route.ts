@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { stream } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { UpdateStreamInput } from '@/db/types';
+import { syncEntity } from '@/lib/export/mirror';
 
 export async function PATCH(
   request: NextRequest,
@@ -25,6 +26,7 @@ export async function PATCH(
       .returning()
       .get();
 
+    void syncEntity('stream', row.id);
     return Response.json(row);
   } catch (err) {
     console.error('[PATCH /api/stream/:id]', err);

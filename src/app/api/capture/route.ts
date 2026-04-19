@@ -25,6 +25,7 @@ import { getDb } from '@/lib/db';
 import { stream } from '@/lib/db/schema';
 import { uuidv7 } from 'uuidv7';
 import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
+import { syncEntity } from '@/lib/export/mirror';
 import { transcribe, pickProvider } from '@/lib/stt/transcribe';
 import { getUserState } from '@/lib/db/queries';
 import { ensureCaptureDir } from '@/lib/config/paths';
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
           .get();
 
         void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
+        void syncEntity('stream', row.id);
 
         return Response.json(
           {
@@ -144,6 +146,7 @@ export async function POST(request: NextRequest) {
       .get();
 
     void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
+    void syncEntity('stream', row.id);
 
     return Response.json({ item: row }, { status: 201 });
   } catch (err) {

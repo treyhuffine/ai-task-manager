@@ -6,6 +6,7 @@ import { pairCommand } from './commands/pair';
 import { doctorCommand } from './commands/doctor';
 import { onboardCommand } from './commands/onboard';
 import { registerVoiceCommand } from './commands/voice';
+import { registerSnapshotCommand } from './commands/snapshot';
 import { registerExportCommand } from './commands/export';
 
 const program = new Command();
@@ -53,6 +54,7 @@ program
   .action(doctorCommand);
 
 registerVoiceCommand(program);
+registerSnapshotCommand(program);
 registerExportCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {

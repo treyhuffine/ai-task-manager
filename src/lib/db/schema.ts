@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 
 export const userState = sqliteTable('user_state', {
   id: integer('id').primaryKey(),
+  name: text('name'),
   active_area_id: text('active_area_id').references(() => areas.id),
   active_parent_task_id: text('active_parent_task_id'),
   active_energy: text('active_energy', { enum: ['deep', 'light'] }),
@@ -12,6 +13,9 @@ export const userState = sqliteTable('user_state', {
   description: text('description').notNull().default(''),
   voice_auto_send: integer('voice_auto_send', { mode: 'boolean' }).notNull().default(true),
   voice_model: text('voice_model').notNull().default('local/parakeet-tdt-0.6b-v3'),
+  default_agent_adapter: text('default_agent_adapter', { enum: ['claude', 'codex'] }),
+  default_agent_model: text('default_agent_model'),
+  onboarded_at: text('onboarded_at'),
   updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });
 
@@ -165,7 +169,6 @@ export const notes = sqliteTable('notes', {
   id: text('id').primaryKey(),
   area_id: text('area_id').references(() => areas.id),
   task_id: text('task_id').references(() => tasks.id),
-  stream_item_id: text('stream_item_id').references(() => stream.id),
   title: text('title'),
   body: text('body').notNull(),
   url: text('url'),

@@ -1,0 +1,69 @@
+import { Rocket, Check, User, Layers, Bot, Upload } from 'lucide-react';
+import type { WizardState } from './types';
+
+const ADAPTER_LABEL: Record<WizardState['agentAdapter'], string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+};
+
+export function StepLaunch({ state }: { state: WizardState }) {
+  const rows = [
+    {
+      icon: User,
+      label: state.name || 'Unnamed',
+      sub: state.description ? state.description.slice(0, 80) : 'No context yet',
+    },
+    {
+      icon: Layers,
+      label: `${state.areas.length} area${state.areas.length === 1 ? '' : 's'}`,
+      sub: state.areas.map((a) => a.name).join(', ') || '—',
+    },
+    {
+      icon: Bot,
+      label: ADAPTER_LABEL[state.agentAdapter],
+      sub:
+        state.agentProbe.status === 'pass'
+          ? 'Environment check passed'
+          : state.agentProbe.status === 'fail'
+            ? 'Environment check failed — configure later in Settings'
+            : 'Environment not tested',
+    },
+    {
+      icon: Upload,
+      label: 'Import',
+      sub: 'Skipped — set up later',
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <header className="flex items-start gap-3">
+        <div className="flex size-10 items-center justify-center rounded-md bg-muted">
+          <Rocket className="size-5" />
+        </div>
+        <div>
+          <h2 className="text-xl font-semibold">Ready to launch</h2>
+          <p className="text-sm text-muted-foreground">
+            Everything is set up. Launching will save your workspace and open Flow.
+          </p>
+        </div>
+      </header>
+
+      <div className="divide-y divide-border rounded-lg border border-border bg-card">
+        {rows.map((row, i) => {
+          const Icon = row.icon;
+          return (
+            <div key={i} className="flex items-center gap-3 p-4">
+              <Icon className="size-5 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{row.label}</div>
+                <div className="truncate text-xs text-muted-foreground">{row.sub}</div>
+              </div>
+              <Check className="size-5 text-emerald-500" />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

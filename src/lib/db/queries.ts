@@ -8,6 +8,7 @@ import { tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys
 import { eq, and, desc, asc, sql, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
+import { syncEntity, syncDeletion } from '@/lib/export/mirror';
 import type {
   TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter,
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
@@ -92,6 +93,7 @@ export function createTask(input: Omit<CreateTaskInput, 'raw_input'> & { raw_inp
     .get();
 
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+  void syncEntity('task', row.id);
   return row;
 }
 
@@ -109,6 +111,7 @@ export function updateTask(id: string, input: UpdateTaskInput): TaskRecord | nul
     .get();
 
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+  void syncEntity('task', row.id);
   return row;
 }
 
@@ -117,6 +120,7 @@ export function deleteTask(id: string): boolean {
   const result = db.delete(tasks).where(eq(tasks.id, id)).run();
   if (result.changes === 0) return false;
   deleteEmbedding('task', id);
+  void syncDeletion('task', id);
   return true;
 }
 
@@ -145,6 +149,7 @@ export function completeTask(id: string, note?: string): { task: TaskRecord; rec
       .returning()
       .get();
 
+    void syncEntity('task', updated.id);
     return { task: updated, recurring: true, next_recurrence_at: nextDate };
   } else {
     const updated = db
@@ -161,6 +166,7 @@ export function completeTask(id: string, note?: string): { task: TaskRecord; rec
       note: note ?? null,
     }).run();
 
+    void syncEntity('task', updated.id);
     return { task: updated, recurring: false };
   }
 }
@@ -243,6 +249,7 @@ export function createNote(input: CreateNoteInput): NoteRecord {
     .get();
 
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
+  void syncEntity('note', row.id);
   return row;
 }
 
@@ -260,6 +267,7 @@ export function updateNote(id: string, input: UpdateNoteInput): NoteRecord | nul
     .get();
 
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
+  void syncEntity('note', row.id);
   return row;
 }
 
@@ -268,6 +276,7 @@ export function deleteNote(id: string): boolean {
   const result = db.delete(notes).where(eq(notes.id, id)).run();
   if (result.changes === 0) return false;
   deleteEmbedding('note', id);
+  void syncDeletion('note', id);
   return true;
 }
 
@@ -294,7 +303,7 @@ export function createArea(input: CreateAreaInput): AreaRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
-  return db
+  const row = db
     .insert(areas)
     .values({
       ...input,
@@ -305,6 +314,9 @@ export function createArea(input: CreateAreaInput): AreaRecord {
     })
     .returning()
     .get();
+
+  void syncEntity('area', row.id);
+  return row;
 }
 
 export function updateArea(id: string, input: UpdateAreaInput): AreaRecord | null {
@@ -313,12 +325,15 @@ export function updateArea(id: string, input: UpdateAreaInput): AreaRecord | nul
   const existing = db.select().from(areas).where(eq(areas.id, id)).get();
   if (!existing) return null;
 
-  return db
+  const row = db
     .update(areas)
     .set({ ...input, updated_at: new Date().toISOString() })
     .where(eq(areas.id, id))
     .returning()
     .get();
+
+  if (row) void syncEntity('area', row.id);
+  return row;
 }
 
 // ─── Deck ─────────────────────────────────────────────────────

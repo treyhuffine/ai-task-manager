@@ -24,4 +24,13 @@ export async function register() {
   } catch (err) {
     console.error('[auth] failed to initialize local token:', err);
   }
+
+  // Start the DB-to-markdown mirror: live export on every write + periodic
+  // reconcile. Non-blocking; failures here don't stop the app.
+  try {
+    const { initMirror } = await import('@/lib/export/mirror');
+    await initMirror();
+  } catch (err) {
+    console.warn('[mirror] init failed', err);
+  }
 }

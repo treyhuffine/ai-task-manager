@@ -6,6 +6,7 @@
 // One-way format: intended for backups and external tools. There is no
 // corresponding import — a pristine DB-file backup is better for fidelity.
 
+import slugifyLib from '@sindresorhus/slugify'
 import type { TaskRecord, NoteRecord, AreaRecord } from '@/db/types'
 
 // ─── Link resolution ──────────────────────────────────────────
@@ -26,13 +27,9 @@ function wikiLink(resolver: LinkResolver | undefined, type: EntityType, id: stri
 // ─── Helpers ──────────────────────────────────────────────────
 
 export function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 80)
+  // Unicode-aware: transliterates non-ASCII (café → cafe, 会議 → hui-yi),
+  // strips emoji, collapses whitespace/hyphens. Handles titles in any language.
+  return slugifyLib(s, { lowercase: true, decamelize: false }).slice(0, 80)
 }
 
 // Minimal YAML value serializer — handles strings, numbers, booleans, null, arrays.
