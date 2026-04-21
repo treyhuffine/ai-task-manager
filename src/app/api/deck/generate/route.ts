@@ -282,7 +282,7 @@ export async function POST(request: NextRequest) {
     // Phase 2: AI context gathering (tool use — search knowledge base)
     // ═══════════════════════════════════════════════════════════════
 
-    const contextModel = process.env.MODEL_MINI || 'gpt-4o-mini';
+    const contextModel = process.env.MODEL_MINI || 'gpt-5.4-nano';
 
     const contextResult = await generateText({
       model: openai(contextModel),
@@ -302,7 +302,7 @@ export async function POST(request: NextRequest) {
       ? `${basePrompt}\n\n[Knowledge Base Context]\nThe following relevant items were found from the user's notes, stream entries, and related tasks:\n${searchContext}`
       : basePrompt;
 
-    const model = process.env.MODEL_STANDARD || 'gpt-4o';
+    const model = process.env.MODEL_STANDARD || 'gpt-5.4-mini';
 
     const result = await generateText({
       model: openai(model),

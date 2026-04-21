@@ -71,6 +71,13 @@
       "when": 1776472141943,
       "tag": "0009_welcome_user_state_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1776720490366,
+      "tag": "0010_cultured_quentin_quire",
+      "breakpoints": true
     }
   ]
 }

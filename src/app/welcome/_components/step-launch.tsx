@@ -1,10 +1,22 @@
 import { Rocket, Check, User, Layers, Bot, Upload } from 'lucide-react';
+import { APP_NAME } from '@/constants/app';
 import type { WizardState } from './types';
 
-const ADAPTER_LABEL: Record<WizardState['agentAdapter'], string> = {
+const HARNESS_LABEL: Record<WizardState['agentHarness'], string> = {
   claude: 'Claude Code',
   codex: 'Codex',
 };
+
+function agentAuthSummary(state: WizardState): string {
+  const auth = state.agentAuth;
+  if (auth.phase !== 'ready' || !auth.report) return 'Authentication not verified';
+  const { hasSubscription, hasApiKey } = auth.report;
+  if (hasSubscription && hasApiKey) return 'Subscription active (API key also set)';
+  if (hasSubscription) return 'Subscription active';
+  if (hasApiKey && auth.acceptsApiKeyBilling) return 'Using API key (metered)';
+  if (hasApiKey) return 'API key detected — acknowledge metered billing on Agent step';
+  return 'Not signed in — configure before first run';
+}
 
 export function StepLaunch({ state }: { state: WizardState }) {
   const rows = [
@@ -20,13 +32,8 @@ export function StepLaunch({ state }: { state: WizardState }) {
     },
     {
       icon: Bot,
-      label: ADAPTER_LABEL[state.agentAdapter],
-      sub:
-        state.agentProbe.status === 'pass'
-          ? 'Environment check passed'
-          : state.agentProbe.status === 'fail'
-            ? 'Environment check failed — configure later in Settings'
-            : 'Environment not tested',
+      label: HARNESS_LABEL[state.agentHarness],
+      sub: agentAuthSummary(state),
     },
     {
       icon: Upload,
@@ -44,7 +51,7 @@ export function StepLaunch({ state }: { state: WizardState }) {
         <div>
           <h2 className="text-xl font-semibold">Ready to launch</h2>
           <p className="text-sm text-muted-foreground">
-            Everything is set up. Launching will save your workspace and open Flow.
+            Everything is set up. Launching will save your workspace and open {APP_NAME}.
           </p>
         </div>
       </header>

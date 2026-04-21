@@ -13,7 +13,7 @@ export const userState = sqliteTable('user_state', {
   description: text('description').notNull().default(''),
   voice_auto_send: integer('voice_auto_send', { mode: 'boolean' }).notNull().default(true),
   voice_model: text('voice_model').notNull().default('local/parakeet-tdt-0.6b-v3'),
-  default_agent_adapter: text('default_agent_adapter', { enum: ['claude', 'codex'] }),
+  default_agent_harness: text('default_agent_harness', { enum: ['claude', 'codex'] }),
   default_agent_model: text('default_agent_model'),
   onboarded_at: text('onboarded_at'),
   updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),

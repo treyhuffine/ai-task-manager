@@ -5,13 +5,13 @@ const ALLOWED = new Set(['claude', 'codex']);
 
 export async function POST(request: NextRequest) {
   try {
-    const { adapter } = await request.json();
-    if (!ALLOWED.has(adapter)) {
-      return Response.json({ error: `unknown adapter: ${adapter}` }, { status: 400 });
+    const { harness } = await request.json();
+    if (!ALLOWED.has(harness)) {
+      return Response.json({ error: `unknown harness: ${harness}` }, { status: 400 });
     }
 
-    const provider = getProvider(adapter);
-    const result = await provider.testEnvironment({ providerType: adapter });
+    const provider = getProvider(harness);
+    const result = await provider.testEnvironment({ providerType: harness });
     return Response.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

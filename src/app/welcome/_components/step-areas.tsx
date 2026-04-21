@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Layers, Plus, X } from 'lucide-react';
+import { EmojiPicker } from '@/components/shared/emoji-picker';
+import { Layers, Plus, X, SmilePlus, ImagePlus, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { WizardState } from './types';
 
-const PRESETS = [
-  { name: 'Work', emoji: '💼' },
-  { name: 'Personal', emoji: '🏡' },
-  { name: 'Side Project', emoji: '🚀' },
+const PRESETS: WizardState['areas'] = [
+  { name: 'Work', emoji: '💼', image_url: null },
+  { name: 'Personal', emoji: '🏡', image_url: null },
+  { name: 'Side Project', emoji: '🚀', image_url: null },
 ];
 
 export function StepAreas({
@@ -17,10 +19,19 @@ export function StepAreas({
   state: WizardState;
   update: (patch: Partial<WizardState>) => void;
 }) {
-  const [customName, setCustomName] = useState('');
-  const [customEmoji, setCustomEmoji] = useState('📁');
+  const [newName, setNewName] = useState('');
+  const [newEmoji, setNewEmoji] = useState<string | null>(null);
+  const [newImage, setNewImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const toggle = (preset: { name: string; emoji: string }) => {
+  const resetNew = () => {
+    setNewName('');
+    setNewEmoji(null);
+    setNewImage(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const toggle = (preset: WizardState['areas'][number]) => {
     const exists = state.areas.some((a) => a.name === preset.name);
     update({
       areas: exists
@@ -29,36 +40,53 @@ export function StepAreas({
     });
   };
 
-  const addCustom = () => {
-    const trimmed = customName.trim();
+  const addArea = () => {
+    const trimmed = newName.trim();
     if (!trimmed) return;
     if (state.areas.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) return;
-    update({ areas: [...state.areas, { name: trimmed, emoji: customEmoji || '📁' }] });
-    setCustomName('');
-    setCustomEmoji('📁');
+    update({
+      areas: [
+        ...state.areas,
+        { name: trimmed, emoji: newImage ? null : newEmoji, image_url: newImage },
+      ],
+    });
+    resetNew();
   };
 
-  const removeCustom = (name: string) => {
+  const removeArea = (name: string) => {
     update({ areas: state.areas.filter((a) => a.name !== name) });
   };
 
-  const isCustom = (name: string) => !PRESETS.some((p) => p.name === name);
+  const onImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setNewImage(reader.result as string);
+      setNewEmoji(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const isPreset = (name: string) => PRESETS.some((p) => p.name === name);
+  const customAreas = state.areas.filter((a) => !isPreset(a.name));
 
   return (
     <div className="space-y-6">
       <header className="flex items-start gap-3">
-        <div className="flex size-10 items-center justify-center rounded-md bg-muted">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
           <Layers className="size-5" />
         </div>
         <div>
           <h2 className="text-xl font-semibold">Pick your areas</h2>
           <p className="text-sm text-muted-foreground">
-            Areas are high-level contexts for tasks — like workspaces. You can add more later.
+            Distinct buckets of work — companies, clients, projects, life domains. Less is more to
+            start; add more anytime.
           </p>
         </div>
       </header>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Suggested</div>
         <div className="grid grid-cols-3 gap-2">
           {PRESETS.map((p) => {
@@ -68,11 +96,12 @@ export function StepAreas({
                 key={p.name}
                 type="button"
                 onClick={() => toggle(p)}
-                className={`flex flex-col items-start gap-1 rounded-lg border p-4 text-left transition-colors ${
+                className={cn(
+                  'flex flex-col items-start gap-1 rounded-lg border p-4 text-left transition-colors',
                   selected
                     ? 'border-primary bg-primary/5'
-                    : 'border-border bg-card hover:bg-muted/50'
-                }`}
+                    : 'border-border bg-card hover:bg-muted/50',
+                )}
               >
                 <span className="text-2xl">{p.emoji}</span>
                 <span className="text-sm font-medium">{p.name}</span>
@@ -82,51 +111,106 @@ export function StepAreas({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">Custom</div>
-        <div className="flex gap-2">
-          <Input
-            className="w-14 text-center"
-            value={customEmoji}
-            onChange={(e) => setCustomEmoji(e.target.value.slice(0, 2))}
-            placeholder="📁"
+      <div className="space-y-2">
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">Add your own</div>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={onImageSelect}
+            className="hidden"
           />
+
+          {newImage ? (
+            <div className="relative shrink-0">
+              <img
+                src={newImage}
+                alt="Area"
+                className="size-10 rounded-md border border-border object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setNewImage(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+                aria-label="Remove image"
+              >
+                <Trash2 className="size-2.5" />
+              </button>
+            </div>
+          ) : (
+            <>
+              <EmojiPicker onSelect={(e) => setNewEmoji(e)}>
+                <button
+                  type="button"
+                  className={cn(
+                    'flex size-10 shrink-0 items-center justify-center rounded-md border',
+                    newEmoji
+                      ? 'border-border bg-accent/30 text-xl'
+                      : 'border-dashed border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground',
+                  )}
+                  aria-label="Pick emoji"
+                >
+                  {newEmoji ?? <SmilePlus className="size-4" />}
+                </button>
+              </EmojiPicker>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex size-10 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+                aria-label="Upload image"
+              >
+                <ImagePlus className="size-4" />
+              </button>
+            </>
+          )}
+
           <Input
-            value={customName}
-            onChange={(e) => setCustomName(e.target.value)}
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                addCustom();
+                addArea();
               }
             }}
-            placeholder="Reading, Fitness, Research…"
+            placeholder="Company, client, project…"
           />
-          <Button type="button" variant="outline" onClick={addCustom} disabled={!customName.trim()}>
+          <Button type="button" variant="outline" onClick={addArea} disabled={!newName.trim()}>
             <Plus className="size-4" /> Add
           </Button>
         </div>
 
-        {state.areas.filter((a) => isCustom(a.name)).length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {state.areas
-              .filter((a) => isCustom(a.name))
-              .map((a) => (
-                <span
-                  key={a.name}
-                  className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-sm"
-                >
+        {customAreas.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-2">
+            {customAreas.map((a) => (
+              <span
+                key={a.name}
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-sm"
+              >
+                {a.image_url ? (
+                  <img
+                    src={a.image_url}
+                    alt=""
+                    className="size-4 rounded-sm object-cover"
+                  />
+                ) : a.emoji ? (
                   <span>{a.emoji}</span>
-                  {a.name}
-                  <button
-                    type="button"
-                    onClick={() => removeCustom(a.name)}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              ))}
+                ) : null}
+                {a.name}
+                <button
+                  type="button"
+                  onClick={() => removeArea(a.name)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label={`Remove ${a.name}`}
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
           </div>
         )}
       </div>

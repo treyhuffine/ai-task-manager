@@ -1,6 +1,6 @@
 import { Upload, Construction } from 'lucide-react';
 
-// TODO(trey): Wire up data import. Likely sources to support:
+// TODO: Wire up data import. Likely sources to support:
 //   - Things / Apple Reminders
 //   - Notion / Todoist
 //   - Markdown dump (paste or file)
@@ -10,7 +10,7 @@ export function StepImport() {
   return (
     <div className="space-y-6">
       <header className="flex items-start gap-3">
-        <div className="flex size-10 items-center justify-center rounded-md bg-muted">
+        <div className="flex shrink-0 size-10 items-center justify-center rounded-md bg-muted">
           <Upload className="size-5" />
         </div>
         <div>
@@ -32,8 +32,8 @@ export function StepImport() {
               </span>
             </div>
             <p className="text-sm text-muted-foreground">
-              Hi Trey — wire this up. Candidates: Things, Notion, Todoist, Apple Notes, plain
-              markdown dump. Matters because the import step is where users commit to the app.
+              Data import is on the roadmap. Candidates: Things, Notion, Todoist, Apple Notes,
+              plain markdown dump.
             </p>
           </div>
         </div>

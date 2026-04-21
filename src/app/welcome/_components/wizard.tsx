@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
+import { authFetch } from '@/lib/api/client';
 import { StepYou } from './step-you';
 import { StepAreas } from './step-areas';
 import { StepAgent } from './step-agent';
@@ -16,12 +17,12 @@ const INITIAL_STATE: WizardState = {
   name: '',
   description: '',
   areas: [
-    { name: 'Work', emoji: '💼' },
-    { name: 'Personal', emoji: '🏡' },
+    { name: 'Work', emoji: '💼', image_url: null },
+    { name: 'Personal', emoji: '🏡', image_url: null },
   ],
-  agentAdapter: 'claude',
+  agentHarness: 'claude',
   agentModel: '',
-  agentProbe: { status: 'idle' },
+  agentAuth: { phase: 'idle', acceptsApiKeyBilling: false },
   importSkipped: true,
 };
 
@@ -45,8 +46,18 @@ export function Wizard() {
         return state.name.trim().length > 0;
       case 'areas':
         return state.areas.length > 0;
-      case 'agent':
-        return !!state.agentAdapter;
+      case 'agent': {
+        if (!state.agentHarness) return false;
+        const a = state.agentAuth;
+        // Still checking or hit an error → don't gate forward; they can retry.
+        // The only hard block is "only API keys, no subscription, and they
+        // haven't acknowledged metered billing yet."
+        if (a.phase !== 'ready' || !a.report) return true;
+        const { hasSubscription, hasApiKey } = a.report;
+        if (!hasSubscription && hasApiKey && !a.acceptsApiKeyBilling) return false;
+        if (!hasSubscription && !hasApiKey) return false;
+        return true;
+      }
       default:
         return true;
     }
@@ -68,17 +79,22 @@ export function Wizard() {
     setLaunchError(null);
     try {
       // 1. Fetch existing areas so re-runs don't create duplicates by name.
-      const existingRes = await fetch('/api/areas?status=all');
+      const existingRes = await authFetch('/api/areas?status=all');
       const existing: Array<{ name: string }> = existingRes.ok ? await existingRes.json() : [];
       const existingNames = new Set(existing.map((a) => a.name.toLowerCase()));
 
       for (let i = 0; i < state.areas.length; i++) {
         const a = state.areas[i];
         if (existingNames.has(a.name.toLowerCase())) continue;
-        const res = await fetch('/api/areas', {
+        const res = await authFetch('/api/areas', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: a.name, emoji: a.emoji, sort_order: i }),
+          body: JSON.stringify({
+            name: a.name,
+            emoji: a.emoji,
+            image_url: a.image_url,
+            sort_order: i,
+          }),
         });
         if (!res.ok) {
           throw new Error(`Failed to create area "${a.name}"`);
@@ -86,13 +102,13 @@ export function Wizard() {
       }
 
       // 2. Save user state + mark onboarded
-      const res = await fetch('/api/user-state', {
+      const res = await authFetch('/api/user-state', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: state.name.trim(),
           description: state.description.trim(),
-          default_agent_adapter: state.agentAdapter,
+          default_agent_harness: state.agentHarness,
           default_agent_model: state.agentModel || null,
           onboarded_at: new Date().toISOString(),
         }),

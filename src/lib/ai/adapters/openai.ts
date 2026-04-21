@@ -5,7 +5,7 @@ import { AGENT_SYSTEM_PROMPT } from '@/lib/ai/agent-prompt';
 
 export async function streamOpenAIChat(messages: UIMessage[], model?: string) {
   return streamText({
-    model: openai(model || process.env.MODEL_STANDARD || 'gpt-4o'),
+    model: openai(model || process.env.MODEL_STANDARD || 'gpt-5.4-mini'),
     system: AGENT_SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
     tools: chatTools,

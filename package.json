@@ -35,7 +35,7 @@
     "dist"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.2",
+    "@agentex/agent": "^0.0.3",
     "@ai-sdk/anthropic": "^3.0.63",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/react": "^3.0.136",
@@ -49,6 +49,7 @@
     "@emoji-mart/react": "^1.1.1",
     "@google/generative-ai": "^0.24.1",
     "@mastra/core": "^1.9.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@sindresorhus/slugify": "^3.0.0",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
@@ -88,6 +89,7 @@
     "googleapis": "^171.4.0",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.575.0",
+    "mcp-handler": "^1.1.0",
     "motion": "^12.38.0",
     "nanoid": "^5.1.9",
     "next": "16.1.6",
