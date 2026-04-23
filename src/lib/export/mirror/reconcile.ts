@@ -14,11 +14,13 @@ import { ensureDirs, listIdsInType, readUpdatedAt, findByIdInType } from './fs';
 import { writeTask, writeNote, writeArea, writeStream } from './sync';
 import { isMirrorEnabled, type EntityType } from './config';
 import { ensureReadme } from './readme';
+import { sweepAttachments, type AttachmentsGcStats } from './attachments-gc';
 
 export interface ReconcileStats {
   synced: number;
   skipped: number;
   orphaned: number;
+  attachments: AttachmentsGcStats;
   elapsedMs: number;
 }
 
@@ -31,7 +33,13 @@ export interface ReconcileStats {
  */
 export async function reconcileAll(): Promise<ReconcileStats> {
   if (!isMirrorEnabled()) {
-    return { synced: 0, skipped: 0, orphaned: 0, elapsedMs: 0 };
+    return {
+      synced: 0,
+      skipped: 0,
+      orphaned: 0,
+      attachments: { referenced: 0, onDisk: 0, archived: 0, elapsedMs: 0 },
+      elapsedMs: 0,
+    };
   }
 
   const start = Date.now();
@@ -120,6 +128,11 @@ export async function reconcileAll(): Promise<ReconcileStats> {
     }
   }
 
+  // Attachments GC sweep: move orphan files to .archive/attachments/. Runs
+  // after entity sync so newly-referenced files written in this pass are in
+  // the reference set before we enumerate the disk.
+  const attachments = await sweepAttachments();
+
   const elapsedMs = Date.now() - start;
-  return { synced, skipped, orphaned, elapsedMs };
+  return { synced, skipped, orphaned, attachments, elapsedMs };
 }

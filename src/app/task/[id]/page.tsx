@@ -18,7 +18,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import type { Energy, Effort } from '@/db/types'
+import type { Energy, Effort, Attachment } from '@/db/types'
 
 const ENERGY_OPTIONS: { value: Energy; label: string; icon: typeof Flame; color: string }[] = [
   { value: 'deep', label: 'Deep', icon: Flame, color: 'text-orange-500' },
@@ -48,6 +48,11 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const titleRef = useRef<HTMLTextAreaElement>(null)
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingAttachmentsRef = useRef<Attachment[]>([])
+
+  const handleAttachment = useCallback((attachment: Attachment) => {
+    pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment]
+  }, [])
 
   // Auto-size title textarea when task loads
   useEffect(() => {
@@ -106,10 +111,15 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
       if (!taskId) return
       if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
       bodyTimerRef.current = setTimeout(() => {
-        saveField('body', markdown || null)
+        const attachments = pendingAttachmentsRef.current
+        updateTask.mutate({
+          id: taskId,
+          body: markdown || null,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        } as Parameters<typeof updateTask.mutate>[0])
       }, 500)
     },
-    [taskId, saveField]
+    [taskId, updateTask]
   )
 
   const handleComplete = useCallback(() => {
@@ -437,6 +447,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                 key={task.id}
                 content={task.body ?? ''}
                 onChange={handleBodyChange}
+                onAttachment={handleAttachment}
                 placeholder="Add notes, details, or type '/' for commands..."
                 hideFooter
               />

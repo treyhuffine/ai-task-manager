@@ -6,6 +6,8 @@ import { X, Loader2, ImagePlus, Trash2, SmilePlus } from "lucide-react";
 import { useCreateArea } from "@/hooks/use-areas";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { cn } from "@/lib/utils";
+import type { Attachment } from "@/db/types";
+import { uploadAttachment } from "@/lib/attachments/client";
 
 interface AreaCreateModalProps {
   open: boolean;
@@ -16,7 +18,8 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [emoji, setEmoji] = useState<string | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createArea = useCreateArea();
 
@@ -24,27 +27,30 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
     setName("");
     setDescription("");
     setEmoji(null);
-    setImagePreview(null);
+    setAttachment(null);
   }, []);
 
   const handleImageSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
-
       if (!file.type.startsWith("image/")) return;
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      setUploading(true);
+      try {
+        const uploaded = await uploadAttachment(file);
+        setAttachment(uploaded);
+      } catch (err) {
+        console.error("[area-create] image upload failed", err);
+      } finally {
+        setUploading(false);
+      }
     },
     []
   );
 
   const handleRemoveImage = useCallback(() => {
-    setImagePreview(null);
+    setAttachment(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
 
@@ -57,7 +63,7 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
         name: trimmedName,
         description: description.trim() || undefined,
         emoji: emoji ?? undefined,
-        image_url: imagePreview ?? undefined,
+        attachments: attachment ? [attachment] : [],
       },
       {
         onSuccess: () => {
@@ -66,7 +72,7 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
         },
       }
     );
-  }, [name, description, imagePreview, createArea, onOpenChange, resetForm]);
+  }, [name, description, attachment, emoji, createArea, onOpenChange, resetForm]);
 
   const handleNameKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -139,10 +145,10 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
                   onChange={handleImageSelect}
                   className="hidden"
                 />
-                {imagePreview ? (
+                {attachment ? (
                   <div className="relative group">
                     <img
-                      src={imagePreview}
+                      src={`/api/attachments/${attachment.file_name}`}
                       alt="Area image"
                       className="w-20 h-20 rounded-xl object-cover border border-border"
                     />
@@ -188,15 +194,22 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
                     </div>
                     <button
                       onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
                       className={cn(
                         "w-20 h-20 rounded-xl border-2 border-dashed border-border",
                         "flex flex-col items-center justify-center gap-1",
                         "text-muted-foreground hover:text-foreground hover:border-muted-foreground",
-                        "transition-colors cursor-pointer"
+                        "transition-colors cursor-pointer disabled:opacity-50"
                       )}
                     >
-                      <ImagePlus size={20} />
-                      <span className="text-[9px] font-medium">Image</span>
+                      {uploading ? (
+                        <Loader2 size={20} className="animate-spin" />
+                      ) : (
+                        <>
+                          <ImagePlus size={20} />
+                          <span className="text-[9px] font-medium">Image</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 )}

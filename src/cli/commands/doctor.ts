@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import pc from 'picocolors';
 import { readAuthConfig } from '@/lib/auth/config-file';
-import { getDbPath, getUserDataDir } from '@/lib/config/paths';
+import { getDbPath, getAppRoot } from '@/lib/config/paths';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { isDockerAvailable, isVoiceReady } from '../lib/voice';
 
@@ -27,9 +27,9 @@ const defaultPort = Number(process.env.PORT ?? 4224);
 
 const checks: Check[] = [
   {
-    name: 'User data directory',
+    name: 'App root directory',
     run: () => {
-      const dir = getUserDataDir();
+      const dir = getAppRoot();
       const exists = fs.existsSync(dir);
       return { ok: exists || true, detail: dir };
     },

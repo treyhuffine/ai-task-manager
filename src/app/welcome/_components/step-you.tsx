@@ -3,14 +3,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { User } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
-import type { WizardState } from './types';
+import type { WizardState, WizardUpdate } from './types';
 
 export function StepYou({
   state,
   update,
 }: {
   state: WizardState;
-  update: (patch: Partial<WizardState>) => void;
+  update: WizardUpdate;
 }) {
   return (
     <div className="space-y-6">

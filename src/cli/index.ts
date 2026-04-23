@@ -1,13 +1,22 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { migrateLegacyLayoutToBrain } from '@/lib/config/paths';
 import { startCommand } from './commands/start';
 import { pairCommand } from './commands/pair';
 import { doctorCommand } from './commands/doctor';
 import { onboardCommand } from './commands/onboard';
 import { registerVoiceCommand } from './commands/voice';
 import { registerSnapshotCommand } from './commands/snapshot';
+import { registerCommitCommand } from './commands/commit';
 import { registerExportCommand } from './commands/export';
+
+// One-shot migration: if we find the pre-brain/ flat layout, move it into
+// brain/ before any command opens the db or reads from the old paths.
+const migration = migrateLegacyLayoutToBrain();
+if (migration.migrated) {
+  console.log(`[paths] migrated legacy layout → brain/ (${migration.moved.join(', ')})`);
+}
 
 const program = new Command();
 
@@ -55,6 +64,7 @@ program
 
 registerVoiceCommand(program);
 registerSnapshotCommand(program);
+registerCommitCommand(program);
 registerExportCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {

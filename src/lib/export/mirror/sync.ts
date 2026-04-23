@@ -33,10 +33,12 @@ import {
   writeEntityFile,
 } from './fs';
 import {
+  mirrorLinkPath,
   renderArea,
   renderNote,
   renderStream,
   renderTask,
+  type LinkResolver,
 } from './render';
 
 // ─── Mutation context ─────────────────────────────────────────
@@ -113,8 +115,21 @@ export async function syncBatch(ctx: MutationContext): Promise<void> {
 }
 
 /**
- * For every stream in the batch with `promoted_to_type='note'`, also mark
- * the target note as dirty so its source list stays current.
+ * Expand a mutation context to include every entity whose mirror file
+ * references a touched entity. Needed because wiki links embed the target's
+ * current slug — if a task or area is renamed, every dependent file's
+ * wiki-link target changes too.
+ *
+ * Cascade edges:
+ *   - stream → its promoted-to note (Sources section stays current)
+ *   - area → tasks and notes with matching area_id
+ *   - task → tasks with matching parent_id, notes with matching task_id,
+ *            streams promoted into this task
+ *   - note → streams promoted into this note
+ *
+ * We always cascade (rather than only on rename) because detecting a rename
+ * requires comparing against the prior written file. Rewriting a handful of
+ * dependents per mutation is cheap; the reconciler is the backstop.
  */
 function expandCascades(ctx: MutationContext): MutationContext {
   const out = new MutationContext();
@@ -122,11 +137,46 @@ function expandCascades(ctx: MutationContext): MutationContext {
     out.add(type, id);
   }
   const db = getDb();
+
   for (const [type, id] of ctx.entries()) {
-    if (type !== 'stream') continue;
-    const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
-    if (row?.promoted_to_type === 'note' && row.promoted_to_id) {
-      out.add('note', row.promoted_to_id);
+    if (type === 'stream') {
+      const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
+      if (row?.promoted_to_type === 'note' && row.promoted_to_id) {
+        out.add('note', row.promoted_to_id);
+      }
+      continue;
+    }
+
+    if (type === 'area') {
+      const refTasks = db.select({ id: tasksTbl.id }).from(tasksTbl).where(eq(tasksTbl.area_id, id)).all();
+      out.addMany('task', refTasks.map((r) => r.id));
+      const refNotes = db.select({ id: notesTbl.id }).from(notesTbl).where(eq(notesTbl.area_id, id)).all();
+      out.addMany('note', refNotes.map((r) => r.id));
+      continue;
+    }
+
+    if (type === 'task') {
+      const childTasks = db.select({ id: tasksTbl.id }).from(tasksTbl).where(eq(tasksTbl.parent_id, id)).all();
+      out.addMany('task', childTasks.map((r) => r.id));
+      const refNotes = db.select({ id: notesTbl.id }).from(notesTbl).where(eq(notesTbl.task_id, id)).all();
+      out.addMany('note', refNotes.map((r) => r.id));
+      const refStreams = db
+        .select({ id: streamTbl.id })
+        .from(streamTbl)
+        .where(and(eq(streamTbl.promoted_to_id, id), eq(streamTbl.promoted_to_type, 'task')))
+        .all();
+      out.addMany('stream', refStreams.map((r) => r.id));
+      continue;
+    }
+
+    if (type === 'note') {
+      const refStreams = db
+        .select({ id: streamTbl.id })
+        .from(streamTbl)
+        .where(and(eq(streamTbl.promoted_to_id, id), eq(streamTbl.promoted_to_type, 'note')))
+        .all();
+      out.addMany('stream', refStreams.map((r) => r.id));
+      continue;
     }
   }
   return out;
@@ -176,6 +226,43 @@ async function syncOne(type: EntityType, id: string): Promise<void> {
   }
 }
 
+// ─── Link resolver (current DB state → wiki-link target) ─────
+
+/**
+ * Build a resolver backed by primary-key lookups. Cheap: each `linkFor` call
+ * is one indexed lookup. Returns null when the referenced row doesn't exist
+ * (dangling FK) — caller falls back to the denormalized name field.
+ *
+ * Streams have no human title; we use their first raw_text line as the slug,
+ * matching writeStream's filename logic.
+ */
+function createLinkResolver(): LinkResolver {
+  const db = getDb();
+  return {
+    linkFor(type, id) {
+      if (type === 'task') {
+        const row = db.select().from(tasksTbl).where(eq(tasksTbl.id, id)).get();
+        return row ? mirrorLinkPath('task', row.title, row.id) : null;
+      }
+      if (type === 'note') {
+        const row = db.select().from(notesTbl).where(eq(notesTbl.id, id)).get();
+        return row ? mirrorLinkPath('note', row.title, row.id) : null;
+      }
+      if (type === 'area') {
+        const row = db.select().from(areasTbl).where(eq(areasTbl.id, id)).get();
+        return row ? mirrorLinkPath('area', row.name, row.id) : null;
+      }
+      if (type === 'stream') {
+        const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
+        if (!row) return null;
+        const firstLine = (row.raw_text ?? '').split('\n')[0]?.trim().slice(0, 40) ?? '';
+        return mirrorLinkPath('stream', firstLine, row.id);
+      }
+      return null;
+    },
+  };
+}
+
 // ─── Per-type writers (with denorm lookups) ─────────────────────
 
 export async function writeTask(task: TaskRecord): Promise<void> {
@@ -190,6 +277,7 @@ export async function writeTask(task: TaskRecord): Promise<void> {
   const { filename, content } = renderTask(task, {
     areaName: area?.name ?? null,
     parentTitle: parent?.title ?? null,
+    links: createLinkResolver(),
   });
 
   if (task.status === 'archived') {
@@ -226,6 +314,7 @@ export async function writeNote(note: NoteRecord): Promise<void> {
     areaName: area?.name ?? null,
     taskTitle: task?.title ?? null,
     sources,
+    links: createLinkResolver(),
   });
 
   if (note.status === 'archived') {
@@ -258,7 +347,10 @@ export async function writeStream(s: StreamRecord): Promise<void> {
     }
   }
 
-  const { filename, content } = renderStream(s, { promotedToTitle });
+  const { filename, content } = renderStream(s, {
+    promotedToTitle,
+    links: createLinkResolver(),
+  });
 
   // Stream items use status to signal lifecycle: 'dismissed' goes to archive;
   // 'promoted' and 'pending' stay in the primary folder.

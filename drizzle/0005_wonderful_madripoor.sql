@@ -1,1 +1,0 @@
-ALTER TABLE `user_state` ADD `voice_model` text DEFAULT 'local/parakeet-tdt-0.6b-v3' NOT NULL;

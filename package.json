@@ -35,7 +35,7 @@
     "dist"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.3",
+    "@agentex/agent": "^0.0.5",
     "@ai-sdk/anthropic": "^3.0.63",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/react": "^3.0.136",

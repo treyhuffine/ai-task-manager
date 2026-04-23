@@ -11,13 +11,13 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import { StreamTriage } from './stream-triage';
 import { TaskActions, NoteActions } from './promote-actions';
+import { StreamAttachments } from './stream-attachments';
 import type { StreamRecord, StreamStatus } from '@/db/types';
 
 const SOURCE_ICONS: Record<string, typeof Mic> = {
   capture: Inbox,
-  voice: Mic,
-  brain_dump: Pencil,
   chat: MessageSquare,
+  webhook: Inbox,
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -112,6 +112,8 @@ export function StreamList() {
     createTask.mutate({
       raw_input: item.raw_text,
       title: item.raw_text.slice(0, 200),
+      body: item.raw_text,
+      attachments: item.attachments ?? [],
     }, {
       onSuccess: (task) => {
         updateStream.mutate({
@@ -135,6 +137,7 @@ export function StreamList() {
   const handlePromoteToNote = useCallback((item: StreamRecord) => {
     createNote.mutate({
       body: item.raw_text,
+      attachments: item.attachments ?? [],
     }, {
       onSuccess: (note) => {
         updateStream.mutate({
@@ -153,7 +156,9 @@ export function StreamList() {
     createTask.mutate({
       raw_input: item.raw_text,
       title: item.raw_text.slice(0, 200),
+      body: item.raw_text,
       parent_id: targetTaskId,
+      attachments: item.attachments ?? [],
     }, {
       onSuccess: (task) => {
         updateStream.mutate({
@@ -172,6 +177,7 @@ export function StreamList() {
     updateNote.mutate({
       id: targetNoteId,
       body: item.raw_text, // API should append, but for now we mark as promoted
+      attachments: item.attachments ?? [],
     } as Parameters<typeof updateNote.mutate>[0], {
       onSuccess: () => {
         updateStream.mutate({
@@ -249,7 +255,7 @@ export function StreamList() {
         {items && items.length > 0 && (
           <div className="space-y-3 relative px-2 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-border">
             {items.map((item) => {
-              const SourceIcon = SOURCE_ICONS[item.source] ?? Inbox;
+              const SourceIcon = item.media === 'voice' ? Mic : (SOURCE_ICONS[item.source] ?? Inbox);
               const isPending = item.status === 'pending';
               const isPromoted = item.status === 'promoted';
 
@@ -267,6 +273,7 @@ export function StreamList() {
                   )}>
                     <div className="flex-1 min-w-0">
                       <StreamItemText item={item} onSave={handleEditText} />
+                      <StreamAttachments attachments={item.attachments} />
                       <div className="flex items-center gap-2 mt-0.5">
                         <SourceIcon size={9} className="text-muted-foreground/50" />
                         <p className="text-[8.5px] text-muted-foreground font-mono uppercase">

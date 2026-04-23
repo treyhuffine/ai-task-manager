@@ -17,9 +17,9 @@ export function startMirrorTimer(): void {
   handle = setInterval(() => {
     reconcileAll()
       .then((stats) => {
-        if (stats.synced > 0 || stats.orphaned > 0) {
+        if (stats.synced > 0 || stats.orphaned > 0 || stats.attachments.archived > 0) {
           console.log(
-            `[mirror] reconcile: synced=${stats.synced} skipped=${stats.skipped} orphaned=${stats.orphaned} (${stats.elapsedMs}ms)`,
+            `[mirror] reconcile: synced=${stats.synced} skipped=${stats.skipped} orphaned=${stats.orphaned} attachments-archived=${stats.attachments.archived} (${stats.elapsedMs}ms)`,
           );
         }
       })

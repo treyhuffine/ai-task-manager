@@ -8,6 +8,7 @@ import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, Layo
 import { NoteIcon } from '@/components/shared/note-icon'
 import type { TaskRecord, NoteRecord, AreaRecord } from '@/db/types'
 import { authFetch } from '@/lib/api/client'
+import { coverAttachmentUrl } from '@/lib/attachments/view'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -203,6 +204,7 @@ function NoteCard({ data, onClick }: { data: NoteRecord; onClick: () => void }) 
 // ─── Area Card ──────────────────────────────────────────────
 
 function AreaCard({ data }: { data: AreaRecord & { emoji?: string } }) {
+  const coverUrl = coverAttachmentUrl(data.attachments)
   return (
     <div
       className={cn(
@@ -210,9 +212,9 @@ function AreaCard({ data }: { data: AreaRecord & { emoji?: string } }) {
         ENTITY_CONFIG.area.borderColor,
       )}
     >
-      {data.image_url ? (
+      {coverUrl ? (
         <img
-          src={data.image_url}
+          src={coverUrl}
           alt=""
           className="w-6 h-6 rounded-md object-cover flex-shrink-0 border border-border"
         />

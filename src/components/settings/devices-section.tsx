@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, KeyRound, Pencil, Plus, Trash2, Check, Loader2, X } from 'lucide-react';
 import { devicesApi, type CreateDeviceResponse, type UpdateDeviceBody } from '@/lib/api/devices';
 import { settingsApi } from '@/lib/api/settings';
+import { PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import type { ApiKeyRecord, DeviceType } from '@/db/types';
 import { tokenDisplay } from '@/lib/auth/tokens';
 import { Button } from '@/components/ui/button';
@@ -130,7 +131,7 @@ export function DevicesSection() {
         seen.add(key);
         return true;
       })
-      .map((c) => ({ ...c, url: `${norm(c.base)}/#t=${token}` }));
+      .map((c) => ({ ...c, url: `${norm(c.base)}/#${PAIRING_TOKEN_FRAGMENT_KEY}=${token}` }));
 
     const defaultValue =
       tabs.find((t) => t.id === 'remote')?.id ??
@@ -265,7 +266,7 @@ export function DevicesSection() {
           <div className="pt-3 border-t border-primary/20 space-y-1.5">
             <p className="text-[11px] text-muted-foreground/70">
               Or paste just the token into any base URL as{' '}
-              <code className="font-mono text-foreground/80">/#t=&lt;token&gt;</code>.
+              <code className="font-mono text-foreground/80">/#{PAIRING_TOKEN_FRAGMENT_KEY}=&lt;token&gt;</code>.
             </p>
             <div className="flex items-center gap-2">
               <input

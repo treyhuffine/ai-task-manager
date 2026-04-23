@@ -6,39 +6,37 @@
  *
  *   1. Audio file (multipart/form-data with `file` field)
  *      → transcribes server-side using the user's saved voice model,
- *        creates stream item with source='voice'
- *      → if no STT provider is available, saves the audio file to disk
- *        and creates a stream item noting the pending transcription
+ *        creates a stream item with source='voice'
+ *      → if no STT provider is available, saves the audio file to the
+ *        attachments dir and creates a stream item noting the pending
+ *        transcription. The raw_text embeds `/api/attachments/<file_name>`
+ *        so the saved audio shows up in the stream's attachments manifest.
  *
  *   2. Text (JSON `{ text: "..." }` or form field `text`)
- *      → creates stream item with source='capture'
+ *      → creates a stream item with source='capture'
  *
  * Returns the created stream item + transcript (if audio).
  *
  * Auth: Bearer token from `flow pair`.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
-import { stream } from '@/lib/db/schema';
-import { uuidv7 } from 'uuidv7';
-import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
-import { syncEntity } from '@/lib/export/mirror';
+import { createStream, getUserState } from '@/lib/db/queries';
+import { saveAttachment } from '@/lib/attachments/save';
 import { transcribe, pickProvider } from '@/lib/stt/transcribe';
-import { getUserState } from '@/lib/db/queries';
-import { ensureCaptureDir } from '@/lib/config/paths';
+import type { Attachment } from '@/db/types';
 
-/** Save an audio blob to ~/.flow/captures/<id>.<ext> and return the filename. */
-async function saveAudioFile(file: Blob, id: string): Promise<string> {
-  const dir = ensureCaptureDir();
-  // Derive extension from mime type (audio/webm → webm, audio/mp4 → mp4, etc.)
-  const ext = file.type?.split('/')[1]?.split(';')[0] || 'webm';
-  const filename = `${id}.${ext}`;
-  const buf = Buffer.from(await file.arrayBuffer());
-  fs.writeFileSync(path.join(dir, filename), buf);
-  return filename;
+/** Save an audio blob through the attachments system and build an inline
+ *  reference that the stream's `raw_text` can carry. */
+async function saveVoiceAttachment(file: Blob): Promise<Attachment> {
+  const mime = file.type || 'audio/webm';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const ext = mime.split('/')[1]?.split(';')[0] ?? 'webm';
+  return saveAttachment({
+    data: file,
+    original_name: `voice-memo-${stamp}.${ext}`,
+    mime_type: mime,
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -46,8 +44,9 @@ export async function POST(request: NextRequest) {
     const contentType = request.headers.get('content-type') ?? '';
 
     let rawText: string;
-    let source: 'voice' | 'capture' = 'capture';
-    let audioFile: string | undefined;
+    let source: 'capture' | 'chat' = 'capture';
+    let media: 'text' | 'voice' = 'text';
+    let attachment: Attachment | undefined;
 
     if (contentType.includes('multipart/form-data')) {
       // ── Audio path ──
@@ -56,14 +55,12 @@ export async function POST(request: NextRequest) {
       const text = formData.get('text') as string | null;
 
       if (file && file.size > 0) {
-        source = 'voice';
-        const id = uuidv7();
+        media = 'voice';
 
         // Voice model priority: explicit param → user preference → auto-pick
         const explicitModel = formData.get('voice_model') as string | null;
         let voiceModel: string | null = explicitModel || getUserState()?.voice_model || null;
 
-        // Try to auto-pick if no explicit model
         if (!voiceModel) {
           try {
             voiceModel = await pickProvider();
@@ -77,39 +74,29 @@ export async function POST(request: NextRequest) {
             rawText = await transcribe(file, voiceModel);
           } catch (err) {
             // Transcription failed — save audio so it's not lost
-            audioFile = await saveAudioFile(file, id);
-            rawText = '[Voice memo — transcription failed]';
-            console.warn('[POST /api/capture] Transcription failed, audio saved:', audioFile, err);
+            attachment = await saveVoiceAttachment(file);
+            rawText = `[Voice memo — transcription failed]\n\n[${attachment.original_name}](/api/attachments/${attachment.file_name})`;
+            console.warn('[POST /api/capture] Transcription failed, audio saved:', attachment.file_name, err);
           }
         } else {
           // No STT provider at all — save audio for later
-          audioFile = await saveAudioFile(file, id);
-          rawText = '[Voice memo — pending transcription]';
+          attachment = await saveVoiceAttachment(file);
+          rawText = `[Voice memo — pending transcription]\n\n[${attachment.original_name}](/api/attachments/${attachment.file_name})`;
         }
 
-        // Create stream item (with audio_file ref if saved)
-        const db = getDb();
-        const row = db
-          .insert(stream)
-          .values({
-            id,
-            raw_text: rawText,
-            source,
-            status: 'pending',
-            audio_file: audioFile,
-            created_at: new Date().toISOString(),
-          })
-          .returning()
-          .get();
-
-        void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
-        void syncEntity('stream', row.id);
+        const row = createStream({
+          raw_text: rawText,
+          source,
+          media,
+          status: 'pending',
+          attachments: attachment ? [attachment] : [],
+        });
 
         return Response.json(
           {
             item: row,
-            transcript: !audioFile ? rawText : undefined,
-            audio_saved: !!audioFile,
+            transcript: !attachment ? rawText : undefined,
+            audio_saved: !!attachment,
           },
           { status: 201 },
         );
@@ -131,22 +118,12 @@ export async function POST(request: NextRequest) {
       source = body.source ?? 'capture';
     }
 
-    // Create stream item (text path — no audio)
-    const db = getDb();
-    const row = db
-      .insert(stream)
-      .values({
-        id: uuidv7(),
-        raw_text: rawText,
-        source,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      })
-      .returning()
-      .get();
-
-    void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
-    void syncEntity('stream', row.id);
+    const row = createStream({
+      raw_text: rawText,
+      source,
+      media,
+      status: 'pending',
+    });
 
     return Response.json({ item: row }, { status: 201 });
   } catch (err) {

@@ -4,7 +4,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as sqliteVec from 'sqlite-vec';
 import fs from 'fs';
 import path from 'path';
-import { getDbPath } from '@/lib/config/paths';
+import { getDbPath, ensureBrainDir, DB_PATH_ENV } from '@/lib/config/paths';
 import * as schema from './schema';
 
 export type DB = BetterSQLite3Database<typeof schema>;
@@ -103,9 +103,16 @@ export function getDb(dbPath?: string): DB {
     }
   }
 
-  const dir = path.dirname(resolvedPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  // Default path sits inside brain/ — use the helper so the dir gets created
+  // with 0o700 (the db contains all user data). Custom DB_PATH overrides can
+  // point anywhere, so we create their parent with the default mode.
+  if (process.env[DB_PATH_ENV]) {
+    const dir = path.dirname(resolvedPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } else {
+    ensureBrainDir();
   }
 
   const sqlite = new Database(resolvedPath);

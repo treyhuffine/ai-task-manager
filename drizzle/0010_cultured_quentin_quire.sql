@@ -1,1 +1,0 @@
-ALTER TABLE `user_state` RENAME COLUMN "default_agent_adapter" TO "default_agent_harness";

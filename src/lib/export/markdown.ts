@@ -7,7 +7,8 @@
 // corresponding import — a pristine DB-file backup is better for fidelity.
 
 import slugifyLib from '@sindresorhus/slugify'
-import type { TaskRecord, NoteRecord, AreaRecord } from '@/db/types'
+import type { TaskRecord, NoteRecord, AreaRecord, Attachment } from '@/db/types'
+import { rewriteAttachmentsForMirror } from '@/lib/attachments/derive'
 
 // ─── Link resolution ──────────────────────────────────────────
 
@@ -32,13 +33,20 @@ export function slugify(s: string): string {
   return slugifyLib(s, { lowercase: true, decamelize: false }).slice(0, 80)
 }
 
-// Minimal YAML value serializer — handles strings, numbers, booleans, null, arrays.
+// Minimal YAML value serializer — handles strings, numbers, booleans, null,
+// arrays, and (flow-style) objects.
 function yamlValue(v: unknown): string {
   if (v === null || v === undefined) return 'null'
   if (typeof v === 'boolean' || typeof v === 'number') return String(v)
   if (Array.isArray(v)) {
     if (v.length === 0) return '[]'
     return '[' + v.map((x) => yamlValue(x)).join(', ') + ']'
+  }
+  if (typeof v === 'object') {
+    const entries = Object.entries(v as Record<string, unknown>)
+      .filter(([, val]) => val !== undefined)
+      .map(([key, val]) => `${key}: ${yamlValue(val)}`)
+    return '{' + entries.join(', ') + '}'
   }
   const s = String(v)
   // Quote if it contains newlines, YAML-significant chars, leading/trailing
@@ -57,6 +65,15 @@ function yamlValue(v: unknown): string {
     )
   }
   return s
+}
+
+/** Strip `uploaded_at` from exported attachments — stable, human-meaningful
+ *  fields only. */
+function attachmentsForFrontmatter(
+  attachments: Attachment[] | null | undefined,
+): Array<Omit<Attachment, 'uploaded_at'>> | null {
+  if (!attachments || attachments.length === 0) return null
+  return attachments.map(({ uploaded_at, ...rest }) => rest)
 }
 
 function buildFrontmatter(fields: Record<string, unknown>): string {
@@ -96,7 +113,7 @@ export function taskToMarkdown(
     next_recurrence_at: task.next_recurrence_at,
     target_frequency: task.target_frequency,
     context_tags: task.context_tags,
-    attachments: task.attachments,
+    attachments: attachmentsForFrontmatter(task.attachments),
     blocked_on: task.blocked_on,
     blocked_since: task.blocked_since,
     outcome: task.outcome,
@@ -108,8 +125,8 @@ export function taskToMarkdown(
   })
 
   const parts: string[] = [frontmatter, '', `# ${task.title}`]
-  const description = (task.description ?? '').trim()
-  const body = (task.body ?? '').trim()
+  const description = rewriteAttachmentsForMirror(task.description ?? '').trim()
+  const body = rewriteAttachmentsForMirror(task.body ?? '').trim()
   const userContext = (task.user_context ?? '').trim()
   if (description) parts.push('', description)
   if (body) parts.push('', body)
@@ -136,11 +153,12 @@ export function noteToMarkdown(
     task_id: note.task_id,
     url: note.url,
     context_tags: note.context_tags,
+    attachments: attachmentsForFrontmatter(note.attachments),
     created_at: note.created_at,
     updated_at: note.updated_at,
   })
 
-  const body = (note.body ?? '').trim()
+  const body = rewriteAttachmentsForMirror(note.body ?? '').trim()
   const titleHeading = note.title ? `# ${note.title}\n` : ''
   const content = `${frontmatter}\n\n${titleHeading}${body ? (titleHeading ? '\n' : '') + body + '\n' : ''}`
   const baseName = note.title ? slugify(note.title) : ''
@@ -161,6 +179,7 @@ export function areaToMarkdown(
     status: area.status,
     sort_order: area.sort_order,
     description: area.description,
+    attachments: attachmentsForFrontmatter(area.attachments),
     created_at: area.created_at,
     updated_at: area.updated_at,
   })

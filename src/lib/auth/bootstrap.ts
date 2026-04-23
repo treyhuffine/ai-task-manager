@@ -11,6 +11,7 @@
  */
 
 import os from 'node:os';
+import { PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 import { hashToken } from '@/lib/auth/tokens';
 import { createApiKey, findApiKeyByHash } from '@/lib/db/queries';
@@ -51,7 +52,7 @@ export function getLanBaseUrl(): string | null {
 }
 
 export function buildPairingUrl(token: string, baseUrl = getLocalBaseUrl()): string {
-  return `${baseUrl}/#t=${token}`;
+  return `${baseUrl}/#${PAIRING_TOKEN_FRAGMENT_KEY}=${token}`;
 }
 
 /**

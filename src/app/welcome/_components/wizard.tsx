@@ -17,12 +17,11 @@ const INITIAL_STATE: WizardState = {
   name: '',
   description: '',
   areas: [
-    { name: 'Work', emoji: '💼', image_url: null },
-    { name: 'Personal', emoji: '🏡', image_url: null },
+    { name: 'Work', emoji: '💼', attachments: [] },
+    { name: 'Personal', emoji: '🏡', attachments: [] },
   ],
   agentHarness: 'claude',
-  agentModel: '',
-  agentAuth: { phase: 'idle', acceptsApiKeyBilling: false },
+  agentAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
   importSkipped: true,
 };
 
@@ -38,7 +37,10 @@ export function Wizard() {
   const isFirst = index === 0;
   const isLast = index === STEPS.length - 1;
 
-  const update = (patch: Partial<WizardState>) => setState((s) => ({ ...s, ...patch }));
+  const update = (
+    patch: Partial<WizardState> | ((s: WizardState) => Partial<WizardState>),
+  ) =>
+    setState((s) => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }));
 
   const canProceed = (() => {
     switch (current) {
@@ -49,13 +51,18 @@ export function Wizard() {
       case 'agent': {
         if (!state.agentHarness) return false;
         const a = state.agentAuth;
-        // Still checking or hit an error → don't gate forward; they can retry.
-        // The only hard block is "only API keys, no subscription, and they
-        // haven't acknowledged metered billing yet."
-        if (a.phase !== 'ready' || !a.report) return true;
-        const { hasSubscription, hasApiKey } = a.report;
-        if (!hasSubscription && hasApiKey && !a.acceptsApiKeyBilling) return false;
-        if (!hasSubscription && !hasApiKey) return false;
+        if (a.phase !== 'ready' || !a.report) return false;
+        if (!a.report.binary.installed) return false;
+        // The real test request is the ultimate truth — if it succeeded,
+        // the agent works regardless of what detection reported.
+        if (a.verify.phase !== 'ok') return false;
+        // Billing consent gate: when detection sees only an API key (no
+        // subscription or bedrock), require explicit acknowledgement of
+        // metered billing before continuing. If detection missed auth
+        // entirely but verify passed, we let them through — we can't tell
+        // which billing mode they're on.
+        const { hasSubscription, hasApiKey, hasBedrock } = a.report;
+        if (!hasSubscription && !hasBedrock && hasApiKey && !a.acceptsApiKeyBilling) return false;
         return true;
       }
       default:
@@ -92,7 +99,7 @@ export function Wizard() {
           body: JSON.stringify({
             name: a.name,
             emoji: a.emoji,
-            image_url: a.image_url,
+            attachments: a.attachments,
             sort_order: i,
           }),
         });
@@ -109,7 +116,7 @@ export function Wizard() {
           name: state.name.trim(),
           description: state.description.trim(),
           default_agent_harness: state.agentHarness,
-          default_agent_model: state.agentModel || null,
+          default_agent_model: null,
           onboarded_at: new Date().toISOString(),
         }),
       });

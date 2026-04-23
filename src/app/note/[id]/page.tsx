@@ -15,6 +15,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import type { Attachment } from '@/db/types'
 
 export default function NotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: noteId } = use(params)
@@ -28,6 +29,11 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   const [charCount, setCharCount] = useState(0)
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingAttachmentsRef = useRef<Attachment[]>([])
+
+  const handleAttachment = useCallback((attachment: Attachment) => {
+    pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment]
+  }, [])
 
   // Debounced save
   const handleTitleChange = useCallback(
@@ -50,7 +56,12 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
 
       if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
       bodyTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, body })
+        const attachments = pendingAttachmentsRef.current
+        updateNote.mutate({
+          id: noteId,
+          body,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        })
       }, 500)
     },
     [noteId, updateNote]
@@ -174,6 +185,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                 body={note.body}
                 onTitleChange={handleTitleChange}
                 onBodyChange={handleBodyChange}
+                onAttachment={handleAttachment}
                 autoFocusTitle={!note.title && note.body.trim().length === 0}
                 hideFooter
                 metadata={

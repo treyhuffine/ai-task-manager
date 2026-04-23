@@ -3,26 +3,27 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Check, AlertCircle, MonitorSmartphone, KeyRound, ChevronRight, Terminal, QrCode } from 'lucide-react';
-import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { APP_NAME, APP_SHORT_ID, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import { setAuthToken } from '@/lib/api/client';
 import { QrScannerModal } from '@/components/auth/qr-scanner-modal';
 
 /**
  * Extract a pairing token from a scanned QR payload.
- * QRs may encode either the full pair URL (`http://host/#t=<token>`)
- * or — as a fallback — a raw token. This handles both.
+ * QRs may encode either the full pair URL
+ * (`http://host/#${PAIRING_TOKEN_FRAGMENT_KEY}=<token>`) or — as a fallback —
+ * a raw token. This handles both.
  */
 function extractTokenFromQr(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  // Full URL form — parse the fragment for ?t=
+  // Full URL form — parse the fragment for the pairing token key
   if (/^https?:\/\//i.test(trimmed)) {
     try {
       const url = new URL(trimmed);
       const hash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash;
       const params = new URLSearchParams(hash);
-      const t = params.get('t');
+      const t = params.get(PAIRING_TOKEN_FRAGMENT_KEY);
       if (t) return t;
     } catch {
       return null;
@@ -215,7 +216,7 @@ export default function PairPage() {
 
               <p className="text-xs text-muted-foreground/60">
                 You can also open a pair link directly — the token lives in the URL fragment as{' '}
-                <code className="rounded bg-muted px-1 mt-0.5 py-0.5 inline-block font-mono text-[10px] text-foreground/80">#t=&lt;token&gt;</code>
+                <code className="rounded bg-muted px-1 mt-0.5 py-0.5 inline-block font-mono text-[10px] text-foreground/80">#{PAIRING_TOKEN_FRAGMENT_KEY}=&lt;token&gt;</code>
               </p>
             </div>
 

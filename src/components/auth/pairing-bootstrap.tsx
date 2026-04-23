@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import {
   AUTH_TOKEN_STORAGE_KEY,
   getAuthToken,
@@ -9,8 +10,9 @@ import {
 } from '@/lib/api/client';
 
 /**
- * Consumes `#t=<token>` from the URL fragment, persists it to localStorage,
- * and strips the fragment. Redirects to /pair when no token is present.
+ * Consumes `#${PAIRING_TOKEN_FRAGMENT_KEY}=<token>` from the URL fragment,
+ * persists it to localStorage, and strips the fragment. Redirects to /pair
+ * when no token is present.
  */
 export function PairingBootstrap() {
   const router = useRouter();
@@ -25,7 +27,7 @@ export function PairingBootstrap() {
 
     if (hash) {
       const params = new URLSearchParams(hash);
-      const fromUrl = params.get('t');
+      const fromUrl = params.get(PAIRING_TOKEN_FRAGMENT_KEY);
       if (fromUrl) {
         setAuthToken(fromUrl);
         const clean = window.location.pathname + window.location.search;

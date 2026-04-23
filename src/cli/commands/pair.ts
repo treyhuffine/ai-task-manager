@@ -18,7 +18,7 @@
 
 import os from 'node:os';
 import pc from 'picocolors';
-import { APP_SHORT_ID } from '@/constants/app';
+import { APP_SHORT_ID, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import {
   ensureLocalToken,
   buildPairingUrl,
@@ -164,7 +164,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   );
 
   console.log();
-  console.log(pc.bold('Token') + pc.dim(' (paste into any base URL as `/#t=<token>`):'));
+  console.log(pc.bold('Token') + pc.dim(` (paste into any base URL as \`/#${PAIRING_TOKEN_FRAGMENT_KEY}=<token>\`):`));
   console.log(`  ${token.plaintext}`);
   console.log();
 }

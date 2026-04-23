@@ -11,4 +11,5 @@ export {
 export { reconcileAll, type ReconcileStats } from './reconcile';
 export { initMirror } from './init';
 export { startMirrorTimer, stopMirrorTimer } from './timer';
-export { isMirrorEnabled, getMirrorRoot, MIRROR_PATH_ENV, MIRROR_DISABLED_ENV } from './config';
+export { isMirrorEnabled, MIRROR_DISABLED_ENV } from './config';
+export { getBrainDir, BRAIN_PATH_ENV } from '@/lib/config/paths';

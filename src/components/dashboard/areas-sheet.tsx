@@ -25,6 +25,7 @@ import { useAreas, useUpdateArea } from '@/hooks/use-areas'
 import { useDashboard } from '@/contexts/dashboard-context'
 import { AreaCreateModal } from '@/components/dashboard/area-create-modal'
 import type { AreaRecord } from '@/db/types'
+import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
 
 const DEFAULT_WIDTH = 560
@@ -52,6 +53,7 @@ function SortableAreaRow({ area, onOpen }: { area: AreaRecord; onOpen: (id: stri
   }
 
   const isArchived = area.status === 'archived'
+  const coverUrl = coverAttachmentUrl(area.attachments)
 
   return (
     <div
@@ -74,9 +76,9 @@ function SortableAreaRow({ area, onOpen }: { area: AreaRecord; onOpen: (id: stri
           <GripVertical size={12} />
         </button>
 
-        {area.image_url ? (
+        {coverUrl ? (
           <img
-            src={area.image_url}
+            src={coverUrl}
             alt=""
             className="w-7 h-7 rounded-lg object-cover flex-shrink-0"
           />

@@ -22,6 +22,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
+    return NextResponse.next();
+  }
+
   const header = request.headers.get('authorization');
   if (!header || !header.startsWith('Bearer ')) {
     return unauthorized();

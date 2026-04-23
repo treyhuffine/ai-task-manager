@@ -17,6 +17,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { NoteIcon } from '@/components/shared/note-icon'
+import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
 
 const DEFAULT_WIDTH = 640
@@ -299,17 +300,22 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                       </button>
                     </div>
                     <div className="flex items-center gap-3">
-                      {area.image_url ? (
-                        <img
-                          src={area.image_url}
-                          alt=""
-                          className="w-10 h-10 rounded-xl object-cover flex-shrink-0"
-                        />
-                      ) : area.emoji ? (
-                        <span className="text-2xl flex-shrink-0">
-                          {area.emoji}
-                        </span>
-                      ) : null}
+                      {(() => {
+                        const coverUrl = coverAttachmentUrl(area.attachments)
+                        if (coverUrl) {
+                          return (
+                            <img
+                              src={coverUrl}
+                              alt=""
+                              className="w-10 h-10 rounded-xl object-cover flex-shrink-0"
+                            />
+                          )
+                        }
+                        if (area.emoji) {
+                          return <span className="text-2xl flex-shrink-0">{area.emoji}</span>
+                        }
+                        return null
+                      })()}
 
                       <input
                         value={nameValue}

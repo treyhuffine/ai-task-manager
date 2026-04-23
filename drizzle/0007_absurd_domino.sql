@@ -1,1 +1,0 @@
-ALTER TABLE `stream` ADD `audio_file` text;

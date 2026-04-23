@@ -3,10 +3,18 @@ import { getProvider, type AuthReport } from '@agentex/agent';
 
 const ALLOWED = new Set(['claude', 'codex']);
 
-// We don't use the canned `hasSubscription`/`hasApiKey` helpers because we
-// also need the env var name (for UI hints) and the keychain-unknown flag.
-// Inlining keeps it to one `resolveAuth` call.
-function hasMethod(report: AuthReport, method: 'subscription' | 'api_key'): boolean {
+// We return the full AuthReport the SDK gives us, plus a few precomputed
+// flags so the client doesn't have to rewalk `options[]` to figure out what
+// to render.
+export interface AgentAuthResponse extends AuthReport {
+  hasSubscription: boolean;
+  hasApiKey: boolean;
+  hasBedrock: boolean;
+  /** Env var name for the first detected API key, for UI hints. */
+  apiKeyVar: string | null;
+}
+
+function hasMethod(report: AuthReport, method: 'subscription' | 'api_key' | 'bedrock'): boolean {
   return report.options.some((o) => o.method === method && o.present === true);
 }
 
@@ -18,36 +26,25 @@ function firstApiKeyVar(report: AuthReport): string | null {
   return null;
 }
 
-function hasKeychainUnknown(report: AuthReport): boolean {
-  return report.options.some(
-    (o) => o.method === 'subscription' && o.present === 'unknown',
-  );
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const { harness } = await request.json();
+    const { harness, fresh } = await request.json();
     if (!ALLOWED.has(harness)) {
       return Response.json({ error: `unknown harness: ${harness}` }, { status: 400 });
     }
 
     const provider = getProvider(harness);
+    const report = await provider.resolveAuth({ fresh: fresh === true });
 
-    const [report, models] = await Promise.all([
-      provider.resolveAuth(),
-      provider.listModels
-        ? provider.listModels({ cacheTtlMs: 60_000 }).catch(() => [])
-        : Promise.resolve([]),
-    ]);
-
-    return Response.json({
-      providerType: report.providerType,
+    const payload: AgentAuthResponse = {
+      ...report,
       hasSubscription: hasMethod(report, 'subscription'),
       hasApiKey: hasMethod(report, 'api_key'),
+      hasBedrock: hasMethod(report, 'bedrock'),
       apiKeyVar: firstApiKeyVar(report),
-      keychainUnknown: hasKeychainUnknown(report),
-      models: models.map((m) => ({ id: m.id, name: m.name })),
-    });
+    };
+
+    return Response.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 500 });

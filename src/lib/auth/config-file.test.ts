@@ -64,6 +64,9 @@ describe('readAuthConfig', () => {
       version: 1,
       localToken: null,
       tunnelUrl: null,
+      onboardedAt: null,
+      voiceEnabled: null,
+      lastPort: null,
     });
   });
 
@@ -73,6 +76,9 @@ describe('readAuthConfig', () => {
       version: 1,
       localToken: 'tok-1',
       tunnelUrl: 'https://tun.example',
+      onboardedAt: null,
+      voiceEnabled: null,
+      lastPort: null,
     });
   });
 });
@@ -91,6 +97,9 @@ describe('writeAuthConfig', () => {
       version: 1,
       localToken: 'tok-1',
       tunnelUrl: 'https://b',
+      onboardedAt: null,
+      voiceEnabled: null,
+      lastPort: null,
     });
   });
 
@@ -100,6 +109,9 @@ describe('writeAuthConfig', () => {
       version: 1,
       localToken: 'tok-1',
       tunnelUrl: null,
+      onboardedAt: null,
+      voiceEnabled: null,
+      lastPort: null,
     });
   });
 

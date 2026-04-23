@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat'
 import { cn } from '@/lib/utils'
+import type { Attachment } from '@/db/types'
 
 const DEFAULT_WIDTH = 1000
 const MIN_WIDTH = 420
@@ -46,6 +47,15 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const containerRef = useRef<HTMLDivElement>(null)
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks attachments uploaded during this editing session so we can include
+  // their metadata in save payloads. The server's derive step intersects these
+  // with body-referenced file_names — uploads that never land in the body get
+  // garbage-collected later by the reconciler.
+  const pendingAttachmentsRef = useRef<Attachment[]>([])
+
+  const handleAttachment = useCallback((attachment: Attachment) => {
+    pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment]
+  }, [])
 
   // Animate in
   useEffect(() => {
@@ -110,7 +120,12 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
 
       if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
       bodyTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, body })
+        const attachments = pendingAttachmentsRef.current
+        updateNote.mutate({
+          id: noteId,
+          body,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        })
       }, 500)
     },
     [noteId, updateNote]
@@ -300,6 +315,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                     body={note.body}
                     onTitleChange={handleTitleChange}
                     onBodyChange={handleBodyChange}
+                    onAttachment={handleAttachment}
                     autoFocusTitle={!note.title && note.body.trim().length === 0}
                     hideFooter
                     disabled={aiBusy}

@@ -13,12 +13,14 @@ import type {
   TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter,
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
   AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
-  StreamRecord, CreateStreamInput,
+  StreamRecord, CreateStreamInput, UpdateStreamInput,
   DeckRecord, UpdateDeckInput,
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
+  Attachment,
 } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
+import { deriveAttachments } from '@/lib/attachments/derive';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -72,9 +74,29 @@ export function getTask(id: string): TaskRecord | undefined {
   return db.select().from(tasks).where(eq(tasks.id, id)).get();
 }
 
+/** Tasks carry free-form markdown in both `description` and `body`. The
+ *  quick-create modal writes to description only; the full editor writes to
+ *  body. Scanning both means attachments dropped into either surface are
+ *  captured consistently. */
+function taskAttachmentText(
+  description: string | null | undefined,
+  body: string | null | undefined,
+): string {
+  return `${description ?? ''}\n${body ?? ''}`;
+}
+
 export function createTask(input: Omit<CreateTaskInput, 'raw_input'> & { raw_input?: string }): TaskRecord {
   const db = getDb();
   const now = new Date().toISOString();
+
+  // Body + description are the surfaces; attachments[] is a derived manifest.
+  // Anything the client sent in `attachments` is treated as newly-uploaded
+  // metadata and filtered through the body's references.
+  const attachments = deriveAttachments({
+    body: taskAttachmentText(input.description, input.body),
+    prior: [],
+    newUploads: input.attachments ?? [],
+  });
 
   const row = db
     .insert(tasks)
@@ -84,7 +106,7 @@ export function createTask(input: Omit<CreateTaskInput, 'raw_input'> & { raw_inp
       id: uuidv7(),
       status: input.status ?? 'active',
       context_tags: input.context_tags ?? [],
-      attachments: input.attachments ?? [],
+      attachments,
       times_deferred: 0,
       created_at: now,
       updated_at: now,
@@ -103,9 +125,30 @@ export function updateTask(id: string, input: UpdateTaskInput): TaskRecord | nul
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!existing) return null;
 
+  // Re-derive the manifest if body or description changed, or if the client
+  // explicitly sent new attachment metadata. Otherwise preserve what's on disk.
+  const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'body');
+  const descriptionChanged = Object.prototype.hasOwnProperty.call(input, 'description');
+  const attachmentsHint = input.attachments;
+  const attachments =
+    bodyChanged || descriptionChanged || attachmentsHint !== undefined
+      ? deriveAttachments({
+          body: taskAttachmentText(
+            descriptionChanged ? input.description : existing.description,
+            bodyChanged ? input.body : existing.body,
+          ),
+          prior: existing.attachments ?? [],
+          newUploads: attachmentsHint ?? [],
+        })
+      : undefined;
+
   const row = db
     .update(tasks)
-    .set({ ...input, updated_at: new Date().toISOString() })
+    .set({
+      ...input,
+      ...(attachments !== undefined ? { attachments } : {}),
+      updated_at: new Date().toISOString(),
+    })
     .where(eq(tasks.id, id))
     .returning()
     .get();
@@ -235,6 +278,12 @@ export function createNote(input: CreateNoteInput): NoteRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
+  const attachments = deriveAttachments({
+    body: input.body ?? '',
+    prior: [],
+    newUploads: input.attachments ?? [],
+  });
+
   const row = db
     .insert(notes)
     .values({
@@ -242,6 +291,7 @@ export function createNote(input: CreateNoteInput): NoteRecord {
       id: uuidv7(),
       status: input.status ?? 'active',
       context_tags: input.context_tags ?? [],
+      attachments,
       created_at: now,
       updated_at: now,
     })
@@ -259,9 +309,24 @@ export function updateNote(id: string, input: UpdateNoteInput): NoteRecord | nul
   const existing = db.select().from(notes).where(eq(notes.id, id)).get();
   if (!existing) return null;
 
+  const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'body');
+  const attachmentsHint = input.attachments;
+  const attachments =
+    bodyChanged || attachmentsHint !== undefined
+      ? deriveAttachments({
+          body: bodyChanged ? input.body ?? '' : existing.body,
+          prior: existing.attachments ?? [],
+          newUploads: attachmentsHint ?? [],
+        })
+      : undefined;
+
   const row = db
     .update(notes)
-    .set({ ...input, updated_at: new Date().toISOString() })
+    .set({
+      ...input,
+      ...(attachments !== undefined ? { attachments } : {}),
+      updated_at: new Date().toISOString(),
+    })
     .where(eq(notes.id, id))
     .returning()
     .get();
@@ -278,6 +343,87 @@ export function deleteNote(id: string): boolean {
   deleteEmbedding('note', id);
   void syncDeletion('note', id);
   return true;
+}
+
+// ─── Stream ───────────────────────────────────────────────────
+
+/** Lookup an existing stream item by upstream id (e.g. Pocket recording.id).
+ *  Used to dedupe at-least-once webhook redeliveries. */
+export function findStreamByExternalId(
+  external_source: string,
+  external_id: string,
+): StreamRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(stream)
+    .where(and(eq(stream.external_source, external_source), eq(stream.external_id, external_id)))
+    .limit(1)
+    .get();
+}
+
+export function createStream(input: CreateStreamInput): StreamRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const attachments = deriveAttachments({
+    body: input.raw_text ?? '',
+    prior: [],
+    newUploads: input.attachments ?? [],
+  });
+
+  const row = db
+    .insert(stream)
+    .values({
+      ...input,
+      id: uuidv7(),
+      source: input.source ?? 'capture',
+      status: input.status ?? 'pending',
+      attachments,
+      created_at: input.created_at ?? now,
+    })
+    .returning()
+    .get();
+
+  void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
+  void syncEntity('stream', row.id);
+  return row;
+}
+
+export function updateStream(id: string, input: UpdateStreamInput): StreamRecord | null {
+  const db = getDb();
+
+  const existing = db.select().from(stream).where(eq(stream.id, id)).get();
+  if (!existing) return null;
+
+  const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'raw_text');
+  const attachmentsHint = input.attachments;
+  const attachments =
+    bodyChanged || attachmentsHint !== undefined
+      ? deriveAttachments({
+          body: bodyChanged ? input.raw_text ?? '' : existing.raw_text,
+          prior: existing.attachments ?? [],
+          newUploads: attachmentsHint ?? [],
+        })
+      : undefined;
+
+  const row = db
+    .update(stream)
+    .set({
+      ...input,
+      ...(attachments !== undefined ? { attachments } : {}),
+    })
+    .where(eq(stream.id, id))
+    .returning()
+    .get();
+
+  void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
+  void syncEntity('stream', row.id);
+  return row;
+}
+
+export function dismissStream(id: string): StreamRecord | null {
+  return updateStream(id, { status: 'dismissed', dismissed_by: 'user' });
 }
 
 // ─── Areas ────────────────────────────────────────────────────
@@ -303,12 +449,15 @@ export function createArea(input: CreateAreaInput): AreaRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
+  // Areas have no body — attachments are the cover image(s) the UI passes
+  // directly. Any other attachments in the payload are accepted as-is.
   const row = db
     .insert(areas)
     .values({
       ...input,
       id: uuidv7(),
       status: input.status ?? 'active',
+      attachments: input.attachments ?? [],
       created_at: now,
       updated_at: now,
     })

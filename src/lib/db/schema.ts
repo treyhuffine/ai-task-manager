@@ -1,6 +1,25 @@
 import { sqliteTable, text, integer, index, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
+// ─── Attachments ──────────────────────────────────────────────
+// Generic file reference stored on any entity that can carry uploads.
+// Files live in `<brain>/attachments/<file_name>`. See
+// `src/lib/attachments/save.ts` for the write path and
+// `src/lib/attachments/derive.ts` for the body→manifest sync.
+
+export interface Attachment {
+  /** UUIDv7-based storage filename, e.g. `01HXYZ.png`. Immutable. */
+  file_name: string;
+  /** Human-facing name from upload time, e.g. `Screenshot 2026-04-21.png`. */
+  original_name: string;
+  /** Normalized MIME type, e.g. `image/png`, `audio/webm`. */
+  mime_type: string;
+  /** File size in bytes. */
+  size: number;
+  /** ISO timestamp captured when the file was written to disk. */
+  uploaded_at: string;
+}
+
 // ─── User State ────────────────────────────────────────────────
 
 export const userState = sqliteTable('user_state', {
@@ -26,7 +45,7 @@ export const areas = sqliteTable('areas', {
   name: text('name').notNull(),
   description: text('description'),
   emoji: text('emoji'),
-  image_url: text('image_url'),
+  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
   notes: text('notes'),
   user_context: text('user_context'),
   status: text('status', { enum: ['active', 'inactive', 'archived'] }).notNull().default('active'),
@@ -40,18 +59,32 @@ export const areas = sqliteTable('areas', {
 export const stream = sqliteTable('stream', {
   id: text('id').primaryKey(),
   raw_text: text('raw_text').notNull(),
-  source: text('source', { enum: ['capture', 'voice', 'brain_dump', 'chat'] }).notNull().default('capture'),
+  /** Which in-app surface/flow produced the item. Decoupled from media type. */
+  source: text('source', { enum: ['capture', 'chat', 'webhook'] }).notNull().default('capture'),
+  /** Original media format. Voice/image items were transcribed/OCR'd into `raw_text`. */
+  media: text('media', { enum: ['text', 'voice', 'image'] }).notNull().default('text'),
+  /** How the item entered the system. `internal` = user action in the app. */
+  origin: text('origin', { enum: ['internal', 'webhook', 'api'] }).notNull().default('internal'),
+  /** External system that sent it (e.g. `pocket`). Null when origin='internal'. */
+  external_source: text('external_source'),
+  /** Upstream id for dedupe on at-least-once deliveries. Null when origin='internal'. */
+  external_id: text('external_id'),
+  /** Full inbound payload for audit/replay. Null when origin='internal'. */
+  external_payload: text('external_payload'),
   status: text('status', { enum: ['pending', 'promoted', 'dismissed'] }).notNull().default('pending'),
   dismissed_by: text('dismissed_by'),
   promoted_to_type: text('promoted_to_type'),
   promoted_to_id: text('promoted_to_id'),
   promoted_at: text('promoted_at'),
   promotion_pass: text('promotion_pass'),
-  /** Path to saved audio file (relative to captures dir). Set when audio was
-   *  captured but transcription failed or no STT provider was available. */
-  audio_file: text('audio_file'),
+  /** Files attached to this stream item (e.g. raw audio when transcription
+   *  failed or no STT provider was available). Derived on write from any
+   *  references present in `raw_text`. */
+  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-});
+}, (table) => [
+  index('stream_external_id_idx').on(table.external_source, table.external_id),
+]);
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -76,7 +109,7 @@ export const tasks = sqliteTable('tasks', {
   hard_deadline: text('hard_deadline'),
   reminder_at: text('reminder_at'),
   resurface_after: text('resurface_after'),
-  attachments: text('attachments', { mode: 'json' }).$type<string[]>().default([]),
+  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
   status: text('status', { enum: ['active', 'done', 'archived'] }).notNull().default('active'),
   sort_key: text('sort_key'),
   blocked_on: text('blocked_on'),
@@ -172,6 +205,7 @@ export const notes = sqliteTable('notes', {
   title: text('title'),
   body: text('body').notNull(),
   url: text('url'),
+  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
   status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
   context_tags: text('context_tags', { mode: 'json' }).$type<string[]>().default([]),
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),

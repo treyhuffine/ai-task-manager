@@ -17,7 +17,7 @@ import { useDashboard } from "@/contexts/dashboard-context";
 import { useCreateNote } from "@/hooks/use-notes";
 import { RichEditor } from "@/components/editor/rich-editor";
 import { cn } from "@/lib/utils";
-import type { Effort, Energy } from "@/db/types";
+import type { Effort, Energy, Attachment } from "@/db/types";
 
 interface TaskCreateModalProps {
   open: boolean;
@@ -49,6 +49,11 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
   const [showAreaPicker, setShowAreaPicker] = useState(false);
 
   const descriptionRef = useRef(description);
+  const pendingAttachmentsRef = useRef<Attachment[]>([]);
+
+  const handleAttachment = useCallback((attachment: Attachment) => {
+    pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment];
+  }, []);
 
   const createTask = useCreateTask();
   const createNote = useCreateNote();
@@ -61,6 +66,7 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
     setTitle("");
     setDescription("");
     descriptionRef.current = "";
+    pendingAttachmentsRef.current = [];
     setAreaId(null);
     setDeadline("");
     setEffort(null);
@@ -74,6 +80,7 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
     const trimmedTitle = title.trim();
     if (!trimmedTitle || createTask.isPending) return;
 
+    const attachments = pendingAttachmentsRef.current;
     createTask.mutate(
       {
         title: trimmedTitle,
@@ -83,6 +90,7 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
         hard_deadline: deadline || undefined,
         effort: effort ?? undefined,
         energy: energy ?? undefined,
+        ...(attachments.length > 0 ? { attachments } : {}),
       },
       {
         onSuccess: () => {
@@ -105,10 +113,12 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
   const handleExpand = useCallback(() => {
     const trimmedTitle = title.trim();
     const body = descriptionRef.current.trim() || " ";
+    const attachments = pendingAttachmentsRef.current;
     createNote.mutate(
       {
         title: trimmedTitle || undefined,
         body,
+        ...(attachments.length > 0 ? { attachments } : {}),
       },
       {
         onSuccess: (note) => {
@@ -182,6 +192,7 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
                     key="task-description"
                     content={description}
                     onChange={handleDescriptionChange}
+                    onAttachment={handleAttachment}
                     placeholder="Description"
                     hideFooter
                     className="text-sm [&_.rich-editor-body]:min-h-[6rem]"

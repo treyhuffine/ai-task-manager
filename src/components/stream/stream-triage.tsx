@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { AreaSelect } from '@/components/shared/area-select';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { TaskActions, NoteActions } from './promote-actions';
+import { StreamAttachments } from './stream-attachments';
 import {
   Sheet,
   SheetContent,
@@ -92,6 +93,8 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
     createTask.mutate({
       raw_input: item.raw_text,
       title: item.raw_text.slice(0, 200),
+      body: item.raw_text,
+      attachments: item.attachments ?? [],
       ...(overrides[item.id]?.energy ? { energy: overrides[item.id].energy } : {}),
       ...(overrides[item.id]?.effort ? { effort: overrides[item.id].effort } : {}),
       ...(overrides[item.id]?.areaId ? { area_id: overrides[item.id].areaId } : {}),
@@ -112,6 +115,7 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
   const handlePromoteToNote = useCallback((item: StreamRecord) => {
     createNote.mutate({
       body: item.raw_text,
+      attachments: item.attachments ?? [],
     }, {
       onSuccess: (note) => {
         updateStream.mutate({
@@ -130,7 +134,9 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
     createTask.mutate({
       raw_input: item.raw_text,
       title: item.raw_text.slice(0, 200),
+      body: item.raw_text,
       parent_id: targetTaskId,
+      attachments: item.attachments ?? [],
       ...(overrides[item.id]?.energy ? { energy: overrides[item.id].energy } : {}),
       ...(overrides[item.id]?.effort ? { effort: overrides[item.id].effort } : {}),
       ...(overrides[item.id]?.areaId ? { area_id: overrides[item.id].areaId } : {}),
@@ -152,6 +158,7 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
     updateNote.mutate({
       id: targetNoteId,
       body: item.raw_text,
+      attachments: item.attachments ?? [],
     } as Parameters<typeof updateNote.mutate>[0], {
       onSuccess: () => {
         updateStream.mutate({
@@ -284,6 +291,8 @@ function TriageRow({
           <p className="text-[12px] font-medium text-foreground leading-tight">
             {item.raw_text}
           </p>
+
+          <StreamAttachments attachments={item.attachments} />
 
           {/* Quick action pills */}
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">

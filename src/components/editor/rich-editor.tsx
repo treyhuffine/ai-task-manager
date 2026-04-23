@@ -20,8 +20,47 @@ import { EditorBubbleMenu } from './editor-bubble-menu'
 import { EditorGutterMenu } from './editor-floating-menu'
 import { SlashCommands } from './slash-commands'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
+import type { Attachment } from '@/db/types'
+import { uploadAttachment } from '@/lib/attachments/client'
 
 const lowlight = createLowlight(common)
+
+/**
+ * Upload a batch of image files, insert them as Image nodes at the given
+ * document position, and emit each Attachment through the optional callback.
+ *
+ * Each file uploads independently; failures are logged and skipped so a
+ * single bad file doesn't block the others. Insertions happen after the
+ * upload resolves so the editor doesn't show placeholder gaps or
+ * broken-image icons pointing at not-yet-saved files.
+ */
+async function insertUploadedFiles(
+  view: import('@tiptap/pm/view').EditorView,
+  files: File[],
+  startPos: number,
+  onAttachment?: (a: Attachment) => void,
+): Promise<void> {
+  for (const file of files) {
+    try {
+      const attachment = await uploadAttachment(file)
+      const src = `/api/attachments/${attachment.file_name}`
+      const imageType = view.state.schema.nodes.image
+      if (!imageType) continue
+      const node = imageType.create({ src, alt: attachment.original_name })
+      // Recompute insertion point each time: the document may have grown as
+      // earlier files in the batch were inserted, and the current selection
+      // is a safer landing spot than a stale startPos.
+      const target = Math.min(startPos, view.state.doc.content.size)
+      const tr = view.state.tr.insert(target, node)
+      view.dispatch(tr)
+      // Move cursor past the just-inserted node so the next one stacks below.
+      startPos = target + node.nodeSize
+      onAttachment?.(attachment)
+    } catch (err) {
+      console.error('[editor] attachment upload failed', err)
+    }
+  }
+}
 
 export interface RichEditorProps {
   /** Initial content as markdown string */
@@ -38,6 +77,11 @@ export interface RichEditorProps {
   autoFocus?: 'start' | 'end' | false;
   /** Hide the built-in word/character count footer */
   hideFooter?: boolean
+  /** Called when a file is uploaded via drag/drop/paste. The parent should
+   *  accumulate these in a ref and include them in the save payload so the
+   *  server can populate attachment metadata (original_name, mime_type, size)
+   *  on the entity's manifest without a cross-entity lookup. */
+  onAttachment?: (attachment: Attachment) => void
 }
 
 export function RichEditor({
@@ -48,9 +92,13 @@ export function RichEditor({
   className = '',
   autoFocus = false,
   hideFooter = false,
+  onAttachment,
 }: RichEditorProps) {
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+
+  const onAttachmentRef = useRef(onAttachment)
+  onAttachmentRef.current = onAttachment
 
   // Freeze initial content so useEditor only uses it on creation.
   // We handle subsequent updates ourselves via the sync effect below.
@@ -116,6 +164,32 @@ export function RichEditor({
         'data-gramm': 'false',
         'data-gramm_editor': 'false',
         'data-enable-grammarly': 'false',
+      },
+      // Drag-and-drop file uploads. Internal ProseMirror drags (node moves
+      // within the doc) have `moved=true` and we ignore those — only external
+      // file drops trigger the upload path.
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved) return false
+        const dt = (event as DragEvent).dataTransfer
+        const files = Array.from(dt?.files ?? []).filter((f) => f.type.startsWith('image/'))
+        if (files.length === 0) return false
+        event.preventDefault()
+        const coords = view.posAtCoords({
+          left: (event as DragEvent).clientX,
+          top: (event as DragEvent).clientY,
+        })
+        const pos = coords?.pos ?? view.state.selection.to
+        void insertUploadedFiles(view, files, pos, onAttachmentRef.current)
+        return true
+      },
+      handlePaste: (view, event) => {
+        const cb = (event as ClipboardEvent).clipboardData
+        const files = Array.from(cb?.files ?? []).filter((f) => f.type.startsWith('image/'))
+        if (files.length === 0) return false
+        event.preventDefault()
+        const pos = view.state.selection.to
+        void insertUploadedFiles(view, files, pos, onAttachmentRef.current)
+        return true
       },
     },
     onUpdate: ({ editor }) => {
@@ -206,6 +280,8 @@ export interface NoteEditorProps {
   disabled?: boolean
   /** Optional content rendered below the title */
   metadata?: React.ReactNode
+  /** Forwarded to the inner RichEditor — see RichEditorProps.onAttachment. */
+  onAttachment?: (attachment: Attachment) => void
 }
 
 export function NoteEditor({
@@ -217,6 +293,7 @@ export function NoteEditor({
   hideFooter = false,
   disabled = false,
   metadata,
+  onAttachment,
 }: NoteEditorProps) {
   const titleRef = useRef<HTMLTextAreaElement>(null)
 
@@ -282,6 +359,7 @@ export function NoteEditor({
           editable={!disabled}
           autoFocus={autoFocusTitle ? false : 'start'}
           hideFooter={hideFooter}
+          onAttachment={onAttachment}
         />
       </div>
     </div>

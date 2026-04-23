@@ -11,7 +11,8 @@ import { ensureDirs } from './fs';
 import { ensureReadme } from './readme';
 import { reconcileAll } from './reconcile';
 import { startMirrorTimer } from './timer';
-import { isMirrorEnabled, getMirrorRoot, MIRROR_DISABLED_ENV } from './config';
+import { isMirrorEnabled, MIRROR_DISABLED_ENV } from './config';
+import { getBrainDir } from '@/lib/config/paths';
 
 let initialized = false;
 
@@ -32,13 +33,13 @@ export async function initMirror(): Promise<void> {
     return;
   }
 
-  console.log(`[mirror] root: ${getMirrorRoot()}`);
+  console.log(`[mirror] brain: ${getBrainDir()}`);
 
   // Background reconcile — don't block startup.
   reconcileAll()
     .then((stats) => {
       console.log(
-        `[mirror] startup reconcile: synced=${stats.synced} skipped=${stats.skipped} orphaned=${stats.orphaned} (${stats.elapsedMs}ms)`,
+        `[mirror] startup reconcile: synced=${stats.synced} skipped=${stats.skipped} orphaned=${stats.orphaned} attachments=${stats.attachments.onDisk}/${stats.attachments.referenced} archived=${stats.attachments.archived} (${stats.elapsedMs}ms)`,
       );
     })
     .catch((err) => {

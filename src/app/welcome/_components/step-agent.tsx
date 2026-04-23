@@ -9,10 +9,18 @@ import {
   Sparkles,
   Code2,
   RefreshCw,
+  Package,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import { authFetch } from '@/lib/api/client';
-import type { WizardState, AgentHarness, AgentAuthReport } from './types';
+import type {
+  WizardState,
+  WizardUpdate,
+  AgentHarness,
+  AgentAuthReport,
+  AgentVerifyState,
+} from './types';
+import type { AgentVerifyResponse } from '@/app/api/agent/verify/route';
 
 const HARNESSES: Array<{
   id: AgentHarness;
@@ -21,6 +29,7 @@ const HARNESSES: Array<{
   icon: React.ComponentType<{ className?: string }>;
   loginCmd: string;
   envHint: string;
+  installHint: string;
 }> = [
   {
     id: 'claude',
@@ -29,6 +38,7 @@ const HARNESSES: Array<{
     icon: Sparkles,
     loginCmd: 'claude login',
     envHint: 'ANTHROPIC_API_KEY',
+    installHint: 'npm install -g @anthropic-ai/claude-code',
   },
   {
     id: 'codex',
@@ -37,6 +47,7 @@ const HARNESSES: Array<{
     icon: Code2,
     loginCmd: 'codex login',
     envHint: 'OPENAI_API_KEY',
+    installHint: 'npm install -g @openai/codex',
   },
 ];
 
@@ -50,74 +61,138 @@ export function StepAgent({
   update,
 }: {
   state: WizardState;
-  update: (patch: Partial<WizardState>) => void;
+  update: WizardUpdate;
 }) {
   const harness = HARNESS_BY_ID[state.agentHarness];
-  // Track the harness the in-flight request is for, so a fast switch doesn't
-  // let a stale response overwrite the fresh one.
-  const inFlight = useRef<AgentHarness | null>(null);
+  // Track the harness each in-flight request is for so a fast switch can't
+  // let a stale response overwrite fresh state.
+  const authInFlight = useRef<AgentHarness | null>(null);
+  const verifyInFlight = useRef<AgentHarness | null>(null);
 
-  const runCheck = useCallback(
-    async (target: AgentHarness) => {
-      inFlight.current = target;
-      update({
-        agentAuth: { phase: 'checking', acceptsApiKeyBilling: false },
-      });
+  // Auth and verify fire in parallel — verify is the slow one (real LLM
+  // round-trip, ~2-10s) and auth is fast (CLI status subcommand). Running
+  // serial meant auth's latency stacked on top of verify's. Each writes only
+  // its own slice of agentAuth via functional updates so the results compose.
+  const runAuthOnly = useCallback(
+    async (target: AgentHarness, options: { fresh?: boolean } = {}) => {
       try {
         const res = await authFetch('/api/agent/auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ harness: target }),
+          body: JSON.stringify({ harness: target, fresh: options.fresh === true }),
         });
-        if (inFlight.current !== target) return;
+        if (authInFlight.current !== target) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          update({
+          update((s) => ({
             agentAuth: {
+              ...s.agentAuth,
               phase: 'error',
               error: body.error ?? `Check failed (${res.status})`,
-              acceptsApiKeyBilling: false,
             },
-          });
+          }));
           return;
         }
         const report = (await res.json()) as AgentAuthReport;
-        update({
-          agentAuth: { phase: 'ready', report, acceptsApiKeyBilling: false },
-        });
+        update((s) => ({ agentAuth: { ...s.agentAuth, phase: 'ready', report } }));
       } catch (err) {
-        if (inFlight.current !== target) return;
-        update({
+        if (authInFlight.current !== target) return;
+        update((s) => ({
           agentAuth: {
+            ...s.agentAuth,
             phase: 'error',
             error: err instanceof Error ? err.message : 'Check failed',
-            acceptsApiKeyBilling: false,
           },
-        });
+        }));
       }
     },
     [update],
   );
 
+  const runVerifyOnly = useCallback(
+    async (target: AgentHarness) => {
+      try {
+        const res = await authFetch('/api/agent/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ harness: target }),
+        });
+        if (verifyInFlight.current !== target) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          update((s) => ({
+            agentAuth: {
+              ...s.agentAuth,
+              verify: {
+                phase: 'failed',
+                error: body.error ?? `Verify failed (${res.status})`,
+              },
+            },
+          }));
+          return;
+        }
+        const result = (await res.json()) as AgentVerifyResponse;
+        update((s) => ({
+          agentAuth: {
+            ...s.agentAuth,
+            verify: {
+              phase: result.ok ? 'ok' : 'failed',
+              result,
+              error: result.ok ? undefined : result.errorMessage ?? 'Agent did not respond',
+            },
+          },
+        }));
+      } catch (err) {
+        if (verifyInFlight.current !== target) return;
+        update((s) => ({
+          agentAuth: {
+            ...s.agentAuth,
+            verify: {
+              phase: 'failed',
+              error: err instanceof Error ? err.message : 'Verify failed',
+            },
+          },
+        }));
+      }
+    },
+    [update],
+  );
+
+  const runCheck = useCallback(
+    (target: AgentHarness, options: { fresh?: boolean } = {}) => {
+      authInFlight.current = target;
+      verifyInFlight.current = target;
+      // Reset both slices together so the UI shows a clean "checking + verifying"
+      // state without a stale report bleeding through from the previous harness.
+      update({
+        agentAuth: {
+          phase: 'checking',
+          acceptsApiKeyBilling: false,
+          verify: { phase: 'running' },
+        },
+      });
+      void runAuthOnly(target, options);
+      void runVerifyOnly(target);
+    },
+    [update, runAuthOnly, runVerifyOnly],
+  );
+
   // Auto-check when the selected harness changes (including first mount).
   useEffect(() => {
-    void runCheck(state.agentHarness);
+    runCheck(state.agentHarness);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.agentHarness]);
 
   const selectHarness = (id: AgentHarness) => {
     if (id === state.agentHarness) return;
-    // Reset model when switching since listModels differs per harness.
-    update({ agentHarness: id, agentModel: '' });
+    update({ agentHarness: id });
   };
 
   const acceptApiKey = (checked: boolean) => {
-    update({
-      agentAuth: { ...state.agentAuth, acceptsApiKeyBilling: checked },
-    });
+    update((s) => ({
+      agentAuth: { ...s.agentAuth, acceptsApiKeyBilling: checked },
+    }));
   };
-
-  const models = state.agentAuth.report?.models ?? [];
 
   return (
     <div className="space-y-6">
@@ -162,29 +237,10 @@ export function StepAgent({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">Model</div>
-        <select
-          className="h-10 w-full rounded-md border border-border bg-input/30 px-3 text-sm"
-          value={state.agentModel}
-          onChange={(e) => update({ agentModel: e.target.value })}
-        >
-          <option value="">Default</option>
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-muted-foreground">
-          Leave on Default to always use the agent&apos;s latest recommended model.
-        </p>
-      </div>
-
       <AuthStatus
         state={state}
         harness={harness}
-        onRecheck={() => void runCheck(state.agentHarness)}
+        onRecheck={() => void runCheck(state.agentHarness, { fresh: true })}
         onAccept={acceptApiKey}
       />
     </div>
@@ -205,6 +261,7 @@ function AuthStatus({
   onAccept: (checked: boolean) => void;
 }) {
   const auth = state.agentAuth;
+  const busy = auth.phase === 'checking' || auth.verify.phase === 'running';
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -212,22 +269,16 @@ function AuthStatus({
         <div className="min-w-0">
           <div className="text-sm font-medium">Authentication</div>
           <div className="truncate text-xs text-muted-foreground">
-            Verifies the agent CLI is installed and authenticated.
+            Confirms the CLI is installed, authenticated, and responds to a request.
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onRecheck}
-          disabled={auth.phase === 'checking'}
-        >
-          {auth.phase === 'checking' ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="size-4" />
-          )}
-          {auth.phase === 'checking' ? 'Checking…' : 'Recheck'}
+        <Button type="button" variant="outline" size="sm" onClick={onRecheck} disabled={busy}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          {auth.phase === 'checking'
+            ? 'Checking…'
+            : auth.verify.phase === 'running'
+              ? 'Verifying…'
+              : 'Recheck'}
         </Button>
       </div>
 
@@ -260,7 +311,26 @@ function ReadyState({
   auth: WizardState['agentAuth'];
   onAccept: (checked: boolean) => void;
 }) {
-  const { hasSubscription, hasApiKey, apiKeyVar, keychainUnknown } = report;
+  // State: CLI binary not installed. Everything else is moot.
+  if (!report.binary.installed) {
+    return (
+      <div className="mt-3 space-y-2 text-sm">
+        <div className="flex items-start gap-2 text-destructive">
+          <Package className="mt-0.5 size-4" />
+          <span>{harness.name} CLI is not installed.</span>
+        </div>
+        {report.binary.error && (
+          <div className="text-xs text-muted-foreground">{report.binary.error}</div>
+        )}
+        <div className="text-muted-foreground">
+          Install:{' '}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.installHint}</code>
+        </div>
+      </div>
+    );
+  }
+
+  const { hasSubscription, hasApiKey, hasBedrock, apiKeyVar, identity } = report;
 
   // State: subscription present (with or without API key).
   if (hasSubscription) {
@@ -268,18 +338,24 @@ function ReadyState({
       <>
         <div className="mt-3 flex items-start gap-2 text-sm text-emerald-400">
           <Check className="mt-0.5 size-4" />
-          <span>Subscription active — ready to go</span>
+          <span>{subscriptionReadyLine(identity)}</span>
         </div>
-        {hasApiKey && (
-          <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            <span>
-              Both a subscription and an API key ({apiKeyVar}) are configured. Which one gets used
-              depends on {harness.name}&apos;s own precedence rules — unset {apiKeyVar} to force
-              the subscription.
-            </span>
-          </div>
-        )}
+        {hasApiKey && <SubPlusKeyNote harness={harness.id} apiKeyVar={apiKeyVar} />}
+        <VerifyLine verify={auth.verify} harnessName={harness.name} />
+      </>
+    );
+  }
+
+  // State: Bedrock configured (no subscription). Bedrock is metered but
+  // implicitly opted into via AWS — no acknowledgement needed.
+  if (hasBedrock) {
+    return (
+      <>
+        <div className="mt-3 flex items-start gap-2 text-sm text-emerald-400">
+          <Check className="mt-0.5 size-4" />
+          <span>Using AWS Bedrock</span>
+        </div>
+        <VerifyLine verify={auth.verify} harnessName={harness.name} />
       </>
     );
   }
@@ -295,6 +371,7 @@ function ReadyState({
             your {harness.name} API account directly (metered).
           </span>
         </div>
+        <VerifyLine verify={auth.verify} harnessName={harness.name} />
         <label className="mt-3 flex items-start gap-2 text-sm">
           <input
             type="checkbox"
@@ -308,26 +385,105 @@ function ReadyState({
     );
   }
 
-  // State: nothing detected.
+  // State: nothing detected — still run verify to see if it works anyway.
+  // If the real round-trip succeeds we trust that over the detection miss.
+  const verifyOk = auth.verify.phase === 'ok';
   return (
     <div className="mt-3 space-y-2 text-sm">
-      <div className="flex items-start gap-2 text-destructive">
+      <div
+        className={`flex items-start gap-2 ${verifyOk ? 'text-muted-foreground' : 'text-amber-400'}`}
+      >
         <AlertCircle className="mt-0.5 size-4" />
-        <span>No authentication found.</span>
+        <span>
+          {verifyOk
+            ? "Didn't detect a known auth path, but a test request succeeded."
+            : "Didn't detect an auth path — running a test request to confirm."}
+        </span>
       </div>
-      <div className="text-muted-foreground">
-        Sign in with{' '}
-        <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.loginCmd}</code>, or set{' '}
-        <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.envHint}</code> in your
-        environment.
-        {keychainUnknown && (
-          <span className="mt-1 block text-xs">
-            (Note: we can&apos;t silently read macOS keychain — if you&apos;ve already run{' '}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.loginCmd}</code>,
-            continue anyway and it should work.)
-          </span>
-        )}
+      <VerifyLine verify={auth.verify} harnessName={harness.name} />
+      {!verifyOk && (
+        <div className="text-muted-foreground">
+          If the test fails, sign in with{' '}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.loginCmd}</code> or set{' '}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.envHint}</code> in your
+          environment.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VerifyLine({
+  verify,
+  harnessName,
+}: {
+  verify: AgentVerifyState;
+  harnessName: string;
+}) {
+  if (verify.phase === 'idle' || verify.phase === 'skipped') return null;
+
+  if (verify.phase === 'running') {
+    return (
+      <div className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
+        <Loader2 className="mt-0.5 size-4 animate-spin" />
+        <span>Verifying…</span>
       </div>
+    );
+  }
+
+  if (verify.phase === 'ok') {
+    return (
+      <div className="mt-2 flex items-start gap-2 text-sm text-emerald-400">
+        <Check className="mt-0.5 size-4" />
+        <span>{harnessName} verified</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex items-start gap-2 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 size-4" />
+      <span>Test request failed: {verify.error ?? 'unknown error'}</span>
+    </div>
+  );
+}
+
+function subscriptionReadyLine(identity: AgentAuthReport['identity']): string {
+  if (!identity?.email && !identity?.subscriptionType) return 'Subscription active — ready to go';
+  const parts: string[] = [];
+  if (identity?.email) parts.push(`Signed in as ${identity.email}`);
+  if (identity?.subscriptionType) parts.push(`${identity.subscriptionType} plan`);
+  return parts.join(' — ');
+}
+
+// When both a subscription and an API key are configured, CLI behavior
+// differs by harness:
+//   - Claude CLI: API key silently wins, billing at API rates (footgun).
+//   - Codex CLI: prefers subscription when ~/.codex/auth.json exists
+//     (openai/codex#2733, #3286), API key is ignored.
+// We warn loudly for Claude and just note it for Codex.
+function SubPlusKeyNote({
+  harness,
+  apiKeyVar,
+}: {
+  harness: AgentHarness;
+  apiKeyVar: string | null;
+}) {
+  if (harness === 'claude') {
+    return (
+      <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <span>
+          Heads up: {apiKeyVar} will override your subscription for Claude Code. Continuing as-is
+          bills at API rates. Unset {apiKeyVar} to use your subscription.
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 text-xs text-muted-foreground">
+      Your subscription will be used. {apiKeyVar} is also set but Codex prefers subscription when
+      both are available.
     </div>
   );
 }

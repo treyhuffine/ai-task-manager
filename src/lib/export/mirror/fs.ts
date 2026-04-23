@@ -11,16 +11,16 @@ import path from 'node:path';
 import {
   archiveDir,
   ENTITY_TYPES,
-  getMirrorRoot,
   tmpDir,
   typeDir,
   type EntityType,
 } from './config';
+import { ensureBrainDir } from '@/lib/config/paths';
 import { parseMirrorFilename } from './render';
 
 /** Create all mirror directories (idempotent). */
 export function ensureDirs(): void {
-  fs.mkdirSync(getMirrorRoot(), { recursive: true });
+  ensureBrainDir();
   for (const t of ENTITY_TYPES) {
     fs.mkdirSync(typeDir(t), { recursive: true });
     fs.mkdirSync(tmpDir(t), { recursive: true });

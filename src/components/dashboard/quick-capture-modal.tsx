@@ -53,7 +53,7 @@ export function QuickCaptureModal({ open, onOpenChange }: QuickCaptureModalProps
     if (!trimmed || createStream.isPending) return;
 
     createStream.mutate(
-      { raw_text: trimmed, source: usedVoice ? "voice" : "capture" },
+      { raw_text: trimmed, source: "capture", media: usedVoice ? "voice" : "text" },
       {
         onSuccess: () => {
           resetForm();

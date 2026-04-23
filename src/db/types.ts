@@ -3,7 +3,7 @@
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, Attachment } from '@/lib/db/schema';
 
 // ─── User State ────────────────────────────────────────────────
 

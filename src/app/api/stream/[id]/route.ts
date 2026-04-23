@@ -1,32 +1,17 @@
 import type { NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
-import { stream } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
 import type { UpdateStreamInput } from '@/db/types';
-import { syncEntity } from '@/lib/export/mirror';
+import { updateStream } from '@/lib/db/queries';
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
     const body: UpdateStreamInput = await request.json();
 
-    const existing = db.select().from(stream).where(eq(stream.id, id)).get();
-    if (!existing) {
-      return Response.json({ error: 'Stream item not found' }, { status: 404 });
-    }
-
-    const row = db
-      .update(stream)
-      .set(body)
-      .where(eq(stream.id, id))
-      .returning()
-      .get();
-
-    void syncEntity('stream', row.id);
+    const row = updateStream(id, body);
+    if (!row) return Response.json({ error: 'Stream item not found' }, { status: 404 });
     return Response.json(row);
   } catch (err) {
     console.error('[PATCH /api/stream/:id]', err);

@@ -10,12 +10,13 @@ const HARNESS_LABEL: Record<WizardState['agentHarness'], string> = {
 function agentAuthSummary(state: WizardState): string {
   const auth = state.agentAuth;
   if (auth.phase !== 'ready' || !auth.report) return 'Authentication not verified';
-  const { hasSubscription, hasApiKey } = auth.report;
+  const { hasSubscription, hasApiKey, hasBedrock } = auth.report;
   if (hasSubscription && hasApiKey) return 'Subscription active (API key also set)';
   if (hasSubscription) return 'Subscription active';
+  if (hasBedrock) return 'Using AWS Bedrock';
   if (hasApiKey && auth.acceptsApiKeyBilling) return 'Using API key (metered)';
   if (hasApiKey) return 'API key detected — acknowledge metered billing on Agent step';
-  return 'Not signed in — configure before first run';
+  return 'Verified via test request';
 }
 
 export function StepLaunch({ state }: { state: WizardState }) {

@@ -67,15 +67,20 @@ path is as short and flat as possible:
 │   └── work--<uuid>.md
 ├── stream/
 │   └── <uuid>.md                     # stream items are short; slug optional
+├── attachments/                      # uploaded files (images, PDFs, audio)
+│   └── <uuidv7>.<ext>                # referenced by markdown bodies as
+│                                     # `../attachments/<file>`
 ├── .archive/                         # archived / merged-away entities
 │   ├── notes/<uuid>.md
-│   └── tasks/<uuid>.md
+│   ├── tasks/<uuid>.md
+│   └── attachments/<file_name>       # files no entity references anymore
 │
 # Alongside the mirror (internal, not user-facing):
 ├── data.db                           # SQLite, source of truth
 ├── config.json                       # local auth + settings
-├── captures/                         # raw audio files
 └── snapshots/                        # one-shot snapshots from `snapshot` command
+                                      # (self-contained: copies referenced
+                                      # attachments into <snapshot>/attachments/)
 ```
 
 Growing past ~10k files in one type starts to feel sluggish in Finder /
@@ -355,8 +360,18 @@ Still open — decide when we build:
 - **Do we export `decks` and `task_completions`?** They're derived/event-log data — might belong in a `.history/` or `.derived/` subdirectory.
 - **Do we export `api_keys` or `user_state`?** No — secrets and ephemeral state don't belong on disk as plain text. Confirm and document.
 - **Git integration.** Do we `git init` the export folder automatically? Offer a flag? Leave it to the user?
-- **Attachments.** Where do uploads go? Parallel to the markdown, in an `.attachments/` sibling?
 - **Initial export performance.** First export of a filled DB — blocking boot, or background?
+
+## Resolved design decisions
+
+- **Attachments live at `<user-data-dir>/attachments/<uuidv7>.<ext>`, as a
+  sibling of the entity type folders.** Markdown bodies reference them via
+  relative paths (`../attachments/<file>`), which resolve naturally in
+  Obsidian, VS Code, and `gh`. The same URL prefix (`/api/attachments/...`)
+  lives in the live DB body; a string replace on export rewrites it. Each
+  entity carries an `attachments[]` JSON manifest — a materialized view of
+  which files its body references. Orphan sweep moves unreferenced files to
+  `.archive/attachments/`.
 
 These are real design items, not blockers.
 

@@ -2,32 +2,41 @@ import { useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EmojiPicker } from '@/components/shared/emoji-picker';
-import { Layers, Plus, X, SmilePlus, ImagePlus, Trash2 } from 'lucide-react';
+import { Layers, Plus, X, SmilePlus, ImagePlus, Trash2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { WizardState } from './types';
+import type { WizardState, WizardUpdate } from './types';
+import type { Attachment } from '@/db/types';
+import { uploadAttachment } from '@/lib/attachments/client';
 
 const PRESETS: WizardState['areas'] = [
-  { name: 'Work', emoji: '💼', image_url: null },
-  { name: 'Personal', emoji: '🏡', image_url: null },
-  { name: 'Side Project', emoji: '🚀', image_url: null },
+  { name: 'Work', emoji: '💼', attachments: [] },
+  { name: 'Personal', emoji: '🏡', attachments: [] },
+  { name: 'Side Project', emoji: '🚀', attachments: [] },
 ];
+
+/** Render the area's cover image: first image-like attachment wins. */
+function coverSrc(attachments: Attachment[] | null | undefined): string | null {
+  const first = attachments?.find((a) => a.mime_type.startsWith('image/'));
+  return first ? `/api/attachments/${first.file_name}` : null;
+}
 
 export function StepAreas({
   state,
   update,
 }: {
   state: WizardState;
-  update: (patch: Partial<WizardState>) => void;
+  update: WizardUpdate;
 }) {
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState<string | null>(null);
-  const [newImage, setNewImage] = useState<string | null>(null);
+  const [newAttachment, setNewAttachment] = useState<Attachment | null>(null);
+  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetNew = () => {
     setNewName('');
     setNewEmoji(null);
-    setNewImage(null);
+    setNewAttachment(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -47,7 +56,11 @@ export function StepAreas({
     update({
       areas: [
         ...state.areas,
-        { name: trimmed, emoji: newImage ? null : newEmoji, image_url: newImage },
+        {
+          name: trimmed,
+          emoji: newAttachment ? null : newEmoji,
+          attachments: newAttachment ? [newAttachment] : [],
+        },
       ],
     });
     resetNew();
@@ -57,15 +70,19 @@ export function StepAreas({
     update({ areas: state.areas.filter((a) => a.name !== name) });
   };
 
-  const onImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setNewImage(reader.result as string);
+    setUploading(true);
+    try {
+      const attachment = await uploadAttachment(file);
+      setNewAttachment(attachment);
       setNewEmoji(null);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('[wizard] area image upload failed', err);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const isPreset = (name: string) => PRESETS.some((p) => p.name === name);
@@ -122,17 +139,17 @@ export function StepAreas({
             className="hidden"
           />
 
-          {newImage ? (
+          {newAttachment ? (
             <div className="relative shrink-0">
               <img
-                src={newImage}
+                src={`/api/attachments/${newAttachment.file_name}`}
                 alt="Area"
                 className="size-10 rounded-md border border-border object-cover"
               />
               <button
                 type="button"
                 onClick={() => {
-                  setNewImage(null);
+                  setNewAttachment(null);
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
                 className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
@@ -160,10 +177,11 @@ export function StepAreas({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex size-10 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+                disabled={uploading}
+                className="flex size-10 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground disabled:opacity-50"
                 aria-label="Upload image"
               >
-                <ImagePlus className="size-4" />
+                {uploading ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
               </button>
             </>
           )}
@@ -186,31 +204,34 @@ export function StepAreas({
 
         {customAreas.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-2">
-            {customAreas.map((a) => (
-              <span
-                key={a.name}
-                className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-sm"
-              >
-                {a.image_url ? (
-                  <img
-                    src={a.image_url}
-                    alt=""
-                    className="size-4 rounded-sm object-cover"
-                  />
-                ) : a.emoji ? (
-                  <span>{a.emoji}</span>
-                ) : null}
-                {a.name}
-                <button
-                  type="button"
-                  onClick={() => removeArea(a.name)}
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${a.name}`}
+            {customAreas.map((a) => {
+              const src = coverSrc(a.attachments);
+              return (
+                <span
+                  key={a.name}
+                  className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-sm"
                 >
-                  <X className="size-3" />
-                </button>
-              </span>
-            ))}
+                  {src ? (
+                    <img
+                      src={src}
+                      alt=""
+                      className="size-4 rounded-sm object-cover"
+                    />
+                  ) : a.emoji ? (
+                    <span>{a.emoji}</span>
+                  ) : null}
+                  {a.name}
+                  <button
+                    type="button"
+                    onClick={() => removeArea(a.name)}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove ${a.name}`}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              );
+            })}
           </div>
         )}
       </div>

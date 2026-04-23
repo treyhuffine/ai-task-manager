@@ -64,6 +64,12 @@ export async function upsertEmbedding(
   textContent: string,
 ): Promise<void> {
   if (!textContent.trim()) return;
+  // Silently skip when the user hasn't configured OpenAI. Embeddings are a
+  // nice-to-have (they power hybrid search, not core CRUD), and we don't
+  // want save paths to fail or log noisy rejections just because the key
+  // isn't set. Hybrid search already handles the missing-embedding case by
+  // falling back to FTS.
+  if (!process.env.OPENAI_API_KEY) return;
 
   const db = getRawDb();
   const hash = computeContentHash(textContent);
