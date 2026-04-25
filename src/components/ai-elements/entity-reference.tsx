@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList } from 'lucide-react'
 import { NoteIcon } from '@/components/shared/note-icon'
 import type { TaskRecord, NoteRecord, AreaRecord } from '@/db/types'
-import { authFetch } from '@/lib/api/client'
+import { api } from '@/lib/api/client'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
 
 // ─── Types ──────────────────────────────────────────────────
@@ -64,28 +64,28 @@ const ENTITY_CONFIG: Record<EntityType, {
     label: 'Task',
     borderColor: 'border-l-blue-500',
     iconColor: 'text-blue-500',
-    fetchUrl: (id) => `/api/tasks/${id}`,
+    fetchUrl: (id) => `/tasks/${id}`,
   },
   note: {
     icon: FileText,
     label: 'Note',
     borderColor: 'border-l-amber-500',
     iconColor: 'text-amber-500',
-    fetchUrl: (id) => `/api/notes/${id}`,
+    fetchUrl: (id) => `/notes/${id}`,
   },
   area: {
     icon: Layers,
     label: 'Area',
     borderColor: 'border-l-emerald-500',
     iconColor: 'text-emerald-500',
-    fetchUrl: (id) => `/api/areas/${id}`,
+    fetchUrl: (id) => `/areas/${id}`,
   },
   deck: {
     icon: LayoutList,
     label: 'Deck',
     borderColor: 'border-l-foreground',
     iconColor: 'text-foreground',
-    fetchUrl: (id) => `/api/deck/${id}`,
+    fetchUrl: (id) => `/deck/${id}`,
   },
 }
 
@@ -275,19 +275,34 @@ function DeckCard({ data, onClick }: { data: { id: string; framing?: string | nu
 
 // ─── EntityChip (orchestrator) ──────────────────────────────
 
+// Cheap sanity gate so LLM hallucinations like `[[area:null]]` don't hit the
+// API. UUIDv7 (what we mint) always matches /^[0-9a-f-]{36}$/i — anything
+// else is garbage, so skip the fetch and render "not found" inline.
+function isPlausibleEntityId(id: string): boolean {
+  return /^[0-9a-f-]{8,}$/i.test(id)
+}
+
 function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
   const { openTask, openNote, openDeck } = useDashboard()
   const config = ENTITY_CONFIG[entityType]
+  const validId = isPlausibleEntityId(entityId)
 
   const { data, isLoading, isError } = useQuery({
     queryKey: [entityType, entityId],
-    queryFn: async () => {
-      const res = await authFetch(config.fetchUrl(entityId))
-      if (!res.ok) throw new Error('Not found')
-      return res.json()
-    },
+    queryFn: () => api.get<unknown>(config.fetchUrl(entityId)),
+    enabled: validId,
+    retry: false,
     staleTime: 30_000,
   })
+
+  if (!validId) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-border border-l-2 border-l-destructive bg-card px-3 py-2 my-1">
+        <AlertCircle size={12} className="text-destructive" />
+        <span className="text-[11px] text-muted-foreground">{config.label} not found</span>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -337,7 +352,7 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
   if (entityType === 'deck') {
     return (
       <div className="my-1">
-        <DeckCard data={data} onClick={() => openDeck(entityId)} />
+        <DeckCard data={data as Parameters<typeof DeckCard>[0]['data']} onClick={() => openDeck(entityId)} />
       </div>
     )
   }

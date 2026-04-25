@@ -22,7 +22,7 @@ import type {
 } from '@/types/dashboard';
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem } from '@/db/types';
-import { authFetch } from '@/lib/api/client';
+import { api, ApiError } from '@/lib/api/client';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -201,11 +201,8 @@ function persistDeck(deckId: string, plan: DeckPlan) {
     reason: alt.reason,
   }));
 
-  authFetch(`/api/deck/${deckId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items, alternatives }),
-  }).catch(err => console.error('Failed to persist deck:', err));
+  api.patch(`/deck/${deckId}`, { items, alternatives })
+    .catch(err => console.error('Failed to persist deck:', err));
 }
 
 // ─── Main container ─────────────────────────────────────────────
@@ -262,9 +259,8 @@ export function DeckContainer() {
     // Dev helper: add ?forcePreviousDeck=true to URL to test "resume previous deck" flow
     const forceAsPrevious = new URLSearchParams(window.location.search).has('forcePreviousDeck');
 
-    authFetch('/api/deck')
-      .then(res => res.json())
-      .then((record: DeckRecord | null) => {
+    api.get<DeckRecord | null>('/deck')
+      .then((record) => {
         if (record) {
           const recordDate = record.created_at.slice(0, 10);
           const todayStr = new Date().toISOString().slice(0, 10);
@@ -294,12 +290,8 @@ export function DeckContainer() {
       return;
     }
 
-    authFetch(`/api/deck/${activeDeckId}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Deck not found');
-        return res.json();
-      })
-      .then((record: DeckRecord) => {
+    api.get<DeckRecord>(`/deck/${activeDeckId}`)
+      .then((record) => {
         const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
         setPlan(hydrated);
         setActiveDeckRecord(record);
@@ -352,27 +344,17 @@ export function DeckContainer() {
     setGenerating(true);
 
     try {
-      const res = await authFetch('/api/deck/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(generationContext),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        console.error('Deck generation failed:', err);
-        // Fallback to client-side generation
-        generateDeckFallback();
-        return;
-      }
-
-      const record: DeckRecord = await res.json();
+      const record = await api.post<DeckRecord>('/deck/generate', generationContext);
       const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
       setPlan(hydrated);
       setActiveDeckRecord(record);
       setPhase('deck');
     } catch (err) {
-      console.error('Deck generation error:', err);
+      if (err instanceof ApiError) {
+        console.error('Deck generation failed:', err.body ?? err.message);
+      } else {
+        console.error('Deck generation error:', err);
+      }
       generateDeckFallback();
     } finally {
       setGenerating(false);

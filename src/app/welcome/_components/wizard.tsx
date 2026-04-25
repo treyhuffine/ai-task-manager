@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
-import { authFetch } from '@/lib/api/client';
+import { api } from '@/lib/api/client';
 import { StepYou } from './step-you';
 import { StepAreas } from './step-areas';
 import { StepAgent } from './step-agent';
@@ -86,41 +86,36 @@ export function Wizard() {
     setLaunchError(null);
     try {
       // 1. Fetch existing areas so re-runs don't create duplicates by name.
-      const existingRes = await authFetch('/api/areas?status=all');
-      const existing: Array<{ name: string }> = existingRes.ok ? await existingRes.json() : [];
+      const existing = await api
+        .get<Array<{ name: string }>>('/areas', { query: { status: 'all' } })
+        .catch(() => [] as Array<{ name: string }>);
       const existingNames = new Set(existing.map((a) => a.name.toLowerCase()));
 
       for (let i = 0; i < state.areas.length; i++) {
         const a = state.areas[i];
         if (existingNames.has(a.name.toLowerCase())) continue;
-        const res = await authFetch('/api/areas', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        try {
+          await api.post('/areas', {
             name: a.name,
             emoji: a.emoji,
             attachments: a.attachments,
             sort_order: i,
-          }),
-        });
-        if (!res.ok) {
+          });
+        } catch {
           throw new Error(`Failed to create area "${a.name}"`);
         }
       }
 
       // 2. Save user state + mark onboarded
-      const res = await authFetch('/api/user-state', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      try {
+        await api.patch('/user-state', {
           name: state.name.trim(),
           description: state.description.trim(),
           default_agent_harness: state.agentHarness,
           default_agent_model: null,
           onboarded_at: new Date().toISOString(),
-        }),
-      });
-      if (!res.ok) {
+        });
+      } catch {
         throw new Error('Failed to save setup');
       }
 

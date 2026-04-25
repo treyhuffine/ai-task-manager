@@ -8,7 +8,7 @@ import type {
 
 export const areasApi = {
   list(filter?: AreaFilter): Promise<AreaRecord[]> {
-    return api.get<AreaRecord[]>('/areas', filter as Record<string, unknown>);
+    return api.get<AreaRecord[]>('/areas', { query: filter as Record<string, string> });
   },
 
   get(id: string): Promise<AreaRecord> {

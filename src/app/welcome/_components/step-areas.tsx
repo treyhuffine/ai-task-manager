@@ -41,33 +41,30 @@ export function StepAreas({
   };
 
   const toggle = (preset: WizardState['areas'][number]) => {
-    const exists = state.areas.some((a) => a.name === preset.name);
-    update({
-      areas: exists
-        ? state.areas.filter((a) => a.name !== preset.name)
-        : [...state.areas, preset],
+    update((s) => {
+      const exists = s.areas.some((a) => a.name === preset.name);
+      return {
+        areas: exists
+          ? s.areas.filter((a) => a.name !== preset.name)
+          : [...s.areas, preset],
+      };
     });
   };
 
   const addArea = () => {
     const trimmed = newName.trim();
     if (!trimmed) return;
-    if (state.areas.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) return;
-    update({
-      areas: [
-        ...state.areas,
-        {
-          name: trimmed,
-          emoji: newAttachment ? null : newEmoji,
-          attachments: newAttachment ? [newAttachment] : [],
-        },
-      ],
+    const emoji = newAttachment ? null : newEmoji;
+    const attachments = newAttachment ? [newAttachment] : [];
+    update((s) => {
+      if (s.areas.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) return {};
+      return { areas: [...s.areas, { name: trimmed, emoji, attachments }] };
     });
     resetNew();
   };
 
   const removeArea = (name: string) => {
-    update({ areas: state.areas.filter((a) => a.name !== name) });
+    update((s) => ({ areas: s.areas.filter((a) => a.name !== name) }));
   };
 
   const onImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {

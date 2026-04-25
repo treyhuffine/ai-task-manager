@@ -10,6 +10,6 @@ export interface RecentItem {
 
 export const recentsApi = {
   list(limit = 10): Promise<RecentItem[]> {
-    return api.get<RecentItem[]>('/recents', { limit });
+    return api.get<RecentItem[]>('/recents', { query: { limit } });
   },
 };

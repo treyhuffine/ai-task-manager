@@ -5,8 +5,10 @@ import { APP_NAME } from '@/constants/app';
 import { ensureLocalToken, setRunningPort } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getVoiceEnabled } from '@/lib/config/voice';
+import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
 import { startNextServer, waitForServer, isOurServerRunning } from '../lib/server';
 import { openBrowser } from '../lib/browser';
+import { installWorkspaceSkills } from './skills';
 import {
   getVoiceContext,
   isDockerAvailable,
@@ -25,7 +27,20 @@ export interface StartOptions {
 }
 
 export async function startCommand(opts: StartOptions) {
+  // Isolate dev data from prod. When --dev is passed and the user hasn't
+  // already pinned a root via the standard env override, route this process
+  // (and any child processes we spawn — Next, voice, CLI subcommands) to the
+  // dev data root. Precedence: explicit env > --dev auto-set > prod default.
+  // Set before any path helper runs so downstream callers see the dev root.
+  if (opts.dev && !process.env[APP_ROOT_ENV]) {
+    process.env[APP_ROOT_ENV] = getDevAppRoot();
+  }
+
   intro(pc.bgCyan(pc.black(` ${APP_NAME} `)));
+
+  if (opts.dev) {
+    log.info(pc.dim(`Data root: ${process.env[APP_ROOT_ENV]}`));
+  }
 
   const preferredPort = Number(opts.port ?? 4224);
   const s = spinner();
@@ -35,6 +50,19 @@ export async function startCommand(opts: StartOptions) {
   const info = ensureLocalToken();
   resetDb(); // release DB handle before spawning the server child.
   s.stop(info.created ? 'Created new host token' : 'Reusing existing token');
+
+  // Ensure the orchestrator skill is symlinked into the app data dir so an
+  // agent session opened there auto-discovers it. Idempotent: existing symlinks
+  // get status='skipped' and produce no log. First install logs a single
+  // success line; failures log a warning and do not block startup.
+  try {
+    const result = await installWorkspaceSkills();
+    if (result.installed > 0) {
+      log.success(`Installed ${result.installed} skill symlink(s) in the app data dir`);
+    }
+  } catch (err) {
+    log.warn(`Skill auto-install skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Short-circuit: our server is already up on the preferred port.
   if (await isOurServerRunning(preferredPort)) {

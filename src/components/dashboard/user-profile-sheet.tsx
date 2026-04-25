@@ -14,7 +14,7 @@ import { useDashboard } from '@/contexts/dashboard-context'
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state'
 import { VOICE_MODELS, VOICE_MODEL_MAP, DEFAULT_VOICE_MODEL, type VoiceModel } from '@/constants/voice-models'
 import type { ProviderStatus } from '@/hooks/use-voice-input'
-import { authFetch } from '@/lib/api/client'
+import { api } from '@/lib/api/client'
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
@@ -179,8 +179,7 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
 
     async function probe() {
       try {
-        const res = await authFetch('/api/transcribe')
-        const data = await res.json()
+        const data = await api.get<{ providers: ProviderStatus }>('/transcribe')
         if (!cancelled) setProviderStatus(data.providers)
       } catch {
         // ignore

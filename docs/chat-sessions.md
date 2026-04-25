@@ -207,10 +207,11 @@ chat_events
 - `thinking` — assistant reasoning (Claude thinking blocks, Codex reasoning items — content may be placeholder when encrypted)
 - `tool_call` — assistant invoking a tool
 - `tool_result` — tool returning a result
-- `system` — session init, meta
+- `system` — session init, meta, compaction boundary markers
 - `result` — run / turn completion (ExecutionResult lives here; full object in `raw`)
 - `rate_limit` — throttling signals
 - `error` — API or harness errors
+- `recap` — idle-timer summary the CLI emits when the user has been away (Claude Code `away_summary`); distinct from compaction, it doesn't replace context — it's a chat-visible "here's where we left off" note
 - `cron` — background-triggered rows (reserved)
 - `unknown` — forward-compat: unrecognized wire event types, raw preserved
 
@@ -263,6 +264,7 @@ Idempotency within a path is guaranteed by the unique constraint — re-reading 
 | `result` | system | raw carries full ExecutionResult | turn.completed / run completion |
 | `rate_limit` | system | content (summary), raw | token_count / rate_limit events |
 | `error` | system | content (error message), raw | API or harness errors |
+| `recap` | system | content (summary text), raw | Claude Code `away_summary` (idle-timer recap) |
 | `unknown` | system | raw only | Forward-compat for new provider event types |
 
 ### Attachments (multimodal content)
@@ -421,7 +423,7 @@ Every chat entry carries:
 - On assistant: `requestId`, `model`, `usage`, `stop_reason`
 - On API errors: `error: "authentication_failed"`, `isApiErrorMessage: true`, `model: "<synthetic>"`
 
-**Compaction / recap entries.** When Claude Code's own context window overflows, it auto-compacts and inserts a pseudo-user message with:
+**Compaction entries (`isCompactSummary`).** When Claude Code's own context window overflows, it auto-compacts and inserts a pseudo-user message with:
 
 ```json
 {
@@ -432,7 +434,7 @@ Every chat entry carries:
 }
 ```
 
-The content is a structured summary (primary request, technical concepts, files, errors, pending tasks). The *process* runs in an `agent-acompact-*` subagent file; the *result* lands in the main transcript as this entry.
+The content is a structured summary (primary request, technical concepts, files, errors, pending tasks). The *process* runs in an `agent-acompact-*` subagent file; the *result* lands in the main transcript as this entry. Paired with a nearby `system` entry with `subtype=compact_boundary` that carries `compactMetadata: {trigger, preTokens}` — useful for surfacing "auto-compacted" vs "you ran /compact" in the UI.
 
 **This is a gift — but only for one case.** Claude Code's auto-compaction covers **in-session context overflow only**: when one live CLI session gets long, Claude Code compacts itself and writes the summary back into that session's transcript. We mirror that entry and render it as a divider. No summarizer needed for this case.
 
@@ -442,6 +444,25 @@ Every other rollover case still needs our own handoff summarization:
 - Cross-device rollover (new machine has no transcript file)
 
 For those, Claude Code's internal compaction doesn't help us — there is no live session to compact. We generate the handoff ourselves (LLM call or structured template over recent turns + refs, TBD at implementation time), write it as a `source="system"` row, and the new CLI session starts with it as the first user-visible content. `isCompactSummary: true` is a convenient marker for rendering our own handoff entries with the same visual treatment Claude Code uses.
+
+**Recap entries (`away_summary`).** Separate from compaction. When the user has been idle for ~3 minutes, Claude Code emits a chat-visible summary of where things were left off:
+
+```json
+{
+  "type": "system",
+  "subtype": "away_summary",
+  "content": "Consolidating device types and cleaning up the repo... (disable recaps in /config)",
+  "parentUuid": "<last entry at fire time>",
+  "timestamp": "...",
+  "isMeta": false
+}
+```
+
+Verified against 137 real occurrences across this project's transcripts: delay between the last entry and the recap sits in a tight band (p25 183s, median 184s, p75 185s) — it's a fixed idle timer. `parentUuid` points to whatever the last entry was when it fired (most often a `turn_duration` close-of-turn marker, sometimes directly the last assistant message). Multiple recaps can occur per session if the user is idle multiple times; each new recap is triggered independently once idle time passes again.
+
+**Recaps do not replace context.** Unlike `isCompactSummary`, a recap is purely UX — it re-orients the user on return. The next turn's prompt isn't reseeded from it. So we don't need to carry recap text into any rollover handoff; it's a decorative message.
+
+**We store recaps as normal events.** One row, `role="system"`, `source="recap"`, `content` = the summary text, `external_event_id` = entry `uuid`, `created_at` = entry timestamp, `raw` = full entry. Rendered in the chat with distinct styling (subdued, labeled) so the user recognizes it as "CLI-generated, not the agent talking." The file-sync loop picks it up on the next pass like any other entry — no special handling needed beyond the mapping.
 
 **Entry → `chat_events` row(s) mapping:**
 
@@ -456,7 +477,11 @@ Since agentex splits assistant `message.content` arrays into one StreamEvent per
 | `type=assistant`, `text` block | row: `role="assistant"`, `source="agent"`, content = text |
 | `type=assistant`, `thinking` block | row: `role="assistant"`, `source="thinking"` |
 | `type=assistant`, `tool_use` block | row: `role="assistant"`, `source="tool_call"`, `tool_name`, `tool_input`, `external_tool_call_id` from block.id |
-| `type=file-history-snapshot` / `last-prompt` / `system` w/ `subtype=turn_duration` / `progress` / `permission-mode` / `attachment` / `queue-operation` | skip |
+| `type=system` + `subtype=away_summary` | 1 row: `role="system"`, `source="recap"`, content = the summary text. Async idle-timer entry (~3 min after last turn); UI renders with distinct recap styling. |
+| `type=system` + `subtype=compact_boundary` | 1 row: `role="system"`, `source="system"`, content = `"Conversation compacted"`, `raw` carries `compactMetadata` so UI can show trigger (manual/auto) + preTokens. Paired with the `isCompactSummary` entry above. |
+| `type=system` + `subtype=api_error` | 1 row: `role="system"`, `source="error"`, content = the error text |
+| `type=system` + `subtype=turn_duration` / `local_command` / `informational` | skip (timing telemetry, CLI command echoes, one-off UI banners) |
+| `type=file-history-snapshot` / `last-prompt` / `progress` / `permission-mode` / `attachment` / `queue-operation` / `ai-title` | skip (CLI plumbing, UI state, or session-attribute updates — `ai-title` writes to `chat_sessions.title` instead) |
 | Any other unknown `type` | 1 row: `source="unknown"`, full entry in `raw`; do not crash |
 
 `created_at` = parsed `timestamp`. `raw` = the full JSONL entry, preserved verbatim via a tolerant Zod schema with `.passthrough()` so forward-compatible fields survive.

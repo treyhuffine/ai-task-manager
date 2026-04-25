@@ -30,14 +30,34 @@ export function PairingBootstrap() {
       const fromUrl = params.get(PAIRING_TOKEN_FRAGMENT_KEY);
       if (fromUrl) {
         setAuthToken(fromUrl);
+        // Mirror into an httpOnly cookie so browser-native loads authenticate
+        // without a header. Fire-and-forget: Bearer-header calls still work
+        // if this fails.
+        fetch('/api/session', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${fromUrl}` },
+        }).catch(() => {});
         const clean = window.location.pathname + window.location.search;
         window.history.replaceState(null, '', clean);
         return;
       }
     }
 
-    if (!getAuthToken() && pathname !== '/pair') {
+    const existing = getAuthToken();
+    if (!existing && pathname !== '/pair') {
       router.replace('/pair');
+      return;
+    }
+
+    // Best-effort cookie sync for already-paired sessions. JS can't see the
+    // httpOnly cookie so we can't check whether we already set one; calling
+    // the endpoint is idempotent (sets the same value) and cheap. This also
+    // keeps the cookie's Max-Age sliding forward each time the app loads.
+    if (existing) {
+      fetch('/api/session', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${existing}` },
+      }).catch(() => {});
     }
   }, [pathname, router]);
 

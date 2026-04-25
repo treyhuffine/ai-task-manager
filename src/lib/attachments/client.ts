@@ -6,7 +6,7 @@
  * (e.g. the area create modal) can reuse the same upload path.
  */
 
-import { authFetch, ApiError } from '@/lib/api/client';
+import { api } from '@/lib/api/client';
 import type { Attachment } from '@/db/types';
 
 /** Upload a single file. Throws `ApiError` on non-2xx responses. */
@@ -21,22 +21,7 @@ export async function uploadAttachment(file: File | Blob, name?: string): Promis
   }
   if (name) formData.append('original_name', name);
 
-  const res = await authFetch('/api/attachments', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!res.ok) {
-    let body: unknown = null;
-    try {
-      body = await res.json();
-    } catch {
-      // ignore
-    }
-    throw new ApiError(res.status, body);
-  }
-
-  return (await res.json()) as Attachment;
+  return api.upload<Attachment>('/attachments', formData);
 }
 
 /** Upload many files in parallel. Preserves input order. Rejects on the first

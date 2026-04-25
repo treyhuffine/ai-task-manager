@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getVoiceProvider, DEFAULT_VOICE_MODEL } from '@/constants/voice-models';
 import { useUserState } from '@/hooks/use-user-state';
-import { authFetch } from '@/lib/api/client';
+import { api } from '@/lib/api/client';
 
 type VoiceProvider = 'local' | 'groq' | 'openai' | 'web' | null;
 
@@ -178,10 +178,9 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     async function probe() {
       let status: ProviderStatus | null = null;
       try {
-        const res = await authFetch('/api/transcribe');
-        const data = await res.json();
+        const data = await api.get<{ providers: ProviderStatus }>('/transcribe');
         if (cancelled) return;
-        status = data.providers as ProviderStatus;
+        status = data.providers;
         setProviderStatus(status);
       } catch {
         // Probe failed — fall through with null status; resolve() handles it.
@@ -265,11 +264,12 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
           if (voiceModelRef.current) {
             form.append('voice_model', voiceModelRef.current);
           }
-          const res = await authFetch('/api/transcribe', { method: 'POST', body: form });
-          const data = await res.json();
-
-          if (res.ok && data.text) {
-            setTranscript(prev => prev ? `${prev} ${data.text}` : data.text);
+          const data = await api.upload<{ text?: string; error?: string }>(
+            '/transcribe',
+            form,
+          );
+          if (data.text) {
+            setTranscript(prev => prev ? `${prev} ${data.text}` : data.text!);
           } else {
             setError(data.error ?? 'Transcription failed');
           }

@@ -8,7 +8,7 @@ import type {
 
 export const notesApi = {
   list(filter?: NoteFilter): Promise<NoteRecord[]> {
-    return api.get<NoteRecord[]>('/notes', filter as Record<string, unknown>);
+    return api.get<NoteRecord[]>('/notes', { query: filter as Record<string, string> });
   },
 
   get(id: string): Promise<NoteRecord> {

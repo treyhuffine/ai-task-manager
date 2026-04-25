@@ -8,7 +8,7 @@ import type {
 
 export const streamApi = {
   list(filter?: StreamFilter): Promise<StreamRecord[]> {
-    return api.get<StreamRecord[]>('/stream', filter as Record<string, unknown>);
+    return api.get<StreamRecord[]>('/stream', { query: filter as Record<string, string> });
   },
 
   create(input: CreateStreamInput): Promise<StreamRecord> {

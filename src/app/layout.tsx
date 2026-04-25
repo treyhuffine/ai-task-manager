@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/providers/query-provider";
 import { PairingBootstrap } from "@/components/auth/pairing-bootstrap";
 import "./globals.css";
@@ -24,6 +25,7 @@ export default function RootLayout({
         <QueryProvider>
           <PairingBootstrap />
           <TooltipProvider>{children}</TooltipProvider>
+          <Toaster position="top-right" richColors closeButton />
         </QueryProvider>
       </body>
     </html>

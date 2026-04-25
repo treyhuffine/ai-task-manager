@@ -21,7 +21,9 @@ export interface UpdateDeviceBody {
 
 export const devicesApi = {
   list(opts?: { includeRevoked?: boolean }): Promise<ApiKeyRecord[]> {
-    return api.get<ApiKeyRecord[]>('/devices', opts?.includeRevoked ? { include_revoked: 1 } : undefined);
+    return api.get<ApiKeyRecord[]>('/devices', {
+      query: opts?.includeRevoked ? { include_revoked: 1 } : undefined,
+    });
   },
 
   create(input: CreateDeviceBody): Promise<CreateDeviceResponse> {
@@ -33,7 +35,6 @@ export const devicesApi = {
   },
 
   revoke(id: string, reason?: string): Promise<void> {
-    const suffix = reason ? `?reason=${encodeURIComponent(reason)}` : '';
-    return api.delete(`/devices/${id}${suffix}`);
+    return api.delete(`/devices/${id}`, { query: reason ? { reason } : undefined });
   },
 };

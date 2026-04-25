@@ -9,7 +9,7 @@ import type {
 
 export const tasksApi = {
   list(filter?: TaskFilter): Promise<TaskListRecord[]> {
-    return api.get<TaskListRecord[]>('/tasks', filter as Record<string, unknown>);
+    return api.get<TaskListRecord[]>('/tasks', { query: filter as Record<string, string> });
   },
 
   get(id: string): Promise<TaskRecord> {

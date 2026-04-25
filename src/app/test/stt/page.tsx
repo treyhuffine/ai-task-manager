@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { LiveWaveform } from "@/components/ui/live-waveform"
 import { Mic, Square, RotateCcw, Loader2, Play } from "lucide-react"
-import { authFetch } from "@/lib/api/client"
+import { api, ApiError } from "@/lib/api/client"
 
 // ─── Models from sidecar MODEL_CONFIGS ──────────────────────
 // Order: INT8 models first (already loaded, lightweight), then heavier precision variants
@@ -132,31 +132,26 @@ export default function SttBenchPage() {
         form.append("file", blob, "recording.webm")
         form.append("model", model.id)
 
-        const res = await authFetch("/api/stt-bench", {
-          method: "POST",
-          body: form,
-        })
-        const data = await res.json()
-
-        if (!res.ok) {
-          setResults((prev) => ({
-            ...prev,
-            [model.id]: { status: "error", error: data.error },
-          }))
-        } else {
-          setResults((prev) => ({
-            ...prev,
-            [model.id]: {
-              status: "done",
-              text: data.text,
-              latencyMs: data.latencyMs,
-            },
-          }))
-        }
-      } catch (err) {
+        const data = await api.upload<{ text: string; latencyMs: number }>(
+          "/stt-bench",
+          form,
+        )
         setResults((prev) => ({
           ...prev,
-          [model.id]: { status: "error", error: String(err) },
+          [model.id]: {
+            status: "done",
+            text: data.text,
+            latencyMs: data.latencyMs,
+          },
+        }))
+      } catch (err) {
+        const msg =
+          err instanceof ApiError
+            ? (err.body as { error?: string } | null)?.error ?? err.message
+            : String(err)
+        setResults((prev) => ({
+          ...prev,
+          [model.id]: { status: "error", error: msg },
         }))
       }
     }

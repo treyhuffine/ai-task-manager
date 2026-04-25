@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { hashToken } from '@/lib/auth/tokens';
 import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
+import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 
 export const config = {
   runtime: 'nodejs',
@@ -15,7 +16,39 @@ function unauthorized() {
 // probe used by the CLI and the web UI's "Test connection" button. It only
 // returns { ok, app, port } — nothing sensitive — so it's safe to leave
 // unauthenticated, and CORS on the route handler lets browsers read it.
-const PUBLIC_PATHS = new Set<string>(['/api/health']);
+//
+// `/api/session` is public because its handlers manage the session cookie
+// themselves — POST re-validates the Bearer header inside the handler, and
+// DELETE must work even when the caller's token is already invalid (so they
+// can complete a logout cleanly).
+const PUBLIC_PATHS = new Set<string>(['/api/health', '/api/session']);
+
+/**
+ * Extract the caller's API token. Two transports, same underlying key:
+ *
+ *   - `Authorization: Bearer <token>` — used by CLIs, iOS Shortcuts, service
+ *     integrations, and in-app `fetch` calls that explicitly attach the
+ *     header. Works everywhere `fetch` goes.
+ *   - Session cookie — set by `/api/session` after a successful pair. Exists
+ *     solely so browser-native loads (`<img>`, `<audio>`, `EventSource`,
+ *     form posts) authenticate without us having to attach headers they
+ *     can't carry.
+ *
+ * Bearer wins when both are present — it's the explicit choice the caller
+ * made.
+ */
+function extractToken(request: NextRequest): string | null {
+  const header = request.headers.get('authorization');
+  if (header && header.startsWith('Bearer ')) {
+    const token = header.slice(7).trim();
+    if (token) return token;
+  }
+
+  const cookie = request.cookies.get(SESSION_COOKIE_NAME);
+  if (cookie?.value) return cookie.value;
+
+  return null;
+}
 
 export function middleware(request: NextRequest) {
   if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {
@@ -26,12 +59,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const header = request.headers.get('authorization');
-  if (!header || !header.startsWith('Bearer ')) {
-    return unauthorized();
-  }
-
-  const token = header.slice(7).trim();
+  const token = extractToken(request);
   if (!token) return unauthorized();
 
   const key = findApiKeyByHash(hashToken(token));

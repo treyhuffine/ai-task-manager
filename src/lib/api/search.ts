@@ -17,6 +17,6 @@ export interface SearchResult {
 
 export const searchApi = {
   query(q: string, opts?: { mode?: SearchMode; limit?: number }): Promise<SearchResult[]> {
-    return api.get<SearchResult[]>('/search', { q, ...opts });
+    return api.get<SearchResult[]>('/search', { query: { q, ...opts } });
   },
 };

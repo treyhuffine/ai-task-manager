@@ -28,6 +28,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { APP_SHORT_ID } from '@/constants/app';
+import { renderAppRootClaudeMd } from './claude-md-template';
 
 const ENV_PREFIX = APP_SHORT_ID.toUpperCase();
 
@@ -44,6 +45,29 @@ export function getAppRoot(): string {
   const override = process.env[APP_ROOT_ENV];
   if (override) return override;
   return path.join(homeDir(), `.${APP_SHORT_ID}`);
+}
+
+/**
+ * Dev-mode data root. Used by `<cli> start --dev` (and the `pnpm dev` script)
+ * to isolate dev data from the production brain. Not automatic — callers
+ * opt in by setting `process.env[APP_ROOT_ENV]` to this value before any
+ * path helper runs.
+ *
+ * The root helpers above are unchanged; they still resolve via the standard
+ * override-or-prod chain. This keeps `paths.ts` pure — no NODE_ENV coupling,
+ * no mode detection — and puts the dev/prod decision in the caller's hands.
+ */
+export function getDevAppRoot(): string {
+  return path.join(homeDir(), `.${APP_SHORT_ID}-dev`);
+}
+
+/**
+ * Test data root. Used by smoke test scripts to ensure each run starts from
+ * a clean slate without touching the user's dev or prod data. Same opt-in
+ * contract as `getDevAppRoot()`.
+ */
+export function getTestAppRoot(): string {
+  return path.join(homeDir(), `.${APP_SHORT_ID}-test`);
 }
 
 export function getBrainDir(): string {
@@ -102,6 +126,16 @@ export function ensureAppRoot(): string {
       // Best-effort on platforms without POSIX permissions.
     }
   }
+
+  // Drop a CLAUDE.md orienting any agent that opens a session here. Written
+  // once — we never overwrite, so users can edit freely. An agent session
+  // started in the data root auto-loads this and gets the orchestrator-vs-
+  // contributor role right from the first message.
+  const claudeMdPath = path.join(dir, 'CLAUDE.md');
+  if (!fs.existsSync(claudeMdPath)) {
+    fs.writeFileSync(claudeMdPath, renderAppRootClaudeMd(), { mode: 0o600 });
+  }
+
   return dir;
 }
 

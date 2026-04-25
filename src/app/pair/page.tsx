@@ -87,6 +87,19 @@ export default function PairPage() {
           return;
         }
         setAuthToken(candidate);
+        // Mirror the token into an httpOnly cookie so browser-native loads
+        // (<img>, <audio>, EventSource) authenticate without us having to
+        // attach headers they can't carry. If this fails, Bearer-header
+        // calls still work — the app just loses cookie-based media loads
+        // until the next successful pair.
+        try {
+          await fetch('/api/session', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${candidate}` },
+          });
+        } catch {
+          // non-fatal
+        }
         setStatus({ kind: 'ok' });
         router.replace('/');
       } catch {

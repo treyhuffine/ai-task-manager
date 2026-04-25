@@ -10,6 +10,8 @@ import { registerVoiceCommand } from './commands/voice';
 import { registerSnapshotCommand } from './commands/snapshot';
 import { registerCommitCommand } from './commands/commit';
 import { registerExportCommand } from './commands/export';
+import { registerAgentCommand } from './commands/agent';
+import { registerSkillsCommand } from './commands/skills';
 
 // One-shot migration: if we find the pre-brain/ flat layout, move it into
 // brain/ before any command opens the db or reads from the old paths.
@@ -66,6 +68,8 @@ registerVoiceCommand(program);
 registerSnapshotCommand(program);
 registerCommitCommand(program);
 registerExportCommand(program);
+registerAgentCommand(program);
+registerSkillsCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);

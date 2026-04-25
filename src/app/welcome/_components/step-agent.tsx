@@ -12,7 +12,7 @@ import {
   Package,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
-import { authFetch } from '@/lib/api/client';
+import { api, ApiError } from '@/lib/api/client';
 import type {
   WizardState,
   WizardUpdate,
@@ -76,33 +76,22 @@ export function StepAgent({
   const runAuthOnly = useCallback(
     async (target: AgentHarness, options: { fresh?: boolean } = {}) => {
       try {
-        const res = await authFetch('/api/agent/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ harness: target, fresh: options.fresh === true }),
+        const report = await api.post<AgentAuthReport>('/agent/auth', {
+          harness: target,
+          fresh: options.fresh === true,
         });
         if (authInFlight.current !== target) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          update((s) => ({
-            agentAuth: {
-              ...s.agentAuth,
-              phase: 'error',
-              error: body.error ?? `Check failed (${res.status})`,
-            },
-          }));
-          return;
-        }
-        const report = (await res.json()) as AgentAuthReport;
         update((s) => ({ agentAuth: { ...s.agentAuth, phase: 'ready', report } }));
       } catch (err) {
         if (authInFlight.current !== target) return;
+        const message =
+          err instanceof ApiError
+            ? (err.body as { error?: string } | null)?.error ?? `Check failed (${err.status})`
+            : err instanceof Error
+            ? err.message
+            : 'Check failed';
         update((s) => ({
-          agentAuth: {
-            ...s.agentAuth,
-            phase: 'error',
-            error: err instanceof Error ? err.message : 'Check failed',
-          },
+          agentAuth: { ...s.agentAuth, phase: 'error', error: message },
         }));
       }
     },
@@ -112,26 +101,10 @@ export function StepAgent({
   const runVerifyOnly = useCallback(
     async (target: AgentHarness) => {
       try {
-        const res = await authFetch('/api/agent/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ harness: target }),
+        const result = await api.post<AgentVerifyResponse>('/agent/verify', {
+          harness: target,
         });
         if (verifyInFlight.current !== target) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          update((s) => ({
-            agentAuth: {
-              ...s.agentAuth,
-              verify: {
-                phase: 'failed',
-                error: body.error ?? `Verify failed (${res.status})`,
-              },
-            },
-          }));
-          return;
-        }
-        const result = (await res.json()) as AgentVerifyResponse;
         update((s) => ({
           agentAuth: {
             ...s.agentAuth,
@@ -144,13 +117,16 @@ export function StepAgent({
         }));
       } catch (err) {
         if (verifyInFlight.current !== target) return;
+        const message =
+          err instanceof ApiError
+            ? (err.body as { error?: string } | null)?.error ?? `Verify failed (${err.status})`
+            : err instanceof Error
+            ? err.message
+            : 'Verify failed';
         update((s) => ({
           agentAuth: {
             ...s.agentAuth,
-            verify: {
-              phase: 'failed',
-              error: err instanceof Error ? err.message : 'Verify failed',
-            },
+            verify: { phase: 'failed', error: message },
           },
         }));
       }
