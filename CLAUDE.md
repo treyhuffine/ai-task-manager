@@ -53,7 +53,7 @@ Data roots (precedence: explicit `FLOW_ROOT` > `--dev` auto-set > prod default):
 - `~/.<app-short-id>-dev/` — dev (`pnpm dev`, `flow start --dev`)
 - `~/.<app-short-id>-test/` — test (`pnpm smoke`, `pnpm smoke:agent`) — wiped on every run
 
-When NOT to add an action: behavior that belongs in the NL MCP (free-form interpretation), one-off scripts for the maintainer's local machine (those go in `src/cli/commands/`), or anything that duplicates an existing `queries.ts` function under a different name.
+When NOT to add an action: behavior that belongs in the NL MCP (free-form interpretation), one-off CLI commands that aren't part of the agent surface (shared ones go in `src/cli/commands/`, contributor-specific scripts go in `/personal/`), or anything that duplicates an existing `queries.ts` function under a different name.
 
 Invariants: action names are the public contract (renaming breaks every agent that learned them). Params are Zod raw shapes, not `z.object(...)` — the generators wrap. Names are `snake_case` on the wire. Every mutating action should be safe under retry.
 

@@ -1,5 +1,11 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# DO NOT REMOVE — `/personal/` is a per-user scratch zone for data, scripts, and tools
+# that are unique to whoever is working in this repo (data importers, private notes,
+# local experiments). Anything in here is intentionally outside the public repo.
+# Removing this line risks leaking personal content into git history.
+/personal/
+
 # dependencies
 /node_modules
 /.pnp
@@ -22,6 +28,7 @@ code-archive
 
 # next.js
 /.next/
+/.next-smoke/
 /out/
 .turbo
 
@@ -46,8 +53,6 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
-dev-seed/raw/
-dev-seed
 
 # vercel
 .vercel
