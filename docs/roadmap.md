@@ -214,7 +214,7 @@ Tracked for planning. No phase assigned yet — will be slotted as priorities be
 - **Completion counts in weekly pulse** — "You completed 23 tasks this week, 8 were deep work"
 
 ### Data & Editing
-- **Note-to-note linking** — wiki-style `[[note title]]` links, knowledge graph over time
+- **Cross-cutting links** — polymorphic `links(from_kind, from_id, to_kind, to_id)` between any two items (note↔note, note↔task, task↔task, item↔area, etc.). Replaces tags as the cross-cutting layer; AI proposes links at write-time, human accepts. Hubs emerge naturally (book item, person item, recurring meeting). See PRD §5.2 → "Cross-Cutting Links (Planned)" for full reasoning. Wiki-style `[[title]]` syntax is one viable input affordance.
 - **Bulk edit operations** — multi-select to move, re-bucket, archive in batch
 - **Import agent** — convert external sources into Eon (see below)
 - **Natural language commands** — "Archive everything in someday older than 6 months"

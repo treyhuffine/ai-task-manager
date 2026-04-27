@@ -367,6 +367,16 @@ Goals don't add classification friction — you never assign a task to a goal. T
 
 People and relationship management is a future layer. The vision: a personal CRM that tracks contacts, commitments, follow-ups, and meeting context — deeply integrated with tasks and the AI's reasoning. The current schema does not model people as a separate entity. When the CRM layer is designed, it will go beyond a simple FK on tasks — it needs to model relationships, interaction history, and context across the full system.
 
+#### Cross-Cutting Links (Planned)
+
+Today, the only relationships between items are direct foreign keys: a task's `parent_id` (subtasks) and a note's `area_id` / `task_id`. That covers natural decomposition and a single primary anchor, but not cross-cutting connections — a note that informs two unrelated tasks, a task in one area that blocks work in another, a person mentioned across a dozen captures.
+
+The planned mechanism is a polymorphic `links(from_kind, from_id, to_kind, to_id, created_at)` table — edges between any two items, in either direction. This replaces tags as the cross-cutting layer. Tags are an open vocabulary the human maintains and rots over time; links are local decisions made at write-time (AI proposes the link as the user types or right after capture; human accepts or skips). Wrong links are local mistakes — unlink, fix — never a global migration.
+
+Hubs emerge from this naturally: a book item, a person item, a recurring meeting item all act as collection points without any new primitive. "Show me everything attached to X" is just incoming-link traversal.
+
+Deferred until cross-item linking shows up as a real need we're failing without it. When it ships, the UI affordance must be linking-at-write-time, not a separate "link curation" mode — curation modes don't get used.
+
 ### 5.3 Key Mechanisms
 
 #### The Now Deck
