@@ -5,10 +5,13 @@ import { APP_NAME } from '@/constants/app';
 import { ensureLocalToken, setRunningPort } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getVoiceEnabled } from '@/lib/config/voice';
+import { getIsOnboarded, markOnboarded } from '@/lib/config/onboarded';
 import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
 import { startNextServer, waitForServer, isOurServerRunning } from '../lib/server';
 import { openBrowser } from '../lib/browser';
 import { installWorkspaceSkills } from './skills';
+import { runWizard } from './onboard';
+import { runDoctorChecks, printDoctorChecks } from './doctor';
 import {
   getVoiceContext,
   isDockerAvailable,
@@ -72,6 +75,25 @@ export async function startCommand(opts: StartOptions) {
     outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
     return;
   }
+
+  // First-run setup. Walk the CLI wizard if this brain has never been
+  // onboarded and we're attached to a real terminal. Headless invocations
+  // (smoke tests, CI, scripted starts) skip silently — `flow onboard` is
+  // available later if they want to configure interactively.
+  if (!getIsOnboarded()) {
+    if (process.stdin.isTTY) {
+      await runWizard();
+      markOnboarded();
+      log.success('Setup complete');
+    } else {
+      log.info('Skipping CLI setup (non-interactive). Run `flow onboard` to configure.');
+    }
+  }
+
+  // Diagnostics preflight — surface misconfiguration before we start anything
+  // that depends on it (voice, server). Non-blocking: warnings are informational.
+  const diagnostics = await runDoctorChecks();
+  printDoctorChecks(diagnostics, { compact: true });
 
   // Voice: start the Parakeet sidecar before Next so transcription is
   // available the moment the UI loads. Voice startup is non-fatal — if

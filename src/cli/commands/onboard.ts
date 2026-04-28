@@ -147,7 +147,7 @@ export async function onboardCommand(opts: OnboardOptions) {
  * here next. Keep wizard steps in one function so `start`'s auto-onboard and
  * the explicit `onboard` command share identical behavior.
  */
-async function runWizard(): Promise<void> {
+export async function runWizard(): Promise<void> {
   // Voice prompt. Default YES if Docker is reachable, NO if it isn't —
   // but always ask, so the user can intentionally opt out.
   const dockerOk = await isDockerAvailable();

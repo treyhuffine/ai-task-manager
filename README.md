@@ -37,12 +37,15 @@ The fuller product thinking lives in [`docs/prd.md`](docs/prd.md).
 
 ```bash
 pnpm install
+pnpm approve-builds       # one-time: allow better-sqlite3 + sqlite-vec to compile native bindings
 pnpm dev                  # Next dev, brain at ~/.flow-dev, port 4224
 ```
 
 Open [http://localhost:4224](http://localhost:4224).
 
 You'll need at least one LLM provider key in `.env.local` — copy `.env.example` and fill in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_AI_API_KEY`, or `OPENROUTER_API_KEY`.
+
+> **Native modules:** pnpm blocks postinstall scripts by default. `better-sqlite3` and `sqlite-vec` need them to build their `.node` bindings — `pnpm approve-builds` enables them. If you skip it and see "Could not locate the bindings file" later, run `pnpm rebuild better-sqlite3` to recover. macOS needs Xcode Command Line Tools (`xcode-select --install`).
 
 ## Running the CLI (prod)
 
