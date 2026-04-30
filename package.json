@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "FLOW_ROOT=${FLOW_ROOT:-$HOME/.flow-dev} next dev --port ${PORT:-4224}",
-    "dev:web": "FLOW_ROOT=${FLOW_ROOT:-$HOME/.flow-dev} next dev --port ${PORT:-4224}",
+    "dev": "FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-4224}",
+    "dev:web": "FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-4224}",
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",
     "build": "next build",
     "start": "next start",

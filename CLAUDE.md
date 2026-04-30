@@ -33,7 +33,7 @@ Local-first with SQLite (via better-sqlite3 + Drizzle ORM) and vector search (sq
 - **Installable UI components** (shadcn, Vercel AI elements, ElevenLabs, etc.) must be added via their CLI tool — do not manually write or copy component source files
 - **Types** are derived from the Drizzle schema in `src/db/types.ts` — do not duplicate type definitions
 - **API routes** use shared query functions from `src/lib/db/queries.ts` — do not write raw SQL in route handlers
-- **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getBrainDir`, `getDbPath`, `getAttachmentsDir`) — never hardcode the `.<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_BRAIN_PATH`, `<APP>_DB_PATH` env overrides.
+- **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getBrainDir`, `getDbPath`, `getAttachmentsDir`) — never hardcode the `<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_BRAIN_PATH`, `<APP>_DB_PATH` env overrides.
 
 ## Orchestrator (agent surface)
 
@@ -49,9 +49,9 @@ Handler rules:
 - **Branch on `ctx.remote`** for security-sensitive work: `false` = trusted local CLI, `true` = untrusted HTTP. Default to `true` behavior when unset.
 
 Data roots (precedence: explicit `FLOW_ROOT` > `--dev` auto-set > prod default):
-- `~/.<app-short-id>/` — prod, real brain
-- `~/.<app-short-id>-dev/` — dev (`pnpm dev`, `flow start --dev`)
-- `~/.<app-short-id>-test/` — test (`pnpm smoke`, `pnpm smoke:agent`) — wiped on every run
+- `~/<app-short-id>/` — prod, real brain
+- `~/<app-short-id>-dev/` — dev (`pnpm dev`, `flow start --dev`)
+- `~/<app-short-id>-test/` — test (`pnpm smoke`, `pnpm smoke:agent`) — wiped on every run
 
 When NOT to add an action: behavior that belongs in the NL MCP (free-form interpretation), one-off CLI commands that aren't part of the agent surface (shared ones go in `src/cli/commands/`, contributor-specific scripts go in `/personal/`), or anything that duplicates an existing `queries.ts` function under a different name.
 

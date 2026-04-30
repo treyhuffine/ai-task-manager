@@ -3,7 +3,7 @@
  *
  * On first run (or after a reset):
  *   1. Create an api_keys row for the host machine (device_type = 'host').
- *   2. Persist the plaintext token to ~/.<APP_SHORT_ID>/config.json so
+ *   2. Persist the plaintext token to ~/<APP_SHORT_ID>/config.json so
  *      `pnpm auth:pair` can reprint the URL on demand.
  *
  * On subsequent runs: if the config file's token matches an existing DB row,
@@ -57,7 +57,7 @@ export function buildPairingUrl(token: string, baseUrl = getLocalBaseUrl()): str
 
 /**
  * Remote base URL ("tunnel URL") — the hostname external devices hit to reach
- * this host. Stored in ~/.<APP_SHORT_ID>/config.json. Optional: when unset,
+ * this host. Stored in ~/<APP_SHORT_ID>/config.json. Optional: when unset,
  * remote pairing has to fall back to localhost + manual token entry.
  */
 export function getRemoteBaseUrl(): string | null {

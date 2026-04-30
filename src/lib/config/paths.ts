@@ -3,7 +3,7 @@
  *
  * Layout:
  *
- *   <app-root>/               (~/.<APP_SHORT_ID>/ by default)
+ *   <app-root>/               (~/<APP_SHORT_ID>/ by default)
  *   ├── brain/                user content — db, markdown mirror, attachments
  *   │   ├── data.db           source of truth
  *   │   ├── tasks/ notes/ areas/ stream/
@@ -44,7 +44,7 @@ function homeDir(): string {
 export function getAppRoot(): string {
   const override = process.env[APP_ROOT_ENV];
   if (override) return override;
-  return path.join(homeDir(), `.${APP_SHORT_ID}`);
+  return path.join(homeDir(), APP_SHORT_ID);
 }
 
 /**
@@ -58,7 +58,7 @@ export function getAppRoot(): string {
  * no mode detection — and puts the dev/prod decision in the caller's hands.
  */
 export function getDevAppRoot(): string {
-  return path.join(homeDir(), `.${APP_SHORT_ID}-dev`);
+  return path.join(homeDir(), `${APP_SHORT_ID}-dev`);
 }
 
 /**
@@ -67,7 +67,7 @@ export function getDevAppRoot(): string {
  * contract as `getDevAppRoot()`.
  */
 export function getTestAppRoot(): string {
-  return path.join(homeDir(), `.${APP_SHORT_ID}-test`);
+  return path.join(homeDir(), `${APP_SHORT_ID}-test`);
 }
 
 export function getBrainDir(): string {

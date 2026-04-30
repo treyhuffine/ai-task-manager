@@ -38,7 +38,7 @@ The fuller product thinking lives in [`docs/prd.md`](docs/prd.md).
 ```bash
 pnpm install
 pnpm approve-builds       # one-time: allow better-sqlite3 + sqlite-vec to compile native bindings
-pnpm dev                  # Next dev, brain at ~/.flow-dev, port 4224
+pnpm dev                  # Next dev, brain at ~/flow-dev, port 4224
 ```
 
 Open [http://localhost:4224](http://localhost:4224).
@@ -56,15 +56,15 @@ From the repo, the simplest path is:
 ```bash
 pnpm install
 pnpm build                # Next.js production build
-pnpm cli:dev start        # run the CLI from source against ~/.flow + next start
+pnpm cli:dev start        # run the CLI from source against ~/flow + next start
 ```
 
-`pnpm cli:dev` is `tsx src/cli/index.ts` — the CLI itself runs from source, but it spawns a real `next start` against your production build, against the prod brain at `~/.flow`. No global install, no bundling step.
+`pnpm cli:dev` is `tsx src/cli/index.ts` — the CLI itself runs from source, but it spawns a real `next start` against your production build, against the prod brain at `~/flow`. No global install, no bundling step.
 
 Other CLI commands work the same way:
 
 ```bash
-pnpm cli:dev start --dev          # dev brain (~/.flow-dev) + next dev — skip pnpm build
+pnpm cli:dev start --dev          # dev brain (~/flow-dev) + next dev — skip pnpm build
 pnpm cli:dev start --no-voice     # skip the STT sidecar
 pnpm cli:dev pair                 # mint a device key + show pairing URL/QR
 pnpm cli:dev doctor               # diagnostics
@@ -85,25 +85,25 @@ Re-run `pnpm cli:build` after CLI changes; the symlink keeps pointing at the reb
 
 | Command | What it does | Use for |
 |---|---|---|
-| `pnpm dev` | `next dev` only, brain preset to `~/.flow-dev` | Fast UI iteration, no bootstrap |
+| `pnpm dev` | `next dev` only, brain preset to `~/flow-dev` | Fast UI iteration, no bootstrap |
 | `pnpm cli:dev start --dev` | Full CLI: bootstrap + Next dev + optional voice | Realistic dev — what end users see |
-| `pnpm cli:dev start` | Full CLI against `~/.flow` (prod brain, dev tooling) | Daily personal use without rebuilding |
+| `pnpm cli:dev start` | Full CLI against `~/flow` (prod brain, dev tooling) | Daily personal use without rebuilding |
 
 ## Data roots
 
 Flow keeps independent brains so dev never touches your real data:
 
 ```
-explicit FLOW_ROOT       > --dev auto-set (~/.flow-dev) > prod default (~/.flow)
+explicit FLOW_ROOT       > --dev auto-set (~/flow-dev) > prod default (~/flow)
 
-flow start               → ~/.flow         (prod)
-flow start --dev         → ~/.flow-dev     (dev)
-pnpm dev                 → ~/.flow-dev     (script preset)
-pnpm smoke               → ~/.flow-test    (wiped on every run)
+flow start               → ~/flow         (prod)
+flow start --dev         → ~/flow-dev     (dev)
+pnpm dev                 → ~/flow-dev     (script preset)
+pnpm smoke               → ~/flow-test    (wiped on every run)
 FLOW_ROOT=~/x flow start → ~/x             (explicit wins)
 ```
 
-Each brain is a directory with `config.json` at the root and a `brain/` subdirectory containing `data.db`, the markdown mirror, and `attachments/`. Resolve paths through `src/lib/config/paths.ts` — never hardcode `.flow`.
+Each brain is a directory with `config.json` at the root and a `brain/` subdirectory containing `data.db`, the markdown mirror, and `attachments/`. Resolve paths through `src/lib/config/paths.ts` — never hardcode the data root path.
 
 ## Architecture overview
 
@@ -134,17 +134,17 @@ Authoritative schema is `src/lib/db/schema.ts`. Drizzle-derived types live in `s
 
 ```bash
 # dev
-pnpm dev                  # Next dev only, ~/.flow-dev
+pnpm dev                  # Next dev only, ~/flow-dev
 pnpm cli:dev start --dev  # full CLI in dev mode
-pnpm dev:reseed           # wipe + bootstrap + seed ~/.flow-dev
+pnpm dev:reseed           # wipe + bootstrap + seed ~/flow-dev
 pnpm dev:seed             # additive seed
-pnpm dev:reset            # wipe ~/.flow-dev only
+pnpm dev:reset            # wipe ~/flow-dev only
 
 # voice (optional)
 pnpm dev:stt              # Parakeet STT sidecar (Docker)
 
 # tests
-pnpm smoke                # bootstrap smoke (~5s, ~/.flow-test)
+pnpm smoke                # bootstrap smoke (~5s, ~/flow-test)
 pnpm smoke:agent          # end-to-end: dev server + headless Claude
 pnpm test                 # vitest
 pnpm ts                   # typecheck
@@ -168,7 +168,7 @@ pnpm cli:build            # bundle CLI to ./dist
 - **Installable UI components** (shadcn, Vercel AI Elements) come in via their CLI tools — don't manually copy component source.
 - **Types** are derived from the Drizzle schema. Don't duplicate.
 - **API routes** call shared functions from `src/lib/db/queries.ts`. No raw SQL in handlers.
-- **Paths** resolve through `src/lib/config/paths.ts` helpers. Never hardcode `.flow`.
+- **Paths** resolve through `src/lib/config/paths.ts` helpers. Never hardcode the data root.
 - **Orchestrator handlers** throw `ActionError` with a stable code, return plain data, and never `console.log`.
 
 See [`CLAUDE.md`](CLAUDE.md) for the full set of project rules.

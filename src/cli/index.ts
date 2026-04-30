@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { migrateLegacyLayoutToBrain } from '@/lib/config/paths';
 import { startCommand } from './commands/start';
+import { stopCommand } from './commands/stop';
 import { pairCommand } from './commands/pair';
 import { doctorCommand } from './commands/doctor';
 import { onboardCommand } from './commands/onboard';
@@ -37,6 +38,14 @@ program
   .option('--voice', 'start the voice sidecar (overrides saved preference)')
   .option('--no-voice', 'skip the voice sidecar (overrides saved preference)')
   .action(startCommand);
+
+program
+  .command('stop')
+  .description(`Stop a running ${APP_NAME} server`)
+  .option('-p, --port <number>', 'port of the instance to stop')
+  .option('-f, --force', 'send SIGKILL immediately instead of SIGTERM')
+  .option('-t, --timeout <ms>', 'how long to wait for graceful shutdown', '5000')
+  .action(stopCommand);
 
 program
   .command('onboard')

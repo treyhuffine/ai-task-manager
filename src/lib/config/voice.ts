@@ -1,6 +1,6 @@
 /**
  * User preference for the local speech-to-text sidecar.
- * Stored in `~/.<APP_SHORT_ID>/config.json` (the same file as auth/onboarded
+ * Stored in `~/<APP_SHORT_ID>/config.json` (the same file as auth/onboarded
  * state). Kept behind a predicate so storage or defaults can evolve without
  * changing call sites.
  */

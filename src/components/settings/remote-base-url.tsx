@@ -8,7 +8,7 @@ import { settingsApi } from '@/lib/api/settings';
 import { APP_SHORT_ID } from '@/constants/app';
 
 /**
- * CRUD for the remote base URL stored in ~/.<APP_SHORT_ID>/config.json.
+ * CRUD for the remote base URL stored in ~/<APP_SHORT_ID>/config.json.
  * This is the hostname new device pairing URLs will be built against so
  * remote/off-network devices can reach this host.
  *

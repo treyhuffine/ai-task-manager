@@ -34,12 +34,12 @@ afterEach(() => {
 
 describe('path helpers', () => {
   it('getAuthConfigDir derives from HOME + APP_SHORT_ID', () => {
-    expect(getAuthConfigDir()).toBe(path.join(tmpHome, `.${APP_SHORT_ID}`));
+    expect(getAuthConfigDir()).toBe(path.join(tmpHome, APP_SHORT_ID));
   });
 
   it('getAuthConfigPath is config.json in the auth dir', () => {
     expect(getAuthConfigPath()).toBe(
-      path.join(tmpHome, `.${APP_SHORT_ID}`, 'config.json'),
+      path.join(tmpHome, APP_SHORT_ID, 'config.json'),
     );
   });
 });

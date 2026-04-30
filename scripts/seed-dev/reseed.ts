@@ -2,7 +2,7 @@
 /**
  * `pnpm dev:reseed` — wipe + bootstrap + seed in one go.
  *
- * The muscle-memory command: gives you a fresh `~/.flow-dev` with the
+ * The muscle-memory command: gives you a fresh `~/flow-dev` with the
  * synthetic dataset in seconds. Bootstrap chain mirrors `flow start --dev`
  * (auth token, skill symlinks, db migrations) so the resulting root is
  * indistinguishable from one created by a real dev server boot.

@@ -5,7 +5,7 @@
  *   PATCH   { baseUrl } → same shape   // set/clear the tunnel URL
  *   DELETE  → clears tunnel URL
  *
- * `tunnel` is user-configured and persisted to ~/.<APP_SHORT_ID>/config.json.
+ * `tunnel` is user-configured and persisted to ~/<APP_SHORT_ID>/config.json.
  * `lan` is auto-detected from the first non-loopback IPv4 interface.
  * `local` is `http://localhost:<running port>`.
  */

@@ -51,7 +51,7 @@ Pretending these don't matter is the kind of thinking that makes tools feel like
 
 ## Filesystem Shape
 
-The mirror's default root is the app's user-data directory (e.g. `~/.flow/`).
+The mirror's default root is the app's user-data directory (e.g. `~/flow/`).
 Type folders live **directly** in the root — no `mirror/` wrapper — so the
 path is as short and flat as possible:
 

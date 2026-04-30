@@ -1,5 +1,5 @@
 /**
- * Persistent config at `~/.<APP_SHORT_ID>/config.json`.
+ * Persistent config at `~/<APP_SHORT_ID>/config.json`.
  * - Directory mode 0700, file mode 0600.
  * - Only the host's own plaintext token lives here. Remote-device tokens never touch disk.
  */
