@@ -26,8 +26,21 @@ export interface LocalTokenInfo {
   created: boolean;
 }
 
+/**
+ * Stable local hostname fronting the dev server (e.g. `https://flow.localhost`
+ * via portless). Persisted in config.json by `start --portless` so out-of-process
+ * commands like `pair` reconstruct the same URL.
+ */
+export function getStaticUrl(): string | null {
+  return readAuthConfig()?.staticUrl ?? null;
+}
+
+export function setStaticUrl(url: string | null): void {
+  writeAuthConfig({ staticUrl: url });
+}
+
 export function getLocalBaseUrl(): string {
-  return `http://localhost:${getRunningPort()}`;
+  return getStaticUrl() ?? `http://localhost:${getRunningPort()}`;
 }
 
 /**

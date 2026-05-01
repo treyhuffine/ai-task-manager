@@ -4,7 +4,6 @@ import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 
 export const config = {
-  runtime: 'nodejs',
   matcher: ['/api/:path*'],
 };
 
@@ -50,7 +49,7 @@ function extractToken(request: NextRequest): string | null {
   return null;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {
     return NextResponse.next();
   }

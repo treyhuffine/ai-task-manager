@@ -15,7 +15,7 @@
 import { intro, outro, log, confirm, select, isCancel, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { APP_NAME } from '@/constants/app';
-import { ensureLocalToken } from '@/lib/auth/bootstrap';
+import { ensureLocalToken, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getIsOnboarded, markOnboarded, getOnboardedAt } from '@/lib/config/onboarded';
 import { getVoiceEnabled, setVoiceEnabled } from '@/lib/config/voice';
@@ -43,7 +43,8 @@ export async function onboardCommand(opts: OnboardOptions) {
   resetDb();
   s.stop(info.created ? 'Created new host token' : 'Reusing existing token');
 
-  const serverRunning = await isOurServerRunning(port);
+  const baseUrl = getLocalBaseUrl();
+  const serverRunning = await isOurServerRunning(baseUrl);
   const alreadyOnboarded = getIsOnboarded();
 
   // ─── Branch 1: fresh install ────────────────────────────────────────
@@ -66,7 +67,7 @@ export async function onboardCommand(opts: OnboardOptions) {
 
     if (serverRunning) {
       await openBrowser(info.pairingUrl);
-      outro(`Opened http://localhost:${port}`);
+      outro(`Opened ${baseUrl}`);
       return;
     }
 
@@ -84,7 +85,7 @@ export async function onboardCommand(opts: OnboardOptions) {
   const options: Array<{ value: Action; label: string; hint?: string }> = [];
 
   if (serverRunning) {
-    options.push({ value: 'open', label: 'Open in browser', hint: `http://localhost:${port}` });
+    options.push({ value: 'open', label: 'Open in browser', hint: baseUrl });
   } else {
     options.push({ value: 'start', label: 'Start the server' });
   }
@@ -131,7 +132,7 @@ export async function onboardCommand(opts: OnboardOptions) {
 
     if (serverRunning) {
       await openBrowser(info.pairingUrl);
-      outro(`Opened http://localhost:${port}`);
+      outro(`Opened ${baseUrl}`);
       return;
     }
 

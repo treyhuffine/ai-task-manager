@@ -1,13 +1,24 @@
 import { intro, outro, log, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import getPort from 'get-port';
-import { APP_NAME } from '@/constants/app';
-import { ensureLocalToken, setRunningPort } from '@/lib/auth/bootstrap';
+import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import {
+  ensureLocalToken,
+  getLocalBaseUrl,
+  getStaticUrl,
+  setRunningPort,
+  setStaticUrl,
+} from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { getIsOnboarded, markOnboarded } from '@/lib/config/onboarded';
 import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
-import { startNextServer, waitForServer, isOurServerRunning } from '../lib/server';
+import {
+  isPortlessInstalled,
+  isOurServerRunning,
+  startNextServer,
+  waitForServer,
+} from '../lib/server';
 import { openBrowser } from '../lib/browser';
 import { installWorkspaceSkills } from './skills';
 import { runWizard } from './onboard';
@@ -27,6 +38,25 @@ export interface StartOptions {
   pair: boolean;
   dev?: boolean;
   voice?: boolean;
+  /** `true` when --portless is passed without a value, a string when a custom
+   *  name is given, undefined when omitted. Resolved to a name + URL below. */
+  portless?: boolean | string;
+}
+
+interface PortlessConfig {
+  name: string;
+  url: string;
+}
+
+function resolvePortless(opt: StartOptions['portless']): PortlessConfig | null {
+  if (!opt) return null;
+  const name = typeof opt === 'string' ? opt.trim() : APP_SHORT_ID;
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(name)) {
+    throw new Error(
+      `Invalid --portless name '${name}'. Use letters, digits, and hyphens (no leading hyphen).`,
+    );
+  }
+  return { name, url: `https://${name}.localhost` };
 }
 
 export async function startCommand(opts: StartOptions) {
@@ -44,6 +74,22 @@ export async function startCommand(opts: StartOptions) {
   if (opts.dev) {
     log.info(pc.dim(`Data root: ${process.env[APP_ROOT_ENV]}`));
   }
+
+  // Resolve --portless before anything that reads the static URL (auth bootstrap
+  // builds pairingUrl from it). Reject early if portless isn't on PATH so the
+  // user gets a clear error before we mint tokens or warm anything up.
+  const portless = resolvePortless(opts.portless);
+  if (portless && !isPortlessInstalled()) {
+    log.error(
+      `--portless requires the \`portless\` CLI on PATH. Install it from https://portless.sh and retry.`,
+    );
+    process.exit(1);
+  }
+  // Mirror the flag into persisted state so out-of-process commands (`pair`,
+  // the Next route at /api/settings/base-url) reconstruct the same URL. Always
+  // write — clearing when not in portless mode prevents a stale URL from
+  // sticking around after a previous portless run.
+  setStaticUrl(portless?.url ?? null);
 
   const preferredPort = Number(opts.port ?? 4224);
   const s = spinner();
@@ -67,10 +113,11 @@ export async function startCommand(opts: StartOptions) {
     log.warn(`Skill auto-install skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Short-circuit: our server is already up on the preferred port.
-  if (await isOurServerRunning(preferredPort)) {
+  // Short-circuit: our server is already up. Probe the public URL — under
+  // portless that's `https://<name>.localhost`; otherwise it's the local port.
+  if (await isOurServerRunning(getLocalBaseUrl())) {
     const url = info.pairingUrl;
-    log.success(`Already running at http://localhost:${preferredPort}`);
+    log.success(`Already running at ${getLocalBaseUrl()}`);
     if (opts.open) await openBrowser(url);
     outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
     return;
@@ -104,22 +151,43 @@ export async function startCommand(opts: StartOptions) {
     voiceStarted = await bringUpVoice(s);
   }
 
-  const port = await getPort({ port: preferredPort });
-  if (port !== preferredPort) {
-    log.warn(`Port ${preferredPort} in use — using ${port}`);
+  // Port allocation: only when we own the binding. Under portless, the proxy
+  // picks a random port (4000-4999) and injects $PORT to the child Next, so
+  // we'd be allocating something we never use — and persisting the wrong port
+  // would confuse out-of-process commands like `pair`. Pass 0 as a sentinel
+  // (unused by startNextServer in that branch).
+  let port = 0;
+  if (!portless) {
+    port = await getPort({ port: preferredPort });
+    if (port !== preferredPort) {
+      log.warn(`Port ${preferredPort} in use — using ${port}`);
+    }
+    process.env.PORT = String(port);
+    setRunningPort(port);
   }
-  process.env.PORT = String(port);
-  // Persist so `pair` in another shell can reconstruct local URLs correctly.
-  setRunningPort(port);
 
-  s.start(opts.dev ? 'Starting dev server' : 'Starting server');
-  const child = startNextServer({ port, dev: opts.dev });
+  s.start(
+    portless
+      ? `Starting dev server via portless (${portless.url})`
+      : opts.dev
+        ? 'Starting dev server'
+        : 'Starting server',
+  );
+  const child = startNextServer({
+    port,
+    dev: opts.dev,
+    portlessName: portless?.name,
+  });
   child.on('error', (err) => {
     log.error(`Server failed to start: ${err.message}`);
     process.exit(1);
   });
-  await waitForServer(port);
-  s.stop(`Server ready at http://localhost:${port}`);
+  // Wait against the public URL — under portless the proxy needs its backend
+  // up before /api/health succeeds; without portless this is just localhost.
+  // Allow extra time when going through portless: the proxy adds a startup
+  // step, and the wrapped Next still has to compile the route on cold-hit.
+  await waitForServer(getLocalBaseUrl(), portless ? 60_000 : 30_000);
+  s.stop(`Server ready at ${getLocalBaseUrl()}`);
 
   const url = info.pairingUrl;
   if (opts.open) {

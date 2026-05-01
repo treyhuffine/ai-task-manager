@@ -42,7 +42,7 @@ export async function stopCommand(opts: StopOptions) {
   // Confirm we're stopping our own server. If the port is occupied by
   // something that doesn't answer /api/health like Flow does, bail rather
   // than killing whatever it is.
-  const probe = await probeHealth(port);
+  const probe = await probeHealth(`http://127.0.0.1:${port}`);
   if (probe.status === 'offline') {
     log.info(`Nothing listening on port ${port}`);
     outro('Done');
@@ -193,7 +193,7 @@ function isFlowParent(command: string): boolean {
 async function waitForPortClear(port: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const probe = await probeHealth(port);
+    const probe = await probeHealth(`http://127.0.0.1:${port}`);
     if (probe.status === 'offline') return true;
     await new Promise((r) => setTimeout(r, 200));
   }

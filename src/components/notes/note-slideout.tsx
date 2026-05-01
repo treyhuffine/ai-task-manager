@@ -19,7 +19,7 @@ import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/db/types'
 
-const DEFAULT_WIDTH = 1000
+const DEFAULT_WIDTH = 1200
 const MIN_WIDTH = 420
 const MAX_WIDTH = 1400
 

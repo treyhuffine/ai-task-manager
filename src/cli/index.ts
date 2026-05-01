@@ -37,6 +37,10 @@ program
   .option('--dev', 'run the server in dev mode (next dev) instead of production')
   .option('--voice', 'start the voice sidecar (overrides saved preference)')
   .option('--no-voice', 'skip the voice sidecar (overrides saved preference)')
+  .option(
+    '--portless [name]',
+    `front the dev server with portless.sh at <name>.localhost (default: ${APP_SHORT_ID})`,
+  )
   .action(startCommand);
 
 program

@@ -99,15 +99,17 @@ export async function pairCommand(opts: PairOptions = {}) {
   const host = ensureLocalToken();
   if (host.created) console.log(pc.green('Initialized host.'));
 
-  // Verify the port we're about to print. Probe /api/health on the port we
-  // have cached; if the server answers with a different port, trust the
-  // server and refresh our cache.
-  const cachedPort = getRunningPort();
-  const probe = await probeHealth(cachedPort);
+  // Verify the URL we're about to print. Probe /api/health at the local base
+  // URL — under portless that's `https://<name>.localhost`, otherwise it's
+  // `http://localhost:<lastPort>`. If the server answers with a different
+  // port (only meaningful for direct localhost), refresh our cache.
+  const baseUrl = getLocalBaseUrl();
+  const probe = await probeHealth(baseUrl);
   if (probe.status === 'ok') {
+    const cachedPort = getRunningPort();
     if (probe.info.port !== cachedPort) setRunningPort(probe.info.port);
   } else {
-    printProbeWarning(cachedPort, probe);
+    printProbeWarning(baseUrl, probe);
   }
 
   const chosen = chooseBase(opts);
@@ -261,28 +263,28 @@ function hintFor(source: BaseSource, tunnel: string | null): string {
 }
 
 function printProbeWarning(
-  port: number,
+  baseUrl: string,
   probe: Exclude<Awaited<ReturnType<typeof probeHealth>>, { status: 'ok' }>,
 ) {
   switch (probe.status) {
     case 'offline':
       console.log(
         pc.yellow(
-          `! Nothing is listening on port ${port}. URL below assumes that port — start the server or run \`${APP_SHORT_ID} pair\` again afterward.`,
+          `! Nothing is responding at ${baseUrl}. URL below assumes that target — start the server or run \`${APP_SHORT_ID} pair\` again afterward.`,
         ),
       );
       return;
     case 'unreachable':
       console.log(
         pc.yellow(
-          `! Port ${port} is open but /api/health didn't respond (${probe.detail}). If the dev server is still compiling, try again in a few seconds.`,
+          `! ${baseUrl} is reachable but /api/health didn't respond (${probe.detail}). If the dev server is still compiling, try again in a few seconds.`,
         ),
       );
       return;
     case 'unknown-app':
       console.log(
         pc.yellow(
-          `! Something is running on port ${port} but it doesn't look like ${APP_SHORT_ID} (${probe.detail}).`,
+          `! Something is responding at ${baseUrl} but it doesn't look like ${APP_SHORT_ID} (${probe.detail}).`,
         ),
       );
       return;
