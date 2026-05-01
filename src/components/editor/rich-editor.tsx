@@ -18,6 +18,7 @@ import { common, createLowlight } from 'lowlight'
 import { CollapsibleHeading } from './collapsible-heading'
 import { EditorBubbleMenu } from './editor-bubble-menu'
 import { EditorGutterMenu } from './editor-floating-menu'
+import { ListKeymap } from './list-keymap'
 import { SlashCommands } from './slash-commands'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
 import type { Attachment } from '@/db/types'
@@ -153,6 +154,7 @@ export function RichEditor({
       }),
       CharacterCount,
       SlashCommands,
+      ListKeymap,
     ],
     content: initialContentRef.current,
     ...(initialContentRef.current ? { contentType: 'markdown' as any } : {}),
@@ -203,19 +205,25 @@ export function RichEditor({
   })
 
   // Sync editable state at runtime (e.g. disable while AI is working).
-  // Pass emitUpdate=false to prevent setEditable from firing onUpdate,
-  // which would trigger onChange with stale content before the content sync runs.
+  // Blur before disabling so the focus gate in the content-sync effect
+  // releases and pending AI-driven body updates can apply. Pass emitUpdate=false
+  // to prevent setEditable from firing onUpdate with stale content.
   useEffect(() => {
     if (editor && editor.isEditable !== editable) {
+      if (!editable && editor.isFocused) editor.commands.blur()
       editor.setEditable(editable, false)
     }
   }, [editor, editable])
 
   // Sync external content changes (e.g. AI tool updates) into the editor.
+  // Skip while the editor is focused — the user is typing, and the prop is
+  // almost always a stale echo from a debounced save round-trip. Overwriting
+  // here is what produced the "words delete and reappear" jerkiness.
   // Deferred via queueMicrotask because TipTap's setContent calls flushSync,
   // which can't run inside a React useEffect (commit phase).
   useEffect(() => {
     if (!editor || content === prevContentRef.current) return
+    if (editor.isFocused) return
     prevContentRef.current = content
 
     const currentMd = (editor as any).getMarkdown?.() ?? ''
@@ -241,6 +249,22 @@ export function RichEditor({
     })
   }, [editor, content])
 
+  // Notion-style: clicks anywhere in the editor wrapper that miss the
+  // contenteditable still focus the editor and drop the cursor at the end.
+  // ProseMirror handles in-body clicks natively; we only intercept the
+  // surrounding bare area (and skip interactive UI like menu buttons).
+  const handleWrapperMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!editor || !editor.isEditable) return
+      const target = e.target as HTMLElement
+      if (target.closest('.rich-editor-body')) return
+      if (target.closest('button, a, input, label, [contenteditable="false"]')) return
+      e.preventDefault()
+      editor.commands.focus('end')
+    },
+    [editor]
+  )
+
   if (!editor) {
     return (
       <div className={`rich-editor-skeleton animate-pulse ${className}`}>
@@ -253,7 +277,10 @@ export function RichEditor({
   }
 
   return (
-    <div className={`rich-editor relative ${className}`}>
+    <div
+      className={`rich-editor relative cursor-text ${className}`}
+      onMouseDown={handleWrapperMouseDown}
+    >
       <EditorBubbleMenu editor={editor} />
       <EditorGutterMenu editor={editor} />
       <EditorContent editor={editor} />

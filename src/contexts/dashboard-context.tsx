@@ -104,14 +104,14 @@ type DashboardContextType = DashboardState & DashboardActions;
 const DashboardContext = createContext<DashboardContextType | null>(null);
 
 const MOCK_AGENTS: Agent[] = [
-  { id: "bounce", name: "Bounce", status: "active", task: "Building coach onboarding flow", color: "text-orange-500", bg: "bg-orange-500/10", progress: 65, icon: "\uD83C\uDFBE", lastUpdate: "Component ready in ~12 min" },
-  { id: "insider", name: "InsiderFinance", status: "active", task: "Competitor pricing analysis", color: "text-blue-400", bg: "bg-blue-400/10", progress: 88, icon: "\uD83D\uDCCA", lastUpdate: "Found 3 new pricing tiers" },
+  { id: "atlas", name: "Atlas", status: "active", task: "Building onboarding flow", color: "text-orange-500", bg: "bg-orange-500/10", progress: 65, icon: "\uD83E\uDDED", lastUpdate: "Component ready in ~12 min" },
+  { id: "beacon", name: "Beacon", status: "active", task: "Competitor pricing analysis", color: "text-blue-400", bg: "bg-blue-400/10", progress: 88, icon: "\uD83D\uDCE1", lastUpdate: "Found 3 new pricing tiers" },
   { id: "ri", name: "Ri", status: "idle", task: null, color: "text-muted-foreground", bg: "bg-muted", progress: 0, icon: "\uD83E\uDDE0", lastUpdate: null },
 ];
 
 const MOCK_TASKS: Task[] = [
-  { id: 1, text: "Review Bounce onboarding component", project: "Bounce", due: "Today", status: "ready", color: "bg-orange-500" },
-  { id: 2, text: "Review InsiderFinance pricing analysis", project: "Insider", due: "Today", status: "waiting", color: "bg-blue-400" },
+  { id: 1, text: "Review Atlas onboarding component", project: "Atlas", due: "Today", status: "ready", color: "bg-orange-500" },
+  { id: 2, text: "Review Beacon pricing analysis", project: "Beacon", due: "Today", status: "waiting", color: "bg-blue-400" },
   { id: 3, text: "Spark learning loop wireframes", project: "Spark", due: "Tomorrow", status: "todo", color: "bg-amber-500" },
   { id: 4, text: "Bloom: pediatric sleep data sources", project: "Bloom", due: "Friday", status: "todo", color: "bg-emerald-500" },
   { id: 5, text: "Personal: March investor update", project: "Personal", due: "Mar 22", status: "todo", color: "bg-zinc-500" },
@@ -121,7 +121,7 @@ const MOCK_TASKS: Task[] = [
 
 const MOCK_STREAM_EVENTS: StreamEvent[] = [
   { text: "Decided: Weaviate for Ri vector layer", time: "9:04 am", color: "bg-muted-foreground" },
-  { text: "Insider agent: competitor price change flagged", time: "8:52 am", color: "bg-blue-400" },
+  { text: "Beacon agent: competitor price change flagged", time: "8:52 am", color: "bg-blue-400" },
   { text: "Rationale queued to Slack via Orchestrator", time: "8:10 am", color: "bg-zinc-500" },
 ];
 

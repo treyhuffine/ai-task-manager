@@ -234,6 +234,11 @@
   line-height: 1.75;
   color: var(--foreground);
   caret-color: var(--primary);
+  /* Generous clickable area below short content — ProseMirror puts the
+     cursor at the nearest valid position when you click empty space.
+     Floor for tiny viewports, scale with screen height, cap so the editor
+     doesn't push the footer absurdly far down on huge monitors. */
+  min-height: clamp(12rem, 50vh, 36rem);
 }
 
 .rich-editor-body:focus {
@@ -353,7 +358,16 @@
   margin: 0;
 }
 
-/* Nested lists */
+/* Nested lists — Notion-style tiered bullets so depth is visually distinct.
+   :not([data-type="taskList"]) excludes task lists, which render checkboxes. */
+.rich-editor-body ul:not([data-type="taskList"]) ul:not([data-type="taskList"]) {
+  list-style-type: circle;
+}
+
+.rich-editor-body ul:not([data-type="taskList"]) ul:not([data-type="taskList"]) ul:not([data-type="taskList"]) {
+  list-style-type: square;
+}
+
 .rich-editor-body ul ul,
 .rich-editor-body ol ol,
 .rich-editor-body ul ol,

@@ -136,7 +136,7 @@ Authoritative schema is `src/lib/db/schema.ts`. Drizzle-derived types live in `s
 # dev
 pnpm dev                  # Next dev only, ~/flow-dev
 pnpm cli:dev start --dev  # full CLI in dev mode
-pnpm dev:reseed           # wipe + bootstrap + seed ~/flow-dev
+pnpm dev:reseed           # reseed ~/flow-dev (preserves auth + paired devices; rm -rf ~/flow-dev for a true reset)
 pnpm dev:seed             # additive seed
 pnpm dev:reset            # wipe ~/flow-dev only
 

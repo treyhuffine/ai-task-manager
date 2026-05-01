@@ -42,6 +42,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const deleteTask = useDeleteTask()
   const completeTask = useCompleteTask()
   const chat = useDocumentChat('task', task ?? null)
+  const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
 
   const [editingDeadline, setEditingDeadline] = useState(false)
   const [editingBoomerang, setEditingBoomerang] = useState(false)
@@ -448,6 +449,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                 content={task.body ?? ''}
                 onChange={handleBodyChange}
                 onAttachment={handleAttachment}
+                editable={!aiBusy}
                 placeholder="Add notes, details, or type '/' for commands..."
                 hideFooter
               />

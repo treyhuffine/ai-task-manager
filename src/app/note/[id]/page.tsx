@@ -24,6 +24,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   const updateNote = useUpdateNote()
   const deleteNote = useDeleteNote()
   const chat = useDocumentChat('note', note ?? null)
+  const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
 
   const [wordCount, setWordCount] = useState(0)
   const [charCount, setCharCount] = useState(0)
@@ -187,6 +188,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                 onBodyChange={handleBodyChange}
                 onAttachment={handleAttachment}
                 autoFocusTitle={!note.title && note.body.trim().length === 0}
+                disabled={aiBusy}
                 hideFooter
                 metadata={
                   <p className="text-[10px] text-muted-foreground/50 mt-1">
