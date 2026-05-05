@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Check, Circle, Clock, Repeat, Lock,
   MoreHorizontal, Archive, Timer, GripVertical,
-  Zap, Flame, ShieldAlert, AlignLeft, ListTree,
+  Zap, Flame, ShieldAlert, AlignLeft, ListTree, ArrowUpDown,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -14,7 +14,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
+import { BUCKET_OPTIONS, type Bucket } from '@/lib/utils/bucket-placement';
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/components/ui/popover';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { AreaSelect } from '@/components/shared/area-select';
@@ -63,9 +67,16 @@ interface TaskRowProps {
   onSnooze: (id: string, days: number) => void;
   onArchive: (id: string) => void;
   onOpen?: (id: string) => void;
+  dragEnabled?: boolean;
+  isHighlighted?: boolean;
+  onDragIntercept?: (id: string) => void;
+  onPickBucket?: (id: string, bucket: Bucket) => void;
 }
 
-export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpen }: TaskRowProps) {
+export function TaskRow({
+  task, onComplete, onUpdate, onSnooze, onArchive, onOpen,
+  dragEnabled = true, isHighlighted = false, onDragIntercept, onPickBucket,
+}: TaskRowProps) {
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
   const [blockPopoverOpen, setBlockPopoverOpen] = useState(false);
@@ -118,12 +129,13 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
       ref={setNodeRef}
       style={style}
       {...attributes}
-      {...(isMobile ? listeners : {})}
+      {...(isMobile && dragEnabled ? listeners : {})}
       className={cn(
         'group flex items-start gap-1.5 px-2 py-2 rounded-lg transition-all border border-transparent cursor-pointer',
         'hover:bg-card hover:border-border',
         isDragging && 'opacity-50 shadow-lg',
         isDone && 'opacity-50',
+        isHighlighted && 'bg-primary/10 border-primary/30 ring-1 ring-primary/20',
       )}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey) {
@@ -133,12 +145,20 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
         }
       }}
     >
-      {/* Drag handle — desktop only */}
+      {/* Drag handle — desktop only. When drag is disabled (non-AI sort), pointerdown
+          intercepts and asks the list to switch sort instead of starting a drag. */}
       <button
-        {...(isMobile ? {} : listeners)}
-        className="hidden md:block mt-1 p-0.5 opacity-0 group-hover:opacity-40 hover:!opacity-100 cursor-grab active:cursor-grabbing text-muted-foreground transition-opacity"
+        {...(!isMobile && dragEnabled ? listeners : {})}
+        className={cn(
+          'hidden md:block mt-1 p-0.5 opacity-0 group-hover:opacity-40 hover:!opacity-100 text-muted-foreground transition-opacity',
+          dragEnabled ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
+        )}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
+        onPointerDown={dragEnabled ? undefined : (e) => {
+          e.stopPropagation();
+          onDragIntercept?.(task.id);
+        }}
       >
         <GripVertical size={12} />
       </button>
@@ -330,6 +350,30 @@ export function TaskRow({ task, onComplete, onUpdate, onSnooze, onArchive, onOpe
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
+            {onPickBucket && (
+              <>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="text-xs">
+                    <ArrowUpDown size={12} className="mr-2" /> Priority
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-32">
+                    {BUCKET_OPTIONS.map(opt => (
+                      <DropdownMenuItem
+                        key={opt.value}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPickBucket(task.id, opt.value);
+                        }}
+                        className="text-xs"
+                      >
+                        {opt.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem onClick={() => onSnooze(task.id, 1)} className="text-xs">
               <Timer size={12} className="mr-2" /> Snooze 1 day
             </DropdownMenuItem>

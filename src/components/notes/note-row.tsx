@@ -12,7 +12,6 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { AreaSelect } from '@/components/shared/area-select';
-import { TagEditor } from '@/components/shared/tag-editor';
 import { TaskPicker } from '@/components/shared/task-picker';
 import { cn } from '@/lib/utils';
 import type { NoteRecord } from '@/db/types';
@@ -110,11 +109,6 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
               <ExternalLink size={8} /> Link
             </a>
           )}
-
-          <TagEditor
-            tags={note.context_tags ?? []}
-            onChange={(tags) => onUpdate(note.id, 'context_tags', tags)}
-          />
         </div>
       </div>
 

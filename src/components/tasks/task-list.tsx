@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   DndContext,
@@ -19,6 +19,8 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { generateKeyBetween } from 'fractional-indexing';
+import { tasksApi } from '@/lib/api/tasks';
+import { backfillSortKeys, computeBucketPlacement, type Bucket } from '@/lib/utils/bucket-placement';
 import { Target, Filter, ArrowDownAz, Loader2, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTasks, useUpdateTask, useCompleteTask } from '@/hooks/use-tasks';
@@ -40,6 +42,14 @@ import type { TaskStatus, Energy, TaskListRecord } from '@/db/types';
 
 type SortOption = 'sort_key' | 'last_viewed_at' | 'hard_deadline' | 'created_at' | 'updated_at';
 
+const SORT_LABELS: Record<SortOption, string> = {
+  sort_key: 'Priority Order',
+  last_viewed_at: 'Last viewed',
+  hard_deadline: 'Deadline',
+  created_at: 'Created',
+  updated_at: 'Updated',
+};
+
 export function TaskList() {
   const { theme, openTask } = useDashboard();
   const isDark = theme === 'dark';
@@ -47,7 +57,22 @@ export function TaskList() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('active');
   const [energyFilter, setEnergyFilter] = useState<Energy | 'all'>('all');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
-  const [sortBy, setSortBy] = useState<SortOption>('sort_key');
+  const [sortBy, setSortBy] = useState<SortOption>('last_viewed_at');
+  const [switchedFromSort, setSwitchedFromSort] = useState<SortOption | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  const dismissSwitchBanner = useCallback(() => {
+    setSwitchedFromSort(null);
+    setHighlightId(null);
+  }, []);
+
+  // Highlight is transient feedback ("here's where it went"), not selection state.
+  // Auto-clear so it doesn't read as a stuck/error state.
+  useEffect(() => {
+    if (!highlightId) return;
+    const t = setTimeout(() => setHighlightId(null), 4000);
+    return () => clearTimeout(t);
+  }, [highlightId]);
 
   const filter = {
     ...(statusFilter !== 'all' ? { status: statusFilter as TaskStatus } : {}),
@@ -99,38 +124,98 @@ export function TaskList() {
     updateTask.mutate({ id, status: 'archived' } as Parameters<typeof updateTask.mutate>[0]);
   }, [updateTask]);
 
+  const handleDragIntercept = useCallback((taskId: string) => {
+    if (sortBy === 'sort_key') return;
+    setSwitchedFromSort(sortBy);
+    setSortBy('sort_key');
+    setHighlightId(taskId);
+  }, [sortBy]);
+
+  const handleSwitchBack = useCallback(() => {
+    if (!switchedFromSort) return;
+    setSortBy(switchedFromSort);
+    dismissSwitchBanner();
+  }, [switchedFromSort, dismissSwitchBanner]);
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id || !tasks) return;
+    if (sortBy !== 'sort_key') return;
 
     const oldIndex = tasks.findIndex(t => t.id === active.id);
     const newIndex = tasks.findIndex(t => t.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    // Optimistic reorder in cache
-    const reordered = arrayMove([...tasks], oldIndex, newIndex);
+    // Backfill any null sort_keys in the visible order. Tasks are created without a
+    // sort_key; without this, generateKeyBetween(null, null) returns 'a0' which sorts
+    // ahead of every keyed task and the dragged item jumps to the top.
+    const normalized = backfillSortKeys(tasks);
+    const normalizationPatches: { id: string; sort_key: string }[] = [];
+    for (let i = 0; i < tasks.length; i++) {
+      if (tasks[i].sort_key !== normalized[i].sort_key) {
+        normalizationPatches.push({ id: tasks[i].id, sort_key: normalized[i].sort_key! });
+      }
+    }
 
-    // Compute new sort_key between neighbors in the reordered array
+    // Reorder using the normalized (fully-keyed) list.
+    const reordered = arrayMove(normalized, oldIndex, newIndex);
+
+    // Compute the moved item's new key from its now-non-null neighbors.
     const movedIdx = newIndex;
     const prevKey = movedIdx > 0 ? reordered[movedIdx - 1].sort_key : null;
     const nextKey = movedIdx < reordered.length - 1 ? reordered[movedIdx + 1].sort_key : null;
-    const newKey = generateKeyBetween(prevKey ?? null, nextKey ?? null);
+    const newKey = generateKeyBetween(prevKey, nextKey);
 
-    // Apply optimistic update
     reordered[movedIdx] = { ...reordered[movedIdx], sort_key: newKey };
     const previousData = queryClient.getQueryData(queryKey);
     queryClient.setQueryData(queryKey, reordered);
 
-    // PATCH in background, revert on error
-    updateTask.mutate(
-      { id: active.id as string, sort_key: newKey } as Parameters<typeof updateTask.mutate>[0],
-      {
-        onError: () => {
-          queryClient.setQueryData(queryKey, previousData);
-        },
-      },
-    );
-  }, [tasks, updateTask, queryClient, queryKey]);
+    // Fire all PATCHes in parallel: normalization fixes for previously-null tasks,
+    // plus the moved item's new key. Bypass the mutation hook so we don't trigger
+    // N invalidations; we invalidate once at the end.
+    const movedPatch = { id: active.id as string, sort_key: newKey };
+    const allPatches = [
+      ...normalizationPatches.filter(p => p.id !== movedPatch.id),
+      movedPatch,
+    ];
+
+    Promise.all(allPatches.map(p => tasksApi.update(p.id, { sort_key: p.sort_key })))
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      })
+      .catch(() => {
+        queryClient.setQueryData(queryKey, previousData);
+      });
+  }, [tasks, queryClient, queryKey, sortBy]);
+
+  const handlePickBucket = useCallback((taskId: string, bucket: Bucket) => {
+    if (!tasks) return;
+    const placement = computeBucketPlacement(tasks, taskId, bucket);
+    if (!placement) return;
+
+    // If we're not in Priority Order, switch to it so the gesture's effect is visible.
+    if (sortBy !== 'sort_key') {
+      setSwitchedFromSort(sortBy);
+      setSortBy('sort_key');
+      setHighlightId(taskId);
+    } else {
+      setHighlightId(taskId);
+    }
+
+    // Optimistic cache update against the priority-ordered query.
+    const priorityKey = ['tasks', { ...filter, order_by: 'sort_key' as const }];
+    const previousData = queryClient.getQueryData(priorityKey);
+    queryClient.setQueryData(priorityKey, placement.reordered);
+
+    const allPatches = [...placement.normalizationPatches, placement.movedPatch];
+    Promise.all(allPatches.map(p => tasksApi.update(p.id, { sort_key: p.sort_key })))
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      })
+      .catch(() => {
+        queryClient.setQueryData(priorityKey, previousData);
+      });
+  }, [tasks, sortBy, filter, queryClient]);
 
   return (
     <div className="flex flex-col h-full">
@@ -144,7 +229,7 @@ export function TaskList() {
           {(['active', 'done', 'archived', 'all'] as const).map((s) => (
             <button
               key={s}
-              onClick={() => setStatusFilter(s)}
+              onClick={() => { setStatusFilter(s); dismissSwitchBanner(); }}
               className={cn(
                 'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all',
                 statusFilter === s
@@ -162,7 +247,7 @@ export function TaskList() {
           {(['all', 'deep', 'light'] as const).map((e) => (
             <button
               key={e}
-              onClick={() => setEnergyFilter(e)}
+              onClick={() => { setEnergyFilter(e); dismissSwitchBanner(); }}
               className={cn(
                 'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all',
                 energyFilter === e
@@ -187,7 +272,7 @@ export function TaskList() {
               <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Status</DropdownMenuLabel>
               <DropdownMenuRadioGroup
                 value={statusFilter}
-                onValueChange={(v) => setStatusFilter(v as TaskStatus | 'all')}
+                onValueChange={(v) => { setStatusFilter(v as TaskStatus | 'all'); dismissSwitchBanner(); }}
               >
                 <DropdownMenuRadioItem value="active" className="text-xs">Active</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="done" className="text-xs">Done</DropdownMenuRadioItem>
@@ -198,7 +283,7 @@ export function TaskList() {
               <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Energy</DropdownMenuLabel>
               <DropdownMenuRadioGroup
                 value={energyFilter}
-                onValueChange={(v) => setEnergyFilter(v as Energy | 'all')}
+                onValueChange={(v) => { setEnergyFilter(v as Energy | 'all'); dismissSwitchBanner(); }}
               >
                 <DropdownMenuRadioItem value="all" className="text-xs">All energies</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="deep" className="text-xs">Deep</DropdownMenuRadioItem>
@@ -207,7 +292,7 @@ export function TaskList() {
               <DropdownMenuSeparator />
             </div>
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Area</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={areaFilter} onValueChange={setAreaFilter}>
+            <DropdownMenuRadioGroup value={areaFilter} onValueChange={(v) => { setAreaFilter(v); dismissSwitchBanner(); }}>
               <DropdownMenuRadioItem value="all" className="text-xs">All areas</DropdownMenuRadioItem>
               <DropdownMenuSeparator />
               {areas?.map(area => (
@@ -228,9 +313,9 @@ export function TaskList() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-              <DropdownMenuRadioItem value="sort_key" className="text-xs">AI order</DropdownMenuRadioItem>
+            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => { setSortBy(v as SortOption); dismissSwitchBanner(); }}>
               <DropdownMenuRadioItem value="last_viewed_at" className="text-xs">Last viewed</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="sort_key" className="text-xs">Priority Order</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="hard_deadline" className="text-xs">Deadline</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="created_at" className="text-xs">Created</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="updated_at" className="text-xs">Updated</DropdownMenuRadioItem>
@@ -248,6 +333,21 @@ export function TaskList() {
         </button>
       </div>
 
+      {/* Sort-switch banner — sticky above the scroll area, inverted for emphasis */}
+      {switchedFromSort && (
+        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-primary text-primary-foreground text-[11px] font-medium flex-shrink-0 shadow-sm">
+          <span>
+            Switched to <span className="font-bold">Priority Order</span> so you can reorder.
+          </span>
+          <button
+            onClick={handleSwitchBack}
+            className="px-2.5 py-1 rounded bg-primary-foreground/15 hover:bg-primary-foreground/25 text-primary-foreground text-[10px] font-semibold uppercase tracking-wider transition-colors"
+          >
+            Back to {SORT_LABELS[switchedFromSort]}
+          </button>
+        </div>
+      )}
+
       {/* Task list */}
       <VirtualTaskList
         tasks={tasks}
@@ -260,6 +360,10 @@ export function TaskList() {
         onSnooze={handleSnooze}
         onArchive={handleArchive}
         onOpen={openTask}
+        dragEnabled={sortBy === 'sort_key'}
+        highlightId={highlightId}
+        onDragIntercept={handleDragIntercept}
+        onPickBucket={handlePickBucket}
       />
     </div>
   );
@@ -278,11 +382,16 @@ interface VirtualTaskListProps {
   onSnooze: (id: string, days: number) => void;
   onArchive: (id: string) => void;
   onOpen: (id: string) => void;
+  dragEnabled: boolean;
+  highlightId: string | null;
+  onDragIntercept: (id: string) => void;
+  onPickBucket: (id: string, bucket: Bucket) => void;
 }
 
 function VirtualTaskList({
   tasks, isLoading, error, sensors, onDragEnd,
   onComplete, onUpdate, onSnooze, onArchive, onOpen,
+  dragEnabled, highlightId, onDragIntercept, onPickBucket,
 }: VirtualTaskListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -293,6 +402,21 @@ function VirtualTaskList({
     overscan: 10,
     getItemKey: (index) => tasks?.[index]?.id ?? index,
   });
+
+  // Scroll to + reveal the highlighted task once it's in the new sorted list
+  const lastScrolledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!highlightId) {
+      lastScrolledRef.current = null;
+      return;
+    }
+    if (!tasks || lastScrolledRef.current === highlightId) return;
+    const idx = tasks.findIndex(t => t.id === highlightId);
+    if (idx >= 0) {
+      virtualizer.scrollToIndex(idx, { align: 'center' });
+      lastScrolledRef.current = highlightId;
+    }
+  }, [highlightId, tasks, virtualizer]);
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
@@ -340,6 +464,10 @@ function VirtualTaskList({
                       onSnooze={onSnooze}
                       onArchive={onArchive}
                       onOpen={onOpen}
+                      dragEnabled={dragEnabled}
+                      isHighlighted={task.id === highlightId}
+                      onDragIntercept={onDragIntercept}
+                      onPickBucket={onPickBucket}
                     />
                   </div>
                 );

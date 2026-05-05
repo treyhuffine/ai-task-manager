@@ -5,11 +5,18 @@ import { Dialog } from 'radix-ui'
 import {
   X, Trash2, MoreHorizontal, Archive, Check,
   Clock, Timer, Flame, Zap, Lock, Repeat, Sparkles,
-  ChevronLeft, Maximize2,
+  ChevronLeft, ChevronDown, Maximize2,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useTask, useUpdateTask, useDeleteTask, useCompleteTask } from '@/hooks/use-tasks'
+import { useTask, useTasks, useUpdateTask, useDeleteTask, useCompleteTask } from '@/hooks/use-tasks'
+import { useQueryClient } from '@tanstack/react-query'
 import { useDashboard } from '@/contexts/dashboard-context'
+import { tasksApi } from '@/lib/api/tasks'
+import {
+  BUCKET_OPTIONS,
+  computeBucketPlacement,
+  type Bucket,
+} from '@/lib/utils/bucket-placement'
 import { HOTKEYS, matchesHotkey } from '@/constants/commands'
 import { RichEditor } from '@/components/editor/rich-editor'
 import { SubtaskSection } from './subtask-section'
@@ -59,6 +66,11 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const completeTask = useCompleteTask()
   const chat = useDocumentChat('task', task ?? null)
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
+
+  // Global priority-ordered list, used to compute bucket placement and the position readout.
+  const priorityFilter = { status: 'active' as const, order_by: 'sort_key' as const }
+  const { data: priorityList } = useTasks(priorityFilter)
+  const queryClient = useQueryClient()
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
@@ -148,6 +160,39 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     },
     [taskId, updateTask]
   )
+
+  const handlePickBucket = useCallback(
+    (bucket: Bucket) => {
+      if (!taskId || !priorityList) return
+      const placement = computeBucketPlacement(priorityList, taskId, bucket)
+      if (!placement) return
+
+      const priorityKey = ['tasks', priorityFilter]
+      const previousData = queryClient.getQueryData(priorityKey)
+      queryClient.setQueryData(priorityKey, placement.reordered)
+
+      const allPatches = [...placement.normalizationPatches, placement.movedPatch]
+      Promise.all(allPatches.map(p => tasksApi.update(p.id, { sort_key: p.sort_key })))
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ['tasks'] })
+        })
+        .catch(() => {
+          queryClient.setQueryData(priorityKey, previousData)
+        })
+    },
+    [taskId, priorityList, queryClient, priorityFilter]
+  )
+
+  const positionInfo = (() => {
+    if (!taskId || !priorityList || priorityList.length === 0) return null
+    const idx = priorityList.findIndex(t => t.id === taskId)
+    if (idx === -1) return null
+    return {
+      index: idx,
+      total: priorityList.length,
+      hasKey: priorityList[idx].sort_key !== null,
+    }
+  })()
 
   const handleTitleInput = useCallback(
     (e: React.FormEvent<HTMLTextAreaElement>) => {
@@ -473,6 +518,42 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                             {opt.label}
                           </button>
                         ))}
+                      </div>
+
+                      {/* Priority — bucket is a gesture (one-time nudge), not state */}
+                      <span className="text-muted-foreground font-medium">Priority</span>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-foreground/80 text-[12px] font-medium">
+                            {!positionInfo
+                              ? 'Loading…'
+                              : positionInfo.hasKey
+                              ? `Ranked #${positionInfo.index + 1} of ${positionInfo.total}`
+                              : 'Not yet ranked'}
+                          </span>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors">
+                                {positionInfo?.hasKey ? 'Move' : 'Place'}
+                                <ChevronDown size={10} />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-32">
+                              {BUCKET_OPTIONS.map((opt) => (
+                                <DropdownMenuItem
+                                  key={opt.value}
+                                  onClick={() => handlePickBucket(opt.value)}
+                                  className="text-xs"
+                                >
+                                  {opt.label}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/60 leading-snug">
+                          Drop into a rough bucket so AI has a starting point for weighing this against other tasks. The system can refine from there.
+                        </span>
                       </div>
 
                       {/* Deadline */}
