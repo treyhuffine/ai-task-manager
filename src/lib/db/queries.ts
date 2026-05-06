@@ -4,9 +4,13 @@
  */
 
 import { getDb, getRawDb } from '@/lib/db';
-import { tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys } from '@/lib/db/schema';
+import {
+  tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
+  workspaces, agents, chatSessions, chatEvents,
+} from '@/lib/db/schema';
 import { eq, and, desc, asc, sql, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
+import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 import { syncEntity, syncDeletion } from '@/lib/export/mirror';
 import type {
@@ -18,7 +22,12 @@ import type {
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   Attachment,
+  WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus,
+  AgentRecord, CreateAgentInput,
+  ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
+  ChatEventRecord, CreateChatEventInput, ChatEventSource,
 } from '@/db/types';
+import { OUTCOME_SOURCES } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
 
@@ -611,4 +620,333 @@ export function touchApiKey(
     })
     .where(eq(apiKeys.id, id))
     .run();
+}
+
+// ─── Workspaces ───────────────────────────────────────────────
+
+/**
+ * Derive a unique slug from `name`, appending `-2`, `-3`, ... until free.
+ * Slug is used in branch names and worktree paths so we want it kebab-cased
+ * and DB-unique. Empty input falls back to `workspace`.
+ */
+function deriveUniqueWorkspaceSlug(name: string): string {
+  const db = getDb();
+  const base = slugify(name) || 'workspace';
+  let candidate = base;
+  let suffix = 2;
+  while (db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.slug, candidate)).get()) {
+    candidate = `${base}-${suffix++}`;
+  }
+  return candidate;
+}
+
+/**
+ * Workspaces with aggregated session counts. Single SQL avoids N+1 over the
+ * left-nav render path. `needs_review_candidate_count` is the candidate set
+ * before runtime streaming filtering — the client subtracts streaming
+ * sessions to get the rendered count.
+ */
+export function listWorkspaces(filter: { status?: WorkspaceStatus } = {}): WorkspaceWithCounts[] {
+  const db = getDb();
+  const status = filter.status ?? 'active';
+
+  const rows = db
+    .select({
+      ...getTableColumns(workspaces),
+      session_count: sql<number>`(
+        SELECT COUNT(*) FROM chat_sessions cs
+        WHERE cs.workspace_id = ${sql.raw('"workspaces"."id"')} AND cs.status = 'active'
+      )`.as('session_count'),
+      needs_review_candidate_count: sql<number>`(
+        SELECT COUNT(*) FROM chat_sessions cs
+        WHERE cs.workspace_id = ${sql.raw('"workspaces"."id"')}
+          AND cs.status = 'active'
+          AND cs.last_outcome_event_at IS NOT NULL
+          AND cs.last_outcome_event_at > COALESCE(cs.last_viewed_at, '1970-01-01')
+      )`.as('needs_review_candidate_count'),
+      active_session_count: sql<number>`(
+        SELECT COUNT(*) FROM chat_sessions cs
+        WHERE cs.workspace_id = ${sql.raw('"workspaces"."id"')} AND cs.status = 'active'
+      )`.as('active_session_count'),
+    })
+    .from(workspaces)
+    .where(eq(workspaces.status, status))
+    .orderBy(asc(workspaces.position), asc(workspaces.created_at))
+    .all();
+
+  return rows;
+}
+
+export function getWorkspace(id: string): WorkspaceRecord | undefined {
+  const db = getDb();
+  return db.select().from(workspaces).where(eq(workspaces.id, id)).get();
+}
+
+/**
+ * Create a workspace. Caller is responsible for filesystem detection
+ * (`is_git`, `base_branch`) — we don't shell out from the query layer.
+ * If `slug` is omitted we derive a unique one from `name`.
+ * `position` defaults to MAX(position)+1 so new workspaces appear at the end.
+ */
+export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { slug?: string }): WorkspaceRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const slug = input.slug ?? deriveUniqueWorkspaceSlug(input.name);
+
+  const maxPosition = db
+    .select({ max: sql<number | null>`MAX(${workspaces.position})` })
+    .from(workspaces)
+    .get();
+  const position = input.position ?? ((maxPosition?.max ?? -1) + 1);
+
+  const row = db
+    .insert(workspaces)
+    .values({
+      ...input,
+      id: uuidv7(),
+      slug,
+      position,
+      status: input.status ?? 'active',
+      created_at: now,
+      updated_at: now,
+    })
+    .returning()
+    .get();
+  return row;
+}
+
+export function updateWorkspace(id: string, input: UpdateWorkspaceInput): WorkspaceRecord | null {
+  const db = getDb();
+  const row = db
+    .update(workspaces)
+    .set({ ...input, updated_at: new Date().toISOString() })
+    .where(eq(workspaces.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+export function archiveWorkspace(id: string): WorkspaceRecord | null {
+  const now = new Date().toISOString();
+  const db = getDb();
+  const row = db
+    .update(workspaces)
+    .set({ status: 'archived', archived_at: now, updated_at: now })
+    .where(eq(workspaces.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+/**
+ * Reorder by replaying the requested order — simple integer reassignment
+ * is fine at this scale. Wrapped in a transaction so a partial write can't
+ * leave the list with duplicate positions.
+ */
+export function reorderWorkspaces(orderedIds: string[]): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.transaction((tx) => {
+    orderedIds.forEach((id, index) => {
+      tx.update(workspaces)
+        .set({ position: index, updated_at: now })
+        .where(eq(workspaces.id, id))
+        .run();
+    });
+  });
+}
+
+// ─── Agents ───────────────────────────────────────────────────
+
+export function getAgent(id: string): AgentRecord | undefined {
+  const db = getDb();
+  return db.select().from(agents).where(eq(agents.id, id)).get();
+}
+
+export function createAgent(input: CreateAgentInput): AgentRecord {
+  const db = getDb();
+  const row = db
+    .insert(agents)
+    .values({
+      ...input,
+      id: uuidv7(),
+      status: input.status ?? 'active',
+    })
+    .returning()
+    .get();
+  return row;
+}
+
+/**
+ * Find or create the default executor agent for a harness. Sessions point
+ * at an agent_id; until per-workspace agents are a real product surface we
+ * collapse all executor sessions onto a single shared agent per harness.
+ */
+export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(agents)
+    .where(and(eq(agents.kind, 'executor'), eq(agents.harness, harness), eq(agents.status, 'active')))
+    .orderBy(asc(agents.created_at))
+    .limit(1)
+    .get();
+  if (existing) return existing;
+  return createAgent({
+    kind: 'executor',
+    harness,
+    name: harness === 'claude_code' ? 'Claude Code' : harness,
+    config: {},
+  });
+}
+
+// ─── Chat Sessions ────────────────────────────────────────────
+
+export function listChatSessions(filter: {
+  workspace_id?: string;
+  status?: 'active' | 'archived';
+  type?: 'orchestration' | 'content' | 'execution';
+} = {}): ChatSessionRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.workspace_id) conditions.push(eq(chatSessions.workspace_id, filter.workspace_id));
+  if (filter.status) conditions.push(eq(chatSessions.status, filter.status));
+  if (filter.type) conditions.push(eq(chatSessions.type, filter.type));
+  return db
+    .select()
+    .from(chatSessions)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .all();
+}
+
+export function getChatSession(id: string): ChatSessionRecord | undefined {
+  const db = getDb();
+  return db.select().from(chatSessions).where(eq(chatSessions.id, id)).get();
+}
+
+export function createChatSession(input: CreateChatSessionInput & { id?: string }): ChatSessionRecord {
+  const db = getDb();
+  const row = db
+    .insert(chatSessions)
+    .values({
+      ...input,
+      id: input.id ?? uuidv7(),
+      status: input.status ?? 'active',
+      refs: input.refs ?? {},
+    })
+    .returning()
+    .get();
+  return row;
+}
+
+export function updateChatSession(id: string, input: UpdateChatSessionInput): ChatSessionRecord | null {
+  const db = getDb();
+  const row = db
+    .update(chatSessions)
+    .set(input)
+    .where(eq(chatSessions.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+export function archiveChatSession(id: string): ChatSessionRecord | null {
+  return updateChatSession(id, { status: 'archived', archived_at: new Date().toISOString() });
+}
+
+/**
+ * Create a new execution session in a workspace. Auto-resolves the default
+ * executor agent (currently Claude Code) so callers don't have to pass an
+ * agent_id. Worktree creation is deferred to the actual dispatch path —
+ * this just lands the row so the rail surfaces it.
+ *
+ * Label is optional; null/empty means "derive from first message."
+ */
+export function createExecutionSession(args: {
+  workspace_id: string;
+  label?: string | null;
+  harness?: string;
+}): ChatSessionRecord {
+  const agent = getOrCreateDefaultExecutor(args.harness ?? 'claude_code');
+  return createChatSession({
+    agent_id: agent.id,
+    type: 'execution',
+    workspace_id: args.workspace_id,
+    label: args.label?.trim() || null,
+    refs: {},
+  });
+}
+
+/** Set last_viewed_at = now(). Opening the session is the read receipt. */
+export function markSessionViewed(id: string): ChatSessionRecord | null {
+  return updateChatSession(id, { last_viewed_at: new Date().toISOString() });
+}
+
+/** Advance the outcome timestamp. Called when an `agent`/`result` event lands. */
+export function bumpSessionOutcome(id: string, at: string = new Date().toISOString()): void {
+  const db = getDb();
+  db.update(chatSessions)
+    .set({ last_outcome_event_at: at })
+    .where(eq(chatSessions.id, id))
+    .run();
+}
+
+/**
+ * Sessions where the user owes the agent attention. Streaming filtering is
+ * the caller's job — we return candidates so the client can subtract any
+ * sessions currently piping live stdio.
+ */
+export function listNeedsReviewSessionCandidates(): ChatSessionRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(chatSessions)
+    .where(
+      and(
+        eq(chatSessions.status, 'active'),
+        isNotNull(chatSessions.last_outcome_event_at),
+        sql`${chatSessions.last_outcome_event_at} > COALESCE(${chatSessions.last_viewed_at}, '1970-01-01')`,
+      ),
+    )
+    .orderBy(desc(chatSessions.last_outcome_event_at))
+    .all();
+}
+
+// ─── Chat Events ──────────────────────────────────────────────
+
+/**
+ * Idempotent insert for CLI-backed events (executor sessions). Replays of
+ * the same wire event produce the same row values; the partial unique
+ * index turns retries into no-ops. Bumps the session's outcome timestamp
+ * when the event is user-visible (agent text, result).
+ *
+ * Returns null when the row was a duplicate. Returns the row id otherwise.
+ */
+export function insertChatEvent(input: CreateChatEventInput): string | null {
+  const db = getDb();
+  const id = uuidv7();
+  const result = db
+    .insert(chatEvents)
+    .values({ ...input, id })
+    .onConflictDoNothing()
+    .run();
+  if (result.changes === 0) return null;
+
+  if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
+    bumpSessionOutcome(input.session_id, input.created_at ?? new Date().toISOString());
+  }
+  return id;
+}
+
+export function listChatEvents(sessionId: string, opts: { limit?: number; offset?: number } = {}): ChatEventRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(chatEvents)
+    .where(eq(chatEvents.session_id, sessionId))
+    .orderBy(asc(chatEvents.created_at), asc(chatEvents.id))
+    .limit(opts.limit ?? 1000)
+    .offset(opts.offset ?? 0)
+    .all();
 }

@@ -4,7 +4,7 @@ import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DefaultChatTransport } from 'ai'
-import { MessageSquare, X, Send, Sparkles, Square, Loader2, Wrench, Mic } from 'lucide-react'
+import { MessageSquare, X, ArrowUp, Sparkles, Square, Loader2, Wrench, Mic } from 'lucide-react'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { cn } from '@/lib/utils'
 import {
@@ -244,7 +244,9 @@ function ChatPanel({
             target.style.height = Math.min(target.scrollHeight, 96) + 'px'
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // Enter submits. Shift+Enter and Alt/Option+Enter insert
+            // newlines so users can compose multi-line prompts naturally.
+            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
               e.preventDefault()
               if (isStreaming) {
                 stop()
@@ -287,7 +289,7 @@ function ChatPanel({
             disabled={!isStreaming && (!input.trim() || disabled)}
             aria-label={isStreaming ? 'Stop' : 'Send message'}
           >
-            {isStreaming ? <Square size={14} /> : <Send size={14} />}
+            {isStreaming ? <Square size={14} /> : <ArrowUp size={14} />}
           </button>
         </div>
       </div>

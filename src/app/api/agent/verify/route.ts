@@ -1,15 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getProvider, clearAuthCache } from '@agentex/agent';
+import { CHEAPEST_MODEL } from '@/lib/executor/harness';
 
 const ALLOWED = new Set(['claude', 'codex']);
-
-// Hardcoded cheap/fast models per harness. We own this list — agentex
-// doesn't curate models, and listModels() is no longer offered by any
-// provider since no CLI exposes a non-interactive listing.
-const CHEAPEST_MODEL: Record<string, string> = {
-  claude: 'haiku',
-  codex: 'gpt-5.4-mini',
-};
 
 export interface AgentVerifyResponse {
   ok: boolean;

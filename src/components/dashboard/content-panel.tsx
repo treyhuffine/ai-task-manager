@@ -2,7 +2,7 @@
 
 import {
   Layers, ChevronDown,
-  Send, Users, Gavel, Calendar,
+  Users, Gavel, Calendar, ArrowUp,
   Mic, Square, MessageSquare, Loader2, Pencil, X,
   Zap, Radar, Shuffle, Clock, AlertCircle, Battery, Trophy, TrendingDown, MoreHorizontal,
   Wrench, Check, XCircle, AudioLines,
@@ -205,7 +205,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const pendingVoiceSendRef = useRef(false);
 
   const voice = useVoiceInput();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const micButtonRef = useRef<HTMLButtonElement>(null);
   const [showUnsupportedHint, setShowUnsupportedHint] = useState(false);
 
@@ -248,6 +248,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
     if (!text) return;
     sendMessage({ text });
     setInput('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
   }, [input, sendMessage]);
 
   const handleQuickAction = useCallback((message: string) => {
@@ -307,14 +308,17 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [moreActionsOpen]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter submits. Shift+Enter and Alt/Option+Enter insert newlines so
+    // users can compose multi-line prompts without losing what they typed.
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       if (isStreaming) {
         stop();
       } else if (input.trim()) {
         sendMessage({ text: input.trim() });
         setInput('');
+        if (inputRef.current) inputRef.current.style.height = 'auto';
       }
     }
   };
@@ -513,7 +517,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                   className="w-7 h-7 rounded-md flex items-center justify-center bg-primary text-primary-foreground active:scale-95 transition-all"
                   title="Send"
                 >
-                  <Send size={14} />
+                  <ArrowUp size={14} />
                 </button>
               </div>
             </div>
@@ -587,21 +591,28 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
         {/* Text input */}
         <form onSubmit={handleSubmit} className="relative group">
           <div className="pointer-events-none absolute -inset-0.5 bg-primary/15 rounded-xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity" />
-          <div className="relative bg-card border border-border rounded-xl p-1 flex items-center gap-2 focus-within:border-primary/30 transition-all">
-            <input
+          <div className="relative bg-card border border-border rounded-xl p-1 flex items-start gap-2 focus-within:border-primary/30 transition-all">
+            <textarea
               ref={inputRef}
-              type="text"
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onInput={(e) => {
+                // Auto-resize: shrink to content, capped at ~6 lines (160px).
+                const t = e.currentTarget;
+                t.style.height = 'auto';
+                t.style.height = Math.min(t.scrollHeight, 160) + 'px';
+              }}
               onKeyDown={handleKeyDown}
               placeholder="Execute your plan..."
-              className="flex-1 bg-transparent border-none outline-none text-base md:text-sm py-2 pl-2 placeholder:text-muted-foreground"
+              className="flex-1 bg-transparent border-none outline-none text-base md:text-sm py-2 pl-2 placeholder:text-muted-foreground resize-none leading-snug"
+              style={{ minHeight: 36, maxHeight: 160 }}
             />
             {isStreaming ? (
               <button
                 type="button"
                 onClick={stop}
-                className="w-9 h-9 rounded-lg flex items-center justify-center bg-destructive text-destructive-foreground transition-all active:scale-95"
+                className="w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground transition-all active:scale-95"
               >
                 <Square size={14} />
               </button>
@@ -610,13 +621,13 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                 type="submit"
                 disabled={!input.trim()}
                 className={cn(
-                  'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
+                  'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all',
                   input.trim()
                     ? 'bg-primary text-primary-foreground active:scale-95'
                     : isDark ? 'bg-secondary text-muted-foreground' : 'bg-muted text-muted-foreground'
                 )}
               >
-                <Send size={16} />
+                <ArrowUp size={16} />
               </button>
             )}
           </div>

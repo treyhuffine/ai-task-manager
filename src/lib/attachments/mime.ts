@@ -23,6 +23,8 @@ export const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   'image/avif',
   'image/heic',
   'image/heif',
+  'image/x-icon',
+  'image/vnd.microsoft.icon',
   // Audio (captures + user uploads)
   'audio/webm',
   'audio/ogg',
@@ -49,6 +51,8 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/avif': 'avif',
   'image/heic': 'heic',
   'image/heif': 'heif',
+  'image/vnd.microsoft.icon': 'ico',
+  'image/x-icon': 'ico',
   'audio/webm': 'webm',
   'audio/ogg': 'ogg',
   'audio/mpeg': 'mp3',

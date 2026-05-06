@@ -387,6 +387,8 @@ Adapter responsibilities (on top of agentex):
 
 v1 ships one adapter: Claude Code. Codex is the next adapter and its spec is documented below so we know the interface survives it. In-app sessions (orchestration, content) skip the adapter layer entirely — those are direct API calls whose events we write to `chat_events` directly.
 
+**Where events get written: keep the seam clean (`EventWriter`).** The adapter doesn't call `insertChatEvent` directly. It takes an `EventWriter` interface (`write(event): Promise<void>`) and routes all `chat_events` writes through it. v1 has one implementation — a one-liner that calls `insertChatEvent` — so behavior is identical to writing inline. The reason for the parameter is forward-compatibility with cross-machine execution: when a laptop runs an executor as a client of a canonical server (see `docs/workspaces-spec.md` §"Deferred: cross-machine execution"), the same adapter swaps in an `HttpEventWriter` that POSTs events to the canonical API. Same parsing, same error handling, different write path. Cost today is ~10 lines; cost of retrofitting later is rewriting the adapter's inner loop, so we pay it now.
+
 **Streaming granularity is block-level, not token-level in v1.** Agentex emits a complete assistant StreamEvent when a message block finishes; it currently drops Codex's `item/agentMessage/delta` notifications. The UX is "agent starts thinking → brief pause → full response appears" rather than typewriter-style word-by-word. For a task-oriented product this is fine. If we later want typewriter UX, agentex adds a `delta` StreamEvent variant and we add handling; not a schema change. Documented so expectations are set.
 
 ### The Claude Code adapter, concretely

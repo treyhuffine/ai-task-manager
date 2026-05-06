@@ -22,7 +22,14 @@ import {
   listNotes,
   getNote,
   createNote,
+  listWorkspaces,
+  getWorkspace,
+  createWorkspace,
+  archiveWorkspace,
+  listChatSessions,
 } from '@/lib/db/queries';
+import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
+import path from 'node:path';
 import {
   getAppRoot,
   getBrainDir,
@@ -213,6 +220,90 @@ const create_note_action = defineAction({
   handler: (_ctx, input) => createNote(input),
 });
 
+// ── Workspaces ────────────────────────────────────────────────
+
+const workspaceStatus = z.enum(['active', 'archived']);
+
+const list_workspaces_action = defineAction({
+  name: 'list_workspaces',
+  description: 'List workspaces with aggregated session counts. Default filter is active.',
+  params: {
+    status: workspaceStatus.optional(),
+  },
+  handler: (_ctx, { status }) => listWorkspaces({ status }),
+});
+
+const get_workspace_action = defineAction({
+  name: 'get_workspace',
+  description: 'Fetch a single workspace by id.',
+  params: { id: z.string().min(1) },
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const ws = getWorkspace(id);
+    if (!ws) throw new ActionError('not_found', `Workspace not found: ${id}`);
+    return ws;
+  },
+});
+
+const create_workspace_action = defineAction({
+  name: 'create_workspace',
+  description:
+    'Create a workspace tied to a folder on disk. Git is auto-detected; for git repos the base branch is resolved from <remote>/HEAD with main/master fallback.',
+  params: {
+    name: z.string().min(1),
+    cwd: z.string().min(1),
+    emoji: z.string().nullable().optional(),
+    area_id: z.string().nullable().optional(),
+    base_branch: z.string().nullable().optional(),
+    remote_name: z.string().optional(),
+    worktree_root: z.string().nullable().optional(),
+  },
+  mutating: true,
+  handler: async (_ctx, input) => {
+    const cwd = path.resolve(input.cwd);
+    const isGit = await detectIsGit(cwd);
+    const baseBranch = isGit
+      ? input.base_branch ?? (await detectBaseBranch(cwd, input.remote_name ?? 'origin'))
+      : null;
+    return createWorkspace({
+      name: input.name,
+      emoji: input.emoji ?? null,
+      cwd,
+      is_git: isGit,
+      base_branch: baseBranch,
+      remote_name: isGit ? input.remote_name ?? 'origin' : null,
+      worktree_root: isGit ? input.worktree_root ?? defaultWorktreeRoot(input.name) : null,
+      area_id: input.area_id ?? null,
+      status: 'active',
+    });
+  },
+});
+
+const archive_workspace_action = defineAction({
+  name: 'archive_workspace',
+  description: 'Archive a workspace. Sessions stay queryable; nothing on disk is touched.',
+  params: { id: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const row = archiveWorkspace(id);
+    if (!row) throw new ActionError('not_found', `Workspace not found: ${id}`);
+    return row;
+  },
+});
+
+const list_workspace_sessions_action = defineAction({
+  name: 'list_workspace_sessions',
+  description: 'List active execution sessions in a workspace, newest activity first.',
+  params: {
+    workspace_id: z.string().min(1),
+    status: workspaceStatus.optional(),
+  },
+  cli: { positional: ['workspace_id'] },
+  handler: (_ctx, { workspace_id, status }) =>
+    listChatSessions({ workspace_id, status: status ?? 'active' }),
+});
+
 export const actions = [
   describe_paths,
   describe_schema,
@@ -224,4 +315,9 @@ export const actions = [
   list_notes_action,
   get_note_action,
   create_note_action,
+  list_workspaces_action,
+  get_workspace_action,
+  create_workspace_action,
+  archive_workspace_action,
+  list_workspace_sessions_action,
 ];

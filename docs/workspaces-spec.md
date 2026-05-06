@@ -7,11 +7,15 @@ Self-contained spec for building the workspace primitive, the execution-session 
 - `docs/chat-sessions.md` — chat data model. `chat_sessions`, `chat_events`, `chat_attachments`, the three chat types (orchestration / content / execution), the agentex adapter pattern. This spec assumes that doc as baseline and extends it.
 - `CLAUDE.md` — project conventions (queries layer, no raw SQL in routes, types derived from Drizzle, paths via `src/lib/config/paths.ts`).
 
-## Library dependency strategy
+## Library dependencies
 
-Worktree mechanics, structured diff, and run-script lifecycle eventually move to the `@agentex/workspace` library (separate repo, draft PRD). Until that ships, write a thin local module at `src/lib/workspaces/git.ts` whose API matches the agex shape. Migration is then a one-line import swap. Keeping our wrapper aligned to agex is also useful integration feedback for that PRD.
+Three published packages do the heavy lifting. Install and use directly — no local shims.
 
-The same applies to GitHub operations — see `gh` integration below.
+- **`@agentex/workspace`** — git worktree creation, structured diff, checkpoints, `fromSource` config application, run-script lifecycle. Replaces any temptation to shell out to `git` from our code. Use `workspace.create({ kind: 'git', ... })` and the returned handle (`ws.git.shortstat`, `ws.git.commit`, `ws.git.push`, etc.) for every git operation in this feature.
+- **`@agentex/github`** — typed `gh` CLI wrapper. Top-level `checkInstalled` / `checkAuthenticated` for the workspace settings sheet; `github.repo(path).createPR(...)` etc. for PR operations when those land.
+- **`@agentex/agent`** — already a dep at `^0.0.7`. This is what the chat-sessions / execution layer uses to spawn Claude Code (and other harnesses) and stream stdio into `chat_events`. The "agentic" pattern in the tool-vs-agentic section dispatches into the per-session agent via this package.
+
+Keep the imports at call sites; don't wrap them. Wrappers added "for testability" or "for swap-out" are net-negative — both libraries already expose the seams we'd want.
 
 ---
 
@@ -208,31 +212,125 @@ export const workspaces = sqliteTable('workspaces', {
 
 **`base_branch`**: detected at creation by resolving `git symbolic-ref refs/remotes/<remote>/HEAD` (falls back to `main` then `master`). User-editable.
 
-### New table: `agents` (if not already created by chat-sessions work)
+### Chat schema (from `docs/chat-sessions.md`)
 
-Per `docs/chat-sessions.md` §Agents. **Important deviation from that doc:** drop `cwd` from `config` for executors. cwd now lives on the workspace; sessions point at workspaces.
+The chat-sessions schema doesn't exist in this branch yet. Land it as part of this slice — but **only wire the execution write path** for now. Orchestration and content chat use the same tables and adapter; their write paths are deferred.
 
-If the chat-sessions schema already shipped with `cwd` in `agents.config`, treat that as a no-op JSON field for now and migrate it out when convenient.
+Concretely: `agents`, `chat_sessions`, `chat_events`, `chat_attachments` all get created. The agentex executor pipe writes to `chat_events`; nothing else writes to chat_events in this slice. Notifications table is deferred (separate surface).
 
-### New table: `chat_sessions`
-
-Per `docs/chat-sessions.md` §Sessions, **plus** these execution fields:
+#### `agents`
 
 ```ts
-// Add to the existing chat_sessions definition:
-workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-worktree_path: text('worktree_path'),    // absolute path; null when not using a worktree
-branch_name: text('branch_name'),        // git branch the session is on; null for non-git
-base_sha: text('base_sha'),              // SHA the worktree was created from; null for non-git
-last_outcome_event_at: text('last_outcome_event_at'),  // for "needs review" derivation
-last_viewed_at: text('last_viewed_at'),  // last time user opened this session
+export const agents = sqliteTable('agents', {
+  id: text('id').primaryKey(),                          // uuidv7
+  user_id: text('user_id').notNull(),
+  kind: text('kind', { enum: ['orchestrator', 'executor'] }).notNull(),
+  name: text('name').notNull(),
+  role: text('role'),
+  harness: text('harness').notNull(),                   // 'in_app' | 'claude_code' | 'codex' | ...
+  config: text('config', { mode: 'json' }).notNull().default(sql`'{}'`),
+  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  archived_at: text('archived_at'),
+});
 ```
 
-Index needed for the "Needs review" query and per-workspace listing:
+**Deviation from the chat-sessions doc:** for executors, `cwd` is *not* on `agents.config`. cwd lives on the workspace; sessions point at a workspace and inherit the cwd from there. The chat-sessions doc predates the workspace primitive — this spec supersedes it on that one field.
+
+#### `chat_sessions`
 
 ```ts
-index('chat_sessions_workspace_status_idx').on(table.workspace_id, table.status, table.last_outcome_event_at)
+export const chat_sessions = sqliteTable('chat_sessions', {
+  id: text('id').primaryKey(),                          // uuidv7
+  user_id: text('user_id').notNull(),
+  agent_id: text('agent_id').notNull().references(() => agents.id),
+  type: text('type', { enum: ['orchestration', 'content', 'execution'] }).notNull(),
+  surface_kind: text('surface_kind'),                   // 'main' | 'task' | 'note' | null
+  surface_ref: text('surface_ref'),                     // task_id / note_id / null
+  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+  label: text('label'),
+  refs: text('refs', { mode: 'json' }).notNull().default(sql`'{}'`),
+
+  // Execution-specific fields (this spec):
+  workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+  worktree_path: text('worktree_path'),                 // absolute path; null for non-git workspaces
+  branch_name: text('branch_name'),                     // null for non-git
+  base_sha: text('base_sha'),                           // null for non-git
+
+  // Review-state derivation:
+  last_outcome_event_at: text('last_outcome_event_at'),
+  last_viewed_at: text('last_viewed_at'),
+
+  // CLI-backed session tracking (executors only; null for in-app types):
+  external_session_id: text('external_session_id'),
+  external_transcript_path: text('external_transcript_path'),
+  external_sync_offset: integer('external_sync_offset'),
+  external_sync_last_event_id: text('external_sync_last_event_id'),
+
+  started_at: text('started_at').notNull().default(sql`(datetime('now'))`),
+  archived_at: text('archived_at'),
+}, (table) => [
+  uniqueIndex('chat_sessions_external_session_id_uq')
+    .on(table.external_session_id)
+    .where(sql`${table.external_session_id} IS NOT NULL`),
+  index('chat_sessions_workspace_status_idx')
+    .on(table.workspace_id, table.status, table.last_outcome_event_at),
+  index('chat_sessions_agent_status_idx').on(table.agent_id, table.status),
+]);
 ```
+
+#### `chat_events`
+
+```ts
+export const chat_events = sqliteTable('chat_events', {
+  id: text('id').primaryKey(),                          // uuidv7
+  session_id: text('session_id').notNull().references(() => chat_sessions.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),                         // 'user' | 'assistant' | 'system' | 'tool'
+  source: text('source').notNull(),                     // 'user' | 'agent' | 'thinking' | 'tool_call' | 'tool_result' | 'system' | 'result' | 'rate_limit' | 'error' | 'recap' | 'cron' | 'unknown'
+  content: text('content'),
+  tool_name: text('tool_name'),
+  tool_input: text('tool_input', { mode: 'json' }),
+  tool_is_error: integer('tool_is_error', { mode: 'boolean' }),
+  tool_exit_code: integer('tool_exit_code'),
+  raw: text('raw', { mode: 'json' }),
+  external_event_id: text('external_event_id'),
+  external_message_id: text('external_message_id'),
+  external_turn_id: text('external_turn_id'),
+  external_tool_call_id: text('external_tool_call_id'),
+  external_parent_tool_call_id: text('external_parent_tool_call_id'),
+  source_part_index: integer('source_part_index').notNull().default(0),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('chat_events_external_uq')
+    .on(table.session_id, sql`COALESCE(${table.external_turn_id}, '')`, table.external_event_id, table.source_part_index)
+    .where(sql`${table.external_event_id} IS NOT NULL`),
+  index('chat_events_session_created_idx').on(table.session_id, table.created_at),
+]);
+```
+
+#### `chat_attachments`
+
+```ts
+export const chat_attachments = sqliteTable('chat_attachments', {
+  id: text('id').primaryKey(),
+  event_id: text('event_id').notNull().references(() => chat_events.id, { onDelete: 'cascade' }),
+  session_id: text('session_id').notNull().references(() => chat_sessions.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),                         // 'image' | 'audio' | 'video' | 'file'
+  mime_type: text('mime_type'),
+  size_bytes: integer('size_bytes'),
+  storage_kind: text('storage_kind').notNull(),         // 'local_file' | 'blob' | 'external_url'
+  file_path: text('file_path'),
+  blob: blob('blob'),
+  url: text('url'),
+  content_hash: text('content_hash'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('chat_attachments_session_idx').on(table.session_id),
+  index('chat_attachments_hash_idx').on(table.content_hash),
+]);
+```
+
+The full semantics (source enum exhaustiveness, ID model, write paths, adapter layer) are in `docs/chat-sessions.md` — don't re-derive them here. The four tables above are the schema we need to land in this slice; the adapter that writes to `chat_events` from agentex stdio is the only writer wired up now.
 
 ### Why no `review_state` column
 
@@ -257,30 +355,38 @@ This is the entire review model. No "mark reviewed" button needed in v1 — open
 
 ### Creation
 
-When an execution session is dispatched in a git workspace:
+When an execution session is dispatched in a **git** workspace:
 
-1. Generate a branch name. Use the session's slugified label, prefixed with workspace slug for namespacing: `<workspace.slug>/<session-label-slug>`. On `BranchExistsError` from the library, append `-2`, `-3`, etc.
-2. Compute worktree path: `<workspace.worktree_root>/<session-id-short>/` (first 8 chars of session id, e.g. `019ddfab`).
-3. Call `workspace.create({ kind: "git", source: workspace.cwd, baseBranch: workspace.base_branch, path: worktreePath, branch: branchName })`. Library does `git worktree add`, captures `baseSha` atomically, applies `fromSource` from `agentex.workspace.json`, runs `setup` script.
-4. Persist `chat_sessions.worktree_path`, `branch_name`, `base_sha = ws.git.baseSha`.
-5. Spawn agentex with `cwd = ws.path`.
+1. Generate the session-label slug: `slugify(session.label, { lower: true, strict: true })`; if label is empty, use `session-<short-id>` (first 8 chars of the session uuid).
+2. Generate a branch name: `<workspace.slug>/<session-label-slug>`. On `BranchExistsError` from the library, append `-2`, `-3`, etc.
+3. Compute worktree path: `<workspace.worktree_root>/<session-id-short>/` (first 8 chars of session id, e.g. `019ddfab`). Path uses the id (not the slug) so two sessions with the same label don't collide on disk.
+4. Call `workspace.create({ kind: "git", source: workspace.cwd, baseBranch: workspace.base_branch, path: worktreePath, branch: branchName })`. Library does `git worktree add`, captures `baseSha` atomically, applies `fromSource` from `agentex.workspace.json`, runs `setup` script.
+5. Persist `chat_sessions.worktree_path = ws.path`, `branch_name = ws.git.branch`, `base_sha = ws.git.baseSha`.
+6. Spawn agentex with `cwd = ws.path`.
 
-For non-git workspaces, call `workspace.create({ kind: "bare", path: worktreePath, source: workspace.cwd })`. The library wraps cleanly, gives us `.context/` and `fromSource` support for free (becomes useful as soon as we have any "agent writes draft → user reviews" flow per `docs/chat-sessions.md`), and keeps the session-creation code path identical between git and bare. The marginal cost is one extra directory per session under `worktree_root` — negligible.
+For **non-git** workspaces, no worktree. Sessions share `workspace.cwd` directly:
+
+- `worktree_path = null`, `branch_name = null`, `base_sha = null` on the chat_sessions row.
+- Spawn agentex with `cwd = workspace.cwd`.
+- Concurrency is unprotected — two sessions in the same non-git workspace can clobber each other's edits. Acceptable v1 trade for non-code workspaces (notes folder, marketing dir, etc.); user gets isolation by switching to git or by not running parallel sessions.
+- Session row UI hides diff stats for these (no `worktree_path`).
+
+Skipping the bare-workspace wrap means we don't run `fromSource` or `setup` for non-git workspaces — there's nothing to set up. If a future feature needs a per-session scratch dir for non-git workspaces (agent drafts, generated artifacts), it can carve out a subdir under `worktree_root` without making it a workspace primitive.
 
 ### Diff stats
 
-Compute on demand for the row indicator. Don't store. Pre-library: shell `git -C <worktree_path> diff --shortstat <base_sha>..HEAD` and parse. Post-library: `ws.git.shortstat({ vs: "base" })` returns `{ files, additions, deletions }` directly — same shape, no parsing.
+Compute on demand for the row indicator. Don't store. Open the workspace via `workspace.open({ path: worktree_path, source: workspace.cwd })` and call `ws.git.shortstat({ vs: "base" })` — returns `{ files, additions, deletions }` directly. The library uses the stored `baseSha` (passed back via the handle) so diffs stay anchored to the worktree's creation point even if `main` advances.
 
-Cache in the React Query layer for ~5 seconds to avoid spamming on every render. If the worktree is missing on disk (multi-device or user deleted), show a small "missing" indicator and disable execution actions for that row.
+Cache in the React Query layer for ~5 seconds to avoid spamming on every render. If the worktree is missing on disk (multi-device or user deleted), `workspace.open` throws `WorkspaceNotFoundError`; show a small "missing" indicator and disable execution actions for that row.
+
+Non-git workspaces have no diff stats — render nothing.
 
 ### Archive
 
 When a session is archived:
 
-1. Check for uncommitted/unpushed work in the worktree:
-   - `git -C <worktree_path> status --porcelain` — if non-empty, refuse archive and show a confirm dialog ("This worktree has uncommitted changes. Archive anyway? Changes will be lost.").
-   - `git -C <worktree_path> log @{u}.. --oneline` — if non-empty (unpushed commits), surface in the same dialog.
-2. If user confirms (or no dirty state): `git -C <workspace.cwd> worktree remove --force <worktree_path>`.
+1. For git workspaces: open the workspace handle (`workspace.open(...)`) and check `ws.git.status()` for dirty/unpushed state. If anything is uncommitted or unpushed, refuse archive and show a confirm dialog ("This worktree has uncommitted changes. Archive anyway? Changes will be lost.").
+2. If user confirms (or no dirty state): call `ws.archive()` (runs the `archive` script if declared, then `git worktree remove --force`).
 3. Set `chat_sessions.archived_at = now()`, `status = 'archived'`.
 
 For non-git workspaces, archive is just the DB update; nothing on disk to clean.
@@ -295,14 +401,12 @@ Hard delete is not exposed in v1. If we need it later, add a confirm flow that w
 
 ## Left-nav UI
 
-Lives in `src/components/dashboard/power-rail.tsx`. The current rail shows "Command" (orchestrator) and "Active Agents." Replace the "Active Agents" section with the workspace tree below. Keep "Command" at the top — clicking it opens the orchestrator chat as today.
+Lives in `src/components/dashboard/power-rail.tsx`. The rail's only content is the workspace tree below — no separate "Command" / orchestrator entry at the top. The orchestrator is the always-on main chat surface, not a tab you switch to from a list, so giving it a row here would be the wrong mental model. The orchestrator UI lands in a later phase.
 
 ### Layout
 
 ```
 ┌─────────────────────────────┐
-│ ⚡ Command                   │  ← existing orchestrator entry
-├─────────────────────────────┤
 │ NEEDS REVIEW         (3)    │  ← thin section, shown only if count > 0
 │ ▸ Refactor auth · bounce · 2h│
 │ ▸ Fix infinite loop · atm · 5h│
@@ -333,7 +437,7 @@ Suggested decomposition under `src/components/workspaces/`:
 
 ### Drag-and-drop
 
-Use existing dnd library if one's already in the codebase (check `package.json`); otherwise `@dnd-kit/sortable`. On drop, PATCH `/api/workspaces/reorder` with the new ordered list of ids; backend assigns new `position` values (simple integer reassignment is fine for tens of workspaces).
+Use `@dnd-kit/sortable` (already a dep — `^10.0.0`, with `@dnd-kit/core` and `@dnd-kit/utilities`). On drop, PATCH `/api/workspaces/reorder` with the new ordered list of ids; backend assigns new `position` values (simple integer reassignment is fine for tens of workspaces).
 
 Drag is on workspaces only. Sessions within a workspace sort by `last_outcome_event_at DESC` always; user doesn't reorder them.
 
@@ -379,7 +483,7 @@ Queries to add in `src/lib/db/queries.ts`:
 - `archiveWorkspace(id)` — sets archived_at, status='archived'. Does not touch sessions or worktrees.
 - `reorderWorkspaces(orderedIds)` — bulk position update in a transaction.
 - `getSessionsForWorkspace(workspaceId)` — sessions where `workspace_id = ? AND status = 'active'`, sorted by `last_outcome_event_at DESC`.
-- `getNeedsReviewSessions()` — sessions where `last_outcome_event_at > COALESCE(last_viewed_at, '1970-01-01') AND status = 'active' AND NOT (currently streaming)`. The streaming check is runtime-only; the query returns candidates and the client filters by the runtime streaming map.
+- `getNeedsReviewSessions()` — sessions where `last_outcome_event_at > COALESCE(last_viewed_at, '1970-01-01') AND status = 'active'`. The streaming check is runtime-only; the query returns candidates and the client filters out any session id present in the streaming map. The streaming map lives in `src/contexts/dashboard-context.tsx` as `Set<sessionId>`, populated/cleaned by the agentex stdio pipe (added when a `startSession`/`sendMessage` call returns, removed on the `result` event or stream close). Same map drives the workspace-header "● working" badge.
 - `markSessionViewed(sessionId)` — sets `last_viewed_at = now()`.
 - `bumpSessionOutcome(sessionId, at)` — sets `last_outcome_event_at`. Called by the chat-events writer whenever an `agent` or `result` event is inserted.
 
@@ -421,16 +525,18 @@ Keep these thin; they dispatch to the same `queries.ts` functions. Throw `Action
 - `src/components/workspaces/session-row.tsx`
 - `src/components/workspaces/workspace-create-modal.tsx`
 - `src/components/workspaces/workspace-settings-sheet.tsx`
-- `src/lib/workspaces/git.ts` — thin wrappers around `git worktree add/remove`, `git rev-parse`, `git status --porcelain`, `git diff --shortstat`. Shape the API to match `@agentex/workspace` so the future migration is a one-line import swap. Use `node:child_process` with `execFile` (never shell strings — pass paths and refs as args).
-- `src/lib/workspaces/detect.ts` — `isGitRepo(path)`, `detectBaseBranch(path, remote)`. Same migration story: shape matches agex helpers.
-- `src/lib/workspaces/gh.ts` — minimal `gh` CLI wrappers shaped to match `@agentex/github`'s split: top-level stateless checks (`checkInstalled`, `checkAuthenticated`) and a `repo(path)` factory returning an instance with `createPR`, `getPR`, etc. (only the methods we use in v1). Used by the workspace settings sheet's Git section and (eventually) PR-creation flow.
+- `src/lib/workspaces/index.ts` — small module that imports from `@agentex/workspace` and exposes the project-specific helpers we need: `createWorktreeForSession(workspace, session)`, `openWorktreeHandle(session)`, `archiveSessionWorktree(session)`, `detectGit(path)`, `detectBaseBranch(path, remote)`. These are call-site composition helpers, not API wrappers — they encode our naming rules (slug, path layout) and our DB persistence around library calls. Library types pass through (`Workspace`, `GitWorkspace`, `BareWorkspace`, errors).
+- `src/lib/workspaces/gh.ts` — small composition module over `@agentex/github`. Top-level: `checkGhStatus()` returning `{ installed, authenticated, user }` for the settings sheet's Git section (single call, both checks). PR-creation helpers added when the Land/PR flow lands — defer in v1.
+- `src/app/api/fs/browse/route.ts` — directory autocomplete endpoint for the folder picker fallback. Takes `?path=` (must be inside `os.homedir()` after realpath; reject otherwise — no path traversal). Returns directory entries only.
+- `src/app/api/fs/pick-folder/route.ts` — native OS folder dialog endpoint. POST opens the dialog on the server's machine (which is the user's machine in local-first), returns `{ path }` on pick, `204` on cancel, `503` if the OS dialog tool isn't available.
+- `src/lib/fs/native-picker.ts` — platform shims for the native dialog: `osascript` (macOS), `zenity` (Linux), `powershell` + WinForms (Windows). Used by the pick-folder route.
 - `src/app/api/workspaces/route.ts` (and `[id]`, `reorder`, etc.)
 
 **Modified:**
 
-- `src/lib/db/schema.ts` — add `workspaces`, extend `chat_sessions` (or add it if chat-sessions work hasn't shipped yet — coordinate with that branch).
-- `src/lib/db/queries.ts` — add the queries listed above; modify chat-event write path to call `bumpSessionOutcome` on `agent`/`result` rows.
-- `src/components/dashboard/power-rail.tsx` — embed `<WorkspaceNav />`. Keep "Command" at the top.
+- `src/lib/db/schema.ts` — add `workspaces`, `agents`, `chat_sessions`, `chat_events`, `chat_attachments` (the chat tables don't exist in this branch yet; this slice creates them).
+- `src/lib/db/queries.ts` — add the queries listed above; the agentex stdio adapter (added separately) calls `bumpSessionOutcome` on `agent`/`result` rows when it inserts them into `chat_events`.
+- `src/components/dashboard/power-rail.tsx` — embed `<WorkspaceNav />` as the rail's only content. No standalone "Command" row.
 - `src/contexts/dashboard-context.tsx` — add workspace selection state, active session, drag state.
 - `src/lib/orchestrator/registry.ts` — register the new actions.
 - `src/db/types.ts` — re-derive types after schema changes.
@@ -441,7 +547,7 @@ Keep these thin; they dispatch to the same `queries.ts` functions. Throw `Action
 
 Pick this up in passes; each pass is independently shippable.
 
-1. **Schema + queries + minimal API** (no UI yet). Migration lands; `getWorkspaces`, `createWorkspace`, `archiveWorkspace`, `reorderWorkspaces` work via `curl`. Verify by manually inserting a workspace and a fake `chat_session` and querying.
+1. **Schema + queries + minimal API** (no UI yet). Migration creates all five new tables (`workspaces`, `agents`, `chat_sessions`, `chat_events`, `chat_attachments`); `getWorkspaces`, `createWorkspace`, `archiveWorkspace`, `reorderWorkspaces` work via `curl`. Verify by manually inserting a workspace and a fake `chat_session` and querying. (The chat-event write path comes online with the executor wiring in step 6.)
 2. **Workspace CRUD UI.** Create modal (folder picker, area dropdown, git auto-detect), settings sheet, archive flow. No session rows yet — workspaces just list as empty. Dogfood by registering the current project as the first workspace.
 3. **Session rows + diff stats.** Render existing `chat_sessions` rows under their workspace. Wire the diff-stats endpoint and indicator. Sessions don't actually do anything yet (no execution wired) — but the list UI is fully rendered.
 4. **Needs Review surface.** Implement the derivation, render the top section, wire `markSessionViewed` on session open.
@@ -464,7 +570,7 @@ The first three passes ship a usable nav. Passes 4–6 add the differentiating f
 
 **`base_branch` no longer exists on a remote.** Worktree creation fails. Surface error inline ("Base branch `origin/develop` not found. Pick another in workspace settings."). Don't silently fall back.
 
-**Worktree creation fails (disk full, permission, etc.).** Session creation is rolled back — no `chat_sessions` row inserted. Surface the git error verbatim to the user. Don't write a session row that points at a path that doesn't exist.
+**Worktree creation fails (disk full, permission, etc.).** `workspace.create` throws — session creation is rolled back, no `chat_sessions` row inserted. Surface the typed error to the user (`BranchExistsError` → "branch exists, retrying with -2", `NoDefaultBranchError` → settings, etc.). Don't write a session row that points at a path that doesn't exist.
 
 **User deletes the worktree directory manually.** On next render, `getSessionsForWorkspace` still returns the row; the diff-stats call fails (path missing). Show "missing" indicator. Allow archive (which will skip `git worktree remove` and just clean DB state).
 
@@ -476,24 +582,125 @@ The first three passes ship a usable nav. Passes 4–6 add the differentiating f
 
 ---
 
-## Open questions for the implementer
+## Decisions, locked
 
-These are real decisions the spec doesn't pin down — pick whichever feels right and document the choice:
+These were open questions in earlier drafts; locked now so the implementer doesn't re-litigate.
 
-1. **Where to render the workspace nav.** Embed inside `power-rail.tsx` (200px rail) vs. expand to a wider 240–280px panel. The 200px rail will feel cramped once diff stats and per-session indicators land — prototype both widths and pick the one that doesn't squeeze the indicators.
+1. **Power rail width: 240–280px.** The current 200px will feel cramped once diff stats and per-session indicators land. Widen `power-rail.tsx` to 256px and ship; tune within the range during dogfood if rows still squeeze.
 
-2. **Drag-and-drop library.** If `@dnd-kit/sortable` is not already a dep, evaluate against `react-beautiful-dnd` and whatever shadcn-recommends. Pick the smallest one that handles vertical sortable lists with drag handles.
+2. **Drag-and-drop: `@dnd-kit/sortable`** (already a dep). Use `verticalListSortingStrategy` for the workspace list with explicit drag handles on workspace rows.
 
-3. **Folder picker on web.** Next.js + Electron-like folder picker isn't free in a pure web app. Two options: (a) a text input with autocomplete from `~/`-rooted paths via a `/api/fs/browse` endpoint, (b) defer the visual picker and require user to paste an absolute path in v1. (b) is faster to ship; (a) is the better UX. Pick based on time budget.
+3. **Folder picker: native OS dialog + typing fallback.** Primary action is a "Browse" button that triggers the OS folder dialog via the local server (`osascript` on macOS, `zenity` on Linux, `powershell` + WinForms on Windows). The server is on the user's machine, so the dialog opens in front of them — same trick Tauri/Electron use, just routed through HTTP. Returns the absolute path. The text input + `/api/fs/browse?path=` autocomplete (home-scoped) stays as the fallback for when the native picker isn't available (Linux without `zenity`, exotic platforms).
 
-4. **Showing per-row branch name.** Session rows could show the branch (e.g. `bounce/seo-geo-plan`) inline. Useful but adds visual weight. v1 default: hide on the list, show in session detail. Reconsider after dogfooding.
+4. **Session row branch name: hidden in list, shown in detail.** Adding the branch string to every list row eats horizontal space without paying for itself for the common case (one session per branch, branch derivable from session label).
 
-5. **What `last_outcome_event_at` does for the orchestrator chat.** The orchestrator is type=orchestration, has no workspace, and isn't in the Needs Review surface. We still set `last_outcome_event_at` for it (cheap, future-useful) but it's never read for review state.
+5. **Orchestrator's `last_outcome_event_at`.** Set it (cheap, future-useful for cross-context "where did we last leave off"); never read for review state. Orchestrator chat doesn't surface in Needs Review.
 
-If anything else feels under-specified during implementation, leave a TODO in code with a one-line question and post it back.
+If anything feels under-specified during implementation, leave a TODO in code with a one-line question and post it back.
+
+---
+
+## Deferred: cross-machine execution
+
+This section captures thinking, not implementation. Nothing here ships in v1. It exists so a future contributor (and future me) doesn't have to re-derive the model.
+
+### Mental model we're building toward
+
+One canonical place where data lives — server (Mac mini, cloud VM, doesn't matter). It runs the API + DB + a default executor. Most agent runs happen on this canonical server. Fine.
+
+Sometimes you want to run an agent on the machine you're physically sitting at — a laptop with the app installed locally — for a faster feedback loop (see browser changes immediately, hot-reload, run tests against local services, etc.). That machine has the app installed too, but configured as a *client + local executor*: UI talks to the canonical API for everything, and a local agent runtime takes execution work that's been opted into "run here."
+
+Phones and other peripheral devices stay pure UI clients — never executors. The asymmetry is real and deliberate: we're not building a fleet, we're building "server + maybe one helper machine I'm sitting at right now." We will never round-about route from phone → laptop → server or anything like it.
+
+GitHub does the code-sync work for free. Server creates a worktree, pushes the branch. Laptop pulls the branch into its own local worktree, runs the agent against that. Push back when done. Same git, no special protocol.
+
+If you can't reach the canonical server, you also can't run agents locally in any useful way (Claude API, package registries, GitHub all need internet anyway). So the offline-first arguments don't really apply — we're network-dependent regardless. That keeps the architecture simpler: server-canonical, no DB sync, no conflict resolution.
+
+### Why we punt
+
+Agent execution isn't wired yet. Designing for cross-machine before single-machine works is premature. Real usage will tell us:
+
+- Is the local-feedback case important enough to justify the protocol work?
+- Is "server only" enough if you can SSH into the server when you need to?
+- Do users ever want fully offline mode (no canonical server reachable)?
+
+Until those answers exist, building runtime registration / awareness / cross-device routing produces a lot of unused machinery.
+
+### What we deliberately did NOT add today
+
+- A `devices` table.
+- `device_id` columns on `workspaces` or `chat_sessions`.
+- Awareness UI ("running on Beacon", "this workspace is on the laptop").
+- A runner protocol or service mode.
+
+All of these are appropriate for a fleet-style architecture; we don't need them for "server + occasional laptop."
+
+### What we kept open
+
+The pieces that *would* be expensive to retrofit, we either already have or wrote to keep flexible:
+
+- **API base URL is configurable.** `ApiClient` already accepts a `baseUrl`, and the existing pairing flow issues tokens. A laptop install can already point at a server install today — the missing pieces are UI ceremony (a "pair to remote server" flow that takes a URL), not architecture.
+- **Schema fields are runtime-relative-but-currently-server-implicit.** `workspaces.cwd` and `chat_sessions.worktree_path` are absolute paths interpreted on whichever machine owns them. v1 has only one machine, so there's no ambiguity. When local execution comes, the laptop tracks its own paths separately (its own config or a small `workspace_runtime_paths` side table) — no canonical-DB schema change needed.
+- **Event-write seam** — see below. The one architectural muscle memory worth doing in advance.
+
+### The event-write seam: `EventWriter`
+
+When we wire the agentex executor to push stream events into `chat_events` (next slice after this one), structure it around an `EventWriter` interface rather than calling `insertChatEvent` inline:
+
+```ts
+export interface EventWriter {
+  write(event: CreateChatEventInput): Promise<void>;
+}
+
+// v1, server-only — the default and only implementation.
+export const localEventWriter: EventWriter = {
+  async write(event) { insertChatEvent(event); },
+};
+
+async function runExecutionSession(args: {
+  sessionId: string;
+  agent: AgentRecord;
+  writer: EventWriter;       // ← parameter, not a global lookup
+}) {
+  const stream = await spawnAgentex(/* ... */);
+  for await (const event of stream) {
+    await args.writer.write({
+      session_id: args.sessionId,
+      ...parseStreamEvent(event),
+    });
+  }
+}
+```
+
+Cost is one parameter and a five-line interface. Behavior is identical to writing `insertChatEvent` inline.
+
+The day local execution becomes real, the laptop runs the same `runExecutionSession` with a different writer:
+
+```ts
+export class HttpEventWriter implements EventWriter {
+  async write(event) { await api.post('/chat-events', event); }
+}
+```
+
+Plus a new `/api/chat-events` ingest route on the canonical server. That's it. The executor's logic — agentex stream consumption, event parsing, error handling, rollover — doesn't move.
+
+This is the only architectural decision worth making in advance. Everything else is purely additive when the time comes.
+
+### Future additions to expect (sketch, not commitment)
+
+When we actually build local execution, expect roughly:
+
+- `chat_sessions.runtime` (text, nullable) — which machine ran this session. `null`/`'server'` for the default, some identifier for remote runtimes.
+- `chat_sessions.cached_diff_files`, `cached_diff_additions`, `cached_diff_deletions` — denormalized so the canonical UI can show diff stats for sessions that ran on a different machine without being able to read those files itself. The runtime that owns the worktree updates these periodically while the session is live.
+- `apiBaseUrl` and `mode` flags in `config.json` — `mode: 'server' | 'client'` decides whether this install serves data or is a thin client of another install.
+- `POST /api/chat-events` — ingest route for `HttpEventWriter`.
+- A `runtime` registration handshake on first connect — probably reusing the existing pairing flow with a "this device can execute" capability flag.
+- A small `workspace_runtime_paths(workspace_id, runtime, cwd, worktree_root)` side table if we want path overlays queryable from the canonical DB; otherwise the client tracks its own paths in local config.
+
+None of these change today's data model or code. They're all additive.
 
 ---
 
 ## TL;DR for the implementer
 
-Build a `workspaces` table. Add `workspace_id`, `worktree_path`, `branch_name`, `base_sha`, `last_outcome_event_at`, `last_viewed_at` to `chat_sessions`. Build a left-nav tree with a Needs Review surface, drag-and-drop reorder, and collapsible workspace sections. For git workspaces, each execution session creates its own `git worktree` off the workspace's base branch. "Needs review" is derived from two timestamps — no state column. Diff stats are computed on demand. Skip scripts, preview URLs, AI action prefs, and team-shared config — all v2.
+Land four chat tables (`agents`, `chat_sessions`, `chat_events`, `chat_attachments`) per `docs/chat-sessions.md`, plus a new `workspaces` table. Wire only the **execution** write path (agentex stdio → `chat_events`); orchestration and content chat are deferred. For git workspaces, every execution session creates its own `git worktree` off the workspace's base branch via `@agentex/workspace`. For non-git workspaces, sessions share `workspace.cwd` directly — no worktree, no `fromSource`, no isolation. Build a left-nav tree with a Needs Review surface, drag-and-drop reorder (`@dnd-kit/sortable`), and collapsible workspace sections. "Needs review" is derived from `last_outcome_event_at` vs `last_viewed_at` — no state column. Diff stats are computed on demand via `ws.git.shortstat`. Skip in-app config editing, preview URLs, multi-device replication, and the v1.5 Run-scripts panel.

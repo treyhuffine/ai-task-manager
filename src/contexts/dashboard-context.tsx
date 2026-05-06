@@ -56,6 +56,10 @@ interface DashboardState {
   mobileCreateOpen: boolean;
   // Quick capture modal
   quickCaptureOpen: boolean;
+  // Sessions currently streaming live agentex stdio. Filtered out of the
+  // Needs Review surface and used for the workspace-row "● working" badge.
+  // Populated by the executor pipe when it ships; empty in v1 of workspaces.
+  streamingSessionIds: ReadonlySet<string>;
 }
 
 interface DashboardActions {
@@ -97,6 +101,8 @@ interface DashboardActions {
   // Quick capture
   setQuickCaptureOpen: (open: boolean) => void;
   toggleQuickCapture: () => void;
+  // Streaming session tracking — called by the executor pipe.
+  setSessionStreaming: (sessionId: string, isStreaming: boolean) => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -150,6 +156,19 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // ─── Quick capture ────────────────────────────────────────
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const toggleQuickCapture = useCallback(() => setQuickCaptureOpen((prev) => !prev), []);
+
+  // ─── Streaming sessions ──────────────────────────────────
+  const [streamingSessionIds, setStreamingSessionIds] = useState<Set<string>>(() => new Set());
+  const setSessionStreaming = useCallback((sessionId: string, isStreaming: boolean) => {
+    setStreamingSessionIds((prev) => {
+      const has = prev.has(sessionId);
+      if (isStreaming === has) return prev;
+      const next = new Set(prev);
+      if (isStreaming) next.add(sessionId);
+      else next.delete(sessionId);
+      return next;
+    });
+  }, []);
 
   // ─── Slideout stack ──────────────────────────────────────────
   const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>([]);
@@ -325,6 +344,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       quickCaptureOpen,
       setQuickCaptureOpen,
       toggleQuickCapture,
+      streamingSessionIds,
+      setSessionStreaming,
     }}>
       {children}
     </DashboardContext.Provider>

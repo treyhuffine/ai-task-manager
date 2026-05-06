@@ -389,7 +389,21 @@
 
 .rich-editor-body ul[data-type="taskList"] li > label {
   flex-shrink: 0;
-  margin-top: 0.25em;
+  display: inline-flex;
+  align-items: center;
+  /* One line tall (matches body line-height: 1.75). Centering the checkbox
+     inside this box aligns it with the visual midline of the first line of
+     text. For multi-line tasks the label stays anchored to that first line. */
+  height: 1.75em;
+}
+
+/* The content wrapper is a flex item next to the checkbox label. Without
+   flex: 1 it collapses to its content width, so an empty row leaves the
+   caret pinned to a zero-width box right next to the checkbox — visually
+   indistinguishable from "no cursor". min-width: 0 lets long lines wrap. */
+.rich-editor-body ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .rich-editor-body ul[data-type="taskList"] li > label input[type="checkbox"] {
@@ -607,6 +621,71 @@
   position: absolute;
   left: -36px;
   z-index: 10;
+}
+
+/* Global drag handle — Notion-style six-dot grip rendered in the gutter.
+ * The plugin sets inline top/left and toggles a .hide class. We only style. */
+.drag-handle {
+  position: fixed;
+  display: block;
+  width: 1.25rem;
+  height: 1.5rem;
+  z-index: 50;
+  cursor: grab;
+  background-color: var(--muted-foreground);
+  opacity: 0.45;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='black'%3E%3Ccircle cx='2' cy='3' r='1.2'/%3E%3Ccircle cx='8' cy='3' r='1.2'/%3E%3Ccircle cx='2' cy='7' r='1.2'/%3E%3Ccircle cx='8' cy='7' r='1.2'/%3E%3Ccircle cx='2' cy='11' r='1.2'/%3E%3Ccircle cx='8' cy='11' r='1.2'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='black'%3E%3Ccircle cx='2' cy='3' r='1.2'/%3E%3Ccircle cx='8' cy='3' r='1.2'/%3E%3Ccircle cx='2' cy='7' r='1.2'/%3E%3Ccircle cx='8' cy='7' r='1.2'/%3E%3Ccircle cx='2' cy='11' r='1.2'/%3E%3Ccircle cx='8' cy='11' r='1.2'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 12px 14px;
+          mask-size: 12px 14px;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+  background-color: var(--foreground);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle.hide {
+  display: none !important;
+}
+
+/* Hide the handle on touch devices — drag UX needs more work there. */
+@media (pointer: coarse) {
+  .drag-handle {
+    display: none !important;
+  }
+}
+
+/* Visual feedback while a block is selected (click on the handle selects
+ * the whole node before drag). The bg/color anchor matters: the browser
+ * captures this element as the drag image, so without an opaque bg the
+ * preview ends up text-on-transparent which the system overlay washes out
+ * (the "text matches background" symptom during drag). */
+.rich-editor-body .ProseMirror-selectednode {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Suppress the editor's ::selection paint inside a NodeSelection. Without
+ * this, the global ::selection rule (primary bg / primary-foreground text)
+ * stacks on top of the selectednode styling and the captured drag image
+ * comes back unreadable. */
+.rich-editor-body .ProseMirror-selectednode::selection,
+.rich-editor-body .ProseMirror-selectednode *::selection {
+  background: transparent;
+  color: inherit;
 }
 
 /* Slash command popup */

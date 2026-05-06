@@ -14,6 +14,8 @@ import Image from '@tiptap/extension-image'
 import CharacterCount from '@tiptap/extension-character-count'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
+import GlobalDragHandle from 'tiptap-extension-global-drag-handle'
+import AutoJoiner from 'tiptap-extension-auto-joiner'
 
 import { CollapsibleHeading } from './collapsible-heading'
 import { EditorBubbleMenu } from './editor-bubble-menu'
@@ -155,6 +157,22 @@ export function RichEditor({
       CharacterCount,
       SlashCommands,
       ListKeymap,
+      GlobalDragHandle.configure({
+        // Sets both the search-offset for finding the hovered block AND the
+        // horizontal slot the handle occupies. The handle's left edge lands at
+        // (block.left - dragHandleWidth); 48 leaves a comfortable ~28px gap
+        // from the text and clearly lives in the gutter, lining up with the
+        // "+" button's column.
+        dragHandleWidth: 48,
+        // Don't render the handle on empty paragraphs — the existing "+" gutter
+        // button already lives there, and stacking both is visually noisy.
+        excludedTags: ['p:empty'],
+        // Custom node for headings — without this, the plugin can't find them
+        // as drag targets and falls back to a parent element, which throws off
+        // the gutter positioning.
+        customNodes: ['collapsibleHeading'],
+      }),
+      AutoJoiner,
     ],
     content: initialContentRef.current,
     ...(initialContentRef.current ? { contentType: 'markdown' as any } : {}),
@@ -259,6 +277,9 @@ export function RichEditor({
       const target = e.target as HTMLElement
       if (target.closest('.rich-editor-body')) return
       if (target.closest('button, a, input, label, [contenteditable="false"]')) return
+      // The global drag handle lives in the gutter (sibling of the editor body,
+      // not inside it). Bail out so its native HTML5 dragstart isn't cancelled.
+      if (target.closest('.drag-handle, [data-drag-handle]')) return
       e.preventDefault()
       editor.commands.focus('end')
     },

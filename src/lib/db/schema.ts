@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, blob, index, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // ─── Attachments ──────────────────────────────────────────────
@@ -194,6 +194,159 @@ export const apiKeys = sqliteTable('api_keys', {
   index('idx_api_keys_hash').on(table.hash),
   index('idx_api_keys_prefix').on(table.prefix),
   index('idx_api_keys_revoked').on(table.revoked_at),
+]);
+
+// ─── Workspaces ───────────────────────────────────────────────
+// A workspace is a folder on disk the user organizes around. For git
+// workspaces, every execution session gets its own worktree so concurrent
+// sessions don't step on each other. Non-git workspaces share `cwd`.
+
+export const workspaces = sqliteTable('workspaces', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  emoji: text('emoji'),
+  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
+  cwd: text('cwd').notNull(),
+  is_git: integer('is_git', { mode: 'boolean' }).notNull().default(false),
+  base_branch: text('base_branch'),
+  remote_name: text('remote_name').default('origin'),
+  worktree_root: text('worktree_root'),
+  area_id: text('area_id').references(() => areas.id, { onDelete: 'set null' }),
+  position: integer('position').notNull().default(0),
+  collapsed: integer('collapsed', { mode: 'boolean' }).notNull().default(false),
+  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  archived_at: text('archived_at'),
+}, (table) => [
+  index('idx_workspaces_status_position').on(table.status, table.position),
+  index('idx_workspaces_area_id').on(table.area_id),
+]);
+
+// ─── Agents ───────────────────────────────────────────────────
+// First-class definition for an agent persona. One row per executor
+// (Claude, Codex, ...) or orchestrator. Sessions are instances of an agent
+// running on something. `config` is harness-specific JSON.
+
+export const agents = sqliteTable('agents', {
+  id: text('id').primaryKey(),
+  user_id: text('user_id').notNull().default('local'),
+  kind: text('kind', { enum: ['orchestrator', 'executor'] }).notNull(),
+  name: text('name').notNull(),
+  role: text('role'),
+  harness: text('harness').notNull(),
+  config: text('config', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  archived_at: text('archived_at'),
+}, (table) => [
+  index('idx_agents_kind').on(table.kind),
+  index('idx_agents_status').on(table.status),
+]);
+
+// ─── Chat Sessions ────────────────────────────────────────────
+// One row per chat thread. `type` discriminates: orchestration (main thread),
+// content (scoped to a task/note), execution (CLI-backed work). Execution
+// sessions populate workspace_id + worktree_path + base_sha and may carry
+// external_session_id when bound to a CLI session.
+
+export const chatSessions = sqliteTable('chat_sessions', {
+  id: text('id').primaryKey(),
+  user_id: text('user_id').notNull().default('local'),
+  agent_id: text('agent_id').notNull().references(() => agents.id),
+  type: text('type', { enum: ['orchestration', 'content', 'execution'] }).notNull(),
+  surface_kind: text('surface_kind'),
+  surface_ref: text('surface_ref'),
+  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+  label: text('label'),
+  refs: text('refs', { mode: 'json' })
+    .$type<{ task_ids?: string[]; note_ids?: string[]; area_ids?: string[] }>()
+    .notNull()
+    .default({}),
+
+  // Execution-specific fields.
+  workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+  worktree_path: text('worktree_path'),
+  branch_name: text('branch_name'),
+  base_sha: text('base_sha'),
+
+  // Review derivation (timestamp-only, no state column).
+  last_outcome_event_at: text('last_outcome_event_at'),
+  last_viewed_at: text('last_viewed_at'),
+
+  // CLI-backed tracking; null for in-app sessions.
+  external_session_id: text('external_session_id'),
+  external_transcript_path: text('external_transcript_path'),
+  external_sync_offset: integer('external_sync_offset'),
+  external_sync_last_event_id: text('external_sync_last_event_id'),
+
+  started_at: text('started_at').notNull().default(sql`(datetime('now'))`),
+  archived_at: text('archived_at'),
+}, (table) => [
+  uniqueIndex('chat_sessions_external_session_id_uq')
+    .on(table.external_session_id)
+    .where(sql`${table.external_session_id} IS NOT NULL`),
+  index('idx_chat_sessions_workspace_status')
+    .on(table.workspace_id, table.status, table.last_outcome_event_at),
+  index('idx_chat_sessions_agent_status').on(table.agent_id, table.status),
+  index('idx_chat_sessions_type_status').on(table.type, table.status),
+]);
+
+// ─── Chat Events ──────────────────────────────────────────────
+// One row per atomic thing that happened in a chat. Source enum
+// distinguishes user/agent/thinking/tool_call/tool_result/system/result/etc.
+// External_event_id makes idempotent upsert possible across retries.
+
+export const chatEvents = sqliteTable('chat_events', {
+  id: text('id').primaryKey(),
+  session_id: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  source: text('source').notNull(),
+  content: text('content'),
+  tool_name: text('tool_name'),
+  tool_input: text('tool_input', { mode: 'json' }),
+  tool_is_error: integer('tool_is_error', { mode: 'boolean' }),
+  tool_exit_code: integer('tool_exit_code'),
+  raw: text('raw', { mode: 'json' }),
+  external_event_id: text('external_event_id'),
+  external_message_id: text('external_message_id'),
+  external_turn_id: text('external_turn_id'),
+  external_tool_call_id: text('external_tool_call_id'),
+  external_parent_tool_call_id: text('external_parent_tool_call_id'),
+  source_part_index: integer('source_part_index').notNull().default(0),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  // Idempotent upsert key for CLI-backed events. Claude (JSONL uuid) and
+  // Codex v2 (globally-unique item.id) both supply distinct external_event_id
+  // values per row, so turn_id isn't needed for uniqueness here.
+  uniqueIndex('chat_events_external_uq')
+    .on(table.session_id, table.external_event_id, table.source_part_index)
+    .where(sql`${table.external_event_id} IS NOT NULL`),
+  index('idx_chat_events_session_created').on(table.session_id, table.created_at),
+  index('idx_chat_events_tool_call_id').on(table.external_tool_call_id),
+]);
+
+// ─── Chat Attachments ─────────────────────────────────────────
+// Multimodal content references (images, audio, video, files). Stored on
+// disk for large items; small ones can fall back to inline blob.
+
+export const chatAttachments = sqliteTable('chat_attachments', {
+  id: text('id').primaryKey(),
+  event_id: text('event_id').notNull().references(() => chatEvents.id, { onDelete: 'cascade' }),
+  session_id: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  mime_type: text('mime_type'),
+  size_bytes: integer('size_bytes'),
+  storage_kind: text('storage_kind').notNull(),
+  file_path: text('file_path'),
+  blob: blob('blob'),
+  url: text('url'),
+  content_hash: text('content_hash'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_chat_attachments_session').on(table.session_id),
+  index('idx_chat_attachments_hash').on(table.content_hash),
 ]);
 
 // ─── Notes ────────────────────────────────────────────────────

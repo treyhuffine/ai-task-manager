@@ -7,6 +7,7 @@ import { TopHud } from './top-hud';
 import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
 import { BottomHud } from './bottom-hud';
+import { ExecutionView } from '@/components/executions/execution-view';
 import { FocusView } from './focus-view';
 import { SearchOverlay } from '@/components/shared/search-overlay';
 import { NoteSlideout } from '@/components/notes/note-slideout';
@@ -21,11 +22,18 @@ import { cn } from '@/lib/utils';
 function DashboardShell() {
   const {
     theme,
+    activeView,
     openNoteId, openTaskId, openAreaId, areasListOpen,
     popSlideout, closeAllSlideouts, slideoutStack,
     triggerVoiceChat,
     quickCaptureOpen, setQuickCaptureOpen, toggleQuickCapture,
   } = useDashboard();
+
+  // activeView is 'command' for the default dashboard, or a chat_session
+  // id when an execution row is selected. Anything non-'command' is
+  // treated as a session id; a missing/archived id renders "not found"
+  // inside ExecutionView and offers a Back button.
+  const isExecutionView = activeView !== 'command';
 
   // Global hotkeys: voice chat (⌘J) and quick capture (⌘⇧K)
   useEffect(() => {
@@ -69,7 +77,11 @@ function DashboardShell() {
         {/* Desktop layout: ≥lg */}
         <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
           <PowerRail />
-          <PanelLayout />
+          {isExecutionView ? (
+            <ExecutionView sessionId={activeView} />
+          ) : (
+            <PanelLayout />
+          )}
         </div>
 
         {/* BottomHud — hidden on mobile */}

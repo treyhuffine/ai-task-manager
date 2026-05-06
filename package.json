@@ -46,6 +46,8 @@
   ],
   "dependencies": {
     "@agentex/agent": "^0.0.7",
+    "@agentex/github": "^0.0.1",
+    "@agentex/workspace": "^0.0.1",
     "@ai-sdk/anthropic": "^3.0.63",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/react": "^3.0.136",
@@ -119,6 +121,8 @@
     "streamdown": "^2.5.0",
     "swr": "^2.4.1",
     "tailwind-merge": "^3.5.0",
+    "tiptap-extension-auto-joiner": "^0.1.3",
+    "tiptap-extension-global-drag-handle": "^0.1.18",
     "tw-animate-css": "^1.4.0",
     "use-stick-to-bottom": "^1.1.3",
     "uuidv7": "^1.1.0",
