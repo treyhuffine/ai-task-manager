@@ -13,7 +13,13 @@ export function MobileTopBar() {
   const [inboxOpen, setInboxOpen] = useState(false);
 
   return (
-    <header className="flex-shrink-0 px-3 pt-[env(safe-area-inset-top)] pb-2 bg-background flex items-center gap-2">
+    // pt: respect the safe-area on devices that report one (notch/island),
+    // floor at 0.75rem so non-PWA browsers — which evaluate env() to 0 —
+    // don't render the bar flush against the viewport edge.
+    <header
+      className="flex-shrink-0 px-3 pb-2 bg-background flex items-center gap-2"
+      style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
+    >
       <button
         onClick={() => document.dispatchEvent(new CustomEvent('open-search'))}
         className="flex-1 h-10 flex items-center gap-2.5 px-3.5 rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"

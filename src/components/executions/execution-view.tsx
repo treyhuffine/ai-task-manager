@@ -124,13 +124,18 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         />
       </div>
 
-      <ExecutionContextPane session={session} onOpenDiff={setDiffFile} />
+      {/* Context pane + diff slideout are desktop-only — on mobile the
+          execution view is just chat (header + transcript + composer).
+          Hidden below lg so the chat surface gets the full width. */}
+      <div className="hidden lg:contents">
+        <ExecutionContextPane session={session} onOpenDiff={setDiffFile} />
 
-      <DiffSlideout
-        sessionId={session.id}
-        filePath={diffFile}
-        onClose={() => setDiffFile(null)}
-      />
+        <DiffSlideout
+          sessionId={session.id}
+          filePath={diffFile}
+          onClose={() => setDiffFile(null)}
+        />
+      </div>
     </div>
   );
 }

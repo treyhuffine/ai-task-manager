@@ -1,106 +1,293 @@
 "use client";
 
-import { Zap, Activity, Bot } from 'lucide-react';
+import { useMemo } from 'react';
+import {
+  ChevronRight,
+  Folder,
+  FolderPlus,
+  GitBranch,
+  Inbox,
+} from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import {
+  useWorkspaces,
+  useNeedsReviewSessions,
+  useWorkspaceSessions,
+  useUpdateWorkspace,
+} from '@/hooks/use-workspaces';
+import { coverAttachmentUrl } from '@/lib/attachments/view';
+import { useAreas } from '@/hooks/use-areas';
+import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
+import type { ChatSessionRecord, WorkspaceWithCounts } from '@/db/types';
 
+/**
+ * Mobile-tab "Agents" surface. Mirrors the desktop rail's structure
+ * (Needs Review at the top, then workspaces grouped with collapsible
+ * children) but with phone-sized tap targets — rows ~44px tall, larger
+ * text, no hover-only affordances.
+ *
+ * Tapping a session row sets `activeView` to the session id; the
+ * mobile shell flips to render `<ExecutionView>` full-screen.
+ */
 export function MobileAgentsView() {
-  const { theme, activeView, setActiveView, agents } = useDashboard();
-  const isDark = theme === 'dark';
+  const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Command / Orchestrator */}
-      <div className="px-4 pt-4 pb-2">
-        <button
-          onClick={() => setActiveView('command')}
-          className={cn(
-            'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all border',
-            activeView === 'command'
-              ? isDark
-                ? 'bg-secondary border-border text-foreground'
-                : 'bg-card border-border text-foreground shadow-sm'
-              : 'text-muted-foreground border-transparent hover:bg-muted/50'
-          )}
-        >
-          <div className={cn(
-            'w-10 h-10 rounded-lg flex items-center justify-center',
-            activeView === 'command' ? 'bg-primary/10 text-primary' : isDark ? 'bg-secondary' : 'bg-muted'
-          )}>
-            <Zap size={18} className={activeView === 'command' ? 'fill-primary' : ''} />
-          </div>
-          <div className="text-left min-w-0">
-            <p className="text-sm font-bold">Command</p>
-            <p className="text-[10px] text-muted-foreground font-mono leading-none">Orchestrator</p>
-          </div>
-        </button>
+      <NeedsReviewBlock />
+
+      <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
+          Workspaces
+        </span>
       </div>
 
-      {/* Active Agents header */}
-      <div className="px-6 pt-4 pb-2 flex items-center justify-between">
-        <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Active Agents</span>
-        <Activity size={12} className="text-muted-foreground" />
-      </div>
-
-      {/* Agent cards — full-width with more detail */}
-      <div className="px-4 space-y-2 pb-4">
-        {agents.map((agent) => (
-          <button
-            key={agent.id}
-            onClick={() => setActiveView(agent.id)}
-            className={cn(
-              'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all border',
-              activeView === agent.id
-                ? isDark
-                  ? 'bg-secondary border-border text-foreground'
-                  : 'bg-card border-border text-foreground shadow-sm'
-                : 'text-muted-foreground border-transparent hover:bg-muted/50'
-            )}
-          >
-            <div className={cn(
-              'w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center text-lg relative',
-              isDark ? 'bg-secondary' : 'bg-muted',
-              activeView === agent.id ? 'ring-1 ring-primary/30' : 'opacity-70'
-            )}>
-              {agent.icon}
-              {agent.status === 'active' && (
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-background" />
-              )}
-            </div>
-            <div className="text-left min-w-0 flex-1">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-bold truncate">{agent.name}</p>
-                {agent.progress > 0 && (
-                  <span className="text-[10px] font-mono text-muted-foreground ml-2">{agent.progress}%</span>
-                )}
-              </div>
-              {agent.task && (
-                <p className="text-[11px] leading-tight text-muted-foreground truncate">{agent.task}</p>
-              )}
-              {agent.lastUpdate && (
-                <p className="text-[10px] leading-tight text-muted-foreground/60 truncate mt-0.5">{agent.lastUpdate}</p>
-              )}
-            </div>
-
-            {/* Progress bar */}
-            {agent.progress > 0 && (
-              <div className="w-16 h-1 rounded-full bg-muted overflow-hidden flex-shrink-0">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${agent.progress}%` }}
-                />
-              </div>
-            )}
-          </button>
-        ))}
-
-        {agents.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            <Bot className="w-8 h-8 mx-auto opacity-30 mb-2" />
-            <p className="text-[11px]">No agents running</p>
+      <div className="px-3 pb-24 space-y-1">
+        {isLoading && (
+          <div className="px-3 py-3 text-[12px] italic text-muted-foreground/60">
+            Loading…
           </div>
         )}
+        {!isLoading && (workspaces?.length ?? 0) === 0 && <EmptyWorkspaces />}
+        {workspaces?.map((ws) => <WorkspaceBlock key={ws.id} workspace={ws} />)}
       </div>
+    </div>
+  );
+}
+
+// ─── Needs Review block ───────────────────────────────────────────
+
+function NeedsReviewBlock() {
+  const { streamingSessionIds } = useDashboard();
+  const { data: candidates } = useNeedsReviewSessions();
+  const { data: workspaces } = useWorkspaces({ status: 'active' });
+
+  const filtered = useMemo(
+    () => (candidates ?? []).filter((s) => !streamingSessionIds.has(s.id)),
+    [candidates, streamingSessionIds],
+  );
+
+  if (filtered.length === 0) return null;
+
+  const wsName = (id: string | null) =>
+    (id && workspaces?.find((w) => w.id === id)?.name) || undefined;
+
+  return (
+    <section className="px-3 pt-3 pb-2 border-b border-border/60">
+      <div className="px-1.5 pb-2 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-500/90">
+          Needs Review
+        </span>
+        <span className="text-[11px] font-mono text-muted-foreground/70">
+          {filtered.length}
+        </span>
+      </div>
+      <div className="space-y-1">
+        {filtered.map((session) => (
+          <MobileSessionRow
+            key={session.id}
+            session={session}
+            workspaceLabel={wsName(session.workspace_id)}
+            forceState="needs_review"
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── Workspace block (collapsible) ────────────────────────────────
+
+function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
+  const { streamingSessionIds } = useDashboard();
+  const { data: areas } = useAreas();
+  const updateWs = useUpdateWorkspace();
+  const expanded = !workspace.collapsed;
+  const { data: sessions } = useWorkspaceSessions(expanded ? workspace.id : null);
+
+  const linkedArea = workspace.area_id
+    ? areas?.find((a) => a.id === workspace.area_id)
+    : undefined;
+  const wsImage = coverAttachmentUrl(workspace.attachments);
+  const areaImage = linkedArea ? coverAttachmentUrl(linkedArea.attachments) : null;
+  const iconImage = wsImage ?? (workspace.emoji ? null : areaImage);
+  const iconEmoji = workspace.emoji ?? (wsImage ? null : linkedArea?.emoji ?? null);
+
+  const childSessions = sessions ?? [];
+  const streamingCount = childSessions.filter((s) => streamingSessionIds.has(s.id)).length;
+  const reviewCount = Math.max(workspace.needs_review_candidate_count - streamingCount, 0);
+
+  const toggle = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
+
+  return (
+    <div className="rounded-xl">
+      <button
+        type="button"
+        onClick={toggle}
+        className="w-full flex items-center gap-3 px-2 py-2.5 rounded-lg active:bg-muted/40 transition-colors"
+      >
+        <span className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+          {iconImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={iconImage} alt="" className="w-7 h-7 rounded-md object-cover" />
+          ) : iconEmoji ? (
+            <span className="text-2xl leading-none">{iconEmoji}</span>
+          ) : (
+            <Folder size={18} className="text-muted-foreground/60" />
+          )}
+        </span>
+        <span className="flex-1 min-w-0 text-left">
+          <span className="block text-[14px] font-semibold text-foreground truncate">
+            {workspace.name}
+          </span>
+          <span className="block text-[11px] text-muted-foreground/70">
+            {workspace.session_count}{' '}
+            {workspace.session_count === 1 ? 'execution' : 'executions'}
+          </span>
+        </span>
+        <Badge streaming={streamingCount} review={reviewCount} />
+        <ChevronRight
+          size={16}
+          className={cn(
+            'text-muted-foreground/60 transition-transform flex-shrink-0',
+            expanded && 'rotate-90',
+          )}
+        />
+      </button>
+
+      {expanded && (
+        <div className="pl-3 pr-1 pt-1 pb-2 space-y-1">
+          {childSessions.length === 0 ? (
+            <p className="pl-9 py-2 text-[11px] italic text-muted-foreground/50">
+              No sessions yet
+            </p>
+          ) : (
+            childSessions.map((s) => <MobileSessionRow key={s.id} session={s} />)
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Session row (mobile sized) ───────────────────────────────────
+
+interface MobileSessionRowProps {
+  session: ChatSessionRecord;
+  /** When set, shown as a small chip after the label (e.g. workspace
+   *  name in the Needs Review surface where we cross workspaces). */
+  workspaceLabel?: string;
+  /** Force the status pill to "needs_review" — used by the Needs Review
+   *  block where we already filtered for that. */
+  forceState?: 'needs_review';
+}
+
+function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSessionRowProps) {
+  const { activeView, setActiveView, streamingSessionIds, setMobileTab } = useDashboard();
+  const isStreaming = streamingSessionIds.has(session.id);
+  const lastOutcome = session.last_outcome_event_at;
+  const needsReview =
+    forceState === 'needs_review'
+      ? true
+      : !isStreaming && lastOutcome && lastOutcome > (session.last_viewed_at ?? '1970-01-01');
+  const timestamp = lastOutcome ?? session.started_at;
+  const isActive = activeView === session.id;
+
+  const label = session.label ?? 'Untitled';
+  const labelIsPlaceholder = !session.label;
+
+  const open = () => {
+    // Stay on the agents tab — MobileLayout swaps the agents content for
+    // ExecutionView when activeView !== 'command'.
+    setMobileTab('agents');
+    setActiveView(session.id);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      className={cn(
+        'w-full flex items-center gap-2 pl-7 pr-2 py-2 rounded-lg text-left transition-colors',
+        isActive ? 'bg-secondary' : 'active:bg-muted/40',
+      )}
+    >
+      <GitBranch size={12} className="flex-shrink-0 text-muted-foreground/60" />
+      <span className="flex-1 min-w-0">
+        <span className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              'text-[13px] truncate',
+              labelIsPlaceholder
+                ? 'italic text-muted-foreground/70'
+                : 'font-medium text-foreground',
+            )}
+          >
+            {label}
+          </span>
+          {workspaceLabel && (
+            <span className="text-[10px] text-muted-foreground/60 truncate">
+              · {workspaceLabel}
+            </span>
+          )}
+        </span>
+      </span>
+      <span className="flex items-center gap-1.5 flex-shrink-0 text-[10px]">
+        {isStreaming ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-emerald-500/90 font-medium">working</span>
+          </>
+        ) : needsReview ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full border border-amber-500" />
+            <span className="text-muted-foreground/70">{formatCompactRelative(timestamp)}</span>
+          </>
+        ) : (
+          <span className="text-muted-foreground/60">{formatCompactRelative(timestamp)}</span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+// ─── Status badge for a workspace header ──────────────────────────
+
+function Badge({ streaming, review }: { streaming: number; review: number }) {
+  if (streaming > 0) {
+    return (
+      <span className="flex items-center gap-1 text-[10px] flex-shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span className="text-emerald-500/90 font-medium">working</span>
+      </span>
+    );
+  }
+  if (review > 0) {
+    return (
+      <span className="flex items-center gap-1 text-[10px] flex-shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+        <span className="text-amber-500/90 font-medium">{review}</span>
+      </span>
+    );
+  }
+  return null;
+}
+
+// ─── Empty state ──────────────────────────────────────────────────
+
+function EmptyWorkspaces() {
+  return (
+    <div className="px-6 py-10 text-center text-muted-foreground">
+      <Inbox className="w-8 h-8 mx-auto opacity-30 mb-3" />
+      <p className="text-[13px] font-medium text-foreground">No workspaces yet</p>
+      <p className="text-[11px] text-muted-foreground/70 mt-1 leading-relaxed">
+        Create one from the desktop to start running agents.
+      </p>
+      <p className="mt-3 inline-flex items-center gap-1 text-[11px] text-muted-foreground/60">
+        <FolderPlus size={11} />
+        Add from desktop
+      </p>
     </div>
   );
 }
