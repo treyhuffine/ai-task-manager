@@ -287,7 +287,7 @@ export function parseStreamEvent(
         content: null,
         tool_name: event.name,
         tool_input: (event.input ?? null) as Record<string, unknown> | null,
-        external_tool_call_id: event.callId ?? null,
+        external_tool_call_id: event.toolCallId ?? null,
       };
     case 'tool_result':
       return {

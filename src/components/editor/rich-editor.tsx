@@ -14,9 +14,8 @@ import Image from '@tiptap/extension-image'
 import CharacterCount from '@tiptap/extension-character-count'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
-import GlobalDragHandle from 'tiptap-extension-global-drag-handle'
+import { DragHandle } from './drag-handle'
 import AutoJoiner from 'tiptap-extension-auto-joiner'
-
 import { CollapsibleHeading } from './collapsible-heading'
 import { EditorBubbleMenu } from './editor-bubble-menu'
 import { EditorGutterMenu } from './editor-floating-menu'
@@ -157,20 +156,9 @@ export function RichEditor({
       CharacterCount,
       SlashCommands,
       ListKeymap,
-      GlobalDragHandle.configure({
-        // Sets both the search-offset for finding the hovered block AND the
-        // horizontal slot the handle occupies. The handle's left edge lands at
-        // (block.left - dragHandleWidth); 48 leaves a comfortable ~28px gap
-        // from the text and clearly lives in the gutter, lining up with the
-        // "+" button's column.
-        dragHandleWidth: 48,
-        // Don't render the handle on empty paragraphs — the existing "+" gutter
-        // button already lives there, and stacking both is visually noisy.
-        excludedTags: ['p:empty'],
-        // Custom node for headings — without this, the plugin can't find them
-        // as drag targets and falls back to a parent element, which throws off
-        // the gutter positioning.
-        customNodes: ['collapsibleHeading'],
+      DragHandle.configure({
+        // see ./drag-handle.ts. Empty paragraphs are skipped by the block
+        // detector so the "+" gutter button stays the only UI on those.
       }),
       AutoJoiner,
     ],
@@ -380,7 +368,7 @@ export function NoteEditor({
   }, [title])
 
   return (
-    <div className="note-editor w-full mx-auto pb-16 px-16">
+    <div className="note-editor w-full mx-auto pb-16 px-4 md:px-16">
       {/* Title */}
       <textarea
         ref={titleRef}

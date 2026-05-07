@@ -239,6 +239,14 @@
      Floor for tiny viewports, scale with screen height, cap so the editor
      doesn't push the footer absurdly far down on huge monitors. */
   min-height: clamp(12rem, 50vh, 36rem);
+  /* Extend the drop zone into the gutter where the drag handle lives. The
+     negative margin pulls view.dom's bounding box left, the matching padding
+     pushes content back to its original visible position — so visually
+     nothing changes, but PM's dragover/drop fire when the cursor is over
+     the gutter. Sized to cover the handle (offset:24 + 20px wide) plus
+     ~16px of cursor-overshoot buffer. */
+  padding-left: 40px;
+  margin-left: -40px;
 }
 
 .rich-editor-body:focus {
@@ -624,9 +632,11 @@
 }
 
 /* Global drag handle — Notion-style six-dot grip rendered in the gutter.
- * The plugin sets inline top/left and toggles a .hide class. We only style. */
+ * Top/left set as inline style by the extension at src/components/editor/
+ * drag-handle.ts. If swapping back to `tiptap-extension-global-drag-handle`,
+ * change `position: absolute` to `position: fixed`. */
 .drag-handle {
-  position: fixed;
+  position: absolute;
   display: block;
   width: 1.25rem;
   height: 1.5rem;

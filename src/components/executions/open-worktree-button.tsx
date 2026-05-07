@@ -10,6 +10,7 @@ import {
   Copy,
   Check,
   Loader2,
+  Info,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -28,6 +29,27 @@ interface OpenWorktreeButtonProps {
 
 /** localStorage key for the user's last-used target — drives the main button. */
 const LAST_TARGET_KEY = 'flow.openWorktree.lastTarget';
+
+/** Loopback hostnames that imply same-machine browser → server. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
+
+/**
+ * True when the browser is connecting from a non-loopback hostname —
+ * i.e. it's almost certainly running on a different machine than the
+ * server. We can detect direct remote access (LAN IP, public hostname),
+ * but SSH-tunneled access still presents as `localhost` and is a known
+ * blind spot. The penalty for false negatives is low: the spawn just
+ * runs on the wrong machine and the user notices nothing happened.
+ */
+function useIsRemoteHost(): boolean {
+  const [remote, setRemote] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const host = window.location.hostname;
+    setRemote(!LOOPBACK_HOSTS.has(host));
+  }, []);
+  return remote;
+}
 
 /**
  * Lucide fallback icon for a given target. Used when the server can't
@@ -114,11 +136,14 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [primaryTarget, setPrimaryTarget] = useState<OpenTarget>('finder');
+  const isRemote = useIsRemoteHost();
 
   const { data: installedData } = useQuery({
     queryKey: ['fs', 'installed-apps'],
     queryFn: () => fsApi.installedApps(),
     staleTime: 5 * 60_000, // App install changes are rare.
+    // No point detecting installed apps when we can't run them anyway.
+    enabled: !isRemote,
   });
   const installed = useMemo(() => installedData?.apps ?? [], [installedData]);
 
@@ -177,6 +202,45 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
   }, [path]);
 
   if (!path) return null;
+
+  // Remote browser → server: spawn would run on the wrong machine, so
+  // we hide every "open in app" action and surface only Copy path with
+  // a hint pointing the user at the host. Same shape as the local
+  // split button so the header layout doesn't shift.
+  if (isRemote) {
+    return (
+      <div className="relative inline-flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={copyPath}
+          disabled={busy === 'copy'}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium',
+            'rounded-md border border-border bg-background',
+            'text-foreground/80 hover:text-foreground hover:bg-muted/40',
+            'transition-colors disabled:opacity-50',
+          )}
+          title="Copy worktree path"
+        >
+          {busy === 'copy' ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : copied ? (
+            <Check size={12} />
+          ) : (
+            <Copy size={12} />
+          )}
+          {copied ? 'Copied' : 'Copy path'}
+        </button>
+        <span
+          className="flex items-center text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-help"
+          title="You're viewing this from a remote browser. Open this URL on the host machine to launch apps there."
+          aria-label="Remote viewer notice"
+        >
+          <Info size={12} />
+        </span>
+      </div>
+    );
+  }
 
   const primaryApp = installed.find((a) => a.target === primaryTarget);
   const primaryLabel = primaryApp?.label ?? 'Open';

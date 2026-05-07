@@ -301,7 +301,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             <div className="flex-1 overflow-y-auto min-w-0 relative">
               {note ? (
                 <>
-                  <div className="px-16 py-0 flex items-center gap-2">
+                  <div className="px-4 md:px-16 py-0 flex items-center gap-2">
                     <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">Note</span>
                     <span className="text-muted-foreground/30">·</span>
                     <AreaSelect

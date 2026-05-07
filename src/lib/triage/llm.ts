@@ -96,7 +96,7 @@ async function callProvider(
       if (verbose) {
         if (event.type === 'system') console.error(`  [event:system] ${event.subtype} model=${event.model}`);
         else if (event.type === 'tool_call') console.error(`  [event:tool] ${event.name}`);
-        else if (event.type === 'result') console.error(`  [event:result] isError=${event.isError} cost=${event.cost}`);
+        else if (event.type === 'result') console.error(`  [event:result] isError=${event.isError} cost=${event.costUsd}`);
       }
     },
   });
