@@ -9,8 +9,17 @@ import {
 } from 'lucide-react';
 import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { isToolUIPart, getToolName, DefaultChatTransport } from 'ai';
+import { isFileUIPart, isToolUIPart, getToolName, DefaultChatTransport } from 'ai';
 import { getAuthToken } from '@/lib/api/client';
+import { usePasteAttachments } from '@/hooks/use-paste-attachments';
+import {
+  PasteAttachmentChip,
+  PasteAttachmentList,
+} from '@/components/chat/paste-attachment';
+import {
+  fileUIPartToAttachment,
+  isPastedTextFilePart,
+} from '@/lib/chat/paste-attachments';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import type { PanelId, PanelTab, MorePanelTab } from '@/types/dashboard';
@@ -199,6 +208,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
   const voiceAutoSend = userState?.voice_auto_send ?? true;
+  const pasteAttachments = usePasteAttachments();
 
   // Track which message IDs were sent via voice
   const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(new Set());
@@ -245,11 +255,13 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const handleSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const text = input.trim();
-    if (!text) return;
-    sendMessage({ text });
+    const files = pasteAttachments.toFileParts();
+    if (!text && files.length === 0) return;
+    sendMessage({ text, files });
     setInput('');
+    pasteAttachments.clearAttachments();
     if (inputRef.current) inputRef.current.style.height = 'auto';
-  }, [input, sendMessage]);
+  }, [input, sendMessage, pasteAttachments]);
 
   const handleQuickAction = useCallback((message: string) => {
     sendMessage({ text: message });
@@ -309,17 +321,23 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   }, [moreActionsOpen]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (pasteAttachments.handleBackspaceOnEmpty(e)) return;
+
     // Enter submits. Shift+Enter and Alt/Option+Enter insert newlines so
     // users can compose multi-line prompts without losing what they typed.
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       if (isStreaming) {
         stop();
-      } else if (input.trim()) {
-        sendMessage({ text: input.trim() });
-        setInput('');
-        if (inputRef.current) inputRef.current.style.height = 'auto';
+        return;
       }
+      const text = input.trim();
+      const files = pasteAttachments.toFileParts();
+      if (!text && files.length === 0) return;
+      sendMessage({ text, files });
+      setInput('');
+      pasteAttachments.clearAttachments();
+      if (inputRef.current) inputRef.current.style.height = 'auto';
     }
   };
 
@@ -369,6 +387,21 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                               <VoiceSentBadge voiceAutoSend={voiceAutoSend} onToggleAutoSend={handleToggleAutoSend} />
                             )}
                           </Message>
+                        );
+                      }
+                      if (isFileUIPart(part) && isPastedTextFilePart(part)) {
+                        const att = fileUIPartToAttachment(part, `${message.id}-${i}`);
+                        if (!att) return null;
+                        return (
+                          <div
+                            key={`${message.id}-${i}`}
+                            className={cn(
+                              'flex w-full',
+                              message.role === 'user' ? 'justify-end' : 'justify-start',
+                            )}
+                          >
+                            <PasteAttachmentChip attachment={att} />
+                          </div>
                         );
                       }
                       if (isToolUIPart(part)) {
@@ -591,45 +624,55 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
         {/* Text input */}
         <form onSubmit={handleSubmit} className="relative group">
           <div className="pointer-events-none absolute -inset-0.5 bg-primary/15 rounded-xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity" />
-          <div className="relative bg-card border border-border rounded-xl p-1 flex items-start gap-2 focus-within:border-primary/30 transition-all">
-            <textarea
-              ref={inputRef}
-              rows={1}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onInput={(e) => {
-                // Auto-resize: shrink to content, capped at ~6 lines (160px).
-                const t = e.currentTarget;
-                t.style.height = 'auto';
-                t.style.height = Math.min(t.scrollHeight, 160) + 'px';
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="Execute your plan..."
-              className="flex-1 bg-transparent border-none outline-none text-base md:text-sm py-2 pl-2 placeholder:text-muted-foreground resize-none leading-snug"
-              style={{ minHeight: 36, maxHeight: 160 }}
-            />
-            {isStreaming ? (
-              <button
-                type="button"
-                onClick={stop}
-                className="w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground transition-all active:scale-95"
-              >
-                <Square size={14} />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                className={cn(
-                  'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all',
-                  input.trim()
-                    ? 'bg-primary text-primary-foreground active:scale-95'
-                    : isDark ? 'bg-secondary text-muted-foreground' : 'bg-muted text-muted-foreground'
-                )}
-              >
-                <ArrowUp size={16} />
-              </button>
+          <div className="relative bg-card border border-border rounded-xl p-1 flex flex-col gap-1 focus-within:border-primary/30 transition-all">
+            {pasteAttachments.hasAttachments && (
+              <PasteAttachmentList
+                attachments={pasteAttachments.attachments}
+                onRemove={pasteAttachments.removeAttachment}
+                className="px-1 pt-1"
+              />
             )}
+            <div className="flex items-start gap-2">
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onInput={(e) => {
+                  // Auto-resize: shrink to content, capped at ~6 lines (160px).
+                  const t = e.currentTarget;
+                  t.style.height = 'auto';
+                  t.style.height = Math.min(t.scrollHeight, 160) + 'px';
+                }}
+                onKeyDown={handleKeyDown}
+                onPaste={pasteAttachments.handlePaste}
+                placeholder="Execute your plan..."
+                className="flex-1 bg-transparent border-none outline-none text-base md:text-sm py-2 pl-2 placeholder:text-muted-foreground resize-none leading-snug"
+                style={{ minHeight: 36, maxHeight: 160 }}
+              />
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground transition-all active:scale-95"
+                >
+                  <Square size={14} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim() && !pasteAttachments.hasAttachments}
+                  className={cn(
+                    'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all',
+                    input.trim() || pasteAttachments.hasAttachments
+                      ? 'bg-primary text-primary-foreground active:scale-95'
+                      : isDark ? 'bg-secondary text-muted-foreground' : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  <ArrowUp size={16} />
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

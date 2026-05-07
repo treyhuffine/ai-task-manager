@@ -3,9 +3,10 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { DefaultChatTransport } from 'ai'
+import { DefaultChatTransport, isFileUIPart } from 'ai'
 import { MessageSquare, X, ArrowUp, Sparkles, Square, Loader2, Wrench, Mic } from 'lucide-react'
 import { useVoiceInput } from '@/hooks/use-voice-input'
+import { usePasteAttachments } from '@/hooks/use-paste-attachments'
 import { cn } from '@/lib/utils'
 import {
   Conversation,
@@ -18,6 +19,14 @@ import {
   MessageContent,
   MessageResponse,
 } from './message'
+import {
+  PasteAttachmentChip,
+  PasteAttachmentList,
+} from '@/components/chat/paste-attachment'
+import {
+  fileUIPartToAttachment,
+  isPastedTextFilePart,
+} from '@/lib/chat/paste-attachments'
 import type { TaskRecord, NoteRecord } from '@/db/types'
 import { getAuthToken } from '@/lib/api/client'
 
@@ -199,16 +208,19 @@ function ChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [input, setInput] = useState('')
   const voice = useVoiceInput()
+  const pasteAttachments = usePasteAttachments()
 
   const handleSubmit = useCallback((text?: string) => {
     const msg = (text ?? input).trim()
-    if (!msg || disabled) return
-    sendMessage({ text: msg })
+    const files = pasteAttachments.toFileParts()
+    if ((!msg && files.length === 0) || disabled) return
+    sendMessage({ text: msg, files })
     setInput('')
+    pasteAttachments.clearAttachments()
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-  }, [input, disabled, sendMessage])
+  }, [input, disabled, sendMessage, pasteAttachments])
 
   // Auto-send when voice transcript arrives
   const lastTranscriptRef = useRef('')
@@ -226,6 +238,14 @@ function ChatPanel({
   const inputElement = (
     <div className={cn('flex-shrink-0 p-2', hasMessages && 'border-t border-border')}>
       <div className="rounded-lg border border-border bg-card focus-within:border-primary/50 transition-colors">
+        {pasteAttachments.hasAttachments && (
+          <PasteAttachmentList
+            attachments={pasteAttachments.attachments}
+            onRemove={pasteAttachments.removeAttachment}
+            compact
+            className="px-2 pt-2"
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={input}
@@ -243,7 +263,9 @@ function ChatPanel({
             target.style.height = 'auto'
             target.style.height = Math.min(target.scrollHeight, 96) + 'px'
           }}
+          onPaste={pasteAttachments.handlePaste}
           onKeyDown={(e) => {
+            if (pasteAttachments.handleBackspaceOnEmpty(e)) return
             // Enter submits. Shift+Enter and Alt/Option+Enter insert
             // newlines so users can compose multi-line prompts naturally.
             if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
@@ -286,7 +308,7 @@ function ChatPanel({
                 ? 'hover:bg-destructive/10'
                 : 'hover:bg-primary/10',
             )}
-            disabled={!isStreaming && (!input.trim() || disabled)}
+            disabled={!isStreaming && ((!input.trim() && !pasteAttachments.hasAttachments) || disabled)}
             aria-label={isStreaming ? 'Stop' : 'Send message'}
           >
             {isStreaming ? <Square size={14} /> : <ArrowUp size={14} />}
@@ -330,6 +352,11 @@ function ChatPanel({
                             {part.text}
                           </MessageResponse>
                         )
+                      }
+                      if (isFileUIPart(part) && isPastedTextFilePart(part)) {
+                        const att = fileUIPartToAttachment(part, `${message.id}-${i}`)
+                        if (!att) return null
+                        return <PasteAttachmentChip key={i} attachment={att} compact />
                       }
                       if (part.type === 'dynamic-tool') {
                         return <ToolCallIndicator key={i} toolName={part.toolName} />
