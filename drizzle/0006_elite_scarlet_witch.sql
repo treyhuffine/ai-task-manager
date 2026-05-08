@@ -1,0 +1,1 @@
+ALTER TABLE `chat_sessions` ADD `pre_plan_mode` text;

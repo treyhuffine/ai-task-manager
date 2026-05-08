@@ -40,6 +40,7 @@ import {
 } from '@/components/ai-elements/message';
 import { EntityAwareText } from '@/components/ai-elements/entity-reference';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import { APP_NAME } from '@/constants/app';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
@@ -214,6 +215,29 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(new Set());
   const pendingVoiceSendRef = useRef(false);
 
+  // ai-sdk's UIMessage doesn't carry a server timestamp. Stamp each
+  // message id the first time we see it so the copy/timestamp row can
+  // surface "Apr 23, 9:40 AM" on hover. Lost on reload — same model as
+  // voiceSentIds. The map only grows; old ids stay (keys are messages,
+  // not memory pressure).
+  const [messageTimes, setMessageTimes] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (messages.length === 0) return;
+    setMessageTimes((prev) => {
+      let changed = false;
+      const next = prev;
+      const now = Date.now();
+      const updated: Record<string, number> = { ...prev };
+      for (const m of messages) {
+        if (!(m.id in updated)) {
+          updated[m.id] = now;
+          changed = true;
+        }
+      }
+      return changed ? updated : next;
+    });
+  }, [messages]);
+
   const voice = useVoiceInput();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const micButtonRef = useRef<HTMLButtonElement>(null);
@@ -374,19 +398,29 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                     {message.parts.map((part, i) => {
                       if (part.type === 'text') {
                         return (
-                          <Message from={message.role} key={`${message.id}-${i}`}>
-                            <MessageContent>
-                              <EntityAwareText
+                          <div key={`${message.id}-${i}`} className="group flex flex-col">
+                            <Message from={message.role}>
+                              <MessageContent>
+                                <EntityAwareText
+                                  text={part.text}
+                                  renderMarkdown={(text, key) => (
+                                    <MessageResponse key={key}>{text}</MessageResponse>
+                                  )}
+                                />
+                              </MessageContent>
+                              {message.role === 'user' && voiceSentIds.has(message.id) && i === 0 && (
+                                <VoiceSentBadge voiceAutoSend={voiceAutoSend} onToggleAutoSend={handleToggleAutoSend} />
+                              )}
+                            </Message>
+                            {part.text && (
+                              <CopyMessageButton
                                 text={part.text}
-                                renderMarkdown={(text, key) => (
-                                  <MessageResponse key={key}>{text}</MessageResponse>
-                                )}
+                                align={message.role === 'user' ? 'right' : 'left'}
+                                alwaysVisible={message.role === 'assistant'}
+                                timestamp={messageTimes[message.id] ?? null}
                               />
-                            </MessageContent>
-                            {message.role === 'user' && voiceSentIds.has(message.id) && i === 0 && (
-                              <VoiceSentBadge voiceAutoSend={voiceAutoSend} onToggleAutoSend={handleToggleAutoSend} />
                             )}
-                          </Message>
+                          </div>
                         );
                       }
                       if (isFileUIPart(part) && isPastedTextFilePart(part)) {

@@ -212,6 +212,10 @@ export const workspaces = sqliteTable('workspaces', {
   base_branch: text('base_branch'),
   remote_name: text('remote_name').default('origin'),
   worktree_root: text('worktree_root'),
+  // Globs to copy from `cwd` into each new session's worktree at creation
+  // time. Picomatch dialect, dot-aware. `.env*` is the default so secrets
+  // travel with the worktree without symlinking back to source.
+  files_to_copy: text('files_to_copy', { mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
   area_id: text('area_id').references(() => areas.id, { onDelete: 'set null' }),
   position: integer('position').notNull().default(0),
   collapsed: integer('collapsed', { mode: 'boolean' }).notNull().default(false),
@@ -280,6 +284,32 @@ export const chatSessions = sqliteTable('chat_sessions', {
   external_transcript_path: text('external_transcript_path'),
   external_sync_offset: integer('external_sync_offset'),
   external_sync_last_event_id: text('external_sync_last_event_id'),
+
+  // How tool permission requests are handled for this session. `bypass` is
+  // the default — no flag passed to Claude, callback auto-allows everything.
+  // `default | accept_edits | plan` map to Claude's --permission-mode flag
+  // (default | acceptEdits | plan); the callback then surfaces prompts via
+  // the pending-input UI. AskUserQuestion always surfaces regardless of mode.
+  permission_mode: text('permission_mode', {
+    enum: ['bypass', 'default', 'accept_edits', 'plan'],
+  }).notNull().default('bypass'),
+
+  // Per-session model + effort overrides. Null = use the harness default.
+  // For Claude these map to --model / --effort. For Codex --model only;
+  // effort is ignored. Changing either recycles the cached AgentSession
+  // so the next dispatch picks up the new flag.
+  //
+  // Effort enum values mirror Claude's `--effort` flag — `xhigh` and
+  // `max` are the literal CLI values, not display strings.
+  model: text('model'),
+  effort: text('effort', { enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+
+  // When entering plan mode we stash the prior permission_mode here so
+  // ExitPlanMode can revert. Mirrors Claude Code's `prePlanMode` on
+  // ToolPermissionContext. Cleared when a non-plan mode is set directly.
+  pre_plan_mode: text('pre_plan_mode', {
+    enum: ['bypass', 'default', 'accept_edits', 'plan'],
+  }),
 
   started_at: text('started_at').notNull().default(sql`(datetime('now'))`),
   archived_at: text('archived_at'),

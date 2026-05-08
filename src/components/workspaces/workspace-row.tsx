@@ -113,45 +113,47 @@ export function WorkspaceRow({
             {workspace.name}
           </span>
         </button>
-        <button
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenSettings(workspace.id);
-          }}
-          className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-label="Workspace settings"
-          title="Workspace settings"
-        >
-          <Settings size={13} />
-        </button>
-        <WorkspaceBadge streamingCount={streamingCount} reviewCount={reviewCount} />
-        {workspace.is_git && (
+        <div className="flex items-center gap-0.5">
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              onOpenCreateFrom(workspace.id);
+              onOpenSettings(workspace.id);
             }}
             className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-            aria-label="Create from PR, branch, or issue"
-            title="Create from PR, branch, or issue"
+            aria-label="Workspace settings"
+            title="Workspace settings"
           >
-            <GitFork size={13} />
+            <Settings size={13} />
           </button>
-        )}
-        <button
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onCreateExecution(workspace.id);
-          }}
-          className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-label="New execution"
-          title="New execution"
-        >
-          <Plus size={13} />
-        </button>
+          <WorkspaceBadge streamingCount={streamingCount} reviewCount={reviewCount} />
+          {workspace.is_git && (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenCreateFrom(workspace.id);
+              }}
+              className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+              aria-label="Create from PR, branch, or issue"
+              title="Create from PR, branch, or issue"
+            >
+              <GitFork size={13} />
+            </button>
+          )}
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateExecution(workspace.id);
+            }}
+            className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            aria-label="New execution"
+            title="New execution"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
       </div>
 
       {/* Sessions */}

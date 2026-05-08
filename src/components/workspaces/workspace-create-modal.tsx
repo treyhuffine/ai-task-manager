@@ -12,6 +12,9 @@ import { fsApi } from '@/lib/api/fs';
 import { cn } from '@/lib/utils';
 import type { Attachment } from '@/db/types';
 import { FolderPicker } from './folder-picker';
+import { FilesToCopySection } from './files-to-copy-section';
+
+const DEFAULT_FILES_TO_COPY = ['.env*'];
 
 interface WorkspaceCreateModalProps {
   open: boolean;
@@ -32,6 +35,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
   const [areaId, setAreaId] = useState<string | ''>('');
   const [emoji, setEmoji] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [filesToCopy, setFilesToCopy] = useState<string[]>(DEFAULT_FILES_TO_COPY);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,6 +57,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
     setAreaId('');
     setEmoji(null);
     setAttachment(null);
+    setFilesToCopy(DEFAULT_FILES_TO_COPY);
     setError(null);
     nameUserEditedRef.current = false;
     coverUserEditedRef.current = false;
@@ -158,6 +163,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         area_id: areaId || null,
         emoji: emoji ?? null,
         attachments: attachment ? [attachment] : [],
+        files_to_copy: filesToCopy,
       },
       {
         onSuccess: () => {
@@ -174,7 +180,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         },
       },
     );
-  }, [name, cwd, areaId, emoji, attachment, createWs, reset, onOpenChange]);
+  }, [name, cwd, areaId, emoji, attachment, filesToCopy, createWs, reset, onOpenChange]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -342,6 +348,12 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                       ))}
                     </select>
                   </div>
+
+                  <FilesToCopySection
+                    value={filesToCopy}
+                    onChange={setFilesToCopy}
+                    cwd={cwd}
+                  />
                 </>
               )}
 

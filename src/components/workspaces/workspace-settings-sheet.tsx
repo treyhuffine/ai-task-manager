@@ -8,6 +8,7 @@ import { useAreas } from '@/hooks/use-areas';
 import { api } from '@/lib/api/client';
 import { EmojiPicker } from '@/components/shared/emoji-picker';
 import { uploadAttachment } from '@/lib/attachments/client';
+import { FilesToCopySection } from './files-to-copy-section';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const [areaId, setAreaId] = useState<string | ''>('');
   const [baseBranch, setBaseBranch] = useState('');
   const [worktreeRoot, setWorktreeRoot] = useState('');
+  const [filesToCopy, setFilesToCopy] = useState<string[]>([]);
   const [gh, setGh] = useState<GhStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,6 +43,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     setAreaId(ws.area_id ?? '');
     setBaseBranch(ws.base_branch ?? '');
     setWorktreeRoot(ws.worktree_root ?? '');
+    setFilesToCopy(ws.files_to_copy ?? []);
   }, [ws]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,6 +83,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
       area_id: areaId || null,
       base_branch: baseBranch || null,
       worktree_root: worktreeRoot || null,
+      files_to_copy: filesToCopy,
     });
   };
 
@@ -254,6 +258,12 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                         className="w-full px-3 py-2 text-xs font-mono bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                     </FieldGroup>
+
+                    <FilesToCopySection
+                      value={filesToCopy}
+                      onChange={setFilesToCopy}
+                      cwd={ws.cwd}
+                    />
                   </>
                 )}
 

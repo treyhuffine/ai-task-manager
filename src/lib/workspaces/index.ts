@@ -13,6 +13,7 @@
 import path from 'node:path';
 import slugify from '@sindresorhus/slugify';
 import { getAppRoot } from '@/lib/config/paths';
+import { expandFilesToCopyPatterns } from '@/lib/workspaces/files-to-copy';
 import type { WorkspaceRecord, ChatSessionRecord } from '@/db/types';
 
 // Cached lazy-loaded module. The library has no side effects on import,
@@ -119,6 +120,21 @@ export async function createWorktreeForSession(args: {
       });
       if (handle.kind !== 'git') {
         throw new Error('Expected git workspace handle');
+      }
+      // Copy user-configured files (default `.env*`) into the new worktree
+      // so secrets / local configs travel with the session. Failures here
+      // shouldn't kill the worktree — log and continue; the user can re-
+      // run a copy from settings later.
+      const expanded = expandFilesToCopyPatterns(ws.files_to_copy ?? []);
+      if (expanded.length > 0) {
+        try {
+          await handle.copyFromSource(expanded);
+        } catch (copyErr) {
+          console.error(
+            `[workspaces] copyFromSource failed for session ${sessionId}:`,
+            copyErr,
+          );
+        }
       }
       return {
         path: handle.path,

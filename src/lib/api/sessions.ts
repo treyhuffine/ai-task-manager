@@ -1,5 +1,48 @@
 import { api } from './client';
-import type { ChatSessionRecord, ChatEventRecord } from '@/db/types';
+import type { ChatSessionRecord, ChatEventRecord, PermissionMode, EffortLevel } from '@/db/types';
+
+// ─── Pending-input wire types ─────────────────────────────────
+//
+// Mirrored manually from `src/lib/executor/pending-input.ts` (server-only
+// module — pulls in @agentex/agent). Re-exporting from there would drag
+// node-only deps into the client bundle.
+
+export interface AskUserQuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+export interface AskUserQuestionItem {
+  question: string;
+  header: string;
+  options: AskUserQuestionOption[];
+  multiSelect?: boolean;
+}
+
+export interface PendingPermission {
+  kind: 'permission';
+  requestId: string;
+  sessionId: string;
+  toolUseId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  title: string | null;
+  description: string | null;
+  createdAt: string;
+}
+
+export interface PendingQuestion {
+  kind: 'question';
+  requestId: string;
+  sessionId: string;
+  toolUseId: string;
+  questions: AskUserQuestionItem[];
+  originalInput: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type PendingInput = PendingPermission | PendingQuestion;
 
 export interface DiffStats {
   files: number;
@@ -31,13 +74,48 @@ export interface StructuredDiffFile {
 }
 export interface StructuredDiff { files: StructuredDiffFile[] }
 
+export interface ResolvePendingBody {
+  allow: boolean;
+  message?: string;
+  answers?: Record<string, string>;
+}
+
+/**
+ * `chat_sessions` row plus a sidecar `agent_harness` field that the GET
+ * endpoint joins in. Used by the composer to pick the right model
+ * catalog without a second fetch.
+ */
+export interface ChatSessionWithAgent extends ChatSessionRecord {
+  agent_harness: string | null;
+}
+
 export const sessionsApi = {
-  get(id: string): Promise<ChatSessionRecord> {
-    return api.get<ChatSessionRecord>(`/sessions/${id}`);
+  get(id: string): Promise<ChatSessionWithAgent> {
+    return api.get<ChatSessionWithAgent>(`/sessions/${id}`);
   },
 
-  update(id: string, input: { label?: string | null }): Promise<ChatSessionRecord> {
+  update(
+    id: string,
+    input: {
+      label?: string | null;
+      permission_mode?: PermissionMode;
+      model?: string | null;
+      effort?: EffortLevel | null;
+    },
+  ): Promise<ChatSessionRecord> {
     return api.patch<ChatSessionRecord>(`/sessions/${id}`, input);
+  },
+
+  pendingInput(id: string): Promise<PendingInput[]> {
+    return api.get<PendingInput[]>(`/sessions/${id}/pending-input`);
+  },
+
+  resolvePendingInput(
+    id: string,
+    requestId: string,
+    body: ResolvePendingBody,
+  ): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/pending-input/${requestId}`, body);
   },
 
   events(id: string): Promise<ChatEventRecord[]> {

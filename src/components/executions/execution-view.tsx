@@ -11,6 +11,7 @@ import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionComposer } from './execution-composer';
 import { ExecutionContextPane } from './execution-context-pane';
 import { DiffSlideout } from './diff-slideout';
+import { PendingInputArea } from './pending-input-overlay';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -64,6 +65,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // Diff slideout state — opening file from context pane.
   const [diffFile, setDiffFile] = useState<string | null>(null);
 
+  // Voice-sent event ids tracked in client memory for this open session.
+  // Lost on reload by design — same model the orchestrator uses. The
+  // VoiceSentBadge is a soft signal, not a permanent attribute, so we
+  // don't persist it. The set only grows; nothing removes ids.
+  const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(() => new Set());
+
   useEffect(() => {
     if (sessionId) markViewed.mutate(sessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,15 +120,41 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     <div className="flex flex-1 min-w-0">
       <div className="flex flex-col flex-1 min-w-0 bg-background">
         <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
-        <ExecutionTranscript session={session} workspace={workspace} isRunning={isRunning} />
-        <ExecutionComposer
-          sessionId={session.id}
-          disabled={composerDisabled}
-          disabledReason={composerDisabledReason}
+        <ExecutionTranscript
+          session={session}
+          workspace={workspace}
           isRunning={isRunning}
-          onSend={async (content) => { await sendMessage.mutateAsync(content); }}
-          onStop={async () => { await interruptSession.mutateAsync(); }}
+          voiceSentIds={voiceSentIds}
         />
+        {/* Pending input + composer share a single top border so they
+            read as one connected input region. PendingInputArea returns
+            null when nothing's pending, in which case the composer is
+            the sole child and the wrapper is just a thin border. */}
+        <div className="flex-shrink-0 border-t border-border bg-background">
+          <PendingInputArea sessionId={session.id} />
+          <ExecutionComposer
+            sessionId={session.id}
+            permissionMode={session.permission_mode}
+            model={session.model}
+            effort={session.effort}
+            harness={session.agent_harness ?? null}
+            disabled={composerDisabled}
+            disabledReason={composerDisabledReason}
+            isRunning={isRunning}
+            onSend={async (content, opts) => {
+              const event = await sendMessage.mutateAsync(content);
+              if (opts?.viaVoice && event?.id) {
+                setVoiceSentIds((prev) => {
+                  if (prev.has(event.id)) return prev;
+                  const next = new Set(prev);
+                  next.add(event.id);
+                  return next;
+                });
+              }
+            }}
+            onStop={async () => { await interruptSession.mutateAsync(); }}
+          />
+        </div>
       </div>
 
       {/* Context pane + diff slideout are desktop-only — on mobile the

@@ -3,13 +3,18 @@
 import { useState } from 'react';
 import {
   ChevronRight, AlertTriangle, CheckCircle2, Wrench, RefreshCw, Sparkles,
+  ShieldCheck, ShieldAlert, HelpCircle,
 } from 'lucide-react';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
+import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import { cn } from '@/lib/utils';
 import type { ChatEventRecord } from '@/db/types';
 
 interface ExecutionEventProps {
   event: ChatEventRecord;
+  /** True when this client sent the message via voice this session. */
+  voiceSent?: boolean;
 }
 
 /**
@@ -22,28 +27,48 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event }: ExecutionEventProps) {
+export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
   const [expanded, setExpanded] = useState(false);
 
   switch (event.source) {
     case 'user':
       return (
-        <Message from="user">
-          <MessageContent className="text-[12.5px] whitespace-pre-wrap break-words">
-            {event.content ?? ''}
-          </MessageContent>
-        </Message>
+        <div className="group flex flex-col">
+          <Message from="user">
+            <MessageContent className="text-[12.5px] whitespace-pre-wrap break-words">
+              {event.content ?? ''}
+            </MessageContent>
+          </Message>
+          {voiceSent && <VoiceSentBadge />}
+          {event.content && (
+            <CopyMessageButton
+              text={event.content}
+              align="right"
+              timestamp={event.created_at}
+            />
+          )}
+        </div>
       );
 
     case 'agent':
       return (
-        <Message from="assistant">
-          <MessageContent className="text-[12.5px] leading-relaxed">
-            <MessageResponse className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]">
-              {event.content ?? ''}
-            </MessageResponse>
-          </MessageContent>
-        </Message>
+        <div className="group flex flex-col">
+          <Message from="assistant">
+            <MessageContent className="text-[12.5px] leading-relaxed">
+              <MessageResponse className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]">
+                {event.content ?? ''}
+              </MessageResponse>
+            </MessageContent>
+          </Message>
+          {event.content && (
+            <CopyMessageButton
+              text={event.content}
+              align="left"
+              alwaysVisible
+              timestamp={event.created_at}
+            />
+          )}
+        </div>
       );
 
     case 'thinking': {
@@ -175,6 +200,94 @@ export function ExecutionEvent({ event }: ExecutionEventProps) {
         </div>
       );
 
+    case 'permission_request': {
+      const tool = event.tool_name ?? 'tool';
+      const summary = summarizeToolInput(event.tool_input);
+      return (
+        <div className="rounded-md border border-blue-500/30 bg-blue-500/5 px-2.5 py-1.5">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <ShieldCheck size={11} className="text-blue-500" />
+            <span className="text-foreground/90">Permission requested</span>
+            <span className="text-muted-foreground/60 font-mono">— {tool}</span>
+            {summary && <span className="text-muted-foreground/70 truncate">{summary}</span>}
+          </div>
+          {event.content && (
+            <div className="mt-1 ml-5 text-[11px] text-muted-foreground/80">
+              {event.content}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    case 'permission_response': {
+      const allowed = !event.tool_is_error;
+      return (
+        <div
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-medium',
+            allowed
+              ? 'bg-emerald-500/10 text-emerald-500'
+              : 'bg-destructive/10 text-destructive',
+          )}
+        >
+          {allowed ? <ShieldCheck size={11} /> : <ShieldAlert size={11} />}
+          <span>{allowed ? 'Allowed' : 'Denied'}</span>
+          {event.content && event.content !== (allowed ? 'allowed' : 'denied') && (
+            <span className="font-normal opacity-80">— {event.content}</span>
+          )}
+        </div>
+      );
+    }
+
+    case 'question_request': {
+      const questions = extractQuestions(event.tool_input);
+      const first = questions[0];
+      return (
+        <div className="rounded-md border border-foreground/20 bg-foreground/5 px-2.5 py-1.5">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <HelpCircle size={11} className="text-foreground/80" />
+            <span className="text-foreground/90">Question</span>
+            {questions.length > 1 && (
+              <span className="text-muted-foreground/70">({questions.length} parts)</span>
+            )}
+          </div>
+          {first && (
+            <div className="mt-1 ml-5 text-[11px] text-muted-foreground/80">
+              {first.header || first.question}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    case 'question_response': {
+      const text = event.content ?? '';
+      return (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full text-left rounded-md border border-foreground/15 bg-foreground/5 px-2.5 py-1.5"
+        >
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <ChevronRight
+              size={11}
+              className={cn('transition-transform text-muted-foreground/60', expanded && 'rotate-90')}
+            />
+            <HelpCircle size={11} className="text-foreground/80" />
+            <span className="text-foreground/90">Your answer</span>
+            {!expanded && text && (
+              <span className="text-muted-foreground/70 truncate">— {truncate(text, 80)}</span>
+            )}
+          </div>
+          {expanded && text && (
+            <pre className="mt-1.5 ml-5 text-[10.5px] text-muted-foreground whitespace-pre-wrap break-words">
+              {text}
+            </pre>
+          )}
+        </button>
+      );
+    }
+
     default:
       return (
         <div className="text-[10.5px] text-muted-foreground/60 italic">
@@ -201,4 +314,17 @@ function summarizeToolInput(input: unknown): string {
     return truncate(JSON.stringify(o), 60);
   }
   return '';
+}
+
+interface MinimalQuestion { question: string; header?: string }
+
+function extractQuestions(input: unknown): MinimalQuestion[] {
+  if (!input || typeof input !== 'object') return [];
+  const wrapper = input as { questions?: unknown };
+  const arr = wrapper.questions;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(
+    (q): q is MinimalQuestion =>
+      !!q && typeof q === 'object' && typeof (q as MinimalQuestion).question === 'string',
+  );
 }

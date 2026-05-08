@@ -107,10 +107,36 @@ export type CreateChatEventInput = Omit<InferInsertModel<typeof chatEvents>, 'id
 export type ChatEventSource =
   | 'user' | 'agent' | 'thinking' | 'tool_call' | 'tool_result'
   | 'system' | 'result' | 'rate_limit' | 'error' | 'recap'
+  | 'permission_request' | 'permission_response'
+  | 'question_request' | 'question_response'
   | 'cron' | 'unknown';
 
 /** Outcome events bump `chat_sessions.last_outcome_event_at`. */
 export const OUTCOME_SOURCES: ReadonlySet<ChatEventSource> = new Set(['agent', 'result']);
+
+/**
+ * Permission modes for execution sessions.
+ *
+ * - `bypass`   — auto-allow every tool. No --permission-mode flag passed
+ *                to Claude. Default for new sessions; matches the legacy
+ *                Flow behavior where the executor never prompted.
+ * - `default`  — Claude prompts via stdio for every mutating tool. The
+ *                pending-input UI surfaces the prompt.
+ * - `accept_edits` — Claude auto-allows Write/Edit/MultiEdit inside cwd;
+ *                Bash/etc still prompt. Maps to `--permission-mode acceptEdits`.
+ * - `plan`     — Claude refuses to mutate state and produces a plan for
+ *                user approval. Maps to `--permission-mode plan`. Plus
+ *                EnterPlanMode/ExitPlanMode tools become available.
+ *
+ * AskUserQuestion always surfaces to the user regardless of mode.
+ */
+export type PermissionMode = NonNullable<ChatSessionRecord['permission_mode']>;
+
+export const PERMISSION_MODES = ['bypass', 'default', 'accept_edits', 'plan'] as const satisfies readonly PermissionMode[];
+
+export type EffortLevel = NonNullable<ChatSessionRecord['effort']>;
+
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly EffortLevel[];
 
 // ─── Chat Attachments ─────────────────────────────────────────
 

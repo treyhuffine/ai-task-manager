@@ -1,5 +1,8 @@
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sessionsApi } from '@/lib/api/sessions';
+import { sessionsApi, type ResolvePendingBody } from '@/lib/api/sessions';
+import type { PermissionMode, EffortLevel, ChatEventRecord } from '@/db/types';
+import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
@@ -92,13 +95,129 @@ export function useSendMessage(id: string) {
 export function useUpdateSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: string; label?: string | null }) =>
-      sessionsApi.update(id, input),
+    mutationFn: ({ id, ...input }: {
+      id: string;
+      label?: string | null;
+      permission_mode?: PermissionMode;
+      model?: string | null;
+      effort?: EffortLevel | null;
+    }) => sessionsApi.update(id, input),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['session', data.id] });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
     },
   });
+}
+
+/**
+ * Permission/question requests waiting on the user. Polls every 1.5s
+ * while the agent is mid-turn so the floating overlay surfaces quickly
+ * after Claude calls a tool that needs approval. Pending state lives in
+ * the executor's process memory; on server restart this returns [] and
+ * the agent's awaiting promise is gone with it.
+ */
+export function usePendingInput(id: string | null) {
+  return useQuery({
+    queryKey: ['session', id, 'pending-input'],
+    queryFn: () => sessionsApi.pendingInput(id!),
+    enabled: !!id,
+    refetchInterval: 1_500,
+    staleTime: 500,
+  });
+}
+
+export function useResolvePendingInput(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, body }: { requestId: string; body: ResolvePendingBody }) =>
+      sessionsApi.resolvePendingInput(sessionId, requestId, body),
+    onSuccess: () => {
+      // Drop the entry immediately rather than waiting for the next
+      // poll — user gets the visual confirmation that their answer
+      // was accepted. The transcript event will land on the next
+      // events poll (3s) but the overlay is already gone.
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'pending-input'] });
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'events'] });
+    },
+  });
+}
+
+export interface SessionMeta {
+  model: ModelInfo | null;
+  /** Tokens consumed by the most recent turn's input message. */
+  lastInputTokens: number | null;
+  /** Tokens consumed by the most recent turn's output. */
+  lastOutputTokens: number | null;
+  /** lastInputTokens / model.contextWindow as a 0..1 fraction. */
+  contextUsedFraction: number | null;
+}
+
+/**
+ * Derive composer-display metadata from chat_events. Reads the most
+ * recent `system` event for the model id and the most recent `result`
+ * event for token usage. Model id comes from agentex's StreamEvent
+ * (`event.model`); usage comes from `event.usage` on the result.
+ *
+ * Fraction is computed off `input_tokens` because that's "how full is
+ * the context window right now" (output tokens are billed but don't
+ * count against context). When the model id resolves to a registered
+ * cap (Opus 4.7 = 1M, Sonnet 4.6 = 1M, etc.), we surface the percentage;
+ * unknown models hide it.
+ */
+export function useSessionMeta(sessionId: string | null): SessionMeta {
+  const { data: events } = useSessionEvents(sessionId);
+  return useMemo(() => deriveSessionMeta(events ?? []), [events]);
+}
+
+function deriveSessionMeta(events: ChatEventRecord[]): SessionMeta {
+  let modelId: string | null = null;
+  let lastInputTokens: number | null = null;
+  let lastOutputTokens: number | null = null;
+
+  // Walk newest-first; first hits win. Result events carry usage.
+  // System events carry the active model id.
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    const raw = (ev.raw ?? {}) as Record<string, unknown>;
+    if (lastInputTokens == null && ev.source === 'result') {
+      const usage = raw['usage'] as
+        | Record<string, { input_tokens?: number; output_tokens?: number } | number | undefined>
+        | undefined;
+      if (usage) {
+        // Claude shape: usage.{ model_id }.input_tokens. Codex shape:
+        // usage.input_tokens directly. Try both.
+        let input = 0;
+        let output = 0;
+        for (const v of Object.values(usage)) {
+          if (typeof v === 'object' && v) {
+            input += v.input_tokens ?? 0;
+            output += v.output_tokens ?? 0;
+          }
+        }
+        if (input === 0 && typeof (usage as { input_tokens?: number }).input_tokens === 'number') {
+          input = (usage as { input_tokens: number }).input_tokens;
+          output = (usage as { output_tokens?: number }).output_tokens ?? 0;
+        }
+        if (input > 0) {
+          lastInputTokens = input;
+          lastOutputTokens = output;
+        }
+      }
+    }
+    if (modelId == null && ev.source === 'system') {
+      const m = raw['model'];
+      if (typeof m === 'string' && m) modelId = m;
+    }
+    if (lastInputTokens != null && modelId != null) break;
+  }
+
+  const model = resolveModelInfo(modelId);
+  const contextUsedFraction =
+    model && model.contextWindow > 0 && lastInputTokens != null
+      ? Math.min(1, lastInputTokens / model.contextWindow)
+      : null;
+
+  return { model, lastInputTokens, lastOutputTokens, contextUsedFraction };
 }
 
 /**

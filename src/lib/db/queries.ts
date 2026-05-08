@@ -950,3 +950,19 @@ export function listChatEvents(sessionId: string, opts: { limit?: number; offset
     .offset(opts.offset ?? 0)
     .all();
 }
+
+/**
+ * Wipe every chat_event row for a session. Used by the dev-page reset
+ * button to start a fresh transcript. Also clears the session's
+ * outcome timestamp so the rail's needs-review marker doesn't linger
+ * past the wipe.
+ */
+export function deleteAllChatEvents(sessionId: string): number {
+  const db = getDb();
+  const result = db.delete(chatEvents).where(eq(chatEvents.session_id, sessionId)).run();
+  db.update(chatSessions)
+    .set({ last_outcome_event_at: null, last_viewed_at: null })
+    .where(eq(chatSessions.id, sessionId))
+    .run();
+  return result.changes;
+}

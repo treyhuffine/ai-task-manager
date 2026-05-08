@@ -60,7 +60,20 @@ export const workspacesApi = {
   listBranches(id: string): Promise<string[]> {
     return api.get<string[]>(`/workspaces/${id}/branches`);
   },
+
+  previewFilesToCopy(cwd: string, globs: string[]): Promise<PreviewFilesToCopyResponse> {
+    return api.post<PreviewFilesToCopyResponse>('/workspaces/preview-files', {
+      cwd,
+      globs,
+    });
+  },
 };
+
+export interface PreviewFilesToCopyResponse {
+  files: string[];
+  truncated: boolean;
+  root: string;
+}
 
 /** Subset of @agentex/github's PRSummary — kept inline so the client
  *  bundle doesn't pull the full library. */

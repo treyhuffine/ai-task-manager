@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `files_to_copy` text DEFAULT '[".env*"]' NOT NULL;

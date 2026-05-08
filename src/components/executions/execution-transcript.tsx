@@ -17,6 +17,8 @@ interface ExecutionTranscriptProps {
   session: ChatSessionRecord;
   workspace: WorkspaceRecord | undefined;
   isRunning: boolean;
+  /** Event ids that this client sent via voice — drives the badge under user messages. */
+  voiceSentIds?: ReadonlySet<string>;
 }
 
 /**
@@ -37,7 +39,7 @@ interface ExecutionTranscriptProps {
  * for this explicitly: "show a timer and don't stop it or hide it
  * until the agent sends its completion of its turn."
  */
-export function ExecutionTranscript({ session, workspace, isRunning }: ExecutionTranscriptProps) {
+export function ExecutionTranscript({ session, workspace, isRunning, voiceSentIds }: ExecutionTranscriptProps) {
   const { data: rawEvents, isLoading } = useSessionEvents(session.id);
 
   const events = useMemo(() => filterRenderable(rawEvents ?? []), [rawEvents]);
@@ -65,7 +67,7 @@ export function ExecutionTranscript({ session, workspace, isRunning }: Execution
 
   return (
     <Conversation className="flex-1 min-h-0">
-      <ConversationContent className="gap-3 px-5 py-4 max-w-3xl mx-auto">
+      <ConversationContent className="gap-3 px-5 pt-4 pb-8 max-w-3xl mx-auto">
         <SetupCard session={session} workspace={workspace} />
 
         {isLoading && !hasEvents && (
@@ -73,7 +75,11 @@ export function ExecutionTranscript({ session, workspace, isRunning }: Execution
         )}
 
         {events.map((event) => (
-          <ExecutionEvent key={event.id} event={event} />
+          <ExecutionEvent
+            key={event.id}
+            event={event}
+            voiceSent={voiceSentIds?.has(event.id) ?? false}
+          />
         ))}
 
         {isRunning && <ThinkingState since={thinkingSince} />}
