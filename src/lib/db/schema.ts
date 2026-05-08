@@ -366,6 +366,7 @@ export const chatAttachments = sqliteTable('chat_attachments', {
   event_id: text('event_id').notNull().references(() => chatEvents.id, { onDelete: 'cascade' }),
   session_id: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
   kind: text('kind').notNull(),
+  filename: text('filename'),
   mime_type: text('mime_type'),
   size_bytes: integer('size_bytes'),
   storage_kind: text('storage_kind').notNull(),

@@ -11,11 +11,7 @@ import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { isFileUIPart, isToolUIPart, getToolName, DefaultChatTransport } from 'ai';
 import { getAuthToken } from '@/lib/api/client';
-import { usePasteAttachments } from '@/hooks/use-paste-attachments';
-import {
-  PasteAttachmentChip,
-  PasteAttachmentList,
-} from '@/components/chat/paste-attachment';
+import { PasteAttachmentChip } from '@/components/chat/paste-attachment';
 import {
   fileUIPartToAttachment,
   isPastedTextFilePart,
@@ -41,6 +37,9 @@ import {
 import { EntityAwareText } from '@/components/ai-elements/entity-reference';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
+import {
+  ChatInputEditor, type ChatInputEditorHandle,
+} from '@/components/chat/editor/chat-input-editor';
 import { APP_NAME } from '@/constants/app';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
@@ -201,7 +200,6 @@ function VoiceSentBadge({ voiceAutoSend, onToggleAutoSend }: { voiceAutoSend: bo
 function ChatContent({ panelId }: { panelId: PanelId }) {
   const { theme, voiceChatPanelTarget, clearVoiceChatTrigger } = useDashboard();
   const isDark = theme === 'dark';
-  const [input, setInput] = useState('');
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const moreActionsRef = useRef<HTMLDivElement>(null);
   const { messages, sendMessage, status, stop } = useChat({ transport: chatTransport });
@@ -209,7 +207,6 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
   const voiceAutoSend = userState?.voice_auto_send ?? true;
-  const pasteAttachments = usePasteAttachments();
 
   // Track which message IDs were sent via voice
   const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(new Set());
@@ -239,7 +236,8 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   }, [messages]);
 
   const voice = useVoiceInput();
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<ChatInputEditorHandle | null>(null);
+  const [editorHasContent, setEditorHasContent] = useState(false);
   const micButtonRef = useRef<HTMLButtonElement>(null);
   const [showUnsupportedHint, setShowUnsupportedHint] = useState(false);
 
@@ -276,16 +274,20 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
     requestAnimationFrame(() => micButtonRef.current?.focus());
   }, [voiceChatPanelTarget, panelId, clearVoiceChatTrigger]);
 
-  const handleSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const text = input.trim();
-    const files = pasteAttachments.toFileParts();
-    if (!text && files.length === 0) return;
-    sendMessage({ text, files });
-    setInput('');
-    pasteAttachments.clearAttachments();
-    if (inputRef.current) inputRef.current.style.height = 'auto';
-  }, [input, sendMessage, pasteAttachments]);
+  const handleSubmit = useCallback((e?: React.FormEvent<HTMLFormElement>) => {
+    e?.preventDefault();
+    const editor = editorRef.current;
+    if (!editor) return;
+    const { parts } = editor.getUiMessageParts();
+    if (parts.length === 0) return;
+    // sendMessage accepts `parts` directly so chips and text run in
+    // their authored positions all the way through to the model. The
+    // existing render still groups by part type (text bubble vs file
+    // chip block) — true inline-in-bubble rendering is a follow-up.
+    sendMessage({ parts });
+    editor.clear();
+    setEditorHasContent(false);
+  }, [sendMessage]);
 
   const handleQuickAction = useCallback((message: string) => {
     sendMessage({ text: message });
@@ -321,11 +323,17 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
     }
   }, [voiceAutoSend, voice.transcript, voice.isRecording, voice.isTranscribing, handleVoiceSend]);
 
-  // Move transcript to text box for editing
+  // Move transcript to editor for editing
   const handleVoiceEdit = useCallback(() => {
-    setInput(prev => prev ? `${prev} ${voice.transcript.trim()}` : voice.transcript.trim());
+    const t = voice.transcript.trim();
+    if (!t) return;
+    const editor = editorRef.current;
+    if (editor) {
+      const prefix = editor.textLength() > 0 ? ' ' : '';
+      editor.insertTextAtCursor(`${prefix}${t}`);
+      editor.focus();
+    }
     voice.clearTranscript();
-    requestAnimationFrame(() => inputRef.current?.focus());
   }, [voice]);
 
   const handleToggleAutoSend = useCallback(() => {
@@ -344,26 +352,9 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [moreActionsOpen]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (pasteAttachments.handleBackspaceOnEmpty(e)) return;
-
-    // Enter submits. Shift+Enter and Alt/Option+Enter insert newlines so
-    // users can compose multi-line prompts without losing what they typed.
-    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-      e.preventDefault();
-      if (isStreaming) {
-        stop();
-        return;
-      }
-      const text = input.trim();
-      const files = pasteAttachments.toFileParts();
-      if (!text && files.length === 0) return;
-      sendMessage({ text, files });
-      setInput('');
-      pasteAttachments.clearAttachments();
-      if (inputRef.current) inputRef.current.style.height = 'auto';
-    }
-  };
+  // Enter / Shift+Enter handling lives inside ChatInputEditor's keymap
+  // now. The editor calls onSubmit when the user hits Enter; that
+  // routes through handleSubmit above (which handles isStreaming).
 
   // Show voice panel when transcribing or when there's a transcript to review (non-auto-send)
   const hasTranscriptToReview = !voiceAutoSend && !!voice.transcript.trim() && !voice.isRecording && !voice.isTranscribing;
@@ -659,30 +650,13 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
         <form onSubmit={handleSubmit} className="relative group">
           <div className="pointer-events-none absolute -inset-0.5 bg-primary/15 rounded-xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity" />
           <div className="relative bg-card border border-border rounded-xl p-1 flex flex-col gap-1 focus-within:border-primary/30 transition-all">
-            {pasteAttachments.hasAttachments && (
-              <PasteAttachmentList
-                attachments={pasteAttachments.attachments}
-                onRemove={pasteAttachments.removeAttachment}
-                className="px-1 pt-1"
-              />
-            )}
             <div className="flex items-start gap-2">
-              <textarea
-                ref={inputRef}
-                rows={1}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onInput={(e) => {
-                  // Auto-resize: shrink to content, capped at ~6 lines (160px).
-                  const t = e.currentTarget;
-                  t.style.height = 'auto';
-                  t.style.height = Math.min(t.scrollHeight, 160) + 'px';
-                }}
-                onKeyDown={handleKeyDown}
-                onPaste={pasteAttachments.handlePaste}
+              <ChatInputEditor
+                ref={editorRef}
                 placeholder="Execute your plan..."
-                className="flex-1 bg-transparent border-none outline-none text-base md:text-sm py-2 pl-2 placeholder:text-muted-foreground resize-none leading-snug"
-                style={{ minHeight: 36, maxHeight: 160 }}
+                onContentChange={setEditorHasContent}
+                onSubmit={() => (isStreaming ? stop() : handleSubmit())}
+                className="py-1 pl-1"
               />
               {isStreaming ? (
                 <button
@@ -695,10 +669,10 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
               ) : (
                 <button
                   type="submit"
-                  disabled={!input.trim() && !pasteAttachments.hasAttachments}
+                  disabled={!editorHasContent}
                   className={cn(
                     'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all',
-                    input.trim() || pasteAttachments.hasAttachments
+                    editorHasContent
                       ? 'bg-primary text-primary-foreground active:scale-95'
                       : isDark ? 'bg-secondary text-muted-foreground' : 'bg-muted text-muted-foreground'
                   )}

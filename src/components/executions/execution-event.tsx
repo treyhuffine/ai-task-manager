@@ -8,11 +8,13 @@ import {
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
+import { MessagePasteChip } from '@/components/chat/message-paste-chip';
+import { parsePasteMarkers } from '@/components/chat/editor/parse-paste-markers';
 import { cn } from '@/lib/utils';
-import type { ChatEventRecord } from '@/db/types';
+import type { ChatEventWithAttachments } from '@/db/types';
 
 interface ExecutionEventProps {
-  event: ChatEventRecord;
+  event: ChatEventWithAttachments;
   /** True when this client sent the message via voice this session. */
   voiceSent?: boolean;
 }
@@ -31,12 +33,28 @@ export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
   const [expanded, setExpanded] = useState(false);
 
   switch (event.source) {
-    case 'user':
+    case 'user': {
+      const segments = parsePasteMarkers(event.content ?? '', event.pasted_attachments ?? []);
+      const hasChips = segments.some((s) => s.kind === 'chip');
       return (
         <div className="group flex flex-col">
           <Message from="user">
             <MessageContent className="text-[12.5px] whitespace-pre-wrap break-words">
-              {event.content ?? ''}
+              {hasChips ? (
+                segments.map((seg, i) =>
+                  seg.kind === 'text' ? (
+                    <span key={i}>{seg.text}</span>
+                  ) : (
+                    <MessagePasteChip
+                      key={i}
+                      filename={seg.filename}
+                      content={seg.content}
+                    />
+                  ),
+                )
+              ) : (
+                event.content ?? ''
+              )}
             </MessageContent>
           </Message>
           {voiceSent && <VoiceSentBadge />}
@@ -49,6 +67,7 @@ export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
           )}
         </div>
       );
+    }
 
     case 'agent':
       return (

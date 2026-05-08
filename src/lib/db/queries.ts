@@ -6,7 +6,7 @@
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
-  workspaces, agents, chatSessions, chatEvents,
+  workspaces, agents, chatSessions, chatEvents, chatAttachments,
 } from '@/lib/db/schema';
 import { eq, and, desc, asc, sql, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -949,6 +949,81 @@ export function listChatEvents(sessionId: string, opts: { limit?: number; offset
     .limit(opts.limit ?? 1000)
     .offset(opts.offset ?? 0)
     .all();
+}
+
+/**
+ * Insert pasted-text attachments tied to a user `chat_event`. Stores
+ * inline as a blob (small UTF-8 text payloads — pastes are typically
+ * <50KB). The chat_event content carries `[[paste:id]]` markers; the
+ * transcript render swaps those markers for chips that read from these
+ * rows.
+ */
+export interface InsertPastedAttachmentInput {
+  /** Editor-side id (uuidv7) — the marker token's payload. */
+  marker_id: string;
+  /** Display filename. */
+  filename: string;
+  /** UTF-8 text content. */
+  content: string;
+}
+
+export function insertPastedAttachments(
+  sessionId: string,
+  eventId: string,
+  attachments: InsertPastedAttachmentInput[],
+): void {
+  if (attachments.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  for (const a of attachments) {
+    const bytes = new TextEncoder().encode(a.content);
+    db.insert(chatAttachments)
+      .values({
+        // The chat_attachments PK is text. Use the marker id directly so
+        // the transcript chip can fetch by marker without a join lookup.
+        id: a.marker_id,
+        event_id: eventId,
+        session_id: sessionId,
+        kind: 'pasted_text',
+        filename: a.filename,
+        mime_type: 'text/plain',
+        size_bytes: bytes.byteLength,
+        storage_kind: 'inline',
+        // better-sqlite3 accepts Uint8Array for blob columns.
+        blob: Buffer.from(bytes),
+        created_at: now,
+      })
+      .run();
+  }
+}
+
+/**
+ * List every pasted-text attachment for a session, keyed by marker_id
+ * (= chat_attachments.id). Single query, suitable for inlining into
+ * the events GET response so the chip renderer doesn't need a second
+ * round-trip.
+ */
+export function listSessionPastedAttachments(
+  sessionId: string,
+): Map<string, { event_id: string; filename: string; content: string }> {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(chatAttachments)
+    .where(eq(chatAttachments.session_id, sessionId))
+    .all();
+  const out = new Map<string, { event_id: string; filename: string; content: string }>();
+  for (const r of rows) {
+    if (r.kind !== 'pasted_text') continue;
+    const blob = r.blob as Buffer | null;
+    if (!blob) continue;
+    out.set(r.id, {
+      event_id: r.event_id,
+      filename: r.filename ?? 'pasted_text.txt',
+      content: blob.toString('utf-8'),
+    });
+  }
+  return out;
 }
 
 /**

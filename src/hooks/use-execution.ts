@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sessionsApi, type ResolvePendingBody } from '@/lib/api/sessions';
+import { sessionsApi, type ResolvePendingBody, type WipApplyResult } from '@/lib/api/sessions';
 import type { PermissionMode, EffortLevel, ChatEventRecord } from '@/db/types';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 
@@ -75,10 +75,21 @@ export function usePullBase(id: string) {
   });
 }
 
+export interface SendMessageInput {
+  content: string;
+  attachments?: { id: string; filename: string; content: string }[];
+}
+
 export function useSendMessage(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (content: string) => sessionsApi.sendMessage(id, content),
+    mutationFn: (input: SendMessageInput | string) => {
+      const normalized: SendMessageInput =
+        typeof input === 'string' ? { content: input } : input;
+      return sessionsApi.sendMessage(id, normalized.content, {
+        attachments: normalized.attachments,
+      });
+    },
     onSuccess: () => {
       // Repaint the transcript immediately rather than waiting for the
       // 3s poll, bump runtime-status so the working indicator turns on
@@ -245,6 +256,34 @@ export function useRuntimeStatus(id: string | null) {
  * "stop" to "send" and any final aborted-result event surfaces without
  * waiting for the 2s/3s polls.
  */
+/**
+ * Live WIP read against the source repo of a session's workspace. Fires
+ * once when `enabled` flips true (after the worktree is provisioned and
+ * the banner mounts). No interval — WIP is a snapshot for the prompt;
+ * if the user dismisses the banner and reopens the session, a re-fetch
+ * surfaces whatever's there now.
+ */
+export function useSessionWip(id: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['session', id, 'wip'],
+    queryFn: () => sessionsApi.wip(id!),
+    enabled: !!id && enabled,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useApplyWip(id: string) {
+  const qc = useQueryClient();
+  return useMutation<WipApplyResult, Error, 'copy' | 'move'>({
+    mutationFn: (action) => sessionsApi.applyWip(id, action),
+    onSuccess: () => {
+      // The worktree's working tree just changed — repaint diff/status.
+      qc.invalidateQueries({ queryKey: ['session', id] });
+    },
+  });
+}
+
 export function useInterruptSession(id: string) {
   const qc = useQueryClient();
   return useMutation({

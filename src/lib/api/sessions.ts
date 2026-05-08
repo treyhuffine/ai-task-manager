@@ -1,5 +1,8 @@
 import { api } from './client';
-import type { ChatSessionRecord, ChatEventRecord, PermissionMode, EffortLevel } from '@/db/types';
+import type {
+  ChatSessionRecord, ChatEventRecord, ChatEventWithAttachments,
+  PermissionMode, EffortLevel,
+} from '@/db/types';
 
 // ─── Pending-input wire types ─────────────────────────────────
 //
@@ -80,6 +83,28 @@ export interface ResolvePendingBody {
   answers?: Record<string, string>;
 }
 
+export interface WipDetection {
+  modified: string[];
+  untracked: string[];
+}
+
+export interface WipCopyResult {
+  action: 'copy';
+  empty?: true;
+  copied?: string[];
+  skipped?: { path: string; reason: string }[];
+}
+
+export interface WipMoveResult {
+  action: 'move';
+  empty?: true;
+  moved?: boolean;
+  conflict?: boolean;
+  stashMessage?: string | null;
+}
+
+export type WipApplyResult = WipCopyResult | WipMoveResult;
+
 /**
  * `chat_sessions` row plus a sidecar `agent_harness` field that the GET
  * endpoint joins in. Used by the composer to pick the right model
@@ -118,8 +143,8 @@ export const sessionsApi = {
     return api.post<{ ok: true }>(`/sessions/${id}/pending-input/${requestId}`, body);
   },
 
-  events(id: string): Promise<ChatEventRecord[]> {
-    return api.get<ChatEventRecord[]>(`/sessions/${id}/events`);
+  events(id: string): Promise<ChatEventWithAttachments[]> {
+    return api.get<ChatEventWithAttachments[]>(`/sessions/${id}/events`);
   },
 
   status(id: string): Promise<WorktreeStatus | null> {
@@ -161,8 +186,15 @@ export const sessionsApi = {
     return api.post<{ ok: true }>(`/sessions/${id}/pull-base`, { strategy });
   },
 
-  sendMessage(id: string, content: string): Promise<ChatEventRecord> {
-    return api.post<ChatEventRecord>(`/sessions/${id}/messages`, { content });
+  sendMessage(
+    id: string,
+    content: string,
+    opts?: { attachments?: { id: string; filename: string; content: string }[] },
+  ): Promise<ChatEventRecord> {
+    return api.post<ChatEventRecord>(`/sessions/${id}/messages`, {
+      content,
+      attachments: opts?.attachments,
+    });
   },
 
   runtimeStatus(id: string): Promise<{ running: boolean }> {
@@ -171,5 +203,13 @@ export const sessionsApi = {
 
   interrupt(id: string): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(`/sessions/${id}/interrupt`);
+  },
+
+  wip(id: string): Promise<WipDetection | null> {
+    return api.get<WipDetection | null>(`/sessions/${id}/wip`);
+  },
+
+  applyWip(id: string, action: 'copy' | 'move'): Promise<WipApplyResult> {
+    return api.post<WipApplyResult>(`/sessions/${id}/wip`, { action });
   },
 };

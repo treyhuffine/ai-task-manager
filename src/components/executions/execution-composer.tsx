@@ -13,6 +13,9 @@ import { PERMISSION_MODES, type PermissionMode, type EffortLevel } from '@/db/ty
 import {
   MODEL_OPTIONS, EFFORT_OPTIONS, findModelOption, harnessSupportsEffort,
 } from '@/lib/agent-options';
+import {
+  ChatInputEditor, type ChatInputEditorHandle, type ChipAttachment,
+} from '@/components/chat/editor/chat-input-editor';
 
 interface ExecutionComposerProps {
   sessionId: string;
@@ -34,14 +37,18 @@ interface ExecutionComposerProps {
    * Send the message. `opts.viaVoice` is true when the text came from a
    * voice transcript (auto-send path) — the parent uses this to mark
    * the resulting event id as voice-sent so the transcript can render
-   * the VoiceSentBadge.
+   * the VoiceSentBadge. `opts.attachments` carries any pasted-text chips
+   * the user inserted; they're persisted alongside the user event and
+   * the server expands their `[[paste:id]]` markers in `message`
+   * before dispatching to the agent.
    */
-  onSend: (message: string, opts?: { viaVoice?: boolean }) => Promise<void> | void;
+  onSend: (
+    message: string,
+    opts?: { viaVoice?: boolean; attachments?: ChipAttachment[] },
+  ) => Promise<void> | void;
   /** Required when `isRunning` can be true. Cancels the agent turn. */
   onStop?: () => Promise<void> | void;
 }
-
-const MAX_HEIGHT = 200;
 
 /**
  * Composer for executions. Adopts the same vertical-stack layout as
@@ -69,13 +76,13 @@ export function ExecutionComposer({
   onSend,
   onStop,
 }: ExecutionComposerProps) {
-  const [value, setValue] = useState('');
+  const [hasContent, setHasContent] = useState(false);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<ChatInputEditorHandle | null>(null);
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
   const voice = useVoiceInput();
@@ -124,32 +131,39 @@ export function ExecutionComposer({
     updateSession.mutate({ id: sessionId, effort: level });
   };
 
-  const autoResize = useCallback((el: HTMLTextAreaElement) => {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, MAX_HEIGHT) + 'px';
-  }, []);
-
   const handleSend = useCallback(
-    async (overrideText?: string, opts?: { viaVoice?: boolean }) => {
-      const text = (overrideText ?? value).trim();
+    async (
+      override?: { text: string; attachments: ChipAttachment[] },
+      opts?: { viaVoice?: boolean },
+    ) => {
+      const editor = editorRef.current;
+      const out = override ?? editor?.getMarkerOutput() ?? { text: '', attachments: [] };
+      const text = out.text.trim();
       // Block sends while a turn is in flight — dispatch would throw
       // `already_running` and the user would just see a 500.
       if (!text || sending || disabled || isRunning) return;
       setSending(true);
       try {
-        await onSend(text, opts);
-        setValue('');
-        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        await onSend(text, {
+          viaVoice: opts?.viaVoice,
+          attachments: out.attachments.length > 0 ? out.attachments : undefined,
+        });
+        // Clear from the editor only on the in-place send path. For
+        // override (voice auto-send) we never put the transcript in
+        // the editor, so there's nothing to clear.
+        if (!override) editorRef.current?.clear();
+        setHasContent(false);
       } finally {
         setSending(false);
       }
     },
-    [value, sending, disabled, isRunning, onSend],
+    [sending, disabled, isRunning, onSend],
   );
 
-  // Voice transcript → composer. Auto-send when the user prefers it
-  // (matches the orchestrator pattern); otherwise drop the text in and
-  // let them review before pressing Enter.
+  // Voice transcript → composer. Auto-send dispatches a synthesized
+  // payload (text only, no attachments). Manual mode inserts the text
+  // at the editor's current cursor position so existing typed prefix
+  // and any inline chips stay where they were.
   const lastTranscriptRef = useRef('');
   useEffect(() => {
     if (!voice.transcript || voice.isRecording) return;
@@ -157,33 +171,30 @@ export function ExecutionComposer({
 
     lastTranscriptRef.current = voice.transcript;
     if (autoSend) {
-      handleSend(voice.transcript, { viaVoice: true });
+      handleSend({ text: voice.transcript, attachments: [] }, { viaVoice: true });
       voice.clearTranscript();
     } else {
-      setValue((prev) => (prev ? `${prev} ${voice.transcript}` : voice.transcript));
+      const editor = editorRef.current;
+      if (editor) {
+        const prefix = editor.textLength() > 0 ? ' ' : '';
+        editor.insertTextAtCursor(`${prefix}${voice.transcript}`);
+        editor.focus();
+      }
       voice.clearTranscript();
-      // Let the just-set value flush, then resize.
-      requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          autoResize(textareaRef.current);
-          textareaRef.current.focus();
-        }
-      });
     }
-  }, [voice, autoSend, handleSend, autoResize]);
+  }, [voice, autoSend, handleSend]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter submits. Shift+Enter and Alt/Option+Enter insert newlines.
-    // ⌘+Enter / Ctrl+Enter also submit (legacy muscle memory) but only
-    // when neither modifier is on.
-    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-      e.preventDefault();
-      handleSend();
-      return;
-    }
-    // Shift+Tab cycles permission mode. Match Claude Code's keybinding —
-    // muscle memory transfers cleanly. Only fires when the textarea is
-    // focused so it doesn't fight the browser's tab navigation elsewhere.
+  const handleEditorBackspaceOnEmpty = useCallback(() => {
+    // No-op for execution composer — the orchestrator may use this
+    // to drop a stale chip from a parallel attachment list. Wired
+    // through so the editor doesn't swallow the keystroke.
+  }, []);
+
+  // Shift+Tab cycles permission mode. Lives at the wrapper level so
+  // the contenteditable editor can't swallow it (a Tiptap keymap would
+  // also work but binding here keeps the responsibility inside the
+  // composer module).
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Tab' && e.shiftKey) {
       e.preventDefault();
       cycleMode();
@@ -200,7 +211,7 @@ export function ExecutionComposer({
     }
   }, [onStop, stopping]);
 
-  const canSend = !!value.trim() && !sending && !disabled;
+  const canSend = hasContent && !sending && !disabled;
   const showVoiceButton = voice.isSupported;
   // Show the stop button when a turn is in flight AND the caller wired
   // up an onStop handler. The stop button takes the send slot — never
@@ -229,7 +240,7 @@ export function ExecutionComposer({
   const statusIsError = !!voice.error;
 
   return (
-    <div className="flex-shrink-0">
+    <div className="flex-shrink-0" onKeyDown={handleKeyDown}>
       <div className="px-5 py-3 max-w-3xl mx-auto">
         <div
           className={cn(
@@ -238,12 +249,10 @@ export function ExecutionComposer({
             disabled && !showStopButton && 'opacity-60',
           )}
         >
-          {/* Top: textarea — or live waveform while recording. Swapping
-              keeps the composer's vertical footprint constant (waveform
-              matches the textarea's minHeight) and gives the user clear
-              visual feedback that audio is flowing. The textarea's value
-              is preserved across the swap so any typed prefix sticks
-              around when transcription appends to it. */}
+          {/* Top: rich editor — or live waveform while recording. The
+              editor preserves typed text + inline paste chips across
+              the recording swap. Native contenteditable auto-grows;
+              max-height + overflow keep tall pastes scrollable. */}
           {voice.isRecording ? (
             <div
               className="px-3 pt-2.5 pb-1 flex items-center"
@@ -263,23 +272,13 @@ export function ExecutionComposer({
               />
             </div>
           ) : (
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={(e) => {
-                setValue(e.target.value);
-                autoResize(e.target);
-              }}
-              onKeyDown={handleKeyDown}
+            <ChatInputEditor
+              ref={editorRef}
               placeholder={disabled ? disabledReason ?? 'Composer is disabled' : 'Message the agent…'}
               disabled={disabled || sending}
-              rows={1}
-              className={cn(
-                'resize-none bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/50',
-                'focus:outline-none disabled:cursor-not-allowed',
-                'px-3 pt-2.5 pb-1 leading-snug',
-              )}
-              style={{ minHeight: 36, maxHeight: MAX_HEIGHT }}
+              onContentChange={setHasContent}
+              onSubmit={() => handleSend()}
+              onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
             />
           )}
 

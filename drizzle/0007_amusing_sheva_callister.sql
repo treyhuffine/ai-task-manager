@@ -1,0 +1,1 @@
+ALTER TABLE `chat_attachments` ADD `filename` text;

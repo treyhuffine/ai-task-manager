@@ -12,6 +12,7 @@ import { ExecutionComposer } from './execution-composer';
 import { ExecutionContextPane } from './execution-context-pane';
 import { DiffSlideout } from './diff-slideout';
 import { PendingInputArea } from './pending-input-overlay';
+import { WipHandoffBanner } from './wip-handoff-banner';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -120,6 +121,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     <div className="flex flex-1 min-w-0">
       <div className="flex flex-col flex-1 min-w-0 bg-background">
         <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
+        {workspace?.is_git && !!session.worktree_path && (
+          <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
+        )}
         <ExecutionTranscript
           session={session}
           workspace={workspace}
@@ -142,7 +146,10 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             disabledReason={composerDisabledReason}
             isRunning={isRunning}
             onSend={async (content, opts) => {
-              const event = await sendMessage.mutateAsync(content);
+              const event = await sendMessage.mutateAsync({
+                content,
+                attachments: opts?.attachments,
+              });
               if (opts?.viaVoice && event?.id) {
                 setVoiceSentIds((prev) => {
                   if (prev.has(event.id)) return prev;

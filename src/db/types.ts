@@ -103,6 +103,23 @@ export type ChatSessionStatus = ChatSessionRecord['status'];
 export type ChatEventRecord = InferSelectModel<typeof chatEvents>;
 export type CreateChatEventInput = Omit<InferInsertModel<typeof chatEvents>, 'id'>;
 
+/** A pasted-text attachment as it ships back to the client on the events route. */
+export interface ChatEventPastedAttachment {
+  id: string;
+  filename: string;
+  content: string;
+}
+
+/**
+ * Events GET response shape — `chat_events` row plus an optional
+ * `pasted_attachments[]` that the route joins in for events with
+ * paste markers. The transcript renderer uses these to substitute
+ * inline chips for the markers in `content`.
+ */
+export interface ChatEventWithAttachments extends ChatEventRecord {
+  pasted_attachments?: ChatEventPastedAttachment[];
+}
+
 /** App-level enum of `chat_events.source`. Stored as text — no DB CHECK. */
 export type ChatEventSource =
   | 'user' | 'agent' | 'thinking' | 'tool_call' | 'tool_result'
