@@ -10,6 +10,7 @@ import { ExecutionHeader } from './execution-header';
 import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionComposer } from './execution-composer';
 import { ExecutionContextPane } from './execution-context-pane';
+import { ExecutionTerminalPanel } from './execution-terminal-panel';
 import { DiffSlideout } from './diff-slideout';
 import { PendingInputArea } from './pending-input-overlay';
 import { WipHandoffBanner } from './wip-handoff-banner';
@@ -72,6 +73,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // don't persist it. The set only grows; nothing removes ids.
   const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(() => new Set());
 
+  // Bottom terminal dock — closed by default. Open state is per-session
+  // ephemeral; refreshing closes the panel even though the PTYs keep
+  // running on the server (they'll show up again next time the user
+  // opens the dock on this session).
+  const [terminalOpen, setTerminalOpen] = useState(false);
+
   useEffect(() => {
     if (sessionId) markViewed.mutate(sessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,64 +125,82 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       : undefined;
 
   return (
-    <div className="flex flex-1 min-w-0">
-      <div className="flex flex-col flex-1 min-w-0 bg-background">
-        <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
-        {workspace?.is_git && !!session.worktree_path && (
-          <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
-        )}
-        <ExecutionTranscript
-          session={session}
-          workspace={workspace}
-          isRunning={isRunning}
-          voiceSentIds={voiceSentIds}
-        />
-        {/* Pending input + composer share a single top border so they
-            read as one connected input region. PendingInputArea returns
-            null when nothing's pending, in which case the composer is
-            the sole child and the wrapper is just a thin border. */}
-        <div className="flex-shrink-0 border-t border-border bg-background">
-          <PendingInputArea sessionId={session.id} />
-          <ExecutionComposer
-            sessionId={session.id}
-            permissionMode={session.permission_mode}
-            model={session.model}
-            effort={session.effort}
-            harness={session.agent_harness ?? null}
-            disabled={composerDisabled}
-            disabledReason={composerDisabledReason}
+    <div className="flex flex-col flex-1 min-w-0 min-h-0">
+      <div className="flex flex-1 min-w-0 min-h-0">
+        <div className="flex flex-col flex-1 min-w-0 bg-background">
+          <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
+          {workspace?.is_git && !!session.worktree_path && (
+            <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
+          )}
+          <ExecutionTranscript
+            session={session}
+            workspace={workspace}
             isRunning={isRunning}
-            onSend={async (content, opts) => {
-              const event = await sendMessage.mutateAsync({
-                content,
-                attachments: opts?.attachments,
-              });
-              if (opts?.viaVoice && event?.id) {
-                setVoiceSentIds((prev) => {
-                  if (prev.has(event.id)) return prev;
-                  const next = new Set(prev);
-                  next.add(event.id);
-                  return next;
+            voiceSentIds={voiceSentIds}
+          />
+          {/* Pending input + composer share a single top border so they
+              read as one connected input region. PendingInputArea returns
+              null when nothing's pending, in which case the composer is
+              the sole child and the wrapper is just a thin border. */}
+          <div className="flex-shrink-0 border-t border-border bg-background">
+            <PendingInputArea sessionId={session.id} />
+            <ExecutionComposer
+              sessionId={session.id}
+              permissionMode={session.permission_mode}
+              model={session.model}
+              effort={session.effort}
+              harness={session.agent_harness ?? null}
+              disabled={composerDisabled}
+              disabledReason={composerDisabledReason}
+              isRunning={isRunning}
+              onSend={async (content, opts) => {
+                const event = await sendMessage.mutateAsync({
+                  content,
+                  attachments: opts?.attachments,
                 });
-              }
-            }}
-            onStop={async () => { await interruptSession.mutateAsync(); }}
+                if (opts?.viaVoice && event?.id) {
+                  setVoiceSentIds((prev) => {
+                    if (prev.has(event.id)) return prev;
+                    const next = new Set(prev);
+                    next.add(event.id);
+                    return next;
+                  });
+                }
+              }}
+              onStop={async () => { await interruptSession.mutateAsync(); }}
+            />
+          </div>
+        </div>
+
+        {/* Context pane + diff slideout are desktop-only — on mobile the
+            execution view is just chat (header + transcript + composer).
+            Hidden below lg so the chat surface gets the full width. */}
+        <div className="hidden lg:contents">
+          <ExecutionContextPane session={session} onOpenDiff={setDiffFile} />
+
+          <DiffSlideout
+            sessionId={session.id}
+            filePath={diffFile}
+            onClose={() => setDiffFile(null)}
           />
         </div>
       </div>
 
-      {/* Context pane + diff slideout are desktop-only — on mobile the
-          execution view is just chat (header + transcript + composer).
-          Hidden below lg so the chat surface gets the full width. */}
-      <div className="hidden lg:contents">
-        <ExecutionContextPane session={session} onOpenDiff={setDiffFile} />
-
-        <DiffSlideout
-          sessionId={session.id}
-          filePath={diffFile}
-          onClose={() => setDiffFile(null)}
-        />
-      </div>
+      {/* Terminal dock — full width below the chat + context pane. Only
+          rendered for sessions that have a resolvable cwd (worktree or
+          workspace.cwd). Disabled while the worktree is provisioning so
+          we don't spawn a shell in the wrong directory. */}
+      {session.workspace_id && (
+        <div className="flex-shrink-0 hidden lg:block">
+          <ExecutionTerminalPanel
+            sessionId={session.id}
+            open={terminalOpen}
+            onToggle={() => setTerminalOpen((v) => !v)}
+            disabled={isSettingUp}
+            disabledReason={isSettingUp ? 'Setting up worktree…' : undefined}
+          />
+        </div>
+      )}
     </div>
   );
 }

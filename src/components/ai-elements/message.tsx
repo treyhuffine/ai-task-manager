@@ -54,9 +54,9 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
-      "group-[.is-assistant]:text-foreground",
+      "is-user:dark flex min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
+      "group-[.is-user]:w-fit group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
+      "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       className
     )}
     {...props}
@@ -324,12 +324,13 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 const streamdownPlugins = { cjk, code, math, mermaid };
 
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, lineNumbers = false, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
         "chat-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      lineNumbers={lineNumbers}
       plugins={streamdownPlugins}
       {...props}
     />
