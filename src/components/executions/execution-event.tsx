@@ -8,13 +8,13 @@ import {
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
-import { MessagePasteChip } from '@/components/chat/message-paste-chip';
-import { parsePasteMarkers } from '@/components/chat/editor/parse-paste-markers';
+import { MessageFileChip } from '@/components/chat/message-file-chip';
+import { parseFileMarkers } from '@/components/chat/editor/parse-file-markers';
 import { cn } from '@/lib/utils';
-import type { ChatEventWithAttachments } from '@/db/types';
+import type { ChatEventRecord } from '@/db/types';
 
 interface ExecutionEventProps {
-  event: ChatEventWithAttachments;
+  event: ChatEventRecord;
   /** True when this client sent the message via voice this session. */
   voiceSent?: boolean;
 }
@@ -34,7 +34,7 @@ export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
 
   switch (event.source) {
     case 'user': {
-      const segments = parsePasteMarkers(event.content ?? '', event.pasted_attachments ?? []);
+      const segments = parseFileMarkers(event.content ?? '', event.attachments ?? []);
       const hasChips = segments.some((s) => s.kind === 'chip');
       return (
         <div className="group flex flex-col">
@@ -45,11 +45,7 @@ export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
                   seg.kind === 'text' ? (
                     <span key={i}>{seg.text}</span>
                   ) : (
-                    <MessagePasteChip
-                      key={i}
-                      filename={seg.filename}
-                      content={seg.content}
-                    />
+                    <MessageFileChip key={i} attachment={seg.attachment} />
                   ),
                 )
               ) : (

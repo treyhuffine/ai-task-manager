@@ -1,7 +1,7 @@
 import { api } from './client';
 import type {
-  ChatSessionRecord, ChatEventRecord, ChatEventWithAttachments,
-  PermissionMode, EffortLevel,
+  ChatSessionRecord, ChatEventRecord,
+  PermissionMode, EffortLevel, Attachment,
 } from '@/db/types';
 
 // ─── Pending-input wire types ─────────────────────────────────
@@ -143,8 +143,8 @@ export const sessionsApi = {
     return api.post<{ ok: true }>(`/sessions/${id}/pending-input/${requestId}`, body);
   },
 
-  events(id: string): Promise<ChatEventWithAttachments[]> {
-    return api.get<ChatEventWithAttachments[]>(`/sessions/${id}/events`);
+  events(id: string): Promise<ChatEventRecord[]> {
+    return api.get<ChatEventRecord[]>(`/sessions/${id}/events`);
   },
 
   status(id: string): Promise<WorktreeStatus | null> {
@@ -189,7 +189,7 @@ export const sessionsApi = {
   sendMessage(
     id: string,
     content: string,
-    opts?: { attachments?: { id: string; filename: string; content: string }[] },
+    opts?: { attachments?: Attachment[] },
   ): Promise<ChatEventRecord> {
     return api.post<ChatEventRecord>(`/sessions/${id}/messages`, {
       content,

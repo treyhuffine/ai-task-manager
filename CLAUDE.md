@@ -35,6 +35,18 @@ Local-first with SQLite (via better-sqlite3 + Drizzle ORM) and vector search (sq
 - **API routes** use shared query functions from `src/lib/db/queries.ts` — do not write raw SQL in route handlers
 - **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getBrainDir`, `getDbPath`, `getAttachmentsDir`) — never hardcode the `<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_BRAIN_PATH`, `<APP>_DB_PATH` env overrides.
 
+## Attachments
+
+One generic attachment system across the whole app:
+
+- Files live on disk under `<brain>/attachments/<file_name>` (UUIDv7-named).
+- Metadata is an `Attachment` JSON record: `{ file_name, original_name, mime_type, size, uploaded_at }` — stored as an `Attachment[]` JSON column on every entity that can carry files (`tasks`, `notes`, `areas`, `stream`, `chat_events`).
+- Upload: `POST /api/attachments` (multipart, 50 MiB cap, mime allowlist). Serve: `GET /api/attachments/:file_name` (auth-protected).
+- Client helpers in `src/lib/attachments/client.ts` (`uploadAttachment`) and `src/lib/attachments/view.ts` (`attachmentUrl`).
+- Chat-specific: chat composers use `ChatInputEditor` + `FileChipNode` (Tiptap). Messages carry `[[file:<file_name>]]` markers inline in `content`; the matching `Attachment` lives in `chat_events.attachments`. Transcript renders chips via `MessageFileChip` (image thumb / expandable text / download), branching on mime.
+- Send-to-model: `src/lib/attachments/extract-text.ts` handles non-natively-readable formats (docx/xlsx/pptx via mammoth/xlsx/officeparser, audio via STT through `pickProvider`, svg as XML). Images route through `src/lib/attachments/normalize-image.ts` (HEIC→JPEG, downscale to API caps via sharp) before base64-inlining for the orchestrator chat. PDFs are native for Anthropic; `unpdf` extracts text for the OpenAI provider path. 200k-char per-attachment cap to bound context.
+- See `docs/chat-sessions.md` for the chat-specific flow end-to-end.
+
 ## Orchestrator (agent surface)
 
 Actions defined in `src/lib/orchestrator/registry.ts` generate both the CLI (`<cli> agent <action>`) and the HTTP MCP at `/api/orchestrator/[transport]`. Single source of truth — add an action once, both surfaces pick it up.

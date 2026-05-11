@@ -2,28 +2,34 @@
 
 /**
  * Shared chat-input editor used by both the execution composer and the
- * orchestrator chat. Tiptap-based so we get inline `PasteChip` atoms
+ * orchestrator chat. Tiptap-based so we get inline `FileChip` atoms
  * that flow with typed text — Conductor-style. The editor is text-only
  * (paragraph + text + hardBreak) plus the chip node; no headings,
  * lists, marks, etc. The composer is a single utterance, not a doc.
  *
- * Pasted content is stored two places:
- *   1. The doc holds a chip *attrs-only* placeholder ({ id, filename,
- *      size, lineCount }) at the cursor position the user pasted.
- *   2. The full pasted text lives in an editor-instance Map
- *      (`pasteContentMap`) keyed by id. We avoid putting big content
- *      on the node attrs because every keystroke would re-serialize
- *      the doc, and the SDK roundtrips attrs in plenty of internal
- *      paths.
+ * Files attached to a message use the same generic attachment system
+ * the rest of the app uses (tasks/notes/areas):
+ *
+ *   - Long pastes are converted to `.txt` files and uploaded via
+ *     `POST /api/attachments` → bytes land in
+ *     `<brain>/attachments/<file_name>`.
+ *   - Images / files dropped onto the editor are uploaded the same
+ *     way.
+ *   - Each successful upload returns an `Attachment` record
+ *     (`{file_name, original_name, mime_type, size, uploaded_at}`)
+ *     which becomes the chip node's attrs. No separate marker id —
+ *     `file_name` is the stable key.
  *
  * Two output formats are exported via the imperative ref:
  *   - `getMarkerOutput()` — for execution chat. Returns
- *     `{ text: "with [[paste:id]] markers", attachments: [...] }`. The
- *     server expands markers before dispatching to agentex.
+ *     `{ text: "with [[file:<file_name>]] markers", attachments: [...] }`.
+ *     The server resolves markers to absolute paths before dispatching.
  *   - `getUiMessageParts()` — for orchestrator chat. Returns an
  *     ai-sdk `parts: [{type:'text',...}, {type:'file',...}]` array in
  *     document order so the chat model sees the same structure as
- *     today, just with chip-position fidelity.
+ *     today, just with chip-position fidelity. File parts carry the
+ *     HTTP attachment URL so the model and re-render both fetch via
+ *     the standard serve route.
  *
  * Voice transcripts insert at the current selection via
  * `insertTextAtCursor`. Auto-grow is native to contenteditable; the
@@ -40,27 +46,14 @@ import { Plugin } from '@tiptap/pm/state';
 import { Extension } from '@tiptap/core';
 import type { FileUIPart } from 'ai';
 import { uuidv7 } from 'uuidv7';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import {
-  PASTE_AS_FILE_CHAR_THRESHOLD,
-  PASTE_AS_FILE_LINE_THRESHOLD,
-  PASTED_TEXT_MEDIA_TYPE,
-  textToDataUrl,
-} from '@/lib/chat/paste-attachments';
-import { PasteChipNode, PASTE_CHIP_NAME, type PasteChipAttrs } from './paste-chip-node';
+import { uploadAttachment } from '@/lib/attachments/client';
+import { attachmentUrl } from '@/lib/attachments/view';
+import type { Attachment } from '@/db/types';
+import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-node';
 
 // ─── Public types ────────────────────────────────────────────────
-
-/**
- * One pasted attachment as it leaves the editor for the execution
- * server. The orchestrator path doesn't use this shape — see
- * `getUiMessageParts()` instead.
- */
-export interface ChipAttachment {
-  id: string;
-  filename: string;
-  content: string;
-}
 
 export interface ChatInputEditorHandle {
   /** True when the editor has anything submittable (text or a chip). */
@@ -74,16 +67,24 @@ export interface ChatInputEditorHandle {
   /** Insert raw text at the current selection. */
   insertTextAtCursor(text: string): void;
   /**
-   * Execution-chat output: a single text string with `[[paste:id]]`
-   * markers where chips were, plus the resolved attachment array. The
-   * server expands the markers into full content before dispatching.
+   * Upload a file (or blob) and insert a chip at the cursor. Same path
+   * used by paste/drop handlers — exposed so toolbars can drive it
+   * from a paperclip / camera button. Resolves once the chip is
+   * inserted, or rejects with the upload error.
    */
-  getMarkerOutput(): { text: string; attachments: ChipAttachment[] };
+  uploadFile(file: File | Blob, name?: string): Promise<void>;
+  /**
+   * Execution-chat output: a single text string with `[[file:<file_name>]]`
+   * markers where chips were, plus the attachments referenced. The server
+   * resolves the markers into absolute disk paths before dispatching.
+   */
+  getMarkerOutput(): { text: string; attachments: Attachment[] };
   /**
    * Orchestrator-chat output: ai-sdk parts in document order. Text
    * runs and chip atoms interleave so a sentence like
    * `look at [chip] please` survives intact through both the model
-   * input and the UI re-render.
+   * input and the UI re-render. File parts use the HTTP attachment
+   * URL so the model and the renderer share the same fetch path.
    */
   getUiMessageParts(): { parts: Array<{ type: 'text'; text: string } | FileUIPart> };
 }
@@ -101,69 +102,22 @@ interface ChatInputEditorProps {
   onSubmit?: () => void;
   /** Called for any unhandled Backspace-on-empty (parent may want to react). */
   onBackspaceOnEmpty?: () => void;
+  /** Optional toast hook for upload errors. Defaults to console.error. */
+  onUploadError?: (err: Error) => void;
   className?: string;
 }
 
-// ─── Internal: paste-content storage on the editor instance ────
+// ─── Tunables ──────────────────────────────────────────────────
 //
-// We attach a Map<id, content> to the editor's storage so chip ids
-// resolve to full content at submit time. Bypasses the doc-attribute
-// path entirely — the chip atom carries only id/filename/size/lineCount.
+// Long pastes get auto-converted to `.txt` attachments rather than
+// dumped raw into the textarea. Tuned to match what most AI chat apps
+// do — long enough that small snippets stay inline, short enough that
+// a stack trace or log dump becomes a chip.
 
-interface PasteStorage {
-  byId: Map<string, string>;
-}
+const PASTE_AS_FILE_CHAR_THRESHOLD = 1500;
+const PASTE_AS_FILE_LINE_THRESHOLD = 30;
 
-function getPasteStorage(editor: Editor): PasteStorage {
-  return (editor.storage as unknown as Record<string, unknown>)[PASTE_CHIP_NAME] as PasteStorage;
-}
-
-const PasteStorageExtension = Extension.create<{}, PasteStorage>({
-  name: PASTE_CHIP_NAME,
-  addStorage() {
-    return { byId: new Map<string, string>() };
-  },
-});
-
-// ─── Internal: paste handler ───────────────────────────────────
-
-/**
- * ProseMirror plugin that intercepts the browser paste event. Long
- * pastes become chip atoms; short pastes fall through to Tiptap's
- * default plain-text handling.
- */
-function buildPasteHandler() {
-  return Extension.create({
-    name: 'chatPasteHandler',
-    addProseMirrorPlugins() {
-      const editor = this.editor;
-      return [
-        new Plugin({
-          props: {
-            handlePaste(view, event) {
-              const text = event.clipboardData?.getData('text/plain') ?? '';
-              if (!shouldChip(text)) return false; // let Tiptap paste plain text
-
-              event.preventDefault();
-              const id = uuidv7();
-              const filename = makePastedFilename(text);
-              const size = new Blob([text]).size;
-              const lineCount = countLines(text);
-
-              // Store the content out-of-band, then insert the chip at
-              // the cursor.
-              getPasteStorage(editor).byId.set(id, text);
-              editor.commands.insertPasteChip({ id, filename, size, lineCount });
-              return true;
-            },
-          },
-        }),
-      ];
-    },
-  });
-}
-
-function shouldChip(text: string): boolean {
+function shouldChipText(text: string): boolean {
   if (!text) return false;
   if (text.length > PASTE_AS_FILE_CHAR_THRESHOLD) return true;
   let nl = 0;
@@ -176,38 +130,90 @@ function shouldChip(text: string): boolean {
   return false;
 }
 
-function countLines(text: string): number {
-  let n = 1;
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) n++;
-  return n;
+function looksLikeMarkdown(text: string): boolean {
+  return /^#{1,6} |^[-*]\s|```/m.test(text);
 }
 
 function makePastedFilename(text: string): string {
   // Match Conductor's default convention. Local time is fine — this
-  // string is purely cosmetic (the id is the stable key).
+  // string is purely cosmetic (the file_name is the stable key).
   const now = new Date();
   const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  // Lightly sniff for code-ish content so the chip reads reasonably
-  // even before the user reviews it.
   const ext = looksLikeMarkdown(text) ? 'md' : 'txt';
   return `pasted_text_${stamp}.${ext}`;
 }
 
-function looksLikeMarkdown(text: string): boolean {
-  return /^#{1,6} |^[-*]\s|```/m.test(text);
+// ─── Internal: paste / drop handlers ───────────────────────────
+
+/**
+ * ProseMirror plugin that intercepts the browser paste event. Long
+ * text pastes get uploaded as `.txt` files and inserted as chip
+ * atoms; short pastes fall through to Tiptap's default plain-text
+ * handling.
+ */
+function buildPasteHandler(
+  uploadAndInsert: (file: File | Blob, name: string) => Promise<void>,
+) {
+  return Extension.create({
+    name: 'chatPasteHandler',
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          props: {
+            handlePaste(_view, event) {
+              // Real files (image clipboard, drag-from-Finder, etc) take
+              // precedence over the text/plain interpretation.
+              const items = event.clipboardData?.items;
+              if (items) {
+                for (const item of Array.from(items)) {
+                  if (item.kind !== 'file') continue;
+                  const file = item.getAsFile();
+                  if (!file) continue;
+                  event.preventDefault();
+                  void uploadAndInsert(file, file.name);
+                  return true;
+                }
+              }
+              const text = event.clipboardData?.getData('text/plain') ?? '';
+              if (!shouldChipText(text)) return false; // let Tiptap paste plain text
+              event.preventDefault();
+              const filename = makePastedFilename(text);
+              const blob = new Blob([text], {
+                type: looksLikeMarkdown(text) ? 'text/markdown' : 'text/plain',
+              });
+              void uploadAndInsert(blob, filename);
+              return true;
+            },
+            handleDrop(_view, event) {
+              const dt = (event as DragEvent).dataTransfer;
+              const files = dt?.files;
+              if (!files || files.length === 0) return false;
+              event.preventDefault();
+              for (const file of Array.from(files)) {
+                void uploadAndInsert(file, file.name);
+              }
+              return true;
+            },
+          },
+        }),
+      ];
+    },
+  });
 }
 
 // ─── Component ───────────────────────────────────────────────────
 
 export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditorProps>(
   function ChatInputEditor(
-    { placeholder, disabled, onContentChange, onSubmit, onBackspaceOnEmpty, className },
+    { placeholder, disabled, onContentChange, onSubmit, onBackspaceOnEmpty, onUploadError, className },
     ref,
   ) {
     const onSubmitRef = useRef(onSubmit);
     onSubmitRef.current = onSubmit;
     const onBackspaceRef = useRef(onBackspaceOnEmpty);
     onBackspaceRef.current = onBackspaceOnEmpty;
+    const onUploadErrorRef = useRef(onUploadError);
+    onUploadErrorRef.current = onUploadError;
 
     const KeymapExtension = useMemo(
       () =>
@@ -235,6 +241,75 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       [],
     );
 
+    // Editor handle is captured at construction; uploadAndInsert needs
+    // to read the latest editor instance to call commands on it.
+    const editorRef = useRef<Editor | null>(null);
+
+    /**
+     * Core upload path. Inserts a pending placeholder chip with a
+     * spinner immediately so the user sees the file land where they
+     * dropped/pasted. When the upload resolves, we walk the doc to
+     * find the placeholder by `pending_id` and swap in the real
+     * Attachment attrs. On failure, we remove the placeholder.
+     *
+     * Throws on failure so the imperative `uploadFile` handle can
+     * surface errors; the paste/drop wrappers use
+     * `uploadAndInsertSafe` below which toasts and swallows.
+     */
+    const uploadAndInsert = useMemo(
+      () => async (file: File | Blob, name: string) => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const pendingId = uuidv7();
+        const fileSize = 'size' in file ? file.size : 0;
+        const fileMime = file instanceof File && file.type ? file.type : 'application/octet-stream';
+
+        ed.commands.insertFileChip({
+          file_name: '',
+          original_name: name,
+          mime_type: fileMime,
+          size: fileSize,
+          uploaded_at: '',
+          pending: true,
+          pending_id: pendingId,
+        });
+
+        try {
+          const att = await uploadAttachment(file, name);
+          replacePendingChip(ed, pendingId, att);
+        } catch (err) {
+          removePendingChip(ed, pendingId);
+          throw err;
+        }
+      },
+      [],
+    );
+
+    const uploadAndInsertSafe = useMemo(
+      () => async (file: File | Blob, name: string) => {
+        try {
+          await uploadAndInsert(file, name);
+        } catch (err) {
+          const e = err instanceof Error ? err : new Error(String(err));
+          if (onUploadErrorRef.current) {
+            onUploadErrorRef.current(e);
+          } else {
+            // Sonner is mounted at the layout root; safe to call from
+            // anywhere. Truncate name in case it's a long pasted text
+            // filename like `pasted_text_2026-05-11-...`.
+            const shortName = name.length > 40 ? `${name.slice(0, 37)}…` : name;
+            toast.error(`Couldn't attach ${shortName}`, { description: e.message });
+          }
+        }
+      },
+      [uploadAndInsert],
+    );
+
+    const PasteDropExtension = useMemo(
+      () => buildPasteHandler(uploadAndInsertSafe),
+      [uploadAndInsertSafe],
+    );
+
     const editor = useEditor({
       // contenteditable doesn't render server-side; defer the editor
       // until the client takes over, otherwise React 19 hydration
@@ -259,9 +334,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           code: false,
         }),
         Placeholder.configure({ placeholder: placeholder ?? '' }),
-        PasteChipNode,
-        PasteStorageExtension,
-        buildPasteHandler(),
+        FileChipNode,
+        PasteDropExtension,
         KeymapExtension,
       ],
       editorProps: {
@@ -280,14 +354,12 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       },
     });
 
+    editorRef.current = editor;
+
     useEffect(() => {
       if (!editor) return;
       editor.setEditable(!disabled);
     }, [editor, disabled]);
-
-    // Note: placeholder string only takes effect at editor construction.
-    // For chat composers this is fine — placeholder rarely changes
-    // mid-render (it's "Message the agent…" or "Loading…").
 
     useImperativeHandle(
       ref,
@@ -300,17 +372,17 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         },
         clear: () => {
           if (!editor) return;
-          getPasteStorage(editor).byId.clear();
           editor.commands.clearContent(true);
         },
         insertTextAtCursor: (text) => {
           if (!editor) return;
           editor.chain().focus().insertContent(text).run();
         },
+        uploadFile: (file, name) => uploadAndInsert(file, name ?? (file as File).name ?? 'upload'),
         getMarkerOutput: () => buildMarkerOutput(editor),
         getUiMessageParts: () => buildUiMessageParts(editor),
       }),
-      [editor],
+      [editor, uploadAndInsert],
     );
 
     return (
@@ -336,26 +408,70 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
   },
 );
 
+// ─── Pending-chip helpers ────────────────────────────────────────
+//
+// Walk the doc to find a chip with the given `pending_id` (set at
+// insert time). Swap its attrs to the real Attachment on success, or
+// delete it on failure. Tiptap's transactional API gives us atomic
+// updates — no flicker, no orphan chips on race.
+
+function findPendingChip(editor: Editor, pendingId: string): { pos: number; size: number } | null {
+  let found: { pos: number; size: number } | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (node.type.name !== FILE_CHIP_NAME) return true;
+    if ((node.attrs as FileChipAttrs).pending_id === pendingId) {
+      found = { pos, size: node.nodeSize };
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+function replacePendingChip(editor: Editor, pendingId: string, attachment: Attachment): void {
+  const hit = findPendingChip(editor, pendingId);
+  if (!hit) return;
+  const tr = editor.state.tr.setNodeMarkup(hit.pos, undefined, {
+    ...attachment,
+    pending: false,
+    pending_id: '',
+  } as FileChipAttrs);
+  editor.view.dispatch(tr);
+}
+
+function removePendingChip(editor: Editor, pendingId: string): void {
+  const hit = findPendingChip(editor, pendingId);
+  if (!hit) return;
+  const tr = editor.state.tr.delete(hit.pos, hit.pos + hit.size);
+  editor.view.dispatch(tr);
+}
+
 // ─── Output builders ─────────────────────────────────────────────
 
-function buildMarkerOutput(editor: Editor | null): { text: string; attachments: ChipAttachment[] } {
+function buildMarkerOutput(editor: Editor | null): { text: string; attachments: Attachment[] } {
   if (!editor) return { text: '', attachments: [] };
-  const storage = getPasteStorage(editor);
-  const seenIds = new Set<string>();
-  const attachments: ChipAttachment[] = [];
+  const seenFileNames = new Set<string>();
+  const attachments: Attachment[] = [];
   const lines: string[] = [];
 
   editor.state.doc.descendants((node) => {
-    if (node.type.name === PASTE_CHIP_NAME) {
-      const attrs = node.attrs as PasteChipAttrs;
-      const content = storage.byId.get(attrs.id);
-      if (content && !seenIds.has(attrs.id)) {
-        seenIds.add(attrs.id);
-        attachments.push({ id: attrs.id, filename: attrs.filename, content });
+    if (node.type.name === FILE_CHIP_NAME) {
+      const attrs = node.attrs as FileChipAttrs;
+      // Skip chips that are still uploading. Caller is expected to
+      // disable Send while any chip is pending, but if a race slips
+      // through (Enter pressed during the upload roundtrip), we'd
+      // rather drop the placeholder than ship an empty file_name.
+      if (attrs.pending || !attrs.file_name) return false;
+      if (!seenFileNames.has(attrs.file_name)) {
+        seenFileNames.add(attrs.file_name);
+        const { pending: _p, pending_id: _pid, ...persisted } = attrs;
+        attachments.push(persisted);
       }
-      // Marker token uses a double-bracket UUID prefix so it doesn't
-      // collide with real bracketed text the user might type.
-      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `[[paste:${attrs.id}]]`;
+      // Marker token uses a double-bracket prefix so it doesn't collide
+      // with real bracketed text the user might type. file_name is
+      // `<uuidv7>.<ext>` — safe in a regex character class.
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `[[file:${attrs.file_name}]]`;
       return false;
     }
     if (node.type.name === 'paragraph') {
@@ -384,7 +500,6 @@ function buildUiMessageParts(
   editor: Editor | null,
 ): { parts: Array<{ type: 'text'; text: string } | FileUIPart> } {
   if (!editor) return { parts: [] };
-  const storage = getPasteStorage(editor);
   const parts: Array<{ type: 'text'; text: string } | FileUIPart> = [];
   let textBuf = '';
 
@@ -396,20 +511,19 @@ function buildUiMessageParts(
   };
 
   editor.state.doc.descendants((node) => {
-    if (node.type.name === PASTE_CHIP_NAME) {
+    if (node.type.name === FILE_CHIP_NAME) {
       // Flush any pending text run, then push the chip's file part
       // immediately after — preserving the position the user pasted.
       flushText();
-      const attrs = node.attrs as PasteChipAttrs;
-      const content = storage.byId.get(attrs.id);
-      if (content) {
-        parts.push({
-          type: 'file',
-          mediaType: PASTED_TEXT_MEDIA_TYPE,
-          filename: attrs.filename,
-          url: textToDataUrl(content),
-        });
-      }
+      const attrs = node.attrs as FileChipAttrs;
+      // Skip pending chips — same rationale as buildMarkerOutput.
+      if (attrs.pending || !attrs.file_name) return false;
+      parts.push({
+        type: 'file',
+        mediaType: attrs.mime_type,
+        filename: attrs.original_name || attrs.file_name,
+        url: attachmentUrl(attrs.file_name),
+      });
       return false;
     }
     if (node.type.name === 'paragraph') {

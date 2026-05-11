@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, blob, index, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // ─── Attachments ──────────────────────────────────────────────
@@ -345,6 +345,12 @@ export const chatEvents = sqliteTable('chat_events', {
   external_tool_call_id: text('external_tool_call_id'),
   external_parent_tool_call_id: text('external_parent_tool_call_id'),
   source_part_index: integer('source_part_index').notNull().default(0),
+  // Files dropped/pasted/uploaded with this message. Same shape as
+  // entity attachments (tasks/notes/areas) — references files in
+  // <brain>/attachments/<file_name>. Marker tokens in `content`
+  // (`[[file:<file_name>]]`) point at entries here so the chip's
+  // position in the message is preserved on render.
+  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   // Idempotent upsert key for CLI-backed events. Claude (JSONL uuid) and
@@ -355,29 +361,6 @@ export const chatEvents = sqliteTable('chat_events', {
     .where(sql`${table.external_event_id} IS NOT NULL`),
   index('idx_chat_events_session_created').on(table.session_id, table.created_at),
   index('idx_chat_events_tool_call_id').on(table.external_tool_call_id),
-]);
-
-// ─── Chat Attachments ─────────────────────────────────────────
-// Multimodal content references (images, audio, video, files). Stored on
-// disk for large items; small ones can fall back to inline blob.
-
-export const chatAttachments = sqliteTable('chat_attachments', {
-  id: text('id').primaryKey(),
-  event_id: text('event_id').notNull().references(() => chatEvents.id, { onDelete: 'cascade' }),
-  session_id: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(),
-  filename: text('filename'),
-  mime_type: text('mime_type'),
-  size_bytes: integer('size_bytes'),
-  storage_kind: text('storage_kind').notNull(),
-  file_path: text('file_path'),
-  blob: blob('blob'),
-  url: text('url'),
-  content_hash: text('content_hash'),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-}, (table) => [
-  index('idx_chat_attachments_session').on(table.session_id),
-  index('idx_chat_attachments_hash').on(table.content_hash),
 ]);
 
 // ─── Notes ────────────────────────────────────────────────────

@@ -64,6 +64,25 @@ describe('extForFile', () => {
   it('falls back to `bin` when nothing else works', () => {
     expect(extForFile('application/x-fake', 'thing')).toBe('bin');
   });
+
+  it('preserves code/data extensions when mime resolves to text/plain', () => {
+    // Critical UX: a `.ts` upload should land on disk as `<uuid>.ts`,
+    // not `<uuid>.txt`. Same for json/yaml/etc.
+    expect(extForFile('text/plain', 'script.ts')).toBe('ts');
+    expect(extForFile('text/plain', 'data.json')).toBe('json');
+    expect(extForFile('text/plain', 'config.yaml')).toBe('yaml');
+    expect(extForFile('text/plain', 'main.go')).toBe('go');
+  });
+
+  it('returns canonical txt for unrecognized text extensions', () => {
+    expect(extForFile('text/plain', 'random.weird')).toBe('txt');
+  });
+
+  it('uses canonical extensions for office formats', () => {
+    expect(extForFile('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'doc')).toBe('docx');
+    expect(extForFile('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'sheet')).toBe('xlsx');
+    expect(extForFile('application/vnd.openxmlformats-officedocument.presentationml.presentation', 'deck')).toBe('pptx');
+  });
 });
 
 describe('resolveMime', () => {
@@ -86,6 +105,19 @@ describe('resolveMime', () => {
   it('ends with octet-stream when everything is unknown', () => {
     expect(resolveMime(null, 'file')).toBe('application/octet-stream');
   });
+
+  it('promotes text-like extensions to text/plain when mime is missing', () => {
+    expect(resolveMime(null, 'script.ts')).toBe('text/plain');
+    expect(resolveMime('application/octet-stream', 'data.json')).toBe('text/plain');
+    expect(resolveMime(undefined, 'main.py')).toBe('text/plain');
+    expect(resolveMime('', 'config.yaml')).toBe('text/plain');
+  });
+
+  it('does not override an already-known mime via text-like fallback', () => {
+    // If browser correctly identifies as application/json, we keep that
+    // instead of demoting to text/plain.
+    expect(resolveMime('application/json', 'data.json')).toBe('application/json');
+  });
 });
 
 describe('isAllowedMime', () => {
@@ -93,6 +125,12 @@ describe('isAllowedMime', () => {
     expect(isAllowedMime('image/png')).toBe(true);
     expect(isAllowedMime('audio/webm')).toBe(true);
     expect(isAllowedMime('application/pdf')).toBe(true);
+  });
+
+  it('accepts office formats', () => {
+    expect(isAllowedMime('application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe(true);
+    expect(isAllowedMime('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).toBe(true);
+    expect(isAllowedMime('application/vnd.openxmlformats-officedocument.presentationml.presentation')).toBe(true);
   });
 
   it('rejects unknown / disallowed types', () => {

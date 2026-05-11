@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
-  workspaces, agents, chatSessions, chatEvents, chatAttachments,
+  workspaces, agents, chatSessions, chatEvents,
 } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, Attachment } from '@/lib/db/schema';
 
@@ -103,23 +103,6 @@ export type ChatSessionStatus = ChatSessionRecord['status'];
 export type ChatEventRecord = InferSelectModel<typeof chatEvents>;
 export type CreateChatEventInput = Omit<InferInsertModel<typeof chatEvents>, 'id'>;
 
-/** A pasted-text attachment as it ships back to the client on the events route. */
-export interface ChatEventPastedAttachment {
-  id: string;
-  filename: string;
-  content: string;
-}
-
-/**
- * Events GET response shape — `chat_events` row plus an optional
- * `pasted_attachments[]` that the route joins in for events with
- * paste markers. The transcript renderer uses these to substitute
- * inline chips for the markers in `content`.
- */
-export interface ChatEventWithAttachments extends ChatEventRecord {
-  pasted_attachments?: ChatEventPastedAttachment[];
-}
-
 /** App-level enum of `chat_events.source`. Stored as text — no DB CHECK. */
 export type ChatEventSource =
   | 'user' | 'agent' | 'thinking' | 'tool_call' | 'tool_result'
@@ -154,11 +137,6 @@ export const PERMISSION_MODES = ['bypass', 'default', 'accept_edits', 'plan'] as
 export type EffortLevel = NonNullable<ChatSessionRecord['effort']>;
 
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly EffortLevel[];
-
-// ─── Chat Attachments ─────────────────────────────────────────
-
-export type ChatAttachmentRecord = InferSelectModel<typeof chatAttachments>;
-export type CreateChatAttachmentInput = Omit<InferInsertModel<typeof chatAttachments>, 'id'>;
 
 // ─── Filters (query params) ──────────────────────────────────
 

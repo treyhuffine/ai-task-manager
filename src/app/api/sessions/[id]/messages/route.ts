@@ -2,75 +2,111 @@ import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
 import { chatEvents } from '@/lib/db/schema';
-import {
-  getAgent, getChatSession, insertPastedAttachments,
-  type InsertPastedAttachmentInput,
-} from '@/lib/db/queries';
+import { getAgent, getChatSession } from '@/lib/db/queries';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
+import { attachmentPath } from '@/lib/attachments/save';
+import {
+  extractTextFromAttachment, formatExtractedAttachment,
+} from '@/lib/attachments/extract-text';
 import * as executor from '@/lib/executor/adapter';
-
-interface AttachmentInput {
-  id: string;
-  filename: string;
-  content: string;
-}
+import type { Attachment } from '@/db/types';
 
 interface PostBody {
   content?: string;
-  /** Pasted-text attachments matching `[[paste:id]]` markers in `content`. */
-  attachments?: AttachmentInput[];
+  /**
+   * Files attached to this message — same `Attachment` shape as
+   * tasks/notes/areas use. Marker tokens in `content`
+   * (`[[file:<file_name>]]`) point at entries here. The shape (no
+   * `content` field) reflects that the bytes already live on disk —
+   * the upload happened via `POST /api/attachments` before submit.
+   */
+  attachments?: Attachment[];
+}
+
+const MARKER_RE = /\[\[file:([A-Za-z0-9_.-]+)\]\]/g;
+
+/**
+ * Mimes Claude Code's Read tool handles natively. For these we hand
+ * Claude an absolute path — same surface as `cat`-ing a file into
+ * the CLI. Read takes care of multimodal images and PDFs in modern
+ * Claude Code; the abs path is enough.
+ *
+ * Anything not in this set goes through `extractTextFromAttachment`
+ * (mammoth/xlsx/STT) and gets inlined as `<attachment>` text at the
+ * marker position so Claude sees readable content even for formats
+ * Read can't handle.
+ */
+function claudeCodeReadsNatively(mime: string): boolean {
+  if (mime.startsWith('text/')) return true;
+  if (mime.startsWith('image/')) return true;
+  if (mime === 'application/pdf') return true;
+  if (mime === 'application/json' || mime === 'application/xml') return true;
+  return false;
 }
 
 /**
- * Replace `[[paste:id]]` markers in the content string with an
- * XML-wrapped paste block carrying the attachment's full text. Used
- * to build the prompt the agent sees while keeping the persisted
- * user-event content compact.
+ * Build the prompt content the agent sees. Each `[[file:<file_name>]]`
+ * marker is replaced in-place with either:
  *
- * Why XML rather than naked inline expansion:
- *   - Claude is trained on XML structure (per Anthropic prompt-eng
- *     docs) so the wrapping reads as "the user attached a file" with
- *     stronger signal than ambiguous prose.
- *   - Eventual transcript sync (replaying Claude's JSONL into our
- *     chat_events) can deterministically reconstruct markers from the
- *     `<paste id="...">` blocks in the JSONL and dedupe against our
- *     chat_attachments rows.
- *   - Position is preserved natively — the agent reads content at the
- *     exact spot the user pasted, rather than dereferencing a
- *     separately-attached file.
+ *   - For natively-readable mimes (text/code/image/PDF): the absolute
+ *     disk path Claude Code's Read tool can pick up.
+ *   - For non-readable mimes (docx/xlsx/audio): the extracted text
+ *     wrapped in `<attachment>` tags so Claude sees the content
+ *     directly.
  *
- * Collision is bounded three ways: the `<paste>` tag is unusual, the
- * id format is uuidv7, and the sync reconstruction will only match
- * when the id resolves to a real chat_attachments row.
- *
- * Markers without a matching attachment are left intact (safer than
- * dropping — the agent at least sees the placeholder and can ask).
+ * Markers without a matching attachment, or whose extraction returns
+ * null, are left intact (safer than dropping — agent at least sees
+ * the placeholder and can ask).
  */
-function expandMarkers(content: string, attachments: AttachmentInput[]): string {
+async function expandMarkers(content: string, attachments: Attachment[]): Promise<string> {
   if (attachments.length === 0) return content;
-  const map = new Map<string, AttachmentInput>(attachments.map((a) => [a.id, a]));
-  return content.replace(/\[\[paste:([0-9a-zA-Z_-]+)\]\]/g, (full, id: string) => {
-    const a = map.get(id);
-    if (a == null) return full;
-    return formatPasteBlock(a);
-  });
-}
+  const map = new Map<string, Attachment>(attachments.map((a) => [a.file_name, a]));
 
-function formatPasteBlock(a: AttachmentInput): string {
-  // If the pasted content itself contains a literal `</paste` close
-  // sequence, escape it with a backslash so neither our sync parser
-  // nor Claude treats it as the end of our wrapper. The original
-  // intent is preserved (Claude reads the escaped form fine) and our
-  // wrapper integrity stays intact.
-  const safe = a.content.replace(/<\/paste(\s|>)/gi, '<\\/paste$1');
-  return `<paste id="${a.id}" filename="${escapeXmlAttr(a.filename)}">\n${safe}\n</paste>`;
-}
+  // Two-pass: collect every match, resolve replacements concurrently
+  // (mammoth/xlsx/STT can be slow), then splice. Pure regex.replace
+  // doesn't support async — this is the standard workaround.
+  const matches: Array<{ start: number; end: number; replacement: string }> = [];
+  const tasks: Promise<void>[] = [];
+  for (const m of content.matchAll(MARKER_RE)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    const fileName = m[1]!;
+    const a = map.get(fileName);
+    if (!a) {
+      // Unmatched — leave the marker alone (slot it back as itself).
+      matches.push({ start, end, replacement: m[0] });
+      continue;
+    }
+    if (claudeCodeReadsNatively(a.mime_type)) {
+      matches.push({ start, end, replacement: attachmentPath(a.file_name) });
+      continue;
+    }
+    // Async extraction — push a placeholder we'll fill in after.
+    const slot = matches.length;
+    matches.push({ start, end, replacement: m[0] });
+    tasks.push(
+      (async () => {
+        try {
+          const result = await extractTextFromAttachment(a);
+          matches[slot]!.replacement = result
+            ? formatExtractedAttachment(a, result)
+            : `<attachment filename="${a.original_name || a.file_name}" status="unreadable" />`;
+        } catch (err) {
+          console.warn(`[expandMarkers] extract failed for ${a.file_name}:`, err);
+          matches[slot]!.replacement = `<attachment filename="${a.original_name || a.file_name}" status="extract-error" />`;
+        }
+      })(),
+    );
+  }
+  await Promise.all(tasks);
 
-function escapeXmlAttr(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;');
+  // Splice from the end so earlier indexes stay valid.
+  let out = content;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const m = matches[i]!;
+    out = out.slice(0, m.start) + m.replacement + out.slice(m.end);
+  }
+  return out;
 }
 
 /**
@@ -121,7 +157,7 @@ export async function POST(
     // expanded version (with paste content inlined) goes only to the
     // agent — keeping the row compact prevents giant pastes from
     // bloating /events polls. The transcript renderer parses markers
-    // out and substitutes paste chips on render.
+    // out and substitutes file chips on render.
     //
     // No external_event_id for in-app rows; no source_part_index split.
     // Created_at is explicit ISO so chronological sort works against
@@ -135,38 +171,21 @@ export async function POST(
         role: 'user',
         source: 'user',
         content,
+        attachments,
         created_at: new Date().toISOString(),
       })
       .returning()
       .get();
 
-    if (attachments.length > 0) {
-      const inputs: InsertPastedAttachmentInput[] = attachments.map((a) => ({
-        marker_id: a.id,
-        filename: a.filename,
-        content: a.content,
-      }));
-      try {
-        insertPastedAttachments(id, row.id, inputs);
-      } catch (err) {
-        console.error(`[POST /api/sessions/:id/messages] failed to persist attachments:`, err);
-        // Soft-fail: the user event is already in. Agent will receive
-        // the unexpanded marker (rendered to it as `[[paste:...]]`)
-        // which is poor UX but better than blocking the turn.
-      }
-    }
-
-    // First-message label derivation. Use the *expanded* content so
-    // the AI summarizer sees real text rather than `[[paste:...]]`
-    // tokens. Truncation fallback is fine either way.
-    const expanded = expandMarkers(content, attachments);
+    // Expand markers once, off the response path. Both label
+    // derivation and the agent dispatch use the same expanded prompt.
+    const expanded = await expandMarkers(content, attachments);
     if (!session.label) {
       const agent = getAgent(session.agent_id);
       void deriveAndSetSessionLabel(id, expanded, agent?.harness ?? 'claude_code');
     }
 
-    // Dispatch the *expanded* content to the agent so paste chips
-    // become inline text from Claude's perspective. Fire-and-forget;
+    // Dispatch the *expanded* content to the agent. Fire-and-forget;
     // failures surface via logs and the runtime-status indicator.
     executor.dispatch(id, expanded).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);

@@ -4,14 +4,12 @@ import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DefaultChatTransport, isFileUIPart } from 'ai'
-import { MessageSquare, X, ArrowUp, Sparkles, Square, Loader2, Wrench, Mic } from 'lucide-react'
+import { X, ArrowUp, Sparkles, Square, Loader2, Wrench, Mic, MessageSquare } from 'lucide-react'
 import { useVoiceInput } from '@/hooks/use-voice-input'
-import { usePasteAttachments } from '@/hooks/use-paste-attachments'
 import { cn } from '@/lib/utils'
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from './conversation'
 import {
@@ -19,14 +17,12 @@ import {
   MessageContent,
   MessageResponse,
 } from './message'
+import { MessageFileChip } from '@/components/chat/message-file-chip'
+import { fileUIPartToAttachment } from '@/lib/chat/file-ui-part'
 import {
-  PasteAttachmentChip,
-  PasteAttachmentList,
-} from '@/components/chat/paste-attachment'
-import {
-  fileUIPartToAttachment,
-  isPastedTextFilePart,
-} from '@/lib/chat/paste-attachments'
+  ChatInputEditor, type ChatInputEditorHandle,
+} from '@/components/chat/editor/chat-input-editor'
+import { AttachButton } from '@/components/chat/editor/attach-button'
 import type { TaskRecord, NoteRecord } from '@/db/types'
 import { getAuthToken } from '@/lib/api/client'
 
@@ -205,80 +201,59 @@ function ChatPanel({
   const { messages, sendMessage, status, stop } = chat
   const isStreaming = status === 'streaming'
   const isLoading = status === 'submitted' || isStreaming
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [input, setInput] = useState('')
+  const editorRef = useRef<ChatInputEditorHandle | null>(null)
+  const [editorHasContent, setEditorHasContent] = useState(false)
   const voice = useVoiceInput()
-  const pasteAttachments = usePasteAttachments()
 
-  const handleSubmit = useCallback((text?: string) => {
-    const msg = (text ?? input).trim()
-    const files = pasteAttachments.toFileParts()
-    if ((!msg && files.length === 0) || disabled) return
-    sendMessage({ text: msg, files })
-    setInput('')
-    pasteAttachments.clearAttachments()
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-    }
-  }, [input, disabled, sendMessage, pasteAttachments])
+  const handleSubmit = useCallback(() => {
+    if (disabled) return
+    const editor = editorRef.current
+    if (!editor) return
+    const { parts } = editor.getUiMessageParts()
+    if (parts.length === 0) return
+    sendMessage({ parts })
+    editor.clear()
+    setEditorHasContent(false)
+  }, [disabled, sendMessage])
 
   // Auto-send when voice transcript arrives
   const lastTranscriptRef = useRef('')
   if (voice.transcript && voice.transcript !== lastTranscriptRef.current && !voice.isRecording) {
     lastTranscriptRef.current = voice.transcript
-    // Use setTimeout to avoid calling sendMessage during render
+    // Defer to avoid calling sendMessage during render. Insert into the
+    // editor first so the chip flow + parts builder treats voice text
+    // identically to typed text — then submit.
     setTimeout(() => {
-      handleSubmit(voice.transcript)
+      const editor = editorRef.current
+      if (!editor) return
+      const prefix = editor.textLength() > 0 ? ' ' : ''
+      editor.insertTextAtCursor(`${prefix}${voice.transcript}`)
       voice.clearTranscript()
+      handleSubmit()
     }, 0)
   }
 
   const hasMessages = messages.length > 0
+  const sendDisabled = !isStreaming && (!editorHasContent || disabled)
 
   const inputElement = (
     <div className={cn('flex-shrink-0 p-2', hasMessages && 'border-t border-border')}>
       <div className="rounded-lg border border-border bg-card focus-within:border-primary/50 transition-colors">
-        {pasteAttachments.hasAttachments && (
-          <PasteAttachmentList
-            attachments={pasteAttachments.attachments}
-            onRemove={pasteAttachments.removeAttachment}
-            compact
-            className="px-2 pt-2"
-          />
-        )}
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+        <ChatInputEditor
+          ref={editorRef}
           placeholder={disabled ? 'Loading...' : `Ask about ${contextLabel}...`}
           disabled={disabled}
-          rows={1}
-          className={cn(
-            'w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 outline-none px-3 pt-2 pb-1',
-            'max-h-24 min-h-[20px]',
-            disabled && 'opacity-50',
-          )}
-          onInput={(e) => {
-            const target = e.currentTarget
-            target.style.height = 'auto'
-            target.style.height = Math.min(target.scrollHeight, 96) + 'px'
-          }}
-          onPaste={pasteAttachments.handlePaste}
-          onKeyDown={(e) => {
-            if (pasteAttachments.handleBackspaceOnEmpty(e)) return
-            // Enter submits. Shift+Enter and Alt/Option+Enter insert
-            // newlines so users can compose multi-line prompts naturally.
-            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-              e.preventDefault()
-              if (isStreaming) {
-                stop()
-              } else {
-                handleSubmit()
-              }
-            }
-          }}
+          onContentChange={setEditorHasContent}
+          onSubmit={() => (isStreaming ? stop() : handleSubmit())}
         />
         <div className="flex items-center justify-end gap-1 px-2 pb-1.5">
+          <AttachButton
+            onPick={(file) => { void editorRef.current?.uploadFile(file) }}
+            disabled={disabled}
+            title="Attach file"
+            iconSize={14}
+            className="mr-auto"
+          />
           {voice.isSupported && (
             <button
               onClick={voice.toggleRecording}
@@ -308,7 +283,7 @@ function ChatPanel({
                 ? 'hover:bg-destructive/10'
                 : 'hover:bg-primary/10',
             )}
-            disabled={!isStreaming && ((!input.trim() && !pasteAttachments.hasAttachments) || disabled)}
+            disabled={sendDisabled}
             aria-label={isStreaming ? 'Stop' : 'Send message'}
           >
             {isStreaming ? <Square size={14} /> : <ArrowUp size={14} />}
@@ -353,10 +328,10 @@ function ChatPanel({
                           </MessageResponse>
                         )
                       }
-                      if (isFileUIPart(part) && isPastedTextFilePart(part)) {
-                        const att = fileUIPartToAttachment(part, `${message.id}-${i}`)
+                      if (isFileUIPart(part)) {
+                        const att = fileUIPartToAttachment(part)
                         if (!att) return null
-                        return <PasteAttachmentChip key={i} attachment={att} compact />
+                        return <MessageFileChip key={i} attachment={att} variant="block" />
                       }
                       if (part.type === 'dynamic-tool') {
                         return <ToolCallIndicator key={i} toolName={part.toolName} />
@@ -388,7 +363,7 @@ function ChatPanel({
           <p className="text-sm text-foreground/80 text-center italic">
             Edit, plan, break down, or explore {contextLabel} with AI.
           </p>
-          <div className="w-full [&_textarea]:min-h-[72px]">
+          <div className="w-full">
             {inputElement}
           </div>
         </div>

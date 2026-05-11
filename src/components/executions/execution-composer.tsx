@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Mic, Square, Loader2, Paperclip, Sparkles, Check, Zap, X } from 'lucide-react';
+import { ArrowUp, Mic, Square, Loader2, Sparkles, Check, Zap, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
@@ -9,13 +9,14 @@ import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { useUpdateSession, useSessionMeta } from '@/hooks/use-execution';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META, nextPermissionMode } from '@/lib/permission-modes';
-import { PERMISSION_MODES, type PermissionMode, type EffortLevel } from '@/db/types';
+import { PERMISSION_MODES, type PermissionMode, type EffortLevel, type Attachment } from '@/db/types';
 import {
   MODEL_OPTIONS, EFFORT_OPTIONS, findModelOption, harnessSupportsEffort,
 } from '@/lib/agent-options';
 import {
-  ChatInputEditor, type ChatInputEditorHandle, type ChipAttachment,
+  ChatInputEditor, type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor';
+import { AttachButton } from '@/components/chat/editor/attach-button';
 
 interface ExecutionComposerProps {
   sessionId: string;
@@ -37,14 +38,15 @@ interface ExecutionComposerProps {
    * Send the message. `opts.viaVoice` is true when the text came from a
    * voice transcript (auto-send path) — the parent uses this to mark
    * the resulting event id as voice-sent so the transcript can render
-   * the VoiceSentBadge. `opts.attachments` carries any pasted-text chips
-   * the user inserted; they're persisted alongside the user event and
-   * the server expands their `[[paste:id]]` markers in `message`
-   * before dispatching to the agent.
+   * the VoiceSentBadge. `opts.attachments` carries any files (pasted
+   * text, images, dropped files) the user inserted; they're persisted
+   * alongside the user event and the server expands their
+   * `[[file:<file_name>]]` markers in `message` before dispatching to
+   * the agent.
    */
   onSend: (
     message: string,
-    opts?: { viaVoice?: boolean; attachments?: ChipAttachment[] },
+    opts?: { viaVoice?: boolean; attachments?: Attachment[] },
   ) => Promise<void> | void;
   /** Required when `isRunning` can be true. Cancels the agent turn. */
   onStop?: () => Promise<void> | void;
@@ -133,7 +135,7 @@ export function ExecutionComposer({
 
   const handleSend = useCallback(
     async (
-      override?: { text: string; attachments: ChipAttachment[] },
+      override?: { text: string; attachments: Attachment[] },
       opts?: { viaVoice?: boolean },
     ) => {
       const editor = editorRef.current;
@@ -300,18 +302,11 @@ export function ExecutionComposer({
             ) : (
               <>
                 {/* ─── Left: attach · mode ─────────────────── */}
-                <button
-                  type="button"
-                  disabled
-                  title="Attachments — coming soon"
-                  className={cn(
-                    'w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground/50',
-                    'cursor-not-allowed',
-                  )}
-                  aria-label="Attach file (coming soon)"
-                >
-                  <Paperclip size={13} />
-                </button>
+                <AttachButton
+                  onPick={(file) => { void editorRef.current?.uploadFile(file); }}
+                  disabled={disabled}
+                  title="Attach file"
+                />
 
                 <ModePicker
                   open={modeMenuOpen}

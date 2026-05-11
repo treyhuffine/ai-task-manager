@@ -11,11 +11,8 @@ import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { isFileUIPart, isToolUIPart, getToolName, DefaultChatTransport } from 'ai';
 import { getAuthToken } from '@/lib/api/client';
-import { PasteAttachmentChip } from '@/components/chat/paste-attachment';
-import {
-  fileUIPartToAttachment,
-  isPastedTextFilePart,
-} from '@/lib/chat/paste-attachments';
+import { MessageFileChip } from '@/components/chat/message-file-chip';
+import { fileUIPartToAttachment } from '@/lib/chat/file-ui-part';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import type { PanelId, PanelTab, MorePanelTab } from '@/types/dashboard';
@@ -40,6 +37,7 @@ import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import {
   ChatInputEditor, type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor';
+import { AttachButton } from '@/components/chat/editor/attach-button';
 import { APP_NAME } from '@/constants/app';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
@@ -414,8 +412,8 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                           </div>
                         );
                       }
-                      if (isFileUIPart(part) && isPastedTextFilePart(part)) {
-                        const att = fileUIPartToAttachment(part, `${message.id}-${i}`);
+                      if (isFileUIPart(part)) {
+                        const att = fileUIPartToAttachment(part);
                         if (!att) return null;
                         return (
                           <div
@@ -425,7 +423,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                               message.role === 'user' ? 'justify-end' : 'justify-start',
                             )}
                           >
-                            <PasteAttachmentChip attachment={att} />
+                            <MessageFileChip attachment={att} variant="block" />
                           </div>
                         );
                       }
@@ -657,6 +655,11 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                 onContentChange={setEditorHasContent}
                 onSubmit={() => (isStreaming ? stop() : handleSubmit())}
                 className="py-1 pl-1"
+              />
+              <AttachButton
+                onPick={(file) => { void editorRef.current?.uploadFile(file); }}
+                title="Attach file"
+                className="self-center mr-0.5"
               />
               {isStreaming ? (
                 <button

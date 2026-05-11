@@ -269,37 +269,50 @@ Idempotency within a path is guaranteed by the unique constraint — re-reading 
 
 ### Attachments (multimodal content)
 
-Providers deliver images, audio, and files as content blocks inside messages — in Anthropic's shape: `{type: "image", source: {type: "base64", media_type: "image/png", data: "<base64>"}}` embedded in the message's content array. One image encoded as base64 is ~4/3 the original byte size; for a modest screenshot that's several hundred KB of text. Storing that inline in `chat_events.content` and duplicating it in `raw` would bloat the DB fast.
+Chat reuses the **same generic attachment system** that tasks, notes, and areas use — files live on disk under `<brain>/attachments/<file_name>` and are referenced by an `Attachment[]` JSON column on the owning entity. No separate `chat_attachments` table.
 
-Attachments get their own table, referenced by event:
+**Where attachments live:**
 
+- On `chat_events.attachments` — a JSON column of `Attachment[]`. Each user message can carry N attachments (pastes, drops, paperclip-picked files).
+- On disk — `<brain>/attachments/<uuidv7>.<ext>`. Filename is content-stable; original_name is preserved in the JSON record.
+
+**The `Attachment` shape** (defined in `src/lib/db/schema.ts`):
+
+```ts
+interface Attachment {
+  file_name:     string;  // <uuidv7>.<ext>, the on-disk filename
+  original_name: string;  // user-facing display name
+  mime_type:     string;  // canonical, normalized
+  size:          number;  // bytes
+  uploaded_at:   string;  // ISO timestamp
+}
 ```
-chat_attachments
-  id                  uuidv7 pk
-  event_id            fk → chat_events
-  session_id          fk → chat_sessions  (denormalized for per-session queries)
-  kind                text   -- "image" | "audio" | "video" | "file"
-  mime_type           text
-  size_bytes          int
-  storage_kind        text   -- "local_file" | "blob" | "external_url"
-  file_path           text   -- for local_file (path under the app's attachment dir)
-  blob                blob   -- for sqlite-blob storage (small items, fallback)
-  url                 text   -- for external_url (CDN, user-provided link)
-  content_hash        text   -- sha256 of the bytes; enables dedup when the same image is reused
-  created_at          timestamp
-```
 
-**Adapter behavior.** When parsing a wire event that carries a media content block, the adapter:
+**The upload flow:**
 
-1. Decodes the base64 → writes to local storage (file on disk under the app's attachment directory, or SQLite BLOB for small items)
-2. Creates a `chat_attachments` row pointing at the stored bytes
-3. In the `chat_events` row: `content` carries any text/caption/transcription if present; `raw` has the base64 stripped (replaced with a reference marker like `{type: "image", attachment_id: "<uuid>"}`) so `raw` stays small and debuggable
+1. Editor's paste/drop/paperclip handler → `POST /api/attachments` (multipart) → server writes bytes, returns `Attachment` record.
+2. Editor inserts a `FileChip` Tiptap node at the cursor with the returned attrs. Body text gets a `[[file:<file_name>]]` marker at that position (compact, position-preserving, doesn't bloat events polls).
+3. On send → `POST /api/sessions/:id/messages` with `{ content, attachments: Attachment[] }`. Server persists the event row with `content` carrying markers and `attachments` carrying the JSON array.
+4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, renders inline chips (image thumb / expandable text / download button) via `MessageFileChip`.
 
-For rendering, UI joins events with their attachments. For retrieval, mime_type/size/hash are queryable without scanning base64.
+**Sending to the model.**
 
-**Why this shape is evolvable.** Audio (voice-to-voice sessions), video, and user-uploaded files all fit the same table with different `kind` values. Vision models that return generated images map through as attachments on assistant events. Future media types that don't yet exist in provider APIs land as `kind="file"` with their mime_type and don't require a schema change.
+For execution chat (Claude Code subprocess via agentex), `expandMarkers` substitutes each `[[file:<file_name>]]` with:
 
-**Dedup via content_hash.** If a user pastes the same screenshot into three different sessions, we store the bytes once and reference them three times. For local-first with limited disk, this matters more than it would on a server.
+- The absolute disk path if Claude Code's Read tool handles the mime natively (text, code, images, PDF).
+- An inline `<attachment filename="...">…</attachment>` block carrying extracted text otherwise (docx, xlsx, pptx via mammoth/`xlsx`/officeparser; audio via STT through `pickProvider`).
+
+For orchestrator chat (Anthropic/OpenAI via ai-sdk), `inlineTextAttachments` rewrites file parts:
+
+- Text/code/json/svg → inlined as `<attachment>` tags.
+- docx/xlsx/pptx → extracted to text via the same extractor.
+- Audio → STT transcript, tagged `kind="audio-transcript"`.
+- Images → server-side normalized via `sharp` (HEIC→JPEG, downscale to Anthropic's 5 MiB/8000px caps), then base64-inlined.
+- PDFs → base64-inlined for Anthropic (native PDF support); text-extracted via `unpdf` for OpenAI (which doesn't accept PDF parts).
+
+A 200k-char cap applies to every extraction so a single large document can't blow the context window.
+
+**Why unified with tasks/notes.** Same `Attachment` shape, same `POST /api/attachments`, same `GET /api/attachments/:file_name` serve route, same orphan-cleanup story. Future media types fit the same `mime_type` field without a schema migration.
 
 ### The two reset affordances
 
@@ -678,11 +691,11 @@ App-spawned sessions skip all three — they have no `external_transcript_path` 
 - **Multi-device agent config.** A `device_config` JSON keyed by device id on `agents` is probably enough. But: what's "device id" — app install id? Machine hostname? Something the user can name? Deferred; not needed until we actually support multi-device.
 - **Codex adapter.** Spec documented (see the Codex adapter section). Unblocked — agentex v2 provider ships with the required fields. Main Codex-specific behavior to implement is proactive rollover on token pressure, since Codex silently truncates instead of writing a compaction summary.
 - **Rewind / branching.** Claude Code supports rewind-the-conversation. Worth investigating — what the UX looks like, whether branching or just linear truncation, what it does to retrieval. Don't build until we've seen how Claude handles it and decided if that pattern fits our three-type model.
-- **Attachment storage strategy.** File-on-disk vs SQLite BLOB for `chat_attachments`. File-on-disk is simpler for large media and plays well with backup. BLOB keeps everything in one DB file and enables clean export. Pick when we have real usage; the schema supports either via `storage_kind`.
+- **Orphan attachment cleanup.** The unified attachment system shares files on disk with tasks/notes — when a `chat_events` row is deleted or its `attachments` JSON is edited, the bytes on disk aren't swept. Janitor pass not built yet; will accumulate slowly.
 
 ## Schema summary
 
-Four tables (plus a notifications table, sketched separately). No `chat_threads`. No per-device partitioning. No lineage links. No cached liveness flags. No partition-key UNIQUE constraints.
+Three tables (plus a notifications table, sketched separately). Attachments live on `chat_events.attachments` as JSON — same `Attachment` shape used everywhere else in the app (tasks/notes/areas). No separate `chat_attachments` table. No `chat_threads`. No per-device partitioning. No lineage links. No cached liveness flags. No partition-key UNIQUE constraints.
 
 ```
 agents
@@ -693,6 +706,7 @@ chat_sessions
   id, user_id, agent_id, type, surface_kind, surface_ref, status, label, refs,
   external_session_id, external_transcript_path,
   external_sync_offset, external_sync_last_event_id,
+  permission_mode, pre_plan_mode, model, effort,
   started_at, archived_at
   UNIQUE (external_session_id) WHERE external_session_id IS NOT NULL
 
@@ -703,18 +717,13 @@ chat_events
   external_event_id, external_message_id, external_turn_id,
   external_tool_call_id, external_parent_tool_call_id,
   source_part_index,
+  attachments,  -- JSON: Attachment[], same shape as tasks/notes/areas
   created_at
   UNIQUE (session_id, COALESCE(external_turn_id, ''), external_event_id, source_part_index)
     WHERE external_event_id IS NOT NULL
-
-chat_attachments
-  id, event_id, session_id,
-  kind, mime_type, size_bytes,
-  storage_kind, file_path, blob, url,
-  content_hash, created_at
-  -- adapter strips media bytes out of chat_events.raw into this table
-  -- content_hash enables dedup across sessions when the same bytes are reused
 ```
+
+Files referenced by `chat_events.attachments` live under `<brain>/attachments/<file_name>` and are served via `GET /api/attachments/:file_name` — the same plumbing tasks/notes/areas use.
 
 `type` on `chat_sessions` discriminates the three kinds: `orchestration`, `content`, `execution`. Behavior varies by type; schema is shared.
 
@@ -732,4 +741,4 @@ Memory, if it becomes a distinct store, sits next to these tables rather than in
 
 ## The one-line version
 
-Three distinct kinds of chat — orchestration, content, execution — share a schema but not a UX. Agents are definitions; sessions are instances; same agent → many concurrent sessions is normal. `chat_events` stores one row per atomic thing that happened (user messages, assistant text, thinking, tool calls, tool results, system markers, run results, rate limits) with typed columns for tool metadata and full `raw` for audit. Multimodal content (images, audio, files) lives in `chat_attachments`, referenced by event. No DB-enforced partition constraints. Full transcripts. Two explicit resets. Retrieval (FTS5 now, embeddings later) runs over `chat_events`, not JSONL files. For execution sessions (CLI-backed, via agentex), each session belongs to exactly one ingestion path: app-spawned sessions use stdio (agentex) as the sole writer; externally-imported sessions use file-sync of the CLI's on-disk transcript. No cross-path ingestion. Rollovers are visible, compaction is mirrored (Claude Code) or proactive (Codex), paths are observed not derived, state is never faked. The word "session" lives in the database and nowhere in the UI.
+Three distinct kinds of chat — orchestration, content, execution — share a schema but not a UX. Agents are definitions; sessions are instances; same agent → many concurrent sessions is normal. `chat_events` stores one row per atomic thing that happened (user messages, assistant text, thinking, tool calls, tool results, system markers, run results, rate limits) with typed columns for tool metadata and full `raw` for audit. Multimodal content (images, audio, files) lives on `chat_events.attachments` as JSON, sharing the generic `Attachment` shape and serve route with tasks/notes/areas. No DB-enforced partition constraints. Full transcripts. Two explicit resets. Retrieval (FTS5 now, embeddings later) runs over `chat_events`, not JSONL files. For execution sessions (CLI-backed, via agentex), each session belongs to exactly one ingestion path: app-spawned sessions use stdio (agentex) as the sole writer; externally-imported sessions use file-sync of the CLI's on-disk transcript. No cross-path ingestion. Rollovers are visible, compaction is mirrored (Claude Code) or proactive (Codex), paths are observed not derived, state is never faked. The word "session" lives in the database and nowhere in the UI.

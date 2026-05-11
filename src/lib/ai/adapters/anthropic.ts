@@ -10,7 +10,7 @@ export async function streamAnthropicChat(messages: UIMessage[], model?: string)
   return streamText({
     model: anthropic(model || DEFAULT_MODEL),
     system: AGENT_SYSTEM_PROMPT,
-    messages: await convertToModelMessages(inlineTextAttachments(messages)),
+    messages: await convertToModelMessages(await inlineTextAttachments(messages)),
     tools: chatTools,
     stopWhen: stepCountIs(10),
   });

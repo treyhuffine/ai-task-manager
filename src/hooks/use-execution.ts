@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sessionsApi, type ResolvePendingBody, type WipApplyResult } from '@/lib/api/sessions';
-import type { PermissionMode, EffortLevel, ChatEventRecord } from '@/db/types';
+import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
@@ -77,7 +77,7 @@ export function usePullBase(id: string) {
 
 export interface SendMessageInput {
   content: string;
-  attachments?: { id: string; filename: string; content: string }[];
+  attachments?: Attachment[];
 }
 
 export function useSendMessage(id: string) {

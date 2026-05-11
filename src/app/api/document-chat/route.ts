@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
 import { syncEntity } from '@/lib/export/mirror';
 import { inlineTextAttachments } from '@/lib/ai/inline-text-attachments';
+import { extractPdfsForOpenAI } from '@/lib/ai/extract-pdf-for-openai';
 
 export const maxDuration = 60;
 
@@ -259,7 +260,9 @@ export async function POST(req: Request) {
   const result = streamText({
     model: openai('gpt-5.4-mini'),
     system,
-    messages: await convertToModelMessages(inlineTextAttachments(messages)),
+    messages: await convertToModelMessages(
+      await inlineTextAttachments(await extractPdfsForOpenAI(messages)),
+    ),
     tools,
     stopWhen: stepCountIs(5),
   });
