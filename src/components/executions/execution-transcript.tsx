@@ -80,6 +80,16 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
             event={event}
             sessionId={session.id}
             isLast={i === events.length - 1}
+            // For `auth_required`: the trailing `result` event from the
+            // same failed turn means `isLast` is false even though no
+            // new user message has been sent. Treat the banner as still
+            // actionable until the user actually moves past it with a
+            // fresh message — that's the user-perceived "did I deal
+            // with this yet" boundary, not the literal last-row index.
+            isLatestUnresolved={
+              event.source === 'auth_required' &&
+              !events.slice(i + 1).some((e) => e.source === 'user')
+            }
             voiceSent={voiceSentIds?.has(event.id) ?? false}
           />
         ))}

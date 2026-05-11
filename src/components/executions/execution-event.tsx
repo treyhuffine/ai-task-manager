@@ -21,8 +21,16 @@ interface ExecutionEventProps {
   event: ChatEventRecord;
   /** Owning session id — needed for actions that re-dispatch into the session. */
   sessionId?: string;
-  /** True when this is the last event in the transcript. Drives action visibility on stateful events like `auth_required`. */
+  /** True when this is the literal last event in the transcript. */
   isLast?: boolean;
+  /**
+   * True when this event represents an unresolved condition that the
+   * user still needs to act on. Computed by the transcript (e.g., an
+   * `auth_required` with no subsequent user message). Distinct from
+   * `isLast` because trailing system/result events from the same failed
+   * turn shouldn't demote the actionable state.
+   */
+  isLatestUnresolved?: boolean;
   /** True when this client sent the message via voice this session. */
   voiceSent?: boolean;
 }
@@ -37,7 +45,7 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLast, voiceSent }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent }: ExecutionEventProps) {
   const [expanded, setExpanded] = useState(false);
 
   switch (event.source) {
@@ -218,7 +226,7 @@ export function ExecutionEvent({ event, sessionId, isLast, voiceSent }: Executio
         <AuthRequiredBanner
           event={event}
           sessionId={sessionId}
-          isLast={isLast ?? false}
+          isActionable={isLatestUnresolved ?? false}
         />
       );
 
@@ -330,30 +338,32 @@ export function ExecutionEvent({ event, sessionId, isLast, voiceSent }: Executio
 }
 
 /**
- * Inline banner rendered when an agent's API call fails because the user
- * isn't authenticated. The banner itself is a permanent transcript record
- * — the `auth_required` chat_event stays in history forever. What
- * morphs is the action button alongside it:
+ * Inline marker for an `auth_required` event. Two visual modes:
  *
- *   - Latest event AND not currently logged in → "Log in" (kicks off
- *     `claude auth login` server-side).
- *   - Latest event AND currently logged in → "Resend" (re-dispatches
- *     the most recent user message in this session).
- *   - Not the latest event → no button. Pure history.
+ *   - **Actionable** (`isActionable={true}`): full amber callout with
+ *     reason copy and a button. Button morphs by state:
+ *       - not logged in: "Log in"
+ *       - logged in: "Resend" (re-dispatches the last user message)
  *
- * "Currently logged in" is `useClaudeAuthStatus` which polls + refetches
- * on mount, so a re-auth from a terminal in another window flips the
- * banner the next time the user opens this chat. No DB write needed for
- * resolution — it's all derived state.
+ *   - **Historical** (`isActionable={false}`): single-line muted chip,
+ *     no button. Shown when the user has moved past this event (sent
+ *     another message after it). Keeps the historical record without
+ *     visually crowding the transcript.
+ *
+ * `isActionable` is computed at the transcript level (see
+ * `ExecutionTranscript`) — it tracks "is there an unresolved auth issue
+ * here that the user still needs to address," not just "is this the
+ * last row." Trailing system / result events from the same failed turn
+ * don't demote the actionable state.
  */
 function AuthRequiredBanner({
   event,
   sessionId,
-  isLast,
+  isActionable,
 }: {
   event: ChatEventRecord;
   sessionId?: string;
-  isLast: boolean;
+  isActionable: boolean;
 }) {
   const login = useClaudeLogin();
   const { data: authStatus } = useClaudeAuthStatus();
@@ -365,6 +375,23 @@ function AuthRequiredBanner({
     loginCommand?: string | null;
     providerType?: string | null;
   };
+  const providerLabel = formatProviderLabel(meta.providerType);
+
+  // Historical: tiny muted chip, no button. The event is preserved for
+  // transcript completeness but reframed positively — by the time it's
+  // demoted to historical, the user has already moved past it (sent
+  // another message after re-authing), so the user-facing read is "yep,
+  // we're logged in to <agent>." Soft check icon, no warning color.
+  if (!isActionable) {
+    return (
+      <div className="flex items-center gap-1.5 my-1 text-[10px] text-muted-foreground/70">
+        <div className="flex-1 h-px bg-border/40" />
+        <ShieldCheck size={10} className="opacity-70" />
+        <span>Logged in to {providerLabel}</span>
+        <div className="flex-1 h-px bg-border/40" />
+      </div>
+    );
+  }
   const reason = meta.reason ?? null;
   const sublabel = (() => {
     switch (reason) {
@@ -383,14 +410,27 @@ function AuthRequiredBanner({
     ? (login.error.message || 'Login failed — try again.')
     : null;
 
-  // Show the action area only on the latest event. Older auth_required
-  // rows in scroll history render as plain banners.
-  const showAction = isLast;
-  // When this is the latest auth_required event and the user is already
-  // logged in (resolved out-of-band or just completed our flow), the
-  // primary action becomes "Resend".
-  const showResend = showAction && isLoggedIn && !!sessionId;
-  const showLogin = showAction && !isLoggedIn;
+  // Two distinct visual states for the actionable banner:
+  // - Logged in: auth's been restored (either via our button or
+  //   out-of-band). The only remaining action is to retry the message
+  //   that originally failed. Calm, green-tinted.
+  // - Logged out: the original failure state. Loud, amber.
+  if (isLoggedIn && !!sessionId) {
+    return (
+      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px]">
+        <div className="flex items-start gap-2">
+          <ShieldCheck size={12} className="mt-0.5 text-emerald-500" />
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-foreground">Authentication restored</div>
+            <div className="mt-0.5 text-muted-foreground">
+              Resend your message to continue.
+            </div>
+          </div>
+          <ResendLastMessageButton sessionId={sessionId} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[11px]">
@@ -403,27 +443,24 @@ function AuthRequiredBanner({
             <div className="mt-1 text-destructive">{errorMessage}</div>
           )}
         </div>
-        {showLogin && (
-          <button
-            type="button"
-            onClick={() => login.mutate()}
-            disabled={login.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background px-2.5 py-1 text-[11px] font-medium hover:bg-foreground/90 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {login.isPending ? (
-              <>
-                <Loader2 size={11} className="animate-spin" />
-                <span>Waiting for login…</span>
-              </>
-            ) : (
-              <>
-                <LogIn size={11} />
-                <span>Log in</span>
-              </>
-            )}
-          </button>
-        )}
-        {showResend && <ResendLastMessageButton sessionId={sessionId!} />}
+        <button
+          type="button"
+          onClick={() => login.mutate()}
+          disabled={login.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background px-2.5 py-1 text-[11px] font-medium hover:bg-foreground/90 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {login.isPending ? (
+            <>
+              <Loader2 size={11} className="animate-spin" />
+              <span>Waiting for login…</span>
+            </>
+          ) : (
+            <>
+              <LogIn size={11} />
+              <span>Log in</span>
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
@@ -478,6 +515,28 @@ function useLastUserEvent(events: ChatEventRecord[] | undefined): ChatEventRecor
     if (events[i].source === 'user') return events[i];
   }
   return null;
+}
+
+/**
+ * Friendly display name for a provider type emitted by agentex. Falls
+ * back to "Claude" when missing (the only provider currently emitting
+ * `auth_required` end-to-end), and to a title-cased version of whatever
+ * else shows up for forward-compat.
+ */
+function formatProviderLabel(providerType: string | null | undefined): string {
+  switch (providerType) {
+    case 'claude': return 'Claude';
+    case 'codex': return 'Codex';
+    case 'gemini': return 'Gemini';
+    case 'cursor': return 'Cursor';
+    case 'opencode': return 'OpenCode';
+    case null:
+    case undefined:
+    case '':
+      return 'Claude';
+    default:
+      return providerType.charAt(0).toUpperCase() + providerType.slice(1);
+  }
 }
 
 function truncate(str: string, max: number): string {

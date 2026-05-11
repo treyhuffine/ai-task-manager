@@ -28,16 +28,19 @@ export function useClaudeAuthStatus() {
   return useQuery<ClaudeAuthStatus>({
     queryKey: STATUS_KEY,
     queryFn: () => api.get<ClaudeAuthStatus>('/claude-auth/status'),
-    // Polling cadence — 30s. The cost is one cheap subprocess spawn per
-    // tick (`claude auth status` returns instantly from the credential
-    // file). The login mutation invalidates this on success, so polling
-    // is purely the safety net for resolution-elsewhere.
-    refetchInterval: 30_000,
+    // Polling cadence. Costs one cheap subprocess spawn per tick
+    // (`claude auth status` returns instantly from the credential
+    // file/keychain). 10s is the sweet spot — out-of-band logins from
+    // another terminal surface fast enough that a user who already
+    // re-authed sees the banner morph before they get suspicious.
+    // The login mutation also writes the new status straight into the
+    // cache, so the inline flow doesn't depend on the poll at all.
+    refetchInterval: 10_000,
     refetchOnWindowFocus: true,
     refetchOnMount: true,
-    // Treat data as fresh for 10s so multiple banners on the same page
-    // share one network response. Anything older refetches.
-    staleTime: 10_000,
+    // Multiple banners + the recovery card on the same page share one
+    // network response within this window.
+    staleTime: 3_000,
   });
 }
 

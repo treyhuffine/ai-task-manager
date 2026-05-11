@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -63,6 +63,24 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     if (!sessionId) return;
     setSessionStreaming(sessionId, isRunning);
   }, [sessionId, isRunning, setSessionStreaming]);
+
+  // Close the gap between "runtime-status flipped to not running" and
+  // "events poll picks up the agent's final message". The two queries
+  // poll independently (2s vs 3s), so without this, the thinking
+  // indicator can disappear up to ~3s before the final message renders.
+  // On the running → idle transition, force-invalidate events so the
+  // refetch fires immediately. Also kick the diff/status caches since
+  // a turn ending often means new file changes.
+  const prevRunningRef = useRef(isRunning);
+  useEffect(() => {
+    if (!sessionId) return;
+    if (prevRunningRef.current && !isRunning) {
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'events'] });
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'diff'] });
+      qc.invalidateQueries({ queryKey: ['session', sessionId] });
+    }
+    prevRunningRef.current = isRunning;
+  }, [isRunning, sessionId, qc]);
 
   // Diff slideout state — opening file from context pane.
   const [diffFile, setDiffFile] = useState<string | null>(null);
