@@ -952,6 +952,61 @@ export function listChatEvents(sessionId: string, opts: { limit?: number; offset
 }
 
 /**
+ * Sessions currently stuck on a given chat_event source (typically
+ * `auth_required`), enriched with the most recent user-message text so
+ * the floating "Resume sessions" card can render a preview and resend
+ * action per row.
+ *
+ * Single round-trip: window function picks each session's latest event
+ * (drives the filter) and joins to that session's most-recent user event
+ * (drives the preview). Non-archived sessions only — archived ones don't
+ * need a "resume" prompt.
+ */
+export interface StuckSessionRow {
+  session_id: string;
+  label: string | null;
+  last_user_event_id: string | null;
+  last_user_content: string | null;
+  last_user_attachments: string | null;
+}
+
+export function listSessionsStuckOnSource(source: ChatEventSource): StuckSessionRow[] {
+  const db = getRawDb();
+  return db
+    .prepare(
+      `WITH ranked_events AS (
+         SELECT session_id, source, id, content, attachments, created_at,
+           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at DESC, id DESC) AS rn_any,
+           ROW_NUMBER() OVER (
+             PARTITION BY session_id, CASE WHEN source = 'user' THEN 1 ELSE 0 END
+             ORDER BY created_at DESC, id DESC
+           ) AS rn_in_source
+         FROM chat_events
+       ),
+       latest AS (
+         SELECT session_id FROM ranked_events WHERE rn_any = 1 AND source = ?
+       ),
+       last_user AS (
+         SELECT session_id, id AS event_id, content, attachments
+         FROM ranked_events
+         WHERE source = 'user' AND rn_in_source = 1
+       )
+       SELECT
+         l.session_id AS session_id,
+         s.label AS label,
+         lu.event_id AS last_user_event_id,
+         lu.content AS last_user_content,
+         lu.attachments AS last_user_attachments
+       FROM latest l
+       JOIN chat_sessions s ON s.id = l.session_id
+       LEFT JOIN last_user lu ON lu.session_id = l.session_id
+       WHERE s.status = 'active'
+       ORDER BY s.last_outcome_event_at DESC, s.started_at DESC`,
+    )
+    .all(source) as StuckSessionRow[];
+}
+
+/**
  * Wipe every chat_event row for a session. Used by the dev-page reset
  * button to start a fresh transcript. Also clears the session's
  * outcome timestamp so the rail's needs-review marker doesn't linger

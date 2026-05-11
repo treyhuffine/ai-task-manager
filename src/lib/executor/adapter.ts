@@ -560,6 +560,25 @@ export function parseStreamEvent(
         content: event.text ?? null,
         tool_is_error: event.isError ?? false,
       };
+    case 'auth_required': {
+      // Provider can't reach its API because the user isn't authenticated
+      // (OAuth expired, revoked, missing, scope, or disabled org). Surface
+      // as its own chat_event source so the renderer can show an inline
+      // "Log in" button rather than a generic red error pill. Recovery is
+      // out-of-band via `claude auth login` — see /api/claude-auth/login.
+      return {
+        ...base,
+        role: 'system',
+        source: 'auth_required' satisfies ChatEventSource,
+        content: event.message ?? 'Claude needs to log in again',
+        tool_input: {
+          httpStatus: event.httpStatus,
+          reason: event.reason,
+          loginCommand: event.loginCommand,
+          providerType: event.providerType,
+        } as Record<string, unknown>,
+      };
+    }
     case 'rate_limit': {
       // Claude emits rate_limit events on every turn with the current
       // window status. Only surface actual throttling — the user

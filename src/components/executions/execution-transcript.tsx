@@ -74,10 +74,12 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
           <p className="text-[11px] text-muted-foreground/60 italic">Loading transcript…</p>
         )}
 
-        {events.map((event) => (
+        {events.map((event, i) => (
           <ExecutionEvent
             key={event.id}
             event={event}
+            sessionId={session.id}
+            isLast={i === events.length - 1}
             voiceSent={voiceSentIds?.has(event.id) ?? false}
           />
         ))}

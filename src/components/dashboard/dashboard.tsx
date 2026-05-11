@@ -17,6 +17,7 @@ import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import { QuickCaptureModal } from '@/components/dashboard/quick-capture-modal';
 import { MobileLayout } from '@/components/mobile/mobile-layout';
 import { TabletLayout } from '@/components/mobile/tablet-layout';
+import { AuthRecoveryCard } from '@/components/auth/auth-recovery-card';
 import { cn } from '@/lib/utils';
 
 function DashboardShell() {
@@ -114,6 +115,7 @@ function DashboardShell() {
           onOpenChange={(open) => { if (!open) closeAllSlideouts() }}
         />
         <QuickCaptureModal open={quickCaptureOpen} onOpenChange={setQuickCaptureOpen} />
+        <AuthRecoveryCard />
       </div>
     </div>
   );

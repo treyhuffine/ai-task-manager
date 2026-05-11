@@ -109,6 +109,7 @@ export type ChatEventSource =
   | 'system' | 'result' | 'rate_limit' | 'error' | 'recap'
   | 'permission_request' | 'permission_response'
   | 'question_request' | 'question_response'
+  | 'auth_required'
   | 'cron' | 'unknown';
 
 /** Outcome events bump `chat_sessions.last_outcome_event_at`. */

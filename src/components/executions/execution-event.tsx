@@ -3,8 +3,12 @@
 import { useState } from 'react';
 import {
   ChevronRight, AlertTriangle, CheckCircle2, Wrench, RefreshCw, Sparkles,
-  ShieldCheck, ShieldAlert, HelpCircle,
+  ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
 } from 'lucide-react';
+import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
+import { useSessionEvents } from '@/hooks/use-execution';
+import { useMutation } from '@tanstack/react-query';
+import { sessionsApi } from '@/lib/api/sessions';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
@@ -15,6 +19,10 @@ import type { ChatEventRecord } from '@/db/types';
 
 interface ExecutionEventProps {
   event: ChatEventRecord;
+  /** Owning session id — needed for actions that re-dispatch into the session. */
+  sessionId?: string;
+  /** True when this is the last event in the transcript. Drives action visibility on stateful events like `auth_required`. */
+  isLast?: boolean;
   /** True when this client sent the message via voice this session. */
   voiceSent?: boolean;
 }
@@ -29,7 +37,7 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLast, voiceSent }: ExecutionEventProps) {
   const [expanded, setExpanded] = useState(false);
 
   switch (event.source) {
@@ -205,6 +213,15 @@ export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
         </div>
       );
 
+    case 'auth_required':
+      return (
+        <AuthRequiredBanner
+          event={event}
+          sessionId={sessionId}
+          isLast={isLast ?? false}
+        />
+      );
+
     case 'recap':
       return (
         <div className="flex items-center gap-2 my-2 text-[10px] text-muted-foreground/80">
@@ -310,6 +327,157 @@ export function ExecutionEvent({ event, voiceSent }: ExecutionEventProps) {
         </div>
       );
   }
+}
+
+/**
+ * Inline banner rendered when an agent's API call fails because the user
+ * isn't authenticated. The banner itself is a permanent transcript record
+ * — the `auth_required` chat_event stays in history forever. What
+ * morphs is the action button alongside it:
+ *
+ *   - Latest event AND not currently logged in → "Log in" (kicks off
+ *     `claude auth login` server-side).
+ *   - Latest event AND currently logged in → "Resend" (re-dispatches
+ *     the most recent user message in this session).
+ *   - Not the latest event → no button. Pure history.
+ *
+ * "Currently logged in" is `useClaudeAuthStatus` which polls + refetches
+ * on mount, so a re-auth from a terminal in another window flips the
+ * banner the next time the user opens this chat. No DB write needed for
+ * resolution — it's all derived state.
+ */
+function AuthRequiredBanner({
+  event,
+  sessionId,
+  isLast,
+}: {
+  event: ChatEventRecord;
+  sessionId?: string;
+  isLast: boolean;
+}) {
+  const login = useClaudeLogin();
+  const { data: authStatus } = useClaudeAuthStatus();
+  const isLoggedIn = authStatus?.loggedIn === true;
+
+  const meta = (event.tool_input ?? {}) as {
+    httpStatus?: number | null;
+    reason?: string | null;
+    loginCommand?: string | null;
+    providerType?: string | null;
+  };
+  const reason = meta.reason ?? null;
+  const sublabel = (() => {
+    switch (reason) {
+      case 'expired': return 'Your access token expired.';
+      case 'revoked': return 'Your access token was revoked.';
+      case 'missing': return 'No credentials found for Claude.';
+      case 'scope':   return 'Your token is missing a required scope.';
+      case 'disabled_org': return 'Your API key belongs to a disabled organization.';
+      case 'routines_disabled': return 'Routines are disabled by your org policy.';
+      case 'invalid': return 'Your credentials were rejected.';
+      default:        return event.content ?? 'Claude needs to log in again.';
+    }
+  })();
+
+  const errorMessage = login.error
+    ? (login.error.message || 'Login failed — try again.')
+    : null;
+
+  // Show the action area only on the latest event. Older auth_required
+  // rows in scroll history render as plain banners.
+  const showAction = isLast;
+  // When this is the latest auth_required event and the user is already
+  // logged in (resolved out-of-band or just completed our flow), the
+  // primary action becomes "Resend".
+  const showResend = showAction && isLoggedIn && !!sessionId;
+  const showLogin = showAction && !isLoggedIn;
+
+  return (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[11px]">
+      <div className="flex items-start gap-2">
+        <AlertTriangle size={12} className="mt-0.5 text-amber-500" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-foreground">Claude needs to log in again</div>
+          <div className="mt-0.5 text-muted-foreground">{sublabel}</div>
+          {errorMessage && (
+            <div className="mt-1 text-destructive">{errorMessage}</div>
+          )}
+        </div>
+        {showLogin && (
+          <button
+            type="button"
+            onClick={() => login.mutate()}
+            disabled={login.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background px-2.5 py-1 text-[11px] font-medium hover:bg-foreground/90 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {login.isPending ? (
+              <>
+                <Loader2 size={11} className="animate-spin" />
+                <span>Waiting for login…</span>
+              </>
+            ) : (
+              <>
+                <LogIn size={11} />
+                <span>Log in</span>
+              </>
+            )}
+          </button>
+        )}
+        {showResend && <ResendLastMessageButton sessionId={sessionId!} />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Re-dispatches the most recent user-source event back into the session.
+ * Lives next to the banner — the user's last typed message is what
+ * Claude rejected, and now that auth is restored, sending the same bytes
+ * again is the natural recovery.
+ *
+ * Reads from the existing useSessionEvents cache, so no extra network
+ * call to find the message content.
+ */
+function ResendLastMessageButton({ sessionId }: { sessionId: string }) {
+  const { data: events } = useSessionEvents(sessionId);
+  const lastUser = useLastUserEvent(events);
+  const resend = useMutation({
+    mutationFn: () =>
+      sessionsApi.sendMessage(sessionId, lastUser?.content ?? '', {
+        attachments: lastUser?.attachments ?? undefined,
+      }),
+  });
+
+  if (!lastUser || !(lastUser.content ?? '').trim()) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => resend.mutate()}
+      disabled={resend.isPending}
+      className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background px-2.5 py-1 text-[11px] font-medium hover:bg-foreground/90 disabled:opacity-60 disabled:cursor-not-allowed"
+    >
+      {resend.isPending ? (
+        <>
+          <Loader2 size={11} className="animate-spin" />
+          <span>Resending…</span>
+        </>
+      ) : (
+        <>
+          <RefreshCw size={11} />
+          <span>Resend</span>
+        </>
+      )}
+    </button>
+  );
+}
+
+function useLastUserEvent(events: ChatEventRecord[] | undefined): ChatEventRecord | null {
+  if (!events) return null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].source === 'user') return events[i];
+  }
+  return null;
 }
 
 function truncate(str: string, max: number): string {
