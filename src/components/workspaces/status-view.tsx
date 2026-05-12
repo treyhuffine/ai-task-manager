@@ -53,16 +53,16 @@ const BUCKET_CONFIG: Record<BucketId, BucketConfig> = {
   unread: {
     id: 'unread',
     label: 'Unread',
-    accentClass: 'text-foreground',
-    countBgClass: 'bg-foreground/15 text-foreground',
-    icon: <Circle size={11} className="fill-foreground text-foreground" />,
+    accentClass: 'text-amber-600 dark:text-amber-400',
+    countBgClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    icon: <Circle size={11} className="fill-amber-500 text-amber-500" />,
   },
   waiting: {
     id: 'waiting',
     label: 'Waiting response',
-    accentClass: 'text-muted-foreground',
+    accentClass: 'text-foreground',
     countBgClass: 'bg-muted text-muted-foreground',
-    icon: <Clock size={13} className="text-muted-foreground" />,
+    icon: <Clock size={13} className="text-foreground" />,
   },
   working: {
     id: 'working',
@@ -163,8 +163,11 @@ export function StatusView() {
 
   if (isLoading) {
     return (
-      <div className="px-3 py-2 text-[10px] italic text-muted-foreground/60">
-        Loading…
+      <div className="flex flex-col gap-1 px-1 pt-1">
+        <StatusRowSkeleton />
+        <StatusRowSkeleton />
+        <StatusRowSkeleton />
+        <StatusRowSkeleton />
       </div>
     );
   }
@@ -218,5 +221,17 @@ export function StatusView() {
         onClose={() => setCreateFromId(null)}
       />
     </>
+  );
+}
+
+function StatusRowSkeleton() {
+  return (
+    <div className="flex items-start gap-1.5 pl-4 pr-1.5 py-1.5">
+      <div className="w-5 h-5 rounded bg-muted/60 animate-pulse flex-shrink-0 mt-px" />
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="h-2.5 w-3/5 rounded bg-muted/60 animate-pulse" />
+        <div className="h-2 w-2/5 rounded bg-muted/40 animate-pulse" />
+      </div>
+    </div>
   );
 }

@@ -87,7 +87,7 @@ export function StatusSessionRow({
       <div className="flex-1 min-w-0 leading-tight">
         <div className={cn(
           'text-[11.5px] truncate',
-          labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'text-foreground',
+          labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'text-foreground/80',
           isUnread && !labelIsPlaceholder && 'font-semibold',
           !isUnread && !labelIsPlaceholder && 'font-medium',
         )}>

@@ -34,6 +34,7 @@ Local-first with SQLite (via better-sqlite3 + Drizzle ORM) and vector search (sq
 - **Types** are derived from the Drizzle schema in `src/db/types.ts` — do not duplicate type definitions
 - **API routes** use shared query functions from `src/lib/db/queries.ts` — do not write raw SQL in route handlers
 - **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getBrainDir`, `getDbPath`, `getAttachmentsDir`) — never hardcode the `<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_BRAIN_PATH`, `<APP>_DB_PATH` env overrides.
+- **Hotkeys** are defined in `src/constants/commands.ts` and must be used by components. Use `matchesHotkey(e, HOTKEYS.focusChatInput)` etc. rather than ad-hoc checks.
 
 ## Attachments
 
@@ -54,6 +55,7 @@ Actions defined in `src/lib/orchestrator/registry.ts` generate both the CLI (`<c
 Distinct from the thin NL MCP at `/api/[transport]` (two tools `query`/`update`, routes through `runMcpAgent`). Don't conflate them.
 
 Handler rules:
+
 - **Dispatch through `queries.ts`** — never raw SQL, never direct Drizzle from a handler. The query layer enforces embedding upsert, markdown-mirror sync, and attachment derivation. Bypassing it corrupts invariants silently.
 - **Throw `ActionError`** with a stable code (`not_found | invalid_params | conflict | unsupported`), not raw `Error`. The envelope renders these cleanly for both transports.
 - **Return plain data.** The envelope is JSON-serialized.
@@ -61,6 +63,7 @@ Handler rules:
 - **Branch on `ctx.remote`** for security-sensitive work: `false` = trusted local CLI, `true` = untrusted HTTP. Default to `true` behavior when unset.
 
 Data roots (precedence: explicit `FLOW_ROOT` > `--dev` auto-set > prod default):
+
 - `~/<app-short-id>/` — prod, real brain
 - `~/<app-short-id>-dev/` — dev (`pnpm dev`, `flow start --dev`)
 - `~/<app-short-id>-test/` — test (`pnpm smoke`, `pnpm smoke:agent`) — wiped on every run

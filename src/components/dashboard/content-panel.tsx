@@ -39,6 +39,7 @@ import {
 } from '@/components/chat/editor/chat-input-editor';
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { APP_NAME } from '@/constants/app';
+import { HOTKEYS } from '@/constants/commands';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { LiveWaveform } from '@/components/ui/live-waveform';
@@ -642,6 +643,11 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
               </div>
             )}
           </div>
+
+          <span className="ml-auto pr-3 hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground/60">
+            <kbd className="px-1 py-0.5 bg-muted rounded text-[9px] font-sans">{HOTKEYS.focusChatInput.label}</kbd>
+            <span>to focus</span>
+          </span>
         </div>
 
         {/* Text input */}
@@ -654,12 +660,12 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
                 placeholder="Execute your plan..."
                 onContentChange={setEditorHasContent}
                 onSubmit={() => (isStreaming ? stop() : handleSubmit())}
-                className="py-1 pl-1"
+                className="pl-1"
               />
               <AttachButton
                 onPick={(file) => { void editorRef.current?.uploadFile(file); }}
                 title="Attach file"
-                className="self-center mr-0.5"
+                className="mt-1 mr-0.5"
               />
               {isStreaming ? (
                 <button

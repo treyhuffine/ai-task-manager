@@ -104,8 +104,10 @@ export function WorkspaceNav() {
 
       <div className="px-1 space-y-0.5">
         {isLoading && (
-          <div className="px-3 py-2 text-[10px] italic text-muted-foreground/60">
-            Loading…
+          <div className="flex flex-col gap-1 pt-1">
+            <WorkspaceHeaderSkeleton />
+            <WorkspaceHeaderSkeleton />
+            <WorkspaceHeaderSkeleton />
           </div>
         )}
         {!isLoading && (workspaces?.length ?? 0) === 0 && (
@@ -135,6 +137,15 @@ export function WorkspaceNav() {
         workspaceName={createFromName}
         onClose={() => setCreateFromId(null)}
       />
+    </div>
+  );
+}
+
+function WorkspaceHeaderSkeleton() {
+  return (
+    <div className="flex items-center gap-1.5 px-1 py-1">
+      <div className="w-5 h-5 rounded bg-muted/60 animate-pulse flex-shrink-0" />
+      <div className="h-2.5 w-1/2 rounded bg-muted/60 animate-pulse" />
     </div>
   );
 }

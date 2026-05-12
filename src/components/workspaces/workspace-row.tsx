@@ -5,7 +5,7 @@ import { ChevronRight, Folder, Settings, Plus, GitFork } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useUpdateWorkspace, useWorkspaceSessions } from '@/hooks/use-workspaces';
+import { useUpdateWorkspace, useWorkspaceSessions, useRailSessions } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
@@ -41,10 +41,11 @@ export function WorkspaceRow({
   onCreateExecution,
   onOpenCreateFrom,
 }: WorkspaceRowProps) {
-  const { streamingSessionIds } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const updateWs = useUpdateWorkspace();
   const expanded = !workspace.collapsed;
   const { data: sessions } = useWorkspaceSessions(expanded ? workspace.id : null);
+  const { data: railData } = useRailSessions();
   const { data: areas } = useAreas();
 
   // Icon resolution: workspace own > linked area > default folder.
@@ -65,19 +66,53 @@ export function WorkspaceRow({
     transition,
   };
 
-  // Streaming wins over needs-review for the badge.
-  // Re-sort client-side so the hottest row stays at the top regardless
-  // of the API's stored order. Uses the same hotness key as the by-status
-  // view so the two surfaces agree on ordering.
+  // Re-sort children client-side so the hottest row stays at the top
+  // regardless of the API's stored order. Uses the same hotness key as
+  // the by-status view so the two surfaces agree on ordering.
   const childSessions = useMemo(
     () => sortSessionsHotnessDesc(sessions ?? []),
     [sessions],
   );
-  const streamingCount = childSessions.filter((s) => streamingSessionIds.has(s.id)).length;
-  const reviewCount = Math.max(
-    workspace.needs_review_candidate_count - streamingCount,
-    0,
-  );
+
+  // Per-state counts for the header dots. Computed off the rail data
+  // (cross-workspace, always loaded) so the indicators are accurate
+  // whether the workspace is expanded or collapsed. Classification
+  // mirrors `StatusView.classify` so a session lives in exactly one
+  // bucket and the totals don't double-count.
+  const counts = useMemo(() => {
+    let working = 0;
+    let needsApproval = 0;
+    let unread = 0;
+    const rows = railData?.sessions ?? [];
+    for (const s of rows) {
+      if (s.workspace_id !== workspace.id || s.status !== 'active') continue;
+      if (pendingInputSessionIds.has(s.id)) {
+        needsApproval++;
+        continue;
+      }
+      if (streamingSessionIds.has(s.id)) {
+        working++;
+        continue;
+      }
+      const outcomes = [
+        s.last_outcome_event_at ?? '1970-01-01',
+        s.unread_marker_at ?? '1970-01-01',
+      ];
+      const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
+      const lastViewed = s.last_viewed_at ?? '1970-01-01';
+      if (lastActivity !== '1970-01-01' && lastActivity > lastViewed) {
+        unread++;
+      }
+    }
+    return { working, needsApproval, unread };
+  }, [railData?.sessions, workspace.id, streamingSessionIds, pendingInputSessionIds]);
+  // `attention` rolls unread + needs-approval into one amber count — they
+  // share the same urgency color across the rail (NeedsReviewSection
+  // header, by-status bucket, here), so rendering them as two identical
+  // amber pills would just look like a duplicate. The by-status view
+  // still separates them into distinct buckets for triage.
+  const attentionCount = counts.needsApproval + counts.unread;
+  const hasAnyCount = counts.working > 0 || attentionCount > 0;
 
   const toggleCollapse = () => {
     updateWs.mutate({ id: workspace.id, collapsed: expanded });
@@ -121,20 +156,24 @@ export function WorkspaceRow({
             {workspace.name}
           </span>
         </button>
-        <div className="flex items-center gap-0.5">
+        {/* Action buttons + status dots share the same horizontal slot.
+            At rest the dots are visible and the buttons are invisible
+            and non-interactive; on row hover the dots fade out and the
+            buttons fade in. `pointer-events-none` on the buttons at
+            rest keeps clicks under the dots from firing unseen actions. */}
+        <div className="relative flex items-center gap-0.5">
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onOpenSettings(workspace.id);
             }}
-            className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
             aria-label="Workspace settings"
             title="Workspace settings"
           >
             <Settings size={13} />
           </button>
-          <WorkspaceBadge streamingCount={streamingCount} reviewCount={reviewCount} />
           {workspace.is_git && (
             <button
               onPointerDown={(e) => e.stopPropagation()}
@@ -142,7 +181,7 @@ export function WorkspaceRow({
                 e.stopPropagation();
                 onOpenCreateFrom(workspace.id);
               }}
-              className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+              className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
               aria-label="Create from PR, branch, or issue"
               title="Create from PR, branch, or issue"
             >
@@ -155,12 +194,19 @@ export function WorkspaceRow({
               e.stopPropagation();
               onCreateExecution(workspace.id);
             }}
-            className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
             aria-label="New execution"
             title="New execution"
           >
             <Plus size={13} />
           </button>
+
+          {hasAnyCount && (
+            <div className="absolute inset-y-0 right-1 flex items-center gap-1 pointer-events-none group-hover:opacity-0 transition-opacity">
+              {counts.working > 0 && <CountDot variant="working" count={counts.working} />}
+              {attentionCount > 0 && <CountDot variant="attention" count={attentionCount} />}
+            </div>
+          )}
         </div>
       </div>
 
@@ -189,22 +235,40 @@ export function WorkspaceRow({
   );
 }
 
-function WorkspaceBadge({ streamingCount, reviewCount }: { streamingCount: number; reviewCount: number }) {
-  if (streamingCount > 0) {
-    return (
-      <span className="flex items-center gap-1 text-[9px] flex-shrink-0">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="text-emerald-500/90 font-medium">working</span>
-      </span>
-    );
-  }
-  if (reviewCount > 0) {
-    return (
-      <span className="flex items-center gap-1 text-[9px] flex-shrink-0">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-        <span className="text-amber-500/90 font-medium">{reviewCount} rev</span>
-      </span>
-    );
-  }
-  return null;
+type CountVariant = 'working' | 'attention';
+
+const COUNT_VARIANT_CLASSES: Record<CountVariant, string> = {
+  working: 'bg-emerald-500/90 text-white',
+  attention: 'bg-amber-500/90 text-white',
+};
+
+const COUNT_VARIANT_LABELS: Record<CountVariant, string> = {
+  working: 'working',
+  attention: 'needing attention',
+};
+
+/**
+ * Tiny count pill rendered in the workspace header's status slot. One
+ * pill per active state — working / awaiting approval / unread — with
+ * the matching count inside. Hidden under the action buttons on row
+ * hover so the buttons can take the slot back without layout shift.
+ *
+ * Visually consistent with the skinny rail's status overlay so the same
+ * colors mean the same thing across both rail modes.
+ */
+function CountDot({ variant, count }: { variant: CountVariant; count: number }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center justify-center min-w-[14px] h-[14px] px-1 rounded-full',
+        'text-[9px] font-bold font-mono tabular-nums leading-none',
+        COUNT_VARIANT_CLASSES[variant],
+        variant === 'working' && 'animate-pulse',
+      )}
+      aria-label={`${count} ${COUNT_VARIANT_LABELS[variant]}`}
+      title={`${count} ${COUNT_VARIANT_LABELS[variant]}`}
+    >
+      {count}
+    </span>
+  );
 }

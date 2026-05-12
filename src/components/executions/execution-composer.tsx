@@ -10,14 +10,24 @@ import { useUpdateSession, useSessionMeta } from '@/hooks/use-execution';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META, nextPermissionMode } from '@/lib/permission-modes';
-import { PERMISSION_MODES, type PermissionMode, type EffortLevel, type Attachment } from '@/db/types';
 import {
-  MODEL_OPTIONS, EFFORT_OPTIONS, findModelOption, harnessSupportsEffort,
+  PERMISSION_MODES,
+  type PermissionMode,
+  type EffortLevel,
+  type Attachment,
+} from '@/db/types';
+import {
+  MODEL_OPTIONS,
+  EFFORT_OPTIONS,
+  findModelOption,
+  harnessSupportsEffort,
 } from '@/lib/agent-options';
 import {
-  ChatInputEditor, type ChatInputEditorHandle,
+  ChatInputEditor,
+  type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor';
 import { AttachButton } from '@/components/chat/editor/attach-button';
+import { HOTKEYS } from '@/constants/commands';
 
 interface ExecutionComposerProps {
   sessionId: string;
@@ -85,6 +95,7 @@ export function ExecutionComposer({
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
+  const [editorFocused, setEditorFocused] = useState(false);
   const editorRef = useRef<ChatInputEditorHandle | null>(null);
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
@@ -115,11 +126,11 @@ export function ExecutionComposer({
   // dispatched yet. The system-event derivation is the fallback for
   // sessions that haven't been pinned (null model = harness default,
   // which we only know after the first turn).
-  const harnessModels = harness ? MODEL_OPTIONS[harness as keyof typeof MODEL_OPTIONS] ?? [] : [];
+  const harnessModels = harness ? (MODEL_OPTIONS[harness as keyof typeof MODEL_OPTIONS] ?? []) : [];
   const pinnedModelOption = harness && model ? findModelOption(harness, model) : null;
   const displayModelLabel = pinnedModelOption?.label ?? sessionMeta.model?.label ?? null;
   const showEffort = harness ? harnessSupportsEffort(harness) : false;
-  const effortOption = effort ? EFFORT_OPTIONS.find((o) => o.id === effort) ?? null : null;
+  const effortOption = effort ? (EFFORT_OPTIONS.find((o) => o.id === effort) ?? null) : null;
 
   const setPermissionMode = useCallback(
     (next: PermissionMode) => {
@@ -262,7 +273,7 @@ export function ExecutionComposer({
       <div className="px-5 py-3 max-w-3xl mx-auto">
         <div
           className={cn(
-            'rounded-xl border border-border bg-card transition-colors flex flex-col',
+            'rounded-xl border border-border bg-card transition-colors flex flex-col gap-1',
             'focus-within:border-primary/50',
             disabled && !showStopButton && 'opacity-60',
           )}
@@ -270,36 +281,57 @@ export function ExecutionComposer({
           {/* Top: rich editor — or live waveform while recording. The
               editor preserves typed text + inline paste chips across
               the recording swap. Native contenteditable auto-grows;
-              max-height + overflow keep tall pastes scrollable. */}
-          {voice.isRecording ? (
-            <div
-              className="px-3 pt-2.5 pb-1 flex items-center"
-              style={{ minHeight: 36 }}
-            >
-              <LiveWaveform
-                active={voice.isRecording}
-                height={24}
-                barWidth={2}
-                barGap={1}
-                barRadius={1}
-                sensitivity={1.2}
-                mode="static"
-                fadeEdges
-                className="text-destructive flex-1"
-                stream={voice.stream}
+              max-height + overflow keep tall pastes scrollable.
+
+              Wrapper is `position: relative` so the focus-hotkey nudge
+              can float in the top-right at the placeholder's baseline.
+              React's onFocus/onBlur bubble from the contenteditable so
+              we can flip `editorFocused` here without threading a
+              second callback through ChatInputEditor. */}
+          <div
+            className="relative"
+            onFocus={() => setEditorFocused(true)}
+            onBlur={() => setEditorFocused(false)}
+          >
+            {voice.isRecording ? (
+              <div className="px-3 pt-2.5 pb-1 flex items-center" style={{ minHeight: 36 }}>
+                <LiveWaveform
+                  active={voice.isRecording}
+                  height={24}
+                  barWidth={2}
+                  barGap={1}
+                  barRadius={1}
+                  sensitivity={1.2}
+                  mode="static"
+                  fadeEdges
+                  className="text-destructive flex-1"
+                  stream={voice.stream}
+                />
+              </div>
+            ) : (
+              <ChatInputEditor
+                ref={editorRef}
+                placeholder={
+                  disabled ? (disabledReason ?? 'Composer is disabled') : 'Message the agent…'
+                }
+                disabled={disabled || sending}
+                onContentChange={setHasContent}
+                onSubmit={() => handleSend()}
+                onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
+                onFocus={handleEditorFocus}
               />
-            </div>
-          ) : (
-            <ChatInputEditor
-              ref={editorRef}
-              placeholder={disabled ? disabledReason ?? 'Composer is disabled' : 'Message the agent…'}
-              disabled={disabled || sending}
-              onContentChange={setHasContent}
-              onSubmit={() => handleSend()}
-              onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
-              onFocus={handleEditorFocus}
-            />
-          )}
+            )}
+            {/* Floating focus hint — only when the editor is the empty
+                "placeholder" state, mirroring the placeholder's tone. */}
+            {!voice.isRecording && !disabled && !hasContent && !editorFocused && (
+              <span className="pointer-events-none absolute top-1.5 right-2.5 hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground/50">
+                <kbd className="px-1 py-0.5 bg-muted/60 rounded text-[9px] font-sans">
+                  {HOTKEYS.focusChatInput.label}
+                </kbd>
+                <span>to focus</span>
+              </span>
+            )}
+          </div>
 
           {/* Bottom toolbar. Two layouts behind the same flex row so
               vertical height stays steady:
@@ -320,7 +352,9 @@ export function ExecutionComposer({
               <>
                 {/* ─── Left: attach · mode ─────────────────── */}
                 <AttachButton
-                  onPick={(file) => { void editorRef.current?.uploadFile(file); }}
+                  onPick={(file) => {
+                    void editorRef.current?.uploadFile(file);
+                  }}
                   disabled={disabled}
                   title="Attach file"
                 />
@@ -400,7 +434,11 @@ export function ExecutionComposer({
                   'disabled:opacity-40 disabled:cursor-not-allowed',
                 )}
                 aria-label={voice.isRecording ? 'Stop recording' : 'Voice input'}
-                title={voice.isRecording ? 'Stop recording (transcribe)' : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`}
+                title={
+                  voice.isRecording
+                    ? 'Stop recording (transcribe)'
+                    : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`
+                }
               >
                 {voice.isTranscribing ? (
                   <Loader2 size={13} className="animate-spin" />
@@ -561,7 +599,13 @@ interface ModelPickerProps {
 }
 
 function ModelPicker({
-  open, onOpenChange, options, pinnedId, fallbackLabel, onSelect, disabled,
+  open,
+  onOpenChange,
+  options,
+  pinnedId,
+  fallbackLabel,
+  onSelect,
+  disabled,
 }: ModelPickerProps) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -722,8 +766,14 @@ function EffortPicker({ open, onOpenChange, current, onSelect, disabled }: Effor
 // VoiceSentBadge popover toggle.
 
 function AutoSendSwitch({
-  on, onToggle, disabled,
-}: { on: boolean; onToggle: () => void; disabled?: boolean }) {
+  on,
+  onToggle,
+  disabled,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
@@ -731,9 +781,11 @@ function AutoSendSwitch({
       aria-checked={on}
       onClick={onToggle}
       disabled={disabled}
-      title={on
-        ? 'Auto-send voice transcripts (click to turn off)'
-        : 'Hold transcripts in the textarea (click to auto-send)'}
+      title={
+        on
+          ? 'Auto-send voice transcripts (click to turn off)'
+          : 'Hold transcripts in the textarea (click to auto-send)'
+      }
       className={cn(
         'inline-flex items-center gap-2 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium',
         'text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors',
@@ -777,7 +829,14 @@ function ContextRing({ fraction }: { fraction: number }) {
       title={`Context: ${pct}% of last turn's input vs. model cap`}
     >
       <svg width={14} height={14} viewBox="0 0 14 14" className={tone}>
-        <circle cx={7} cy={7} r={r} className="stroke-muted-foreground/25" strokeWidth={2} fill="none" />
+        <circle
+          cx={7}
+          cy={7}
+          r={r}
+          className="stroke-muted-foreground/25"
+          strokeWidth={2}
+          fill="none"
+        />
         <circle
           cx={7}
           cy={7}

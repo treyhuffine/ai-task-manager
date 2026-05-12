@@ -66,7 +66,13 @@ export function useUpdateWorkspace() {
   return useMutation({
     mutationFn: ({ id, ...input }: UpdateWorkspaceInput & { id: string }) =>
       workspacesApi.update(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+    // Rail rows carry a join-cached copy of workspace icon/emoji/attachments
+    // (see listRailSessions), so a workspace edit has to bust both caches
+    // — otherwise the rail keeps the old glyph until the next 15s poll.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      qc.invalidateQueries({ queryKey: RAIL_KEY });
+    },
   });
 }
 

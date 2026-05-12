@@ -36,9 +36,7 @@
  * caller wraps the editor with maxHeight + overflow-y-auto.
  */
 
-import {
-  forwardRef, useEffect, useImperativeHandle, useMemo, useRef,
-} from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -50,6 +48,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { attachmentUrl } from '@/lib/attachments/view';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import type { Attachment } from '@/db/types';
 import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-node';
 
@@ -158,9 +157,7 @@ function makePastedFilename(text: string): string {
  * atoms; short pastes fall through to Tiptap's default plain-text
  * handling.
  */
-function buildPasteHandler(
-  uploadAndInsert: (file: File | Blob, name: string) => Promise<void>,
-) {
+function buildPasteHandler(uploadAndInsert: (file: File | Blob, name: string) => Promise<void>) {
   return Extension.create({
     name: 'chatPasteHandler',
     addProseMirrorPlugins() {
@@ -212,7 +209,16 @@ function buildPasteHandler(
 
 export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditorProps>(
   function ChatInputEditor(
-    { placeholder, disabled, onContentChange, onSubmit, onBackspaceOnEmpty, onUploadError, onFocus, className },
+    {
+      placeholder,
+      disabled,
+      onContentChange,
+      onSubmit,
+      onBackspaceOnEmpty,
+      onUploadError,
+      onFocus,
+      className,
+    },
     ref,
   ) {
     const onSubmitRef = useRef(onSubmit);
@@ -352,7 +358,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           class: cn(
             'outline-none text-[13px] text-foreground leading-snug',
             'min-h-[20px] max-h-[200px] overflow-y-auto',
-            'px-3 pt-2.5 pb-1 break-words',
+            'px-3 pt-2.5 pb-2 break-words',
           ),
           'aria-label': placeholder ?? 'Message',
         },
@@ -373,6 +379,28 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       editor.setEditable(!disabled);
     }, [editor, disabled]);
 
+    // Global hotkey focuses the chat input. Only one ChatInputEditor is
+    // ever mounted (orchestrator vs. executor views are mutually
+    // exclusive), so a window-level listener is unambiguous. Skip when
+    // focus is in another rich editor (note/task body) so the user's
+    // italic shortcut still works there — plain inputs/textareas don't
+    // bind Cmd+I, so it's safe to steal from those.
+    useEffect(() => {
+      if (!editor) return;
+      const handler = (e: KeyboardEvent) => {
+        if (!matchesHotkey(e, HOTKEYS.focusChatInput)) return;
+        const target = e.target;
+        if (target instanceof HTMLElement) {
+          const ce = target.closest('[contenteditable="true"]');
+          if (ce && !editor.view.dom.contains(target)) return;
+        }
+        e.preventDefault();
+        editor.chain().focus('end').run();
+      };
+      window.addEventListener('keydown', handler);
+      return () => window.removeEventListener('keydown', handler);
+    }, [editor]);
+
     useImperativeHandle(
       ref,
       (): ChatInputEditorHandle => ({
@@ -380,7 +408,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         textLength: () => (editor ? editor.state.doc.textContent.length : 0),
         focus: (opts) => {
           if (!editor) return;
-          editor.chain().focus(opts?.end ? 'end' : undefined).run();
+          editor
+            .chain()
+            .focus(opts?.end ? 'end' : undefined)
+            .run();
         },
         clear: () => {
           if (!editor) return;
@@ -508,9 +539,9 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
   return { text: lines.join('\n').trim(), attachments };
 }
 
-function buildUiMessageParts(
-  editor: Editor | null,
-): { parts: Array<{ type: 'text'; text: string } | FileUIPart> } {
+function buildUiMessageParts(editor: Editor | null): {
+  parts: Array<{ type: 'text'; text: string } | FileUIPart>;
+} {
   if (!editor) return { parts: [] };
   const parts: Array<{ type: 'text'; text: string } | FileUIPart> = [];
   let textBuf = '';
