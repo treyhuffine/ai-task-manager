@@ -58,8 +58,15 @@ interface DashboardState {
   quickCaptureOpen: boolean;
   // Sessions currently streaming live agentex stdio. Filtered out of the
   // Needs Review surface and used for the workspace-row "● working" badge.
-  // Populated by the executor pipe when it ships; empty in v1 of workspaces.
+  // Populated by both the executor pipe (per-session) and the global rail
+  // SSE stream (snapshot + flips), so the rail stays accurate even when no
+  // execution view is open.
   streamingSessionIds: ReadonlySet<string>;
+  // Sessions with at least one pending input (permission prompt /
+  // AskUserQuestion blocking the agent). Drives the rail's "Needs
+  // Approval" bucket. Sourced from the global SSE stream — `notify()` in
+  // pending-input.ts publishes a full snapshot on every change.
+  pendingInputSessionIds: ReadonlySet<string>;
 }
 
 interface DashboardActions {
@@ -101,8 +108,15 @@ interface DashboardActions {
   // Quick capture
   setQuickCaptureOpen: (open: boolean) => void;
   toggleQuickCapture: () => void;
-  // Streaming session tracking — called by the executor pipe.
+  // Streaming session tracking — called by the executor pipe for the
+  // viewed session as a fast-path; the rail GET snapshot (synced via
+  // `useRailContextHydrate`) covers all other sessions.
   setSessionStreaming: (sessionId: string, isStreaming: boolean) => void;
+  /** Replace the full streaming set in one call — used by the rail
+   *  hydrate hook on each poll. */
+  setStreamingSessions: (sessionIds: string[]) => void;
+  /** Replace the full pending-input set in one call — same usage. */
+  setPendingInputSessions: (sessionIds: string[]) => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -167,6 +181,25 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       if (isStreaming) next.add(sessionId);
       else next.delete(sessionId);
       return next;
+    });
+  }, []);
+  const setStreamingSessions = useCallback((sessionIds: string[]) => {
+    setStreamingSessionIds((prev) => {
+      if (sessionIds.length === prev.size && sessionIds.every((id) => prev.has(id))) {
+        return prev;
+      }
+      return new Set(sessionIds);
+    });
+  }, []);
+
+  // ─── Pending-input sessions ─────────────────────────────
+  const [pendingInputSessionIds, setPendingInputSessionIds] = useState<Set<string>>(() => new Set());
+  const setPendingInputSessions = useCallback((sessionIds: string[]) => {
+    setPendingInputSessionIds((prev) => {
+      if (sessionIds.length === prev.size && sessionIds.every((id) => prev.has(id))) {
+        return prev;
+      }
+      return new Set(sessionIds);
     });
   }, []);
 
@@ -346,6 +379,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       toggleQuickCapture,
       streamingSessionIds,
       setSessionStreaming,
+      setStreamingSessions,
+      pendingInputSessionIds,
+      setPendingInputSessions,
     }}>
       {children}
     </DashboardContext.Provider>

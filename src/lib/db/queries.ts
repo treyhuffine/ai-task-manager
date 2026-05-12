@@ -879,9 +879,35 @@ export function createExecutionSession(args: {
   });
 }
 
-/** Set last_viewed_at = now(). Opening the session is the read receipt. */
+/**
+ * Set last_viewed_at = now() and clear unread_marker_at. Used to be fired
+ * on session open ("opening = read receipt"); now triggered on actual
+ * interaction (textarea focus, send, explicit Mark read). Kept as a named
+ * alias so older callers compile until they migrate.
+ */
 export function markSessionViewed(id: string): ChatSessionRecord | null {
-  return updateChatSession(id, { last_viewed_at: new Date().toISOString() });
+  return markSessionRead(id);
+}
+
+/**
+ * Marks the session as read by the user. Updates last_viewed_at to now
+ * and clears any "Mark as unread" override the user previously toggled.
+ */
+export function markSessionRead(id: string): ChatSessionRecord | null {
+  return updateChatSession(id, {
+    last_viewed_at: new Date().toISOString(),
+    unread_marker_at: null,
+  });
+}
+
+/**
+ * Force the session into the Unread bucket even when no new agent output
+ * has landed. Sets unread_marker_at = now() so the read derivation
+ * (`max(last_outcome, unread_marker) > last_viewed`) classifies the session
+ * as unread on the next rail render.
+ */
+export function markSessionUnread(id: string): ChatSessionRecord | null {
+  return updateChatSession(id, { unread_marker_at: new Date().toISOString() });
 }
 
 /** Advance the outcome timestamp. Called when an `agent`/`result` event lands. */
@@ -920,6 +946,11 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
  * Sessions where the user owes the agent attention. Streaming filtering is
  * the caller's job — we return candidates so the client can subtract any
  * sessions currently piping live stdio.
+ *
+ * "Unread" derivation: the most recent of (last_outcome_event_at,
+ * unread_marker_at) is newer than the user's last interaction
+ * (last_viewed_at). unread_marker_at lets the user force a session into
+ * Unread without an outcome event (the "Mark as unread" affordance).
  */
 export function listNeedsReviewSessionCandidates(): ChatSessionRecord[] {
   const db = getDb();
@@ -929,12 +960,71 @@ export function listNeedsReviewSessionCandidates(): ChatSessionRecord[] {
     .where(
       and(
         eq(chatSessions.status, 'active'),
-        isNotNull(chatSessions.last_outcome_event_at),
-        sql`${chatSessions.last_outcome_event_at} > COALESCE(${chatSessions.last_viewed_at}, '1970-01-01')`,
+        sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.unread_marker_at}) IS NOT NULL`,
+        sql`COALESCE(
+          MAX(
+            COALESCE(${chatSessions.last_outcome_event_at}, '1970-01-01'),
+            COALESCE(${chatSessions.unread_marker_at}, '1970-01-01')
+          ),
+          '1970-01-01'
+        ) > COALESCE(${chatSessions.last_viewed_at}, '1970-01-01')`,
       ),
     )
-    .orderBy(desc(chatSessions.last_outcome_event_at))
+    .orderBy(sql`COALESCE(
+      MAX(
+        COALESCE(${chatSessions.last_outcome_event_at}, '1970-01-01'),
+        COALESCE(${chatSessions.unread_marker_at}, '1970-01-01')
+      ),
+      '1970-01-01'
+    ) DESC`)
     .all();
+}
+
+// ─── Rail (status view) ────────────────────────────────────────
+//
+// One join of chat_sessions × workspaces for the left-rail "by status"
+// view. Each row carries enough workspace metadata (name, emoji, icon
+// image, area_id) for the row renderer to draw without a second fetch.
+// Bucket classification (Needs Approval / Working / Unread / Waiting
+// Response) is done client-side from this list plus the live
+// pendingInput + streaming sets.
+
+export interface RailSessionRow extends ChatSessionRecord {
+  workspace_name: string | null;
+  workspace_emoji: string | null;
+  workspace_attachments: Attachment[] | null;
+  workspace_area_id: string | null;
+  workspace_is_git: boolean | null;
+}
+
+export function listRailSessions(): RailSessionRow[] {
+  const db = getDb();
+  return db
+    .select({
+      ...getTableColumns(chatSessions),
+      workspace_name: workspaces.name,
+      workspace_emoji: workspaces.emoji,
+      workspace_attachments: workspaces.attachments,
+      workspace_area_id: workspaces.area_id,
+      workspace_is_git: workspaces.is_git,
+    })
+    .from(chatSessions)
+    // INNER JOIN — by-workspace renders sessions inside active workspaces
+    // (`useWorkspaces({ status: 'active' })`), so any execution whose
+    // workspace was archived is invisible there. Drop them here too so
+    // the bucket counts match what users see in the workspace tree.
+    .innerJoin(workspaces, eq(workspaces.id, chatSessions.workspace_id))
+    .where(and(
+      eq(chatSessions.status, 'active'),
+      // Rail is the executions surface — orchestration + content
+      // sessions live in their own UIs (main chat / task & note
+      // slideouts) and don't carry a workspace_id, so they'd render
+      // as "No workspace" rows here and inflate every bucket count.
+      eq(chatSessions.type, 'execution'),
+      eq(workspaces.status, 'active'),
+    ))
+    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .all() as RailSessionRow[];
 }
 
 // ─── Chat Events ──────────────────────────────────────────────

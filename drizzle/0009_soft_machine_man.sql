@@ -1,0 +1,1 @@
+ALTER TABLE `chat_sessions` ADD `unread_marker_at` text;

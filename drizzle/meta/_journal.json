@@ -64,6 +64,13 @@
       "when": 1778445077976,
       "tag": "0008_thankful_crystal",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778552899718,
+      "tag": "0009_soft_machine_man",
+      "breakpoints": true
     }
   ]
 }

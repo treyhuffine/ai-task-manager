@@ -18,6 +18,7 @@ import { QuickCaptureModal } from '@/components/dashboard/quick-capture-modal';
 import { MobileLayout } from '@/components/mobile/mobile-layout';
 import { TabletLayout } from '@/components/mobile/tablet-layout';
 import { AuthRecoveryCard } from '@/components/auth/auth-recovery-card';
+import { useRailContextHydrate } from '@/hooks/use-rail-context-hydrate';
 import { cn } from '@/lib/utils';
 
 function DashboardShell() {
@@ -35,6 +36,12 @@ function DashboardShell() {
   // treated as a session id; a missing/archived id renders "not found"
   // inside ExecutionView and offers a Back button.
   const isExecutionView = activeView !== 'command';
+
+  // Sync the rail GET's pending/running snapshots into the dashboard
+  // context so the by-status bucketizer and by-workspace status pips
+  // both reflect cross-session state without a separate live SSE.
+  // The rail's own poll + per-session SSE invalidation keeps it fresh.
+  useRailContextHydrate();
 
   // Global hotkeys: voice chat (⌘J) and quick capture (⌘⇧K)
   useEffect(() => {

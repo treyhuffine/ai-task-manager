@@ -109,6 +109,14 @@ function setRunning(chatSessionId: string, running: boolean): void {
   }
 }
 
+/**
+ * Snapshot of every session that's currently running. Used by the rail's
+ * `Working` bucket to seed its set on first connect.
+ */
+export function listRunningSessions(): string[] {
+  return Array.from(runningSessions);
+}
+
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
   agentSessions.clear();

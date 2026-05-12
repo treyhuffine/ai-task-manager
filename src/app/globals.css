@@ -372,6 +372,10 @@
   position: relative;
 }
 
+.collapsible-heading-wrapper.show-toggle {
+  padding-left: 28px;
+}
+
 .collapsible-heading-wrapper[data-level="1"] {
   margin-top: 2em;
   margin-bottom: 0.5em;
@@ -420,28 +424,32 @@
 /* Collapsible toggle — floats in the left gutter outside the content area */
 .collapsible-toggle {
   position: absolute;
-  left: -30px;
+  left: 0;
   top: 0;
   width: 22px;
   height: 22px;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   border-radius: 4px;
   cursor: pointer;
 }
 
-/* Adjust vertical alignment per heading level */
+.collapsible-heading-wrapper.show-toggle .collapsible-toggle {
+  display: flex;
+}
+
+/* Adjust vertical alignment per heading level — center on first line of text */
 .collapsible-heading-wrapper[data-level="1"] .collapsible-toggle {
-  top: 3px;
+  top: 9px;
 }
 
 .collapsible-heading-wrapper[data-level="2"] .collapsible-toggle {
-  top: 2px;
+  top: 7px;
 }
 
 .collapsible-heading-wrapper[data-level="3"] .collapsible-toggle {
-  top: 2px;
+  top: 5px;
 }
 
 /* Hidden nodes under collapsed headings */

@@ -1,39 +1,79 @@
 'use client';
 
-import { GitBranch, Archive } from 'lucide-react';
+import { GitBranch } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useDiffStats, useArchiveSession } from '@/hooks/use-workspaces';
+import { useDiffStats } from '@/hooks/use-workspaces';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
-import { ApiError } from '@/lib/api/client';
 import type { ChatSessionRecord } from '@/db/types';
+import { SessionRowMenu } from './session-row-menu';
 
 interface SessionRowProps {
   session: ChatSessionRecord;
   showWorkspaceLabel?: string;
+  /**
+   * Which surface this row is rendered on. Same session can render in
+   * both `tree` (canonical home, under its workspace) and `needs-review`
+   * (top-of-rail triage surface). Tree gets the full background-fill
+   * selection state; needs-review gets a slim left accent so the two
+   * duplicates don't compete visually when both are active.
+   */
+  variant?: 'tree' | 'needs-review';
+  /** True when the parent workspace is git-backed — gates the
+   *  "Execution from git…" item in the kebab menu. */
+  workspaceIsGit?: boolean;
+  /** Open the workspace settings sheet from the kebab menu. */
+  onOpenWorkspaceSettings?: (id: string) => void;
+  /** Create a new execution in this row's workspace. */
+  onCreateExecution?: (workspaceId: string) => void;
+  /** Open the "create from PR/branch/issue" modal for this row's workspace. */
+  onOpenCreateFrom?: (workspaceId: string) => void;
 }
 
 /**
- * One session under a workspace. Renders label + diff stats + activity
- * indicator. Status indicator follows three rules:
+ * One session under a workspace. Left slot is the at-a-glance status
+ * pip — colored when the session is active (working / pending /
+ * unread), GitBranch when idle. Right slot is the relative timestamp,
+ * with the kebab menu replacing it on hover.
  *
- *   1. live streaming — animated pulse + "working"
- *   2. needs_review (last_outcome > last_viewed) — small dot + relative time
- *   3. idle — relative time only
+ * Pip-on-the-left makes the rail scannable: your eye runs the left
+ * edge, picks out the colored rows, ignores the rest.
  */
-export function SessionRow({ session, showWorkspaceLabel }: SessionRowProps) {
-  const { activeView, setActiveView, streamingSessionIds } = useDashboard();
+export function SessionRow({
+  session,
+  showWorkspaceLabel,
+  variant = 'tree',
+  workspaceIsGit,
+  onOpenWorkspaceSettings,
+  onCreateExecution,
+  onOpenCreateFrom,
+}: SessionRowProps) {
+  const { activeView, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(session.worktree_path ? session.id : null);
-  const archive = useArchiveSession();
 
   const isStreaming = streamingSessionIds.has(session.id);
-  const lastOutcome = session.last_outcome_event_at;
-  const needsReview = !isStreaming
-    && lastOutcome
-    && lastOutcome > (session.last_viewed_at ?? '1970-01-01');
+  const isPending = pendingInputSessionIds.has(session.id);
 
-  const timestamp = lastOutcome ?? session.started_at;
+  // Match StatusView's unread derivation so both surfaces agree on
+  // which sessions are flagged: the user's "Mark as unread" override
+  // (unread_marker_at) wins even when no outcome event has landed.
+  const outcomes = [
+    session.last_outcome_event_at ?? '1970-01-01',
+    session.unread_marker_at ?? '1970-01-01',
+  ];
+  const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
+  const lastViewed = session.last_viewed_at ?? '1970-01-01';
+  const isUnread = !isStreaming
+    && lastActivity !== '1970-01-01'
+    && lastActivity > lastViewed;
+
+  const timestamp = session.last_outcome_event_at ?? session.started_at;
   const isActive = activeView === session.id;
+
+  // Read receipt fires on navigate-away, not click-in (handled in
+  // ExecutionView's cleanup). Clicking the row stays cheap and the
+  // rail's buckets don't reshuffle out from under the user.
+  const handleOpen = () => setActiveView(session.id);
 
   // Label is null for executions created via the no-modal flow until
   // the first user message arrives and the server derives one. Show a
@@ -41,56 +81,56 @@ export function SessionRow({ session, showWorkspaceLabel }: SessionRowProps) {
   const label = session.label ?? 'Untitled';
   const labelIsPlaceholder = !session.label;
 
-  const handleArchive = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (archive.isPending) return;
-    if (!confirm(`Archive "${label}"?`)) return;
-    archive.mutate(
-      { id: session.id, force: false },
-      {
-        onError: (err) => {
-          // Worktree has uncommitted/unpushed work — ask the user before
-          // force-removing. The 409 from /api/sessions/:id/archive carries
-          // code: 'dirty_worktree'.
-          if (err instanceof ApiError && err.status === 409) {
-            const body = err.body as { code?: string } | null;
-            if (body?.code === 'dirty_worktree') {
-              const force = confirm(
-                `"${label}" has uncommitted or unpushed changes. Archive anyway? ` +
-                'Local changes in the worktree will be lost.',
-              );
-              if (force) archive.mutate({ id: session.id, force: true });
-              return;
-            }
-          }
-          alert(`Couldn't archive: ${err instanceof Error ? err.message : String(err)}`);
-        },
-      },
-    );
-  };
-
   return (
     <div
-      onClick={() => setActiveView(session.id)}
+      onClick={handleOpen}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          setActiveView(session.id);
+          handleOpen();
         }
       }}
       className={cn(
-        'w-full group flex items-center gap-2 pl-5 pr-1.5 py-1.5 rounded-md transition-colors text-left cursor-pointer',
+        'relative w-full group flex items-center gap-2 pl-5 pr-1.5 py-1.5 rounded-md transition-colors text-left cursor-pointer',
         isActive
-          ? 'bg-secondary text-foreground'
+          ? variant === 'needs-review'
+            // Needs-review variant defers the background fill to the
+            // canonical tree row below; the accent comes from the
+            // absolute bar below so the rounded corners stay clean
+            // and the row's horizontal padding stays intact.
+            ? 'text-foreground'
+            : 'bg-secondary text-foreground'
           : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
       )}
     >
-      <GitBranch size={10} className="flex-shrink-0 opacity-50" />
+      {/* Slim selection accent for the needs-review duplicate. Sits
+          inside the row's rounded corners, transparent at rest,
+          inherits the foreground color when active. Separate element
+          (not a border) so it doesn't fight with rounded-md or eat
+          into the row's left padding. */}
+      {variant === 'needs-review' && (
+        <span
+          aria-hidden
+          className={cn(
+            'absolute left-1 top-1.5 bottom-1.5 w-[2px] rounded-full transition-colors',
+            isActive ? 'bg-foreground' : 'bg-transparent',
+          )}
+        />
+      )}
+      <StatusPip
+        isStreaming={isStreaming}
+        isPending={isPending}
+        isUnread={isUnread}
+      />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-1.5">
-          <span className={cn('text-[11px] truncate', labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium')}>{label}</span>
+          <span className={cn(
+            'text-[11px] truncate',
+            labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+            isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+          )}>{label}</span>
           {showWorkspaceLabel && (
             <span className="text-[9px] text-muted-foreground/60 truncate">· {showWorkspaceLabel}</span>
           )}
@@ -102,33 +142,70 @@ export function SessionRow({ session, showWorkspaceLabel }: SessionRowProps) {
           </div>
         )}
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0 text-[9px]">
-        {/* Archive button — only on hover, replaces the timestamp visual on row hover */}
-        <button
-          onClick={handleArchive}
-          aria-label="Archive execution"
-          title="Archive execution"
-          className="hidden group-hover:flex items-center justify-center p-0.5 rounded hover:bg-destructive/10 text-muted-foreground/70 hover:text-destructive transition-colors"
-        >
-          <Archive size={11} />
-        </button>
-        {/* Status / timestamp — hidden when row is hovered so the archive button takes its place */}
-        <div className="flex items-center gap-1 group-hover:hidden">
-          {isStreaming ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-emerald-500/80 font-medium">working</span>
-            </>
-          ) : needsReview ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full border border-amber-500" />
-              <span className="text-muted-foreground/70">{formatCompactRelative(timestamp)}</span>
-            </>
-          ) : (
-            <span className="text-muted-foreground/60">{formatCompactRelative(timestamp)}</span>
-          )}
-        </div>
+      <div className="relative flex items-center gap-1 flex-shrink-0 text-[9px] min-h-[1.25rem]">
+        {/* Timestamp stays put while idle; on hover the kebab fades in
+            over it. The status pip on the left handles the at-a-glance
+            "is this row hot" question without flashing. */}
+        <span className="text-muted-foreground/60 transition-opacity group-hover:opacity-0 group-has-data-[state=open]:opacity-0">
+          {formatCompactRelative(timestamp)}
+        </span>
+        <SessionRowMenu
+          sessionId={session.id}
+          workspaceId={session.workspace_id ?? null}
+          workspaceIsGit={workspaceIsGit ?? false}
+          isUnread={isUnread || isPending}
+          label={label}
+          onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+          onCreateExecution={onCreateExecution}
+          onOpenCreateFrom={onOpenCreateFrom}
+          className="absolute right-0 top-1/2 -translate-y-1/2"
+        />
       </div>
     </div>
   );
+}
+
+/**
+ * 10px wide left-slot indicator. Replaces the GitBranch icon when the
+ * session is in a non-idle state so a vertical scan picks out hot rows
+ * by color before reading any text. Idle rows keep the GitBranch so
+ * the row still parses as "this is an execution" at rest.
+ */
+function StatusPip({
+  isStreaming,
+  isPending,
+  isUnread,
+}: {
+  isStreaming: boolean;
+  isPending: boolean;
+  isUnread: boolean;
+}) {
+  if (isStreaming) {
+    return (
+      <span
+        aria-label="working"
+        title="Working"
+        className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"
+      />
+    );
+  }
+  if (isPending) {
+    return (
+      <span
+        aria-label="needs approval"
+        title="Needs approval"
+        className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"
+      />
+    );
+  }
+  if (isUnread) {
+    return (
+      <span
+        aria-label="unread"
+        title="Unread"
+        className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"
+      />
+    );
+  }
+  return <GitBranch size={10} className="flex-shrink-0 opacity-50" />;
 }

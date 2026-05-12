@@ -276,8 +276,18 @@ export const chatSessions = sqliteTable('chat_sessions', {
   base_sha: text('base_sha'),
 
   // Review derivation (timestamp-only, no state column).
+  //
+  // `last_viewed_at` is the read receipt — bumped on user interaction
+  // with the chat (textarea focus, send, explicit Mark read). Opening
+  // the session no longer marks read on its own; the user has to engage
+  // for the chat to leave the Unread bucket.
+  //
+  // `unread_marker_at` is the "Mark as unread" override. When set above
+  // `last_viewed_at` it forces the session into Unread even when no new
+  // agent outcome has landed. Cleared on the next Mark read / interaction.
   last_outcome_event_at: text('last_outcome_event_at'),
   last_viewed_at: text('last_viewed_at'),
+  unread_marker_at: text('unread_marker_at'),
 
   // CLI-backed tracking; null for in-app sessions.
   external_session_id: text('external_session_id'),

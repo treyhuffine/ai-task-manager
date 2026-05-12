@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { ChevronRight, Folder, Settings, Plus, GitFork } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -7,6 +8,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useUpdateWorkspace, useWorkspaceSessions } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
+import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
@@ -64,7 +66,13 @@ export function WorkspaceRow({
   };
 
   // Streaming wins over needs-review for the badge.
-  const childSessions = sessions ?? [];
+  // Re-sort client-side so the hottest row stays at the top regardless
+  // of the API's stored order. Uses the same hotness key as the by-status
+  // view so the two surfaces agree on ordering.
+  const childSessions = useMemo(
+    () => sortSessionsHotnessDesc(sessions ?? []),
+    [sessions],
+  );
   const streamingCount = childSessions.filter((s) => streamingSessionIds.has(s.id)).length;
   const reviewCount = Math.max(
     workspace.needs_review_candidate_count - streamingCount,
@@ -164,7 +172,16 @@ export function WorkspaceRow({
               No sessions yet
             </div>
           ) : (
-            childSessions.map((s) => <SessionRow key={s.id} session={s} />)
+            childSessions.map((s) => (
+              <SessionRow
+                key={s.id}
+                session={s}
+                workspaceIsGit={workspace.is_git}
+                onOpenWorkspaceSettings={onOpenSettings}
+                onCreateExecution={onCreateExecution}
+                onOpenCreateFrom={workspace.is_git ? onOpenCreateFrom : undefined}
+              />
+            ))
           )}
         </div>
       )}

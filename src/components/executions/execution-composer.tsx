@@ -7,6 +7,7 @@ import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { useUpdateSession, useSessionMeta } from '@/hooks/use-execution';
+import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META, nextPermissionMode } from '@/lib/permission-modes';
 import { PERMISSION_MODES, type PermissionMode, type EffortLevel, type Attachment } from '@/db/types';
@@ -94,6 +95,17 @@ export function ExecutionComposer({
   const toggleAutoSend = useCallback(() => {
     updateUserState.mutate({ voice_auto_send: !autoSend });
   }, [autoSend, updateUserState]);
+
+  // Read receipt: textarea focus marks the session read. We also mark
+  // on send (handleSend) for the case where the user pastes-and-sends
+  // without ever clicking the editor. Both paths fire markRead eagerly
+  // so the rail snaps to "read" as soon as the user engages — no extra
+  // cleanup-time bookkeeping required.
+  const markRead = useMarkSessionRead();
+  const handleEditorFocus = useCallback(() => {
+    if (!sessionId) return;
+    markRead.mutate(sessionId);
+  }, [sessionId, markRead]);
   const modeMeta = PERMISSION_MODE_META[permissionMode];
   const sessionMeta = useSessionMeta(sessionId);
 
@@ -144,6 +156,10 @@ export function ExecutionComposer({
       // Block sends while a turn is in flight — dispatch would throw
       // `already_running` and the user would just see a 500.
       if (!text || sending || disabled || isRunning) return;
+      // Send is an interaction — mark read even if the user pasted and
+      // sent without ever focusing the editor (the focus handler would
+      // have missed that path).
+      if (sessionId) markRead.mutate(sessionId);
       setSending(true);
       try {
         await onSend(text, {
@@ -159,7 +175,7 @@ export function ExecutionComposer({
         setSending(false);
       }
     },
-    [sending, disabled, isRunning, onSend],
+    [sending, disabled, isRunning, onSend, sessionId, markRead],
   );
 
   // Voice transcript → composer. Auto-send dispatches a synthesized
@@ -281,6 +297,7 @@ export function ExecutionComposer({
               onContentChange={setHasContent}
               onSubmit={() => handleSend()}
               onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
+              onFocus={handleEditorFocus}
             />
           )}
 

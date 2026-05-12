@@ -75,21 +75,18 @@ function CollapsibleHeadingView(props: ReactNodeViewProps) {
     [collapsed, updateAttributes]
   )
 
+  const showToggle = isHovered || collapsed
+
   return (
     <NodeViewWrapper
-      className="collapsible-heading-wrapper"
+      className={`collapsible-heading-wrapper${showToggle ? ' show-toggle' : ''}`}
       data-level={level}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       <button
         type="button"
-        className={`
-          collapsible-toggle
-          transition-all duration-150
-          text-muted-foreground/60 hover:text-foreground hover:bg-accent
-          ${isHovered || collapsed ? 'opacity-100' : 'opacity-0'}
-        `}
+        className="collapsible-toggle text-muted-foreground/60 hover:text-foreground hover:bg-accent"
         onClick={toggleCollapse}
         contentEditable={false}
         aria-label={collapsed ? 'Expand section' : 'Collapse section'}

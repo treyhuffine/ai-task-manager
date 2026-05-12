@@ -120,6 +120,26 @@ export interface ChatSessionWithAgent extends ChatSessionRecord {
   agent_harness: string | null;
 }
 
+/**
+ * Wire shape of a rail session row — chat_session columns plus the
+ * workspace columns the row needs (name, emoji, cover image, area link).
+ * `attachments` carries through unchanged so the renderer can resolve
+ * cover images via the existing `coverAttachmentUrl` helper.
+ */
+export interface RailSession extends ChatSessionRecord {
+  workspace_name: string | null;
+  workspace_emoji: string | null;
+  workspace_attachments: Attachment[] | null;
+  workspace_area_id: string | null;
+  workspace_is_git: boolean | null;
+}
+
+export interface RailResponse {
+  sessions: RailSession[];
+  pendingSessionIds: string[];
+  runningSessionIds: string[];
+}
+
 export const sessionsApi = {
   get(id: string): Promise<ChatSessionWithAgent> {
     return api.get<ChatSessionWithAgent>(`/sessions/${id}`);
@@ -168,8 +188,28 @@ export const sessionsApi = {
     return api.get<ChatSessionRecord[]>('/sessions/needs-review');
   },
 
+  /**
+   * @deprecated use markRead — `view` is the legacy endpoint, kept so
+   *   older callers compile until they migrate.
+   */
   markViewed(id: string): Promise<ChatSessionRecord> {
     return api.post<ChatSessionRecord>(`/sessions/${id}/view`);
+  },
+
+  markRead(id: string): Promise<ChatSessionRecord> {
+    return api.post<ChatSessionRecord>(`/sessions/${id}/read`);
+  },
+
+  markUnread(id: string): Promise<ChatSessionRecord> {
+    return api.post<ChatSessionRecord>(`/sessions/${id}/unread`);
+  },
+
+  rail(): Promise<RailResponse> {
+    return api.get<RailResponse>('/sessions/rail');
+  },
+
+  pendingInputGlobal(): Promise<{ sessionIds: string[] }> {
+    return api.get<{ sessionIds: string[] }>('/sessions/pending-input');
   },
 
   diffStats(id: string): Promise<DiffStats | null> {

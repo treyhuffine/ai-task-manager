@@ -7,7 +7,9 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession } from '@/hooks/use-execution';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { useSessionReconcile } from '@/hooks/use-session-reconcile';
-import { useWorkspace, useMarkSessionViewed } from '@/hooks/use-workspaces';
+import { useWorkspace, useMarkSessionRead } from '@/hooks/use-workspaces';
+import type { RailResponse } from '@/lib/api/sessions';
+import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionComposer } from './execution-composer';
@@ -48,7 +50,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // actually finds drift and starts a replay (server pushes
   // `reconcile: started` over SSE).
   const { reconciling } = useSessionReconcile(sessionId);
-  const markViewed = useMarkSessionViewed();
   const sendMessage = useSendMessage(sessionId);
   const interruptSession = useInterruptSession(sessionId);
   const isRunning = runtime?.running ?? false;
@@ -107,10 +108,46 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // opens the dock on this session).
   const [terminalOpen, setTerminalOpen] = useState(false);
 
+  // Navigate-away read receipt. The composer fires markRead eagerly on
+  // focus and send, so all engaged-then-leave cases are covered already.
+  // This cleanup handles the remaining case: "user entered an unread
+  // chat, looked at it, left without engaging." We mark read only if
+  // the unread state at leave is the SAME one that was there at entry —
+  // i.e., no new activity landed during the visit.
+  //
+  // Snapshot at mount: if the chat is currently unread, capture the
+  // latest-activity timestamp. On leave, if that timestamp hasn't moved
+  // and the chat is still unread, the user saw what was there — clear
+  // the unread. If the timestamp moved (agent did another turn, an
+  // unread marker landed) the user didn't see the new content, so we
+  // leave it unread for next time.
+  //
+  // We snapshot from the rail cache, which the dashboard always has
+  // loaded. If by some race the cache is empty (direct URL entry, etc.)
+  // we fall back to the safe peek default — never mark read.
+  const markRead = useMarkSessionRead();
+  const markReadRef = useRef(markRead);
+  markReadRef.current = markRead;
+  const entryActivityRef = useRef<string | null>(null);
   useEffect(() => {
-    if (sessionId) markViewed.mutate(sessionId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+    if (!sessionId) return;
+    entryActivityRef.current = null;
+    const rail = qc.getQueryData<RailResponse>(['sessions', 'rail']);
+    const entry = rail?.sessions.find((s) => s.id === sessionId);
+    if (entry && isSessionUnread(entry)) {
+      entryActivityRef.current = latestActivityAt(entry);
+    }
+    return () => {
+      const snapshot = entryActivityRef.current;
+      if (!snapshot) return;
+      const railNow = qc.getQueryData<RailResponse>(['sessions', 'rail']);
+      const entryNow = railNow?.sessions.find((s) => s.id === sessionId);
+      if (!entryNow) return;
+      if (!isSessionUnread(entryNow)) return;
+      if (latestActivityAt(entryNow) !== snapshot) return;
+      markReadRef.current.mutate(sessionId);
+    };
+  }, [sessionId, qc]);
 
   const handleClose = () => setActiveView('command');
 

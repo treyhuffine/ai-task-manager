@@ -319,11 +319,12 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     }
 
     default:
-      return (
-        <div className="text-[10.5px] text-muted-foreground/60 italic">
-          [{event.source}] {event.content ?? ''}
-        </div>
-      );
+      // `unknown` (agentex forward-compat fallback) and any other
+      // source the transcript doesn't have explicit styling for is
+      // internal noise — the user should never see "[unknown] …" in
+      // their chat feed. The row is still persisted in chat_events
+      // for debugging via the raw JSON, just not rendered.
+      return null;
   }
 }
 

@@ -177,6 +177,19 @@ export function listForSession(sessionId: string): PendingInput[] {
   return out;
 }
 
+/**
+ * Snapshot of every session id that currently has at least one pending
+ * input registered. Used by the rail (`Needs Approval` bucket) to bucket
+ * sessions client-side without subscribing per-session.
+ */
+export function listSessionsWithPending(): string[] {
+  const out: string[] = [];
+  for (const [sessionId, ids] of state.bySession) {
+    if (ids.size > 0) out.push(sessionId);
+  }
+  return out;
+}
+
 export function getPending(requestId: string): PendingInput | null {
   return state.byId.get(requestId)?.pending ?? null;
 }

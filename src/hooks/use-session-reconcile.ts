@@ -35,12 +35,15 @@ export function useSessionReconcile(sessionId: string | null): { reconciling: bo
     });
   }, [sessionId]);
 
-  // useQuery without a queryFn so the value is purely cache-driven —
-  // `useSessionStream` writes the boolean from its `reconcile`-frame
-  // handler. Default `false` so we render correctly before any frame
-  // has arrived.
+  // Cache-only query — the actual value is written by useSessionStream's
+  // `reconcile`-frame handler. `enabled: false` keeps this from ever
+  // fetching; the queryFn is a fallback that just reads what's in cache
+  // so React Query's "queryFn required" validation in v5 is satisfied
+  // even though it never runs. Default `false` so we render correctly
+  // before any frame has arrived.
   const { data: reconciling = false } = useQuery({
     queryKey: reconcilingKey,
+    queryFn: () => queryClient.getQueryData<boolean>(reconcilingKey) ?? false,
     enabled: false,
     initialData: queryClient.getQueryData<boolean>(reconcilingKey) ?? false,
   });

@@ -1,0 +1,168 @@
+'use client';
+
+import {
+  MoreVertical, Archive, Eye, EyeOff, Settings, Plus, GitFork,
+} from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  useArchiveSession,
+  useMarkSessionRead,
+  useMarkSessionUnread,
+} from '@/hooks/use-workspaces';
+import { ApiError } from '@/lib/api/client';
+import { cn } from '@/lib/utils';
+
+interface SessionRowMenuProps {
+  sessionId: string;
+  workspaceId: string | null;
+  /** True when the parent workspace is git-backed. Gates the
+   *  "Execution from git…" item. */
+  workspaceIsGit?: boolean;
+  /**
+   * Pre-classified read state. The menu hides Mark unread / Mark read
+   * based on which one is the current state.
+   */
+  isUnread: boolean;
+  label: string;
+  /** Open the workspace settings sheet. Hidden when omitted. */
+  onOpenWorkspaceSettings?: (id: string) => void;
+  /** Create a new execution in the row's workspace. Hidden when omitted. */
+  onCreateExecution?: (workspaceId: string) => void;
+  /** Open the "Create from PR/branch/issue" modal. Also gated by
+   *  workspaceIsGit. Hidden when omitted. */
+  onOpenCreateFrom?: (workspaceId: string) => void;
+  className?: string;
+}
+
+/**
+ * Shared per-session context menu. Three intent groups, separated by
+ * dividers so the action set is scannable:
+ *
+ *   1. Read state — Mark read / Mark unread (toggles based on current).
+ *   2. Workspace ops — New execution, Execution from git, Workspace
+ *      settings. Lifted into the row menu so the by-status surface
+ *      (which has no workspace tree) can still drive them.
+ *   3. Destructive — Archive.
+ *
+ * Stops pointerdown so dnd-kit doesn't see the click as a drag start
+ * and the row click handler doesn't fire when the menu is invoked.
+ */
+export function SessionRowMenu({
+  sessionId,
+  workspaceId,
+  workspaceIsGit,
+  isUnread,
+  label,
+  onOpenWorkspaceSettings,
+  onCreateExecution,
+  onOpenCreateFrom,
+  className,
+}: SessionRowMenuProps) {
+  const archive = useArchiveSession();
+  const markRead = useMarkSessionRead();
+  const markUnread = useMarkSessionUnread();
+
+  const handleArchive = () => {
+    if (archive.isPending) return;
+    if (!confirm(`Archive "${label}"?`)) return;
+    archive.mutate(
+      { id: sessionId, force: false },
+      {
+        onError: (err) => {
+          if (err instanceof ApiError && err.status === 409) {
+            const body = err.body as { code?: string } | null;
+            if (body?.code === 'dirty_worktree') {
+              const force = confirm(
+                `"${label}" has uncommitted or unpushed changes. Archive anyway? ` +
+                'Local changes in the worktree will be lost.',
+              );
+              if (force) archive.mutate({ id: sessionId, force: true });
+              return;
+            }
+          }
+          alert(`Couldn't archive: ${err instanceof Error ? err.message : String(err)}`);
+        },
+      },
+    );
+  };
+
+  const showWorkspaceGroup =
+    !!workspaceId && (!!onCreateExecution || !!onOpenCreateFrom || !!onOpenWorkspaceSettings);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Session actions"
+          className={cn(
+            'p-1 rounded transition-opacity text-muted-foreground/60 hover:text-foreground hover:bg-muted/40',
+            // Hidden until hover OR open. We use opacity + pointer-events
+            // instead of display:none so the trigger keeps a real
+            // bounding rect — Radix anchors the popover from
+            // getBoundingClientRect, and a display:none trigger collapses
+            // to (0,0,0,0), slamming the menu to the viewport's top-left.
+            // data-[state=open] is set by Radix on the trigger while
+            // the menu is open, which keeps the button visible after
+            // the mouse leaves the row.
+            'opacity-0 pointer-events-none',
+            'group-hover:opacity-100 group-hover:pointer-events-auto',
+            'data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto',
+            className,
+          )}
+        >
+          <MoreVertical size={12} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="text-[11px] min-w-[180px]"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {isUnread ? (
+          <DropdownMenuItem onSelect={() => markRead.mutate(sessionId)}>
+            <Eye size={12} /> Mark as read
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onSelect={() => markUnread.mutate(sessionId)}>
+            <EyeOff size={12} /> Mark as unread
+          </DropdownMenuItem>
+        )}
+
+        {showWorkspaceGroup && (
+          <>
+            <DropdownMenuSeparator />
+            {onCreateExecution && workspaceId && (
+              <DropdownMenuItem onSelect={() => onCreateExecution(workspaceId)}>
+                <Plus size={12} /> New execution
+              </DropdownMenuItem>
+            )}
+            {onOpenCreateFrom && workspaceId && workspaceIsGit && (
+              <DropdownMenuItem onSelect={() => onOpenCreateFrom(workspaceId)}>
+                <GitFork size={12} /> Execution from git…
+              </DropdownMenuItem>
+            )}
+            {onOpenWorkspaceSettings && workspaceId && (
+              <DropdownMenuItem onSelect={() => onOpenWorkspaceSettings(workspaceId)}>
+                <Settings size={12} /> Workspace settings
+              </DropdownMenuItem>
+            )}
+          </>
+        )}
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={handleArchive}>
+          <Archive size={12} /> Archive
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

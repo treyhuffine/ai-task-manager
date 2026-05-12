@@ -104,6 +104,13 @@ interface ChatInputEditorProps {
   onBackspaceOnEmpty?: () => void;
   /** Optional toast hook for upload errors. Defaults to console.error. */
   onUploadError?: (err: Error) => void;
+  /**
+   * Called the first time the editor receives focus per mount. The
+   * execution composer uses this to mark the session read on
+   * interaction — opening the chat no longer marks it read on its own;
+   * the user has to actually engage with the textarea.
+   */
+  onFocus?: () => void;
   className?: string;
 }
 
@@ -205,7 +212,7 @@ function buildPasteHandler(
 
 export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditorProps>(
   function ChatInputEditor(
-    { placeholder, disabled, onContentChange, onSubmit, onBackspaceOnEmpty, onUploadError, className },
+    { placeholder, disabled, onContentChange, onSubmit, onBackspaceOnEmpty, onUploadError, onFocus, className },
     ref,
   ) {
     const onSubmitRef = useRef(onSubmit);
@@ -214,6 +221,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     onBackspaceRef.current = onBackspaceOnEmpty;
     const onUploadErrorRef = useRef(onUploadError);
     onUploadErrorRef.current = onUploadError;
+    const onFocusRef = useRef(onFocus);
+    onFocusRef.current = onFocus;
 
     const KeymapExtension = useMemo(
       () =>
@@ -351,6 +360,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       editable: !disabled,
       onUpdate({ editor }) {
         onContentChange?.(!editor.isEmpty);
+      },
+      onFocus() {
+        onFocusRef.current?.();
       },
     });
 

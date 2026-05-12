@@ -41,6 +41,17 @@ export function useSessionStream(sessionId: string | null): void {
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
 
+    // Any state change for this session that the rail cares about —
+    // turn finished, runtime flipped, pending request changed — is a
+    // signal to re-fetch the rail. Cheaper than a global SSE channel
+    // and snaps the rail's buckets to reality as soon as the viewed
+    // session moves between them.
+    const invalidateRail = () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions', 'rail'] });
+      queryClient.invalidateQueries({ queryKey: ['sessions', 'needs-review'] });
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    };
+
     const handleChatEvent = (raw: MessageEvent) => {
       let event: ChatEventRecord;
       try {
@@ -69,12 +80,22 @@ export function useSessionStream(sessionId: string | null): void {
         });
         return out;
       });
+
+      // Turn-completion landings (source='result') are the strongest
+      // "this session moved buckets" signal — invalidate the rail so
+      // its snapshot picks up the new last_outcome_event_at and the
+      // server-side running/pending lists.
+      if (event.source === 'result') {
+        invalidateRail();
+      }
     };
 
     const handleRuntime = (raw: MessageEvent) => {
       try {
         const data = JSON.parse(raw.data) as { running: boolean };
         queryClient.setQueryData(runtimeKey, { running: data.running });
+        // Working bucket membership just flipped — re-fetch the rail.
+        invalidateRail();
       } catch (err) {
         console.error('[useSessionStream] malformed runtime frame:', err);
       }
@@ -84,6 +105,9 @@ export function useSessionStream(sessionId: string | null): void {
       try {
         const data = JSON.parse(raw.data) as { pending: PendingInput[] };
         queryClient.setQueryData<PendingInput[]>(pendingKey, data.pending);
+        // Needs-approval bucket membership just shifted — re-fetch
+        // so the rail reflects the new pending list.
+        invalidateRail();
       } catch (err) {
         console.error('[useSessionStream] malformed pending_input frame:', err);
       }
