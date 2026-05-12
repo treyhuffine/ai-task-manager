@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@agentex/agent':
-        specifier: ^0.0.10
-        version: 0.0.10
+        specifier: ^0.0.13
+        version: 0.0.13
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -340,8 +340,8 @@ packages:
     resolution: {integrity: sha512-VTDuRS5V0ATbJ/LkaQlisMnTAeYKXAK6scMguVBstf+KIBQ7HIuKhiXLv+G/hvejkV+THoXzoNifInAkU81P1g==}
     engines: {node: '>=18'}
 
-  '@agentex/agent@0.0.10':
-    resolution: {integrity: sha512-x2TbC5W+TDTcFP6KYroh6LnpbFi5U7qMkCL9k6GatP1LUkoXIz0S930FQKJJX1h0Geks7JcS4Nz3IuGyAyxW6A==}
+  '@agentex/agent@0.0.13':
+    resolution: {integrity: sha512-bY+hk5GFhXjG7pbjJJ1eWiZHJC5L5ygnAQX0vHrrqLufXnlrOD5Jjlj9Q3s6kGtqAkD7QOqMMin4L2CDuv2AEQ==}
     engines: {node: '>=18.0.0'}
 
   '@agentex/github@0.0.1':
@@ -7834,7 +7834,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@agentex/agent@0.0.10':
+  '@agentex/agent@0.0.13':
     dependencies:
       uuid: 13.0.0
 

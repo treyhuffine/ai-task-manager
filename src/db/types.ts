@@ -101,7 +101,13 @@ export type ChatSessionStatus = ChatSessionRecord['status'];
 // ─── Chat Events ──────────────────────────────────────────────
 
 export type ChatEventRecord = InferSelectModel<typeof chatEvents>;
-export type CreateChatEventInput = Omit<InferInsertModel<typeof chatEvents>, 'id'>;
+/**
+ * Insert shape for `chat_events`. `id` is optional — `insertChatEvent`
+ * mints a UUIDv7 when the caller doesn't provide one. Callers that
+ * want client/server id parity (optimistic UI, replay-from-disk) pass
+ * the id explicitly so both sides write the same row identity.
+ */
+export type CreateChatEventInput = Omit<InferInsertModel<typeof chatEvents>, 'id'> & { id?: string };
 
 /** App-level enum of `chat_events.source`. Stored as text — no DB CHECK. */
 export type ChatEventSource =

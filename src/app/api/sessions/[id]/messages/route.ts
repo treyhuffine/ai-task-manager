@@ -1,8 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { uuidv7 } from 'uuidv7';
-import { getDb } from '@/lib/db';
-import { chatEvents } from '@/lib/db/schema';
-import { getAgent, getChatSession } from '@/lib/db/queries';
+import { getAgent, getChatSession, insertChatEvent } from '@/lib/db/queries';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { attachmentPath } from '@/lib/attachments/save';
 import {
@@ -21,6 +18,14 @@ interface PostBody {
    * the upload happened via `POST /api/attachments` before submit.
    */
   attachments?: Attachment[];
+  /**
+   * Optional client-minted UUIDv7 for the resulting `chat_events` row.
+   * When provided, the persisted row and any optimistic UI placeholder
+   * the client already inserted share the same id, so the React
+   * reconciler keeps the same DOM node when the POST resolves (no
+   * unmount/remount flash). When omitted, the server mints a UUIDv7.
+   */
+  id?: string;
 }
 
 const MARKER_RE = /\[\[file:([A-Za-z0-9_.-]+)\]\]/g;
@@ -156,26 +161,28 @@ export async function POST(
     // Persist the user event with the *marker* version of content. The
     // expanded version (with paste content inlined) goes only to the
     // agent — keeping the row compact prevents giant pastes from
-    // bloating /events polls. The transcript renderer parses markers
+    // bloating the events cache. The transcript renderer parses markers
     // out and substitutes file chips on render.
     //
-    // No external_event_id for in-app rows; no source_part_index split.
+    // No external_event_id for in-app rows — the partial unique index
+    // doesn't apply, so insertChatEvent always returns the row here.
     // Created_at is explicit ISO so chronological sort works against
     // agentex's StreamEvent timestamps.
-    const db = getDb();
-    const row = db
-      .insert(chatEvents)
-      .values({
-        id: uuidv7(),
-        session_id: id,
-        role: 'user',
-        source: 'user',
-        content,
-        attachments,
-        created_at: new Date().toISOString(),
-      })
-      .returning()
-      .get();
+    const row = insertChatEvent({
+      id: body.id,
+      session_id: id,
+      role: 'user',
+      source: 'user',
+      content,
+      attachments,
+      created_at: new Date().toISOString(),
+    });
+    if (!row) {
+      // User-message inserts have no unique-constraint, so this is
+      // structurally unreachable. Guard anyway so the response is
+      // type-safe and a future schema change can't silently 500.
+      return Response.json({ error: 'failed to persist user message' }, { status: 500 });
+    }
 
     // Expand markers once, off the response path. Both label
     // derivation and the agent dispatch use the same expanded prompt.

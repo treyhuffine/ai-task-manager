@@ -83,6 +83,12 @@ export interface ResolvePendingBody {
   answers?: Record<string, string>;
 }
 
+export interface ReconcileResult {
+  drift: boolean;
+  replayed: number;
+  skipped?: 'no_transcript' | 'unsupported_provider' | 'no_cwd' | 'no_external_session';
+}
+
 export interface WipDetection {
   modified: string[];
   untracked: string[];
@@ -189,11 +195,12 @@ export const sessionsApi = {
   sendMessage(
     id: string,
     content: string,
-    opts?: { attachments?: Attachment[] },
+    opts?: { attachments?: Attachment[]; eventId?: string },
   ): Promise<ChatEventRecord> {
     return api.post<ChatEventRecord>(`/sessions/${id}/messages`, {
       content,
       attachments: opts?.attachments,
+      id: opts?.eventId,
     });
   },
 
@@ -203,6 +210,10 @@ export const sessionsApi = {
 
   interrupt(id: string): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(`/sessions/${id}/interrupt`);
+  },
+
+  reconcile(id: string): Promise<ReconcileResult> {
+    return api.post<ReconcileResult>(`/sessions/${id}/reconcile`);
   },
 
   wip(id: string): Promise<WipDetection | null> {

@@ -7,8 +7,9 @@ import * as executor from '@/lib/executor/adapter';
  * Cancels the in-flight agent turn for this chat_session, if any. The
  * underlying provider gets `interrupt()` called on it (typically SIGTERM
  * to the CLI subprocess), which causes the in-flight `send()` to
- * resolve and the dispatcher to clear `runningSessions`. The next poll
- * of `runtime-status` will see `running: false`.
+ * resolve and the dispatcher to clear `runningSessions`. The runtime
+ * flip publishes through the realtime bus, so the UI's "stop" button
+ * reverts to "send" without a client-driven refetch.
  *
  * Idempotent: a no-op when no turn is running. Returns 200 either way
  * so the client doesn't have to special-case the race where the agent

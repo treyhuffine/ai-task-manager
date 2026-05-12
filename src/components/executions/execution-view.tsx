@@ -5,6 +5,8 @@ import { Loader2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession } from '@/hooks/use-execution';
+import { useSessionStream } from '@/hooks/use-session-stream';
+import { useSessionReconcile } from '@/hooks/use-session-reconcile';
 import { useWorkspace, useMarkSessionViewed } from '@/hooks/use-workspaces';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionTranscript } from './execution-transcript';
@@ -13,6 +15,7 @@ import { ExecutionContextPane } from './execution-context-pane';
 import { ExecutionTerminalPanel } from './execution-terminal-panel';
 import { DiffSlideout } from './diff-slideout';
 import { PendingInputArea } from './pending-input-overlay';
+import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
 
 interface ExecutionViewProps {
@@ -36,6 +39,15 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const { data: session, isLoading, error } = useSession(sessionId);
   const { data: workspace } = useWorkspace(session?.workspace_id ?? null);
   const { data: runtime } = useRuntimeStatus(sessionId);
+  // Live chat-event stream: appends rows into the events cache as the
+  // executor (or any other write path) inserts them. Replaces the 3s
+  // poll that used to live in `useSessionEvents`.
+  useSessionStream(sessionId);
+  // Catch up to the on-disk Claude JSONL on open. Fires the POST in
+  // the background; the indicator below renders only if the server
+  // actually finds drift and starts a replay (server pushes
+  // `reconcile: started` over SSE).
+  const { reconciling } = useSessionReconcile(sessionId);
   const markViewed = useMarkSessionViewed();
   const sendMessage = useSendMessage(sessionId);
   const interruptSession = useInterruptSession(sessionId);
@@ -64,18 +76,16 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     setSessionStreaming(sessionId, isRunning);
   }, [sessionId, isRunning, setSessionStreaming]);
 
-  // Close the gap between "runtime-status flipped to not running" and
-  // "events poll picks up the agent's final message". The two queries
-  // poll independently (2s vs 3s), so without this, the thinking
-  // indicator can disappear up to ~3s before the final message renders.
-  // On the running → idle transition, force-invalidate events so the
-  // refetch fires immediately. Also kick the diff/status caches since
-  // a turn ending often means new file changes.
+  // Events and runtime-status come through the SSE stream in order, so
+  // the thinking-vs-message race is gone. Diff state, though, isn't
+  // streamed — it's computed on-demand from git. Kick diff (and the
+  // session row, which carries derived metadata) on the running → idle
+  // transition so a turn ending repaints the changed-files panel
+  // without waiting for the user to touch anything.
   const prevRunningRef = useRef(isRunning);
   useEffect(() => {
     if (!sessionId) return;
     if (prevRunningRef.current && !isRunning) {
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'events'] });
       qc.invalidateQueries({ queryKey: ['session', sessionId, 'diff'] });
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
     }
@@ -150,6 +160,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           {workspace?.is_git && !!session.worktree_path && (
             <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
           )}
+          {reconciling && <SyncingPill />}
           <ExecutionTranscript
             session={session}
             workspace={workspace}

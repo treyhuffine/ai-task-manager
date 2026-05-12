@@ -233,7 +233,7 @@ function insertSyntheticEvent(sessionId: string, body: FakeEventBody): string | 
     raw: { ...body, injected: true } as Record<string, unknown>,
     created_at: new Date().toISOString(),
   };
-  return insertChatEvent(event);
+  return insertChatEvent(event)?.id ?? null;
 }
 
 function roleForSource(source: ChatEventSource): string {

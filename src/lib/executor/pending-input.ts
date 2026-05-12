@@ -21,6 +21,7 @@
 
 import type { UserInputRequest, UserInputResponse } from '@agentex/agent';
 import { parseAskUserQuestion, type AskUserQuestion } from '@agentex/agent';
+import { publishPendingInput } from '@/lib/realtime/bus';
 
 export type PendingInputKind = 'permission' | 'question';
 
@@ -123,6 +124,7 @@ export function register(pending: PendingInput): Promise<UserInputResponse> {
       state.bySession.set(pending.sessionId, set);
     }
     set.add(pending.requestId);
+    notify(pending.sessionId);
   });
 }
 
@@ -133,7 +135,9 @@ export function resolveRequest(
 ): { ok: true; pending: PendingInput } | { ok: false } {
   const entry = state.byId.get(requestId);
   if (!entry) return { ok: false };
+  const sessionId = entry.pending.sessionId;
   remove(requestId);
+  notify(sessionId);
   entry.resolve(response);
   return { ok: true, pending: entry.pending };
 }
@@ -145,7 +149,7 @@ export function resolveRequest(
  */
 export function rejectAllForSession(sessionId: string, reason: string): void {
   const ids = state.bySession.get(sessionId);
-  if (!ids) return;
+  if (!ids || ids.size === 0) return;
   for (const id of [...ids]) {
     const entry = state.byId.get(id);
     if (!entry) continue;
@@ -155,6 +159,9 @@ export function rejectAllForSession(sessionId: string, reason: string): void {
     // crash.
     entry.resolve({ allow: false, message: reason });
   }
+  // Single notify after the bulk-remove so subscribers see the cleared
+  // list once, not once per cancelled request.
+  notify(sessionId);
 }
 
 export function listForSession(sessionId: string): PendingInput[] {
@@ -181,6 +188,10 @@ export function _resetPendingInput(): void {
 }
 
 // ─── Internal ─────────────────────────────────────────────────
+
+function notify(sessionId: string): void {
+  publishPendingInput(sessionId, listForSession(sessionId));
+}
 
 function remove(requestId: string): void {
   const entry = state.byId.get(requestId);

@@ -16,7 +16,7 @@ Other principles that hold across all three:
 - **Full transcripts always.** No summaries replacing messages. Search/retrieval runs over transcripts; memory is a future index over them, not a precondition.
 - **Two resets:** undo last turn, `+` to archive current and start fresh.
 - **Background/cron/agent-initiated activity goes to notifications**, not into any active chat. Notifications are the entry point to cron-spawned executions.
-- **Source of truth follows execution.** For in-app sessions (orchestration, content) our DB is authoritative. For CLI-backed executor sessions we spawned, agentex's stdio is the sole writer. For CLI-backed sessions the user spawned externally (their terminal, cron), file-sync reading the CLI's on-disk transcript is the sole writer. **Each session belongs to exactly one ingestion path** — no cross-path reconciliation needed, no duplicate risk.
+- **Source of truth follows execution.** For in-app sessions (orchestration, content) our DB is authoritative. For CLI-backed executor sessions, the CLI's on-disk transcript is the durable record and `chat_events` projects from it. App-spawned sessions get rows via two writers — agentex stdio in real time, and a transcript reconciler as a drift-recovery backup for crashes or missed events — deduped at the DB level (see `docs/realtime.md`). Externally-spawned sessions use only the transcript-reading path.
 - **No DB-enforced uniqueness on partition.** You decide how many sessions exist and how they overlap. The app picks sensible defaults; schema doesn't constrain.
 
 Internally in the data model: call them `chat_sessions` with a `type` discriminator. Externally in the UI: the word "session" doesn't appear to users.
@@ -242,14 +242,14 @@ Events sort by `ORDER BY created_at ASC, id ASC`. `created_at` comes from the pr
 
 ### Write paths
 
-**Each execution session belongs to exactly one ingestion path**, decided when the session is created. No session is written to by both paths.
+Two writer pairings, depending on who spawned the session:
 
-- **Sessions we spawn via agentex (the app-initiated case):** stdio events are the sole writer. Agentex emits a StreamEvent for every atomic thing; we parse, upsert, update the UI live.
-- **Sessions the user spawned externally (their terminal, cron, etc.) that we import into our app:** the CLI's on-disk transcript is the sole writer. File-sync reads it incrementally.
+- **App-spawned sessions (the agentex case):** stdio events are the *primary* writer — agentex emits a StreamEvent for every atomic thing; we parse, upsert, update the UI live. A *secondary* reconciler reads the on-disk transcript when drift is detected (server crashed mid-turn, stdio missed an event, laptop slept). The two paths dedup at the DB level:
+  - **Claude:** the wire `uuid` lands in `external_event_id`; the partial unique index makes re-inserts no-ops. Reconcile can safely run even mid-turn.
+  - **Codex:** rollout entries have no stable id, so reconcile defers entirely while the executor's `isRunning` flag is set. The two paths never interleave for the same session.
+- **Externally-spawned sessions** (user ran `claude -r {id}` in their terminal, cron ran `codex exec`, etc.): the on-disk transcript is the sole writer. File-sync reads it incrementally. stdio is never attempted.
 
-This split exists because the two wire formats don't always carry the same identifiers (Codex rollout-file message entries, specifically, have no `id` field — so stdio-written rows and file-sync-read entries can't be correlated). Keeping a session on one path removes the correlation problem entirely.
-
-Idempotency within a path is guaranteed by the unique constraint — re-reading the same stdio stream or re-parsing the same file section produces `ON CONFLICT DO NOTHING`. No created_at reconciliation needed because there's only one writer per session.
+Idempotency within a path is guaranteed by the unique constraint — re-reading the same stdio stream or re-parsing the same file section produces `ON CONFLICT DO NOTHING`. The original correlation hazard (Codex rollout entries lack ids that would match stdio's) is sidestepped by Codex's run-time deferral, not eliminated.
 
 ### Event mapping by event type
 
@@ -367,7 +367,7 @@ The runtime flow, for an app-spawned session:
 3. agentex pipes stdio events back — assistant text, thinking, tool calls, tool results, completion.
 4. We parse events as they arrive, write to `chat_events` (idempotent on the compound unique), update the UI live.
 
-The CLI also writes the same events to its JSONL/rollout file on disk — that's the CLI's own backup, not something we read for app-spawned sessions.
+The CLI also writes the same events to its JSONL/rollout file on disk. The reconciler reads that file on cold start (sweep) and on session open (lazy) and replays any events stdio missed through the same `insertChatEvent` chokepoint. See `docs/realtime.md` for the cursor model and per-provider dedup story.
 
 For **externally-spawned** sessions the user imports into the app (user ran `claude -r {id}` in their terminal, cron ran `codex exec`), we take the opposite path: no stdio, file-sync only. We parse the on-disk transcript and write to `chat_events`. That session's `external_writer` is effectively "file-sync"; stdio is never attempted.
 
@@ -535,7 +535,7 @@ This is the v-next adapter. Agentex v2 provider ships with `turnId: string | nul
 
 **Agentex hides #1 and #2** — its auto-detecting parser emits the same `StreamEvent` shape for either. Our code consuming agentex stdio only sees one normalized stream.
 
-**#3 is our problem** — if we want to import externally-spawned Codex sessions (user ran `codex exec` in their terminal), we parse the rollout file ourselves. That's the file-sync path described in the Reconciling section. App-spawned Codex sessions **do not** read the rollout file; stdio is the sole writer. See the Reconciling section for why the split.
+**#3 is our problem** — both for importing externally-spawned Codex sessions and as a drift-recovery backup for app-spawned ones. Externally-spawned: file-sync is the sole writer. App-spawned: the reconciler reads the rollout file in addition to stdio, but defers entirely while the executor's `isRunning` flag is set — so the two paths never write concurrently for the same Codex session (no rollout-id collisions to worry about). See the Reconciling section.
 
 **File layout:**
 
@@ -621,22 +621,23 @@ No byte-offset synthesis needed — agentex surfaces `item.id` directly. Older d
 
 Users can create CLI sessions outside our app (`claude -r {id}` in a terminal, a cron-spawned `codex exec`, etc.). These sessions aren't visible to agentex stdio because we didn't spawn them. The only way to observe them is to read the CLI's on-disk transcript.
 
-**Each execution session belongs to exactly one ingestion path**, fixed at session creation:
+Writer pairings by spawn origin:
 
-- **App-spawned sessions (the default):** stdio via agentex is the sole writer. We see every event in real time. The CLI's on-disk transcript is Codex's/Claude's own backup — we don't read it for these sessions.
-- **Externally-spawned sessions that the user imports into our app:** file-sync reads the on-disk transcript and is the sole writer. We never try to spawn stdio against them.
+- **App-spawned sessions (the default):** stdio via agentex is the primary writer; a transcript reconciler is the secondary writer that fills events stdio missed (crash mid-turn, missed stream event). Per-provider dedup keeps this safe — see Write paths above and `docs/realtime.md`.
+- **Externally-spawned sessions that the user imports into our app:** the on-disk transcript is the sole writer. We never try to spawn stdio against them.
 
-This split exists because the stdio wire format and the rollout/JSONL on-disk format don't carry the same identifiers in all cases — notably, Codex rollout `response_item` message entries have no `id` at all, while the v2 stdio path has globally unique item IDs. Letting both paths write to the same session would produce duplicates with no way to correlate them. The split avoids the problem entirely.
+The original cross-ingest concern was that stdio and rollout-file identifiers don't always match (Codex rollout `response_item` entries have no `id`). That's why Codex reconcile defers while `isRunning` instead of trying to dedup — the two paths never write the same session concurrently, so there's nothing to correlate. Claude's wire `uuid` does match between stdio and disk, so its two paths can run concurrently and the partial unique index drops the dupes.
 
-**Why not cross-ingest as a safety net?** On paper, if agentex stdio crashes mid-session, reading the file could recover lost events. In practice this works cleanly only for Claude (JSONL `uuid` matches between stdio and disk) and not for Codex (format mismatch). Rather than build a provider-specific fallback with asymmetric reliability, we accept that app-spawned sessions rely on stdio's reliability. If that becomes a real problem under load, Claude-specific recovery is easy to add later (uuids match); Codex would require more.
+**File-sync triggers:**
 
-**File-sync triggers, for external-spawned sessions only:**
+- **External-spawned sessions:** all three triggers below apply.
+- **App-spawned sessions:** the same three triggers apply to the reconciler, scoped to drift detection (a single `fs.stat`/`peek` is enough to no-op when in sync).
 
-1. **On-demand, when the user opens an imported session.** Byte-offset catch-up from `external_sync_offset` picks up any new entries since last view.
-2. **Startup catch-up.** On app launch, for every active externally-spawned execution session, read to EOF and upsert missing entries.
-3. **Periodic background pass.** Overnight (or hourly) cron keeps imported sessions current for search and notifications even when nobody has opened them recently.
+1. **On-demand, when the user opens a session.** Byte-offset catch-up from `external_sync_offset` picks up any new entries since last view. Currently wired for both spawn origins via `useSessionReconcile`.
+2. **Startup catch-up.** On app launch, for every active execution session with an `external_session_id`, read to EOF and upsert missing entries. Currently wired in `instrumentation.ts`.
+3. **Periodic background pass.** Not yet wired. Easy to add when search/notifications start depending on freshness for sessions the user hasn't opened in a while.
 
-App-spawned sessions skip all three — they have no `external_transcript_path` stored (or they have one but the writer flag marks them stdio-exclusive; implementation detail).
+App-spawned sessions go through the same triggers as externally-spawned — they just typically no-op at the `fs.stat` step because stdio kept the DB in sync.
 
 **What this does not try to do:**
 
@@ -731,9 +732,7 @@ Files referenced by `chat_events.attachments` live under `<brain>/attachments/<f
 
 For in-app sessions (orchestration, content), `external_*` fields are null and our DB is authoritative.
 
-For execution sessions, `external_session_id` points to the current live CLI session (mutable; rotates on rollover), and `external_transcript_path` stores the actual path the CLI wrote to — observed, not derived. `chat_events` rows are written by exactly one of two paths per session: stdio (via agentex, for app-spawned sessions) or file-sync (parsing the on-disk transcript, for user-imported sessions). Incremental file-sync tracked by `external_sync_offset` and validated by `external_sync_last_event_id`. Idempotency is by-path via the compound unique on `event_id + turn + part_index`.
-
-Each execution session belongs to exactly one ingestion path. App-spawned sessions use stdio (via agentex); externally-imported sessions use file-sync reading the CLI's on-disk transcript. No cross-path ingestion — the format differences (especially for Codex) make that unreliable. Idempotency within a path is handled by the compound unique constraint; `ON CONFLICT DO NOTHING` for repeated reads.
+For execution sessions, `external_session_id` points to the current live CLI session (mutable; rotates on rollover), and `external_transcript_path` stores the actual path the CLI wrote to — observed, not derived. `chat_events` rows reach the table via one of two writers per session: stdio (via agentex) for app-spawned sessions, and file-sync (parsing the on-disk transcript) for both externally-spawned sessions and as a drift-recovery backup for app-spawned ones. Incremental file-sync tracked by `external_sync_offset` and validated by `external_sync_last_event_id`. Idempotency via the compound unique on `event_id + turn + part_index`; per-provider dedup keeps stdio + file-sync co-existing safely (Claude via wire-uuid in the index; Codex via runtime-deferral so they never interleave). See `docs/realtime.md` for the full pipeline.
 
 The only uniqueness the DB enforces: session PK, event PK, `external_session_id`, and the compound event-uniqueness on `chat_events`. How many sessions exist per user/agent/surface is the user's call; app defaults pick sensible behavior without the schema fighting alternate patterns.
 
@@ -741,4 +740,4 @@ Memory, if it becomes a distinct store, sits next to these tables rather than in
 
 ## The one-line version
 
-Three distinct kinds of chat — orchestration, content, execution — share a schema but not a UX. Agents are definitions; sessions are instances; same agent → many concurrent sessions is normal. `chat_events` stores one row per atomic thing that happened (user messages, assistant text, thinking, tool calls, tool results, system markers, run results, rate limits) with typed columns for tool metadata and full `raw` for audit. Multimodal content (images, audio, files) lives on `chat_events.attachments` as JSON, sharing the generic `Attachment` shape and serve route with tasks/notes/areas. No DB-enforced partition constraints. Full transcripts. Two explicit resets. Retrieval (FTS5 now, embeddings later) runs over `chat_events`, not JSONL files. For execution sessions (CLI-backed, via agentex), each session belongs to exactly one ingestion path: app-spawned sessions use stdio (agentex) as the sole writer; externally-imported sessions use file-sync of the CLI's on-disk transcript. No cross-path ingestion. Rollovers are visible, compaction is mirrored (Claude Code) or proactive (Codex), paths are observed not derived, state is never faked. The word "session" lives in the database and nowhere in the UI.
+Three distinct kinds of chat — orchestration, content, execution — share a schema but not a UX. Agents are definitions; sessions are instances; same agent → many concurrent sessions is normal. `chat_events` stores one row per atomic thing that happened (user messages, assistant text, thinking, tool calls, tool results, system markers, run results, rate limits) with typed columns for tool metadata and full `raw` for audit. Multimodal content (images, audio, files) lives on `chat_events.attachments` as JSON, sharing the generic `Attachment` shape and serve route with tasks/notes/areas. No DB-enforced partition constraints. Full transcripts. Two explicit resets. Retrieval (FTS5 now, embeddings later) runs over `chat_events`, not JSONL files. For execution sessions (CLI-backed, via agentex), app-spawned sessions get rows from agentex stdio in real time plus a transcript reconciler that backstops crashes and missed events (deduped via wire-uuid for Claude, run-time deferral for Codex); externally-imported sessions use file-sync of the CLI's on-disk transcript as the sole writer. Rollovers are visible, compaction is mirrored (Claude Code) or proactive (Codex), paths are observed not derived, state is never faked. The word "session" lives in the database and nowhere in the UI.

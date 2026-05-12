@@ -191,16 +191,6 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
         </div>
       );
 
-    case 'result':
-      return (
-        <div className="flex">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 text-emerald-500 px-2.5 py-0.5 text-[10.5px] font-medium">
-            <CheckCircle2 size={11} />
-            {event.content ?? 'Run complete'}
-          </div>
-        </div>
-      );
-
     case 'rate_limit':
       return (
         <div className="flex">

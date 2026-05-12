@@ -54,6 +54,7 @@ import {
   rejectAllForSession,
   type PendingInput,
 } from './pending-input';
+import { publishRuntime } from '@/lib/realtime/bus';
 
 // ─── Public errors ────────────────────────────────────────────
 
@@ -92,6 +93,21 @@ if (!globalRef[STATE_KEY]) {
 }
 
 const { agentSessions, runningSessions } = globalRef[STATE_KEY]!;
+
+/**
+ * Mutate the running flag and notify any SSE subscribers. Only publishes
+ * when the value actually changes — `runningSessions` is a Set so naive
+ * add/delete are idempotent, but we don't want a same-state publish to
+ * burn cycles in subscribers.
+ */
+function setRunning(chatSessionId: string, running: boolean): void {
+  const wasRunning = runningSessions.has(chatSessionId);
+  if (running) runningSessions.add(chatSessionId);
+  else runningSessions.delete(chatSessionId);
+  if (wasRunning !== running) {
+    publishRuntime(chatSessionId, running);
+  }
+}
 
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
@@ -139,7 +155,7 @@ export async function dispatch(
   // user sees a frozen page. Flipping the flag immediately on dispatch
   // entry means "we're working on it" reflects the moment the request
   // arrives, not the moment the agent is finally ready.
-  runningSessions.add(chatSessionId);
+  setRunning(chatSessionId, true);
   try {
     const agentSession = await ensureAgentSession({
       chatSessionId,
@@ -153,7 +169,7 @@ export async function dispatch(
     });
     await agentSession.send(userMessage);
   } finally {
-    runningSessions.delete(chatSessionId);
+    setRunning(chatSessionId, false);
   }
 }
 
@@ -175,7 +191,7 @@ export async function abort(chatSessionId: string): Promise<void> {
 export async function close(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   agentSessions.delete(chatSessionId);
-  runningSessions.delete(chatSessionId);
+  setRunning(chatSessionId, false);
   rejectAllForSession(chatSessionId, 'Session closed');
   if (handle) {
     try { await handle.close(); } catch { /* best-effort */ }
@@ -477,10 +493,10 @@ function capturePromotedSessionId(chatSessionId: string, event: StreamEvent): vo
 
 // ─── Stream event → chat_events row ───────────────────────────
 
-async function persistStreamEvent(
+export async function persistStreamEvent(
   chatSessionId: string,
   event: StreamEvent,
-  writer: EventWriter,
+  writer: EventWriter = localEventWriter,
 ): Promise<void> {
   const row = parseStreamEvent(chatSessionId, event);
   if (!row) return;
@@ -492,17 +508,20 @@ async function persistStreamEvent(
  * mapping table in `docs/executor-wiring-spec.md` for the full
  * source-discriminator semantics.
  *
- * `external_event_id` is a fresh uuidv7 per event — agentex StreamEvents
- * don't surface the underlying CLI's per-row id (that lives in `raw`),
- * and for app-spawned sessions we only consume the stream once, so a
- * locally-minted id is enough for idempotency under the partial unique
- * index (and gives downstream code something stable to reference).
+ * `external_event_id` is the provider's wire-level event id when present
+ * (Claude exposes a stable uuid per event; Codex doesn't). Using the wire
+ * id means a row written via the live stream and the same row re-derived
+ * during a JSONL replay collide on the partial unique index — replay is
+ * idempotent at the DB level without us having to track anything extra.
+ * When the provider doesn't surface an id, we mint a uuidv7 so the row
+ * still has a stable identifier; replay-dedup for those providers falls
+ * back to byte-offset cursoring.
  */
 export function parseStreamEvent(
   chatSessionId: string,
   event: StreamEvent,
 ): CreateChatEventInput | null {
-  const externalEventId = uuidv7();
+  const externalEventId = event.eventId ?? uuidv7();
   const created_at = event.timestamp || new Date().toISOString();
   const base = {
     session_id: chatSessionId,
@@ -553,11 +572,18 @@ export function parseStreamEvent(
         external_tool_call_id: event.toolCallId ?? null,
       };
     case 'result':
+      // Claude packs the final agent message text into `event.result`,
+      // which would duplicate the trailing `assistant` row's content if
+      // we surfaced it. Keep the row for turn-boundary tracking + the
+      // rich metadata (cost, usage, stopReason, terminalReason) in
+      // `raw`, but don't render text. The UI filters this source out
+      // of the transcript entirely — the composer re-enabling is the
+      // visible "turn complete" signal.
       return {
         ...base,
         role: 'system',
         source: 'result' satisfies ChatEventSource,
-        content: event.text ?? null,
+        content: null,
         tool_is_error: event.isError ?? false,
       };
     case 'auth_required': {
@@ -639,10 +665,25 @@ export function parseStreamEvent(
  *   - `away_summary`      → resume summary; show as system divider with content.
  *   - `bridge_status`     → MCP / connection status; show as system divider.
  *
+ * Claude JSONL-only bookkeeping types (`ai-title`, `last-prompt`,
+ * `attachment`, `progress`) never appear on stdout — only on disk.
+ * They reach us exclusively through the transcript reconciler and
+ * carry no transcript-worthy content (titles are UI metadata, the
+ * last-prompt mirror is already covered by the `user` event, etc.).
+ * Drop them outright.
+ *
  * Anything we don't recognize keeps the `unknown` source but gains a
  * descriptive content string so the transcript no longer shows a bare
  * "[unknown]" line.
  */
+const CLAUDE_DISK_ONLY_NOISE: ReadonlySet<string> = new Set([
+  'ai-title',
+  'last-prompt',
+  'attachment',
+  'progress',
+]);
+
+
 function mapUnknownEvent(
   chatSessionId: string,
   event: StreamEvent,
@@ -664,6 +705,13 @@ function mapUnknownEvent(
     created_at,
   };
 
+  // Drop Claude's JSONL-only bookkeeping types up front. These never
+  // appear in the live stream; they only reach us via the transcript
+  // reconciler and carry no transcript-worthy content.
+  if (subtype !== null && CLAUDE_DISK_ONLY_NOISE.has(subtype)) {
+    return null;
+  }
+
   switch (subtype) {
     case 'compact_boundary':
       return {
@@ -680,9 +728,7 @@ function mapUnknownEvent(
         content: rawContent ?? 'API error',
       };
     case 'turn_duration':
-      // Pure telemetry — never useful in the transcript. Dropping it
-      // here means the `unknown` events the user was seeing in normal
-      // sessions disappear entirely.
+      // Pure telemetry — never useful in the transcript.
       return null;
     case 'away_summary':
     case 'bridge_status':
@@ -712,7 +758,7 @@ function mapUnknownEvent(
  * For git workspaces: the worktree path. For non-git: the workspace's
  * cwd directly. Returns null if the chat_session has no workspace.
  */
-function resolveCwd(session: ChatSessionRecord): string | null {
+export function resolveCwd(session: ChatSessionRecord): string | null {
   if (session.worktree_path) return session.worktree_path;
   if (!session.workspace_id) return null;
   const workspace = getWorkspace(session.workspace_id);

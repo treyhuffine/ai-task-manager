@@ -41,4 +41,24 @@ export async function register() {
   } catch (err) {
     console.warn('[mirror] init failed', err);
   }
+
+  // Sweep active Claude sessions against their on-disk JSONL transcripts.
+  // Catches drift introduced when the server died mid-turn or the live
+  // stream missed events. First-ever reconcile per session just
+  // initializes the byte-offset cursor (no replay); subsequent calls
+  // replay only the delta. Background; never blocks startup.
+  try {
+    const { reconcileAllSessions } = await import('@/lib/executor/reconcile');
+    reconcileAllSessions()
+      .then((stats) => {
+        console.log(
+          `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} errors=${stats.errors}`,
+        );
+      })
+      .catch((err) => {
+        console.warn('[reconcile] startup sweep failed', err);
+      });
+  } catch (err) {
+    console.warn('[reconcile] init failed', err);
+  }
 }

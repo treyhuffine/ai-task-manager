@@ -8,7 +8,7 @@ import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
   workspaces, agents, chatSessions, chatEvents,
 } from '@/lib/db/schema';
-import { eq, and, desc, asc, sql, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, gt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
@@ -30,6 +30,7 @@ import type {
 import { OUTCOME_SOURCES } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
+import { publishChatEvent } from '@/lib/realtime/bus';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -893,6 +894,29 @@ export function bumpSessionOutcome(id: string, at: string = new Date().toISOStri
 }
 
 /**
+ * Sessions whose on-disk Claude transcript should be checked for drift.
+ * Non-archived, with an `external_session_id` (set on first system event,
+ * so a session that's never dispatched is excluded). The reconcile sweep
+ * iterates this — order doesn't matter, so we lean on the
+ * last-outcome-first ordering since "active recently" is also the most
+ * interesting set to check first.
+ */
+export function listReconcilableSessions(): ChatSessionRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(chatSessions)
+    .where(
+      and(
+        eq(chatSessions.status, 'active'),
+        isNotNull(chatSessions.external_session_id),
+      ),
+    )
+    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .all();
+}
+
+/**
  * Sessions where the user owes the agent attention. Streaming filtering is
  * the caller's job — we return candidates so the client can subtract any
  * sessions currently piping live stdio.
@@ -916,27 +940,47 @@ export function listNeedsReviewSessionCandidates(): ChatSessionRecord[] {
 // ─── Chat Events ──────────────────────────────────────────────
 
 /**
- * Idempotent insert for CLI-backed events (executor sessions). Replays of
- * the same wire event produce the same row values; the partial unique
- * index turns retries into no-ops. Bumps the session's outcome timestamp
- * when the event is user-visible (agent text, result).
+ * Single chokepoint for `chat_events` inserts. Every write path —
+ * executor live stream, JSONL reconcile, user-message POST, inject
+ * dev route, MCP/orchestrator handlers — goes through here so the
+ * realtime broadcast and outcome-timestamp bump are guaranteed.
  *
- * Returns null when the row was a duplicate. Returns the row id otherwise.
+ * Idempotent for CLI-backed events: replays of the same wire event
+ * produce the same `external_event_id`, and the partial unique index
+ * turns retries into no-ops. Rows without an `external_event_id`
+ * (in-app user messages) aren't covered by the index and always insert.
+ *
+ * Returns the inserted row on success, or `null` when the insert was
+ * a no-op due to the unique constraint. Callers that only need the id
+ * can read `.id` off the row.
  */
-export function insertChatEvent(input: CreateChatEventInput): string | null {
+export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | null {
   const db = getDb();
-  const id = uuidv7();
-  const result = db
+  // Caller-supplied id wins; mint a UUIDv7 otherwise. Letting callers
+  // pass an id lets the user-message write path use the *same* id the
+  // client minted for its optimistic placeholder, so the optimistic
+  // row and the persisted row share React keys and there's no
+  // unmount/remount when the POST resolves.
+  const id = input.id ?? uuidv7();
+  // `.returning().all()` gives us the row that was actually written (or
+  // an empty array on conflict). Cheaper than a follow-up SELECT and
+  // ensures the broadcast carries the canonical row, not a synthesized
+  // one — important because the DB may have filled defaults.
+  const rows = db
     .insert(chatEvents)
     .values({ ...input, id })
     .onConflictDoNothing()
-    .run();
-  if (result.changes === 0) return null;
+    .returning()
+    .all();
+  if (rows.length === 0) return null;
+  const row = rows[0]!;
 
   if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
     bumpSessionOutcome(input.session_id, input.created_at ?? new Date().toISOString());
   }
-  return id;
+
+  publishChatEvent(row);
+  return row;
 }
 
 export function listChatEvents(sessionId: string, opts: { limit?: number; offset?: number } = {}): ChatEventRecord[] {
@@ -948,6 +992,24 @@ export function listChatEvents(sessionId: string, opts: { limit?: number; offset
     .orderBy(asc(chatEvents.created_at), asc(chatEvents.id))
     .limit(opts.limit ?? 1000)
     .offset(opts.offset ?? 0)
+    .all();
+}
+
+/**
+ * Events newer than `afterId` for a session, ordered chronologically.
+ * Used by the per-session SSE endpoint to replay missed events when an
+ * EventSource reconnects with a `Last-Event-ID` header. UUIDv7 ids are
+ * monotonic-by-creation-time per process, so an id-comparison is a
+ * cheap, correct cursor without a separate sequence column.
+ */
+export function listChatEventsAfter(sessionId: string, afterId: string, limit = 1000): ChatEventRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(chatEvents)
+    .where(and(eq(chatEvents.session_id, sessionId), gt(chatEvents.id, afterId)))
+    .orderBy(asc(chatEvents.created_at), asc(chatEvents.id))
+    .limit(limit)
     .all();
 }
 

@@ -113,7 +113,7 @@ function QuestionCard({
     if (label === OTHER_VALUE) {
       // Auto-focus the Other input the moment the user picks it. Stays
       // out of the way otherwise — focusing on every render would steal
-      // focus during transcript polls.
+      // focus from the textarea each time an SSE frame updates the cache.
       requestAnimationFrame(() => otherInputRef.current?.focus());
     }
   };
