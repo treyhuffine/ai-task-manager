@@ -343,14 +343,14 @@
      Floor for tiny viewports, scale with screen height, cap so the editor
      doesn't push the footer absurdly far down on huge monitors. */
   min-height: clamp(12rem, 50vh, 36rem);
-  /* Extend the drop zone into the gutter where the drag handle lives. The
-     negative margin pulls view.dom's bounding box left, the matching padding
-     pushes content back to its original visible position — so visually
+  /* Extend the drop zone into the gutter where the plus + drag handle live.
+     The negative margin pulls view.dom's bounding box left, the matching
+     padding pushes content back to its original visible position — visually
      nothing changes, but PM's dragover/drop fire when the cursor is over
-     the gutter. Sized to cover the handle (offset:24 + 20px wide) plus
-     ~16px of cursor-overshoot buffer. */
-  padding-left: 40px;
-  margin-left: -40px;
+     the gutter. Sized to cover the plus button (plusOffset:48 + 20px wide)
+     plus ~12px of cursor-overshoot buffer. */
+  padding-left: 64px;
+  margin-left: -64px;
 }
 
 .rich-editor-body:focus {
@@ -783,6 +783,45 @@
 /* Hide the handle on touch devices — drag UX needs more work there. */
 @media (pointer: coarse) {
   .drag-handle {
+    display: none !important;
+  }
+}
+
+/* Plus button — sits to the left of the drag handle in the gutter. Click
+ * inserts a new block (or stays on the current one if empty) and opens the
+ * slash menu. Positioning handled inline by src/components/editor/drag-handle.ts. */
+.gutter-plus {
+  position: absolute;
+  display: block;
+  width: 1.25rem;
+  height: 1.5rem;
+  z-index: 50;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  background-color: var(--muted-foreground);
+  opacity: 0.45;
+  /* Lucide Plus path (24-viewBox, stroke-width 2) so the icon visually matches
+   * the rest of the app's iconography. Rendered as a mask so the color follows
+   * background-color / hover state. */
+  -webkit-mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 16px 16px;
+          mask-size: 16px 16px;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.gutter-plus:hover {
+  opacity: 1;
+  background-color: var(--foreground);
+}
+
+@media (pointer: coarse) {
+  .gutter-plus {
     display: none !important;
   }
 }

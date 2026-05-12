@@ -301,7 +301,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             <div className="flex-1 overflow-y-auto min-w-0 relative">
               {note ? (
                 <>
-                  <div className="px-4 md:px-16 py-0 flex items-center gap-2">
+                  <div className="px-4 md:px-12 py-0 flex items-center gap-2">
                     <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">Note</span>
                     <span className="text-muted-foreground/30">·</span>
                     <AreaSelect
@@ -309,26 +309,28 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                       onChange={handleAreaChange}
                     />
                   </div>
-                  <NoteEditor
-                    key={note.id}
-                    title={note.title ?? ''}
-                    body={note.body}
-                    onTitleChange={handleTitleChange}
-                    onBodyChange={handleBodyChange}
-                    onAttachment={handleAttachment}
-                    autoFocusTitle={!note.title && note.body.trim().length === 0}
-                    hideFooter
-                    disabled={aiBusy}
-                    metadata={
-                      <p className="text-[10px] text-muted-foreground/50 mt-1">
-                        Created {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        {note.updated_at !== note.created_at && (
-                          <> &middot; Edited {new Date(note.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
-                        )}
-                        <> &middot; {wordCount} words &middot; {charCount} chars</>
-                      </p>
-                    }
-                  />
+                  <div className="px-4 md:px-12">
+                    <NoteEditor
+                      key={note.id}
+                      title={note.title ?? ''}
+                      body={note.body}
+                      onTitleChange={handleTitleChange}
+                      onBodyChange={handleBodyChange}
+                      onAttachment={handleAttachment}
+                      autoFocusTitle={!note.title && note.body.trim().length === 0}
+                      hideFooter
+                      disabled={aiBusy}
+                      metadata={
+                        <p className="text-[10px] text-muted-foreground/50 mt-1">
+                          Created {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {note.updated_at !== note.created_at && (
+                            <> &middot; Edited {new Date(note.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                          )}
+                          <> &middot; {wordCount} words &middot; {charCount} chars</>
+                        </p>
+                      }
+                    />
+                  </div>
                 </>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

@@ -443,7 +443,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 {task ? (
                   <div className="space-y-0">
                     {/* Type label + area / parent breadcrumb */}
-                    <div className="pt-4 px-4 md:px-10">
+                    <div className="pt-4 px-4 md:px-12">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
                           {task.parent_id ? 'Subtask' : 'Task'}
@@ -464,7 +464,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                         </button>
                       )}
                     </div>
-                    <div className="pt-1 px-4 md:px-10">
+                    <div className="pt-1 px-4 md:px-12">
                       <textarea
                         ref={titleRef}
                         className={cn(
@@ -514,7 +514,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                     </div>
 
                     {/* Properties */}
-                    <div className="px-4 md:px-10 pt-4 pb-2">
+                    <div className="px-4 md:px-12 pt-4 pb-2">
                       <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[12px] pb-4 border-b border-border">
                         {/* Status */}
                         <span className="text-muted-foreground font-medium">Status</span>
@@ -718,7 +718,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                     <SubtaskSection parentId={task.id} onOpenTask={openTask} />
 
                     {/* Body editor */}
-                    <div className="px-4 md:px-10 pt-2 pb-8 task-slideout-editor">
+                    <div className="px-4 md:px-12 pt-2 pb-8 task-slideout-editor">
                       <RichEditor
                         key={task.id}
                         content={task.body ?? ''}

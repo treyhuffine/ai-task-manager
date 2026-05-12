@@ -1,16 +1,20 @@
 import { Extension } from '@tiptap/core'
-import { NodeSelection, Plugin, PluginKey, Selection } from '@tiptap/pm/state'
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 
 /**
- * Notion-style global drag handle for Tiptap.
+ * Notion-style block gutter for Tiptap.
  *
- * Renders a six-dot grip in the editor's gutter that follows the hovered
- * block. Click+drag triggers an HTML5 drag with PM-shaped dataTransfer; the
- * actual move is handled by ProseMirror's native drop. The handle is a
- * `position: absolute` sibling inside the editor wrapper so positioning
- * uses the editor's local coord system, immune to any transformed ancestors
- * (Radix Dialog.Content / Tailwind v4 `translate-*` utilities, etc.).
+ * Renders two controls in the left gutter that follow the hovered block:
+ *  - `+` button (leftmost): click opens the slash menu — directly on empty
+ *    lines, or after inserting a new paragraph below on lines with text.
+ *  - `⋮⋮` drag handle (right of plus): click also opens the slash menu; drag
+ *    moves the block via PM's native drop pipeline.
+ *
+ * Both elements are `position: absolute` siblings of view.dom inside the
+ * editor wrapper, so positioning uses the editor's local coord system and is
+ * immune to transformed ancestors (Radix Dialog.Content / Tailwind v4
+ * `translate-*` utilities, etc.).
  *
  * Drop zone is widened by `padding-left` + matching negative `margin-left`
  * on `.rich-editor-body` (see globals.css) so PM's dragover/drop fire when
@@ -18,14 +22,17 @@ import type { EditorView } from '@tiptap/pm/view'
  */
 
 export interface DragHandleOptions {
-  /** Pixels from the editor body's left edge to the handle's left edge. */
+  /** Pixels from the editor body's left edge to the drag handle's left edge. */
   offset: number
-  /** Class applied to the handle element. Kept as `drag-handle` so the
-   * existing CSS rule works unchanged for either implementation. */
+  /** Pixels from the editor body's left edge to the plus button's left edge. */
+  plusOffset: number
+  /** Class applied to the drag handle. */
   className: string
+  /** Class applied to the plus button. */
+  plusClassName: string
   /** Extra vertical fudge after first-line centering. */
   verticalOffset: number
-  /** Block-level CSS selectors the handle will attach to. */
+  /** Block-level CSS selectors the gutter will attach to. */
   blockSelectors: string[]
 }
 
@@ -51,7 +58,9 @@ export const DragHandle = Extension.create<DragHandleOptions>({
   addOptions() {
     return {
       offset: 24,
+      plusOffset: 40,
       className: 'drag-handle',
+      plusClassName: 'gutter-plus',
       verticalOffset: 0,
       blockSelectors: DEFAULT_BLOCK_SELECTORS,
     }
@@ -70,11 +79,13 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
 class DragHandleView {
   private handle: HTMLDivElement
+  private plus: HTMLButtonElement
   private blockSelector: string
   private current: { pos: number; dom: HTMLElement } | null = null
   private boundOnMouseMove: (e: MouseEvent) => void
   private boundOnDragStart: (e: DragEvent) => void
   private boundOnDragEnd: () => void
+  private boundOnGutterClick: (e: MouseEvent) => void
 
   constructor(private view: EditorView, private opts: DragHandleOptions) {
     this.blockSelector = opts.blockSelectors.join(', ')
@@ -86,34 +97,42 @@ class DragHandleView {
     this.handle.style.opacity = '0'
     this.handle.style.pointerEvents = 'none'
 
-    // Append into the current parent. Tiptap React's <EditorContent> reparents
-    // view.dom into its own ref div *after* our plugin initializes; the handle
-    // gets moved along since it's a sibling of view.dom under the same parent.
+    this.plus = document.createElement('button')
+    this.plus.type = 'button'
+    this.plus.className = opts.plusClassName
+    this.plus.setAttribute('aria-label', 'Insert block')
+    this.plus.style.opacity = '0'
+    this.plus.style.pointerEvents = 'none'
+
     const wrapper = this.getWrapper()
     if (wrapper) {
       if (getComputedStyle(wrapper).position === 'static') {
         wrapper.style.position = 'relative'
       }
+      wrapper.appendChild(this.plus)
       wrapper.appendChild(this.handle)
     }
 
     this.boundOnMouseMove = (e) => this.onMouseMove(e)
     this.boundOnDragStart = (e) => this.onDragStart(e)
     this.boundOnDragEnd = () => this.onDragEnd()
+    this.boundOnGutterClick = (e) => this.onGutterClick(e)
 
-    // Document-level mousemove + explicit hit zone — see onMouseMove. A
-    // wrapper-scoped listener would hide the handle the moment the cursor
-    // entered the gutter en route to grabbing it.
     document.addEventListener('mousemove', this.boundOnMouseMove)
     this.handle.addEventListener('dragstart', this.boundOnDragStart)
     this.handle.addEventListener('dragend', this.boundOnDragEnd)
+    this.handle.addEventListener('click', this.boundOnGutterClick)
+    this.plus.addEventListener('click', this.boundOnGutterClick)
   }
 
   destroy() {
     document.removeEventListener('mousemove', this.boundOnMouseMove)
     this.handle.removeEventListener('dragstart', this.boundOnDragStart)
     this.handle.removeEventListener('dragend', this.boundOnDragEnd)
+    this.handle.removeEventListener('click', this.boundOnGutterClick)
+    this.plus.removeEventListener('click', this.boundOnGutterClick)
     this.handle.remove()
+    this.plus.remove()
   }
 
   /** Resolve the current parent of view.dom on demand. EditorContent may
@@ -125,16 +144,13 @@ class DragHandleView {
 
   private onMouseMove(event: MouseEvent) {
     const viewRect = this.view.dom.getBoundingClientRect()
-    // The editor body may have padding-left to extend its drop zone into
-    // the gutter; the actual TEXT content starts at viewRect.left + that
-    // padding. Probe inside the content area so block lookup works.
     const padLeft = parseFloat(getComputedStyle(this.view.dom).paddingLeft || '0') || 0
     const contentLeft = viewRect.left + padLeft
-    // Hit zone: editor body's vertical range, horizontally extended to
-    // cover the handle position even when no padding is configured.
+    // Hit zone extends past the plus button (leftmost) so the gutter stays
+    // visible while the cursor travels into it.
     const inVertical = event.clientY >= viewRect.top && event.clientY <= viewRect.bottom
     const inHorizontal =
-      event.clientX >= viewRect.left - this.opts.offset - 24 &&
+      event.clientX >= viewRect.left - this.opts.plusOffset - 24 &&
       event.clientX <= viewRect.right + 8
     if (!inVertical || !inHorizontal) {
       this.hide()
@@ -153,6 +169,8 @@ class DragHandleView {
   private hide() {
     this.handle.style.opacity = '0'
     this.handle.style.pointerEvents = 'none'
+    this.plus.style.opacity = '0'
+    this.plus.style.pointerEvents = 'none'
     this.current = null
   }
 
@@ -161,17 +179,22 @@ class DragHandleView {
     if (!wrapper) return
     const blockRect = blockDom.getBoundingClientRect()
     const wrapperRect = wrapper.getBoundingClientRect()
-    // Center the 24px handle on the block's first line of text. Matches
-    // the upstream package's vertical alignment so big headings, lists,
-    // and paragraphs all line up the same.
+    // Center the 24px controls on the block's first line of text.
     const cs = getComputedStyle(blockDom)
     const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2
     const paddingTop = parseFloat(cs.paddingTop) || 0
-    const top = blockRect.top - wrapperRect.top + paddingTop + (lineHeight - 24) / 2 + this.opts.verticalOffset
+    const top =
+      blockRect.top - wrapperRect.top + paddingTop + (lineHeight - 24) / 2 + this.opts.verticalOffset
+
     this.handle.style.top = `${top}px`
     this.handle.style.left = `-${this.opts.offset}px`
     this.handle.style.opacity = '1'
     this.handle.style.pointerEvents = 'auto'
+
+    this.plus.style.top = `${top}px`
+    this.plus.style.left = `-${this.opts.plusOffset}px`
+    this.plus.style.opacity = '1'
+    this.plus.style.pointerEvents = 'auto'
   }
 
   private findBlockAtCoords(x: number, y: number): { pos: number; dom: HTMLElement } | null {
@@ -181,9 +204,6 @@ class DragHandleView {
       if (!root.contains(candidate) || candidate === root) continue
       const target = candidate.closest(this.blockSelector) as HTMLElement | null
       if (!target || !root.contains(target)) continue
-      // Skip empty paragraphs — the existing "+" gutter button already covers
-      // those, and stacking both is visually noisy.
-      if (target.tagName === 'P' && target.textContent === '') continue
 
       const probe = target.firstChild ?? target
       const pos = this.view.posAtDOM(probe, 0)
@@ -232,13 +252,8 @@ class DragHandleView {
       event.dataTransfer.setData('text/plain', serialized.text)
     }
     event.dataTransfer.effectAllowed = 'copyMove'
-    // Render the ghost as a translucent clone of the block instead of using
-    // the source DOM directly. With a clone we control its opacity / bg so
-    // the user can see drop targets THROUGH the dragged content.
     const ghost = this.makeDragImage(dom)
     event.dataTransfer.setDragImage(ghost, 12, Math.min(12, dom.getBoundingClientRect().height / 2))
-    // Browser captures the image synchronously during this handler; remove
-    // the clone right after so it doesn't leak in the DOM.
     setTimeout(() => ghost.remove(), 0)
 
     ;(this.view as unknown as { dragging: { slice: typeof slice; move: boolean; node: NodeSelection } }).dragging = {
@@ -279,15 +294,45 @@ class DragHandleView {
   }
 
   private onDragEnd() {
-    // Clear the lingering NodeSelection (set during dragstart) so the heavy
-    // selectednode outline doesn't persist after the drag. `Selection.near`
-    // returns a TextSelection at the closest valid position — safer than
-    // `TextSelection.create` which throws when `to` lands between top-level
-    // blocks (e.g. when the dragged paragraph was the last node in the doc).
     const { state } = this.view
     if (state.selection instanceof NodeSelection) {
       const tr = state.tr.setSelection(Selection.near(state.doc.resolve(state.selection.to)))
       this.view.dispatch(tr)
     }
+  }
+
+  /**
+   * Click on either gutter control: if the targeted block is empty, place
+   * the cursor inside it; otherwise insert a fresh paragraph after the
+   * block. Either way, insert "/" so the SlashCommands suggestion plugin
+   * activates and the user gets the block-type menu without a second action.
+   */
+  private onGutterClick(event: MouseEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!this.current) return
+    const { pos } = this.current
+    const node = this.view.state.doc.nodeAt(pos)
+    if (!node) return
+
+    const isEmpty = node.isTextblock && node.content.size === 0
+    let tr = this.view.state.tr
+    let cursorPos: number
+
+    if (isEmpty) {
+      cursorPos = pos + 1
+      tr = tr.setSelection(TextSelection.create(tr.doc, cursorPos))
+    } else {
+      const endOfBlock = pos + node.nodeSize
+      const paraType = this.view.state.schema.nodes.paragraph
+      if (!paraType) return
+      tr = tr.insert(endOfBlock, paraType.create())
+      cursorPos = endOfBlock + 1
+      tr = tr.setSelection(TextSelection.create(tr.doc, cursorPos))
+    }
+
+    tr = tr.insertText('/')
+    this.view.dispatch(tr)
+    this.view.focus()
   }
 }

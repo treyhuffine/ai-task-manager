@@ -18,7 +18,6 @@ import { DragHandle } from './drag-handle'
 import AutoJoiner from 'tiptap-extension-auto-joiner'
 import { CollapsibleHeading } from './collapsible-heading'
 import { EditorBubbleMenu } from './editor-bubble-menu'
-import { EditorGutterMenu } from './editor-floating-menu'
 import { ListKeymap } from './list-keymap'
 import { SlashCommands } from './slash-commands'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
@@ -291,7 +290,6 @@ export function RichEditor({
       onMouseDown={handleWrapperMouseDown}
     >
       <EditorBubbleMenu editor={editor} />
-      <EditorGutterMenu editor={editor} />
       <EditorContent editor={editor} />
       {editor && !hideFooter && (
         <div className="flex items-center gap-3 mt-4 pt-3 border-t border-border text-xs text-muted-foreground">
@@ -368,7 +366,7 @@ export function NoteEditor({
   }, [title])
 
   return (
-    <div className="note-editor w-full mx-auto pb-16 px-4 md:px-16">
+    <div className="note-editor w-full mx-auto pb-16">
       {/* Title */}
       <textarea
         ref={titleRef}
@@ -387,7 +385,7 @@ export function NoteEditor({
 
       {metadata}
 
-      {/* Body — the gutter menu lives in the pl-16 space */}
+      {/* Body — the pl-10 reserves room for the drag-handle + plus gutter. */}
       <div className="mt-6">
         <RichEditor
           content={body}

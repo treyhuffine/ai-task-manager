@@ -29,6 +29,17 @@ interface SlashCommandItem {
 
 const SLASH_COMMANDS: SlashCommandItem[] = [
   {
+    title: 'Image',
+    description: 'Embed an image from URL',
+    icon: ImageIcon,
+    command: ({ editor, range }) => {
+      const url = window.prompt('Image URL')
+      if (url) {
+        editor.chain().focus().deleteRange(range).setImage({ src: url }).run()
+      }
+    },
+  },
+  {
     title: 'Text',
     description: 'Plain text paragraph',
     icon: TextIcon,
@@ -106,17 +117,6 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
     icon: Minus,
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).setHorizontalRule().run()
-    },
-  },
-  {
-    title: 'Image',
-    description: 'Embed an image from URL',
-    icon: ImageIcon,
-    command: ({ editor, range }) => {
-      const url = window.prompt('Image URL')
-      if (url) {
-        editor.chain().focus().deleteRange(range).setImage({ src: url }).run()
-      }
     },
   },
 ]
@@ -200,6 +200,11 @@ const CommandList = forwardRef<CommandListRef, CommandListProps>(
                   : 'text-foreground/80 hover:bg-accent/50'
                 }
               `}
+              // Per-button preventDefault keeps editor focus on click so the
+              // Suggestion plugin doesn't tear the popup down before click
+              // fires. Scoped to the button so scrollbar drags on the
+              // container still work.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => selectItem(index)}
               onMouseEnter={() => setSelectedIndex(index)}
             >
@@ -227,12 +232,21 @@ function createSuggestionRenderer() {
     let popup: HTMLDivElement | null = null
     let root: Root | null = null
     let componentRef: CommandListRef | null = null
+    let host: HTMLElement = document.body
 
     return {
       onStart(props: SuggestionProps<SlashCommandItem>) {
         popup = document.createElement('div')
         popup.className = 'slash-command-popup'
-        document.body.appendChild(popup)
+        // Mount inside the nearest Radix Dialog when present — Radix sets
+        // pointer-events: none on body siblings of a modal dialog, which would
+        // otherwise block clicks and scrollbar drags on the menu.
+        const editorDom = props.editor.view.dom as HTMLElement
+        host =
+          (editorDom.closest('[role="dialog"]') as HTMLElement | null) ??
+          (editorDom.closest('[data-radix-popper-content-wrapper]') as HTMLElement | null) ??
+          document.body
+        host.appendChild(popup)
 
         root = createRoot(popup)
         root.render(
@@ -281,9 +295,18 @@ function createSuggestionRenderer() {
     ) {
       const rect = props.clientRect?.()
       if (!rect) return
+      // `clientRect` is viewport-relative. When the host is a transformed
+      // ancestor (e.g. a Radix Dialog with a slide-in transform), `position:
+      // fixed` resolves against that ancestor's box, so we subtract its
+      // origin to land at the caret. For the body fallback, hostRect is at
+      // 0,0 and the math degenerates to plain viewport coords.
+      const hostRect =
+        host === document.body
+          ? { left: 0, top: 0 }
+          : host.getBoundingClientRect()
       el.style.position = 'fixed'
-      el.style.left = `${rect.left}px`
-      el.style.top = `${rect.bottom + 4}px`
+      el.style.left = `${rect.left - hostRect.left}px`
+      el.style.top = `${rect.bottom - hostRect.top + 4}px`
       el.style.zIndex = '999'
     }
 
