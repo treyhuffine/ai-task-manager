@@ -7,6 +7,7 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { ChatSessionRecord } from '@/db/types';
 import { SessionRowMenu } from './session-row-menu';
+import { useSessionRowHover } from './session-hover-context';
 
 interface SessionRowProps {
   session: ChatSessionRecord;
@@ -50,6 +51,7 @@ export function SessionRow({
 }: SessionRowProps) {
   const { activeView, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(session.worktree_path ? session.id : null);
+  const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
@@ -73,7 +75,10 @@ export function SessionRow({
   // Read receipt fires on navigate-away, not click-in (handled in
   // ExecutionView's cleanup). Clicking the row stays cheap and the
   // rail's buckets don't reshuffle out from under the user.
-  const handleOpen = () => setActiveView(session.id);
+  const handleOpen = () => {
+    closeNow();
+    setActiveView(session.id);
+  };
 
   // Label is null for executions created via the no-modal flow until
   // the first user message arrives and the server derives one. Show a
@@ -83,7 +88,10 @@ export function SessionRow({
 
   return (
     <div
+      ref={rowRef}
       onClick={handleOpen}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {

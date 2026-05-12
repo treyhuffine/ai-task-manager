@@ -6,6 +6,7 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { SessionRowMenu } from './session-row-menu';
+import { useSessionRowHover } from './session-hover-context';
 
 interface StatusSessionRowProps {
   session: RailSession;
@@ -33,6 +34,7 @@ export function StatusSessionRow({
   onOpenCreateFrom,
 }: StatusSessionRowProps) {
   const { activeView, setActiveView } = useDashboard();
+  const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   const isActive = activeView === session.id;
 
@@ -40,7 +42,10 @@ export function StatusSessionRow({
   // (handled in ExecutionView's cleanup), not when clicking in. That
   // way the rail doesn't reshuffle while the user is still looking at
   // the row they just opened.
-  const handleOpen = () => setActiveView(session.id);
+  const handleOpen = () => {
+    closeNow();
+    setActiveView(session.id);
+  };
   const label = session.label ?? 'Untitled';
   const labelIsPlaceholder = !session.label;
 
@@ -53,7 +58,10 @@ export function StatusSessionRow({
 
   return (
     <div
+      ref={rowRef}
       onClick={handleOpen}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {

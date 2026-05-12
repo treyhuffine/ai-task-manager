@@ -67,6 +67,10 @@ interface DashboardState {
   // Approval" bucket. Sourced from the global SSE stream — `notify()` in
   // pending-input.ts publishes a full snapshot on every change.
   pendingInputSessionIds: ReadonlySet<string>;
+  // Left rail visual mode. `true` renders the rail as a skinny icon
+  // strip; `false` keeps the full-width labeled view. Persisted across
+  // reloads in localStorage.
+  railCollapsed: boolean;
 }
 
 interface DashboardActions {
@@ -117,6 +121,9 @@ interface DashboardActions {
   setStreamingSessions: (sessionIds: string[]) => void;
   /** Replace the full pending-input set in one call — same usage. */
   setPendingInputSessions: (sessionIds: string[]) => void;
+  /** Flip the rail between full and skinny renderings. */
+  toggleRailCollapsed: () => void;
+  setRailCollapsed: (collapsed: boolean) => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -200,6 +207,31 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         return prev;
       }
       return new Set(sessionIds);
+    });
+  }, []);
+
+  // ─── Rail collapsed mode ────────────────────────────────
+  // SSR-safe: start expanded, then hydrate from localStorage so the
+  // first client paint matches the persisted choice.
+  const [railCollapsed, setRailCollapsedState] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('flow.rail.collapsed');
+    if (stored === '1') setRailCollapsedState(true);
+  }, []);
+  const setRailCollapsed = useCallback((next: boolean) => {
+    setRailCollapsedState(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('flow.rail.collapsed', next ? '1' : '0');
+    }
+  }, []);
+  const toggleRailCollapsed = useCallback(() => {
+    setRailCollapsedState((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('flow.rail.collapsed', next ? '1' : '0');
+      }
+      return next;
     });
   }, []);
 
@@ -382,6 +414,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setStreamingSessions,
       pendingInputSessionIds,
       setPendingInputSessions,
+      railCollapsed,
+      toggleRailCollapsed,
+      setRailCollapsed,
     }}>
       {children}
     </DashboardContext.Provider>

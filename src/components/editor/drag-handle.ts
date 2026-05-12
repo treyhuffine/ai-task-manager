@@ -49,6 +49,8 @@ const DEFAULT_BLOCK_SELECTORS = [
   'h5',
   'h6',
   'p',
+  'img',
+  'hr',
   '[data-node-view-wrapper]',
 ]
 
@@ -209,6 +211,14 @@ class DragHandleView {
       const pos = this.view.posAtDOM(probe, 0)
       if (pos < 0) continue
       const $pos = this.view.state.doc.resolve(pos)
+
+      // Top-level leaf blocks (img, hr) resolve to depth 0 — there's no
+      // ancestor textblock to walk up to, so target the node at `pos`
+      // directly. Without this the depth loop below skips them.
+      if ($pos.depth === 0 && $pos.nodeAfter) {
+        const blockDom = (this.view.nodeDOM(pos) as HTMLElement | null) ?? target
+        return { pos, dom: blockDom }
+      }
 
       // Granularity: drag list items as units, otherwise the top-level block.
       let depth = 1

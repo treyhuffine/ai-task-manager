@@ -17,6 +17,8 @@ import {
   ImageIcon,
   TextIcon,
 } from 'lucide-react'
+import type { Attachment } from '@/db/types'
+import { insertUploadedFiles } from './upload-files'
 
 // --- Command definitions ---
 
@@ -27,16 +29,44 @@ interface SlashCommandItem {
   command: (props: { editor: any; range: any }) => void
 }
 
-const SLASH_COMMANDS: SlashCommandItem[] = [
+interface SlashCommandsBuildContext {
+  /** Called when an image is uploaded so the parent can include its metadata
+   *  in the next save payload. */
+  getAttachmentHandler: () => ((a: Attachment) => void) | undefined
+}
+
+/** Open the system file picker and insert the chosen images at `insertAt`. */
+function pickAndInsertImages(
+  editor: any,
+  insertAt: number,
+  onAttachment?: (a: Attachment) => void,
+) {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.multiple = true
+  input.addEventListener('change', () => {
+    const files = Array.from(input.files ?? []).filter((f) => f.type.startsWith('image/'))
+    if (files.length === 0) return
+    void insertUploadedFiles(editor, files, insertAt, onAttachment)
+  })
+  input.click()
+}
+
+function buildSlashCommands(ctx: SlashCommandsBuildContext): SlashCommandItem[] {
+  return [
   {
     title: 'Image',
-    description: 'Embed an image from URL',
+    description: 'Upload an image from your device',
     icon: ImageIcon,
     command: ({ editor, range }) => {
-      const url = window.prompt('Image URL')
-      if (url) {
-        editor.chain().focus().deleteRange(range).setImage({ src: url }).run()
-      }
+      // Delete the slash trigger before opening the picker — keeps the
+      // saved insertion position stable even if focus moves while the
+      // file dialog is open. The helper also clamps to doc size, so a
+      // shrunken document after async work is still safe.
+      editor.chain().focus().deleteRange(range).run()
+      const insertAt = editor.state.selection.to
+      pickAndInsertImages(editor, insertAt, ctx.getAttachmentHandler())
     },
   },
   {
@@ -119,7 +149,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
       editor.chain().focus().deleteRange(range).setHorizontalRule().run()
     },
   },
-]
+  ]
+}
 
 // --- React popup component ---
 
@@ -322,41 +353,53 @@ function createSuggestionRenderer() {
 
 // --- Tiptap Extension ---
 
-export const SlashCommands = Extension.create({
+interface SlashCommandsOptions {
+  /** Returns the current attachment callback. Wrapped in a getter so the
+   *  extension always sees the latest callback even though its options are
+   *  frozen at editor-create time. */
+  getAttachmentHandler?: () => ((a: Attachment) => void) | undefined
+}
+
+export const SlashCommands = Extension.create<SlashCommandsOptions>({
   name: 'slashCommands',
 
   addOptions() {
     return {
-      suggestion: {
-        char: '/',
-        allowSpaces: false,
-        startOfLine: false,
-        items: ({ query }: { query: string }) => {
-          return SLASH_COMMANDS.filter((item) =>
-            item.title.toLowerCase().includes(query.toLowerCase())
-          )
-        },
-        command: ({
-          editor,
-          range,
-          props: item,
-        }: {
-          editor: any
-          range: any
-          props: SlashCommandItem
-        }) => {
-          item.command({ editor, range })
-        },
-        render: createSuggestionRenderer(),
-      } satisfies Partial<SuggestionOptions<SlashCommandItem, SlashCommandItem>>,
+      getAttachmentHandler: undefined,
     }
   },
 
   addProseMirrorPlugins() {
+    const buildCtx: SlashCommandsBuildContext = {
+      getAttachmentHandler: () => this.options.getAttachmentHandler?.(),
+    }
+    const suggestion: Partial<SuggestionOptions<SlashCommandItem, SlashCommandItem>> = {
+      char: '/',
+      allowSpaces: false,
+      startOfLine: false,
+      items: ({ query }: { query: string }) => {
+        return buildSlashCommands(buildCtx).filter((item) =>
+          item.title.toLowerCase().includes(query.toLowerCase())
+        )
+      },
+      command: ({
+        editor,
+        range,
+        props: item,
+      }: {
+        editor: any
+        range: any
+        props: SlashCommandItem
+      }) => {
+        item.command({ editor, range })
+      },
+      render: createSuggestionRenderer(),
+    }
+
     return [
       Suggestion<SlashCommandItem, SlashCommandItem>({
         editor: this.editor,
-        ...this.options.suggestion,
+        ...suggestion,
       }),
     ]
   },

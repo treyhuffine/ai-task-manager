@@ -29,6 +29,7 @@ function DashboardShell() {
     popSlideout, closeAllSlideouts, slideoutStack,
     triggerVoiceChat,
     quickCaptureOpen, setQuickCaptureOpen, toggleQuickCapture,
+    toggleRailCollapsed,
   } = useDashboard();
 
   // activeView is 'command' for the default dashboard, or a chat_session
@@ -43,7 +44,7 @@ function DashboardShell() {
   // The rail's own poll + per-session SSE invalidation keeps it fresh.
   useRailContextHydrate();
 
-  // Global hotkeys: voice chat (⌘J) and quick capture (⌘⇧K)
+  // Global hotkeys: voice chat (⌘J), quick capture (⌘⇧K), rail toggle (⌘\)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (matchesHotkey(e, HOTKEYS.voiceChat)) {
@@ -54,11 +55,16 @@ function DashboardShell() {
       if (matchesHotkey(e, HOTKEYS.quickCapture)) {
         e.preventDefault();
         toggleQuickCapture();
+        return;
+      }
+      if (matchesHotkey(e, HOTKEYS.toggleRail)) {
+        e.preventDefault();
+        toggleRailCollapsed();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [triggerVoiceChat, toggleQuickCapture]);
+  }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed]);
 
   const hasHistory = slideoutStack.length > 1;
 

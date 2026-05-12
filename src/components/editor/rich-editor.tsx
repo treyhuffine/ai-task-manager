@@ -21,47 +21,11 @@ import { EditorBubbleMenu } from './editor-bubble-menu'
 import { ListKeymap } from './list-keymap'
 import { SlashCommands } from './slash-commands'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
+import type { Editor } from '@tiptap/core'
 import type { Attachment } from '@/db/types'
-import { uploadAttachment } from '@/lib/attachments/client'
+import { insertUploadedFiles } from './upload-files'
 
 const lowlight = createLowlight(common)
-
-/**
- * Upload a batch of image files, insert them as Image nodes at the given
- * document position, and emit each Attachment through the optional callback.
- *
- * Each file uploads independently; failures are logged and skipped so a
- * single bad file doesn't block the others. Insertions happen after the
- * upload resolves so the editor doesn't show placeholder gaps or
- * broken-image icons pointing at not-yet-saved files.
- */
-async function insertUploadedFiles(
-  view: import('@tiptap/pm/view').EditorView,
-  files: File[],
-  startPos: number,
-  onAttachment?: (a: Attachment) => void,
-): Promise<void> {
-  for (const file of files) {
-    try {
-      const attachment = await uploadAttachment(file)
-      const src = `/api/attachments/${attachment.file_name}`
-      const imageType = view.state.schema.nodes.image
-      if (!imageType) continue
-      const node = imageType.create({ src, alt: attachment.original_name })
-      // Recompute insertion point each time: the document may have grown as
-      // earlier files in the batch were inserted, and the current selection
-      // is a safer landing spot than a stale startPos.
-      const target = Math.min(startPos, view.state.doc.content.size)
-      const tr = view.state.tr.insert(target, node)
-      view.dispatch(tr)
-      // Move cursor past the just-inserted node so the next one stacks below.
-      startPos = target + node.nodeSize
-      onAttachment?.(attachment)
-    } catch (err) {
-      console.error('[editor] attachment upload failed', err)
-    }
-  }
-}
 
 export interface RichEditorProps {
   /** Initial content as markdown string */
@@ -100,6 +64,12 @@ export function RichEditor({
 
   const onAttachmentRef = useRef(onAttachment)
   onAttachmentRef.current = onAttachment
+
+  // The drop/paste handlers need the live Editor (for schema-aware
+  // `insertContentAt`) but `useEditor`'s editorProps callbacks close over
+  // the still-uninitialized `editor` const. A ref bridges that — it's set
+  // imperatively below after `useEditor` returns, and read at event time.
+  const editorRef = useRef<Editor | null>(null)
 
   // Freeze initial content so useEditor only uses it on creation.
   // We handle subsequent updates ourselves via the sync effect below.
@@ -153,7 +123,9 @@ export function RichEditor({
         lowlight,
       }),
       CharacterCount,
-      SlashCommands,
+      SlashCommands.configure({
+        getAttachmentHandler: () => onAttachmentRef.current,
+      }),
       ListKeymap,
       DragHandle.configure({
         // see ./drag-handle.ts. Empty paragraphs are skipped by the block
@@ -177,6 +149,8 @@ export function RichEditor({
       // file drops trigger the upload path.
       handleDrop: (view, event, _slice, moved) => {
         if (moved) return false
+        const editor = editorRef.current
+        if (!editor) return false
         const dt = (event as DragEvent).dataTransfer
         const files = Array.from(dt?.files ?? []).filter((f) => f.type.startsWith('image/'))
         if (files.length === 0) return false
@@ -186,16 +160,18 @@ export function RichEditor({
           top: (event as DragEvent).clientY,
         })
         const pos = coords?.pos ?? view.state.selection.to
-        void insertUploadedFiles(view, files, pos, onAttachmentRef.current)
+        void insertUploadedFiles(editor, files, pos, onAttachmentRef.current)
         return true
       },
       handlePaste: (view, event) => {
+        const editor = editorRef.current
+        if (!editor) return false
         const cb = (event as ClipboardEvent).clipboardData
         const files = Array.from(cb?.files ?? []).filter((f) => f.type.startsWith('image/'))
         if (files.length === 0) return false
         event.preventDefault()
         const pos = view.state.selection.to
-        void insertUploadedFiles(view, files, pos, onAttachmentRef.current)
+        void insertUploadedFiles(editor, files, pos, onAttachmentRef.current)
         return true
       },
     },
@@ -208,6 +184,8 @@ export function RichEditor({
     },
     autofocus: autoFocus ? autoFocus : false,
   })
+
+  editorRef.current = editor
 
   // Sync editable state at runtime (e.g. disable while AI is working).
   // Blur before disabling so the focus gate in the content-sync effect
