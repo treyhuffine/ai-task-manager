@@ -25,7 +25,7 @@ export default function RootLayout({
         <QueryProvider>
           <PairingBootstrap />
           <TooltipProvider>{children}</TooltipProvider>
-          <Toaster position="top-right" richColors closeButton />
+          <Toaster position="bottom-left" richColors closeButton />
         </QueryProvider>
       </body>
     </html>

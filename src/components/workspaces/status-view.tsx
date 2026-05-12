@@ -34,6 +34,10 @@ interface BucketConfig {
   label: string;
   accentClass: string;
   countBgClass: string;
+  /** Faint at-rest tint that anchors "hot" sections (working,
+   *  needs-approval). Passive buckets leave this undefined so the rail
+   *  doesn't read as colored stripes. */
+  headerBgClass?: string;
   icon: ReactNode;
 }
 
@@ -43,6 +47,7 @@ const BUCKET_CONFIG: Record<BucketId, BucketConfig> = {
     label: 'Needs approval',
     accentClass: 'text-amber-600 dark:text-amber-400',
     countBgClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    headerBgClass: 'bg-amber-500/[0.06] dark:bg-amber-400/[0.08]',
     icon: <AlertCircle size={13} className="text-amber-500" />,
   },
   unread: {
@@ -64,6 +69,7 @@ const BUCKET_CONFIG: Record<BucketId, BucketConfig> = {
     label: 'Working',
     accentClass: 'text-emerald-600 dark:text-emerald-400',
     countBgClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+    headerBgClass: 'bg-emerald-500/[0.06] dark:bg-emerald-400/[0.08]',
     icon: <Zap size={13} className="text-emerald-500" />,
   },
 };
@@ -186,6 +192,7 @@ export function StatusView() {
               count={sessions.length}
               accentClass={cfg.accentClass}
               countBgClass={cfg.countBgClass}
+              headerBgClass={cfg.headerBgClass}
               icon={cfg.icon}
             >
               {sessions.map((s) => (

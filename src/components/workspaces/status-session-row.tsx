@@ -63,7 +63,7 @@ export function StatusSessionRow({
         }
       }}
       className={cn(
-        'group flex items-start gap-2 px-1.5 py-1.5 rounded-md transition-colors text-left cursor-pointer',
+        'group flex items-start gap-1.5 pl-4 pr-1.5 py-1.5 rounded-md transition-colors text-left cursor-pointer',
         isActive
           ? 'bg-secondary'
           : 'hover:bg-muted/40',
@@ -141,16 +141,16 @@ function WorkspaceAvatar({
   badge: 'amber' | null;
 }) {
   return (
-    <span className="relative w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">
+    <span className="relative w-5 h-5 flex items-center justify-center flex-shrink-0 mt-px">
       {wsImage ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={wsImage} alt="" className="w-6 h-6 rounded object-cover" />
+        <img src={wsImage} alt="" className="w-5 h-5 rounded object-cover" />
       ) : wsEmoji ? (
-        <span className="text-[15px] leading-none">{wsEmoji}</span>
+        <span className="text-base leading-none">{wsEmoji}</span>
       ) : (
         <span
           aria-hidden
-          className="w-6 h-6 rounded flex items-center justify-center text-[9.5px] font-bold tracking-wide bg-muted text-muted-foreground"
+          className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold tracking-wide bg-muted text-muted-foreground"
         >
           {initialsFor(wsName)}
         </span>
@@ -158,7 +158,7 @@ function WorkspaceAvatar({
       {badge === 'amber' && (
         <span
           aria-hidden
-          className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-background"
+          className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 ring-2 ring-background"
         />
       )}
     </span>

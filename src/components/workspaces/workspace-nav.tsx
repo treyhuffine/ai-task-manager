@@ -86,7 +86,7 @@ export function WorkspaceNav() {
     <div className="flex flex-col">
       <NeedsReviewSection />
 
-      <div className="px-0.5 pt-1 pb-1.5">
+      <div className="px-1 pt-1 pb-1.5">
         <div className="flex items-center justify-between px-1.5">
           <span className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
             Workspaces
@@ -102,7 +102,7 @@ export function WorkspaceNav() {
         </div>
       </div>
 
-      <div className="px-0.5 space-y-0.5">
+      <div className="px-1 space-y-0.5">
         {isLoading && (
           <div className="px-3 py-2 text-[10px] italic text-muted-foreground/60">
             Loading…

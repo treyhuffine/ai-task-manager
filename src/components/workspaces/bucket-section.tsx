@@ -15,6 +15,10 @@ interface BucketSectionProps {
   /** Stronger accent for the count chip background; falls back to the
    *  default muted chip when omitted. */
   countBgClass?: string;
+  /** Optional faint accent tint applied to the header at rest. Used to
+   *  anchor "hot" buckets (working, needs-approval) without painting
+   *  every section. */
+  headerBgClass?: string;
   /** Icon element rendered before the label. */
   icon?: ReactNode;
   /** Hide the section entirely when no rows. Default true. */
@@ -40,6 +44,7 @@ export function BucketSection({
   count,
   accentClass = 'text-muted-foreground',
   countBgClass,
+  headerBgClass,
   icon,
   hideWhenEmpty = true,
   defaultOpen = true,
@@ -72,7 +77,8 @@ export function BucketSection({
         onClick={toggle}
         className={cn(
           'w-full flex items-center gap-1.5 px-1.5 py-1 rounded-md transition-colors',
-          'hover:bg-muted/40',
+          headerBgClass ?? 'hover:bg-muted/40',
+          headerBgClass && 'hover:brightness-110 dark:hover:brightness-125',
         )}
         aria-expanded={open}
       >

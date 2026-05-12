@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import { X, Loader2, Archive, ImagePlus, Trash2, SmilePlus } from 'lucide-react';
+import { X, Loader2, Archive, ImagePlus, Trash2, SmilePlus, ChevronDown } from 'lucide-react';
+import { toast } from 'sonner';
 import { useWorkspace, useUpdateWorkspace, useArchiveWorkspace } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
 import { api } from '@/lib/api/client';
@@ -75,34 +76,49 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
 
   const handleSave = () => {
     if (!ws) return;
-    update.mutate({
-      id: ws.id,
-      name: name.trim() || ws.name,
-      emoji: emoji || null,
-      attachments: attachment ? [attachment] : [],
-      area_id: areaId || null,
-      base_branch: baseBranch || null,
-      worktree_root: worktreeRoot || null,
-      files_to_copy: filesToCopy,
-    });
+    const nextName = name.trim() || ws.name;
+    update.mutate(
+      {
+        id: ws.id,
+        name: nextName,
+        emoji: emoji || null,
+        attachments: attachment ? [attachment] : [],
+        area_id: areaId || null,
+        base_branch: baseBranch || null,
+        worktree_root: worktreeRoot || null,
+        files_to_copy: filesToCopy,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`${nextName} workspace updated`);
+          onClose();
+        },
+      },
+    );
   };
 
   const handleArchive = () => {
     if (!ws) return;
     if (!confirm(`Archive "${ws.name}"? Sessions stay; the workspace leaves the active list.`)) return;
-    archive.mutate(ws.id, { onSuccess: onClose });
+    const archivedName = ws.name;
+    archive.mutate(ws.id, {
+      onSuccess: () => {
+        toast.success(`${archivedName} workspace archived`);
+        onClose();
+      },
+    });
   };
 
   return (
     <DialogPrimitive.Root open={!!workspaceId} onOpenChange={(open) => !open && onClose()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed right-0 top-0 z-50 h-full w-full max-w-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right">
+        <DialogPrimitive.Content className="fixed left-0 top-0 z-50 h-full w-full max-w-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left">
           <VisuallyHidden.Root>
             <DialogPrimitive.Title>Workspace settings</DialogPrimitive.Title>
             <DialogPrimitive.Description>Edit workspace settings</DialogPrimitive.Description>
           </VisuallyHidden.Root>
-          <div className="h-full bg-card border-l border-border flex flex-col">
+          <div className="h-full bg-card border-r border-border flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Workspace settings</h2>
@@ -226,18 +242,24 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                 </FieldGroup>
 
                 <FieldGroup label="Area">
-                  <select
-                    value={areaId}
-                    onChange={(e) => setAreaId(e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="">— None —</option>
-                    {areas?.map((area) => (
-                      <option key={area.id} value={area.id}>
-                        {area.emoji ? `${area.emoji} ${area.name}` : area.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={areaId}
+                      onChange={(e) => setAreaId(e.target.value)}
+                      className="w-full appearance-none pl-3 pr-9 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="">— None —</option>
+                      {areas?.map((area) => (
+                        <option key={area.id} value={area.id}>
+                          {area.emoji ? `${area.emoji} ${area.name}` : area.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={14}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    />
+                  </div>
                 </FieldGroup>
 
                 {ws.is_git && (
