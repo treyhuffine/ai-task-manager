@@ -37,7 +37,7 @@ export async function reconcileAll(): Promise<ReconcileStats> {
       synced: 0,
       skipped: 0,
       orphaned: 0,
-      attachments: { referenced: 0, onDisk: 0, archived: 0, elapsedMs: 0 },
+      attachments: { referenced: 0, onDisk: 0, archived: 0, restored: 0, gcEnabled: false, elapsedMs: 0 },
       elapsedMs: 0,
     };
   }

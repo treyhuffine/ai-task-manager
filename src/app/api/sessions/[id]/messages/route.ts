@@ -157,6 +157,16 @@ export async function POST(
         { status: 409 },
       );
     }
+    if (session.takeover_started_at) {
+      return Response.json(
+        {
+          error: 'session_in_takeover',
+          message:
+            'Session is being worked on locally. Run `flow resume` or click Done in the takeover banner before sending more messages.',
+        },
+        { status: 409 },
+      );
+    }
 
     // Persist the user event with the *marker* version of content. The
     // expanded version (with paste content inlined) goes only to the

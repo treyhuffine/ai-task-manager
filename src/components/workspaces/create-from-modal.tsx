@@ -26,8 +26,12 @@ type Tab = 'pr' | 'branch' | 'issue';
 
 interface Selection {
   kind: Tab;
-  /** Branch name to use as the base of the new worktree. */
+  /** Branch name to use as the base of the new worktree. Empty for the
+   *  PR kind — server resolves via `prNumber` instead, which works for
+   *  forks and PRs the user has never checked out locally. */
   baseBranch: string;
+  /** GitHub PR number. Set only when `kind === 'pr'`. */
+  prNumber?: number;
   /** Suggested label seed for the execution (PR title, issue title, or branch name). */
   labelSeed: string;
   /** Display fields used in the picker. */
@@ -44,7 +48,7 @@ interface Selection {
  */
 export function CreateFromModal({ workspaceId, workspaceName, onClose }: CreateFromModalProps) {
   const [tab, setTab] = useState<Tab>('pr');
-  const [selected, setSelected] = useState<Selection | null>(null);
+  const [pending, setPending] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const create = useCreateExecution();
@@ -53,19 +57,23 @@ export function CreateFromModal({ workspaceId, workspaceName, onClose }: CreateF
   useEffect(() => {
     if (workspaceId) {
       setTab('pr');
-      setSelected(null);
+      setPending(null);
       setError(null);
     }
   }, [workspaceId]);
 
-  const handleStart = () => {
-    if (!workspaceId || !selected || create.isPending) return;
+  const handleStart = (selection: Selection) => {
+    if (!workspaceId || create.isPending) return;
     setError(null);
+    setPending(selection);
     create.mutate(
       {
         workspaceId,
-        label: selected.labelSeed,
-        baseBranch: selected.baseBranch,
+        label: selection.labelSeed,
+        // baseBranch is left null for PR selections — the server resolves
+        // the head deterministically via the PR number's pull ref.
+        baseBranch: selection.kind === 'pr' ? null : selection.baseBranch,
+        prNumber: selection.kind === 'pr' ? (selection.prNumber ?? null) : null,
       },
       {
         onSuccess: (session) => {
@@ -73,6 +81,7 @@ export function CreateFromModal({ workspaceId, workspaceName, onClose }: CreateF
           onClose();
         },
         onError: (err) => {
+          setPending(null);
           if (err instanceof ApiError) {
             const body = err.body as { error?: string; message?: string } | null;
             setError(body?.message ?? body?.error ?? `Request failed (${err.status})`);
@@ -117,19 +126,19 @@ export function CreateFromModal({ workspaceId, workspaceName, onClose }: CreateF
               <div className="flex items-center gap-1 px-3 pb-1">
                 <TabButton
                   active={tab === 'pr'}
-                  onClick={() => { setTab('pr'); setSelected(null); }}
+                  onClick={() => { setTab('pr'); setError(null); }}
                   icon={<GitPullRequest size={12} />}
                   label="Pull Request"
                 />
                 <TabButton
                   active={tab === 'branch'}
-                  onClick={() => { setTab('branch'); setSelected(null); }}
+                  onClick={() => { setTab('branch'); setError(null); }}
                   icon={<GitBranch size={12} />}
                   label="Branch"
                 />
                 <TabButton
                   active={tab === 'issue'}
-                  onClick={() => { setTab('issue'); setSelected(null); }}
+                  onClick={() => { setTab('issue'); setError(null); }}
                   icon={<CircleDot size={12} />}
                   label="Issue"
                 />
@@ -139,50 +148,26 @@ export function CreateFromModal({ workspaceId, workspaceName, onClose }: CreateF
             {/* Body */}
             <div className="flex-1 min-h-0 overflow-hidden">
               {tab === 'pr' && (
-                <PRTab workspaceId={workspaceId} selected={selected} onSelect={setSelected} />
+                <PRTab workspaceId={workspaceId} pending={pending} isCreating={create.isPending} onStart={handleStart} />
               )}
               {tab === 'branch' && (
-                <BranchTab workspaceId={workspaceId} selected={selected} onSelect={setSelected} />
+                <BranchTab workspaceId={workspaceId} pending={pending} isCreating={create.isPending} onStart={handleStart} />
               )}
               {tab === 'issue' && (
-                <IssueTab workspaceId={workspaceId} selected={selected} onSelect={setSelected} />
+                <IssueTab workspaceId={workspaceId} pending={pending} isCreating={create.isPending} onStart={handleStart} />
               )}
             </div>
 
-            {/* Footer */}
             {error && (
               <div className="flex-shrink-0 px-5 py-2 border-t border-border bg-destructive/5 text-[11px] text-destructive">
                 {error}
               </div>
             )}
-            <div className="flex-shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
-              <DialogPrimitive.Close asChild>
-                <button className="px-4 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent transition-colors">
-                  Cancel
-                </button>
-              </DialogPrimitive.Close>
-              <button
-                onClick={handleStart}
-                disabled={!selected || create.isPending}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {create.isPending && <Loader2 size={14} className="animate-spin" />}
-                {selected ? `Start from ${labelForTab(selected.kind)}` : 'Start'}
-              </button>
-            </div>
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
-}
-
-function labelForTab(t: Tab): string {
-  switch (t) {
-    case 'pr': return 'PR';
-    case 'branch': return 'branch';
-    case 'issue': return 'issue';
-  }
 }
 
 /**
@@ -244,10 +229,11 @@ function SearchBar({ value, onChange, placeholder }: {
 
 // ─── PR tab ───────────────────────────────────────────────────
 
-function PRTab({ workspaceId, selected, onSelect }: {
+function PRTab({ workspaceId, pending, isCreating, onStart }: {
   workspaceId: string | null;
-  selected: Selection | null;
-  onSelect: (s: Selection) => void;
+  pending: Selection | null;
+  isCreating: boolean;
+  onStart: (s: Selection) => void;
 }) {
   const [filter, setFilter] = useState('');
   const { data: prs, isLoading, error } = useWorkspacePRs(workspaceId);
@@ -275,10 +261,15 @@ function PRTab({ workspaceId, selected, onSelect }: {
             <PRRow
               key={pr.number}
               pr={pr}
-              isSelected={selected?.kind === 'pr' && selected.baseBranch === pr.headRefName}
-              onSelect={() => onSelect({
+              isPending={isCreating && pending?.kind === 'pr' && pending.prNumber === pr.number}
+              disabled={isCreating}
+              onSelect={() => onStart({
                 kind: 'pr',
-                baseBranch: pr.headRefName,
+                // Server uses prNumber to fetch `refs/pull/<N>/head` — the
+                // bare headRefName isn't reliable because it only exists
+                // locally if the user has checked the branch out.
+                baseBranch: '',
+                prNumber: pr.number,
                 labelSeed: `#${pr.number} ${pr.title}`,
                 display: {
                   primary: `#${pr.number} ${pr.title}`,
@@ -293,8 +284,8 @@ function PRTab({ workspaceId, selected, onSelect }: {
   );
 }
 
-function PRRow({ pr, isSelected, onSelect }: {
-  pr: PRSummary; isSelected: boolean; onSelect: () => void;
+function PRRow({ pr, isPending, disabled, onSelect }: {
+  pr: PRSummary; isPending: boolean; disabled: boolean; onSelect: () => void;
 }) {
   const opened = formatRelativeTime(pr.createdAt);
   const updated = formatRelativeTime(pr.updatedAt);
@@ -302,14 +293,20 @@ function PRRow({ pr, isSelected, onSelect }: {
   return (
     <button
       onClick={onSelect}
+      disabled={disabled}
       className={cn(
         'w-full flex items-start gap-2.5 px-3 py-2 rounded-md text-left transition-colors',
-        isSelected
+        isPending
           ? 'bg-primary/10 border border-primary/30'
           : 'border border-transparent hover:bg-muted/40',
+        disabled && !isPending && 'opacity-50 cursor-not-allowed',
       )}
     >
-      <GitPullRequest size={12} className={cn('mt-0.5 flex-shrink-0', pr.isDraft ? 'text-muted-foreground' : 'text-emerald-500/80')} />
+      {isPending ? (
+        <Loader2 size={12} className="mt-0.5 flex-shrink-0 animate-spin text-primary" />
+      ) : (
+        <GitPullRequest size={12} className={cn('mt-0.5 flex-shrink-0', pr.isDraft ? 'text-muted-foreground' : 'text-emerald-500/80')} />
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-1.5">
           <span className="text-[10px] font-mono text-muted-foreground/70">#{pr.number}</span>
@@ -342,10 +339,11 @@ function PRRow({ pr, isSelected, onSelect }: {
 
 // ─── Branch tab ───────────────────────────────────────────────
 
-function BranchTab({ workspaceId, selected, onSelect }: {
+function BranchTab({ workspaceId, pending, isCreating, onStart }: {
   workspaceId: string | null;
-  selected: Selection | null;
-  onSelect: (s: Selection) => void;
+  pending: Selection | null;
+  isCreating: boolean;
+  onStart: (s: Selection) => void;
 }) {
   const [filter, setFilter] = useState('');
   const { data: branches, isLoading, error } = useWorkspaceBranches(workspaceId);
@@ -366,12 +364,13 @@ function BranchTab({ workspaceId, selected, onSelect }: {
       {!isLoading && !error && filtered.length > 0 && (
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
           {filtered.map((branch) => {
-            const isSelected = selected?.kind === 'branch' && selected.baseBranch === branch;
+            const isPending = isCreating && pending?.kind === 'branch' && pending.baseBranch === branch;
             const labelSeed = branch.replace(/^origin\//, '');
             return (
               <button
                 key={branch}
-                onClick={() => onSelect({
+                disabled={isCreating}
+                onClick={() => onStart({
                   kind: 'branch',
                   baseBranch: branch,
                   labelSeed: `From ${labelSeed}`,
@@ -379,12 +378,17 @@ function BranchTab({ workspaceId, selected, onSelect }: {
                 })}
                 className={cn(
                   'w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-left transition-colors',
-                  isSelected
+                  isPending
                     ? 'bg-primary/10 border border-primary/30'
                     : 'border border-transparent hover:bg-muted/40',
+                  isCreating && !isPending && 'opacity-50 cursor-not-allowed',
                 )}
               >
-                <GitBranch size={11} className="flex-shrink-0 text-muted-foreground/70" />
+                {isPending ? (
+                  <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />
+                ) : (
+                  <GitBranch size={11} className="flex-shrink-0 text-muted-foreground/70" />
+                )}
                 <span className="text-[12px] font-mono text-foreground truncate">{branch}</span>
               </button>
             );
@@ -397,10 +401,11 @@ function BranchTab({ workspaceId, selected, onSelect }: {
 
 // ─── Issue tab ────────────────────────────────────────────────
 
-function IssueTab({ workspaceId, selected, onSelect }: {
+function IssueTab({ workspaceId, pending, isCreating, onStart }: {
   workspaceId: string | null;
-  selected: Selection | null;
-  onSelect: (s: Selection) => void;
+  pending: Selection | null;
+  isCreating: boolean;
+  onStart: (s: Selection) => void;
 }) {
   const [filter, setFilter] = useState('');
   const { data: issues, isLoading, error } = useWorkspaceIssues(workspaceId);
@@ -426,11 +431,12 @@ function IssueTab({ workspaceId, selected, onSelect }: {
             <IssueRow
               key={issue.number}
               issue={issue}
-              isSelected={
-                selected?.kind === 'issue' &&
-                selected.labelSeed === `#${issue.number} ${issue.title}`
+              isPending={
+                isCreating && pending?.kind === 'issue' &&
+                pending.labelSeed === `#${issue.number} ${issue.title}`
               }
-              onSelect={() => onSelect({
+              disabled={isCreating}
+              onSelect={() => onStart({
                 kind: 'issue',
                 // Issues don't have a head branch — branch off the workspace
                 // default. baseBranch left empty defers to ws.base_branch.
@@ -449,21 +455,27 @@ function IssueTab({ workspaceId, selected, onSelect }: {
   );
 }
 
-function IssueRow({ issue, isSelected, onSelect }: {
-  issue: IssueSummary; isSelected: boolean; onSelect: () => void;
+function IssueRow({ issue, isPending, disabled, onSelect }: {
+  issue: IssueSummary; isPending: boolean; disabled: boolean; onSelect: () => void;
 }) {
   const opened = formatRelativeTime(issue.createdAt);
   return (
     <button
       onClick={onSelect}
+      disabled={disabled}
       className={cn(
         'w-full flex items-start gap-2.5 px-3 py-2 rounded-md text-left transition-colors',
-        isSelected
+        isPending
           ? 'bg-primary/10 border border-primary/30'
           : 'border border-transparent hover:bg-muted/40',
+        disabled && !isPending && 'opacity-50 cursor-not-allowed',
       )}
     >
-      <CircleDot size={12} className="mt-0.5 flex-shrink-0 text-emerald-500/80" />
+      {isPending ? (
+        <Loader2 size={12} className="mt-0.5 flex-shrink-0 animate-spin text-primary" />
+      ) : (
+        <CircleDot size={12} className="mt-0.5 flex-shrink-0 text-emerald-500/80" />
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-1.5">
           <span className="text-[10px] font-mono text-muted-foreground/70">#{issue.number}</span>

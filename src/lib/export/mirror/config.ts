@@ -18,11 +18,21 @@ const ENV_PREFIX = APP_SHORT_ID.toUpperCase();
 
 export const MIRROR_DISABLED_ENV = `${ENV_PREFIX}_MIRROR_DISABLED`;
 
+// Attachments GC is opt-in. Orphan files are hidden from the user (UUID-named
+// blobs in a brain subdir) and disk-cheap, so the failure mode of a wrong
+// archive (broken image references) costs the user more than the savings.
+// Restore-on-sweep still runs unconditionally — it only heals references.
+export const ATTACHMENT_GC_ENABLED_ENV = `${ENV_PREFIX}_ATTACHMENT_GC`;
+
 export type EntityType = 'task' | 'note' | 'area' | 'stream';
 export const ENTITY_TYPES: EntityType[] = ['task', 'note', 'area', 'stream'];
 
 export function isMirrorEnabled(): boolean {
   return process.env[MIRROR_DISABLED_ENV] !== '1';
+}
+
+export function isAttachmentGcEnabled(): boolean {
+  return process.env[ATTACHMENT_GC_ENABLED_ENV] === '1';
 }
 
 /** Primary directory for a given entity type (plural form). */

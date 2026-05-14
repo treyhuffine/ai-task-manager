@@ -99,12 +99,16 @@ export function useCreateExecution() {
       workspaceId,
       label,
       baseBranch,
+      prNumber,
+      liveMode,
     }: {
       workspaceId: string;
       label?: string | null;
       baseBranch?: string | null;
+      prNumber?: number | null;
+      liveMode?: boolean;
     }) =>
-      workspacesApi.createSession(workspaceId, { label, baseBranch }),
+      workspacesApi.createSession(workspaceId, { label, baseBranch, prNumber, liveMode }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, vars.workspaceId, 'sessions'] });
       qc.invalidateQueries({ queryKey: WORKSPACES_KEY });

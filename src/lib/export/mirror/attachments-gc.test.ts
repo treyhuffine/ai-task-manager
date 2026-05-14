@@ -4,37 +4,57 @@ import path from 'node:path';
 import os from 'node:os';
 import { APP_SHORT_ID } from '@/constants/app';
 
-/**
- * End-to-end-ish GC test: seed the DB with entities that reference some
- * attachment file_names, create files on disk (some referenced, some not),
- * run the sweep, and verify orphans land in `.archive/attachments/`.
- */
+const ENV_PREFIX = APP_SHORT_ID.toUpperCase();
+const APP_ROOT_ENV = `${ENV_PREFIX}_ROOT`;
+const DB_PATH_ENV = `${ENV_PREFIX}_DB_PATH`;
+const MIRROR_DISABLED_ENV = `${ENV_PREFIX}_MIRROR_DISABLED`;
+const ATTACHMENT_GC_ENV = `${ENV_PREFIX}_ATTACHMENT_GC`;
+const MANAGED_ENV_KEYS = [APP_ROOT_ENV, DB_PATH_ENV, MIRROR_DISABLED_ENV, ATTACHMENT_GC_ENV];
+
 describe('sweepAttachments', () => {
   let tmpDir: string;
-  const appRootEnv = `${APP_SHORT_ID.toUpperCase()}_ROOT`;
-  const dbPathEnv = `${APP_SHORT_ID.toUpperCase()}_DB_PATH`;
-  const mirrorDisabledEnv = `${APP_SHORT_ID.toUpperCase()}_MIRROR_DISABLED`;
   const saveEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-gc-test-'));
-    for (const k of [appRootEnv, dbPathEnv, mirrorDisabledEnv]) saveEnv[k] = process.env[k];
-    process.env[appRootEnv] = tmpDir;
-    process.env[dbPathEnv] = path.join(tmpDir, 'data.db');
-    process.env[mirrorDisabledEnv] = '1';
+    for (const k of MANAGED_ENV_KEYS) saveEnv[k] = process.env[k];
+    process.env[APP_ROOT_ENV] = tmpDir;
+    process.env[DB_PATH_ENV] = path.join(tmpDir, 'data.db');
+    process.env[MIRROR_DISABLED_ENV] = '1';
+    delete process.env[ATTACHMENT_GC_ENV];
     vi.resetModules();
   });
 
   afterEach(() => {
-    for (const k of [appRootEnv, dbPathEnv, mirrorDisabledEnv]) {
+    for (const k of MANAGED_ENV_KEYS) {
       if (saveEnv[k] === undefined) delete process.env[k];
       else process.env[k] = saveEnv[k];
     }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('moves unreferenced files into .archive/attachments/ and leaves referenced ones', async () => {
-    // Seed the DB by calling queries directly.
+  it('does not archive orphans when GC is disabled (default)', async () => {
+    const { saveAttachment } = await import('@/lib/attachments/save');
+    const { sweepAttachments } = await import('./attachments-gc');
+
+    const orphan = await saveAttachment({
+      data: Buffer.from('uncited'),
+      original_name: 'Leftover.png',
+      mime_type: 'image/png',
+    });
+
+    const stats = await sweepAttachments();
+    expect(stats.gcEnabled).toBe(false);
+    expect(stats.archived).toBe(0);
+    expect(stats.onDisk).toBe(1);
+
+    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    expect(fs.existsSync(path.join(attachmentsDir, orphan.file_name))).toBe(true);
+  });
+
+  it('archives orphans only when GC is explicitly enabled', async () => {
+    process.env[ATTACHMENT_GC_ENV] = '1';
+
     const { createArea, createNote } = await import('@/lib/db/queries');
     const { saveAttachment } = await import('@/lib/attachments/save');
     const { sweepAttachments } = await import('./attachments-gc');
@@ -50,19 +70,12 @@ describe('sweepAttachments', () => {
       mime_type: 'image/png',
     });
 
-    createArea({
-      name: 'Area with cover',
-      attachments: [kept],
-    });
-
-    // Note body references `kept`; server derive will populate attachments[].
-    createNote({
-      body: `![Cover](/api/attachments/${kept.file_name})`,
-    });
+    createArea({ name: 'Area with cover', attachments: [kept] });
+    createNote({ body: `![Cover](/api/attachments/${kept.file_name})` });
 
     const stats = await sweepAttachments();
+    expect(stats.gcEnabled).toBe(true);
     expect(stats.referenced).toBe(1);
-    expect(stats.onDisk).toBe(2);
     expect(stats.archived).toBe(1);
 
     const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
@@ -72,27 +85,106 @@ describe('sweepAttachments', () => {
     expect(fs.existsSync(path.join(archiveDir, orphan.file_name))).toBe(true);
   });
 
-  it('no-ops cleanly when nothing is orphaned', async () => {
+  it('treats workspace attachments as referenced (regression: was missed)', async () => {
+    process.env[ATTACHMENT_GC_ENV] = '1';
+
+    const { createWorkspace } = await import('@/lib/db/queries');
     const { saveAttachment } = await import('@/lib/attachments/save');
-    const { createNote } = await import('@/lib/db/queries');
     const { sweepAttachments } = await import('./attachments-gc');
 
-    const a = await saveAttachment({
-      data: Buffer.from('a'),
-      original_name: 'x.png',
+    const photo = await saveAttachment({
+      data: Buffer.from('workspace photo'),
+      original_name: 'cover.png',
       mime_type: 'image/png',
     });
-    createNote({ body: `![](/api/attachments/${a.file_name})` });
+
+    createWorkspace({
+      name: 'My workspace',
+      cwd: tmpDir,
+      attachments: [photo],
+    });
 
     const stats = await sweepAttachments();
     expect(stats.archived).toBe(0);
-    expect(stats.onDisk).toBe(1);
     expect(stats.referenced).toBe(1);
+
+    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    expect(fs.existsSync(path.join(attachmentsDir, photo.file_name))).toBe(true);
+  });
+
+  it('treats chat_events attachments as referenced (regression: was missed)', async () => {
+    process.env[ATTACHMENT_GC_ENV] = '1';
+
+    const { getDb } = await import('@/lib/db');
+    const { agents, chatSessions, chatEvents } = await import('@/lib/db/schema');
+    const { saveAttachment } = await import('@/lib/attachments/save');
+    const { sweepAttachments } = await import('./attachments-gc');
+
+    const file = await saveAttachment({
+      data: Buffer.from('chat photo'),
+      original_name: 'chat.png',
+      mime_type: 'image/png',
+    });
+
+    const db = getDb();
+    db.insert(agents)
+      .values({ id: 'ag-1', kind: 'orchestrator', name: 'test', harness: 'test' })
+      .run();
+    db.insert(chatSessions)
+      .values({ id: 'cs-1', agent_id: 'ag-1', type: 'orchestration', label: 'test' })
+      .run();
+    db.insert(chatEvents)
+      .values({
+        id: 'ev-1',
+        session_id: 'cs-1',
+        role: 'user',
+        source: 'user',
+        content: `[[file:${file.file_name}]]`,
+        attachments: [file],
+      })
+      .run();
+
+    const stats = await sweepAttachments();
+    expect(stats.archived).toBe(0);
+    expect(stats.referenced).toBe(1);
+
+    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    expect(fs.existsSync(path.join(attachmentsDir, file.file_name))).toBe(true);
+  });
+
+  it('restores a referenced file that was incorrectly archived earlier', async () => {
+    const { createNote } = await import('@/lib/db/queries');
+    const { saveAttachment } = await import('@/lib/attachments/save');
+    const { sweepAttachments } = await import('./attachments-gc');
+
+    const file = await saveAttachment({
+      data: Buffer.from('photo bytes'),
+      original_name: 'photo.png',
+      mime_type: 'image/png',
+    });
+
+    // Simulate a prior bad sweep: file got moved to archive while the DB
+    // reference is still live. The next sweep must heal this.
+    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    const archiveDir = path.join(tmpDir, 'brain', '.archive', 'attachments');
+    fs.mkdirSync(archiveDir, { recursive: true });
+    fs.renameSync(
+      path.join(attachmentsDir, file.file_name),
+      path.join(archiveDir, file.file_name),
+    );
+
+    createNote({ body: `![](/api/attachments/${file.file_name})` });
+
+    const stats = await sweepAttachments();
+    expect(stats.restored).toBe(1);
+    expect(fs.existsSync(path.join(attachmentsDir, file.file_name))).toBe(true);
+    expect(fs.existsSync(path.join(archiveDir, file.file_name))).toBe(false);
   });
 
   it('tolerates a missing attachments directory', async () => {
     const { sweepAttachments } = await import('./attachments-gc');
     const stats = await sweepAttachments();
     expect(stats.archived).toBe(0);
+    expect(stats.restored).toBe(0);
   });
 });

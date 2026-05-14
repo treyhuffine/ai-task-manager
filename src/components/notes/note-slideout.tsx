@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat'
+import { useDragResize } from '@/hooks/use-drag-resize'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/db/types'
 
@@ -39,14 +40,20 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const chat = useDocumentChat('note', note ?? null)
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
 
-  const [width, setWidth] = useState(DEFAULT_WIDTH)
-  const [isResizing, setIsResizing] = useState(false)
+  const { size: width, isResizing, handleResizeStart } = useDragResize({
+    edge: 'left',
+    min: MIN_WIDTH,
+    max: MAX_WIDTH,
+    defaultSize: DEFAULT_WIDTH,
+    storageKey: 'flow.note-slideout.width',
+  })
   const [isVisible, setIsVisible] = useState(false)
   const [wordCount, setWordCount] = useState(0)
   const [charCount, setCharCount] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Tracks attachments uploaded during this editing session so we can include
   // their metadata in save payloads. The server's derive step intersects these
   // with body-referenced file_names — uploads that never land in the body get
@@ -67,36 +74,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
       setIsVisible(false)
     }
   }, [isOpen])
-
-  // Drag to resize
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      setIsResizing(true)
-      const startX = e.clientX
-      const startWidth = width
-
-      const handleMouseMove = (e: MouseEvent) => {
-        const delta = startX - e.clientX
-        const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta))
-        setWidth(newWidth)
-      }
-
-      const handleMouseUp = () => {
-        setIsResizing(false)
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-      }
-
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
-    },
-    [width]
-  )
 
   // Debounced save — separate timers so title and body don't cancel each other
   const handleTitleChange = useCallback(
@@ -140,6 +117,17 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     }
   }, [note?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleFoldedHeadingsChange = useCallback(
+    (folded: string[]) => {
+      if (!noteId) return
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current)
+      foldedTimerRef.current = setTimeout(() => {
+        updateNote.mutate({ id: noteId, folded_headings: folded })
+      }, 400)
+    },
+    [noteId, updateNote]
+  )
+
   const handleAreaChange = useCallback(
     (areaId: string | null) => {
       if (!noteId) return
@@ -178,6 +166,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     return () => {
       if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
       if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current)
     }
   }, [])
 
@@ -216,7 +205,8 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             'hover:bg-primary/20 active:bg-primary/30 transition-colors',
             isResizing && 'bg-primary/30'
           )}
-          onMouseDown={handleResizeStart}
+          onPointerDown={handleResizeStart}
+          style={{ touchAction: 'none' }}
         >
           <div className="absolute inset-y-0 -left-1 -right-1" />
         </div>
@@ -317,6 +307,8 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                       onTitleChange={handleTitleChange}
                       onBodyChange={handleBodyChange}
                       onAttachment={handleAttachment}
+                      foldedHeadings={note.folded_headings ?? []}
+                      onFoldedHeadingsChange={handleFoldedHeadingsChange}
                       autoFocusTitle={!note.title && note.body.trim().length === 0}
                       hideFooter
                       disabled={aiBusy}

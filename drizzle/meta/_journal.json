@@ -71,6 +71,27 @@
       "when": 1778552899718,
       "tag": "0009_soft_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1778628599174,
+      "tag": "0010_steep_captain_universe",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1778684228650,
+      "tag": "0011_common_darkhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1778711610725,
+      "tag": "0012_complete_piledriver",
+      "breakpoints": true
     }
   ]
 }

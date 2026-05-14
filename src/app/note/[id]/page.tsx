@@ -85,6 +85,18 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
     [noteId, updateNote],
   );
 
+  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleFoldedHeadingsChange = useCallback(
+    (folded: string[]) => {
+      if (!noteId) return;
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
+      foldedTimerRef.current = setTimeout(() => {
+        updateNote.mutate({ id: noteId, folded_headings: folded });
+      }, 400);
+    },
+    [noteId, updateNote],
+  );
+
   const handleArchive = useCallback(() => {
     if (!noteId) return;
     updateNote.mutate({ id: noteId, status: 'archived' });
@@ -101,6 +113,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
     return () => {
       if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
       if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
     };
   }, []);
 
@@ -186,6 +199,8 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                     onTitleChange={handleTitleChange}
                     onBodyChange={handleBodyChange}
                     onAttachment={handleAttachment}
+                    foldedHeadings={note.folded_headings ?? []}
+                    onFoldedHeadingsChange={handleFoldedHeadingsChange}
                     autoFocusTitle={!note.title && note.body.trim().length === 0}
                     disabled={aiBusy}
                     hideFooter

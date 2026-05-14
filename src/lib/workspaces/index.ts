@@ -10,11 +10,15 @@
  * `src/cli/commands/skills.ts` uses for `@agentex/agent`.
  */
 
+import { execFile } from 'node:child_process';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import slugify from '@sindresorhus/slugify';
 import { getAppRoot } from '@/lib/config/paths';
 import { expandFilesToCopyPatterns } from '@/lib/workspaces/files-to-copy';
 import type { WorkspaceRecord, ChatSessionRecord } from '@/db/types';
+
+const execFileAsync = promisify(execFile);
 
 // Cached lazy-loaded module. The library has no side effects on import,
 // so caching the resolved namespace avoids repeated dynamic-import overhead.
@@ -75,11 +79,95 @@ export interface CreateWorktreeForSessionResult {
   baseSha: string;
 }
 
+export interface FetchPrHeadResult {
+  /** Local ref the PR head was written to (deterministic: `refs/agentex/pr/<N>`). */
+  ref: string;
+  /** SHA the PR head resolved to at fetch time. */
+  sha: string;
+}
+
+/**
+ * Fetch a GitHub PR's head into a stable local ref and return the SHA.
+ *
+ * Uses GitHub's `refs/pull/<N>/head` mirror, which exists on the upstream
+ * remote for every PR — same-repo, fork, open, closed, merged. That's the
+ * one universal handle for "the current head of PR #N" that doesn't depend
+ * on the user having checked the branch out locally.
+ *
+ * The fetch writes into `refs/agentex/pr/<N>` (not `FETCH_HEAD`) so it's
+ * atomic across concurrent calls and safe to pass as a commit-ish to
+ * downstream worktree operations.
+ */
+export async function fetchPrHead(args: {
+  ws: WorkspaceRecord;
+  prNumber: number;
+}): Promise<FetchPrHeadResult> {
+  const { ws, prNumber } = args;
+  if (!ws.is_git) throw new Error('fetchPrHead called on non-git workspace');
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    throw new Error(`fetchPrHead: invalid prNumber ${prNumber}`);
+  }
+  const remote = ws.remote_name ?? 'origin';
+  const localRef = `refs/agentex/pr/${prNumber}`;
+  // `+` is the force-fetch prefix — overwrites the local ref even if the PR
+  // history was rewritten. Without it, a force-push to the PR would make
+  // subsequent fetches fail with "non-fast-forward."
+  const refspec = `+refs/pull/${prNumber}/head:${localRef}`;
+  await execFileAsync('git', ['fetch', remote, refspec], { cwd: ws.cwd });
+  const { stdout } = await execFileAsync('git', ['rev-parse', localRef], { cwd: ws.cwd });
+  return { ref: localRef, sha: stdout.trim() };
+}
+
+/**
+ * Refresh the remote-tracking ref for `baseBranch` and return the ref
+ * to base the new worktree on. Touches only `refs/remotes/<remote>/...`
+ * — never the user's local branch or working tree — so inflight work
+ * in the source repo is unaffected.
+ *
+ * On fetch failure (offline, no remote configured, network error) we
+ * fall back to the local branch name so worktree creation still
+ * succeeds. The caller logs a warning; the worktree may end up behind.
+ */
+async function refreshBaseFromRemote(args: {
+  ws: WorkspaceRecord;
+  baseBranch: string;
+}): Promise<{ ref: string; fetched: boolean; warning: string | null }> {
+  const { ws, baseBranch } = args;
+  const remote = ws.remote_name ?? 'origin';
+  // Strip an existing `<remote>/` prefix so we send a clean upstream
+  // branch name to `git fetch`.
+  const remoteSlashed = `${remote}/`;
+  const branchName = baseBranch.startsWith(remoteSlashed)
+    ? baseBranch.slice(remoteSlashed.length)
+    : baseBranch;
+  // `+src:dst` force-updates the remote-tracking ref so a force-push
+  // upstream doesn't make subsequent fetches fail with "non-fast-forward."
+  const refspec = `+refs/heads/${branchName}:refs/remotes/${remote}/${branchName}`;
+  try {
+    await execFileAsync('git', ['fetch', remote, refspec], { cwd: ws.cwd });
+    return { ref: `${remote}/${branchName}`, fetched: true, warning: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      ref: branchName,
+      fetched: false,
+      warning: `Could not fetch ${remote}/${branchName}; using local branch (may be behind): ${msg}`,
+    };
+  }
+}
+
 /**
  * Create a git worktree for a new execution session. Branch name is
  * `<workspace.slug>/<session-slug>` with `-2`, `-3`, ... suffixes when the
  * branch already exists. Worktree path uses the session id (not the slug)
  * so two sessions sharing a label can't collide on disk.
+ *
+ * When no `baseBranchOverride` is provided (the default "+" flow), we
+ * first fetch the workspace's base branch from the configured remote and
+ * root the worktree at the remote-tracking ref, so it always starts at
+ * the latest upstream commit regardless of how stale the user's local
+ * branch is. The override path (PR head, picked remote branch) skips the
+ * fetch — the caller already resolved the exact ref they want.
  */
 export async function createWorktreeForSession(args: {
   ws: WorkspaceRecord;
@@ -94,9 +182,22 @@ export async function createWorktreeForSession(args: {
   if (!ws.is_git) {
     throw new Error('createWorktreeForSession called on non-git workspace');
   }
-  const baseBranch = baseBranchOverride?.trim() || ws.base_branch;
-  if (!baseBranch) {
+  const trimmedOverride = baseBranchOverride?.trim();
+  const requestedBase = trimmedOverride || ws.base_branch;
+  if (!requestedBase) {
     throw new Error(`Workspace ${ws.slug} has no base_branch`);
+  }
+  // Only refresh from remote on the default "+" path. When the caller
+  // passed an explicit override we trust it as-is — for PRs that's the
+  // already-fetched `refs/agentex/pr/<N>` ref, for "Create from branch"
+  // it's a remote-tracking branch the user explicitly picked.
+  let baseBranch = requestedBase;
+  if (!trimmedOverride) {
+    const refreshed = await refreshBaseFromRemote({ ws, baseBranch: requestedBase });
+    baseBranch = refreshed.ref;
+    if (refreshed.warning) {
+      console.warn(`[workspaces] ${refreshed.warning}`);
+    }
   }
   const lib = await loadLib();
   const root = ws.worktree_root ?? defaultWorktreeRoot(ws.slug);

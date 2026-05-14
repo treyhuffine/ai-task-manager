@@ -90,6 +90,28 @@ export function getAttachmentsDir(): string {
   return path.join(getBrainDir(), 'attachments');
 }
 
+/**
+ * Where `flow takeover` clones workspaces on a laptop. Per-workspace
+ * directory; branches multiplex over a single clone. The CLI fetches
+ * + checks out on subsequent takeovers instead of re-cloning, so the
+ * disk footprint stays bounded.
+ *
+ * Sits under the app root (not the brain) — these clones are local
+ * runtime state, not user content. Safe to delete by hand if a
+ * particular workspace's clone gets stuck.
+ */
+export function getClonesDir(): string {
+  return path.join(getAppRoot(), 'clones');
+}
+
+export function ensureClonesDir(): string {
+  const dir = getClonesDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  return dir;
+}
+
 export function ensureAttachmentsDir(): string {
   const dir = getAttachmentsDir();
   if (!fs.existsSync(dir)) {

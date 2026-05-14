@@ -1,24 +1,39 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession } from '@/hooks/use-execution';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { useSessionReconcile } from '@/hooks/use-session-reconcile';
 import { useWorkspace, useMarkSessionRead } from '@/hooks/use-workspaces';
+import {
+  useExecutionLayoutSizes,
+  HORIZONTAL_PANEL_IDS,
+  VERTICAL_PANEL_IDS,
+} from '@/hooks/use-execution-layout-sizes';
 import type { RailResponse } from '@/lib/api/sessions';
 import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionComposer } from './execution-composer';
-import { ExecutionContextPane } from './execution-context-pane';
 import { ExecutionTerminalPanel } from './execution-terminal-panel';
-import { DiffSlideout } from './diff-slideout';
 import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
+import { FileTree } from './file-tree/file-tree';
+import { FileViewer } from './viewer/file-viewer';
+import { useInitialSelectedFile } from './viewer/use-initial-selected-file';
+import { ExecutionActionBar } from './action-bar/execution-action-bar';
+import { TakeoverBanner } from './takeover/takeover-banner';
+import { SetupPlaceholder } from './setup-placeholder';
+import { ExecutionSkeleton } from './execution-skeleton';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -26,11 +41,8 @@ interface ExecutionViewProps {
 
 /**
  * The right-side surface when the user has an execution selected.
- * Replaces the dashboard's PanelLayout. Three regions:
- *
- *   - Header (top): workspace + label + branch + status + close.
- *   - Main: transcript scroller + composer at bottom (chat surface).
- *   - Right pane: files changed + actions + metadata (context pane).
+ * Three horizontal columns (chat / file tree / viewer+terminal), each
+ * resizable. The right column splits vertically (viewer over terminal).
  *
  * Marks the session as viewed on open so it leaves the Needs Review
  * surface — opening the session is the read receipt.
@@ -53,6 +65,16 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const sendMessage = useSendMessage(sessionId);
   const interruptSession = useInterruptSession(sessionId);
   const isRunning = runtime?.running ?? false;
+
+  // Persisted resizable column / row sizes — per-session in localStorage.
+  const {
+    horizontal,
+    vertical,
+    terminalOpenPct,
+    setHorizontal,
+    setVertical,
+    setTerminalOpenPct,
+  } = useExecutionLayoutSizes(sessionId);
 
   // Setting-up state: dispatch creates the chat_session row immediately
   // and provisions the worktree in the background (~2-5s for `git
@@ -88,13 +110,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     if (!sessionId) return;
     if (prevRunningRef.current && !isRunning) {
       qc.invalidateQueries({ queryKey: ['session', sessionId, 'diff'] });
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'tree'] });
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
     }
     prevRunningRef.current = isRunning;
   }, [isRunning, sessionId, qc]);
-
-  // Diff slideout state — opening file from context pane.
-  const [diffFile, setDiffFile] = useState<string | null>(null);
 
   // Voice-sent event ids tracked in client memory for this open session.
   // Lost on reload by design — same model the orchestrator uses. The
@@ -102,11 +122,69 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // don't persist it. The set only grows; nothing removes ids.
   const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(() => new Set());
 
-  // Bottom terminal dock — closed by default. Open state is per-session
-  // ephemeral; refreshing closes the panel even though the PTYs keep
-  // running on the server (they'll show up again next time the user
-  // opens the dock on this session).
-  const [terminalOpen, setTerminalOpen] = useState(false);
+  // Selected file path in the file tree / viewer pair. Lifted here so
+  // the tree and viewer can render in different columns and still share
+  // selection state.
+  //
+  // Reset on session change. ExecutionView is mounted once and just
+  // re-renders when sessionId changes (no `key={sessionId}` upstream),
+  // so without this reset, a file picked in execution A would leak
+  // into execution B — and useInitialSelectedFile's "already selected"
+  // early-return would suppress picking a fresh default for B.
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const lastSelectedSessionRef = useRef(sessionId);
+  if (lastSelectedSessionRef.current !== sessionId) {
+    lastSelectedSessionRef.current = sessionId;
+    setSelectedPath(null);
+  }
+
+  // Terminal collapse state. We manage open/closed ourselves rather than
+  // using the library's `collapsible` + `collapsedSize` props — those store
+  // the "expand-to" size at the moment of toggle, which conflates "user
+  // dragged to a tiny size" with "user clicked collapse" and produces
+  // wildly inconsistent open heights on the next toggle. Instead the panel
+  // has `minSize="32px"` (the tab strip can never disappear) and we snap
+  // it between exactly two sizes: 32px (closed) and `terminalOpenPct`
+  // (open, persisted across reloads).
+  const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const [terminalCollapsed, setTerminalCollapsed] = useState(false);
+  // Read-the-latest ref so the toggle doesn't capture a stale openPct
+  // from the closure it was created with.
+  const terminalOpenPctRef = useRef(terminalOpenPct);
+  terminalOpenPctRef.current = terminalOpenPct;
+  const handleToggleTerminal = () => {
+    const panel = terminalPanelRef.current;
+    if (!panel) return;
+    const size = panel.getSize();
+    if (size.inPixels > 40) {
+      // Open → closed. Remember the current size so the next expand
+      // restores to where the user had it.
+      setTerminalOpenPct(size.asPercentage);
+      panel.resize('32px');
+    } else {
+      panel.resize(`${terminalOpenPctRef.current}%`);
+    }
+  };
+  const handleVerticalLayoutChanged = (layout: Parameters<typeof setVertical>[0]) => {
+    setVertical(layout);
+    // Track the user's preferred open height from drag commits — but only
+    // when the terminal is actually in its open state. We read the
+    // panel's rendered pixel size directly rather than `terminalCollapsed`
+    // because the React state hasn't necessarily been updated yet when
+    // the library first fires this callback on mount.
+    const panel = terminalPanelRef.current;
+    if (!panel) return;
+    if (panel.getSize().inPixels <= 40) return;
+    const t = layout[VERTICAL_PANEL_IDS.terminal];
+    if (typeof t === 'number' && Number.isFinite(t)) {
+      setTerminalOpenPct(t);
+    }
+  };
+
+  // Seed the initial selection from the agent's most recent file-touch
+  // tool call (falling back to the most recently changed file) so the
+  // user lands on something meaningful when they open the view.
+  useInitialSelectedFile(sessionId, selectedPath, setSelectedPath);
 
   // Navigate-away read receipt. The composer fires markRead eagerly on
   // focus and send, so all engaged-then-leave cases are covered already.
@@ -152,11 +230,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const handleClose = () => setActiveView('command');
 
   if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 size={20} className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    // Mirror the real 3-column layout while the session record loads,
+    // sized off the user's persisted column widths so the swap from
+    // skeleton → content is content-only (no panel reflow / jump).
+    // Mobile collapses to chat-only inside the skeleton itself.
+    return <ExecutionSkeleton horizontal={horizontal} vertical={vertical} />;
   }
 
   if (error || !session) {
@@ -189,84 +267,201 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       ? 'This execution is archived.'
       : undefined;
 
+  // Chat body — WIP banner + transcript + composer. Used in both
+  // desktop and mobile chat columns. The header (and on desktop, the
+  // action bar) lives elsewhere; the WIP banner stays in-column so it
+  // reads as part of the agent conversation rather than a full-width
+  // app-wide alert.
+  const chatBody = (
+    <>
+      {workspace?.is_git && !!session.worktree_path && (
+        <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
+      )}
+      {reconciling && <SyncingPill />}
+      <ExecutionTranscript
+        session={session}
+        workspace={workspace}
+        isRunning={isRunning}
+        voiceSentIds={voiceSentIds}
+      />
+      {/* Pending input + composer share a single top border so they
+          read as one connected input region. PendingInputArea returns
+          null when nothing's pending, in which case the composer is
+          the sole child and the wrapper is just a thin border. */}
+      <div className="flex-shrink-0 border-t border-border bg-background">
+        <PendingInputArea sessionId={session.id} />
+        <ExecutionComposer
+          sessionId={session.id}
+          permissionMode={session.permission_mode}
+          model={session.model}
+          effort={session.effort}
+          harness={session.agent_harness ?? null}
+          disabled={composerDisabled}
+          disabledReason={composerDisabledReason}
+          isRunning={isRunning}
+          onSend={async (content, opts) => {
+            const event = await sendMessage.mutateAsync({
+              content,
+              attachments: opts?.attachments,
+            });
+            if (opts?.viaVoice && event?.id) {
+              setVoiceSentIds((prev) => {
+                if (prev.has(event.id)) return prev;
+                const next = new Set(prev);
+                next.add(event.id);
+                return next;
+              });
+            }
+          }}
+          onStop={async () => { await interruptSession.mutateAsync(); }}
+        />
+      </div>
+    </>
+  );
+
+  // Mobile (under lg): the header, action bar (its own row), then
+  // chat body. Same as the prior mobile experience — the four-column
+  // layout doesn't fit on narrow viewports.
+  const mobileChatColumn = (
+    <div className="flex h-full flex-col min-w-0 bg-background">
+      <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
+      <TakeoverBanner session={session} />
+      {workspace?.is_git && !!session.worktree_path && (
+        <ExecutionActionBar session={session} workspace={workspace} />
+      )}
+      {chatBody}
+    </div>
+  );
+
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">
-      <div className="flex flex-1 min-w-0 min-h-0">
-        <div className="flex flex-col flex-1 min-w-0 bg-background">
-          <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
-          {workspace?.is_git && !!session.worktree_path && (
-            <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
-          )}
-          {reconciling && <SyncingPill />}
-          <ExecutionTranscript
-            session={session}
-            workspace={workspace}
-            isRunning={isRunning}
-            voiceSentIds={voiceSentIds}
-          />
-          {/* Pending input + composer share a single top border so they
-              read as one connected input region. PendingInputArea returns
-              null when nothing's pending, in which case the composer is
-              the sole child and the wrapper is just a thin border. */}
-          <div className="flex-shrink-0 border-t border-border bg-background">
-            <PendingInputArea sessionId={session.id} />
-            <ExecutionComposer
-              sessionId={session.id}
-              permissionMode={session.permission_mode}
-              model={session.model}
-              effort={session.effort}
-              harness={session.agent_harness ?? null}
-              disabled={composerDisabled}
-              disabledReason={composerDisabledReason}
-              isRunning={isRunning}
-              onSend={async (content, opts) => {
-                const event = await sendMessage.mutateAsync({
-                  content,
-                  attachments: opts?.attachments,
-                });
-                if (opts?.viaVoice && event?.id) {
-                  setVoiceSentIds((prev) => {
-                    if (prev.has(event.id)) return prev;
-                    const next = new Set(prev);
-                    next.add(event.id);
-                    return next;
-                  });
-                }
-              }}
-              onStop={async () => { await interruptSession.mutateAsync(); }}
-            />
-          </div>
-        </div>
-
-        {/* Context pane + diff slideout are desktop-only — on mobile the
-            execution view is just chat (header + transcript + composer).
-            Hidden below lg so the chat surface gets the full width. */}
-        <div className="hidden lg:contents">
-          <ExecutionContextPane session={session} onOpenDiff={setDiffFile} />
-
-          <DiffSlideout
-            sessionId={session.id}
-            filePath={diffFile}
-            onClose={() => setDiffFile(null)}
-          />
-        </div>
+      {/* Mobile / tablet: single-pane chat-only view. */}
+      <div className="lg:hidden flex flex-1 min-w-0 min-h-0">
+        {mobileChatColumn}
       </div>
 
-      {/* Terminal dock — full width below the chat + context pane. Only
-          rendered for sessions that have a resolvable cwd (worktree or
-          workspace.cwd). Disabled while the worktree is provisioning so
-          we don't spawn a shell in the wrong directory. */}
-      {session.workspace_id && (
-        <div className="flex-shrink-0 hidden lg:block">
-          <ExecutionTerminalPanel
-            sessionId={session.id}
-            open={terminalOpen}
-            onToggle={() => setTerminalOpen((v) => !v)}
-            disabled={isSettingUp}
-            disabledReason={isSettingUp ? 'Setting up worktree…' : undefined}
-          />
+      {/* Desktop ≥lg: full-width header above a 3-column panel group.
+          Header carries the action bar inline so the workspace name,
+          git actions, status, and menu all sit on one row. The WIP
+          banner stays in the chat column (rendered by `chatBody`). */}
+      <div className="hidden lg:flex flex-col flex-1 min-w-0 min-h-0">
+        <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
+        <TakeoverBanner session={session} />
+        <div className="flex flex-1 min-w-0 min-h-0">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          defaultLayout={horizontal}
+          onLayoutChanged={setHorizontal}
+          className="h-full w-full"
+        >
+          {/* Chat column. Min ~20% (≈360px on a 1800px viewport). The
+              header is hoisted to the full-width row above, so here we
+              just render the chat body (transcript + composer). */}
+          <ResizablePanel
+            id={HORIZONTAL_PANEL_IDS.chat}
+            defaultSize={horizontal[HORIZONTAL_PANEL_IDS.chat]}
+            minSize={20}
+          >
+            <div className="flex h-full flex-col min-w-0 bg-background">
+              {chatBody}
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* File tree column. Min ~12% (≈200px on a 1800px viewport). */}
+          <ResizablePanel
+            id={HORIZONTAL_PANEL_IDS.tree}
+            defaultSize={horizontal[HORIZONTAL_PANEL_IDS.tree]}
+            minSize={12}
+          >
+            {isSettingUp ? (
+              <SetupPlaceholder
+                variant="tree"
+                animated={!session.setup_error}
+                label={
+                  session.setup_error
+                    ? 'Setup failed — see chat to retry'
+                    : 'Preparing environment…'
+                }
+              />
+            ) : (
+              <FileTree
+                sessionId={session.id}
+                selectedPath={selectedPath}
+                onSelect={setSelectedPath}
+                worktreePath={session.worktree_path}
+              />
+            )}
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* Viewer + terminal column. Min ~24% (≈400px on a 1800px viewport). */}
+          <ResizablePanel
+            id={HORIZONTAL_PANEL_IDS.right}
+            defaultSize={horizontal[HORIZONTAL_PANEL_IDS.right]}
+            minSize={24}
+          >
+            <ResizablePanelGroup
+              orientation="vertical"
+              defaultLayout={vertical}
+              onLayoutChanged={handleVerticalLayoutChanged}
+              className="h-full w-full"
+            >
+              <ResizablePanel
+                id={VERTICAL_PANEL_IDS.viewer}
+                defaultSize={vertical[VERTICAL_PANEL_IDS.viewer]}
+                minSize={15}
+              >
+                {isSettingUp ? (
+                  <SetupPlaceholder
+                    variant="viewer"
+                    animated={!session.setup_error}
+                    label={
+                      session.setup_error
+                        ? 'Setup failed — see chat to retry'
+                        : 'Preparing environment…'
+                    }
+                  />
+                ) : (
+                  <FileViewer
+                    sessionId={session.id}
+                    selectedPath={selectedPath}
+                    onClose={() => setSelectedPath(null)}
+                  />
+                )}
+              </ResizablePanel>
+
+              <ResizableHandle withHandle />
+
+              <ResizablePanel
+                id={VERTICAL_PANEL_IDS.terminal}
+                panelRef={terminalPanelRef}
+                defaultSize={vertical[VERTICAL_PANEL_IDS.terminal]}
+                minSize="32px"
+                onResize={(size) => {
+                  // 32px = the tab strip; anything under ~40px reads as
+                  // "collapsed". Pixel-based so a short right column
+                  // can't collapse below the strip's visible height.
+                  setTerminalCollapsed(size.inPixels <= 40);
+                }}
+              >
+                {session.workspace_id && (
+                  <ExecutionTerminalPanel
+                    sessionId={session.id}
+                    disabled={isSettingUp}
+                    disabledReason={isSettingUp ? 'Setting up worktree…' : undefined}
+                    collapsed={terminalCollapsed}
+                    onToggleCollapsed={handleToggleTerminal}
+                  />
+                )}
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </ResizablePanel>
+        </ResizablePanelGroup>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ChevronRight, Folder, Settings, Plus, GitFork } from 'lucide-react';
+import { ChevronRight, Folder, Settings, Plus, GitFork, Zap } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -18,6 +18,7 @@ interface WorkspaceRowProps {
   onOpenSettings: (id: string) => void;
   onCreateExecution: (id: string) => void;
   onOpenCreateFrom: (id: string) => void;
+  onOpenLiveMode: (id: string) => void;
 }
 
 /**
@@ -40,6 +41,7 @@ export function WorkspaceRow({
   onOpenSettings,
   onCreateExecution,
   onOpenCreateFrom,
+  onOpenLiveMode,
 }: WorkspaceRowProps) {
   const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const updateWs = useUpdateWorkspace();
@@ -174,6 +176,20 @@ export function WorkspaceRow({
           >
             <Settings size={13} />
           </button>
+          {workspace.is_git && (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenLiveMode(workspace.id);
+              }}
+              className="p-1 text-muted-foreground/40 hover:text-amber-500 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+              aria-label="Start Live session (no worktree)"
+              title="Start Live session (no worktree)"
+            >
+              <Zap size={13} />
+            </button>
+          )}
           {workspace.is_git && (
             <button
               onPointerDown={(e) => e.stopPropagation()}

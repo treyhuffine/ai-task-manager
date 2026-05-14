@@ -58,6 +58,17 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // `/api/takeover/<token>/...` is the CLI surface for "Take over locally."
+  // The `token` in the path IS the auth — handlers validate it against
+  // `chat_sessions.takeover_token` and its `_expires_at`. Tokens are
+  // single-purpose, scoped to one session, and rotate on every new
+  // takeover so they're a strictly weaker credential than the bearer
+  // key. Exempted here so the CLI can reach the endpoints without
+  // needing the user's long-lived account token.
+  if (request.nextUrl.pathname.startsWith('/api/takeover/')) {
+    return NextResponse.next();
+  }
+
   const token = extractToken(request);
   if (!token) return unauthorized();
 

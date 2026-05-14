@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ChatEventRecord } from '@/db/types';
 import type { PendingInput } from '@/lib/api/sessions';
+import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 
 /**
  * Subscribes to the per-session SSE stream and folds every frame into
@@ -40,6 +41,7 @@ export function useSessionStream(sessionId: string | null): void {
     const runtimeKey = ['session', sessionId, 'runtime-status'] as const;
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
+    const treeKey = ['session', sessionId, 'tree'] as const;
 
     // Any state change for this session that the rail cares about —
     // turn finished, runtime flipped, pending request changed — is a
@@ -87,6 +89,15 @@ export function useSessionStream(sessionId: string | null): void {
       // server-side running/pending lists.
       if (event.source === 'result') {
         invalidateRail();
+      }
+
+      // Tier-1 of the file-tree refresh strategy: when the agent emits
+      // a tool_call that's likely to have mutated files (Edit, Write,
+      // Bash `rm`/`mv`/redirects, etc.), invalidate the tree so the
+      // file column repaints in the same frame as the edit. False
+      // positives just trigger a cheap refetch.
+      if (isMutatingToolUse(event)) {
+        queryClient.invalidateQueries({ queryKey: treeKey });
       }
     };
 

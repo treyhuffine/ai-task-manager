@@ -59,6 +59,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
@@ -130,6 +131,19 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     [taskId, updateTask],
   );
 
+  const handleFoldedHeadingsChange = useCallback(
+    (folded: string[]) => {
+      if (!taskId) return;
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
+      foldedTimerRef.current = setTimeout(() => {
+        updateTask.mutate({ id: taskId, folded_headings: folded } as Parameters<
+          typeof updateTask.mutate
+        >[0]);
+      }, 400);
+    },
+    [taskId, updateTask],
+  );
+
   const handleComplete = useCallback(() => {
     if (!taskId || !task) return;
     if (task.status === 'done') {
@@ -159,6 +173,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     return () => {
       if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
       if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
     };
   }, []);
 
@@ -493,6 +508,8 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                     editable={!aiBusy}
                     placeholder="Add notes, details, or type '/' for commands..."
                     hideFooter
+                    foldedHeadings={task.folded_headings ?? []}
+                    onFoldedHeadingsChange={handleFoldedHeadingsChange}
                   />
                 </div>
               </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, type ReactNode, useEffect } from 'react';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Agent, Task, StreamEvent } from '@/types/dashboard';
 
 interface FocusTask {
@@ -31,7 +31,6 @@ interface DashboardState {
   activeView: ActiveView;
   panelATab: AnyPanelTab;
   panelBTab: AnyPanelTab;
-  dividerPosition: number;
   focusedPanel: PanelId;
   isFocusMode: boolean;
   focusTask: FocusTask | null;
@@ -71,6 +70,16 @@ interface DashboardState {
   // strip; `false` keeps the full-width labeled view. Persisted across
   // reloads in localStorage.
   railCollapsed: boolean;
+  // Execution-view-only override. When in an execution view the rail
+  // defaults to skinny regardless of `railCollapsed`; this flag lets
+  // the user temporarily open it via the ⌘\ hotkey. Persisted so a
+  // page reload doesn't snap it closed mid-task.
+  executionRailOpen: boolean;
+  // Most recently viewed execution session id. Updated every time
+  // setActiveView is called with a session id; persisted to
+  // localStorage so ⌘E from the dashboard can re-open the last
+  // execution after a reload. Null until the user has opened one.
+  lastExecutionId: string | null;
 }
 
 interface DashboardActions {
@@ -78,9 +87,11 @@ interface DashboardActions {
   toggleTheme: () => void;
   setActiveView: (view: ActiveView) => void;
   setPanelTab: (panel: PanelId, tab: AnyPanelTab) => void;
-  setDividerPosition: (pos: number) => void;
   setFocusedPanel: (panel: PanelId) => void;
   resetLayout: () => void;
+  // PanelLayout registers an imperative reset (e.g. setLayout([50, 50])) so
+  // resetLayout can snap the divider back without owning panel-group state.
+  registerPanelLayoutReset: (fn: (() => void) | null) => void;
   setIsFocusMode: (focus: boolean) => void;
   enterFocusMode: (task: FocusTask) => void;
   exitFocusMode: () => void;
@@ -124,6 +135,8 @@ interface DashboardActions {
   /** Flip the rail between full and skinny renderings. */
   toggleRailCollapsed: () => void;
   setRailCollapsed: (collapsed: boolean) => void;
+  toggleExecutionRailOpen: () => void;
+  setExecutionRailOpen: (open: boolean) => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -154,15 +167,17 @@ const MOCK_STREAM_EVENTS: StreamEvent[] = [
 
 const DEFAULT_PANEL_A_TAB: AnyPanelTab = 'deck';
 const DEFAULT_PANEL_B_TAB: AnyPanelTab = 'chat';
-const DEFAULT_DIVIDER_POSITION = 50;
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
-  const [activeView, setActiveView] = useState<ActiveView>('command');
+  const [activeView, setActiveViewState] = useState<ActiveView>('command');
   const [panelATab, setPanelATab] = useState<AnyPanelTab>(DEFAULT_PANEL_A_TAB);
   const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(DEFAULT_PANEL_B_TAB);
-  const [dividerPosition, setDividerPosition] = useState(DEFAULT_DIVIDER_POSITION);
   const [focusedPanel, setFocusedPanel] = useState<PanelId>('a');
+  const panelLayoutResetRef = useRef<(() => void) | null>(null);
+  const registerPanelLayoutReset = useCallback((fn: (() => void) | null) => {
+    panelLayoutResetRef.current = fn;
+  }, []);
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [focusTask, setFocusTask] = useState<FocusTask | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>(null);
@@ -235,6 +250,44 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // ─── Last viewed execution id ───────────────────────────
+  // Recorded on every setActiveView(sessionId) so ⌘E from the
+  // dashboard can re-open the most recently visited execution.
+  // Persisted to survive reload.
+  const [lastExecutionId, setLastExecutionIdState] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('flow.execution.lastId');
+    if (stored) setLastExecutionIdState(stored);
+  }, []);
+
+  // ─── Execution-view rail open ───────────────────────────
+  // Per-execution-view override: when on an execution surface the rail
+  // defaults to skinny, but this lets ⌘\ open it back up. Persisted
+  // separately from `railCollapsed` so the global preference is
+  // untouched.
+  const [executionRailOpen, setExecutionRailOpenState] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('flow.rail.execution.open');
+    if (stored === '1') setExecutionRailOpenState(true);
+  }, []);
+  const setExecutionRailOpen = useCallback((next: boolean) => {
+    setExecutionRailOpenState(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('flow.rail.execution.open', next ? '1' : '0');
+    }
+  }, []);
+  const toggleExecutionRailOpen = useCallback(() => {
+    setExecutionRailOpenState((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('flow.rail.execution.open', next ? '1' : '0');
+      }
+      return next;
+    });
+  }, []);
+
   // ─── Slideout stack ──────────────────────────────────────────
   const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>([]);
 
@@ -302,7 +355,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const resetLayout = useCallback(() => {
     setPanelATab(DEFAULT_PANEL_A_TAB);
     setPanelBTab(DEFAULT_PANEL_B_TAB);
-    setDividerPosition(DEFAULT_DIVIDER_POSITION);
+    panelLayoutResetRef.current?.();
     setFocusedPanel('a');
   }, []);
 
@@ -352,13 +405,22 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setActiveDeckId(null);
   }, []);
 
+  const setActiveView = useCallback((view: ActiveView) => {
+    setActiveViewState(view);
+    if (view !== 'command') {
+      setLastExecutionIdState(view);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('flow.execution.lastId', view);
+      }
+    }
+  }, []);
+
   return (
     <DashboardContext.Provider value={{
       theme,
       activeView,
       panelATab,
       panelBTab,
-      dividerPosition,
       focusedPanel,
       isFocusMode,
       focusTask,
@@ -371,9 +433,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       toggleTheme,
       setActiveView,
       setPanelTab,
-      setDividerPosition,
       setFocusedPanel,
       resetLayout,
+      registerPanelLayoutReset,
       setIsFocusMode,
       enterFocusMode,
       exitFocusMode,
@@ -417,6 +479,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       railCollapsed,
       toggleRailCollapsed,
       setRailCollapsed,
+      executionRailOpen,
+      toggleExecutionRailOpen,
+      setExecutionRailOpen,
+      lastExecutionId,
     }}>
       {children}
     </DashboardContext.Provider>

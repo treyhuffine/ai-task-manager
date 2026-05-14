@@ -370,6 +370,12 @@
 .collapsible-heading-wrapper {
   margin: 0;
   position: relative;
+  /* baseline-aligned flex so the "··· N" indicator can sit inline next to
+     the heading text when collapsed. The chevron stays absolute in the gutter. */
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5em;
 }
 
 .collapsible-heading-wrapper.show-toggle {
@@ -455,6 +461,23 @@
 /* Hidden nodes under collapsed headings */
 .collapsed-hidden {
   display: none !important;
+}
+
+/* "··· N" indicator next to a collapsed heading. Click expands. */
+.collapsed-indicator {
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.collapsed-indicator:hover {
+  background-color: var(--accent);
 }
 
 /* Lists */
@@ -878,6 +901,40 @@
 .note-title::placeholder {
   color: var(--muted-foreground);
   opacity: 0.4;
+}
+
+/* CodeMirror 6 file viewer + merge view — height + overflow plumbing. */
+.cm-editor {
+  height: 100%;
+  background: transparent;
+}
+.cm-mergeView {
+  height: 100%;
+}
+.cm-mergeViewEditors {
+  height: 100%;
+}
+.cm-mergeView .cm-mergeViewEditor {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.cm-mergeView .cm-mergeViewEditor .cm-editor {
+  height: 100%;
+}
+.diff-view-host .cm-changedLine {
+  background-color: color-mix(in oklab, var(--primary, #2563eb) 10%, transparent);
+}
+.diff-view-host .cm-changedText {
+  background-color: color-mix(in oklab, var(--primary, #2563eb) 28%, transparent);
+}
+.diff-view-host .cm-deletedChunk {
+  background-color: color-mix(in oklab, oklch(0.55 0.18 25) 18%, transparent);
+}
+.diff-view-host .cm-insertedLine {
+  background-color: color-mix(in oklab, oklch(0.6 0.16 145) 18%, transparent);
+}
+.diff-view-host .cm-mergeViewGutter {
+  border-right: 1px solid var(--border);
 }
 
 /* Prevent iOS Safari from auto-zooming when focusing inputs with <16px text.

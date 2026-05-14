@@ -857,6 +857,53 @@ export function archiveChatSession(id: string): ChatSessionRecord | null {
 }
 
 /**
+ * Stamp a chat_session as "taken over locally." Caller is responsible
+ * for having pushed the branch first — these columns are the durable
+ * marker that lets resume/cancel/CLI find the session later.
+ */
+export function markSessionTakenOver(
+  id: string,
+  input: {
+    base_sha: string;
+    branch: string;
+    token: string;
+    expires_at: string;
+  },
+): ChatSessionRecord | null {
+  return updateChatSession(id, {
+    takeover_started_at: new Date().toISOString(),
+    takeover_base_sha: input.base_sha,
+    takeover_branch: input.branch,
+    takeover_token: input.token,
+    takeover_token_expires_at: input.expires_at,
+  });
+}
+
+/** Token-based session lookup for the CLI. Returns null when the token
+ *  is unknown or already cleared by a resume/cancel. Expiry is enforced
+ *  at the route layer so the caller can distinguish "expired" from
+ *  "not found." */
+export function findSessionByTakeoverToken(token: string): ChatSessionRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(chatSessions)
+    .where(eq(chatSessions.takeover_token, token))
+    .get();
+}
+
+/** Clear all five takeover_* columns. Called by resume + cancel. */
+export function clearSessionTakeover(id: string): ChatSessionRecord | null {
+  return updateChatSession(id, {
+    takeover_started_at: null,
+    takeover_base_sha: null,
+    takeover_branch: null,
+    takeover_token: null,
+    takeover_token_expires_at: null,
+  });
+}
+
+/**
  * Create a new execution session in a workspace. Auto-resolves the default
  * executor agent (currently Claude Code) so callers don't have to pass an
  * agent_id. Worktree creation is deferred to the actual dispatch path —

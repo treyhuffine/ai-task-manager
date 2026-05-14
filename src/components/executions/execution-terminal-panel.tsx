@@ -9,49 +9,52 @@ import { cn } from '@/lib/utils';
 
 interface ExecutionTerminalPanelProps {
   sessionId: string;
-  /** Closed = thin strip; open = full panel. */
-  open: boolean;
-  onToggle: () => void;
   /** Hide entirely — used while the worktree is still provisioning. */
   disabled?: boolean;
   disabledReason?: string;
+  /**
+   * True when the wrapping resizable panel is at its collapsed size
+   * (tab strip only). Drives the chevron icon and hides the content
+   * area so xterm doesn't fight with the tiny container.
+   */
+  collapsed?: boolean;
+  /** Toggle the wrapping panel between collapsed and expanded states. */
+  onToggleCollapsed?: () => void;
 }
 
 /**
- * Slide-up terminal dock. Lives below the chat surface, full width.
+ * Terminal pane that lives in the bottom slot of the right-side
+ * resizable column. The resizable handle controls visibility now — drag
+ * it shut to hide the terminal, drag it open to reveal it. There's no
+ * explicit open/close button on the panel itself.
  *
- * Closed state is a thin strip with a "Terminal" label so users can
- * find it without searching the header for an icon. Open state shows a
- * tab strip (terminal 1, 2, ... with `+` to add and `×` per tab) plus
- * the active terminal pane. Inactive panes stay mounted to preserve
- * xterm scrollback and the live SSE connection.
- *
- * The first terminal auto-creates when the user opens the panel for
- * the first time — opening an empty panel is friction.
+ * The first terminal auto-creates when the panel first becomes
+ * non-zero-height so the user lands on a usable shell without
+ * extra clicks.
  */
 export function ExecutionTerminalPanel({
   sessionId,
-  open,
-  onToggle,
   disabled,
   disabledReason,
+  collapsed,
+  onToggleCollapsed,
 }: ExecutionTerminalPanelProps) {
   const { data: terminals = [], isLoading } = useTerminals(sessionId);
   const createTerminal = useCreateTerminal(sessionId);
   const killTerminal = useKillTerminal(sessionId);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  // Auto-create the first terminal when the panel opens for the first
-  // time. After that, the user manages count via the tab `+` / `×`.
-  // Skip auto-create when a previous attempt errored — otherwise we'd
-  // hammer the API in an infinite loop. The user can retry from the
-  // error state.
+  // Auto-create the first terminal once the panel mounts and isn't
+  // disabled. Skip when collapsed — no point spinning a PTY for a
+  // panel the user hasn't expanded yet. Skip when a previous attempt
+  // errored — otherwise we'd hammer the API. The user can retry from
+  // the error state.
   useEffect(() => {
-    if (!open || disabled || isLoading) return;
+    if (disabled || isLoading || collapsed) return;
     if (terminals.length > 0) return;
     if (createTerminal.isPending || createTerminal.isError) return;
     createTerminal.mutate({ cols: 80, rows: 24 });
-  }, [open, disabled, isLoading, terminals.length, createTerminal]);
+  }, [disabled, isLoading, collapsed, terminals.length, createTerminal]);
 
   // Keep the active tab pointing at something real.
   useEffect(() => {
@@ -89,68 +92,60 @@ export function ExecutionTerminalPanel({
 
   if (disabled) {
     return (
-      <div className="flex w-full items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground/60">
+      <div className="flex h-full w-full items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground/60">
         <TerminalIcon size={12} />
         <span>{disabledReason ?? 'Terminal unavailable'}</span>
       </div>
     );
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-      >
-        <ChevronUp size={12} />
-        <TerminalIcon size={12} />
-        <span>Terminal</span>
-        {terminals.length > 0 && (
-          <span className="text-muted-foreground/60">· {terminals.length}</span>
-        )}
-      </button>
-    );
-  }
-
   return (
-    <div className="flex h-80 flex-col border-t border-border bg-[#0b0b0c]">
-      {/* tab strip */}
-      <div className="flex items-center gap-0.5 border-b border-zinc-800 bg-zinc-900/60 pl-1 pr-1">
+    <div className="flex h-full flex-col bg-[#0b0b0c]">
+      {/* tab strip — always visible. In collapsed mode this is the
+          entire panel; clicking the chevron expands the content. */}
+      <div className="flex items-center gap-0.5 border-y border-zinc-800 bg-zinc-900/60 px-1">
         <div className="flex flex-1 items-center gap-0.5 overflow-x-auto py-0.5">
+          <TerminalIcon size={11} className="mx-1 text-zinc-500 flex-shrink-0" />
           {terminals.map((t, i) => (
             <TerminalTab
               key={t.id}
               label={`Terminal ${i + 1}`}
               active={activeId === t.id}
-              onActivate={() => setActiveId(t.id)}
+              onActivate={() => {
+                setActiveId(t.id);
+                if (collapsed && onToggleCollapsed) onToggleCollapsed();
+              }}
               onClose={() => handleClose(t.id)}
             />
           ))}
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={handleNew}
+              disabled={createTerminal.isPending}
+              className="ml-0.5 inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-50"
+              title="New terminal"
+              aria-label="New terminal"
+            >
+              <Plus size={12} />
+            </button>
+          )}
+        </div>
+        {onToggleCollapsed && (
           <button
             type="button"
-            onClick={handleNew}
-            disabled={createTerminal.isPending}
-            className="ml-0.5 inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-50"
-            title="New terminal"
-            aria-label="New terminal"
+            onClick={onToggleCollapsed}
+            className="inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 flex-shrink-0"
+            title={collapsed ? 'Expand terminal' : 'Collapse terminal'}
+            aria-label={collapsed ? 'Expand terminal' : 'Collapse terminal'}
           >
-            <Plus size={12} />
+            {collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
-        </div>
-        <button
-          type="button"
-          onClick={onToggle}
-          className="inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-          title="Hide terminal"
-          aria-label="Hide terminal"
-        >
-          <ChevronDown size={12} />
-        </button>
+        )}
       </div>
 
       {/* content area — every terminal stays mounted; only one is visible */}
-      <div className="relative flex-1 min-h-0">
+      <div className={cn('relative flex-1 min-h-0', collapsed && 'hidden')}>
         {terminals.map((t) => (
           <div
             key={t.id}

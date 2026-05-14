@@ -11,6 +11,17 @@ const nextConfig: NextConfig = {
   // are intentionally side-effectful — turning StrictMode off keeps
   // dev behavior aligned with prod.
   reactStrictMode: false,
+  // Permit HMR / dev sockets when the user fronts the dev server with a
+  // tunnel (ngrok, Tailscale magic DNS, LAN IP, portless.sh) and visits
+  // from a remote client. Without this, the WebSocket origin check
+  // rejects the connection and HMR silently dies. Production builds
+  // ignore this option.
+  allowedDevOrigins: [
+    "*.ngrok.io",
+    "*.ngrok-free.app",
+    "*.ts.net",
+    "*.localhost",
+  ],
 };
 
 export default nextConfig;

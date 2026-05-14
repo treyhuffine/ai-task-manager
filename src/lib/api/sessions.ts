@@ -77,6 +77,86 @@ export interface StructuredDiffFile {
 }
 export interface StructuredDiff { files: StructuredDiffFile[] }
 
+// ─── File tree wire types ─────────────────────────────────
+//
+// Mirrored from `src/lib/workspaces/list-tree.ts` — that module imports
+// `node:fs` and `@agentex/workspace`, so we keep the wire shape local
+// to the client API barrel instead of re-exporting.
+
+export type TreeEntryStatus =
+  | 'added'
+  | 'modified'
+  | 'deleted'
+  | 'staged'
+  | 'untracked';
+
+export interface TreeEntry {
+  path: string;
+  name: string;
+  kind: 'file' | 'dir';
+  size?: number;
+  status?: TreeEntryStatus;
+  mtime?: string;
+}
+
+export interface TreeResponse {
+  entries: TreeEntry[];
+}
+
+// ─── File read wire types ─────────────────────────────────
+//
+// Mirrored from `src/lib/workspaces/read-file.ts`. Server-only module —
+// imports `node:fs` and `@agentex/workspace`. The client never sees
+// `FileReadError` directly; the route maps it to HTTP status.
+
+export interface FileResponse {
+  path: string;
+  /** Null when binary or oversize. */
+  content: string | null;
+  encoding: 'utf8' | 'base64';
+  mime: string;
+  size: number;
+  isBinary: boolean;
+  /** Set when the file exceeds the server's preview cap (1 MiB). */
+  tooLarge?: boolean;
+}
+
+// ─── PR wire types ─────────────────────────────────
+//
+// Mirrored from `@agentex/github`'s PRSummary. We map the library's
+// shape into a flatter wire type so the route stays the source of
+// truth for "what the action bar sees about a PR."
+
+export type PrState = 'OPEN' | 'CLOSED' | 'MERGED';
+
+export interface PrInfo {
+  number: number;
+  url: string;
+  state: PrState;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  title: string;
+  updatedAt: string;
+}
+
+export interface PrResponse {
+  pr: PrInfo | null;
+  /** Set when `gh` is missing or unauthenticated. */
+  ghStatus?: 'not_installed' | 'not_authenticated';
+}
+
+export interface MergeRequestBody {
+  method?: 'merge' | 'squash' | 'rebase';
+  deleteBranch?: boolean;
+}
+
+export interface MergeResponse {
+  ok: true;
+  prNumber: number;
+  url: string;
+}
+
 export interface ResolvePendingBody {
   allow: boolean;
   message?: string;
@@ -110,6 +190,31 @@ export interface WipMoveResult {
 }
 
 export type WipApplyResult = WipCopyResult | WipMoveResult;
+
+// ─── Takeover wire types ─────────────────────────────────
+//
+// Mirrors the route response shapes. Server source of truth:
+// `src/app/api/sessions/[id]/takeover/route.ts` and
+// `src/app/api/takeover/[token]/resume/route.ts`.
+
+export interface TakeoverResponse {
+  token: string;
+  expires_at: string;
+  cli_command: string;
+  fallback_command: string;
+  branch: string;
+  base_sha: string;
+  remote_url: string;
+  workspace_id: string;
+  started_at: string;
+}
+
+export interface ResumeFromTakeoverResponse {
+  ok: true;
+  files_changed: number;
+  shortstat: string;
+  session_id: string;
+}
 
 /**
  * `chat_sessions` row plus a sidecar `agent_harness` field that the GET
@@ -152,6 +257,7 @@ export const sessionsApi = {
       permission_mode?: PermissionMode;
       model?: string | null;
       effort?: EffortLevel | null;
+      pr_number?: number | null;
     },
   ): Promise<ChatSessionRecord> {
     return api.patch<ChatSessionRecord>(`/sessions/${id}`, input);
@@ -182,6 +288,73 @@ export const sessionsApi = {
       `/sessions/${id}/diff`,
       { query: file ? { file } : undefined },
     );
+  },
+
+  tree(id: string): Promise<TreeResponse> {
+    return api.get<TreeResponse>(`/sessions/${id}/tree`);
+  },
+
+  file(id: string, path: string, opts?: { base?: boolean }): Promise<FileResponse> {
+    return api.get<FileResponse>(
+      `/sessions/${id}/file`,
+      { query: opts?.base ? { path, base: '1' } : { path } },
+    );
+  },
+
+  writeFile(id: string, path: string, content: string): Promise<{ ok: true; path: string; size: number }> {
+    return api.put<{ ok: true; path: string; size: number }>(
+      `/sessions/${id}/file`,
+      { content },
+      { query: { path } },
+    );
+  },
+
+  deleteFile(id: string, path: string): Promise<{ ok: true; path: string; kind: 'file' | 'dir' }> {
+    return api.delete<{ ok: true; path: string; kind: 'file' | 'dir' }>(
+      `/sessions/${id}/file`,
+      { query: { path } },
+    );
+  },
+
+  createFile(id: string, path: string): Promise<{ ok: true; path: string }> {
+    return api.post<{ ok: true; path: string }>(
+      `/sessions/${id}/file/create`,
+      { path },
+    );
+  },
+
+  renamePath(
+    id: string,
+    from: string,
+    to: string,
+  ): Promise<{ ok: true; from: string; to: string; kind: 'file' | 'dir' }> {
+    return api.post<{ ok: true; from: string; to: string; kind: 'file' | 'dir' }>(
+      `/sessions/${id}/file/rename`,
+      { from, to },
+    );
+  },
+
+  createDir(id: string, path: string): Promise<{ ok: true; path: string }> {
+    return api.post<{ ok: true; path: string }>(`/sessions/${id}/dir`, { path });
+  },
+
+  deleteDir(id: string, path: string): Promise<{ ok: true; path: string; kind: 'file' | 'dir' }> {
+    return api.delete<{ ok: true; path: string; kind: 'file' | 'dir' }>(
+      `/sessions/${id}/dir`,
+      { query: { path } },
+    );
+  },
+
+  pr(id: string): Promise<PrResponse> {
+    return api.get<PrResponse>(`/sessions/${id}/pr`);
+  },
+
+  openPr(id: string): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/pr`);
+  },
+
+  mergePr(id: string, body?: MergeRequestBody): Promise<MergeResponse> {
+    return api.post<MergeResponse>(`/sessions/${id}/merge`, body ?? {});
   },
 
   needsReview(): Promise<ChatSessionRecord[]> {
@@ -232,6 +405,10 @@ export const sessionsApi = {
     return api.post<{ ok: true }>(`/sessions/${id}/pull-base`, { strategy });
   },
 
+  retrySetup(id: string): Promise<ChatSessionRecord> {
+    return api.post<ChatSessionRecord>(`/sessions/${id}/retry-setup`);
+  },
+
   sendMessage(
     id: string,
     content: string,
@@ -262,5 +439,26 @@ export const sessionsApi = {
 
   applyWip(id: string, action: 'copy' | 'move'): Promise<WipApplyResult> {
     return api.post<WipApplyResult>(`/sessions/${id}/wip`, { action });
+  },
+
+  takeover(id: string): Promise<TakeoverResponse> {
+    return api.post<TakeoverResponse>(`/sessions/${id}/takeover`);
+  },
+
+  cancelTakeover(id: string): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/takeover-cancel`);
+  },
+
+  /**
+   * Resume from a browser-initiated "Done — pull my changes" click.
+   * The CLI calls the same endpoint (different transport, same token
+   * in path), but goes through `/api/takeover/<token>/resume` to bypass
+   * bearer-token middleware. The browser sends bearer auth as usual.
+   */
+  resumeFromTakeover(token: string): Promise<ResumeFromTakeoverResponse> {
+    return api.post<ResumeFromTakeoverResponse>(`/takeover/${token}/resume`, undefined, {
+      // The api client sets `baseUrl='/api'` so the URL becomes
+      // `/api/takeover/<token>/resume`. No special-casing needed.
+    });
   },
 };

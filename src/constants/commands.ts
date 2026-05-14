@@ -18,6 +18,7 @@ export const HOTKEYS = {
   openFullPage: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
   toggleRail: { key: '\\', meta: true, label: '\u2318\\' },
   focusChatInput: { key: 'i', meta: true, label: '\u2318I' },
+  closeExecution: { key: 'e', meta: true, label: '\u2318E' },
 } as const satisfies Record<string, Hotkey>;
 
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */

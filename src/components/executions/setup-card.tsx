@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { GitBranch, Folder, Sparkles, AlertCircle } from 'lucide-react';
+import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2 } from 'lucide-react';
+import { useRetrySetup } from '@/hooks/use-execution';
 import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
 import { ThinkingDots } from './thinking-dots';
 
@@ -31,7 +32,10 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   if (!workspace) return null;
 
   const isGit = workspace.is_git;
-  const isSettingUp = isGit && !session.worktree_path;
+  const hasError = isGit && !session.worktree_path && !!session.setup_error;
+  // Treat error state as terminal — drop the spinner row so the user
+  // doesn't see "creating worktree…" next to a "setup failed" row.
+  const isSettingUp = isGit && !session.worktree_path && !hasError;
 
   return (
     <div className="space-y-1.5 mb-1">
@@ -96,13 +100,72 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
         />
       )}
 
-      {/* Loading row — last item, removed once worktree_path lands. */}
+      {/* Loading row — last item, removed once worktree_path lands.
+          Anchored to `setup_started_at` so the counter resets on each
+          retry; falls back to `started_at` for rows created before this
+          column existed. */}
       {isSettingUp && (
         <SettingUpRow
           baseBranch={workspace.base_branch ?? 'main'}
-          startedAt={session.started_at}
+          startedAt={session.setup_started_at ?? session.started_at}
         />
       )}
+
+      {/* Failure row — replaces the spinner when provisioning errors. */}
+      {hasError && (
+        <SetupErrorRow
+          sessionId={session.id}
+          error={session.setup_error ?? 'Unknown error'}
+          prNumber={session.pr_number ?? null}
+        />
+      )}
+    </div>
+  );
+}
+
+function SetupErrorRow({
+  sessionId,
+  error,
+  prNumber,
+}: {
+  sessionId: string;
+  error: string;
+  prNumber: number | null;
+}) {
+  const retry = useRetrySetup(sessionId);
+  const handleClick = () => {
+    retry.mutate(undefined, {
+      onError: (err) => {
+        alert(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
+      },
+    });
+  };
+  return (
+    <div className="flex items-start gap-2 text-[11px]">
+      <AlertCircle size={11} className="text-rose-500 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="text-rose-600 dark:text-rose-400 font-medium">
+          {prNumber != null
+            ? `Couldn't fetch PR #${prNumber}`
+            : "Couldn't create worktree"}
+        </div>
+        <div className="text-muted-foreground/80 font-mono text-[10.5px] break-all">
+          {error}
+        </div>
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={retry.isPending}
+          className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-md border border-rose-500/40 bg-rose-500/10 text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-500/15 disabled:opacity-50 transition-colors"
+        >
+          {retry.isPending ? (
+            <Loader2 size={11} className="animate-spin" />
+          ) : (
+            <ArrowDownToLine size={11} />
+          )}
+          Pull
+        </button>
+      </div>
     </div>
   );
 }

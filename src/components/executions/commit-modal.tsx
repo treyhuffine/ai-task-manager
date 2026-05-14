@@ -3,25 +3,37 @@
 import { useEffect, useRef, useState } from 'react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { X, Loader2 } from 'lucide-react';
-import { useCommit } from '@/hooks/use-execution';
+import { useCommit, usePush } from '@/hooks/use-execution';
 import { ApiError } from '@/lib/api/client';
 
 interface CommitModalProps {
   sessionId: string | null;
   onClose: () => void;
+  /**
+   * Chain a push to origin after the commit succeeds. Used by the
+   * narrative chip's "Commit and push" affordance — the user expects
+   * one click to land changes on origin, not two. On push failure the
+   * commit is left in place and the modal stays open with the error.
+   */
+  andPush?: boolean;
 }
 
 /**
- * v1 commit modal: user types a message, library commits via
- * `@agentex/workspace`'s `ws.git.commit()`. The "agent drafts the
- * message" path (Pattern 2 in the tool/agentic split) lands when the
- * agent layer wires up; for now this is plain Pattern 1.
+ * Commit-message modal. Stages everything in the worktree (tracked +
+ * untracked) and commits via `@agentex/workspace`'s `ws.git.commit()`.
+ *
+ * When `andPush` is set the modal also pushes the branch to origin on
+ * commit success; that's the headline "land my work" flow when the
+ * branch is already published.
  */
-export function CommitModal({ sessionId, onClose }: CommitModalProps) {
+export function CommitModal({ sessionId, onClose, andPush }: CommitModalProps) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const commit = useCommit(sessionId ?? '');
+  const push = usePush(sessionId ?? '');
+
+  const isPending = commit.isPending || push.isPending;
 
   useEffect(() => {
     if (sessionId) {
@@ -32,10 +44,26 @@ export function CommitModal({ sessionId, onClose }: CommitModalProps) {
   }, [sessionId]);
 
   const handleSubmit = () => {
-    if (!sessionId || !message.trim() || commit.isPending) return;
+    if (!sessionId || !message.trim() || isPending) return;
     setError(null);
     commit.mutate(message.trim(), {
-      onSuccess: () => onClose(),
+      onSuccess: () => {
+        if (!andPush) {
+          onClose();
+          return;
+        }
+        push.mutate(undefined, {
+          onSuccess: () => onClose(),
+          onError: (err) => {
+            if (err instanceof ApiError) {
+              const body = err.body as { message?: string; error?: string } | null;
+              setError(`Committed, but push failed: ${body?.message ?? body?.error ?? `HTTP ${err.status}`}`);
+            } else {
+              setError(`Committed, but push failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          },
+        });
+      },
       onError: (err) => {
         if (err instanceof ApiError) {
           const body = err.body as { message?: string; error?: string } | null;
@@ -87,7 +115,7 @@ export function CommitModal({ sessionId, onClose }: CommitModalProps) {
                 className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary resize-none"
               />
               <p className="text-[10px] text-muted-foreground/70 mt-1.5">
-                Stages everything (tracked + untracked) and commits. ⌘↵ to submit.
+                Stages everything (tracked + untracked) and commits{andPush ? ', then pushes to origin' : ''}. ⌘↵ to submit.
               </p>
               {error && (
                 <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
@@ -104,11 +132,11 @@ export function CommitModal({ sessionId, onClose }: CommitModalProps) {
               </DialogPrimitive.Close>
               <button
                 onClick={handleSubmit}
-                disabled={!message.trim() || commit.isPending}
+                disabled={!message.trim() || isPending}
                 className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {commit.isPending && <Loader2 size={14} className="animate-spin" />}
-                Commit
+                {isPending && <Loader2 size={14} className="animate-spin" />}
+                {push.isPending ? 'Pushing…' : andPush ? 'Commit and push' : 'Commit'}
               </button>
             </div>
           </div>

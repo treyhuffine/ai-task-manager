@@ -16,7 +16,11 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
 import { DragHandle } from './drag-handle'
 import AutoJoiner from 'tiptap-extension-auto-joiner'
-import { CollapsibleHeading } from './collapsible-heading'
+import {
+  CollapsibleHeading,
+  applyFoldedHeadingIds,
+  getFoldedHeadingIds,
+} from './collapsible-heading'
 import { EditorBubbleMenu } from './editor-bubble-menu'
 import { ListKeymap } from './list-keymap'
 import { SlashCommands } from './slash-commands'
@@ -47,6 +51,13 @@ export interface RichEditorProps {
    *  server can populate attachment metadata (original_name, mime_type, size)
    *  on the entity's manifest without a cross-entity lookup. */
   onAttachment?: (attachment: Attachment) => void
+  /** Heading IDs that should be folded on initial render. Identity is `${ordinal}:${text}`
+   *  — see collapsible-heading.tsx. Survives reorders/inserts; lost on rename or
+   *  level change (toggle to re-set). */
+  foldedHeadings?: readonly string[]
+  /** Fires when the user toggles a heading fold. The full current set is sent
+   *  every time so the parent just persists `folded_headings = arg`. */
+  onFoldedHeadingsChange?: (folded: string[]) => void
 }
 
 export function RichEditor({
@@ -58,12 +69,21 @@ export function RichEditor({
   autoFocus = false,
   hideFooter = false,
   onAttachment,
+  foldedHeadings,
+  onFoldedHeadingsChange,
 }: RichEditorProps) {
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
 
   const onAttachmentRef = useRef(onAttachment)
   onAttachmentRef.current = onAttachment
+
+  const onFoldedChangeRef = useRef(onFoldedHeadingsChange)
+  onFoldedChangeRef.current = onFoldedHeadingsChange
+
+  // Folded set we last applied / emitted — guards against re-applying on every
+  // doc update and against echoing changes the parent just told us about.
+  const foldedRef = useRef<readonly string[]>(foldedHeadings ?? [])
 
   // The drop/paste handlers need the live Editor (for schema-aware
   // `insertContentAt`) but `useEditor`'s editorProps callbacks close over
@@ -229,8 +249,36 @@ export function RichEditor({
       } finally {
         isSyncingRef.current = false
       }
+      // Markdown round-trips strip the fold bit (parseMarkdown sets collapsed:false),
+      // so reapply after every external sync.
+      applyFoldedHeadingIds(editor, foldedRef.current)
     })
   }, [editor, content])
+
+  // Apply initial folds once after the editor mounts. Keyed only on `editor`
+  // (not on foldedHeadings) so the parent's saved-state echo doesn't keep
+  // re-folding things the user just opened.
+  useEffect(() => {
+    if (!editor) return
+    applyFoldedHeadingIds(editor, foldedRef.current)
+  }, [editor])
+
+  // Watch for fold toggles and report up. Diff against the last known set so we
+  // only emit when the fold state actually changed (skipping plain text edits).
+  useEffect(() => {
+    if (!editor) return
+    const handler = ({ editor: ed }: { editor: Editor }) => {
+      const next = getFoldedHeadingIds(ed)
+      const prev = foldedRef.current
+      if (next.length === prev.length && next.every((id, i) => id === prev[i])) return
+      foldedRef.current = next
+      onFoldedChangeRef.current?.(next)
+    }
+    editor.on('update', handler)
+    return () => {
+      editor.off('update', handler)
+    }
+  }, [editor])
 
   // Notion-style: clicks anywhere in the editor wrapper that miss the
   // contenteditable still focus the editor and drop the cursor at the end.
@@ -294,6 +342,9 @@ export interface NoteEditorProps {
   metadata?: React.ReactNode
   /** Forwarded to the inner RichEditor — see RichEditorProps.onAttachment. */
   onAttachment?: (attachment: Attachment) => void
+  /** See RichEditorProps.foldedHeadings / onFoldedHeadingsChange. */
+  foldedHeadings?: readonly string[]
+  onFoldedHeadingsChange?: (folded: string[]) => void
 }
 
 export function NoteEditor({
@@ -306,6 +357,8 @@ export function NoteEditor({
   disabled = false,
   metadata,
   onAttachment,
+  foldedHeadings,
+  onFoldedHeadingsChange,
 }: NoteEditorProps) {
   const titleRef = useRef<HTMLTextAreaElement>(null)
 
@@ -372,6 +425,8 @@ export function NoteEditor({
           autoFocus={autoFocusTitle ? false : 'start'}
           hideFooter={hideFooter}
           onAttachment={onAttachment}
+          foldedHeadings={foldedHeadings}
+          onFoldedHeadingsChange={onFoldedHeadingsChange}
         />
       </div>
     </div>

@@ -42,6 +42,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
+import { useDragResize } from '@/hooks/use-drag-resize';
 import { cn } from '@/lib/utils';
 import type { Energy, Effort, Attachment } from '@/db/types';
 
@@ -86,8 +87,13 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const { data: priorityList } = useTasks(priorityFilter);
   const queryClient = useQueryClient();
 
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const [isResizing, setIsResizing] = useState(false);
+  const { size: width, isResizing, handleResizeStart } = useDragResize({
+    edge: 'left',
+    min: MIN_WIDTH,
+    max: MAX_WIDTH,
+    defaultSize: DEFAULT_WIDTH,
+    storageKey: 'flow.task-slideout.width',
+  });
   const [isVisible, setIsVisible] = useState(false);
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
@@ -111,36 +117,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
       setIsVisible(false);
     }
   }, [isOpen]);
-
-  // Drag to resize
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsResizing(true);
-      const startX = e.clientX;
-      const startWidth = width;
-
-      const handleMouseMove = (e: MouseEvent) => {
-        const delta = startX - e.clientX;
-        const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
-        setWidth(newWidth);
-      };
-
-      const handleMouseUp = () => {
-        setIsResizing(false);
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      };
-
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    },
-    [width],
-  );
 
   // Auto-size title textarea when task loads, focus title if new
   useEffect(() => {
@@ -250,6 +226,20 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     [taskId, updateTask],
   );
 
+  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleFoldedHeadingsChange = useCallback(
+    (folded: string[]) => {
+      if (!taskId) return;
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
+      foldedTimerRef.current = setTimeout(() => {
+        updateTask.mutate({ id: taskId, folded_headings: folded } as Parameters<
+          typeof updateTask.mutate
+        >[0]);
+      }, 400);
+    },
+    [taskId, updateTask],
+  );
+
   const handleComplete = useCallback(() => {
     if (!taskId || !task) return;
     if (task.status === 'done') {
@@ -280,6 +270,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     return () => {
       if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
       if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
+      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
     };
   }, []);
 
@@ -352,7 +343,8 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               'hover:bg-primary/20 active:bg-primary/30 transition-colors',
               isResizing && 'bg-primary/30',
             )}
-            onMouseDown={handleResizeStart}
+            onPointerDown={handleResizeStart}
+            style={{ touchAction: 'none' }}
           >
             <div className="absolute inset-y-0 -left-1 -right-1" />
           </div>
@@ -727,6 +719,8 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                         editable={!aiBusy}
                         placeholder="Type '/' for commands..."
                         hideFooter
+                        foldedHeadings={task.folded_headings ?? []}
+                        onFoldedHeadingsChange={handleFoldedHeadingsChange}
                       />
                     </div>
                   </div>

@@ -29,6 +29,8 @@ interface PatchBody {
   model?: string | null;
   /** Effort level (Claude only — Codex ignores). `null` clears. */
   effort?: EffortLevel | null;
+  /** Explicit PR link. `null` clears the link. */
+  pr_number?: number | null;
 }
 
 /**
@@ -101,6 +103,18 @@ export async function PATCH(
       if (effort !== existing.effort) {
         updates.effort = effort;
         executorChanged = true;
+      }
+    }
+    if ('pr_number' in body) {
+      const num = body.pr_number;
+      if (num !== null && (typeof num !== 'number' || !Number.isInteger(num) || num <= 0)) {
+        return Response.json(
+          { error: 'Invalid pr_number. Expected a positive integer or null.' },
+          { status: 400 },
+        );
+      }
+      if (num !== existing.pr_number) {
+        updates.pr_number = num;
       }
     }
 

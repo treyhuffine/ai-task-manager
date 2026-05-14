@@ -10,11 +10,12 @@ import { StatusView } from './status-view';
 import { SkinnyView } from './skinny-view';
 import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
+import { RailFooter } from './rail-footer';
 
 type RailTab = 'status' | 'workspace';
 
 const STORAGE_KEY = 'flow.rail.tab';
-const DEFAULT_TAB: RailTab = 'status';
+const DEFAULT_TAB: RailTab = 'workspace';
 
 /**
  * Top-level switcher for the left rail. Two surfaces in wide mode:
@@ -25,18 +26,42 @@ const DEFAULT_TAB: RailTab = 'status';
  *   - `workspace` — the existing folder tree by workspace. Houses the
  *                workspace management actions (create, settings, reorder).
  *
- * Active tab persists per-user in localStorage. Defaults to `status`
- * because that's the higher-leverage daily view; "by workspace" is the
- * tab people drop into when they need to manage workspaces themselves.
+ * Active tab persists per-user in localStorage. Defaults to `workspace`
+ * — the workspace tree is the primary navigation surface; "by status"
+ * is the cross-workspace lens people switch into when triaging.
  *
  * In skinny mode (`railCollapsed`) the tab UI is hidden but the tab
  * choice is preserved so expanding back doesn't reshuffle the user's
  * view. The skinny renderer uses the tab only as a sort key — see
  * `SkinnyView`.
  */
-export function RailTabs() {
-  const { railCollapsed, toggleRailCollapsed } = useDashboard();
+interface RailTabsProps {
+  /**
+   * When truthy, render the skinny-icon variant regardless of the
+   * user's `railCollapsed` preference. Set by `PowerRail` when the
+   * execution view is active and the rail is in its compact state.
+   */
+  forceCollapsed?: boolean;
+  /**
+   * Which state the toggle button mutates. `'global'` flips
+   * `railCollapsed` (the across-app preference); `'execution'` flips
+   * `executionRailOpen` (the execution-view-local override). PowerRail
+   * passes `'execution'` when in compact mode so the button stays in
+   * sync with ⌘\ semantics.
+   */
+  toggleTarget?: 'global' | 'execution';
+}
+
+export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsProps = {}) {
+  const {
+    railCollapsed,
+    toggleRailCollapsed,
+    toggleExecutionRailOpen,
+  } = useDashboard();
   const [tab, setTab] = useState<RailTab>(DEFAULT_TAB);
+  const collapsed = !!forceCollapsed || railCollapsed;
+  const onToggle =
+    toggleTarget === 'execution' ? toggleExecutionRailOpen : toggleRailCollapsed;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -55,18 +80,18 @@ export function RailTabs() {
     <SessionHoverProvider>
       <div className="flex flex-col h-full">
         <RailHeader
-          collapsed={railCollapsed}
+          collapsed={collapsed}
           tab={tab}
           onSelectTab={select}
-          onToggle={toggleRailCollapsed}
+          onToggle={onToggle}
         />
         <div
           className={cn(
             'flex-1 min-h-0 overflow-y-auto pt-1 pb-4',
-            railCollapsed && 'overflow-x-hidden',
+            collapsed && 'overflow-x-hidden',
           )}
         >
-          {railCollapsed ? (
+          {collapsed ? (
             <SkinnyView tab={tab} />
           ) : tab === 'status' ? (
             <StatusView />
@@ -74,6 +99,7 @@ export function RailTabs() {
             <WorkspaceNav />
           )}
         </div>
+        {!collapsed && <RailFooter />}
       </div>
       <SessionHoverPreview />
     </SessionHoverProvider>
@@ -104,11 +130,11 @@ function RailHeader({ collapsed, tab, onSelectTab, onToggle }: RailHeaderProps) 
   }
   return (
     <div className="flex items-center gap-0.5 px-1 pt-1 pb-1.5 border-b border-border/40">
-      <TabButton active={tab === 'status'} onClick={() => onSelectTab('status')}>
-        By status
-      </TabButton>
       <TabButton active={tab === 'workspace'} onClick={() => onSelectTab('workspace')}>
         By workspace
+      </TabButton>
+      <TabButton active={tab === 'status'} onClick={() => onSelectTab('status')}>
+        By status
       </TabButton>
       <ToggleButton collapsed={collapsed} onToggle={onToggle} />
     </div>

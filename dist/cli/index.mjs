@@ -70,10 +70,10 @@ function homeDir() {
 function getAppRoot() {
   const override = process.env[APP_ROOT_ENV];
   if (override) return override;
-  return path.join(homeDir(), `.${APP_SHORT_ID}`);
+  return path.join(homeDir(), APP_SHORT_ID);
 }
 function getDevAppRoot() {
-  return path.join(homeDir(), `.${APP_SHORT_ID}-dev`);
+  return path.join(homeDir(), `${APP_SHORT_ID}-dev`);
 }
 function getBrainDir() {
   const override = process.env[BRAIN_PATH_ENV];
@@ -90,6 +90,16 @@ function getConfigPath() {
 }
 function getAttachmentsDir() {
   return path.join(getBrainDir(), "attachments");
+}
+function getClonesDir() {
+  return path.join(getAppRoot(), "clones");
+}
+function ensureClonesDir() {
+  const dir = getClonesDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 448 });
+  }
+  return dir;
 }
 function getTmpDir() {
   return path.join(getAppRoot(), "tmp");
@@ -160,8 +170,8 @@ function migrateLegacyLayoutToBrain() {
 }
 
 // src/cli/commands/start.ts
-import { intro, outro, log, spinner } from "@clack/prompts";
-import pc2 from "picocolors";
+import { intro as intro2, outro as outro2, log as log2, spinner as spinner2 } from "@clack/prompts";
+import pc4 from "picocolors";
 import getPort from "get-port";
 
 // src/lib/auth/bootstrap.ts
@@ -184,7 +194,8 @@ function readAuthConfig() {
       tunnelUrl: parsed.tunnelUrl ?? null,
       onboardedAt: parsed.onboardedAt ?? null,
       voiceEnabled: parsed.voiceEnabled ?? null,
-      lastPort: parsed.lastPort ?? null
+      lastPort: parsed.lastPort ?? null,
+      staticUrl: parsed.staticUrl ?? null
     };
   } catch (err) {
     console.error("[auth] failed to read config.json:", err);
@@ -194,14 +205,15 @@ function readAuthConfig() {
 function writeAuthConfig(config) {
   ensureAppRoot();
   const existing = readAuthConfig();
-  const pick = (key) => (key in config ? config[key] : existing?.[key]) ?? null;
+  const pick2 = (key) => (key in config ? config[key] : existing?.[key]) ?? null;
   const next = {
     version: 1,
-    localToken: pick("localToken"),
-    tunnelUrl: pick("tunnelUrl"),
-    onboardedAt: pick("onboardedAt"),
-    voiceEnabled: pick("voiceEnabled"),
-    lastPort: pick("lastPort")
+    localToken: pick2("localToken"),
+    tunnelUrl: pick2("tunnelUrl"),
+    onboardedAt: pick2("onboardedAt"),
+    voiceEnabled: pick2("voiceEnabled"),
+    lastPort: pick2("lastPort"),
+    staticUrl: pick2("staticUrl")
   };
   const p = getAuthConfigPath();
   fs2.writeFileSync(p, JSON.stringify(next, null, 2) + "\n", { mode: 384 });
@@ -247,16 +259,20 @@ import path2 from "path";
 // src/lib/db/schema.ts
 var schema_exports = {};
 __export(schema_exports, {
+  agents: () => agents,
   apiKeys: () => apiKeys,
   areas: () => areas,
+  chatEvents: () => chatEvents,
+  chatSessions: () => chatSessions,
   decks: () => decks,
   notes: () => notes,
   stream: () => stream,
   taskCompletions: () => taskCompletions,
   tasks: () => tasks,
-  userState: () => userState
+  userState: () => userState,
+  workspaces: () => workspaces
 });
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 var userState = sqliteTable("user_state", {
   id: integer("id").primaryKey(),
@@ -401,6 +417,172 @@ var apiKeys = sqliteTable("api_keys", {
   index("idx_api_keys_prefix").on(table.prefix),
   index("idx_api_keys_revoked").on(table.revoked_at)
 ]);
+var workspaces = sqliteTable("workspaces", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  emoji: text("emoji"),
+  attachments: text("attachments", { mode: "json" }).$type().default([]),
+  cwd: text("cwd").notNull(),
+  is_git: integer("is_git", { mode: "boolean" }).notNull().default(false),
+  base_branch: text("base_branch"),
+  remote_name: text("remote_name").default("origin"),
+  worktree_root: text("worktree_root"),
+  // Globs to copy from `cwd` into each new session's worktree at creation
+  // time. Picomatch dialect, dot-aware. `.env*` is the default so secrets
+  // travel with the worktree without symlinking back to source.
+  files_to_copy: text("files_to_copy", { mode: "json" }).$type().notNull().default([".env*"]),
+  area_id: text("area_id").references(() => areas.id, { onDelete: "set null" }),
+  position: integer("position").notNull().default(0),
+  collapsed: integer("collapsed", { mode: "boolean" }).notNull().default(false),
+  status: text("status", { enum: ["active", "archived"] }).notNull().default("active"),
+  created_at: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updated_at: text("updated_at").notNull().default(sql`(datetime('now'))`),
+  archived_at: text("archived_at")
+}, (table) => [
+  index("idx_workspaces_status_position").on(table.status, table.position),
+  index("idx_workspaces_area_id").on(table.area_id)
+]);
+var agents = sqliteTable("agents", {
+  id: text("id").primaryKey(),
+  user_id: text("user_id").notNull().default("local"),
+  kind: text("kind", { enum: ["orchestrator", "executor"] }).notNull(),
+  name: text("name").notNull(),
+  role: text("role"),
+  harness: text("harness").notNull(),
+  config: text("config", { mode: "json" }).$type().notNull().default({}),
+  status: text("status", { enum: ["active", "archived"] }).notNull().default("active"),
+  created_at: text("created_at").notNull().default(sql`(datetime('now'))`),
+  archived_at: text("archived_at")
+}, (table) => [
+  index("idx_agents_kind").on(table.kind),
+  index("idx_agents_status").on(table.status)
+]);
+var chatSessions = sqliteTable("chat_sessions", {
+  id: text("id").primaryKey(),
+  user_id: text("user_id").notNull().default("local"),
+  agent_id: text("agent_id").notNull().references(() => agents.id),
+  type: text("type", { enum: ["orchestration", "content", "execution"] }).notNull(),
+  surface_kind: text("surface_kind"),
+  surface_ref: text("surface_ref"),
+  status: text("status", { enum: ["active", "archived"] }).notNull().default("active"),
+  label: text("label"),
+  refs: text("refs", { mode: "json" }).$type().notNull().default({}),
+  // Execution-specific fields.
+  workspace_id: text("workspace_id").references(() => workspaces.id, { onDelete: "set null" }),
+  worktree_path: text("worktree_path"),
+  branch_name: text("branch_name"),
+  base_sha: text("base_sha"),
+  // Explicit PR link override. The action bar normally matches PRs by
+  // branch name (`pr.headRefName === session.branch_name`), but when
+  // the user opens a PR off a different branch — or wants to point at
+  // an existing PR — they can stamp the number here. The route uses
+  // it as the source of truth when set, falling back to branch match.
+  // Also set by "Create from PR" at dispatch time so the link is wired
+  // up front instead of waiting for branch-match heuristics.
+  pr_number: integer("pr_number"),
+  // Last worktree-provisioning failure. Null once the worktree exists;
+  // set when `provisionWorktreeForSession` throws (network, auth, fetch
+  // failure, etc.). Surfaced in the setup card with a Pull/retry action.
+  // Cleared when retry succeeds.
+  setup_error: text("setup_error"),
+  // When the current provisioning attempt started. Set on dispatch AND
+  // updated on every retry — so the "creating worktree… 47s" counter
+  // anchors to the current attempt instead of the original row creation
+  // (which can be hours old for a retried session).
+  setup_started_at: text("setup_started_at"),
+  // Review derivation (timestamp-only, no state column).
+  //
+  // `last_viewed_at` is the read receipt — bumped on user interaction
+  // with the chat (textarea focus, send, explicit Mark read). Opening
+  // the session no longer marks read on its own; the user has to engage
+  // for the chat to leave the Unread bucket.
+  //
+  // `unread_marker_at` is the "Mark as unread" override. When set above
+  // `last_viewed_at` it forces the session into Unread even when no new
+  // agent outcome has landed. Cleared on the next Mark read / interaction.
+  last_outcome_event_at: text("last_outcome_event_at"),
+  last_viewed_at: text("last_viewed_at"),
+  unread_marker_at: text("unread_marker_at"),
+  // CLI-backed tracking; null for in-app sessions.
+  external_session_id: text("external_session_id"),
+  external_transcript_path: text("external_transcript_path"),
+  external_sync_offset: integer("external_sync_offset"),
+  external_sync_last_event_id: text("external_sync_last_event_id"),
+  // How tool permission requests are handled for this session. `bypass` is
+  // the default — no flag passed to Claude, callback auto-allows everything.
+  // `default | accept_edits | plan` map to Claude's --permission-mode flag
+  // (default | acceptEdits | plan); the callback then surfaces prompts via
+  // the pending-input UI. AskUserQuestion always surfaces regardless of mode.
+  permission_mode: text("permission_mode", {
+    enum: ["bypass", "default", "accept_edits", "plan"]
+  }).notNull().default("bypass"),
+  // Per-session model + effort overrides. Null = use the harness default.
+  // For Claude these map to --model / --effort. For Codex --model only;
+  // effort is ignored. Changing either recycles the cached AgentSession
+  // so the next dispatch picks up the new flag.
+  //
+  // Effort enum values mirror Claude's `--effort` flag — `xhigh` and
+  // `max` are the literal CLI values, not display strings.
+  model: text("model"),
+  effort: text("effort", { enum: ["low", "medium", "high", "xhigh", "max"] }),
+  // When entering plan mode we stash the prior permission_mode here so
+  // ExitPlanMode can revert. Mirrors Claude Code's `prePlanMode` on
+  // ToolPermissionContext. Cleared when a non-plan mode is set directly.
+  pre_plan_mode: text("pre_plan_mode", {
+    enum: ["bypass", "default", "accept_edits", "plan"]
+  }),
+  // "Take over locally" lifecycle. Session is in takeover iff
+  // `takeover_started_at IS NOT NULL`. All five columns clear together
+  // on resume/cancel. The token authenticates the local CLI (`flow
+  // takeover` and `flow resume`) without needing the bearer token —
+  // expires after one hour, regenerated on each new takeover.
+  takeover_started_at: text("takeover_started_at"),
+  takeover_base_sha: text("takeover_base_sha"),
+  takeover_branch: text("takeover_branch"),
+  takeover_token: text("takeover_token"),
+  takeover_token_expires_at: text("takeover_token_expires_at"),
+  started_at: text("started_at").notNull().default(sql`(datetime('now'))`),
+  archived_at: text("archived_at")
+}, (table) => [
+  uniqueIndex("chat_sessions_external_session_id_uq").on(table.external_session_id).where(sql`${table.external_session_id} IS NOT NULL`),
+  uniqueIndex("chat_sessions_takeover_token_uq").on(table.takeover_token).where(sql`${table.takeover_token} IS NOT NULL`),
+  index("idx_chat_sessions_workspace_status").on(table.workspace_id, table.status, table.last_outcome_event_at),
+  index("idx_chat_sessions_agent_status").on(table.agent_id, table.status),
+  index("idx_chat_sessions_type_status").on(table.type, table.status)
+]);
+var chatEvents = sqliteTable("chat_events", {
+  id: text("id").primaryKey(),
+  session_id: text("session_id").notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  source: text("source").notNull(),
+  content: text("content"),
+  tool_name: text("tool_name"),
+  tool_input: text("tool_input", { mode: "json" }),
+  tool_is_error: integer("tool_is_error", { mode: "boolean" }),
+  tool_exit_code: integer("tool_exit_code"),
+  raw: text("raw", { mode: "json" }),
+  external_event_id: text("external_event_id"),
+  external_message_id: text("external_message_id"),
+  external_turn_id: text("external_turn_id"),
+  external_tool_call_id: text("external_tool_call_id"),
+  external_parent_tool_call_id: text("external_parent_tool_call_id"),
+  source_part_index: integer("source_part_index").notNull().default(0),
+  // Files dropped/pasted/uploaded with this message. Same shape as
+  // entity attachments (tasks/notes/areas) — references files in
+  // <brain>/attachments/<file_name>. Marker tokens in `content`
+  // (`[[file:<file_name>]]`) point at entries here so the chip's
+  // position in the message is preserved on render.
+  attachments: text("attachments", { mode: "json" }).$type().default([]),
+  created_at: text("created_at").notNull().default(sql`(datetime('now'))`)
+}, (table) => [
+  // Idempotent upsert key for CLI-backed events. Claude (JSONL uuid) and
+  // Codex v2 (globally-unique item.id) both supply distinct external_event_id
+  // values per row, so turn_id isn't needed for uniqueness here.
+  uniqueIndex("chat_events_external_uq").on(table.session_id, table.external_event_id, table.source_part_index).where(sql`${table.external_event_id} IS NOT NULL`),
+  index("idx_chat_events_session_created").on(table.session_id, table.created_at),
+  index("idx_chat_events_tool_call_id").on(table.external_tool_call_id)
+]);
 var notes = sqliteTable("notes", {
   id: text("id").primaryKey(),
   area_id: text("area_id").references(() => areas.id),
@@ -533,8 +715,9 @@ function getRawDb(dbPath) {
 }
 
 // src/lib/db/queries.ts
-import { eq as eq2, and as and2, desc, asc, sql as sql2, inArray, isNull, getTableColumns } from "drizzle-orm";
+import { eq as eq2, and as and2, desc, asc, sql as sql2, gt, inArray, isNull, isNotNull, getTableColumns } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
+import slugify2 from "@sindresorhus/slugify";
 
 // src/lib/embeddings/embed.ts
 import { createHash as createHash2 } from "crypto";
@@ -618,9 +801,13 @@ import { and, eq } from "drizzle-orm";
 import path3 from "path";
 var ENV_PREFIX2 = APP_SHORT_ID.toUpperCase();
 var MIRROR_DISABLED_ENV = `${ENV_PREFIX2}_MIRROR_DISABLED`;
+var ATTACHMENT_GC_ENABLED_ENV = `${ENV_PREFIX2}_ATTACHMENT_GC`;
 var ENTITY_TYPES = ["task", "note", "area", "stream"];
 function isMirrorEnabled() {
   return process.env[MIRROR_DISABLED_ENV] !== "1";
+}
+function isAttachmentGcEnabled() {
+  return process.env[ATTACHMENT_GC_ENABLED_ENV] === "1";
 }
 function typeDir(type) {
   return path3.join(getBrainDir(), `${type}s`);
@@ -1291,6 +1478,9 @@ UUID. The ID is always the part after the last \`--\`.
 
 - \`${BRAIN_PATH_ENV}\` \u2014 point the brain directory somewhere else
 - \`${MIRROR_DISABLED_ENV}=1\` \u2014 turn the markdown mirror off (db only)
+- \`${ATTACHMENT_GC_ENABLED_ENV}=1\` \u2014 opt in to attachment garbage collection
+  (off by default; orphan files are hidden UUID-named blobs that cost nothing
+  to leave on disk, and a wrong sweep would visibly break references)
 
 ## Force a sync
 
@@ -1331,44 +1521,72 @@ function collectReferencedFileNames() {
   push(db.select({ attachments: notes.attachments }).from(notes).all());
   push(db.select({ attachments: areas.attachments }).from(areas).all());
   push(db.select({ attachments: stream.attachments }).from(stream).all());
+  push(db.select({ attachments: workspaces.attachments }).from(workspaces).all());
+  push(db.select({ attachments: chatEvents.attachments }).from(chatEvents).all());
   return out;
 }
 async function sweepAttachments() {
   const start = Date.now();
   ensureAttachmentsDirsExist();
   const referenced = collectReferencedFileNames();
-  const dir = getAttachmentsDir();
-  let entries;
+  const liveDir = getAttachmentsDir();
+  const archiveDir2 = archiveAttachmentsDir();
+  let liveEntries;
   try {
-    entries = await fsp2.readdir(dir);
+    liveEntries = await fsp2.readdir(liveDir);
   } catch {
-    return { referenced: referenced.size, onDisk: 0, archived: 0, elapsedMs: Date.now() - start };
+    return {
+      referenced: referenced.size,
+      onDisk: 0,
+      archived: 0,
+      restored: 0,
+      gcEnabled: isAttachmentGcEnabled(),
+      elapsedMs: Date.now() - start
+    };
   }
-  let archived = 0;
-  let onDisk = 0;
-  for (const name of entries) {
-    if (name.startsWith(".")) continue;
-    onDisk++;
-    if (referenced.has(name)) continue;
-    const src = path6.join(dir, name);
-    const dest = path6.join(archiveAttachmentsDir(), name);
+  const live = new Set(liveEntries.filter((n) => !n.startsWith(".")));
+  let restored = 0;
+  for (const name of referenced) {
+    if (live.has(name)) continue;
+    const src = path6.join(archiveDir2, name);
+    const dest = path6.join(liveDir, name);
     try {
       await fsp2.rename(src, dest);
-      archived++;
+      live.add(name);
+      restored++;
     } catch (err) {
-      if (err.code === "EXDEV") {
-        await fsp2.copyFile(src, dest);
-        await fsp2.unlink(src);
+      const code = err.code;
+      if (code === "ENOENT") continue;
+      console.warn(`[mirror] reference heal failed: ${name}`, err);
+    }
+  }
+  const gcEnabled = isAttachmentGcEnabled();
+  let archived = 0;
+  if (gcEnabled) {
+    for (const name of live) {
+      if (referenced.has(name)) continue;
+      const src = path6.join(liveDir, name);
+      const dest = path6.join(archiveDir2, name);
+      try {
+        await fsp2.rename(src, dest);
         archived++;
-        continue;
+      } catch (err) {
+        if (err.code === "EXDEV") {
+          await fsp2.copyFile(src, dest);
+          await fsp2.unlink(src);
+          archived++;
+          continue;
+        }
+        console.warn(`[mirror] orphan attachment archive failed: ${name}`, err);
       }
-      console.warn(`[mirror] orphan attachment archive failed: ${name}`, err);
     }
   }
   return {
     referenced: referenced.size,
-    onDisk,
+    onDisk: live.size,
     archived,
+    restored,
+    gcEnabled,
     elapsedMs: Date.now() - start
   };
 }
@@ -1380,7 +1598,7 @@ async function reconcileAll() {
       synced: 0,
       skipped: 0,
       orphaned: 0,
-      attachments: { referenced: 0, onDisk: 0, archived: 0, elapsedMs: 0 },
+      attachments: { referenced: 0, onDisk: 0, archived: 0, restored: 0, gcEnabled: false, elapsedMs: 0 },
       elapsedMs: 0
     };
   }
@@ -1465,6 +1683,14 @@ async function reconcileAll() {
 
 // src/lib/export/mirror/timer.ts
 var INTERVAL_MS = 15 * 60 * 1e3;
+
+// src/lib/realtime/bus.ts
+var STATE_KEY = /* @__PURE__ */ Symbol.for("@flow/realtime-bus-state");
+var globalRef = globalThis;
+if (!globalRef[STATE_KEY]) {
+  globalRef[STATE_KEY] = { channels: /* @__PURE__ */ new Map() };
+}
+var state = globalRef[STATE_KEY];
 
 // src/lib/db/queries.ts
 function listTasks(filter = {}) {
@@ -1674,6 +1900,74 @@ function findApiKeyByHash(hash) {
   const db = getDb();
   return db.select().from(apiKeys).where(eq2(apiKeys.hash, hash)).get();
 }
+function deriveUniqueWorkspaceSlug(name) {
+  const db = getDb();
+  const base = slugify2(name) || "workspace";
+  let candidate = base;
+  let suffix = 2;
+  while (db.select({ id: workspaces.id }).from(workspaces).where(eq2(workspaces.slug, candidate)).get()) {
+    candidate = `${base}-${suffix++}`;
+  }
+  return candidate;
+}
+function listWorkspaces(filter = {}) {
+  const db = getDb();
+  const status = filter.status ?? "active";
+  const rows = db.select({
+    ...getTableColumns(workspaces),
+    session_count: sql2`(
+        SELECT COUNT(*) FROM chat_sessions cs
+        WHERE cs.workspace_id = ${sql2.raw('"workspaces"."id"')} AND cs.status = 'active'
+      )`.as("session_count"),
+    needs_review_candidate_count: sql2`(
+        SELECT COUNT(*) FROM chat_sessions cs
+        WHERE cs.workspace_id = ${sql2.raw('"workspaces"."id"')}
+          AND cs.status = 'active'
+          AND cs.last_outcome_event_at IS NOT NULL
+          AND cs.last_outcome_event_at > COALESCE(cs.last_viewed_at, '1970-01-01')
+      )`.as("needs_review_candidate_count"),
+    active_session_count: sql2`(
+        SELECT COUNT(*) FROM chat_sessions cs
+        WHERE cs.workspace_id = ${sql2.raw('"workspaces"."id"')} AND cs.status = 'active'
+      )`.as("active_session_count")
+  }).from(workspaces).where(eq2(workspaces.status, status)).orderBy(asc(workspaces.position), asc(workspaces.created_at)).all();
+  return rows;
+}
+function getWorkspace(id) {
+  const db = getDb();
+  return db.select().from(workspaces).where(eq2(workspaces.id, id)).get();
+}
+function createWorkspace(input) {
+  const db = getDb();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const slug = input.slug ?? deriveUniqueWorkspaceSlug(input.name);
+  const maxPosition = db.select({ max: sql2`MAX(${workspaces.position})` }).from(workspaces).get();
+  const position = input.position ?? (maxPosition?.max ?? -1) + 1;
+  const row2 = db.insert(workspaces).values({
+    ...input,
+    id: uuidv7(),
+    slug,
+    position,
+    status: input.status ?? "active",
+    created_at: now,
+    updated_at: now
+  }).returning().get();
+  return row2;
+}
+function archiveWorkspace(id) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const db = getDb();
+  const row2 = db.update(workspaces).set({ status: "archived", archived_at: now, updated_at: now }).where(eq2(workspaces.id, id)).returning().get();
+  return row2 ?? null;
+}
+function listChatSessions(filter = {}) {
+  const db = getDb();
+  const conditions = [];
+  if (filter.workspace_id) conditions.push(eq2(chatSessions.workspace_id, filter.workspace_id));
+  if (filter.status) conditions.push(eq2(chatSessions.status, filter.status));
+  if (filter.type) conditions.push(eq2(chatSessions.type, filter.type));
+  return db.select().from(chatSessions).where(conditions.length > 0 ? and2(...conditions) : void 0).orderBy(sql2`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`).all();
+}
 
 // src/lib/auth/port.ts
 var DEFAULT_PORT = 4224;
@@ -1689,14 +1983,20 @@ function setRunningPort(port) {
 }
 
 // src/lib/auth/bootstrap.ts
+function getStaticUrl() {
+  return readAuthConfig()?.staticUrl ?? null;
+}
+function setStaticUrl(url) {
+  writeAuthConfig({ staticUrl: url });
+}
 function getLocalBaseUrl() {
-  return `http://localhost:${getRunningPort()}`;
+  return getStaticUrl() ?? `http://localhost:${getRunningPort()}`;
 }
 function getLanIp() {
   const nets = os2.networkInterfaces();
   for (const name of Object.keys(nets)) {
-    for (const net3 of nets[name] ?? []) {
-      if (net3.family === "IPv4" && !net3.internal) return net3.address;
+    for (const net2 of nets[name] ?? []) {
+      if (net2.family === "IPv4" && !net2.internal) return net2.address;
     }
   }
   return null;
@@ -1759,51 +2059,65 @@ function setVoiceEnabled(enabled) {
   writeAuthConfig({ voiceEnabled: enabled });
 }
 
+// src/lib/config/onboarded.ts
+function getIsOnboarded() {
+  const config = readAuthConfig();
+  return !!config?.onboardedAt;
+}
+function markOnboarded() {
+  writeAuthConfig({ onboardedAt: (/* @__PURE__ */ new Date()).toISOString() });
+}
+function getOnboardedAt() {
+  const config = readAuthConfig();
+  if (!config?.onboardedAt) return null;
+  const d = new Date(config.onboardedAt);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 // src/cli/lib/server.ts
-import { spawn } from "child_process";
-import net from "net";
+import { spawn, spawnSync } from "child_process";
 import { createRequire } from "module";
 var require2 = createRequire(import.meta.url);
 function startNextServer(opts) {
   const nextBin = require2.resolve("next/dist/bin/next");
   const subcommand = opts.dev ? "dev" : "start";
+  if (opts.portlessName) {
+    return spawn(
+      "portless",
+      [opts.portlessName, process.execPath, nextBin, subcommand],
+      { stdio: ["ignore", "inherit", "inherit"], env: process.env }
+    );
+  }
   return spawn(process.execPath, [nextBin, subcommand, "-p", String(opts.port)], {
     stdio: ["ignore", "inherit", "inherit"],
     env: { ...process.env, PORT: String(opts.port) }
   });
 }
-async function waitForServer(port, timeoutMs = 3e4) {
+function isPortlessInstalled() {
+  return spawnSync("command", ["-v", "portless"], {
+    stdio: "ignore",
+    shell: true
+  }).status === 0;
+}
+async function waitForServer(baseUrl, timeoutMs = 3e4) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (await canConnect(port)) return;
+    const probe = await probeHealth(baseUrl);
+    if (probe.status === "ok") return;
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error(`Server did not start on port ${port} within ${timeoutMs}ms`);
+  throw new Error(`Server did not respond at ${baseUrl} within ${timeoutMs}ms`);
 }
-function canConnect(port) {
-  return new Promise((resolve) => {
-    const socket = net.connect(port, "127.0.0.1");
-    socket.once("connect", () => {
-      socket.end();
-      resolve(true);
-    });
-    socket.once("error", () => resolve(false));
-    socket.setTimeout(500, () => {
-      socket.destroy();
-      resolve(false);
-    });
-  });
+async function isOurServerRunning(baseUrl) {
+  return (await probeHealth(baseUrl)).status === "ok";
 }
-async function isOurServerRunning(port) {
-  return (await probeHealth(port)).status === "ok";
-}
-async function probeHealth(port) {
-  if (!await canConnect(port)) return { status: "offline" };
+async function probeHealth(baseUrl) {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/health`, {
       signal: AbortSignal.timeout(1e4)
     });
     if (!res.ok) {
+      if (res.status >= 502 && res.status <= 504) return { status: "offline" };
       return { status: "unknown-app", detail: `HTTP ${res.status}` };
     }
     const body = await res.json();
@@ -1813,6 +2127,9 @@ async function probeHealth(port) {
     return { status: "ok", info: { ok: body.ok ?? true, app: body.app, port: body.port } };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
+    if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed/i.test(detail)) {
+      return { status: "offline" };
+    }
     return { status: "unreachable", detail };
   }
 }
@@ -1922,6 +2239,10 @@ removed=${result.removed}`));
   });
 }
 
+// src/cli/commands/onboard.ts
+import { intro, outro, log, confirm, select, isCancel, spinner } from "@clack/prompts";
+import pc2 from "picocolors";
+
 // src/cli/lib/voice.ts
 import { spawn as spawn2 } from "child_process";
 import path8 from "path";
@@ -1984,17 +2305,240 @@ function runDockerCompose(args) {
   });
 }
 
+// src/cli/commands/onboard.ts
+async function onboardCommand(opts) {
+  intro(pc2.bgCyan(pc2.black(` ${APP_NAME} onboard `)));
+  const port = Number(opts.port ?? 4224);
+  const s = spinner();
+  s.start("Bootstrapping auth");
+  const info = ensureLocalToken();
+  resetDb();
+  s.stop(info.created ? "Created new host token" : "Reusing existing token");
+  const baseUrl = getLocalBaseUrl();
+  const serverRunning = await isOurServerRunning(baseUrl);
+  const alreadyOnboarded = getIsOnboarded();
+  if (!alreadyOnboarded || opts.force) {
+    if (opts.force && alreadyOnboarded) {
+      log.info("Re-running setup (--force)");
+    }
+    await runWizard();
+    markOnboarded();
+    log.success("Setup complete");
+    const startNow = await confirm({
+      message: serverRunning ? "Server is already running. Open it now?" : "Start the server now?",
+      initialValue: true
+    });
+    if (isCancel(startNow) || !startNow) {
+      outro("All set \u2014 run the default command anytime to start.");
+      return;
+    }
+    if (serverRunning) {
+      await openBrowser(info.pairingUrl);
+      outro(`Opened ${baseUrl}`);
+      return;
+    }
+    outro("Starting server\u2026");
+    await startCommand({ port: String(port), open: true, pair: false });
+    return;
+  }
+  const at = getOnboardedAt();
+  const whenLine = at ? pc2.dim(`(onboarded ${at.toLocaleDateString()})`) : "";
+  log.info(`You're already set up ${whenLine}`);
+  const options = [];
+  if (serverRunning) {
+    options.push({ value: "open", label: "Open in browser", hint: baseUrl });
+  } else {
+    options.push({ value: "start", label: "Start the server" });
+  }
+  options.push({ value: "update", label: "Update configuration" });
+  options.push({ value: "cancel", label: "Cancel" });
+  const action = await select({
+    message: "What would you like to do?",
+    options
+  });
+  if (isCancel(action) || action === "cancel") {
+    outro("No changes.");
+    return;
+  }
+  if (action === "open") {
+    await openBrowser(info.pairingUrl);
+    outro(`Opened http://localhost:${port}`);
+    return;
+  }
+  if (action === "start") {
+    outro("Starting server\u2026");
+    await startCommand({ port: String(port), open: true, pair: false });
+    return;
+  }
+  if (action === "update") {
+    await runWizard();
+    markOnboarded();
+    log.success("Configuration updated");
+    const followUp = await confirm({
+      message: serverRunning ? "Server is running with the previous config. Open it?" : "Start the server now?",
+      initialValue: true
+    });
+    if (isCancel(followUp) || !followUp) {
+      outro("Done.");
+      return;
+    }
+    if (serverRunning) {
+      await openBrowser(info.pairingUrl);
+      outro(`Opened ${baseUrl}`);
+      return;
+    }
+    outro("Starting server\u2026");
+    await startCommand({ port: String(port), open: true, pair: false });
+  }
+}
+async function runWizard() {
+  const dockerOk = await isDockerAvailable();
+  const currentPref = getVoiceEnabled();
+  const voiceMsg = dockerOk ? "Enable voice (local speech-to-text via Docker/Parakeet)?" : "Enable voice? Docker is not running \u2014 voice will stay off until you start it.";
+  const voice = await confirm({
+    message: voiceMsg,
+    initialValue: dockerOk ? currentPref || currentPref === null : false
+  });
+  if (isCancel(voice)) {
+    throw new Error("Setup cancelled");
+  }
+  setVoiceEnabled(!!voice);
+  if (voice && !dockerOk) {
+    log.info("Voice is enabled \u2014 start Docker before running the server to activate it.");
+  }
+}
+
+// src/cli/commands/doctor.ts
+import fs8 from "fs";
+import net from "net";
+import pc3 from "picocolors";
+var defaultPort = Number(process.env.PORT ?? 4224);
+var checks = [
+  {
+    name: "App root directory",
+    run: () => {
+      const dir = getAppRoot();
+      const exists = fs8.existsSync(dir);
+      return { ok: exists || true, detail: dir };
+    }
+  },
+  {
+    name: "Database file",
+    run: () => {
+      const p = getDbPath();
+      const exists = fs8.existsSync(p);
+      return {
+        ok: true,
+        detail: exists ? p : `will be created on first start (${p})`
+      };
+    }
+  },
+  {
+    name: "Pairing token",
+    run: () => {
+      const config = readAuthConfig();
+      return {
+        ok: !!config?.localToken,
+        detail: config?.localToken ? "present" : "missing \u2014 run the `pair` command"
+      };
+    }
+  },
+  {
+    name: `Default port available (${defaultPort})`,
+    run: async () => {
+      const free = await isPortFree(defaultPort);
+      return {
+        ok: free,
+        detail: free ? "free" : `port ${defaultPort} is in use`
+      };
+    }
+  },
+  {
+    name: "Voice (Parakeet STT)",
+    run: async () => {
+      const wanted = getVoiceEnabled();
+      if (!wanted) return { ok: true, detail: "disabled in config" };
+      if (await isVoiceReady()) return { ok: true, detail: "running" };
+      if (!await isDockerAvailable()) {
+        return { ok: false, detail: "enabled, but Docker daemon is not running" };
+      }
+      return { ok: true, detail: "enabled, will start on server launch" };
+    }
+  }
+];
+async function doctorCommand() {
+  const results = await runDoctorChecks();
+  printDoctorChecks(results);
+  process.exit(results.every((r) => r.ok) ? 0 : 1);
+}
+async function runDoctorChecks() {
+  const out = [];
+  for (const check of checks) {
+    const result = await run(check);
+    out.push({ name: check.name, ...result });
+  }
+  return out;
+}
+function printDoctorChecks(results, options = {}) {
+  const failures = results.filter((r) => !r.ok);
+  if (options.compact && failures.length === 0) {
+    console.log(pc3.green("\u2713") + ` Diagnostics passed (${results.length} checks)`);
+    return;
+  }
+  const toPrint = options.compact ? failures : results;
+  for (const result of toPrint) {
+    const icon = result.ok ? pc3.green("\u2713") : pc3.red("\u2717");
+    const detail = result.detail ? pc3.dim(` \u2014 ${result.detail}`) : "";
+    console.log(`${icon} ${result.name}${detail}`);
+  }
+}
+async function run(check) {
+  try {
+    return await check.run();
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, "127.0.0.1");
+  });
+}
+
 // src/cli/commands/start.ts
+function resolvePortless(opt) {
+  if (!opt) return null;
+  const name = typeof opt === "string" ? opt.trim() : APP_SHORT_ID;
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(name)) {
+    throw new Error(
+      `Invalid --portless name '${name}'. Use letters, digits, and hyphens (no leading hyphen).`
+    );
+  }
+  return { name, url: `https://${name}.localhost` };
+}
 async function startCommand(opts) {
   if (opts.dev && !process.env[APP_ROOT_ENV]) {
     process.env[APP_ROOT_ENV] = getDevAppRoot();
   }
-  intro(pc2.bgCyan(pc2.black(` ${APP_NAME} `)));
+  intro2(pc4.bgCyan(pc4.black(` ${APP_NAME} `)));
   if (opts.dev) {
-    log.info(pc2.dim(`Data root: ${process.env[APP_ROOT_ENV]}`));
+    log2.info(pc4.dim(`Data root: ${process.env[APP_ROOT_ENV]}`));
   }
+  const portless = resolvePortless(opts.portless);
+  if (portless && !isPortlessInstalled()) {
+    log2.error(
+      `--portless requires the \`portless\` CLI on PATH. Install it from https://portless.sh and retry.`
+    );
+    process.exit(1);
+  }
+  setStaticUrl(portless?.url ?? null);
   const preferredPort = Number(opts.port ?? 4224);
-  const s = spinner();
+  const s = spinner2();
   s.start("Bootstrapping auth");
   const info = ensureLocalToken();
   resetDb();
@@ -2002,45 +2546,65 @@ async function startCommand(opts) {
   try {
     const result = await installWorkspaceSkills();
     if (result.installed > 0) {
-      log.success(`Installed ${result.installed} skill symlink(s) in the app data dir`);
+      log2.success(`Installed ${result.installed} skill symlink(s) in the app data dir`);
     }
   } catch (err) {
-    log.warn(`Skill auto-install skipped: ${err instanceof Error ? err.message : String(err)}`);
+    log2.warn(`Skill auto-install skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (await isOurServerRunning(preferredPort)) {
+  if (await isOurServerRunning(getLocalBaseUrl())) {
     const url2 = info.pairingUrl;
-    log.success(`Already running at http://localhost:${preferredPort}`);
+    log2.success(`Already running at ${getLocalBaseUrl()}`);
     if (opts.open) await openBrowser(url2);
-    outro(opts.open ? "Opened in browser" : `Open: ${url2}`);
+    outro2(opts.open ? "Opened in browser" : `Open: ${url2}`);
     return;
   }
+  if (!getIsOnboarded()) {
+    if (process.stdin.isTTY) {
+      await runWizard();
+      markOnboarded();
+      log2.success("Setup complete");
+    } else {
+      log2.info("Skipping CLI setup (non-interactive). Run `flow onboard` to configure.");
+    }
+  }
+  const diagnostics = await runDoctorChecks();
+  printDoctorChecks(diagnostics, { compact: true });
   const voiceWanted = opts.voice ?? getVoiceEnabled();
   let voiceStarted = false;
   if (voiceWanted) {
     voiceStarted = await bringUpVoice(s);
   }
-  const port = await getPort({ port: preferredPort });
-  if (port !== preferredPort) {
-    log.warn(`Port ${preferredPort} in use \u2014 using ${port}`);
+  let port = 0;
+  if (!portless) {
+    port = await getPort({ port: preferredPort });
+    if (port !== preferredPort) {
+      log2.warn(`Port ${preferredPort} in use \u2014 using ${port}`);
+    }
+    process.env.PORT = String(port);
+    setRunningPort(port);
   }
-  process.env.PORT = String(port);
-  setRunningPort(port);
-  s.start(opts.dev ? "Starting dev server" : "Starting server");
-  const child = startNextServer({ port, dev: opts.dev });
+  s.start(
+    portless ? `Starting dev server via portless (${portless.url})` : opts.dev ? "Starting dev server" : "Starting server"
+  );
+  const child = startNextServer({
+    port,
+    dev: opts.dev,
+    portlessName: portless?.name
+  });
   child.on("error", (err) => {
-    log.error(`Server failed to start: ${err.message}`);
+    log2.error(`Server failed to start: ${err.message}`);
     process.exit(1);
   });
-  await waitForServer(port);
-  s.stop(`Server ready at http://localhost:${port}`);
+  await waitForServer(getLocalBaseUrl(), portless ? 6e4 : 3e4);
+  s.stop(`Server ready at ${getLocalBaseUrl()}`);
   const url = info.pairingUrl;
   if (opts.open) {
     await openBrowser(url);
-    log.success(`Opened ${url}`);
+    log2.success(`Opened ${url}`);
   } else {
-    log.info(`Open: ${url}`);
+    log2.info(`Open: ${url}`);
   }
-  outro("Press Ctrl-C to stop");
+  outro2("Press Ctrl-C to stop");
   let shuttingDown = false;
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -2061,11 +2625,11 @@ async function startCommand(opts) {
 async function bringUpVoice(s) {
   const ctx = getVoiceContext();
   if (await isVoiceReady(ctx)) {
-    log.info("Voice already running \u2014 reusing existing container");
+    log2.info("Voice already running \u2014 reusing existing container");
     return false;
   }
   if (!await isDockerAvailable()) {
-    log.warn("Voice enabled, but Docker is not running \u2014 continuing without voice");
+    log2.warn("Voice enabled, but Docker is not running \u2014 continuing without voice");
     return false;
   }
   s.start("Starting voice sidecar (Parakeet)");
@@ -2075,15 +2639,140 @@ async function bringUpVoice(s) {
     s.stop(`Voice ready at ${ctx.serviceUrl}`);
     return true;
   } catch (err) {
-    s.stop(pc2.yellow("Voice failed to start \u2014 continuing without voice"));
-    log.warn(err instanceof Error ? err.message : String(err));
+    s.stop(pc4.yellow("Voice failed to start \u2014 continuing without voice"));
+    log2.warn(err instanceof Error ? err.message : String(err));
     return false;
   }
 }
 
+// src/cli/commands/stop.ts
+import { execFileSync } from "child_process";
+import { intro as intro3, outro as outro3, log as log3, spinner as spinner3 } from "@clack/prompts";
+import pc5 from "picocolors";
+async function stopCommand(opts) {
+  intro3(pc5.bgCyan(pc5.black(` ${APP_NAME} stop `)));
+  const port = Number(opts.port ?? getRunningPort());
+  if (!Number.isFinite(port) || port <= 0) {
+    log3.error(`Invalid port: ${opts.port}`);
+    outro3("Aborted");
+    process.exit(1);
+  }
+  const timeoutMs = Math.max(500, Number(opts.timeout ?? 5e3));
+  const probe = await probeHealth(`http://127.0.0.1:${port}`);
+  if (probe.status === "offline") {
+    log3.info(`Nothing listening on port ${port}`);
+    outro3("Done");
+    return;
+  }
+  if (probe.status !== "ok") {
+    log3.error(
+      `Port ${port} is in use, but doesn't look like ${APP_NAME} (${probe.status}` + ("detail" in probe ? `: ${probe.detail}` : "") + `). Refusing to kill it.`
+    );
+    outro3("Aborted");
+    process.exit(1);
+  }
+  const listenerPid = findListenerPid(port);
+  if (!listenerPid) {
+    log3.error(`Could not resolve a PID for port ${port} (lsof returned nothing)`);
+    outro3("Aborted");
+    process.exit(1);
+  }
+  const targets = [listenerPid];
+  const parent = getParent(listenerPid);
+  if (parent && isFlowParent(parent.command)) {
+    targets.unshift(parent.pid);
+  }
+  const s = spinner3();
+  s.start(`Stopping ${APP_NAME} on port ${port} (PID ${targets.join(", ")})`);
+  const signal = opts.force ? "SIGKILL" : "SIGTERM";
+  for (const pid of targets) {
+    try {
+      process.kill(pid, signal);
+    } catch (err) {
+      const code = err.code;
+      if (code !== "ESRCH") {
+        s.stop(pc5.red(`Failed to signal PID ${pid}: ${err.message}`));
+        outro3("Aborted");
+        process.exit(1);
+      }
+    }
+  }
+  const cleared = await waitForPortClear(port, timeoutMs);
+  if (cleared) {
+    s.stop(`Stopped ${APP_NAME} on port ${port}`);
+    outro3("Done");
+    return;
+  }
+  if (signal !== "SIGKILL") {
+    s.stop(pc5.yellow(`SIGTERM timed out after ${timeoutMs}ms \u2014 sending SIGKILL`));
+    for (const pid of targets) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+      }
+    }
+    const finalCleared = await waitForPortClear(port, 2e3);
+    if (finalCleared) {
+      log3.success(`Stopped ${APP_NAME} on port ${port}`);
+      outro3("Done");
+      return;
+    }
+  }
+  log3.error(`Port ${port} still in use after kill \u2014 check \`lsof -iTCP:${port}\``);
+  outro3("Aborted");
+  process.exit(1);
+}
+function findListenerPid(port) {
+  try {
+    const out = execFileSync(
+      "lsof",
+      ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim();
+    if (!out) return null;
+    const first = out.split(/\s+/)[0];
+    const pid = Number(first);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+function getParent(pid) {
+  try {
+    const out = execFileSync("ps", ["-o", "ppid=,command=", "-p", String(pid)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    if (!out) return null;
+    const match = out.match(/^\s*(\d+)\s+(.*)$/);
+    if (!match) return null;
+    const ppid = Number(match[1]);
+    if (!Number.isFinite(ppid) || ppid <= 1) return null;
+    const ppsOut = execFileSync("ps", ["-o", "command=", "-p", String(ppid)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return { pid: ppid, command: ppsOut };
+  } catch {
+    return null;
+  }
+}
+function isFlowParent(command) {
+  return /\bnext\b.*\b(dev|start)\b/.test(command) || /tsx\s+src\/cli\/index\.ts/.test(command) || /\bcli\/index\.(ts|js)\b/.test(command);
+}
+async function waitForPortClear(port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const probe = await probeHealth(`http://127.0.0.1:${port}`);
+    if (probe.status === "offline") return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
 // src/cli/commands/pair.ts
 import os3 from "os";
-import pc3 from "picocolors";
+import pc6 from "picocolors";
 
 // src/cli/lib/qr.ts
 import QRCode from "qrcode";
@@ -2108,15 +2797,15 @@ var ALLOWED_CLI_TYPES = [
 async function pairCommand(opts = {}) {
   if (opts.clearUrl) {
     clearRemoteBaseUrl();
-    console.log(pc3.green("Cleared remote base URL."));
+    console.log(pc6.green("Cleared remote base URL."));
     return;
   }
   if (opts.setUrl) {
     try {
       const saved = setRemoteBaseUrl(opts.setUrl);
-      console.log(pc3.green(`Saved remote base URL: ${saved}`));
+      console.log(pc6.green(`Saved remote base URL: ${saved}`));
     } catch (err) {
-      console.error(pc3.red(err instanceof Error ? err.message : String(err)));
+      console.error(pc6.red(err instanceof Error ? err.message : String(err)));
       process.exit(1);
     }
     return;
@@ -2124,25 +2813,26 @@ async function pairCommand(opts = {}) {
   const deviceType = resolveDeviceType(opts.type);
   if (deviceType === null) {
     console.error(
-      pc3.red(
+      pc6.red(
         `Invalid --type "${opts.type}". Must be one of: ${ALLOWED_CLI_TYPES.join(", ")}.`
       )
     );
     process.exit(1);
   }
   const host = ensureLocalToken();
-  if (host.created) console.log(pc3.green("Initialized host."));
-  const cachedPort = getRunningPort();
-  const probe = await probeHealth(cachedPort);
+  if (host.created) console.log(pc6.green("Initialized host."));
+  const baseUrl = getLocalBaseUrl();
+  const probe = await probeHealth(baseUrl);
   if (probe.status === "ok") {
+    const cachedPort = getRunningPort();
     if (probe.info.port !== cachedPort) setRunningPort(probe.info.port);
   } else {
-    printProbeWarning(cachedPort, probe);
+    printProbeWarning(baseUrl, probe);
   }
   const chosen = chooseBase(opts);
   if (!chosen) {
     console.error(
-      pc3.red(
+      pc6.red(
         `No LAN address available on this machine. Try without \`--lan\`, or pass \`--local\` for localhost.`
       )
     );
@@ -2158,31 +2848,31 @@ async function pairCommand(opts = {}) {
   const alternates = gatherAlternates(chosen, token.plaintext);
   console.log();
   console.log(
-    pc3.bold(`${APP_SHORT_ID} pair`) + pc3.dim(` \u2014 created device "${key.name}" (${key.device_type})`)
+    pc6.bold(`${APP_SHORT_ID} pair`) + pc6.dim(` \u2014 created device "${key.name}" (${key.device_type})`)
   );
   console.log();
   console.log(await renderTerminalQr(primaryUrl));
-  console.log(pc3.bold(`${chosen.label} (primary):`));
+  console.log(pc6.bold(`${chosen.label} (primary):`));
   console.log(`  ${primaryUrl}`);
   if (alternates.length > 0) {
     console.log();
-    console.log(pc3.bold("Also reachable at:"));
+    console.log(pc6.bold("Also reachable at:"));
     const maxUrlLen = Math.max(...alternates.map((a) => a.url.length));
     for (const alt of alternates) {
       const padded = alt.url.padEnd(maxUrlLen, " ");
-      console.log(`  ${padded}  ${pc3.dim(`(${alt.label})`)}`);
+      console.log(`  ${padded}  ${pc6.dim(`(${alt.label})`)}`);
     }
   }
   console.log();
-  console.log(pc3.dim(hintFor(chosen.source, getRemoteBaseUrl())));
+  console.log(pc6.dim(hintFor(chosen.source, getRemoteBaseUrl())));
   console.log();
   console.log(
-    pc3.dim(
+    pc6.dim(
       `Rename or revoke this device anytime from the Devices sheet in the web app's top bar.`
     )
   );
   console.log();
-  console.log(pc3.bold("Token") + pc3.dim(` (paste into any base URL as \`/#${PAIRING_TOKEN_FRAGMENT_KEY}=<token>\`):`));
+  console.log(pc6.bold("Token") + pc6.dim(` (paste into any base URL as \`/#${PAIRING_TOKEN_FRAGMENT_KEY}=<token>\`):`));
   console.log(`  ${token.plaintext}`);
   console.log();
 }
@@ -2248,242 +2938,35 @@ function hintFor(source, tunnel) {
       return `Using localhost (overriding saved remote URL). Run without \`--local\` to use the remote URL.`;
   }
 }
-function printProbeWarning(port, probe) {
+function printProbeWarning(baseUrl, probe) {
   switch (probe.status) {
     case "offline":
       console.log(
-        pc3.yellow(
-          `! Nothing is listening on port ${port}. URL below assumes that port \u2014 start the server or run \`${APP_SHORT_ID} pair\` again afterward.`
+        pc6.yellow(
+          `! Nothing is responding at ${baseUrl}. URL below assumes that target \u2014 start the server or run \`${APP_SHORT_ID} pair\` again afterward.`
         )
       );
       return;
     case "unreachable":
       console.log(
-        pc3.yellow(
-          `! Port ${port} is open but /api/health didn't respond (${probe.detail}). If the dev server is still compiling, try again in a few seconds.`
+        pc6.yellow(
+          `! ${baseUrl} is reachable but /api/health didn't respond (${probe.detail}). If the dev server is still compiling, try again in a few seconds.`
         )
       );
       return;
     case "unknown-app":
       console.log(
-        pc3.yellow(
-          `! Something is running on port ${port} but it doesn't look like ${APP_SHORT_ID} (${probe.detail}).`
+        pc6.yellow(
+          `! Something is responding at ${baseUrl} but it doesn't look like ${APP_SHORT_ID} (${probe.detail}).`
         )
       );
       return;
   }
 }
 
-// src/cli/commands/doctor.ts
-import fs8 from "fs";
-import net2 from "net";
-import pc4 from "picocolors";
-var defaultPort = Number(process.env.PORT ?? 4224);
-var checks = [
-  {
-    name: "App root directory",
-    run: () => {
-      const dir = getAppRoot();
-      const exists = fs8.existsSync(dir);
-      return { ok: exists || true, detail: dir };
-    }
-  },
-  {
-    name: "Database file",
-    run: () => {
-      const p = getDbPath();
-      return {
-        ok: fs8.existsSync(p),
-        detail: fs8.existsSync(p) ? p : `missing \u2014 will be created on first start (${p})`
-      };
-    }
-  },
-  {
-    name: "Pairing token",
-    run: () => {
-      const config = readAuthConfig();
-      return {
-        ok: !!config?.localToken,
-        detail: config?.localToken ? "present" : "missing \u2014 run the `pair` command"
-      };
-    }
-  },
-  {
-    name: `Default port available (${defaultPort})`,
-    run: async () => {
-      const free = await isPortFree(defaultPort);
-      return {
-        ok: free,
-        detail: free ? "free" : `port ${defaultPort} is in use`
-      };
-    }
-  },
-  {
-    name: "Voice (Parakeet STT)",
-    run: async () => {
-      const wanted = getVoiceEnabled();
-      if (!wanted) return { ok: true, detail: "disabled in config" };
-      if (await isVoiceReady()) return { ok: true, detail: "running" };
-      if (!await isDockerAvailable()) {
-        return { ok: false, detail: "enabled, but Docker daemon is not running" };
-      }
-      return { ok: true, detail: "enabled, will start on server launch" };
-    }
-  }
-];
-async function doctorCommand() {
-  let allOk = true;
-  for (const check of checks) {
-    const result = await run(check);
-    if (!result.ok) allOk = false;
-    const icon = result.ok ? pc4.green("\u2713") : pc4.red("\u2717");
-    const detail = result.detail ? pc4.dim(` \u2014 ${result.detail}`) : "";
-    console.log(`${icon} ${check.name}${detail}`);
-  }
-  process.exit(allOk ? 0 : 1);
-}
-async function run(check) {
-  try {
-    return await check.run();
-  } catch (err) {
-    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
-  }
-}
-function isPortFree(port) {
-  return new Promise((resolve) => {
-    const server = net2.createServer();
-    server.once("error", () => resolve(false));
-    server.once("listening", () => {
-      server.close(() => resolve(true));
-    });
-    server.listen(port, "127.0.0.1");
-  });
-}
-
-// src/cli/commands/onboard.ts
-import { intro as intro2, outro as outro2, log as log2, confirm, select, isCancel, spinner as spinner2 } from "@clack/prompts";
-import pc5 from "picocolors";
-
-// src/lib/config/onboarded.ts
-function getIsOnboarded() {
-  const config = readAuthConfig();
-  return !!config?.onboardedAt;
-}
-function markOnboarded() {
-  writeAuthConfig({ onboardedAt: (/* @__PURE__ */ new Date()).toISOString() });
-}
-function getOnboardedAt() {
-  const config = readAuthConfig();
-  if (!config?.onboardedAt) return null;
-  const d = new Date(config.onboardedAt);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-// src/cli/commands/onboard.ts
-async function onboardCommand(opts) {
-  intro2(pc5.bgCyan(pc5.black(` ${APP_NAME} onboard `)));
-  const port = Number(opts.port ?? 4224);
-  const s = spinner2();
-  s.start("Bootstrapping auth");
-  const info = ensureLocalToken();
-  resetDb();
-  s.stop(info.created ? "Created new host token" : "Reusing existing token");
-  const serverRunning = await isOurServerRunning(port);
-  const alreadyOnboarded = getIsOnboarded();
-  if (!alreadyOnboarded || opts.force) {
-    if (opts.force && alreadyOnboarded) {
-      log2.info("Re-running setup (--force)");
-    }
-    await runWizard();
-    markOnboarded();
-    log2.success("Setup complete");
-    const startNow = await confirm({
-      message: serverRunning ? "Server is already running. Open it now?" : "Start the server now?",
-      initialValue: true
-    });
-    if (isCancel(startNow) || !startNow) {
-      outro2("All set \u2014 run the default command anytime to start.");
-      return;
-    }
-    if (serverRunning) {
-      await openBrowser(info.pairingUrl);
-      outro2(`Opened http://localhost:${port}`);
-      return;
-    }
-    outro2("Starting server\u2026");
-    await startCommand({ port: String(port), open: true, pair: false });
-    return;
-  }
-  const at = getOnboardedAt();
-  const whenLine = at ? pc5.dim(`(onboarded ${at.toLocaleDateString()})`) : "";
-  log2.info(`You're already set up ${whenLine}`);
-  const options = [];
-  if (serverRunning) {
-    options.push({ value: "open", label: "Open in browser", hint: `http://localhost:${port}` });
-  } else {
-    options.push({ value: "start", label: "Start the server" });
-  }
-  options.push({ value: "update", label: "Update configuration" });
-  options.push({ value: "cancel", label: "Cancel" });
-  const action = await select({
-    message: "What would you like to do?",
-    options
-  });
-  if (isCancel(action) || action === "cancel") {
-    outro2("No changes.");
-    return;
-  }
-  if (action === "open") {
-    await openBrowser(info.pairingUrl);
-    outro2(`Opened http://localhost:${port}`);
-    return;
-  }
-  if (action === "start") {
-    outro2("Starting server\u2026");
-    await startCommand({ port: String(port), open: true, pair: false });
-    return;
-  }
-  if (action === "update") {
-    await runWizard();
-    markOnboarded();
-    log2.success("Configuration updated");
-    const followUp = await confirm({
-      message: serverRunning ? "Server is running with the previous config. Open it?" : "Start the server now?",
-      initialValue: true
-    });
-    if (isCancel(followUp) || !followUp) {
-      outro2("Done.");
-      return;
-    }
-    if (serverRunning) {
-      await openBrowser(info.pairingUrl);
-      outro2(`Opened http://localhost:${port}`);
-      return;
-    }
-    outro2("Starting server\u2026");
-    await startCommand({ port: String(port), open: true, pair: false });
-  }
-}
-async function runWizard() {
-  const dockerOk = await isDockerAvailable();
-  const currentPref = getVoiceEnabled();
-  const voiceMsg = dockerOk ? "Enable voice (local speech-to-text via Docker/Parakeet)?" : "Enable voice? Docker is not running \u2014 voice will stay off until you start it.";
-  const voice = await confirm({
-    message: voiceMsg,
-    initialValue: dockerOk ? currentPref || currentPref === null : false
-  });
-  if (isCancel(voice)) {
-    throw new Error("Setup cancelled");
-  }
-  setVoiceEnabled(!!voice);
-  if (voice && !dockerOk) {
-    log2.info("Voice is enabled \u2014 start Docker before running the server to activate it.");
-  }
-}
-
 // src/cli/commands/voice.ts
 import { spawn as spawn3 } from "child_process";
-import pc6 from "picocolors";
+import pc7 from "picocolors";
 function registerVoiceCommand(program2) {
   const voice = program2.command("voice").description("Manage the voice (speech-to-text) sidecar");
   voice.command("status", { isDefault: true }).description("Show voice service status").action(statusAction);
@@ -2495,13 +2978,13 @@ function registerVoiceCommand(program2) {
   });
   voice.command("enable").description("Remember to auto-start voice with the server").action(() => {
     setVoiceEnabled(true);
-    console.log(pc6.green("Voice enabled."));
-    console.log(pc6.dim("Run `voice start` now, or it will come up on next server start."));
+    console.log(pc7.green("Voice enabled."));
+    console.log(pc7.dim("Run `voice start` now, or it will come up on next server start."));
   });
   voice.command("disable").description("Stop auto-starting voice with the server").action(() => {
     setVoiceEnabled(false);
-    console.log(pc6.yellow("Voice disabled."));
-    console.log(pc6.dim("The sidecar won't start automatically. Run `voice stop` if it's currently running."));
+    console.log(pc7.yellow("Voice disabled."));
+    console.log(pc7.dim("The sidecar won't start automatically. Run `voice stop` if it's currently running."));
   });
   voice.command("logs").description("Tail voice sidecar logs (Ctrl-C to exit)").action(logsAction);
 }
@@ -2510,51 +2993,51 @@ async function statusAction() {
   const [dockerOk, voiceOk] = await Promise.all([isDockerAvailable(), isVoiceReady(ctx)]);
   const pref = getVoiceEnabled();
   console.log();
-  row("Preference", pref ? pc6.green("enabled") : pc6.dim("disabled"));
-  row("Docker daemon", dockerOk ? pc6.green("running") : pc6.red("not running"));
-  row("Voice service", voiceOk ? pc6.green(`ready (${ctx.serviceUrl})`) : pc6.yellow("not responding"));
+  row("Preference", pref ? pc7.green("enabled") : pc7.dim("disabled"));
+  row("Docker daemon", dockerOk ? pc7.green("running") : pc7.red("not running"));
+  row("Voice service", voiceOk ? pc7.green(`ready (${ctx.serviceUrl})`) : pc7.yellow("not responding"));
   console.log();
   if (!pref && !voiceOk) {
-    console.log(pc6.dim("\u2192 `voice enable` to turn on, then `voice start`."));
+    console.log(pc7.dim("\u2192 `voice enable` to turn on, then `voice start`."));
   } else if (pref && !dockerOk) {
-    console.log(pc6.dim("\u2192 Start Docker, then `voice start`."));
+    console.log(pc7.dim("\u2192 Start Docker, then `voice start`."));
   } else if (pref && dockerOk && !voiceOk) {
-    console.log(pc6.dim("\u2192 `voice start` to bring up the sidecar."));
+    console.log(pc7.dim("\u2192 `voice start` to bring up the sidecar."));
   } else if (voiceOk) {
-    console.log(pc6.dim("\u2192 Everything looks good."));
+    console.log(pc7.dim("\u2192 Everything looks good."));
   }
 }
 async function startAction() {
   const ctx = getVoiceContext();
   if (await isVoiceReady(ctx)) {
-    console.log(pc6.green(`Voice is already running at ${ctx.serviceUrl}`));
+    console.log(pc7.green(`Voice is already running at ${ctx.serviceUrl}`));
     return;
   }
   if (!await isDockerAvailable()) {
-    console.error(pc6.red("Docker is not running."));
-    console.error(pc6.dim("Start Docker Desktop (or your Docker daemon) and re-run this command."));
+    console.error(pc7.red("Docker is not running."));
+    console.error(pc7.dim("Start Docker Desktop (or your Docker daemon) and re-run this command."));
     process.exit(1);
   }
   console.log("Starting voice sidecar (this can take several minutes on the first run)\u2026");
   try {
     await startVoiceService(ctx);
     await waitForVoiceReady(ctx);
-    console.log(pc6.green(`Voice ready at ${ctx.serviceUrl}`));
+    console.log(pc7.green(`Voice ready at ${ctx.serviceUrl}`));
   } catch (err) {
-    console.error(pc6.red("Voice failed to start."));
+    console.error(pc7.red("Voice failed to start."));
     console.error(err instanceof Error ? err.message : String(err));
-    console.error(pc6.dim("Run `voice logs` to inspect container output."));
+    console.error(pc7.dim("Run `voice logs` to inspect container output."));
     process.exit(1);
   }
 }
 async function stopAction() {
   const ctx = getVoiceContext();
   if (!await isDockerAvailable()) {
-    console.log(pc6.dim("Docker is not running \u2014 nothing to stop."));
+    console.log(pc7.dim("Docker is not running \u2014 nothing to stop."));
     return;
   }
   await stopVoiceService(ctx);
-  console.log(pc6.green("Voice stopped."));
+  console.log(pc7.green("Voice stopped."));
 }
 function logsAction() {
   const ctx = getVoiceContext();
@@ -2573,7 +3056,7 @@ function row(label, value) {
 }
 
 // src/cli/commands/snapshot.ts
-import pc7 from "picocolors";
+import pc8 from "picocolors";
 
 // src/lib/export/snapshot.ts
 import fsp4 from "fs/promises";
@@ -2666,11 +3149,11 @@ function registerSnapshotCommand(program2) {
   program2.command("snapshot").description("Write a local, dated snapshot (DB + markdown) to <app-root>/snapshots/").option("-o, --out <path>", "custom output directory (bypasses dated-folder convention)").action(async (opts) => {
     const reconcile = await reconcileAll();
     if (reconcile.synced > 0) {
-      console.log(pc7.dim(`Flushed mirror: ${reconcile.synced} synced, ${reconcile.skipped} skipped.`));
+      console.log(pc8.dim(`Flushed mirror: ${reconcile.synced} synced, ${reconcile.skipped} skipped.`));
     }
     const result = await createSnapshot({ outDir: opts.out });
-    console.log(pc7.green("Snapshot complete."));
-    console.log(pc7.dim(`  ${result.dir}`));
+    console.log(pc8.green("Snapshot complete."));
+    console.log(pc8.dim(`  ${result.dir}`));
     console.log(`  db: ${formatBytes(result.dbBytes)}`);
     console.log(`  mirror: ${result.mirrorFileCount} markdown files`);
   });
@@ -2682,12 +3165,12 @@ function formatBytes(bytes) {
 }
 
 // src/cli/commands/commit.ts
-import pc8 from "picocolors";
+import pc9 from "picocolors";
 
 // src/lib/git/commit.ts
 import fs10 from "fs";
 import path11 from "path";
-import { execFileSync } from "child_process";
+import { execFileSync as execFileSync2 } from "child_process";
 var GITIGNORE_ENTRIES = [
   "# Managed by " + APP_SHORT_ID + ". Database and binary files are not tracked.",
   "data.db",
@@ -2728,14 +3211,14 @@ function ensureGitignore(dir) {
 }
 function hasStagedChanges(dir) {
   try {
-    execFileSync("git", ["diff", "--cached", "--quiet"], { cwd: dir, stdio: "pipe" });
+    execFileSync2("git", ["diff", "--cached", "--quiet"], { cwd: dir, stdio: "pipe" });
     return false;
   } catch {
     return true;
   }
 }
 function run2(cmd, args, cwd) {
-  return execFileSync(cmd, args, { cwd, encoding: "utf8" });
+  return execFileSync2(cmd, args, { cwd, encoding: "utf8" });
 }
 
 // src/cli/commands/commit.ts
@@ -2743,45 +3226,45 @@ function registerCommitCommand(program2) {
   program2.command("commit").description("Flush the mirror and git-commit the brain dir (init git if needed)").action(async () => {
     const reconcile = await reconcileAll();
     if (reconcile.synced > 0) {
-      console.log(pc8.dim(`Flushed mirror: ${reconcile.synced} synced, ${reconcile.skipped} skipped.`));
+      console.log(pc9.dim(`Flushed mirror: ${reconcile.synced} synced, ${reconcile.skipped} skipped.`));
     }
     const result = commitBrain();
     if (!result.committed) {
-      console.log(pc8.dim("No changes since last commit."));
+      console.log(pc9.dim("No changes since last commit."));
       return;
     }
-    console.log(pc8.green("Committed."));
-    console.log(pc8.dim(`  ${result.sha}  ${result.message}`));
-    console.log(pc8.dim(`  in ${result.dir}`));
+    console.log(pc9.green("Committed."));
+    console.log(pc9.dim(`  ${result.sha}  ${result.message}`));
+    console.log(pc9.dim(`  in ${result.dir}`));
   });
 }
 
 // src/cli/commands/export.ts
-import pc9 from "picocolors";
+import pc10 from "picocolors";
 import fs11 from "fs/promises";
 function registerExportCommand(program2) {
   const exportCmd = program2.command("export").description("Force a full sync of the live markdown mirror").action(async () => {
     if (!isMirrorEnabled()) {
-      console.error(pc9.yellow(`Export mirror is disabled (${MIRROR_DISABLED_ENV}=1)`));
+      console.error(pc10.yellow(`Export mirror is disabled (${MIRROR_DISABLED_ENV}=1)`));
       process.exit(1);
     }
-    console.log(pc9.dim(`Syncing mirror at ${getBrainDir()}\u2026`));
+    console.log(pc10.dim(`Syncing mirror at ${getBrainDir()}\u2026`));
     const stats = await reconcileAll();
-    console.log(pc9.green("Sync complete."));
+    console.log(pc10.green("Sync complete."));
     console.log(`  synced:   ${stats.synced}`);
     console.log(`  skipped:  ${stats.skipped}`);
     if (stats.orphaned > 0) {
-      console.log(pc9.yellow(`  orphaned: ${stats.orphaned}  (files on disk with no DB row)`));
+      console.log(pc10.yellow(`  orphaned: ${stats.orphaned}  (files on disk with no DB row)`));
     }
-    console.log(pc9.dim(`  elapsed:  ${stats.elapsedMs}ms`));
+    console.log(pc10.dim(`  elapsed:  ${stats.elapsedMs}ms`));
   });
   exportCmd.command("path").description("Print the brain directory").action(() => {
     console.log(getBrainDir());
   });
   exportCmd.command("status").description("Show mirror file counts per type").action(async () => {
     const root = getBrainDir();
-    console.log(pc9.dim(`Brain: ${root}`));
-    console.log(pc9.dim(`Enabled: ${isMirrorEnabled() ? "yes" : "no"}`));
+    console.log(pc10.dim(`Brain: ${root}`));
+    console.log(pc10.dim(`Enabled: ${isMirrorEnabled() ? "yes" : "no"}`));
     for (const type of ["tasks", "notes", "areas", "stream"]) {
       const count = await countMdFiles(`${root}/${type}`);
       console.log(`  ${type.padEnd(8)} ${count}`);
@@ -2798,10 +3281,10 @@ async function countMdFiles(dir) {
 }
 
 // src/cli/commands/agent.ts
-import fs13 from "fs";
+import fs14 from "fs";
 
 // src/lib/orchestrator/registry.ts
-import fs12 from "fs";
+import fs13 from "fs";
 import { z } from "zod";
 
 // src/lib/orchestrator/types.ts
@@ -2820,7 +3303,48 @@ function defineAction(action) {
   return action;
 }
 
+// src/lib/workspaces/index.ts
+import { execFile } from "child_process";
+import path13 from "path";
+import { promisify } from "util";
+import slugify3 from "@sindresorhus/slugify";
+
+// src/lib/workspaces/files-to-copy.ts
+import * as fs12 from "fs/promises";
+import * as path12 from "path";
+import picomatch from "picomatch";
+
+// src/lib/workspaces/index.ts
+var execFileAsync = promisify(execFile);
+var cached = null;
+async function loadLib() {
+  if (cached) return cached;
+  cached = await import("@agentex/workspace");
+  return cached;
+}
+function defaultWorktreeRoot(slug) {
+  return path13.join(getAppRoot(), "worktrees", slug);
+}
+async function detectIsGit(absolutePath) {
+  try {
+    const lib = await loadLib();
+    const kind = await lib.workspace.detectKind(absolutePath);
+    return kind === "git";
+  } catch {
+    return false;
+  }
+}
+async function detectBaseBranch(absolutePath, remote = "origin") {
+  try {
+    const lib = await loadLib();
+    return await lib.workspace.detectDefaultBranch(absolutePath, remote);
+  } catch {
+    return null;
+  }
+}
+
 // src/lib/orchestrator/registry.ts
+import path14 from "path";
 var taskStatus = z.enum(["active", "done", "archived"]);
 var taskEnergy = z.enum(["deep", "light"]);
 var taskEffort = z.enum(["trivial", "small", "medium", "large", "epic"]);
@@ -2862,7 +3386,7 @@ var describe_paths = defineAction({
     config_path: getConfigPath(),
     attachments_dir: getAttachmentsDir(),
     tmp_dir: getTmpDir(),
-    db_exists: fs12.existsSync(getDbPath())
+    db_exists: fs13.existsSync(getDbPath())
   })
 });
 var describe_schema = defineAction({
@@ -2871,7 +3395,7 @@ var describe_schema = defineAction({
   params: {},
   handler: () => {
     const schemaPath = __require.resolve("@/lib/db/schema");
-    const src = fs12.readFileSync(schemaPath, "utf8");
+    const src = fs13.readFileSync(schemaPath, "utf8");
     return { path: schemaPath, source: src };
   }
 });
@@ -2972,6 +3496,78 @@ var create_note_action = defineAction({
   mutating: true,
   handler: (_ctx, input) => createNote(input)
 });
+var workspaceStatus = z.enum(["active", "archived"]);
+var list_workspaces_action = defineAction({
+  name: "list_workspaces",
+  description: "List workspaces with aggregated session counts. Default filter is active.",
+  params: {
+    status: workspaceStatus.optional()
+  },
+  handler: (_ctx, { status }) => listWorkspaces({ status })
+});
+var get_workspace_action = defineAction({
+  name: "get_workspace",
+  description: "Fetch a single workspace by id.",
+  params: { id: z.string().min(1) },
+  cli: { positional: ["id"] },
+  handler: (_ctx, { id }) => {
+    const ws = getWorkspace(id);
+    if (!ws) throw new ActionError("not_found", `Workspace not found: ${id}`);
+    return ws;
+  }
+});
+var create_workspace_action = defineAction({
+  name: "create_workspace",
+  description: "Create a workspace tied to a folder on disk. Git is auto-detected; for git repos the base branch is resolved from <remote>/HEAD with main/master fallback.",
+  params: {
+    name: z.string().min(1),
+    cwd: z.string().min(1),
+    emoji: z.string().nullable().optional(),
+    area_id: z.string().nullable().optional(),
+    base_branch: z.string().nullable().optional(),
+    remote_name: z.string().optional(),
+    worktree_root: z.string().nullable().optional()
+  },
+  mutating: true,
+  handler: async (_ctx, input) => {
+    const cwd = path14.resolve(input.cwd);
+    const isGit = await detectIsGit(cwd);
+    const baseBranch = isGit ? input.base_branch ?? await detectBaseBranch(cwd, input.remote_name ?? "origin") : null;
+    return createWorkspace({
+      name: input.name,
+      emoji: input.emoji ?? null,
+      cwd,
+      is_git: isGit,
+      base_branch: baseBranch,
+      remote_name: isGit ? input.remote_name ?? "origin" : null,
+      worktree_root: isGit ? input.worktree_root ?? defaultWorktreeRoot(input.name) : null,
+      area_id: input.area_id ?? null,
+      status: "active"
+    });
+  }
+});
+var archive_workspace_action = defineAction({
+  name: "archive_workspace",
+  description: "Archive a workspace. Sessions stay queryable; nothing on disk is touched.",
+  params: { id: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ["id"] },
+  handler: (_ctx, { id }) => {
+    const row2 = archiveWorkspace(id);
+    if (!row2) throw new ActionError("not_found", `Workspace not found: ${id}`);
+    return row2;
+  }
+});
+var list_workspace_sessions_action = defineAction({
+  name: "list_workspace_sessions",
+  description: "List active execution sessions in a workspace, newest activity first.",
+  params: {
+    workspace_id: z.string().min(1),
+    status: workspaceStatus.optional()
+  },
+  cli: { positional: ["workspace_id"] },
+  handler: (_ctx, { workspace_id, status }) => listChatSessions({ workspace_id, status: status ?? "active" })
+});
 var actions = [
   describe_paths,
   describe_schema,
@@ -2982,7 +3578,12 @@ var actions = [
   complete_task_action,
   list_notes_action,
   get_note_action,
-  create_note_action
+  create_note_action,
+  list_workspaces_action,
+  get_workspace_action,
+  create_workspace_action,
+  archive_workspace_action,
+  list_workspace_sessions_action
 ];
 
 // src/lib/orchestrator/dispatch.ts
@@ -3081,7 +3682,7 @@ function registerAgentCommand(program2) {
   return agent;
 }
 function readInputBlob(ref) {
-  const raw = ref === "@-" ? fs13.readFileSync(0, "utf8") : ref.startsWith("@") ? fs13.readFileSync(ref.slice(1), "utf8") : ref;
+  const raw = ref === "@-" ? fs14.readFileSync(0, "utf8") : ref.startsWith("@") ? fs14.readFileSync(ref.slice(1), "utf8") : ref;
   const parsed = JSON.parse(raw);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("--input must be a JSON object");
@@ -3113,6 +3714,354 @@ function describeParam(schema) {
   return hint;
 }
 
+// src/cli/commands/takeover.ts
+import fs17 from "fs";
+import path17 from "path";
+import { execFile as execFile2 } from "child_process";
+import { promisify as promisify2 } from "util";
+import pc11 from "picocolors";
+
+// src/cli/lib/cli-config.ts
+import fs15 from "fs";
+import path15 from "path";
+var DEFAULT_CONFIG = { editor: "cursor" };
+function getConfigPath2() {
+  return path15.join(getAppRoot(), "cli-config.json");
+}
+function readCliConfig() {
+  try {
+    const raw = fs15.readFileSync(getConfigPath2(), "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      editor: parsed.editor === "cursor" || parsed.editor === "vscode" || parsed.editor === "jetbrains" ? parsed.editor : DEFAULT_CONFIG.editor
+    };
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
+
+// src/cli/lib/takeover-state.ts
+import fs16 from "fs";
+import path16 from "path";
+var STATE_FILENAME = ".flow-takeover.json";
+function stateFilePath(clonePath) {
+  return path16.join(clonePath, STATE_FILENAME);
+}
+function writeState(clonePath, state2) {
+  fs16.writeFileSync(stateFilePath(clonePath), JSON.stringify(state2, null, 2), {
+    mode: 384
+  });
+}
+function readState(clonePath) {
+  try {
+    const raw = fs16.readFileSync(stateFilePath(clonePath), "utf8");
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.host !== "string" || typeof parsed.token !== "string" || typeof parsed.session_id !== "string" || typeof parsed.workspace_id !== "string" || typeof parsed.branch !== "string" || typeof parsed.started_at !== "string") {
+      return null;
+    }
+    return {
+      host: parsed.host,
+      token: parsed.token,
+      session_id: parsed.session_id,
+      workspace_id: parsed.workspace_id,
+      workspace_name: parsed.workspace_name ?? parsed.workspace_id,
+      branch: parsed.branch,
+      started_at: parsed.started_at
+    };
+  } catch {
+    return null;
+  }
+}
+function clearState(clonePath) {
+  try {
+    fs16.unlinkSync(stateFilePath(clonePath));
+  } catch {
+  }
+}
+function findActiveTakeovers() {
+  const root = getClonesDir();
+  if (!fs16.existsSync(root)) return [];
+  const out = [];
+  for (const entry of fs16.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const clonePath = path16.join(root, entry.name);
+    const state2 = readState(clonePath);
+    if (state2) out.push({ clonePath, state: state2 });
+  }
+  out.sort((a, b) => b.state.started_at.localeCompare(a.state.started_at));
+  return out;
+}
+function cloneDirFor(workspaceId) {
+  return path16.join(getClonesDir(), workspaceId);
+}
+
+// src/cli/lib/open-editor.ts
+import open2 from "open";
+function pathToUrl(scheme, absPath) {
+  const normalized = absPath.startsWith("/") ? absPath : `/${absPath}`;
+  return `${scheme}://file${encodeURI(normalized)}`;
+}
+function editorUrl(editor, absPath) {
+  switch (editor) {
+    case "vscode":
+      return pathToUrl("vscode", absPath);
+    case "jetbrains":
+      return `jetbrains://open?file=${encodeURIComponent(absPath)}`;
+    case "cursor":
+    default:
+      return pathToUrl("cursor", absPath);
+  }
+}
+async function openInEditor(absPath, editor) {
+  const url = editorUrl(editor, absPath);
+  try {
+    await open2(url);
+    return { url, ok: true };
+  } catch (err) {
+    return { url, ok: false, error: err };
+  }
+}
+
+// src/cli/commands/takeover.ts
+var execFileAsync2 = promisify2(execFile2);
+function parseTakeoverUrl(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`Not a valid URL: ${raw}`);
+  }
+  const tMatch = url.pathname.match(/^\/t\/([^/]+)\/?$/);
+  const apiMatch = url.pathname.match(/^\/api\/takeover\/([^/]+)\/?$/);
+  const token = tMatch?.[1] ?? apiMatch?.[1];
+  if (!token) {
+    throw new Error(
+      `URL doesn't look like a takeover link. Expected ${url.origin}/t/<token>, got ${raw}`
+    );
+  }
+  return { host: url.origin, token };
+}
+async function fetchInfo(host, token) {
+  const url = `${host.replace(/\/+$/, "")}/api/takeover/${token}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(
+        "Token not found. The takeover may have been cancelled, or this is a stale URL \u2014 ask the browser to start a new takeover."
+      );
+    }
+    if (res.status === 410) {
+      throw new Error(
+        "Token expired. Ask the browser to start a new takeover."
+      );
+    }
+    let detail = "";
+    try {
+      detail = JSON.stringify(await res.json());
+    } catch {
+    }
+    throw new Error(`Server returned ${res.status} ${res.statusText}. ${detail}`);
+  }
+  return await res.json();
+}
+async function ensureClone(clonePath, remoteUrl) {
+  const gitDir = path17.join(clonePath, ".git");
+  if (fs17.existsSync(clonePath) && !fs17.existsSync(gitDir)) {
+    throw new Error(
+      `Clone path exists but isn't a git repo: ${clonePath}
+Move or remove it, then retry.`
+    );
+  }
+  if (!fs17.existsSync(clonePath)) {
+    ensureClonesDir();
+    console.log(pc11.dim(`Cloning ${remoteUrl} \u2192 ${clonePath}`));
+    await execFileAsync2("git", ["clone", remoteUrl, clonePath], { maxBuffer: 32 * 1024 * 1024 });
+    return;
+  }
+  console.log(pc11.dim(`Reusing existing clone at ${clonePath}; fetching origin\u2026`));
+  await execFileAsync2("git", ["fetch", "origin"], { cwd: clonePath, maxBuffer: 32 * 1024 * 1024 });
+}
+async function checkout(clonePath, branch) {
+  try {
+    await execFileAsync2("git", ["checkout", branch], { cwd: clonePath });
+  } catch {
+    await execFileAsync2(
+      "git",
+      ["checkout", "-b", branch, `origin/${branch}`],
+      { cwd: clonePath }
+    );
+  }
+}
+async function takeoverCommand(urlArg, opts) {
+  if (opts.list) {
+    const active = findActiveTakeovers();
+    if (active.length === 0) {
+      console.log(pc11.dim("No active takeovers on this machine."));
+      return;
+    }
+    console.log(pc11.bold("Active takeovers:"));
+    for (const t of active) {
+      console.log(
+        `  ${pc11.cyan(t.state.workspace_name)} ` + pc11.dim(`(${t.state.branch})  started ${t.state.started_at}
+    ${t.clonePath}`)
+      );
+    }
+    return;
+  }
+  if (!urlArg) {
+    console.error(
+      pc11.red("Missing URL argument. Run `flow takeover <url>` with the link from the browser modal.")
+    );
+    process.exit(1);
+  }
+  const { host, token } = parseTakeoverUrl(urlArg);
+  console.log(pc11.dim(`Contacting ${host}\u2026`));
+  const info = await fetchInfo(host, token);
+  const clonePath = cloneDirFor(info.workspace_id);
+  await ensureClone(clonePath, info.remote_url);
+  await checkout(clonePath, info.branch);
+  writeState(clonePath, {
+    host,
+    token,
+    session_id: info.session_id,
+    workspace_id: info.workspace_id,
+    workspace_name: info.workspace_name,
+    branch: info.branch,
+    started_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  console.log(pc11.green(`\u2713 Branch ${info.branch} checked out at ${clonePath}.`));
+  if (!opts.noOpen) {
+    const cfg = readCliConfig();
+    const result = await openInEditor(clonePath, cfg.editor);
+    if (result.ok) {
+      console.log(pc11.green(`\u2713 Opened in ${cfg.editor}.`));
+    } else {
+      console.log(
+        pc11.yellow(`Could not launch editor automatically. Open manually: ${result.url}`)
+      );
+    }
+  }
+  console.log("");
+  console.log(`When you're done, run ${pc11.bold("flow resume")} to sync your changes back to the host.`);
+}
+function registerTakeoverCommand(program2) {
+  program2.command("takeover [url]").description("Take over an agent session locally \u2014 clones the workspace and opens it in your editor").option("--no-open", "Don't auto-launch the editor after cloning").option("--list", "List active takeovers on this machine instead of starting a new one").action(takeoverCommand);
+}
+
+// src/cli/commands/resume.ts
+import { execFile as execFile3 } from "child_process";
+import { promisify as promisify3 } from "util";
+import pc12 from "picocolors";
+var execFileAsync3 = promisify3(execFile3);
+function pick(active, filter) {
+  if (active.length === 0) return null;
+  if (!filter) {
+    if (active.length === 1) return active[0];
+    return null;
+  }
+  const lower = filter.toLowerCase();
+  return active.find(
+    (t) => t.state.workspace_id === filter || t.state.workspace_name.toLowerCase() === lower
+  ) ?? null;
+}
+async function isDirty(clonePath) {
+  const { stdout } = await execFileAsync3("git", ["status", "--porcelain"], { cwd: clonePath });
+  return stdout.trim().length > 0;
+}
+async function autoCommit(clonePath) {
+  console.log(pc12.dim("Committing local changes..."));
+  await execFileAsync3("git", ["add", "-A"], { cwd: clonePath });
+  const message = `Takeover edits ${(/* @__PURE__ */ new Date()).toISOString()}`;
+  await execFileAsync3("git", ["commit", "-m", message], { cwd: clonePath });
+}
+async function pushBranch(clonePath, branch) {
+  await execFileAsync3("git", ["push", "origin", branch], { cwd: clonePath });
+}
+async function callResume(host, token) {
+  const url = `${host.replace(/\/+$/, "")}/api/takeover/${token}/resume`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(
+        "Server doesn't recognise this takeover anymore. It may have been cancelled or already resumed."
+      );
+    }
+    if (res.status === 409) {
+      let body = {};
+      try {
+        body = await res.json();
+      } catch {
+      }
+      throw new Error(`Pull conflict on the host worktree.${body.message ? `
+${body.message}` : ""}`);
+    }
+    if (res.status === 410) {
+      throw new Error(
+        "Takeover token expired. The server cleared it after one hour."
+      );
+    }
+    let detail = "";
+    try {
+      detail = JSON.stringify(await res.json());
+    } catch {
+    }
+    throw new Error(`Server returned ${res.status} ${res.statusText}. ${detail}`);
+  }
+  return await res.json();
+}
+async function resumeCommand(opts) {
+  const active = findActiveTakeovers();
+  if (active.length === 0) {
+    console.log(pc12.dim("No active takeover on this machine."));
+    console.log(pc12.dim("Start one with `flow takeover <url>` from the browser modal."));
+    return;
+  }
+  const chosen = pick(active, opts.workspace);
+  if (!chosen) {
+    if (active.length > 1 && !opts.workspace) {
+      console.error(pc12.red("Multiple active takeovers \u2014 disambiguate with --workspace <name-or-id>:"));
+      for (const t of active) {
+        console.error(
+          `  ${pc12.cyan(t.state.workspace_name)} ${pc12.dim(t.state.workspace_id)} \u2014 ${t.state.branch}`
+        );
+      }
+    } else {
+      console.error(pc12.red(`No takeover matches "${opts.workspace}".`));
+    }
+    process.exit(1);
+  }
+  const { clonePath, state: state2 } = chosen;
+  console.log(pc12.dim(`Resuming ${state2.workspace_name} (${state2.branch}) at ${clonePath}`));
+  if (await isDirty(clonePath)) {
+    await autoCommit(clonePath);
+  }
+  try {
+    await pushBranch(clonePath, state2.branch);
+    console.log(pc12.green(`\u2713 Pushed ${state2.branch} to origin.`));
+  } catch (err) {
+    console.error(pc12.red("Push failed. Resolve manually, then retry `flow resume`."));
+    if (err instanceof Error) console.error(pc12.dim(err.message));
+    process.exit(1);
+  }
+  let response;
+  try {
+    response = await callResume(state2.host, state2.token);
+  } catch (err) {
+    console.error(pc12.red(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  }
+  clearState(clonePath);
+  console.log(
+    pc12.green(
+      `\u2713 Host pulled ${response.files_changed} file(s)${response.shortstat ? ` (${response.shortstat})` : ""}, posted diff to agent.`
+    )
+  );
+  console.log(pc12.dim(`Open the session to continue: ${state2.host}`));
+}
+function registerResumeCommand(program2) {
+  program2.command("resume").description("Push your local takeover changes back to the host and resume the agent").option("-w, --workspace <name-or-id>", "Disambiguate when multiple takeovers are active").action(resumeCommand);
+}
+
 // src/cli/index.ts
 var migration = migrateLegacyLayoutToBrain();
 if (migration.migrated) {
@@ -3120,7 +4069,11 @@ if (migration.migrated) {
 }
 var program = new Command();
 program.name(APP_SHORT_ID).description(`${APP_NAME} \u2014 productivity for humans and agents`).version("0.0.1");
-program.command("start", { isDefault: true }).description(`Start ${APP_NAME} and open the app`).option("-p, --port <number>", "port to bind", "4224").option("--no-open", "do not launch the browser").option("--pair", "open the pairing URL even if already paired").option("--dev", "run the server in dev mode (next dev) instead of production").option("--voice", "start the voice sidecar (overrides saved preference)").option("--no-voice", "skip the voice sidecar (overrides saved preference)").action(startCommand);
+program.command("start", { isDefault: true }).description(`Start ${APP_NAME} and open the app`).option("-p, --port <number>", "port to bind", "4224").option("--no-open", "do not launch the browser").option("--pair", "open the pairing URL even if already paired").option("--dev", "run the server in dev mode (next dev) instead of production").option("--voice", "start the voice sidecar (overrides saved preference)").option("--no-voice", "skip the voice sidecar (overrides saved preference)").option(
+  "--portless [name]",
+  `front the dev server with portless.sh at <name>.localhost (default: ${APP_SHORT_ID})`
+).action(startCommand);
+program.command("stop").description(`Stop a running ${APP_NAME} server`).option("-p, --port <number>", "port of the instance to stop").option("-f, --force", "send SIGKILL immediately instead of SIGTERM").option("-t, --timeout <ms>", "how long to wait for graceful shutdown", "5000").action(stopCommand);
 program.command("onboard").description("Run first-run setup (or re-configure an existing install)").option("-p, --port <number>", "port to probe for an already-running instance", "4224").option("--force", "run the full wizard even if already onboarded").action(onboardCommand);
 program.command("pair").description("Mint a new device key and print its pairing URL + QR").option("-n, --name <name>", "label for the new device (shown in web UI)").option(
   "-t, --type <type>",
@@ -3133,6 +4086,8 @@ registerCommitCommand(program);
 registerExportCommand(program);
 registerAgentCommand(program);
 registerSkillsCommand(program);
+registerTakeoverCommand(program);
+registerResumeCommand(program);
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);

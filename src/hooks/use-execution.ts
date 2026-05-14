@@ -1,7 +1,12 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from 'uuidv7';
-import { sessionsApi, type ResolvePendingBody, type WipApplyResult } from '@/lib/api/sessions';
+import {
+  sessionsApi,
+  type FileResponse,
+  type ResolvePendingBody,
+  type WipApplyResult,
+} from '@/lib/api/sessions';
 import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 
@@ -66,6 +71,51 @@ export function useSessionDiff(id: string | null, file?: string) {
 }
 
 /**
+ * The file tree shown in the execution view's tree column. Tier-2 of the
+ * refresh strategy: a slow 30s poll catches edits the user made outside
+ * the agent (e.g. via VS Code), and the cache is invalidated by the
+ * `useSessionStream` consumer for mutating tool calls (Tier 1). Also
+ * invalidated on running→idle by `ExecutionView`.
+ */
+export function useSessionTree(id: string | null) {
+  return useQuery({
+    queryKey: ['session', id, 'tree'],
+    queryFn: () => sessionsApi.tree(id!),
+    enabled: !!id,
+    refetchInterval: 30_000,
+    staleTime: 5_000,
+  });
+}
+
+/**
+ * Single-file read for the file viewer. No polling — the file viewer is
+ * a snapshot. The tree query's invalidation (mutating tool_use + 30s
+ * poll + running→idle) is what triggers re-reads of any selected file
+ * the user is currently looking at; this hook just caches per-path.
+ */
+export function useSessionFile(id: string | null, path: string | null) {
+  return useQuery({
+    queryKey: ['session', id, 'file', path],
+    queryFn: () => sessionsApi.file(id!, path!),
+    enabled: !!id && !!path,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Base-branch version of a file for the diff view's "old" side. Same
+ * cache key shape as `useSessionFile` but with a `base` discriminator.
+ */
+export function useSessionBaseFile(id: string | null, path: string | null) {
+  return useQuery({
+    queryKey: ['session', id, 'file', path, 'base'],
+    queryFn: () => sessionsApi.file(id!, path!, { base: true }),
+    enabled: !!id && !!path,
+    staleTime: 60_000,
+  });
+}
+
+/**
  * Invalidate every read cache that depends on the worktree's filesystem
  * state — diff, status, files, shortstat — so the UI repaints after a
  * mutation that changes git state (commit, push, pull, etc.).
@@ -73,6 +123,100 @@ export function useSessionDiff(id: string | null, file?: string) {
 function invalidateWorktree(qc: ReturnType<typeof useQueryClient>, id: string) {
   qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
   qc.invalidateQueries({ queryKey: ['workspaces'] });
+}
+
+/**
+ * Worktree-file mutations driving the file viewer + tree UI.
+ *
+ * Each hook invalidates the same caches `invalidateWorktree` covers so
+ * a Save/Create/Delete/Rename ripples through diff badges, the action
+ * bar's shortstat, and any sibling viewer that happens to be reading
+ * the touched file. The `tree` cache is the visible signal — the user
+ * sees rows appear/disappear right after the mutation resolves.
+ *
+ * Optimistic updates would feel snappier, but the tree carries M/A/D
+ * status flags + mtime that we'd have to synthesize correctly to match
+ * `git status`. Round-tripping through the server is the simpler
+ * correctness story; the request is local so latency is ~10ms.
+ */
+/** Stable mutation key for `useWriteFile` — lets components like the
+ *  file tree subscribe via `useMutationState` to surface in-flight saves
+ *  per path without prop-drilling through the viewer. */
+export const WRITE_FILE_MUTATION_KEY = (sessionId: string) =>
+  ['session', sessionId, 'write-file'] as const;
+
+export function useWriteFile(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: WRITE_FILE_MUTATION_KEY(sessionId),
+    mutationFn: ({ path, content }: { path: string; content: string }) =>
+      sessionsApi.writeFile(sessionId, path, content),
+    onSuccess: (_data, vars) => {
+      // Push the just-saved content into the file cache so navigating
+      // away and back doesn't briefly flash the pre-save version.
+      // Without this, the user sees stale cached content render first,
+      // then a refetch lands and the editor jumps to the new version.
+      // The invalidation below still triggers a background refetch for
+      // correctness — it should land identically and produce no flicker.
+      qc.setQueryData<FileResponse>(
+        ['session', sessionId, 'file', vars.path],
+        (prev) => (prev ? { ...prev, content: vars.content } : prev),
+      );
+      invalidateWorktree(qc, sessionId);
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.path] });
+    },
+  });
+}
+
+export function useDeletePath(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => sessionsApi.deleteFile(sessionId, path),
+    onSuccess: (_data, path) => {
+      invalidateWorktree(qc, sessionId);
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', path] });
+    },
+  });
+}
+
+export function useCreateFile(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => sessionsApi.createFile(sessionId, path),
+    onSuccess: (_data, path) => {
+      invalidateWorktree(qc, sessionId);
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', path] });
+    },
+  });
+}
+
+export function useRenamePath(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      sessionsApi.renamePath(sessionId, from, to),
+    onSuccess: (_data, vars) => {
+      invalidateWorktree(qc, sessionId);
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.from] });
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.to] });
+    },
+  });
+}
+
+export function useCreateDir(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => sessionsApi.createDir(sessionId, path),
+    onSuccess: () => invalidateWorktree(qc, sessionId),
+  });
+}
+
+export function useDeleteDir(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => sessionsApi.deleteDir(sessionId, path),
+    onSuccess: () => invalidateWorktree(qc, sessionId),
+  });
 }
 
 export function useCommit(id: string) {
@@ -87,7 +231,11 @@ export function usePush(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => sessionsApi.push(id),
-    onSuccess: () => invalidateWorktree(qc, id),
+    onSuccess: () => {
+      invalidateWorktree(qc, id);
+      // PR head may have just moved — let the action bar re-query gh.
+      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
+    },
   });
 }
 
@@ -96,6 +244,23 @@ export function usePullBase(id: string) {
   return useMutation({
     mutationFn: (strategy?: 'merge' | 'rebase') => sessionsApi.pullBase(id, strategy ?? 'merge'),
     onSuccess: () => invalidateWorktree(qc, id),
+  });
+}
+
+/**
+ * Retry worktree provisioning after a setup failure. Used by the Pull
+ * button on the SetupCard when the initial dispatch couldn't fetch the
+ * PR head ref (auth, network, missing remote, etc.).
+ */
+export function useRetrySetup(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.retrySetup(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
+    },
   });
 }
 
@@ -200,9 +365,11 @@ export function useUpdateSession() {
       permission_mode?: PermissionMode;
       model?: string | null;
       effort?: EffortLevel | null;
+      pr_number?: number | null;
     }) => sessionsApi.update(id, input),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['session', data.id] });
+      qc.invalidateQueries({ queryKey: ['session', data.id, 'pr'] });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
     },
   });

@@ -41,11 +41,24 @@ export const workspacesApi = {
 
   createSession(
     id: string,
-    options: { label?: string | null; baseBranch?: string | null } = {},
+    options: {
+      label?: string | null;
+      baseBranch?: string | null;
+      /** GitHub PR number — when set, server resolves the head via
+       *  `refs/pull/<N>/head` and stamps `pr_number` on the row. Takes
+       *  precedence over `baseBranch`. */
+      prNumber?: number | null;
+      /** "Live mode" — skip worktree creation. The agent runs in the
+       *  workspace's actual folder on whatever branch is checked out.
+       *  Caller is opting into shared mutable state. */
+      liveMode?: boolean;
+    } = {},
   ): Promise<ChatSessionRecord> {
     return api.post<ChatSessionRecord>(`/workspaces/${id}/sessions`, {
       label: options.label ?? null,
       baseBranch: options.baseBranch ?? null,
+      prNumber: options.prNumber ?? null,
+      liveMode: options.liveMode ?? false,
     });
   },
 

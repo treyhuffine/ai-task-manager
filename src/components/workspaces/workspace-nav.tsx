@@ -25,6 +25,7 @@ import { WorkspaceRow } from './workspace-row';
 import { WorkspaceCreateModal } from './workspace-create-modal';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 import { CreateFromModal } from './create-from-modal';
+import { LiveModeModal } from './live-mode-modal';
 import { useCreateExecution } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
 
@@ -41,8 +42,12 @@ export function WorkspaceNav() {
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [createFromId, setCreateFromId] = useState<string | null>(null);
+  const [liveModeId, setLiveModeId] = useState<string | null>(null);
   const createFromName = createFromId
     ? workspaces?.find((w) => w.id === createFromId)?.name ?? null
+    : null;
+  const liveModeName = liveModeId
+    ? workspaces?.find((w) => w.id === liveModeId)?.name ?? null
     : null;
   const { setActiveView } = useDashboard();
   const createExecution = useCreateExecution();
@@ -123,6 +128,7 @@ export function WorkspaceNav() {
                   onOpenSettings={setSettingsId}
                   onCreateExecution={handleCreateExecution}
                   onOpenCreateFrom={setCreateFromId}
+                  onOpenLiveMode={setLiveModeId}
                 />
               ))}
             </SortableContext>
@@ -136,6 +142,11 @@ export function WorkspaceNav() {
         workspaceId={createFromId}
         workspaceName={createFromName}
         onClose={() => setCreateFromId(null)}
+      />
+      <LiveModeModal
+        workspaceId={liveModeId}
+        workspaceName={liveModeName}
+        onClose={() => setLiveModeId(null)}
       />
     </div>
   );

@@ -1,0 +1,201 @@
+'use client';
+
+import { useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { sessionsApi, type MergeRequestBody } from '@/lib/api/sessions';
+import {
+  useCommit,
+  usePush,
+  usePullBase,
+  useRetrySetup,
+  useSessionStatus,
+} from '@/hooks/use-execution';
+import type { ChatSessionRecord } from '@/db/types';
+
+/** PR context that travels with worktree-state variants when present. */
+export interface PrContext {
+  prNumber: number;
+  prUrl: string;
+}
+
+export type ActionState =
+  | { kind: 'clean_no_branch' }
+  | { kind: 'dirty'; staged: number; unstaged: number; untracked: number; pr?: PrContext }
+  | { kind: 'ahead_no_pr'; ahead: number }
+  | { kind: 'pr_open_in_sync'; prNumber: number; prUrl: string }
+  | { kind: 'pr_open_ahead'; prNumber: number; prUrl: string; ahead: number }
+  | { kind: 'pr_open_behind_base'; prNumber: number; prUrl: string; behind: number }
+  | { kind: 'pr_mergeable'; prNumber: number; prUrl: string }
+  | { kind: 'pr_closed'; prNumber: number; prUrl: string }
+  | { kind: 'pr_merged'; prNumber: number; prUrl: string }
+  | { kind: 'archived' }
+  /** Worktree provisioning failed. The session row has `setup_error` set
+   *  and no `worktree_path`. UI exposes a Pull button that re-runs the
+   *  fetch + create flow once the user fixes the underlying cause. */
+  | { kind: 'setup_failed'; error: string; prNumber: number | null }
+  | { kind: 'no_worktree' }
+  /** User pulled this session locally via the takeover flow. The host's
+   *  agent is paused; commit/push/PR actions are meaningless until the
+   *  user runs `flow resume` or clicks Done in the takeover banner. */
+  | { kind: 'taken_over'; takeoverToken: string; startedAt: string };
+
+/**
+ * GitHub PR for the session's branch. `null` when no PR exists yet
+ * (or gh isn't installed / authenticated). Polled every 20s so the
+ * action bar catches PRs created externally (via `gh pr create` in a
+ * terminal, or someone opening one through the GitHub UI). Push
+ * mutations also invalidate.
+ */
+export function useSessionPr(id: string | null) {
+  return useQuery({
+    queryKey: ['session', id, 'pr'],
+    queryFn: () => sessionsApi.pr(id!),
+    enabled: !!id,
+    staleTime: 5_000,
+    refetchInterval: 20_000,
+  });
+}
+
+export function useOpenPr(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.openPr(id),
+    onSuccess: () => {
+      // The agent will start drafting + pushing; the PR appears on the
+      // next refresh. Invalidate eagerly so the bar reflects the new
+      // state once the agent finishes its turn.
+      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
+    },
+  });
+}
+
+export function useMergePr(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: MergeRequestBody) => sessionsApi.mergePr(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
+      qc.invalidateQueries({ queryKey: ['session', id] });
+    },
+  });
+}
+
+interface UseExecutionActionsResult {
+  state: ActionState;
+  commit: ReturnType<typeof useCommit>;
+  push: ReturnType<typeof usePush>;
+  pullBase: ReturnType<typeof usePullBase>;
+  retrySetup: ReturnType<typeof useRetrySetup>;
+  openPr: ReturnType<typeof useOpenPr>;
+  mergePr: ReturnType<typeof useMergePr>;
+}
+
+/**
+ * Composes the per-session state machine the action bar consumes. Derives
+ * `ActionState` from worktree status + the PR query; exposes ready-to-fire
+ * mutation handles for every action the bar might surface.
+ */
+export function useExecutionActions(
+  session: ChatSessionRecord | undefined,
+  workspaceIsGit: boolean | null | undefined,
+): UseExecutionActionsResult {
+  const id = session?.id ?? '';
+  const { data: status } = useSessionStatus(id || null);
+  const { data: prResp } = useSessionPr(id || null);
+  const commit = useCommit(id);
+  const push = usePush(id);
+  const pullBase = usePullBase(id);
+  const retrySetup = useRetrySetup(id);
+  const openPr = useOpenPr(id);
+  const mergePr = useMergePr(id);
+
+  const state = useMemo<ActionState>(() => {
+    if (!session) return { kind: 'no_worktree' };
+    if (session.status === 'archived') return { kind: 'archived' };
+    // Takeover supersedes every other state — while the user owns the
+    // work locally, we don't want the action bar to suggest commits or
+    // pushes that race with their laptop's branch.
+    if (session.takeover_started_at && session.takeover_token) {
+      return {
+        kind: 'taken_over',
+        takeoverToken: session.takeover_token,
+        startedAt: session.takeover_started_at,
+      };
+    }
+    // Failed-setup wins over no_worktree so the user gets the retry
+    // affordance instead of an empty pill while sitting on a stuck row.
+    if (!session.worktree_path && workspaceIsGit && session.setup_error) {
+      return {
+        kind: 'setup_failed',
+        error: session.setup_error,
+        prNumber: session.pr_number ?? null,
+      };
+    }
+    if (!session.worktree_path || !workspaceIsGit) return { kind: 'no_worktree' };
+
+    const pr = prResp?.pr;
+
+    if (status) {
+      const stagedCount = status.staged.length;
+      const unstagedCount = status.modified.length;
+      const untrackedCount = status.untracked.length;
+      const isDirty = stagedCount + unstagedCount + untrackedCount > 0;
+      const ahead = status.ahead;
+      const behind = status.behind;
+
+      if (isDirty) {
+        return {
+          kind: 'dirty',
+          staged: stagedCount,
+          unstaged: unstagedCount,
+          untracked: untrackedCount,
+          // Carry PR context through so the narrative chip can still
+          // show the link even when dirty — losing the PR identity to
+          // a transient uncommitted state was too jarring.
+          pr: pr
+            ? (pr.state === 'OPEN'
+              ? { prNumber: pr.number, prUrl: pr.url }
+              : undefined)
+            : undefined,
+        };
+      }
+
+      if (pr) {
+        if (pr.state === 'MERGED') {
+          return { kind: 'pr_merged', prNumber: pr.number, prUrl: pr.url };
+        }
+        if (pr.state === 'CLOSED') {
+          return { kind: 'pr_closed', prNumber: pr.number, prUrl: pr.url };
+        }
+        if (behind > 0) {
+          return {
+            kind: 'pr_open_behind_base',
+            prNumber: pr.number,
+            prUrl: pr.url,
+            behind,
+          };
+        }
+        if (ahead > 0) {
+          return {
+            kind: 'pr_open_ahead',
+            prNumber: pr.number,
+            prUrl: pr.url,
+            ahead,
+          };
+        }
+        // Open and in sync — show Merge.
+        return { kind: 'pr_open_in_sync', prNumber: pr.number, prUrl: pr.url };
+      }
+
+      if (ahead > 0) {
+        return { kind: 'ahead_no_pr', ahead };
+      }
+    }
+
+    return { kind: 'clean_no_branch' };
+  }, [session, workspaceIsGit, prResp, status]);
+
+  return { state, commit, push, pullBase, retrySetup, openPr, mergePr };
+}

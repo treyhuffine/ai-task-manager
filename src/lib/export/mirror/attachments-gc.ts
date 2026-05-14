@@ -1,18 +1,23 @@
 /**
- * Attachments garbage collection.
+ * Attachments garbage collection + reference healing.
  *
  * The app's delete path is lazy: removing an entity does not touch the files
  * it referenced. This sweep is the cleanup side of that contract.
  *
  * Algorithm:
  *   1. Enumerate every `file_name` referenced by any entity's `attachments[]`
- *      column, across tasks, notes, areas, stream.
- *   2. Enumerate every file in `<brain>/attachments/`.
- *   3. Files in (2) \ (1) are orphans → move to `<brain>/.archive/attachments/`.
+ *      column across all six tables (tasks, notes, areas, stream, workspaces,
+ *      chat_events). Missing a table here causes the GC to see referenced
+ *      files as orphans and silently break the user's images.
+ *   2. Heal any reference whose file is only in `<brain>/.archive/attachments/`
+ *      by moving it back to `<brain>/attachments/`. Always runs.
+ *   3. If GC is enabled (`<APP>_ATTACHMENT_GC=1`), files on disk not in (1)
+ *      are orphans → move to `<brain>/.archive/attachments/`. Off by default
+ *      because orphans are hidden from the user and disk-cheap, while a bad
+ *      reference graph would visibly break images.
  *
- * Orphans are soft-deleted rather than hard-deleted so a bad reference-graph
- * query or a race between entity save + gc doesn't irreversibly lose user
- * data. Hard-delete-from-archive is deliberately out of scope for v1.
+ * Orphans are soft-deleted (moved to archive), never hard-deleted. The same
+ * archive dir is the source for healing in step (2).
  */
 
 import fs from 'node:fs';
@@ -24,19 +29,22 @@ import {
   notes as notesTbl,
   areas as areasTbl,
   stream as streamTbl,
+  workspaces as workspacesTbl,
+  chatEvents as chatEventsTbl,
 } from '@/lib/db/schema';
 import { getAttachmentsDir, getBrainDir } from '@/lib/config/paths';
+import { isAttachmentGcEnabled } from './config';
 import type { Attachment } from '@/db/types';
 
 export interface AttachmentsGcStats {
   referenced: number;
   onDisk: number;
   archived: number;
+  restored: number;
+  gcEnabled: boolean;
   elapsedMs: number;
 }
 
-/** Archive subdirectory for orphaned attachment files. Lives inside the brain
- *  dir so it moves with the rest of user content under BRAIN_PATH overrides. */
 function archiveAttachmentsDir(): string {
   return path.join(getBrainDir(), '.archive', 'attachments');
 }
@@ -46,7 +54,8 @@ function ensureAttachmentsDirsExist(): void {
   fs.mkdirSync(archiveAttachmentsDir(), { recursive: true });
 }
 
-/** Collect every file_name referenced by any entity. */
+/** Collect every file_name referenced by any entity. Must cover every table
+ *  that has an `attachments` column in the schema — see schema.ts. */
 export function collectReferencedFileNames(): Set<string> {
   const db = getDb();
   const out = new Set<string>();
@@ -61,63 +70,89 @@ export function collectReferencedFileNames(): Set<string> {
   push(db.select({ attachments: notesTbl.attachments }).from(notesTbl).all());
   push(db.select({ attachments: areasTbl.attachments }).from(areasTbl).all());
   push(db.select({ attachments: streamTbl.attachments }).from(streamTbl).all());
+  push(db.select({ attachments: workspacesTbl.attachments }).from(workspacesTbl).all());
+  push(db.select({ attachments: chatEventsTbl.attachments }).from(chatEventsTbl).all());
 
   return out;
 }
 
-/** Sweep orphans. Safe to run concurrently with writes: a file freshly
- *  referenced after (1) but not yet reflected in (2) would already be on
- *  disk, and we archive (not delete) so the next sweep can restore it by
- *  reference. */
+/** Sweep orphans and heal stranded references. */
 export async function sweepAttachments(): Promise<AttachmentsGcStats> {
   const start = Date.now();
   ensureAttachmentsDirsExist();
 
   const referenced = collectReferencedFileNames();
-  const dir = getAttachmentsDir();
-  let entries: string[];
+  const liveDir = getAttachmentsDir();
+  const archiveDir = archiveAttachmentsDir();
+
+  let liveEntries: string[];
   try {
-    entries = await fsp.readdir(dir);
+    liveEntries = await fsp.readdir(liveDir);
   } catch {
-    return { referenced: referenced.size, onDisk: 0, archived: 0, elapsedMs: Date.now() - start };
+    return {
+      referenced: referenced.size,
+      onDisk: 0,
+      archived: 0,
+      restored: 0,
+      gcEnabled: isAttachmentGcEnabled(),
+      elapsedMs: Date.now() - start,
+    };
+  }
+  const live = new Set(liveEntries.filter((n) => !n.startsWith('.')));
+
+  // Heal: anything referenced but only in archive → move back to live.
+  let restored = 0;
+  for (const name of referenced) {
+    if (live.has(name)) continue;
+    const src = path.join(archiveDir, name);
+    const dest = path.join(liveDir, name);
+    try {
+      await fsp.rename(src, dest);
+      live.add(name);
+      restored++;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') continue; // not in archive either — truly missing
+      console.warn(`[mirror] reference heal failed: ${name}`, err);
+    }
   }
 
+  const gcEnabled = isAttachmentGcEnabled();
   let archived = 0;
-  let onDisk = 0;
-  for (const name of entries) {
-    if (name.startsWith('.')) continue;
-    onDisk++;
-    if (referenced.has(name)) continue;
-    const src = path.join(dir, name);
-    const dest = path.join(archiveAttachmentsDir(), name);
-    try {
-      // Prefer rename for atomicity; fall back to copy+unlink across devices
-      // (uncommon, but can happen when `.archive/` is on a separate mount).
-      await fsp.rename(src, dest);
-      archived++;
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-        await fsp.copyFile(src, dest);
-        await fsp.unlink(src);
+  if (gcEnabled) {
+    for (const name of live) {
+      if (referenced.has(name)) continue;
+      const src = path.join(liveDir, name);
+      const dest = path.join(archiveDir, name);
+      try {
+        await fsp.rename(src, dest);
         archived++;
-        continue;
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+          await fsp.copyFile(src, dest);
+          await fsp.unlink(src);
+          archived++;
+          continue;
+        }
+        console.warn(`[mirror] orphan attachment archive failed: ${name}`, err);
       }
-      console.warn(`[mirror] orphan attachment archive failed: ${name}`, err);
     }
   }
 
   return {
     referenced: referenced.size,
-    onDisk,
+    onDisk: live.size,
     archived,
+    restored,
+    gcEnabled,
     elapsedMs: Date.now() - start,
   };
 }
 
 /**
- * Restore an archived attachment (reverse of `sweepAttachments`'s move).
- * Used if the reconciler archives a file that's referenced via a late commit
- * and the next sync needs it back in the primary dir.
+ * Restore a single archived attachment by name. Retained as a public helper
+ * for callers that know they need a specific file back (e.g. after a manual
+ * DB edit). The sweep does the bulk-heal automatically.
  */
 export async function restoreArchivedAttachment(file_name: string): Promise<boolean> {
   const src = path.join(archiveAttachmentsDir(), file_name);
