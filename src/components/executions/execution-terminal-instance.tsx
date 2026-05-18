@@ -169,12 +169,24 @@ export function ExecutionTerminalInstance({
 
   // Re-fit + focus when this tab becomes active. Skipping the fit on
   // hidden→visible would leave the pty thinking we're still 80x24.
+  //
+  // Initial mount is *not* treated as a user-initiated activation —
+  // when the user opens an execution, they want the chat composer
+  // focused, not the terminal. We only grab focus on subsequent
+  // active flips (i.e. the user clicked a different terminal tab).
+  // The fit, on the other hand, still has to run on first activation
+  // so the PTY learns its true dimensions.
+  const hasActivatedRef = useRef(false);
   useEffect(() => {
     if (!active) return;
+    const isFirstActivation = !hasActivatedRef.current;
+    hasActivatedRef.current = true;
     const id = requestAnimationFrame(() => {
       try {
         fitRef.current?.fit();
-        termRef.current?.focus();
+        if (!isFirstActivation) {
+          termRef.current?.focus();
+        }
       } catch { /* */ }
     });
     return () => cancelAnimationFrame(id);

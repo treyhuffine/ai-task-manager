@@ -118,6 +118,20 @@ export function ExecutionComposer({
     if (!sessionId) return;
     markRead.mutate(sessionId);
   }, [sessionId, markRead]);
+
+  // Auto-focus the composer when the user lands on a session — opens
+  // up the "click execution → type immediately" flow without an
+  // extra click into the textarea. Re-fires when the active session
+  // changes (rail navigation, deep link); the disabled gate suppresses
+  // focusing a composer that's archived or still setting up. We hand
+  // Tiptap a microtask so the contenteditable is mounted and ready
+  // before we call `focus()`.
+  useEffect(() => {
+    if (!sessionId || disabled) return;
+    const t = setTimeout(() => editorRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [sessionId, disabled]);
+
   const modeMeta = PERMISSION_MODE_META[permissionMode];
   const sessionMeta = useSessionMeta(sessionId);
   const slashCommandsQuery = useSlashCommands(sessionId);
@@ -166,29 +180,52 @@ export function ExecutionComposer({
       const editor = editorRef.current;
       const out = override ?? editor?.getMarkerOutput() ?? { text: '', attachments: [] };
       const text = out.text.trim();
-      // Block sends while a turn is in flight — dispatch would throw
-      // `already_running` and the user would just see a 500.
-      if (!text || sending || disabled || isRunning) return;
+      // No isRunning gate: sends are accepted mid-turn. The harness's
+      // own queue handles ordering — Claude drains as `<system-reminder>`
+      // attachments into the current turn; Codex merges as additional
+      // userMessage items in the same turn.
+      if (!text || sending || disabled) return;
       // Send is an interaction — mark read even if the user pasted and
       // sent without ever focusing the editor (the focus handler would
       // have missed that path).
       if (sessionId) markRead.mutate(sessionId);
+
+      // Clear the editor synchronously so the textarea empties in the
+      // same paint as the optimistic transcript bubble. Snapshot first
+      // so a failed POST can restore the user's text + inline chips
+      // exactly as they were typed. Voice auto-send (override) never
+      // put text in the editor, so nothing to snapshot or clear there.
+      // Re-focus right after clearing so the user can type the next
+      // message without clicking back into the textarea — Tiptap's
+      // `clearContent` blurs the contenteditable in some cases.
+      const snapshot = override ? null : editor?.snapshot() ?? null;
+      if (!override && editor) {
+        editor.clear();
+        editor.focus();
+        setHasContent(false);
+      }
+
       setSending(true);
       try {
         await onSend(text, {
           viaVoice: opts?.viaVoice,
           attachments: out.attachments.length > 0 ? out.attachments : undefined,
         });
-        // Clear from the editor only on the in-place send path. For
-        // override (voice auto-send) we never put the transcript in
-        // the editor, so there's nothing to clear.
-        if (!override) editorRef.current?.clear();
-        setHasContent(false);
+      } catch (err) {
+        // Round-trip failed (network, 500, takeover 409, etc.). Put
+        // the user's content back so they can correct and retry —
+        // the optimistic bubble is rolled back by the send mutation's
+        // onError; the snapshot restore handles the editor side.
+        if (snapshot) {
+          editor?.restore(snapshot);
+          setHasContent(true);
+        }
+        throw err;
       } finally {
         setSending(false);
       }
     },
-    [sending, disabled, isRunning, onSend, sessionId, markRead],
+    [sending, disabled, onSend, sessionId, markRead],
   );
 
   // Voice transcript → composer. Auto-send dispatches a synthesized
@@ -244,10 +281,14 @@ export function ExecutionComposer({
 
   const canSend = hasContent && !sending && !disabled;
   const showVoiceButton = voice.isSupported;
-  // Show the stop button when a turn is in flight AND the caller wired
-  // up an onStop handler. The stop button takes the send slot — never
-  // both at once.
-  const showStopButton = !!isRunning && !!onStop;
+  // Send/Stop button slot:
+  //   has text   → Send (even mid-turn; the harness queues internally)
+  //   no text + running → Stop
+  //   no text + idle    → disabled Send
+  // The send button is no longer gated on `isRunning`; concurrent
+  // sends are handled by Claude's mid-turn drain and Codex's same-turn
+  // merge. The route always POSTs immediately.
+  const showStopButton = !!isRunning && !!onStop && !hasContent;
 
   const setMode = (next: PermissionMode) => {
     setModeMenuOpen(false);
@@ -316,7 +357,14 @@ export function ExecutionComposer({
                 placeholder={
                   disabled ? (disabledReason ?? 'Composer is disabled') : 'Message the agent…'
                 }
-                disabled={disabled || sending}
+                // Don't disable the editor while `sending` — the
+                // user can queue the next message during the POST
+                // round-trip (concurrent send is supported all the
+                // way through). The Send button itself shows a
+                // spinner via `sending`, which is enough feedback.
+                // Disabling here would also blur the contenteditable
+                // and defeat the post-send refocus.
+                disabled={disabled}
                 onContentChange={setHasContent}
                 onSubmit={() => handleSend()}
                 onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}

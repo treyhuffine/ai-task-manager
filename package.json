@@ -46,7 +46,7 @@
     "skills"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.16",
+    "@agentex/agent": "^0.0.17",
     "@agentex/github": "^0.0.1",
     "@agentex/workspace": "^0.0.2",
     "@ai-sdk/anthropic": "^3.0.63",

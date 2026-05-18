@@ -56,6 +56,17 @@ import type { SkillCommandDescriptor } from './slash-menu/types';
 
 // ─── Public types ────────────────────────────────────────────────
 
+/**
+ * Opaque carrier for a paused editor state. The composer captures one
+ * of these before an optimistic clear-on-send and replays it via
+ * `restore` if the network round-trip fails. Internally the JSON is
+ * ProseMirror's `Node#toJSON()` output; we keep it as `unknown` at
+ * the public surface so callers don't accidentally try to mutate it.
+ */
+export interface EditorSnapshot {
+  readonly doc: unknown;
+}
+
 export interface ChatInputEditorHandle {
   /** True when the editor has anything submittable (text or a chip). */
   isEmpty(): boolean;
@@ -67,6 +78,18 @@ export interface ChatInputEditorHandle {
   clear(): void;
   /** Insert raw text at the current selection. */
   insertTextAtCursor(text: string): void;
+  /**
+   * Capture the current document shape (text + chips + selection) as
+   * an opaque snapshot that `restore` can replay. Used by the
+   * composer to clear the editor optimistically on send, then put
+   * everything back exactly as it was if the POST fails.
+   *
+   * Returns `null` when the editor isn't mounted yet, or when the
+   * editor is empty (no work to do).
+   */
+  snapshot(): EditorSnapshot | null;
+  /** Replace the editor's contents with a previously captured snapshot. */
+  restore(snapshot: EditorSnapshot): void;
   /**
    * Upload a file (or blob) and insert a chip at the cursor. Same path
    * used by paste/drop handlers — exposed so toolbars can drive it
@@ -438,6 +461,18 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         insertTextAtCursor: (text) => {
           if (!editor) return;
           editor.chain().focus().insertContent(text).run();
+        },
+        snapshot: () => {
+          if (!editor || editor.isEmpty) return null;
+          return { doc: editor.getJSON() };
+        },
+        restore: (snap) => {
+          if (!editor) return;
+          // `setContent` with `emitUpdate: true` so `onUpdate` runs and
+          // the parent's `hasContent` flips back to true after a
+          // failed-send rollback. Focus to the end matches what the
+          // editor was at right before send (typing position).
+          editor.chain().setContent(snap.doc as never, { emitUpdate: true }).focus('end').run();
         },
         uploadFile: (file, name) => uploadAndInsert(file, name ?? (file as File).name ?? 'upload'),
         getMarkerOutput: () => buildMarkerOutput(editor),
