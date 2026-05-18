@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText,
   GitCompareArrows,
-  FileCode,
   FolderOpen,
   SquareArrowOutUpRight,
   X,
@@ -18,6 +17,7 @@ import { useEditorPreference, EDITOR_LABELS } from '@/lib/client/editor-preferen
 import { openInEditorHref, revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { fsApi } from '@/lib/api/fs';
 import { cn } from '@/lib/utils';
+import { FileIcon } from '@/components/file-icon';
 import type { TreeEntry } from '@/lib/api/sessions';
 import { FileView, type FileViewHandle } from './file-view';
 import { DiffView } from './diff-view';
@@ -183,11 +183,21 @@ function FileViewerHeader({
   saving,
   onDiscard,
 }: HeaderProps) {
+  // Header should always show the worktree-relative path. selectedPath
+  // is normally already relative, but as a defensive measure we strip
+  // the worktree prefix if it's somehow absolute — keeps the header
+  // honest even if a legacy state, race, or new code path slips an
+  // absolute path through to the viewer.
+  const { data: session } = useSession(sessionId);
+  const displayPath = toRelativePath(path, session?.worktree_path ?? null);
   return (
     <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 min-w-0">
-      <FileCode size={13} className="shrink-0 text-muted-foreground/80" />
-      <span className="truncate text-[11px] font-medium text-foreground/85 flex-1">
-        {path}
+      <FileIcon name={displayPath} />
+      <span
+        className="truncate text-[11px] font-medium text-foreground/85 flex-1"
+        title={displayPath}
+      >
+        {displayPath}
       </span>
       {saving ? (
         <span
@@ -339,4 +349,20 @@ function EmptyShell({
       {detail && <span className="text-muted-foreground/70">{detail}</span>}
     </div>
   );
+}
+
+/**
+ * Best-effort reduction of `path` to a worktree-relative form for
+ * display. If `path` is already relative (no leading `/`), returned
+ * verbatim. If it starts with `worktreePath/`, that prefix is stripped.
+ * Anything else passes through unchanged — better to render the raw
+ * value than silently mangle a path we don't fully understand.
+ */
+function toRelativePath(path: string, worktreePath: string | null): string {
+  if (!path.startsWith('/')) return path;
+  if (!worktreePath) return path;
+  const prefix = worktreePath.endsWith('/') ? worktreePath : worktreePath + '/';
+  if (path.startsWith(prefix)) return path.slice(prefix.length);
+  if (path === worktreePath) return '';
+  return path;
 }

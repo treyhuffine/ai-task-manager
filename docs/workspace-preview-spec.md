@@ -841,6 +841,109 @@ Adds the second mode without touching the supervisor.
 - **WebSocket / EventSource subscription from the dev app.** WS → 502 with a clear error. SSE *should* pass through since the proxy streams response bodies; not explicitly tested in v1.
 - **Open in new tab → URL is `/preview/<id>/` without `_pt`.** Cookie is path-scoped to `/preview/<id>/` and SameSite=Lax, so the new tab inherits it. Works as long as the cookie hasn't expired.
 
+### Hybrid embedding: direct vs proxy
+
+Beyond the path-based reverse proxy, the iframe also supports
+**direct embedding** — loading the dev server's *native* URL when
+the browser can actually reach it. This is the cleanest fix for
+the path-prefix fidelity problem (root-absolute paths, baked-in
+absolute `ROOT_URL` values, manifest/font CORS): the dev app lives
+at `/` of its own host, exactly like it does when you open it in a
+new tab.
+
+**Selection logic** (`src/lib/preview/resolve-iframe-src.ts`):
+
+1. If status isn't `running` or port is null → path proxy.
+2. If browser hostname is `localhost`, `127.0.0.1`, or `*.localhost`:
+   - Portless mode → iframe `https://<hostname>.localhost` directly.
+     `*.localhost` resolves to 127.0.0.1 in every major browser per
+     RFC 6761; no DNS or `/etc/hosts` setup required.
+   - Command mode → iframe `http://localhost:<port>` directly.
+3. If browser hostname ends in `.ts.net` AND the workspace's
+   Portless route has a `tailscaleUrl` → iframe that URL directly.
+   Browser is on the user's tailnet, so MagicDNS + the per-app
+   Tailscale cert make it reachable with full fidelity.
+4. Mixed-content guard: HTTPS Flow + HTTP candidate → path proxy.
+   Browsers block the embed otherwise.
+5. Anything else (ngrok, LAN IP, custom domain) → path proxy.
+
+**Why direct embed is meaningfully better:**
+
+- The dev app is at `/` of its own origin — root-absolute paths
+  (`/fonts/x.otf`, `/_next/static/...`) just work. No `<base>` tag
+  needed, no path-prefix configuration on the app side.
+- The dev app's hardcoded absolute URLs (`ROOT_URL=https://myapp.localhost`)
+  match the actual iframe origin → no CORS errors fetching
+  `manifest.json` or other same-origin assets.
+- The iframe is now a *different* origin from Flow, so SOP
+  isolates everything: the dev app's JavaScript can't read Flow's
+  `localStorage['flow.token']` and can't issue authenticated
+  `fetch('/api/...')` calls. The cross-user credential exfiltration
+  scenario from the Trust boundary section disappears for
+  direct-embed mode.
+
+**Why path proxy still has to exist:**
+
+- Browsers that can't reach the native URL (random Wi-Fi, ngrok,
+  LAN IP without tailnet access) have no other path into the app.
+  The proxy gives them a degraded-but-functional view.
+- For Portless users who don't enable `--tailscale`, remote
+  browsers fall back to the proxy.
+
+**UI surfacing:** the preview pane's URL strip shows the effective
+URL (absolute when direct, relative when proxied). A small chip in
+the header reads "Direct" (green, lightning bolt) or "Proxy"
+(amber, route icon) so the user knows which mode they're in and
+can hover for an explanation of the trade-off.
+
+**Remote access recipe:** for full-fidelity preview from your
+phone / a laptop on the road, start your dev server with
+`portless <name> --tailscale <cmd>` instead of just `portless <name> <cmd>`.
+The Tailscale URL gets registered in `~/.portless/routes.json`,
+Flow's status route surfaces it as `tailscale_url`, the resolver
+picks it for any browser hitting Flow via `*.ts.net`. Without
+`--tailscale`, remote browsers still see the path proxy — same as
+today.
+
+### Trust boundary: same-origin iframe
+
+The preview iframe is on Flow's own origin (we proxy the dev app under
+`/preview/<workspace-id>/`). Because we set `allow-same-origin` in the
+sandbox (required for the dev app's cookies, fetch, and storage to
+work), the dev app's JavaScript runs with **same-origin privileges**
+inside the user's browser. Concretely it can:
+
+- Read `localStorage` and `sessionStorage` on Flow's origin —
+  including the `flow.token` API token kept there by the API client.
+- Issue `fetch('/api/...')` requests that automatically include the
+  user's session cookie.
+- Read non-HttpOnly cookies on Flow's origin.
+
+This is a fundamental property of subpath-mounted same-origin
+iframes and is not fixable while we mount under `/preview/<id>/`. The
+two mitigations we apply within that constraint:
+
+1. Outbound `Set-Cookie` rewriter (`src/lib/preview/rewrite-set-cookie.ts`)
+   forces `Path=/preview/<id>/`, drops `Domain=`, and refuses
+   reserved cookie names so the dev app can't set cookies that fire
+   on Flow's `/api/*` routes or impersonate Flow's session.
+2. Inbound cookies and `Authorization` headers are filtered before
+   forwarding so we don't leak Flow's auth credentials into the dev
+   server's request log.
+
+**Operational guidance:** treat preview the same as letting code run
+on Flow's origin. Only point preview at dev servers running code you
+trust. For multi-tenant or sharing-with-untrusted-parties scenarios,
+hold this back until subdomain isolation lands.
+
+**Future hardening — subdomain isolation.** Mount preview at
+`<workspace-id>.preview.<flow-host>` instead of `/preview/<id>/`.
+Removes the localStorage / fetch access entirely (different origin
+under SOP) and makes path-prefix rewriting unnecessary. Requires
+wildcard DNS + wildcard TLS cert, which is non-trivial for users on
+ad-hoc tunnels (ngrok, Tailscale Serve, LAN IP). Deferred until
+demand justifies the operational cost.
+
 ### Portless-specific edge cases
 
 - **`routes.json` mid-write during a Flow read.** Portless writes the whole file atomically inside its `routes.lock`. JSON parse failure is rare but possible if the OS reports the file before the new bytes are durably written. Flow retries the read once after 10ms; if still bad, returns the previous in-memory snapshot.

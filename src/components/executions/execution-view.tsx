@@ -28,7 +28,7 @@ import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
 import { FileTree } from './file-tree/file-tree';
-import { FileViewer } from './viewer/file-viewer';
+import { ViewerArea } from './viewer-area';
 import { useInitialSelectedFile } from './viewer/use-initial-selected-file';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverBanner } from './takeover/takeover-banner';
@@ -137,6 +137,17 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     lastSelectedSessionRef.current = sessionId;
     setSelectedPath(null);
   }
+
+  // Monotonic signal the ViewerArea watches to know "the user *intentionally*
+  // picked a file" — distinct from the auto-seed that `useInitialSelectedFile`
+  // does on mount. Bumped here in the tree's onSelect path; ViewerArea
+  // swaps to its Files tab when this changes. Closing a file (onSelect(null))
+  // does NOT bump it — closing isn't a request to view files.
+  const [filePickSignal, setFilePickSignal] = useState(0);
+  const handleFilePicked = (path: string | null) => {
+    setSelectedPath(path);
+    if (path) setFilePickSignal((n) => n + 1);
+  };
 
   // Terminal collapse state. We manage open/closed ourselves rather than
   // using the library's `collapsible` + `collapsedSize` props — those store
@@ -389,7 +400,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
               <FileTree
                 sessionId={session.id}
                 selectedPath={selectedPath}
-                onSelect={setSelectedPath}
+                onSelect={handleFilePicked}
                 worktreePath={session.worktree_path}
               />
             )}
@@ -425,10 +436,13 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                     }
                   />
                 ) : (
-                  <FileViewer
+                  <ViewerArea
                     sessionId={session.id}
+                    workspaceId={session.workspace_id ?? null}
                     selectedPath={selectedPath}
-                    onClose={() => setSelectedPath(null)}
+                    onCloseFile={() => setSelectedPath(null)}
+                    filePickSignal={filePickSignal}
+                    active
                   />
                 )}
               </ResizablePanel>

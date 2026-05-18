@@ -445,17 +445,18 @@
   display: flex;
 }
 
-/* Adjust vertical alignment per heading level — center on first line of text */
+/* Adjust vertical alignment per heading level — center on first line of text.
+ * Formula: top = (line-height - button-height) / 2, matches drag-handle.ts math. */
 .collapsible-heading-wrapper[data-level="1"] .collapsible-toggle {
-  top: 9px;
-}
-
-.collapsible-heading-wrapper[data-level="2"] .collapsible-toggle {
   top: 7px;
 }
 
-.collapsible-heading-wrapper[data-level="3"] .collapsible-toggle {
+.collapsible-heading-wrapper[data-level="2"] .collapsible-toggle {
   top: 5px;
+}
+
+.collapsible-heading-wrapper[data-level="3"] .collapsible-toggle {
+  top: 3px;
 }
 
 /* Hidden nodes under collapsed headings */
@@ -890,6 +891,16 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  box-sizing: border-box;
+}
+
+/* Chat composer variant: width is JS-controlled (matches the composer's
+ * width), gap is tighter, and we drop the min-width floor so a narrow
+ * composer doesn't push the menu wider than the editor. */
+.chat-slash-menu {
+  min-width: 0;
+  gap: 1px;
+  padding: 4px;
 }
 
 /* Note title textarea */

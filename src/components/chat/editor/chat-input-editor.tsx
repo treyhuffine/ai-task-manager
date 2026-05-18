@@ -51,6 +51,8 @@ import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import type { Attachment } from '@/db/types';
 import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-node';
+import { SlashMenuExtension } from './slash-menu/extension';
+import type { SkillCommandDescriptor } from './slash-menu/types';
 
 // ─── Public types ────────────────────────────────────────────────
 
@@ -111,6 +113,13 @@ interface ChatInputEditorProps {
    */
   onFocus?: () => void;
   className?: string;
+  /**
+   * Optional slash-command descriptors surfaced via `/`. When provided
+   * and non-empty, registers the SlashMenu extension. When omitted, the
+   * editor behaves like a plain composer with no popup. The data
+   * source is `useSlashCommands(sessionId)` on the consumer side.
+   */
+  slashCommands?: SkillCommandDescriptor[];
 }
 
 // ─── Tunables ──────────────────────────────────────────────────
@@ -218,6 +227,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onUploadError,
       onFocus,
       className,
+      slashCommands,
     },
     ref,
   ) {
@@ -228,6 +238,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     const onUploadErrorRef = useRef(onUploadError);
     onUploadErrorRef.current = onUploadError;
     const onFocusRef = useRef(onFocus);
+    // Mirror slashCommands in a ref so the suggestion extension's
+    // closure always reads the latest list without re-creating the
+    // editor when TanStack Query refreshes the data.
+    const slashCommandsRef = useRef(slashCommands);
+    slashCommandsRef.current = slashCommands;
     onFocusRef.current = onFocus;
 
     const KeymapExtension = useMemo(
@@ -351,6 +366,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         Placeholder.configure({ placeholder: placeholder ?? '' }),
         FileChipNode,
         PasteDropExtension,
+        SlashMenuExtension.configure({
+          getCommands: () => slashCommandsRef.current ?? [],
+        }),
         KeymapExtension,
       ],
       editorProps: {

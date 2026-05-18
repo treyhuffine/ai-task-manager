@@ -80,7 +80,70 @@ export const workspacesApi = {
       globs,
     });
   },
+
+  // ── App preview pane (the iframe / proxy feature) ───────────
+  // Distinct from `previewFilesToCopy` above, which is unrelated to
+  // the preview pane and only previews which files would be copied
+  // into a new worktree at session creation time.
+  appPreview: {
+    status(id: string): Promise<AppPreviewStatusResponse> {
+      return api.get<AppPreviewStatusResponse>(`/workspaces/${id}/preview/status`);
+    },
+    start(id: string): Promise<AppPreviewStartResponse> {
+      return api.post<AppPreviewStartResponse>(`/workspaces/${id}/preview/start`);
+    },
+    stop(id: string): Promise<{ ok: true }> {
+      return api.post<{ ok: true }>(`/workspaces/${id}/preview/stop`);
+    },
+    logs(id: string, cursor = 0): Promise<AppPreviewLogsResponse> {
+      return api.get<AppPreviewLogsResponse>(`/workspaces/${id}/preview/logs`, {
+        query: { cursor },
+      });
+    },
+    refreshToken(id: string): Promise<{ preview_token: string }> {
+      return api.post<{ preview_token: string }>(`/workspaces/${id}/preview/refresh-token`);
+    },
+  },
 };
+
+export type AppPreviewMode = 'command' | 'portless';
+export type AppPreviewStatus = 'idle' | 'starting' | 'running' | 'crashed' | 'stopped';
+
+export interface AppPreviewStatusResponse {
+  mode: AppPreviewMode;
+  status: AppPreviewStatus;
+  port: number | null;
+  /** Present for both modes. Iframe attaches it as `?_pt=` on first load. */
+  preview_token: string | null;
+  /** Portless only — the hostname Flow expects the route under. */
+  hostname?: string | null;
+  /** Portless only — Tailscale URL surfaced into the execution header. */
+  tailscale_url?: string | null;
+  /** Tailscale funnel public URL (Portless only, if enabled). */
+  tailscale_funnel_url?: string | null;
+  /** Command mode only. */
+  started_at?: string | null;
+  exited_at?: string | null;
+  exit_code?: number | null;
+  /** When the supervisor / portless route is unhealthy, an explanation. */
+  message?: string | null;
+}
+
+export interface AppPreviewStartResponse extends AppPreviewStatusResponse {
+  preview_token: string;
+}
+
+export interface AppPreviewLogLine {
+  seq: number;
+  at: string;
+  stream: 'stdout' | 'stderr';
+  line: string;
+}
+
+export interface AppPreviewLogsResponse {
+  cursor: number;
+  lines: AppPreviewLogLine[];
+}
 
 export interface PreviewFilesToCopyResponse {
   files: string[];

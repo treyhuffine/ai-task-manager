@@ -28,6 +28,7 @@ import {
 } from '@/components/chat/editor/chat-input-editor';
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
+import { useSlashCommands } from '@/hooks/use-slash-commands';
 
 interface ExecutionComposerProps {
   sessionId: string;
@@ -119,6 +120,7 @@ export function ExecutionComposer({
   }, [sessionId, markRead]);
   const modeMeta = PERMISSION_MODE_META[permissionMode];
   const sessionMeta = useSessionMeta(sessionId);
+  const slashCommandsQuery = useSlashCommands(sessionId);
 
   // Resolve current model/effort displays. The pinned `model` (when set)
   // wins over the model id derived from the live system event — once the
@@ -319,6 +321,7 @@ export function ExecutionComposer({
                 onSubmit={() => handleSend()}
                 onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                 onFocus={handleEditorFocus}
+                slashCommands={slashCommandsQuery.data?.commands}
               />
             )}
             {/* Floating focus hint — only when the editor is the empty

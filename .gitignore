@@ -61,3 +61,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .reference/
+
+# Vendored from miguelsolorio/vscode-symbols via scripts/fetch-symbols-icons.mjs
+/public/symbols-icons/

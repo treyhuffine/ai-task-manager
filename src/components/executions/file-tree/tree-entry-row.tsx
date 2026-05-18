@@ -1,23 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  ChevronRight,
-  ChevronDown,
-  FileCode,
-  FileText,
-  FileImage,
-  FileJson,
-  FileType,
-  FileType2,
-  File as FileIcon,
-  Folder,
-  FolderOpen,
-  Loader2,
-} from 'lucide-react';
+import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { TreeEntry, TreeEntryStatus } from '@/lib/api/sessions';
+import { FileIcon, FolderIcon } from '@/components/file-icon';
 import { TreeRowActions } from './tree-row-actions';
 import { HighlightedText } from './match-highlight';
 
@@ -80,11 +68,7 @@ export function TreeDirRow({
         ) : (
           <ChevronRight size={12} className="shrink-0 text-muted-foreground/70" />
         )}
-        {expanded ? (
-          <FolderOpen size={13} className="shrink-0 text-muted-foreground" />
-        ) : (
-          <Folder size={13} className="shrink-0 text-muted-foreground" />
-        )}
+        <FolderIcon name={name} opened={expanded} />
         <span className="truncate font-medium">
           <HighlightedText text={name} query={highlightQuery} />
         </span>
@@ -114,7 +98,6 @@ export function TreeFileRow({
   saving,
 }: FileRowProps) {
   const [hover, setHover] = useState(false);
-  const Icon = iconFor(entry.name);
   const statusBadge = entry.status ? statusBadgeChar(entry.status) : null;
   const statusColor = entry.status ? statusBadgeColor(entry.status) : '';
   const display = label ?? entry.name;
@@ -136,7 +119,7 @@ export function TreeFileRow({
         onClick={onSelect}
         className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
       >
-        <Icon size={13} className="shrink-0 text-muted-foreground/80" />
+        <FileIcon name={entry.name} />
         {/* Color the filename to match its git status, VS Code-style:
             modified=amber, added/untracked=emerald, deleted=rose. The
             badge color stays in sync because both sides of the row read
@@ -212,14 +195,3 @@ function statusBadgeColor(status: TreeEntryStatus): string {
   }
 }
 
-function iconFor(name: string): typeof FileIcon {
-  const lower = name.toLowerCase();
-  if (/\.(tsx?|jsx?|mjs|cjs)$/.test(lower)) return FileCode;
-  if (/\.(json|yaml|yml|toml)$/.test(lower)) return FileJson;
-  if (/\.(md|mdx|txt|log)$/.test(lower)) return FileText;
-  if (/\.(png|jpg|jpeg|gif|svg|webp|avif|ico)$/.test(lower)) return FileImage;
-  if (/\.(css|scss|sass|less)$/.test(lower)) return FileType;
-  if (/\.(html|htm)$/.test(lower)) return FileType2;
-  if (/\.(py|rb|go|rs|java|c|cpp|cs|sh|bash|zsh|sql|graphql)$/.test(lower)) return FileCode;
-  return FileIcon;
-}

@@ -10,6 +10,7 @@ import { api } from '@/lib/api/client';
 import { EmojiPicker } from '@/components/shared/emoji-picker';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { FilesToCopySection } from './files-to-copy-section';
+import { PreviewSettingsSection } from './preview-settings-section';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,10 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const [baseBranch, setBaseBranch] = useState('');
   const [worktreeRoot, setWorktreeRoot] = useState('');
   const [filesToCopy, setFilesToCopy] = useState<string[]>([]);
+  const [previewMode, setPreviewMode] = useState<'auto' | 'command' | 'portless'>('auto');
+  const [previewCommand, setPreviewCommand] = useState('');
+  const [previewPort, setPreviewPort] = useState('');
+  const [portlessHostname, setPortlessHostname] = useState('');
   const [gh, setGh] = useState<GhStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +50,12 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     setBaseBranch(ws.base_branch ?? '');
     setWorktreeRoot(ws.worktree_root ?? '');
     setFilesToCopy(ws.files_to_copy ?? []);
+    setPreviewMode(
+      ws.preview_mode === 'command' || ws.preview_mode === 'portless' ? ws.preview_mode : 'auto',
+    );
+    setPreviewCommand(ws.preview_command ?? '');
+    setPreviewPort(ws.preview_port_override != null ? String(ws.preview_port_override) : '');
+    setPortlessHostname(ws.portless_hostname ?? '');
   }, [ws]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,6 +88,13 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const handleSave = () => {
     if (!ws) return;
     const nextName = name.trim() || ws.name;
+    const portNum = previewPort.trim() === '' ? null : Number(previewPort);
+    const validPort =
+      portNum === null || (Number.isFinite(portNum) && portNum >= 1 && portNum <= 65535);
+    if (!validPort) {
+      toast.error('Preview port must be between 1 and 65535');
+      return;
+    }
     update.mutate(
       {
         id: ws.id,
@@ -87,6 +105,10 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
         base_branch: baseBranch || null,
         worktree_root: worktreeRoot || null,
         files_to_copy: filesToCopy,
+        preview_mode: previewMode === 'auto' ? null : previewMode,
+        preview_command: previewCommand.trim() || null,
+        preview_port_override: portNum,
+        portless_hostname: portlessHostname.trim() || null,
       },
       {
         onSuccess: () => {
@@ -288,6 +310,23 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                     />
                   </>
                 )}
+
+                <div>
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Preview
+                  </h3>
+                  <PreviewSettingsSection
+                    ws={ws}
+                    mode={previewMode}
+                    onModeChange={setPreviewMode}
+                    previewCommand={previewCommand}
+                    onPreviewCommandChange={setPreviewCommand}
+                    previewPort={previewPort}
+                    onPreviewPortChange={setPreviewPort}
+                    portlessHostname={portlessHostname}
+                    onPortlessHostnameChange={setPortlessHostname}
+                  />
+                </div>
 
                 <div>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">

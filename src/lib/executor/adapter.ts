@@ -31,14 +31,21 @@
  */
 
 import { uuidv7 } from 'uuidv7';
-import { getProvider } from '@agentex/agent';
-import type { AgentSession, StreamEvent, UserInputRequest, UserInputResponse } from '@agentex/agent';
+import { getProvider, listInstalledSkills, commandInventoryFromEvent } from '@agentex/agent';
+import type {
+  AgentSession,
+  StreamEvent,
+  UserInputRequest,
+  UserInputResponse,
+  RuntimeCommandInventory,
+} from '@agentex/agent';
 import {
   getChatSession,
   getAgent,
   getWorkspace,
   updateChatSession,
 } from '@/lib/db/queries';
+import { getAppRoot } from '@/lib/config/paths';
 import type {
   ChatEventSource,
   CreateChatEventInput,
@@ -80,6 +87,14 @@ export class ExecutorError extends Error {
 interface ExecutorState {
   agentSessions: Map<string, AgentSession>;
   runningSessions: Set<string>;
+  /**
+   * Skill command inventory reported by the provider's session at boot
+   * (via `system/init` for Claude — see `commandInventoryFromEvent`).
+   * Keyed by our chat session id. Populated once per session lifetime,
+   * cleared when the session is dropped. The slash-commands API route
+   * reads this to mark `available` on discovered descriptors.
+   */
+  sessionInventories: Map<string, RuntimeCommandInventory>;
 }
 
 const STATE_KEY = Symbol.for('@flow/executor-state');
@@ -89,10 +104,14 @@ if (!globalRef[STATE_KEY]) {
   globalRef[STATE_KEY] = {
     agentSessions: new Map(),
     runningSessions: new Set(),
+    sessionInventories: new Map(),
   };
+} else if (!globalRef[STATE_KEY].sessionInventories) {
+  // HMR migration: state survives from a build that predates this field.
+  globalRef[STATE_KEY].sessionInventories = new Map();
 }
 
-const { agentSessions, runningSessions } = globalRef[STATE_KEY]!;
+const { agentSessions, runningSessions, sessionInventories } = globalRef[STATE_KEY]!;
 
 /**
  * Mutate the running flag and notify any SSE subscribers. Only publishes
@@ -117,10 +136,73 @@ export function listRunningSessions(): string[] {
   return Array.from(runningSessions);
 }
 
+/**
+ * The skill/slash command inventory reported by the provider session at
+ * boot. Used by the slash-commands API route to gate `available` on
+ * each discovered descriptor. Returns null if the session hasn't booted
+ * yet or the provider didn't emit an inventory event.
+ */
+export function getSessionInventory(chatSessionId: string): RuntimeCommandInventory | null {
+  return sessionInventories.get(chatSessionId) ?? null;
+}
+
+/**
+ * Record the runtime command inventory from a provider `system/init`
+ * event. First non-null wins — subsequent init events for the same
+ * session don't overwrite, so a re-handshake mid-session doesn't
+ * clobber the original inventory the UI is reconciling against.
+ *
+ * Exported with the underscore prefix as a test seam — production
+ * code reaches this through the executor's `onEvent` callback.
+ */
+export function _recordSessionInventory(chatSessionId: string, event: StreamEvent): void {
+  const inventory = commandInventoryFromEvent(event);
+  if (inventory && !sessionInventories.has(chatSessionId)) {
+    sessionInventories.set(chatSessionId, inventory);
+  }
+}
+
+// ─── Bundled skill discovery ──────────────────────────────────
+//
+// Resolved once per process. `<cli> skills install` symlinks the shipped
+// skills into <app-root>/.claude/skills/ and <app-root>/.agents/skills/;
+// here we ask agentex to enumerate those symlinks and return the source
+// paths. Cached because the install state doesn't change at runtime —
+// re-running the CLI install is what would invalidate it, and that
+// implies a restart anyway.
+let cachedSkillDirs: Promise<string[]> | null = null;
+
+export async function _resolveBundledSkillDirs(): Promise<string[]> {
+  if (!cachedSkillDirs) {
+    cachedSkillDirs = (async () => {
+      try {
+        const channels = await listInstalledSkills({ location: 'workspace', cwd: getAppRoot() });
+        const dirs = new Set<string>();
+        for (const skills of Object.values(channels)) {
+          for (const skill of skills) {
+            if (skill.sourcePath) dirs.add(skill.sourcePath);
+          }
+        }
+        return Array.from(dirs);
+      } catch (err) {
+        console.warn('[executor] failed to enumerate bundled skills:', err);
+        return [];
+      }
+    })();
+  }
+  return cachedSkillDirs;
+}
+
+/** Test seam: clears the skillDirs cache so the next resolve re-fetches. */
+export function _resetSkillDirsCache(): void {
+  cachedSkillDirs = null;
+}
+
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
   agentSessions.clear();
   runningSessions.clear();
+  sessionInventories.clear();
 }
 
 // ─── Public API ───────────────────────────────────────────────
@@ -199,6 +281,7 @@ export async function abort(chatSessionId: string): Promise<void> {
 export async function close(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   agentSessions.delete(chatSessionId);
+  sessionInventories.delete(chatSessionId);
   setRunning(chatSessionId, false);
   rejectAllForSession(chatSessionId, 'Session closed');
   if (handle) {
@@ -222,6 +305,10 @@ export async function recycleForModeChange(chatSessionId: string): Promise<void>
   const handle = agentSessions.get(chatSessionId);
   if (!handle) return;
   agentSessions.delete(chatSessionId);
+  // Drop the inventory too — the recycled session will emit a fresh
+  // system/init with potentially different available skills (e.g. plan
+  // mode restricts the toolset).
+  sessionInventories.delete(chatSessionId);
   // Don't reject pending requests — a mode change shouldn't blow up
   // an in-flight permission prompt the user is about to answer.
   try { await handle.close(); } catch { /* best-effort */ }
@@ -263,6 +350,14 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // Codex provider ignores `config.effort`; passing it is harmless.
   if (args.effort) config.effort = args.effort;
 
+  // Bundled skills live at <app-root>/.claude/skills/ and <app-root>/.agents/skills/
+  // (installed via `<cli> skills install`, which runs on `start`). The session
+  // opens at the workspace cwd, which is typically *not* under app-root, so
+  // Claude's ancestor walk won't see them. Pass them through skillDirs so
+  // agentex symlinks them into a temp dir and adds it via --add-dir.
+  const skillDirs = await _resolveBundledSkillDirs();
+  if (skillDirs.length > 0) config.skillDirs = skillDirs;
+
   const handle = await provider.createSession({
     cwd: args.cwd,
     sessionParams: args.existingExternalSessionId
@@ -272,6 +367,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
     onUserInputRequest: (req) => handleUserInputRequest(args.chatSessionId, args.writer, req),
     onEvent: async (event) => {
       try {
+        _recordSessionInventory(args.chatSessionId, event);
         await persistStreamEvent(args.chatSessionId, event, args.writer);
         capturePromotedSessionId(args.chatSessionId, event);
       } catch (err) {

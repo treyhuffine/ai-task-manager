@@ -61,4 +61,39 @@ export async function register() {
   } catch (err) {
     console.warn('[reconcile] init failed', err);
   }
+
+  // Reap orphaned preview processes from a prior Flow run that crashed
+  // or restarted without a clean stop. The PID files we wrote at spawn
+  // time tell us what to look for; we kill the process group only when
+  // the live command line still matches what we recorded, so PID
+  // recycling can't make us nuke an unrelated process.
+  try {
+    const { sweepOrphans } = await import('@/lib/preview/pid-store');
+    sweepOrphans()
+      .then((stats) => {
+        if (stats.checked > 0) {
+          console.log(
+            `[preview] orphan sweep: checked=${stats.checked} killed=${stats.killed} skipped=${stats.skipped}`,
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn('[preview] orphan sweep failed', err);
+      });
+  } catch (err) {
+    console.warn('[preview] orphan sweep init failed', err);
+  }
+
+  // Best-effort: stop every supervised preview when Flow is asked to
+  // exit cleanly. SIGTERM/SIGINT only — Node can't intercept SIGKILL.
+  // Lives in a dynamically-imported module because Next.js's Edge
+  // runtime build statically rejects `process.once` / `process.exit`
+  // in this file's body even though the early-return above guarantees
+  // they never run in the Edge runtime.
+  try {
+    const { installShutdownHook } = await import('@/lib/preview/shutdown');
+    installShutdownHook();
+  } catch (err) {
+    console.warn('[preview] shutdown hook init failed', err);
+  }
 }
