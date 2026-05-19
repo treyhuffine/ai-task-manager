@@ -1,12 +1,19 @@
 'use client'
 
 import { Extension } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
 import Suggestion, {
   type SuggestionOptions,
   type SuggestionProps,
 } from '@tiptap/suggestion'
 import { createSuggestionRenderer } from './renderer'
 import type { SkillCommandDescriptor } from './types'
+
+// Each Suggestion plugin needs its own PluginKey — without one they
+// all default to `suggestion$` and ProseMirror throws "Adding different
+// instances of a keyed plugin" when multiple suggestion menus live in
+// the same editor.
+const SLASH_MENU_PLUGIN_KEY = new PluginKey('slashMenuSuggestion')
 
 interface SlashMenuOptions {
   /**
@@ -49,6 +56,7 @@ export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
     const getCommands = () => this.options.getCommands?.() ?? []
 
     const suggestion: Partial<SuggestionOptions<SkillCommandDescriptor, SkillCommandDescriptor>> = {
+      pluginKey: SLASH_MENU_PLUGIN_KEY,
       char: '/',
       allowSpaces: false,
       startOfLine: true,

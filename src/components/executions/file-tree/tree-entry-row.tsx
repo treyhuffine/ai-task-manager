@@ -14,6 +14,9 @@ interface RowActionsHandlers {
   onDelete: () => void;
   onCreateFile?: () => void;
   onCreateFolder?: () => void;
+  onCopyRelativePath?: () => void;
+  onCopyAbsolutePath?: () => void;
+  onReferenceInChat?: () => void;
 }
 
 interface DirRowProps {
@@ -81,6 +84,9 @@ export function TreeDirRow({
           onDelete={actions.onDelete}
           onCreateFile={actions.onCreateFile}
           onCreateFolder={actions.onCreateFolder}
+          onCopyRelativePath={actions.onCopyRelativePath}
+          onCopyAbsolutePath={actions.onCopyAbsolutePath}
+          onReferenceInChat={actions.onReferenceInChat}
         />
       )}
     </div>
@@ -163,6 +169,9 @@ export function TreeFileRow({
           visible={hover}
           onRename={actions.onRename}
           onDelete={actions.onDelete}
+          onCopyRelativePath={actions.onCopyRelativePath}
+          onCopyAbsolutePath={actions.onCopyAbsolutePath}
+          onReferenceInChat={actions.onReferenceInChat}
         />
       )}
     </div>

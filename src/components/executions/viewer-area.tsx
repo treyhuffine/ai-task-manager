@@ -26,6 +26,12 @@ interface ViewerAreaProps {
    * user out of a Preview view they're still using.
    */
   filePickSignal?: number;
+  /**
+   * Wired by `ExecutionView` so the file viewer's header kebab can
+   * insert `@<path>` at the chat composer's cursor — same UX as the
+   * file tree's "Reference in chat" affordance.
+   */
+  onReferenceInChat?: (relativePath: string) => void;
 }
 
 type Tab = 'files' | 'preview';
@@ -48,7 +54,7 @@ const TAB_STORAGE_KEY_PREFIX = 'flow.viewer.tab.';
  */
 export function ViewerArea({
   sessionId, workspaceId, selectedPath, onCloseFile, onOpenWorkspaceSettings, active,
-  filePickSignal,
+  filePickSignal, onReferenceInChat,
 }: ViewerAreaProps) {
   const [tab, setTab] = useState<Tab>(() => readPersistedTab(sessionId));
 
@@ -119,6 +125,7 @@ export function ViewerArea({
             sessionId={sessionId}
             selectedPath={selectedPath}
             onClose={onCloseFile}
+            onReferenceInChat={onReferenceInChat}
           />
         ) : (
           <PreviewPane

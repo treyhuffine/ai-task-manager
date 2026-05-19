@@ -53,6 +53,17 @@ import type { Attachment } from '@/db/types';
 import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-node';
 import { SlashMenuExtension } from './slash-menu/extension';
 import type { SkillCommandDescriptor } from './slash-menu/types';
+import { MentionMenuExtension } from './mention-menu/extension';
+import type { MentionItem } from './mention-menu/types';
+import {
+  MentionChipNode,
+  MENTION_CHIP_NAME,
+  type MentionChipAttrs,
+} from './mention-menu/mention-chip-node';
+import { PrMenuExtension } from './pr-menu/extension';
+import type { PrMentionItem } from './pr-menu/types';
+import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './pr-menu/pr-chip-node';
+import { formatPrRef } from './pr-menu/expand';
 
 // ─── Public types ────────────────────────────────────────────────
 
@@ -143,6 +154,18 @@ interface ChatInputEditorProps {
    * source is `useSlashCommands(sessionId)` on the consumer side.
    */
   slashCommands?: SkillCommandDescriptor[];
+  /**
+   * Optional worktree files/folders for the `@`-mention menu. Sourced
+   * from `useSessionTree` on the consumer side. When omitted, typing
+   * `@` does nothing special.
+   */
+  mentionEntries?: MentionItem[];
+  /**
+   * Optional PRs for the `#`-mention menu. Sourced from `usePrList`
+   * on the consumer side. When omitted, typing `#` does nothing
+   * special.
+   */
+  prs?: PrMentionItem[];
 }
 
 // ─── Tunables ──────────────────────────────────────────────────
@@ -251,6 +274,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onFocus,
       className,
       slashCommands,
+      mentionEntries,
+      prs,
     },
     ref,
   ) {
@@ -266,6 +291,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // editor when TanStack Query refreshes the data.
     const slashCommandsRef = useRef(slashCommands);
     slashCommandsRef.current = slashCommands;
+    const mentionEntriesRef = useRef(mentionEntries);
+    mentionEntriesRef.current = mentionEntries;
+    const prsRef = useRef(prs);
+    prsRef.current = prs;
     onFocusRef.current = onFocus;
 
     const KeymapExtension = useMemo(
@@ -388,9 +417,17 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         }),
         Placeholder.configure({ placeholder: placeholder ?? '' }),
         FileChipNode,
+        PrChipNode,
+        MentionChipNode,
         PasteDropExtension,
         SlashMenuExtension.configure({
           getCommands: () => slashCommandsRef.current ?? [],
+        }),
+        MentionMenuExtension.configure({
+          getEntries: () => mentionEntriesRef.current ?? [],
+        }),
+        PrMenuExtension.configure({
+          getPrs: () => prsRef.current ?? [],
         }),
         KeymapExtension,
       ],
@@ -570,6 +607,25 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
       lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `[[file:${attrs.file_name}]]`;
       return false;
     }
+    if (node.type.name === PR_CHIP_NAME) {
+      // PR chips self-serialize to the same expanded text the manual
+      // `#193` typing path produces via `expandPrRefs`. Doing it here
+      // means the chip is self-contained — no dependency on the PR
+      // list cache being fresh at send time.
+      const attrs = node.attrs as PrChipAttrs;
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + formatPrRef(attrs);
+      return false;
+    }
+    if (node.type.name === MENTION_CHIP_NAME) {
+      // File/folder chips emit `@<relative-path>` — same wire format
+      // the manual `@<path>` typing path uses, so the agent sees one
+      // canonical shape regardless of how the user composed it.
+      const attrs = node.attrs as MentionChipAttrs;
+      if (attrs.path) {
+        lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `@${attrs.path}`;
+      }
+      return false;
+    }
     if (node.type.name === 'paragraph') {
       lines.push('');
       return true;
@@ -620,6 +676,21 @@ function buildUiMessageParts(editor: Editor | null): {
         filename: attrs.original_name || attrs.file_name,
         url: attachmentUrl(attrs.file_name),
       });
+      return false;
+    }
+    if (node.type.name === PR_CHIP_NAME) {
+      // PR chips inline as expanded text — the orchestrator chat model
+      // doesn't have a native PR part type, so we surface the context
+      // as a text run that flows with the surrounding sentence.
+      const attrs = node.attrs as PrChipAttrs;
+      textBuf += formatPrRef(attrs);
+      return false;
+    }
+    if (node.type.name === MENTION_CHIP_NAME) {
+      // File/folder chips inline as `@<path>` text — the path itself
+      // is the canonical reference the agent acts on.
+      const attrs = node.attrs as MentionChipAttrs;
+      if (attrs.path) textBuf += `@${attrs.path}`;
       return false;
     }
     if (node.type.name === 'paragraph') {

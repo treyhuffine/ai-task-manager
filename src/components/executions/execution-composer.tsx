@@ -1,12 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { ArrowUp, Mic, Square, Loader2, Sparkles, Check, Zap, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
-import { useUpdateSession, useSessionMeta } from '@/hooks/use-execution';
+import { useUpdateSession, useSessionMeta, useSessionTree } from '@/hooks/use-execution';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META, nextPermissionMode } from '@/lib/permission-modes';
@@ -29,6 +37,26 @@ import {
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
 import { useSlashCommands } from '@/hooks/use-slash-commands';
+import type { MentionItem } from '@/components/chat/editor/mention-menu/types';
+import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
+import { expandPrRefs } from '@/components/chat/editor/pr-menu/expand';
+import { usePrList } from '@/hooks/use-prs';
+
+/**
+ * Imperative handle for the execution composer. Exposes the minimum
+ * surface other panels need — inserting text at the cursor and focusing
+ * the editor — without leaking the full ChatInputEditorHandle (which
+ * carries upload + snapshot APIs that don't make sense outside the
+ * composer itself).
+ *
+ * Wired up by ExecutionView so the file tree's "Reference in chat"
+ * kebab action can drop an `@<path>` token into the composer without
+ * threading a callback through every intermediate component.
+ */
+export interface ExecutionComposerHandle {
+  insertTextAtCursor: (text: string) => void;
+  focus: (opts?: { end?: boolean }) => void;
+}
 
 interface ExecutionComposerProps {
   sessionId: string;
@@ -77,19 +105,23 @@ interface ExecutionComposerProps {
  * we honor the user's `voice_auto_send` preference for whether to fire
  * immediately.
  */
-export function ExecutionComposer({
-  sessionId,
-  permissionMode,
-  model,
-  effort,
-  harness,
-  disabled,
-  disabledReason,
-  helperText,
-  isRunning,
-  onSend,
-  onStop,
-}: ExecutionComposerProps) {
+export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionComposerProps>(
+  function ExecutionComposer(
+    {
+      sessionId,
+      permissionMode,
+      model,
+      effort,
+      harness,
+      disabled,
+      disabledReason,
+      helperText,
+      isRunning,
+      onSend,
+      onStop,
+    },
+    externalRef,
+  ) {
   const [hasContent, setHasContent] = useState(false);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -98,6 +130,24 @@ export function ExecutionComposer({
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
   const editorRef = useRef<ChatInputEditorHandle | null>(null);
+
+  // Expose a narrow imperative surface — just enough for the file tree
+  // (and any future panel) to drop text into the editor and focus it.
+  // Keeps the parent from holding a full ChatInputEditorHandle, which
+  // includes upload + snapshot APIs that only the composer should drive.
+  useImperativeHandle(
+    externalRef,
+    () => ({
+      insertTextAtCursor: (text: string) => {
+        editorRef.current?.insertTextAtCursor(text);
+      },
+      focus: (opts) => {
+        editorRef.current?.focus(opts);
+      },
+    }),
+    [],
+  );
+
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
   const voice = useVoiceInput();
@@ -135,6 +185,43 @@ export function ExecutionComposer({
   const modeMeta = PERMISSION_MODE_META[permissionMode];
   const sessionMeta = useSessionMeta(sessionId);
   const slashCommandsQuery = useSlashCommands(sessionId);
+
+  // Worktree files/folders → @-mention items. Same data the file tree
+  // shows, transformed into the lighter shape the popup needs.
+  const treeQuery = useSessionTree(sessionId);
+  const mentionEntries = useMemo<MentionItem[]>(
+    () =>
+      (treeQuery.data?.entries ?? []).map((e) => ({
+        path: e.path,
+        name: e.name,
+        kind: e.kind,
+      })),
+    [treeQuery.data?.entries],
+  );
+
+  // GitHub PRs → `#`-mention items. Empty when gh is missing /
+  // unauthenticated or the workspace is non-git; the popup just shows
+  // its empty state in those cases.
+  const prListQuery = usePrList(sessionId);
+  const prMentions = useMemo<PrMentionItem[]>(
+    () =>
+      (prListQuery.data?.prs ?? []).map((p) => ({
+        number: p.number,
+        title: p.title,
+        state: p.state,
+        isDraft: p.isDraft,
+        headRefName: p.headRefName,
+        baseRefName: p.baseRefName,
+        url: p.url,
+        updatedAt: p.updatedAt,
+      })),
+    [prListQuery.data?.prs],
+  );
+
+  // Mirror in a ref so handleSend always sees the latest list without
+  // forcing the send callback to re-create on every refetch.
+  const prMentionsRef = useRef(prMentions);
+  prMentionsRef.current = prMentions;
 
   // Resolve current model/effort displays. The pinned `model` (when set)
   // wins over the model id derived from the live system event — once the
@@ -179,7 +266,12 @@ export function ExecutionComposer({
     ) => {
       const editor = editorRef.current;
       const out = override ?? editor?.getMarkerOutput() ?? { text: '', attachments: [] };
-      const text = out.text.trim();
+      // Expand `#193` style PR references against the cached PR list so
+      // the agent sees title + URL + branch context without an extra
+      // `gh pr view` round-trip. Unmatched numbers pass through; voice
+      // override path also runs through it so a dictated "look at one
+      // ninety three" expanded by STT still benefits.
+      const text = expandPrRefs(out.text.trim(), prMentionsRef.current);
       // No isRunning gate: sends are accepted mid-turn. The harness's
       // own queue handles ordering — Claude drains as `<system-reminder>`
       // attachments into the current turn; Codex merges as additional
@@ -370,6 +462,8 @@ export function ExecutionComposer({
                 onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                 onFocus={handleEditorFocus}
                 slashCommands={slashCommandsQuery.data?.commands}
+                mentionEntries={mentionEntries}
+                prs={prMentions}
               />
             )}
             {/* Floating focus hint — only when the editor is the empty
@@ -564,7 +658,8 @@ export function ExecutionComposer({
       </div>
     </div>
   );
-}
+  },
+);
 
 // ─── ModePicker ───────────────────────────────────────────────
 

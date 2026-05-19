@@ -329,6 +329,103 @@
 }
 
 /* ============================================
+   Markdown document view (file viewer's Render mode)
+   Builds on .chat-markdown for lists / code blocks and layers on
+   document-style heading + prose styles that chat doesn't need.
+   ============================================ */
+
+.markdown-doc h1 {
+  font-size: 1.625rem;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.5em 0 0.5em;
+  letter-spacing: -0.01em;
+}
+
+.markdown-doc h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.4em 0 0.4em;
+}
+
+.markdown-doc h3 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.2em 0 0.35em;
+}
+
+.markdown-doc h4,
+.markdown-doc h5,
+.markdown-doc h6 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: 1em 0 0.25em;
+}
+
+.markdown-doc > :first-child {
+  margin-top: 0;
+}
+
+.markdown-doc p {
+  margin: 0.5em 0;
+}
+
+.markdown-doc a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-doc blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.875em;
+  margin: 0.75em 0;
+  color: var(--muted-foreground);
+}
+
+.markdown-doc hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.markdown-doc :not(pre) > code {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  padding: 0.05em 0.35em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.875em;
+}
+
+.markdown-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  font-size: 0.9375em;
+}
+
+.markdown-doc th,
+.markdown-doc td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.375em 0.625em;
+  text-align: left;
+}
+
+.markdown-doc th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.markdown-doc img {
+  max-width: 100%;
+  border-radius: 0.375rem;
+  margin: 0.5em 0;
+}
+
+/* ============================================
    Rich Editor (Tiptap) Styles
    ============================================ */
 

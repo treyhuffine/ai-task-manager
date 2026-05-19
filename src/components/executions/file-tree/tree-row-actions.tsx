@@ -1,6 +1,14 @@
 'use client';
 
-import { MoreHorizontal, Pencil, Trash2, FilePlus, FolderPlus } from 'lucide-react';
+import {
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  FilePlus,
+  FolderPlus,
+  Copy,
+  AtSign,
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +27,12 @@ interface TreeRowActionsProps {
   /** Only available for dirs — files don't get child-create entries. */
   onCreateFile?: () => void;
   onCreateFolder?: () => void;
+  /** Path utilities — shared by files and dirs. Absolute path is
+   *  optional because non-git workspaces may not have a worktree path. */
+  onCopyRelativePath?: () => void;
+  onCopyAbsolutePath?: () => void;
+  /** Insert an `@<relative-path>` reference at the composer's cursor. */
+  onReferenceInChat?: () => void;
 }
 
 /**
@@ -36,7 +50,11 @@ export function TreeRowActions({
   onDelete,
   onCreateFile,
   onCreateFolder,
+  onCopyRelativePath,
+  onCopyAbsolutePath,
+  onReferenceInChat,
 }: TreeRowActionsProps) {
+  const hasPathActions = !!(onCopyRelativePath || onCopyAbsolutePath || onReferenceInChat);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -54,7 +72,7 @@ export function TreeRowActions({
       >
         <MoreHorizontal size={12} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={4} className="min-w-40">
+      <DropdownMenuContent align="end" sideOffset={4} className="min-w-44">
         {kind === 'dir' && onCreateFile && (
           <DropdownMenuItem
             onClick={(e) => {
@@ -78,6 +96,40 @@ export function TreeRowActions({
           </DropdownMenuItem>
         )}
         {kind === 'dir' && (onCreateFile || onCreateFolder) && <DropdownMenuSeparator />}
+        {onReferenceInChat && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onReferenceInChat();
+            }}
+          >
+            <AtSign size={14} />
+            Reference in chat
+          </DropdownMenuItem>
+        )}
+        {onCopyRelativePath && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopyRelativePath();
+            }}
+          >
+            <Copy size={14} />
+            Copy relative path
+          </DropdownMenuItem>
+        )}
+        {onCopyAbsolutePath && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopyAbsolutePath();
+            }}
+          >
+            <Copy size={14} />
+            Copy absolute path
+          </DropdownMenuItem>
+        )}
+        {hasPathActions && <DropdownMenuSeparator />}
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
