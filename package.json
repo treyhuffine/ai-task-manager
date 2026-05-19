@@ -124,7 +124,7 @@
     "nanoid": "^5.1.9",
     "next": "16.1.6",
     "next-themes": "^0.4.6",
-    "node-pty": "^1.1.0",
+    "node-pty": "1.2.0-beta.13",
     "officeparser": "^6.1.1",
     "open": "^11.0.0",
     "openai": "^6.26.0",
