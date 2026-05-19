@@ -40,23 +40,26 @@ export function useInitialSelectedFile(
       return;
     }
 
-    // Need either the tree or the events to be loaded — but not both.
-    if (!events && !tree) return;
+    // Wait for the tree before seeding. Tool inputs from agent events
+    // are typically absolute filesystem paths (`/Users/.../foo.md`),
+    // while the rest of the app expects worktree-relative paths
+    // (`foo.md`, `src/bar.ts`). The tree is what lets us reduce an
+    // absolute candidate to its relative form via suffix matching;
+    // without it we'd seed `selectedPath` with the absolute path and
+    // every downstream consumer (header display, RevealButton's
+    // worktreePath + path concat, file fetches) would behave wrong.
+    if (!tree) return;
+    const treePaths = new Set(tree.entries.map((e) => e.path));
 
-    // 1) Walk events newest-first for a file-ish tool_use.
+    // 1) Walk events newest-first for a file-ish tool_use, mapped to
+    //    a worktree-relative path.
     if (events && events.length > 0) {
-      const treePaths = tree ? new Set(tree.entries.map((e) => e.path)) : null;
       for (let i = events.length - 1; i >= 0; i--) {
         const ev = events[i];
         if (ev.source !== 'tool_call') continue;
         const candidate = extractFilePath(ev.tool_name, ev.tool_input);
         if (!candidate) continue;
-        // Tool inputs sometimes carry absolute paths; tree entries are
-        // worktree-relative. Match against the longest entry suffix
-        // that fits the candidate.
-        const matched = treePaths
-          ? findRelativeMatch(candidate, treePaths)
-          : candidate;
+        const matched = findRelativeMatch(candidate, treePaths);
         if (matched) {
           onSelect(matched);
           appliedRef.current = true;
@@ -66,7 +69,7 @@ export function useInitialSelectedFile(
     }
 
     // 2) Fall back to most recent changed file by mtime.
-    if (tree && tree.entries.length > 0) {
+    if (tree.entries.length > 0) {
       const changed = tree.entries.filter((e) => !!e.status && !!e.mtime);
       if (changed.length > 0) {
         changed.sort((a, b) =>

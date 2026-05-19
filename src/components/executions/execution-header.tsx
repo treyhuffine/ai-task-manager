@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverButton } from './takeover/takeover-button';
+import { TailscaleMenuItems } from './tailscale-menu-items';
+import { useTailscaleUrl } from '@/hooks/use-tailscale-url';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
 
@@ -221,6 +223,17 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
 
   const takeoverMenuItem = <TakeoverButton session={session} workspace={workspace} />;
 
+  // Tailscale URL exposed by Portless (Phase 5). Surfaces as a section
+  // in the header's 3-dot popover. `useTailscaleUrl` returns nulls when
+  // not in Portless mode or no route is registered — `TailscaleMenuItems`
+  // renders nothing in that case, so we conditionally render the wrapper
+  // divider only when there's something to show.
+  const tailscale = useTailscaleUrl(session.workspace_id ?? null);
+  const hasTailscaleItems = !!tailscale.url;
+  const tailscaleMenuSection = hasTailscaleItems ? (
+    <TailscaleMenuItems workspaceId={session.workspace_id ?? null} />
+  ) : null;
+
   // Detect Live mode: git workspace whose session points at the
   // workspace's own cwd instead of a per-session worktree. Non-git
   // workspaces also run in cwd by default but that's not "Live mode"
@@ -332,6 +345,12 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
                   <>
                     <div className="h-px bg-border" />
                     <div className="p-1.5">{worktreeLinks}</div>
+                  </>
+                )}
+                {tailscaleMenuSection && (
+                  <>
+                    <div className="h-px bg-border" />
+                    <div className="p-1">{tailscaleMenuSection}</div>
                   </>
                 )}
                 <div className="h-px bg-border" />
@@ -485,6 +504,13 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
                 <>
                   <div className="h-px bg-border" />
                   <div className="p-1.5">{worktreeLinks}</div>
+                </>
+              )}
+
+              {tailscaleMenuSection && (
+                <>
+                  <div className="h-px bg-border" />
+                  <div className="p-1">{tailscaleMenuSection}</div>
                 </>
               )}
 

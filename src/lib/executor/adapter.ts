@@ -31,14 +31,21 @@
  */
 
 import { uuidv7 } from 'uuidv7';
-import { getProvider } from '@agentex/agent';
-import type { AgentSession, StreamEvent, UserInputRequest, UserInputResponse } from '@agentex/agent';
+import { getProvider, listInstalledSkills, commandInventoryFromEvent } from '@agentex/agent';
+import type {
+  AgentSession,
+  StreamEvent,
+  UserInputRequest,
+  UserInputResponse,
+  RuntimeCommandInventory,
+} from '@agentex/agent';
 import {
   getChatSession,
   getAgent,
   getWorkspace,
   updateChatSession,
 } from '@/lib/db/queries';
+import { getAppRoot } from '@/lib/config/paths';
 import type {
   ChatEventSource,
   CreateChatEventInput,
@@ -80,6 +87,27 @@ export class ExecutorError extends Error {
 interface ExecutorState {
   agentSessions: Map<string, AgentSession>;
   runningSessions: Set<string>;
+  /**
+   * Number of in-flight `dispatch()` calls per chat_session. With
+   * concurrent send (Claude / Codex), multiple sends can overlap —
+   * the user types a follow-up while a turn is still in flight, the
+   * second dispatch enters while the first is awaiting `result`. A
+   * plain `runningSessions: Set` flips off the moment any one
+   * dispatch's `finally` runs, even if other dispatches are still
+   * outstanding — that flickers the runtime status to false and the
+   * UI's Stop button reverts to Send mid-turn. Counting solves it:
+   * the flag transitions on 0→1 and N→0 only, so the SSE channel
+   * sees clean edges.
+   */
+  inflightCount: Map<string, number>;
+  /**
+   * Skill command inventory reported by the provider's session at boot
+   * (via `system/init` for Claude — see `commandInventoryFromEvent`).
+   * Keyed by our chat session id. Populated once per session lifetime,
+   * cleared when the session is dropped. The slash-commands API route
+   * reads this to mark `available` on discovered descriptors.
+   */
+  sessionInventories: Map<string, RuntimeCommandInventory>;
 }
 
 const STATE_KEY = Symbol.for('@flow/executor-state');
@@ -89,10 +117,20 @@ if (!globalRef[STATE_KEY]) {
   globalRef[STATE_KEY] = {
     agentSessions: new Map(),
     runningSessions: new Set(),
+    inflightCount: new Map(),
+    sessionInventories: new Map(),
   };
+} else {
+  // HMR migration: state survives from a build that predates these fields.
+  if (!globalRef[STATE_KEY].sessionInventories) {
+    globalRef[STATE_KEY].sessionInventories = new Map();
+  }
+  if (!globalRef[STATE_KEY].inflightCount) {
+    globalRef[STATE_KEY].inflightCount = new Map();
+  }
 }
 
-const { agentSessions, runningSessions } = globalRef[STATE_KEY]!;
+const { agentSessions, runningSessions, inflightCount, sessionInventories } = globalRef[STATE_KEY]!;
 
 /**
  * Mutate the running flag and notify any SSE subscribers. Only publishes
@@ -117,10 +155,74 @@ export function listRunningSessions(): string[] {
   return Array.from(runningSessions);
 }
 
+/**
+ * The skill/slash command inventory reported by the provider session at
+ * boot. Used by the slash-commands API route to gate `available` on
+ * each discovered descriptor. Returns null if the session hasn't booted
+ * yet or the provider didn't emit an inventory event.
+ */
+export function getSessionInventory(chatSessionId: string): RuntimeCommandInventory | null {
+  return sessionInventories.get(chatSessionId) ?? null;
+}
+
+/**
+ * Record the runtime command inventory from a provider `system/init`
+ * event. First non-null wins — subsequent init events for the same
+ * session don't overwrite, so a re-handshake mid-session doesn't
+ * clobber the original inventory the UI is reconciling against.
+ *
+ * Exported with the underscore prefix as a test seam — production
+ * code reaches this through the executor's `onEvent` callback.
+ */
+export function _recordSessionInventory(chatSessionId: string, event: StreamEvent): void {
+  const inventory = commandInventoryFromEvent(event);
+  if (inventory && !sessionInventories.has(chatSessionId)) {
+    sessionInventories.set(chatSessionId, inventory);
+  }
+}
+
+// ─── Bundled skill discovery ──────────────────────────────────
+//
+// Resolved once per process. `<cli> skills install` symlinks the shipped
+// skills into <app-root>/.claude/skills/ and <app-root>/.agents/skills/;
+// here we ask agentex to enumerate those symlinks and return the source
+// paths. Cached because the install state doesn't change at runtime —
+// re-running the CLI install is what would invalidate it, and that
+// implies a restart anyway.
+let cachedSkillDirs: Promise<string[]> | null = null;
+
+export async function _resolveBundledSkillDirs(): Promise<string[]> {
+  if (!cachedSkillDirs) {
+    cachedSkillDirs = (async () => {
+      try {
+        const channels = await listInstalledSkills({ location: 'workspace', cwd: getAppRoot() });
+        const dirs = new Set<string>();
+        for (const skills of Object.values(channels)) {
+          for (const skill of skills) {
+            if (skill.sourcePath) dirs.add(skill.sourcePath);
+          }
+        }
+        return Array.from(dirs);
+      } catch (err) {
+        console.warn('[executor] failed to enumerate bundled skills:', err);
+        return [];
+      }
+    })();
+  }
+  return cachedSkillDirs;
+}
+
+/** Test seam: clears the skillDirs cache so the next resolve re-fetches. */
+export function _resetSkillDirsCache(): void {
+  cachedSkillDirs = null;
+}
+
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
   agentSessions.clear();
   runningSessions.clear();
+  inflightCount.clear();
+  sessionInventories.clear();
 }
 
 // ─── Public API ───────────────────────────────────────────────
@@ -129,24 +231,57 @@ export function isRunning(chatSessionId: string): boolean {
   return runningSessions.has(chatSessionId);
 }
 
+// ─── Inflight reference counting ──────────────────────────────
+//
+// Concurrent send lets multiple `dispatch()` calls overlap: the user
+// types a follow-up while the previous turn is still in flight, the
+// second dispatch enters `try` while the first is awaiting `result`.
+// A plain `runningSessions.add/.delete` Set flips off the moment any
+// one dispatch's finally runs — even while peers are outstanding —
+// causing the runtime-status SSE to flicker false and the UI's Stop
+// button to revert to Send mid-turn. Counting solves it: the public
+// `runningSessions` Set only transitions on 0→1 (start) and N→0
+// (everyone's done), so SSE subscribers see clean edges.
+
+function startInflight(chatSessionId: string): void {
+  const next = (inflightCount.get(chatSessionId) ?? 0) + 1;
+  inflightCount.set(chatSessionId, next);
+  if (next === 1) setRunning(chatSessionId, true);
+}
+
+function endInflight(chatSessionId: string): void {
+  const cur = inflightCount.get(chatSessionId) ?? 0;
+  const next = cur - 1;
+  if (next <= 0) {
+    inflightCount.delete(chatSessionId);
+    setRunning(chatSessionId, false);
+  } else {
+    inflightCount.set(chatSessionId, next);
+  }
+}
+
 /**
  * Dispatch a user message into the agent. Fire-and-forget from the
  * route handler — the returned promise resolves when the agent's turn
  * completes, but the caller doesn't have to await it.
  *
- * Throws `ExecutorError('already_running', ...)` if a turn is already
- * in flight for this chat_session — the route surfaces that as 409 so
- * the client can decide how to recover.
+ * Concurrent send (Claude + Codex): callable mid-turn. The CLI's own
+ * queue handles ordering — Claude drains queued messages into the
+ * active turn as `<system-reminder>` attachments on the next tool
+ * result; Codex merges them as additional userMessage items in the
+ * same turn. Either way the agent's response addresses the new
+ * messages without us having to do anything special.
+ *
+ * Non-concurrent providers (none ship today, but the capability flag
+ * leaves room): the second overlapping dispatch throws
+ * `already_running`. Listed in `ExecutorError`'s union so the route
+ * can surface it as 409 if it ever fires.
  */
 export async function dispatch(
   chatSessionId: string,
   userMessage: string,
   writer: EventWriter = localEventWriter,
 ): Promise<void> {
-  if (runningSessions.has(chatSessionId)) {
-    throw new ExecutorError('already_running', 'Session is already running');
-  }
-
   const session = getChatSession(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
 
@@ -156,14 +291,23 @@ export async function dispatch(
   const cwd = resolveCwd(session);
   if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
 
-  // Mark running BEFORE the agent-session spawn. ensureAgentSession's
-  // first call to provider.createSession spawns the CLI process and
-  // can take 1-3 seconds; without this, runtime-status returns false
-  // during that window and the UI's ThinkingState doesn't render — the
-  // user sees a frozen page. Flipping the flag immediately on dispatch
-  // entry means "we're working on it" reflects the moment the request
-  // arrives, not the moment the agent is finally ready.
-  setRunning(chatSessionId, true);
+  // Provider capability gate. Both currently-shipped providers
+  // (claude, codex) set `concurrentSend: true`, so this branch is
+  // never taken today. It's here so a future non-concurrent provider
+  // can opt out of overlap without us having to thread a separate
+  // flag through the route layer.
+  const provider = getProvider(mapHarnessToProvider(agent.harness));
+  if (
+    !provider.capabilities.concurrentSend &&
+    inflightCount.has(chatSessionId)
+  ) {
+    throw new ExecutorError(
+      'already_running',
+      'This provider does not support concurrent send.',
+    );
+  }
+
+  startInflight(chatSessionId);
   try {
     const agentSession = await ensureAgentSession({
       chatSessionId,
@@ -175,9 +319,10 @@ export async function dispatch(
       effort: session.effort,
       writer,
     });
-    await agentSession.send(userMessage);
+    const { result } = await agentSession.send(userMessage);
+    await result;
   } finally {
-    setRunning(chatSessionId, false);
+    endInflight(chatSessionId);
   }
 }
 
@@ -199,6 +344,8 @@ export async function abort(chatSessionId: string): Promise<void> {
 export async function close(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   agentSessions.delete(chatSessionId);
+  sessionInventories.delete(chatSessionId);
+  inflightCount.delete(chatSessionId);
   setRunning(chatSessionId, false);
   rejectAllForSession(chatSessionId, 'Session closed');
   if (handle) {
@@ -222,6 +369,10 @@ export async function recycleForModeChange(chatSessionId: string): Promise<void>
   const handle = agentSessions.get(chatSessionId);
   if (!handle) return;
   agentSessions.delete(chatSessionId);
+  // Drop the inventory too — the recycled session will emit a fresh
+  // system/init with potentially different available skills (e.g. plan
+  // mode restricts the toolset).
+  sessionInventories.delete(chatSessionId);
   // Don't reject pending requests — a mode change shouldn't blow up
   // an in-flight permission prompt the user is about to answer.
   try { await handle.close(); } catch { /* best-effort */ }
@@ -263,6 +414,14 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // Codex provider ignores `config.effort`; passing it is harmless.
   if (args.effort) config.effort = args.effort;
 
+  // Bundled skills live at <app-root>/.claude/skills/ and <app-root>/.agents/skills/
+  // (installed via `<cli> skills install`, which runs on `start`). The session
+  // opens at the workspace cwd, which is typically *not* under app-root, so
+  // Claude's ancestor walk won't see them. Pass them through skillDirs so
+  // agentex symlinks them into a temp dir and adds it via --add-dir.
+  const skillDirs = await _resolveBundledSkillDirs();
+  if (skillDirs.length > 0) config.skillDirs = skillDirs;
+
   const handle = await provider.createSession({
     cwd: args.cwd,
     sessionParams: args.existingExternalSessionId
@@ -272,6 +431,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
     onUserInputRequest: (req) => handleUserInputRequest(args.chatSessionId, args.writer, req),
     onEvent: async (event) => {
       try {
+        _recordSessionInventory(args.chatSessionId, event);
         await persistStreamEvent(args.chatSessionId, event, args.writer);
         capturePromotedSessionId(args.chatSessionId, event);
       } catch (err) {

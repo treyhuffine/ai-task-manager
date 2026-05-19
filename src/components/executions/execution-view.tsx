@@ -22,13 +22,13 @@ import {
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionTranscript } from './execution-transcript';
-import { ExecutionComposer } from './execution-composer';
+import { ExecutionComposer, type ExecutionComposerHandle } from './execution-composer';
 import { ExecutionTerminalPanel } from './execution-terminal-panel';
 import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
 import { FileTree } from './file-tree/file-tree';
-import { FileViewer } from './viewer/file-viewer';
+import { ViewerArea } from './viewer-area';
 import { useInitialSelectedFile } from './viewer/use-initial-selected-file';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverBanner } from './takeover/takeover-banner';
@@ -137,6 +137,27 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     lastSelectedSessionRef.current = sessionId;
     setSelectedPath(null);
   }
+
+  // Monotonic signal the ViewerArea watches to know "the user *intentionally*
+  // picked a file" — distinct from the auto-seed that `useInitialSelectedFile`
+  // does on mount. Bumped here in the tree's onSelect path; ViewerArea
+  // swaps to its Files tab when this changes. Closing a file (onSelect(null))
+  // does NOT bump it — closing isn't a request to view files.
+  const [filePickSignal, setFilePickSignal] = useState(0);
+  const handleFilePicked = (path: string | null) => {
+    setSelectedPath(path);
+    if (path) setFilePickSignal((n) => n + 1);
+  };
+
+  // Lets the file tree drop an `@<path>` token into the composer when
+  // the user picks "Reference in chat" from a row's kebab. The composer
+  // exposes a narrow imperative handle; we hold it here so the tree
+  // doesn't need to know how to reach the composer otherwise.
+  const composerHandleRef = useRef<ExecutionComposerHandle | null>(null);
+  const handleReferenceFileInChat = (relativePath: string) => {
+    composerHandleRef.current?.insertTextAtCursor(`@${relativePath} `);
+    composerHandleRef.current?.focus({ end: true });
+  };
 
   // Terminal collapse state. We manage open/closed ourselves rather than
   // using the library's `collapsible` + `collapsedSize` props — those store
@@ -291,6 +312,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       <div className="flex-shrink-0 border-t border-border bg-background">
         <PendingInputArea sessionId={session.id} />
         <ExecutionComposer
+          ref={composerHandleRef}
           sessionId={session.id}
           permissionMode={session.permission_mode}
           model={session.model}
@@ -389,8 +411,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
               <FileTree
                 sessionId={session.id}
                 selectedPath={selectedPath}
-                onSelect={setSelectedPath}
+                onSelect={handleFilePicked}
                 worktreePath={session.worktree_path}
+                onReferenceInChat={handleReferenceFileInChat}
               />
             )}
           </ResizablePanel>
@@ -425,10 +448,14 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                     }
                   />
                 ) : (
-                  <FileViewer
+                  <ViewerArea
                     sessionId={session.id}
+                    workspaceId={session.workspace_id ?? null}
                     selectedPath={selectedPath}
-                    onClose={() => setSelectedPath(null)}
+                    onCloseFile={() => setSelectedPath(null)}
+                    filePickSignal={filePickSignal}
+                    onReferenceInChat={handleReferenceFileInChat}
+                    active
                   />
                 )}
               </ResizablePanel>

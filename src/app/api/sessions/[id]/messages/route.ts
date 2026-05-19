@@ -1,10 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getAgent, getChatSession, insertChatEvent } from '@/lib/db/queries';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
-import { attachmentPath } from '@/lib/attachments/save';
-import {
-  extractTextFromAttachment, formatExtractedAttachment,
-} from '@/lib/attachments/extract-text';
+import { expandMarkers } from '@/lib/attachments/expand-markers';
 import * as executor from '@/lib/executor/adapter';
 import type { Attachment } from '@/db/types';
 
@@ -28,110 +25,25 @@ interface PostBody {
   id?: string;
 }
 
-const MARKER_RE = /\[\[file:([A-Za-z0-9_.-]+)\]\]/g;
-
-/**
- * Mimes Claude Code's Read tool handles natively. For these we hand
- * Claude an absolute path — same surface as `cat`-ing a file into
- * the CLI. Read takes care of multimodal images and PDFs in modern
- * Claude Code; the abs path is enough.
- *
- * Anything not in this set goes through `extractTextFromAttachment`
- * (mammoth/xlsx/STT) and gets inlined as `<attachment>` text at the
- * marker position so Claude sees readable content even for formats
- * Read can't handle.
- */
-function claudeCodeReadsNatively(mime: string): boolean {
-  if (mime.startsWith('text/')) return true;
-  if (mime.startsWith('image/')) return true;
-  if (mime === 'application/pdf') return true;
-  if (mime === 'application/json' || mime === 'application/xml') return true;
-  return false;
-}
-
-/**
- * Build the prompt content the agent sees. Each `[[file:<file_name>]]`
- * marker is replaced in-place with either:
- *
- *   - For natively-readable mimes (text/code/image/PDF): the absolute
- *     disk path Claude Code's Read tool can pick up.
- *   - For non-readable mimes (docx/xlsx/audio): the extracted text
- *     wrapped in `<attachment>` tags so Claude sees the content
- *     directly.
- *
- * Markers without a matching attachment, or whose extraction returns
- * null, are left intact (safer than dropping — agent at least sees
- * the placeholder and can ask).
- */
-async function expandMarkers(content: string, attachments: Attachment[]): Promise<string> {
-  if (attachments.length === 0) return content;
-  const map = new Map<string, Attachment>(attachments.map((a) => [a.file_name, a]));
-
-  // Two-pass: collect every match, resolve replacements concurrently
-  // (mammoth/xlsx/STT can be slow), then splice. Pure regex.replace
-  // doesn't support async — this is the standard workaround.
-  const matches: Array<{ start: number; end: number; replacement: string }> = [];
-  const tasks: Promise<void>[] = [];
-  for (const m of content.matchAll(MARKER_RE)) {
-    const start = m.index ?? 0;
-    const end = start + m[0].length;
-    const fileName = m[1]!;
-    const a = map.get(fileName);
-    if (!a) {
-      // Unmatched — leave the marker alone (slot it back as itself).
-      matches.push({ start, end, replacement: m[0] });
-      continue;
-    }
-    if (claudeCodeReadsNatively(a.mime_type)) {
-      matches.push({ start, end, replacement: attachmentPath(a.file_name) });
-      continue;
-    }
-    // Async extraction — push a placeholder we'll fill in after.
-    const slot = matches.length;
-    matches.push({ start, end, replacement: m[0] });
-    tasks.push(
-      (async () => {
-        try {
-          const result = await extractTextFromAttachment(a);
-          matches[slot]!.replacement = result
-            ? formatExtractedAttachment(a, result)
-            : `<attachment filename="${a.original_name || a.file_name}" status="unreadable" />`;
-        } catch (err) {
-          console.warn(`[expandMarkers] extract failed for ${a.file_name}:`, err);
-          matches[slot]!.replacement = `<attachment filename="${a.original_name || a.file_name}" status="extract-error" />`;
-        }
-      })(),
-    );
-  }
-  await Promise.all(tasks);
-
-  // Splice from the end so earlier indexes stay valid.
-  let out = content;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const m = matches[i]!;
-    out = out.slice(0, m.start) + m.replacement + out.slice(m.end);
-  }
-  return out;
-}
-
 /**
  * Send a user message into an execution session.
  *
- * Two writes happen:
- *   1. The user's message lands in `chat_events` synchronously — per
- *      `docs/chat-sessions.md`, the app owns the user write because
- *      agentex skips userMessage events from its stream.
- *   2. The executor adapter dispatches the message into the live
- *      AgentSession (or creates one on first turn). That's
- *      fire-and-forget from this handler — we return 201 immediately;
- *      assistant text, tool calls, and the run-completion event flow
- *      into `chat_events` from the adapter's onEvent callback over the
- *      next seconds-to-minutes. The client polls
- *      `/api/sessions/:id/events` to render them.
+ * Fire-and-forget: persist the user row, kick off `executor.dispatch`,
+ * return 201 immediately. Assistant text, tool calls, and the
+ * run-completion event flow into `chat_events` from the adapter's
+ * `onEvent` callback over the next seconds-to-minutes.
  *
- * Pre-flight `executor.isRunning` rejects double-sends with 409. The UI
- * disables the composer based on runtime-status to make this rare; the
- * server check is defense-in-depth.
+ * Concurrent sends are handled by the provider (Claude: mid-turn
+ * `<system-reminder>` drain; Codex: same-turn merge). The executor
+ * exposes `isRunning(id)` for the UI's Stop/Send toggle, but the route
+ * doesn't gate on it — the user can type follow-ups whenever they
+ * want and they'll appear in the chat thread the instant they post.
+ *
+ * The one provider-level gate lives inside `executor.dispatch`: it
+ * throws `already_running` if the harness's `capabilities.concurrentSend`
+ * is false. Today's providers (claude, codex) both set it true, so this
+ * is a no-op in practice; the throw exists so a future non-concurrent
+ * provider doesn't silently double-send.
  */
 export async function POST(
   request: NextRequest,
@@ -150,12 +62,6 @@ export async function POST(
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (session.status === 'archived') {
       return Response.json({ error: 'Cannot send to an archived session' }, { status: 400 });
-    }
-    if (executor.isRunning(id)) {
-      return Response.json(
-        { error: 'already_running', message: 'A turn is already in flight for this session.' },
-        { status: 409 },
-      );
     }
     if (session.takeover_started_at) {
       return Response.json(

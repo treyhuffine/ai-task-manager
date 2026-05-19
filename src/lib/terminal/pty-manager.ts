@@ -20,6 +20,7 @@
 import * as nodePty from 'node-pty';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 
 const MAX_BUFFER_BYTES = 256 * 1024;
 
@@ -160,8 +161,16 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   const cols = input.cols ?? 80;
   const rows = input.rows ?? 24;
   const shell = resolveShell();
+  // Sanitized base env strips Next.js worker plumbing (TURBOPACK,
+  // __NEXT_PRIVATE_ORIGIN, NEXT_PRIVATE_WORKER, PORT, …) that Flow's
+  // own Node process inherits as a Next dev worker. Without this, every
+  // pty inherits those vars and any `next dev` (or IDE the user launches
+  // from this terminal) thinks it's a Flow worker on :4224 with Turbopack
+  // forced on — which breaks Babel-based Next projects and pins the
+  // wrong port. See `src/lib/utils/sanitize-child-env.ts`.
+  const sanitized = sanitizeChildEnv(input.env);
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries({ ...process.env, ...(input.env ?? {}) })) {
+  for (const [k, v] of Object.entries(sanitized)) {
     if (typeof v === 'string') env[k] = v;
   }
   // Hint to apps that we're a real interactive xterm — without this,

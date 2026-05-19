@@ -31,6 +31,7 @@ import { OUTCOME_SOURCES } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
+import { detectPortless, derivePortlessHostname, findRoute } from '@/lib/preview/portless';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -725,6 +726,37 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceInput): Worksp
     .returning()
     .get();
   return row ?? null;
+}
+
+/**
+ * Resolve the effective preview mode for a workspace.
+ *
+ *   1. Explicit `preview_mode` wins (user pinned a mode).
+ *   2. If unset, prefer 'portless' when the daemon is running AND a route
+ *      already exists for the workspace's derived hostname.
+ *   3. Otherwise fall back to 'command'.
+ *
+ * Pure function — does no DB writes. The Portless detection is cached
+ * inside the portless module, so calling this on every request is cheap.
+ *
+ * try/catch wraps the Portless lookups so that if the portless module
+ * fails to load for any reason (e.g. permissions on `~/.portless`),
+ * we degrade safely to command mode rather than 500ing the proxy.
+ */
+export function resolveWorkspacePreviewMode(
+  ws: Pick<WorkspaceRecord, 'preview_mode' | 'portless_hostname' | 'slug'>,
+): 'command' | 'portless' {
+  if (ws.preview_mode === 'command' || ws.preview_mode === 'portless') {
+    return ws.preview_mode;
+  }
+  try {
+    if (!detectPortless().proxyRunning) return 'command';
+    const hostname = ws.portless_hostname?.trim() ||
+      derivePortlessHostname({ slug: ws.slug });
+    return findRoute(hostname) ? 'portless' : 'command';
+  } catch {
+    return 'command';
+  }
 }
 
 export function archiveWorkspace(id: string): WorkspaceRecord | null {

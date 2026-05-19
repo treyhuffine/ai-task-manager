@@ -51,8 +51,32 @@ import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import type { Attachment } from '@/db/types';
 import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-node';
+import { SlashMenuExtension } from './slash-menu/extension';
+import type { SkillCommandDescriptor } from './slash-menu/types';
+import { MentionMenuExtension } from './mention-menu/extension';
+import type { MentionItem } from './mention-menu/types';
+import {
+  MentionChipNode,
+  MENTION_CHIP_NAME,
+  type MentionChipAttrs,
+} from './mention-menu/mention-chip-node';
+import { PrMenuExtension } from './pr-menu/extension';
+import type { PrMentionItem } from './pr-menu/types';
+import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './pr-menu/pr-chip-node';
+import { formatPrRef } from './pr-menu/expand';
 
 // ─── Public types ────────────────────────────────────────────────
+
+/**
+ * Opaque carrier for a paused editor state. The composer captures one
+ * of these before an optimistic clear-on-send and replays it via
+ * `restore` if the network round-trip fails. Internally the JSON is
+ * ProseMirror's `Node#toJSON()` output; we keep it as `unknown` at
+ * the public surface so callers don't accidentally try to mutate it.
+ */
+export interface EditorSnapshot {
+  readonly doc: unknown;
+}
 
 export interface ChatInputEditorHandle {
   /** True when the editor has anything submittable (text or a chip). */
@@ -65,6 +89,18 @@ export interface ChatInputEditorHandle {
   clear(): void;
   /** Insert raw text at the current selection. */
   insertTextAtCursor(text: string): void;
+  /**
+   * Capture the current document shape (text + chips + selection) as
+   * an opaque snapshot that `restore` can replay. Used by the
+   * composer to clear the editor optimistically on send, then put
+   * everything back exactly as it was if the POST fails.
+   *
+   * Returns `null` when the editor isn't mounted yet, or when the
+   * editor is empty (no work to do).
+   */
+  snapshot(): EditorSnapshot | null;
+  /** Replace the editor's contents with a previously captured snapshot. */
+  restore(snapshot: EditorSnapshot): void;
   /**
    * Upload a file (or blob) and insert a chip at the cursor. Same path
    * used by paste/drop handlers — exposed so toolbars can drive it
@@ -111,6 +147,25 @@ interface ChatInputEditorProps {
    */
   onFocus?: () => void;
   className?: string;
+  /**
+   * Optional slash-command descriptors surfaced via `/`. When provided
+   * and non-empty, registers the SlashMenu extension. When omitted, the
+   * editor behaves like a plain composer with no popup. The data
+   * source is `useSlashCommands(sessionId)` on the consumer side.
+   */
+  slashCommands?: SkillCommandDescriptor[];
+  /**
+   * Optional worktree files/folders for the `@`-mention menu. Sourced
+   * from `useSessionTree` on the consumer side. When omitted, typing
+   * `@` does nothing special.
+   */
+  mentionEntries?: MentionItem[];
+  /**
+   * Optional PRs for the `#`-mention menu. Sourced from `usePrList`
+   * on the consumer side. When omitted, typing `#` does nothing
+   * special.
+   */
+  prs?: PrMentionItem[];
 }
 
 // ─── Tunables ──────────────────────────────────────────────────
@@ -218,6 +273,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onUploadError,
       onFocus,
       className,
+      slashCommands,
+      mentionEntries,
+      prs,
     },
     ref,
   ) {
@@ -228,6 +286,15 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     const onUploadErrorRef = useRef(onUploadError);
     onUploadErrorRef.current = onUploadError;
     const onFocusRef = useRef(onFocus);
+    // Mirror slashCommands in a ref so the suggestion extension's
+    // closure always reads the latest list without re-creating the
+    // editor when TanStack Query refreshes the data.
+    const slashCommandsRef = useRef(slashCommands);
+    slashCommandsRef.current = slashCommands;
+    const mentionEntriesRef = useRef(mentionEntries);
+    mentionEntriesRef.current = mentionEntries;
+    const prsRef = useRef(prs);
+    prsRef.current = prs;
     onFocusRef.current = onFocus;
 
     const KeymapExtension = useMemo(
@@ -350,7 +417,18 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         }),
         Placeholder.configure({ placeholder: placeholder ?? '' }),
         FileChipNode,
+        PrChipNode,
+        MentionChipNode,
         PasteDropExtension,
+        SlashMenuExtension.configure({
+          getCommands: () => slashCommandsRef.current ?? [],
+        }),
+        MentionMenuExtension.configure({
+          getEntries: () => mentionEntriesRef.current ?? [],
+        }),
+        PrMenuExtension.configure({
+          getPrs: () => prsRef.current ?? [],
+        }),
         KeymapExtension,
       ],
       editorProps: {
@@ -420,6 +498,18 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         insertTextAtCursor: (text) => {
           if (!editor) return;
           editor.chain().focus().insertContent(text).run();
+        },
+        snapshot: () => {
+          if (!editor || editor.isEmpty) return null;
+          return { doc: editor.getJSON() };
+        },
+        restore: (snap) => {
+          if (!editor) return;
+          // `setContent` with `emitUpdate: true` so `onUpdate` runs and
+          // the parent's `hasContent` flips back to true after a
+          // failed-send rollback. Focus to the end matches what the
+          // editor was at right before send (typing position).
+          editor.chain().setContent(snap.doc as never, { emitUpdate: true }).focus('end').run();
         },
         uploadFile: (file, name) => uploadAndInsert(file, name ?? (file as File).name ?? 'upload'),
         getMarkerOutput: () => buildMarkerOutput(editor),
@@ -517,6 +607,25 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
       lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `[[file:${attrs.file_name}]]`;
       return false;
     }
+    if (node.type.name === PR_CHIP_NAME) {
+      // PR chips self-serialize to the same expanded text the manual
+      // `#193` typing path produces via `expandPrRefs`. Doing it here
+      // means the chip is self-contained — no dependency on the PR
+      // list cache being fresh at send time.
+      const attrs = node.attrs as PrChipAttrs;
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + formatPrRef(attrs);
+      return false;
+    }
+    if (node.type.name === MENTION_CHIP_NAME) {
+      // File/folder chips emit `@<relative-path>` — same wire format
+      // the manual `@<path>` typing path uses, so the agent sees one
+      // canonical shape regardless of how the user composed it.
+      const attrs = node.attrs as MentionChipAttrs;
+      if (attrs.path) {
+        lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `@${attrs.path}`;
+      }
+      return false;
+    }
     if (node.type.name === 'paragraph') {
       lines.push('');
       return true;
@@ -567,6 +676,21 @@ function buildUiMessageParts(editor: Editor | null): {
         filename: attrs.original_name || attrs.file_name,
         url: attachmentUrl(attrs.file_name),
       });
+      return false;
+    }
+    if (node.type.name === PR_CHIP_NAME) {
+      // PR chips inline as expanded text — the orchestrator chat model
+      // doesn't have a native PR part type, so we surface the context
+      // as a text run that flows with the surrounding sentence.
+      const attrs = node.attrs as PrChipAttrs;
+      textBuf += formatPrRef(attrs);
+      return false;
+    }
+    if (node.type.name === MENTION_CHIP_NAME) {
+      // File/folder chips inline as `@<path>` text — the path itself
+      // is the canonical reference the agent acts on.
+      const attrs = node.attrs as MentionChipAttrs;
+      if (attrs.path) textBuf += `@${attrs.path}`;
       return false;
     }
     if (node.type.name === 'paragraph') {

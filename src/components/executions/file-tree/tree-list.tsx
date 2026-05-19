@@ -46,6 +46,11 @@ interface TreeListProps {
   onDelete: (path: string, kind: 'file' | 'dir') => void;
   onCreateFile: (parentPath: string) => void;
   onCreateFolder: (parentPath: string) => void;
+  onCopyRelativePath: (path: string) => void;
+  /** Returns undefined when the worktree path is unknown (non-git ws). */
+  onCopyAbsolutePath?: (path: string) => void;
+  /** Wired to the chat composer's `insertTextAtCursor`. */
+  onReferenceInChat?: (path: string) => void;
 
   pendingCreate: PendingCreate | null;
   pendingCreateBusy?: boolean;
@@ -91,6 +96,9 @@ export function TreeList({
   onDelete,
   onCreateFile,
   onCreateFolder,
+  onCopyRelativePath,
+  onCopyAbsolutePath,
+  onReferenceInChat,
   pendingCreate,
   pendingCreateBusy,
   pendingCreateError,
@@ -264,6 +272,13 @@ export function TreeList({
                       onDelete: () => onDelete(node.path, 'dir'),
                       onCreateFile: () => onCreateFile(node.path),
                       onCreateFolder: () => onCreateFolder(node.path),
+                      onCopyRelativePath: () => onCopyRelativePath(node.path),
+                      onCopyAbsolutePath: onCopyAbsolutePath
+                        ? () => onCopyAbsolutePath(node.path)
+                        : undefined,
+                      onReferenceInChat: onReferenceInChat
+                        ? () => onReferenceInChat(node.path)
+                        : undefined,
                     }}
                   />
                 )
@@ -293,6 +308,13 @@ export function TreeList({
                   actions={{
                     onRename: () => onRename(node.path, 'file'),
                     onDelete: () => onDelete(node.path, 'file'),
+                    onCopyRelativePath: () => onCopyRelativePath(node.path),
+                    onCopyAbsolutePath: onCopyAbsolutePath
+                      ? () => onCopyAbsolutePath(node.path)
+                      : undefined,
+                    onReferenceInChat: onReferenceInChat
+                      ? () => onReferenceInChat(node.path)
+                      : undefined,
                   }}
                 />
               )}

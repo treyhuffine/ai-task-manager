@@ -13,6 +13,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import os from 'node:os';
 
 export type OpenTarget =
@@ -105,9 +106,15 @@ export async function openInTarget(target: OpenTarget, path: string): Promise<Op
 
   return new Promise((resolve) => {
     try {
+      // Sanitized env: stop Flow's Next worker plumbing
+      // (TURBOPACK=1, __NEXT_PRIVATE_ORIGIN, NEXT_PRIVATE_WORKER, PORT=4224, ...)
+      // from leaking into the spawned editor's process tree. Without this,
+      // any terminal opened inside the editor inherits those vars and
+      // every `next dev` the user runs there thinks it's a Flow worker.
       const child = spawn(cmd.bin, cmd.args, {
         detached: true,
         stdio: 'ignore',
+        env: sanitizeChildEnv(),
       });
 
       // Spawn errors fire async (e.g. ENOENT when the binary isn't

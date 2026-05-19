@@ -4,12 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText,
   GitCompareArrows,
-  FileCode,
+  BookOpen,
   FolderOpen,
   SquareArrowOutUpRight,
   X,
   RotateCcw,
   Loader2,
+  MoreHorizontal,
+  Copy,
+  AtSign,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSession, useSessionTree, useWriteFile } from '@/hooks/use-execution';
@@ -17,19 +20,46 @@ import { useClientLocation } from '@/hooks/use-client-location';
 import { useEditorPreference, EDITOR_LABELS } from '@/lib/client/editor-preference';
 import { openInEditorHref, revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { fsApi } from '@/lib/api/fs';
+import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
+import { FileIcon } from '@/components/file-icon';
 import type { TreeEntry } from '@/lib/api/sessions';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { FileView, type FileViewHandle } from './file-view';
 import { DiffView } from './diff-view';
+import { MarkdownView } from './markdown-view';
 
 interface FileViewerProps {
   sessionId: string;
   selectedPath: string | null;
   /** Dismiss the open file — viewer returns to the empty "Select a file" state. */
   onClose?: () => void;
+  /**
+   * Insert `@<relative-path>` at the chat composer's cursor. Wired by
+   * `ExecutionView` so the header kebab can route a reference into the
+   * composer the same way the file tree does. Omitted from non-execution
+   * surfaces.
+   */
+  onReferenceInChat?: (relativePath: string) => void;
 }
 
-type Mode = 'diff' | 'current';
+type Mode = 'diff' | 'current' | 'render';
+
+/**
+ * Whether the file should expose the Render toggle. Markdown is the
+ * only format we route through Streamdown for now; keep the matcher
+ * narrow so unknown extensions don't accidentally render as markdown
+ * (and lose meaningful whitespace).
+ */
+function isMarkdownPath(path: string): boolean {
+  return /\.(md|mdx|markdown)$/i.test(path);
+}
 
 /**
  * The right-side file viewer that routes the selected path into either
@@ -43,7 +73,12 @@ type Mode = 'diff' | 'current';
  * gets confusing fast. Save/Discard and editing only happen in Current
  * mode; the toggle is the user's "I want to edit this" gesture.
  */
-export function FileViewer({ sessionId, selectedPath, onClose }: FileViewerProps) {
+export function FileViewer({
+  sessionId,
+  selectedPath,
+  onClose,
+  onReferenceInChat,
+}: FileViewerProps) {
   const { data: tree } = useSessionTree(sessionId);
 
   // Look up the selected entry — drives Diff/Current toggle availability.
@@ -53,11 +88,14 @@ export function FileViewer({ sessionId, selectedPath, onClose }: FileViewerProps
   }, [selectedPath, tree]);
 
   const isChanged = !!entry?.status;
+  const isMarkdown = !!selectedPath && isMarkdownPath(selectedPath);
 
   // Always land in Current when navigating to a new file. Sticky-on-Diff
   // turned out to be just as bad as auto-switch-to-diff: the user bounces
   // between changed files mid-edit and gets dropped in the read-only
-  // diff every time. Per-file Diff is a click away when wanted.
+  // diff every time. Per-file Diff is a click away when wanted. Same
+  // logic for Render — landing in source keeps editing as the default
+  // gesture for any file the user opens.
   const [mode, setMode] = useState<Mode>('current');
   useEffect(() => {
     setMode('current');
@@ -121,11 +159,16 @@ export function FileViewer({ sessionId, selectedPath, onClose }: FileViewerProps
     );
   }
 
-  const effectiveMode: Mode = isChanged ? mode : 'current';
+  // Fall back to Current when the selected mode doesn't apply to this
+  // file — Diff only when there's a git status, Render only for markdown.
+  // Keeps the toggle "sticky" across file navigation without showing a
+  // dead button or rendering the wrong view.
+  const effectiveMode: Mode =
+    (mode === 'diff' && !isChanged) || (mode === 'render' && !isMarkdown) ? 'current' : mode;
   const isDeleted = entry?.status === 'deleted';
   // Edit only makes sense in Current mode against a file that exists on
   // disk. Deleted-but-not-committed files have no working-tree copy to
-  // edit; the user should restore via git first.
+  // edit; the user should restore via git first. Render is read-only.
   const editable = effectiveMode === 'current' && !isDeleted;
 
   return (
@@ -134,16 +177,20 @@ export function FileViewer({ sessionId, selectedPath, onClose }: FileViewerProps
         sessionId={sessionId}
         path={selectedPath}
         isChanged={isChanged}
+        isMarkdown={isMarkdown}
         mode={effectiveMode}
         onModeChange={setMode}
         onClose={onClose}
         dirty={dirty && editable}
         saving={writeFile.isPending}
         onDiscard={editable ? handleDiscard : undefined}
+        onReferenceInChat={onReferenceInChat}
       />
       <div className="flex-1 min-h-0 overflow-hidden">
         {effectiveMode === 'diff' && entry?.status ? (
           <DiffView sessionId={sessionId} path={selectedPath} status={entry.status} />
+        ) : effectiveMode === 'render' ? (
+          <MarkdownView sessionId={sessionId} path={selectedPath} />
         ) : (
           <FileView
             ref={fileViewRef}
@@ -164,30 +211,45 @@ interface HeaderProps {
   sessionId: string;
   path: string;
   isChanged: boolean;
+  isMarkdown: boolean;
   mode: Mode;
   onModeChange: (m: Mode) => void;
   onClose?: () => void;
   dirty: boolean;
   saving: boolean;
   onDiscard?: () => void;
+  /** When wired, the kebab surfaces a "Reference in chat" entry. */
+  onReferenceInChat?: (relativePath: string) => void;
 }
 
 function FileViewerHeader({
   sessionId,
   path,
   isChanged,
+  isMarkdown,
   mode,
   onModeChange,
   onClose,
   dirty,
   saving,
   onDiscard,
+  onReferenceInChat,
 }: HeaderProps) {
+  // Header should always show the worktree-relative path. selectedPath
+  // is normally already relative, but as a defensive measure we strip
+  // the worktree prefix if it's somehow absolute — keeps the header
+  // honest even if a legacy state, race, or new code path slips an
+  // absolute path through to the viewer.
+  const { data: session } = useSession(sessionId);
+  const displayPath = toRelativePath(path, session?.worktree_path ?? null);
   return (
     <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 min-w-0">
-      <FileCode size={13} className="shrink-0 text-muted-foreground/80" />
-      <span className="truncate text-[11px] font-medium text-foreground/85 flex-1">
-        {path}
+      <FileIcon name={displayPath} />
+      <span
+        className="truncate text-[11px] font-medium text-foreground/85 flex-1"
+        title={displayPath}
+      >
+        {displayPath}
       </span>
       {saving ? (
         <span
@@ -211,21 +273,23 @@ function FileViewerHeader({
           </button>
         )
       )}
-      {isChanged && (
+      {(isChanged || isMarkdown) && (
         <div className="inline-flex items-center rounded-md border border-border bg-muted/40 p-0.5 text-[10px] font-medium shrink-0">
-          <button
-            type="button"
-            onClick={() => onModeChange('diff')}
-            className={cn(
-              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors',
-              mode === 'diff'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <GitCompareArrows size={10} />
-            Diff
-          </button>
+          {isChanged && (
+            <button
+              type="button"
+              onClick={() => onModeChange('diff')}
+              className={cn(
+                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors',
+                mode === 'diff'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <GitCompareArrows size={10} />
+              Diff
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onModeChange('current')}
@@ -239,9 +303,29 @@ function FileViewerHeader({
             <FileText size={10} />
             Current
           </button>
+          {isMarkdown && (
+            <button
+              type="button"
+              onClick={() => onModeChange('render')}
+              className={cn(
+                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors',
+                mode === 'render'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <BookOpen size={10} />
+              Render
+            </button>
+          )}
         </div>
       )}
       <RevealButton sessionId={sessionId} path={path} />
+      <FileHeaderMoreMenu
+        relativePath={displayPath}
+        worktreePath={session?.worktree_path ?? null}
+        onReferenceInChat={onReferenceInChat}
+      />
       {onClose && (
         <button
           type="button"
@@ -254,6 +338,76 @@ function FileViewerHeader({
         </button>
       )}
     </div>
+  );
+}
+
+interface FileHeaderMoreMenuProps {
+  /** Worktree-relative path. */
+  relativePath: string;
+  /** Used to compute absolute path. Null for non-git workspaces. */
+  worktreePath: string | null;
+  onReferenceInChat?: (relativePath: string) => void;
+}
+
+/**
+ * The viewer's overflow menu — mirrors the file tree kebab so the user
+ * has the same path-affordances regardless of which surface they're on.
+ * Copy actions are always available; "Reference in chat" only when the
+ * parent wires up `onReferenceInChat` (i.e. when there's a composer to
+ * route into).
+ */
+function FileHeaderMoreMenu({
+  relativePath,
+  worktreePath,
+  onReferenceInChat,
+}: FileHeaderMoreMenuProps) {
+  const absolutePath = worktreePath
+    ? `${worktreePath.replace(/\/$/, '')}/${relativePath}`
+    : null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+        aria-label="File actions"
+        title="More actions"
+      >
+        <MoreHorizontal size={12} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={4} className="min-w-44">
+        {onReferenceInChat && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onReferenceInChat(relativePath);
+            }}
+          >
+            <AtSign size={14} />
+            Reference in chat
+          </DropdownMenuItem>
+        )}
+        {onReferenceInChat && <DropdownMenuSeparator />}
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            void copyText(relativePath, 'Relative path copied');
+          }}
+        >
+          <Copy size={14} />
+          Copy relative path
+        </DropdownMenuItem>
+        {absolutePath && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              void copyText(absolutePath, 'Absolute path copied');
+            }}
+          >
+            <Copy size={14} />
+            Copy absolute path
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -339,4 +493,20 @@ function EmptyShell({
       {detail && <span className="text-muted-foreground/70">{detail}</span>}
     </div>
   );
+}
+
+/**
+ * Best-effort reduction of `path` to a worktree-relative form for
+ * display. If `path` is already relative (no leading `/`), returned
+ * verbatim. If it starts with `worktreePath/`, that prefix is stripped.
+ * Anything else passes through unchanged — better to render the raw
+ * value than silently mangle a path we don't fully understand.
+ */
+function toRelativePath(path: string, worktreePath: string | null): string {
+  if (!path.startsWith('/')) return path;
+  if (!worktreePath) return path;
+  const prefix = worktreePath.endsWith('/') ? worktreePath : worktreePath + '/';
+  if (path.startsWith(prefix)) return path.slice(prefix.length);
+  if (path === worktreePath) return '';
+  return path;
 }

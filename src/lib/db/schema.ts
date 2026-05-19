@@ -217,6 +217,18 @@ export const workspaces = sqliteTable('workspaces', {
   // time. Picomatch dialect, dot-aware. `.env*` is the default so secrets
   // travel with the worktree without symlinking back to source.
   files_to_copy: text('files_to_copy', { mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
+  // Preview pane wiring. Nullable across the board so legacy workspaces
+  // resolve to "auto-detect command mode" without a backfill.
+  //
+  // `preview_mode` pins the mode: 'command' = Flow spawns the user's
+  // preview_command and supervises it; 'portless' = Flow reads the
+  // hostname's route from ~/.portless/routes.json and proxies to its
+  // ephemeral port. Null means auto: prefer portless when both the
+  // daemon is up and a matching route exists, else command.
+  preview_mode: text('preview_mode', { enum: ['command', 'portless'] }),
+  preview_command: text('preview_command'),
+  preview_port_override: integer('preview_port_override'),
+  portless_hostname: text('portless_hostname'),
   area_id: text('area_id').references(() => areas.id, { onDelete: 'set null' }),
   position: integer('position').notNull().default(0),
   collapsed: integer('collapsed', { mode: 'boolean' }).notNull().default(false),

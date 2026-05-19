@@ -11,6 +11,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import slugify from '@sindresorhus/slugify';
@@ -71,6 +72,28 @@ export function deriveSessionLabelSlug(label: string | null | undefined, session
   const slug = label ? slugify(label) : '';
   if (slug) return slug;
   return `session-${sessionId.slice(0, 8)}`;
+}
+
+/**
+ * 6 hex chars from the UUIDv7's random `rand_b` portion (chars 24–29 in
+ * the canonical 8-4-4-4-12 layout). Skipping the timestamp prefix means
+ * sessions created in the same millisecond don't share a suffix; 24 bits
+ * of entropy is plenty for collision avoidance across one workspace's
+ * worktree set, and the retry loop in createWorktreeForSession catches
+ * the astronomically rare collision anyway.
+ */
+export function worktreeIdSuffix(sessionId: string): string {
+  return sessionId.slice(24, 30);
+}
+
+/**
+ * Worktree directory leaf: `<workspace-slug>-<6hex>`. The workspace prefix
+ * makes the leaf self-describing in surfaces that only show the dirname
+ * (IDE tabs, Finder, terminal prompt) without depending on the parent
+ * directory for context.
+ */
+export function buildWorktreeLeaf(slug: string, sessionId: string): string {
+  return `${slug}-${worktreeIdSuffix(sessionId)}`;
 }
 
 export interface CreateWorktreeForSessionResult {
@@ -201,16 +224,20 @@ export async function createWorktreeForSession(args: {
   }
   const lib = await loadLib();
   const root = ws.worktree_root ?? defaultWorktreeRoot(ws.slug);
-  // Use the full session id for the worktree dirname. uuidv7's first 8
-  // chars are only the upper 32 bits of the millisecond timestamp, which
-  // means two sessions created within ~65 seconds collide on the prefix.
-  // The full uuid is unambiguous; the dirname is for git, not humans.
-  const worktreePath = path.join(root, sessionId);
+  // Worktree leaf is `<workspace-slug>-<6hex>` so the dirname carries
+  // context in IDE tabs / Finder where you only see the leaf. The 6 hex
+  // chars come from the UUIDv7's random portion (not the timestamp
+  // prefix) so burst-created sessions don't share a suffix. The full
+  // session id remains the DB primary key — this is purely a handle.
+  const worktreeLeafBase = buildWorktreeLeaf(ws.slug, sessionId);
   const labelSlug = deriveSessionLabelSlug(sessionLabel, sessionId);
   const baseBranchName = `${ws.slug}/${labelSlug}`;
 
   for (let attempt = 1; attempt <= 5; attempt++) {
     const branch = attempt === 1 ? baseBranchName : `${baseBranchName}-${attempt}`;
+    const worktreeLeaf = attempt === 1 ? worktreeLeafBase : `${worktreeLeafBase}-${attempt}`;
+    const worktreePath = path.join(root, worktreeLeaf);
+    if (existsSync(worktreePath)) continue;
     try {
       const handle = await lib.workspace.create({
         kind: 'git',

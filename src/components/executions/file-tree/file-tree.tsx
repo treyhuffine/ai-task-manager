@@ -5,6 +5,7 @@ import { useMutationState } from '@tanstack/react-query';
 import { Loader2, Plus, FilePlus, FolderPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
+import { copyText } from '@/lib/clipboard';
 import {
   useSessionTree,
   useCreateFile,
@@ -49,6 +50,13 @@ interface FileTreeProps {
    * instead of stealing space in the global top bar.
    */
   worktreePath: string | null;
+  /**
+   * Insert `@<relative-path>` at the chat composer's cursor. Wired by
+   * `ExecutionView` to the composer's imperative handle. When omitted
+   * (e.g., outside the execution view), the "Reference in chat" kebab
+   * entry doesn't render.
+   */
+  onReferenceInChat?: (relativePath: string) => void;
 }
 
 const VIEW_MODE_KEY = (id: string) => `flow.execution.tree-view.${id}`;
@@ -101,7 +109,13 @@ interface DeleteTarget {
  * sibling column can render the chosen file without prop drilling
  * through unrelated panels.
  */
-export function FileTree({ sessionId, selectedPath, onSelect, worktreePath }: FileTreeProps) {
+export function FileTree({
+  sessionId,
+  selectedPath,
+  onSelect,
+  worktreePath,
+  onReferenceInChat,
+}: FileTreeProps) {
   const { data: tree, isLoading } = useSessionTree(sessionId);
   const entries = useMemo(() => tree?.entries ?? [], [tree?.entries]);
 
@@ -358,6 +372,26 @@ export function FileTree({ sessionId, selectedPath, onSelect, worktreePath }: Fi
 
   const isDeleting = deleteFile.isPending || deleteDir.isPending;
 
+  const copyRelativePath = useCallback((path: string) => {
+    void copyText(path, 'Relative path copied');
+  }, []);
+
+  const copyAbsolutePath = useCallback(
+    (path: string) => {
+      if (!worktreePath) return;
+      const full = `${worktreePath.replace(/\/$/, '')}/${path}`;
+      void copyText(full, 'Absolute path copied');
+    },
+    [worktreePath],
+  );
+
+  const referenceInChat = useCallback(
+    (path: string) => {
+      onReferenceInChat?.(path);
+    },
+    [onReferenceInChat],
+  );
+
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     try {
@@ -454,6 +488,9 @@ export function FileTree({ sessionId, selectedPath, onSelect, worktreePath }: Fi
             onDelete={requestDelete}
             onCreateFile={(p) => beginCreate(p, 'file')}
             onCreateFolder={(p) => beginCreate(p, 'dir')}
+            onCopyRelativePath={copyRelativePath}
+            onCopyAbsolutePath={worktreePath ? copyAbsolutePath : undefined}
+            onReferenceInChat={onReferenceInChat ? referenceInChat : undefined}
             pendingCreate={pendingCreate}
             pendingCreateBusy={createFile.isPending || createDir.isPending}
             pendingCreateError={pendingCreateError}
