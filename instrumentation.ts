@@ -42,17 +42,20 @@ export async function register() {
     console.warn('[mirror] init failed', err);
   }
 
-  // Sweep active Claude sessions against their on-disk JSONL transcripts.
-  // Catches drift introduced when the server died mid-turn or the live
-  // stream missed events. First-ever reconcile per session just
-  // initializes the byte-offset cursor (no replay); subsequent calls
-  // replay only the delta. Background; never blocks startup.
+  // Sweep active Claude sessions against their on-disk JSONL transcripts
+  // AND heal in-memory state. Catches drift introduced when the server
+  // died mid-turn or the live stream missed events, drops dead cached
+  // handles, and silently redispatches any unanswered user messages so
+  // returning users see completed work instead of stuck spinners.
+  // First-ever reconcile per session just initializes the byte-offset
+  // cursor (no replay); subsequent calls replay only the delta.
+  // Background; never blocks startup.
   try {
     const { reconcileAllSessions } = await import('@/lib/executor/reconcile');
     reconcileAllSessions()
       .then((stats) => {
         console.log(
-          `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} errors=${stats.errors}`,
+          `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} redispatched=${stats.redispatched} reapedStuckBootstraps=${stats.reapedStuckBootstraps} errors=${stats.errors}`,
         );
       })
       .catch((err) => {
@@ -60,6 +63,50 @@ export async function register() {
       });
   } catch (err) {
     console.warn('[reconcile] init failed', err);
+  }
+
+  // Periodic background health check over the small set of sessions
+  // currently marked running. Catches missed-`result`-event stalls
+  // even if the user never opens the session — without it, a wedged
+  // turn stays wedged until the next user interaction. Iterates only
+  // running sessions, so the cost scales with active work, not total
+  // session count.
+  //
+  // Sweep is sequential to match the cold-start pattern: a missed-
+  // result wave can produce many stale-running sessions at once;
+  // firing all health checks (each of which may kick off a fresh
+  // dispatch) in parallel would stampede subprocess spawn and
+  // SQLite. The `dispatch` call inside healthCheckSession is itself
+  // fire-and-forget, so the await here only covers reconcile + state
+  // checks — fast even on a large running set.
+  //
+  // The reentrancy guard prevents a second tick from starting while
+  // the previous sweep is still running (slow reconcile on cold
+  // disks, etc.).
+  try {
+    const { listRunningSessions } = await import('@/lib/executor/adapter');
+    const { healthCheckSession } = await import('@/lib/executor/health');
+    const HEALTH_SWEEP_INTERVAL_MS = 60_000;
+    let sweeping = false;
+    const interval = setInterval(async () => {
+      if (sweeping) return;
+      sweeping = true;
+      try {
+        for (const id of listRunningSessions()) {
+          try {
+            await healthCheckSession(id, { redispatchOrphans: true });
+          } catch (err) {
+            console.warn(`[health] background sweep failed for ${id}:`, err);
+          }
+        }
+      } finally {
+        sweeping = false;
+      }
+    }, HEALTH_SWEEP_INTERVAL_MS);
+    // Don't keep the event loop alive on shutdown.
+    interval.unref?.();
+  } catch (err) {
+    console.warn('[health] background sweep init failed', err);
   }
 
   // Reap orphaned preview processes from a prior Flow run that crashed

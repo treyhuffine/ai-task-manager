@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { useSessionEvents } from '@/hooks/use-execution';
+import { useSessionEvents, useClientEventStatus } from '@/hooks/use-execution';
 import {
   Conversation,
   ConversationContent,
@@ -47,6 +47,7 @@ interface ExecutionTranscriptProps {
  */
 export function ExecutionTranscript({ session, workspace, isRunning, voiceSentIds }: ExecutionTranscriptProps) {
   const { data: rawEvents, isLoading } = useSessionEvents(session.id);
+  const clientStatus = useClientEventStatus(session.id);
 
   const events = useMemo(() => filterRenderable(rawEvents ?? []), [rawEvents]);
   const hasEvents = events.length > 0;
@@ -97,6 +98,7 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
               !events.slice(i + 1).some((e) => e.source === 'user')
             }
             voiceSent={voiceSentIds?.has(event.id) ?? false}
+            clientStatus={clientStatus[event.id]}
           />
         ))}
 

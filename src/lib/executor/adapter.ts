@@ -231,6 +231,58 @@ export function isRunning(chatSessionId: string): boolean {
   return runningSessions.has(chatSessionId);
 }
 
+/**
+ * True when a cached AgentSession exists AND its underlying subprocess
+ * looks alive. False when there's no cache, the SDK self-reports
+ * `state === 'closed'`, or the subprocess has exited/been killed.
+ *
+ * Health checks call this to distinguish "agent is processing" from
+ * "handle is a corpse." The proc inspection is a defensive belt — the
+ * SDK's exit handler should set state to 'closed', but the dns-tunnel
+ * incident (May 2026) showed that signal can be missed.
+ *
+ * TODO(agentex): the `proc` peek reaches through `as unknown as` into
+ * SDK internals. Push an `isAlive()` (or expose `proc` officially) on
+ * `AgentSession` upstream so this layer doesn't have to. If the SDK
+ * ever renames the field, we silently degrade to trusting `state`
+ * alone — which is the failure mode we're working around in the
+ * first place.
+ */
+export function isAgentSessionAlive(chatSessionId: string): boolean {
+  const handle = agentSessions.get(chatSessionId);
+  if (!handle) return false;
+  if (handle.state === 'closed') return false;
+  const proc = (handle as unknown as {
+    proc?: { killed?: boolean; exitCode?: number | null };
+  }).proc;
+  if (!proc) return true;
+  if (proc.killed) return false;
+  if (proc.exitCode !== null && proc.exitCode !== undefined) return false;
+  return true;
+}
+
+/**
+ * Drop a cached AgentSession without awaiting its close. Used by
+ * health-check recovery when we've detected the handle is dead — the
+ * subprocess is already gone, so there's nothing to gracefully shut
+ * down. Next dispatch lazily spawns a fresh one.
+ */
+export function invalidateAgentSession(chatSessionId: string): void {
+  agentSessions.delete(chatSessionId);
+  sessionInventories.delete(chatSessionId);
+}
+
+/**
+ * Reset inflight count and runtime flag for a session. Health check
+ * uses this after confirming a subprocess is dead — the in-memory
+ * accounting drifted past whatever `dispatch`'s finally would have
+ * cleared, so we force it back to zero.
+ */
+export function forceClearInflight(chatSessionId: string): void {
+  inflightCount.delete(chatSessionId);
+  setRunning(chatSessionId, false);
+}
+
 // ─── Inflight reference counting ──────────────────────────────
 //
 // Concurrent send lets multiple `dispatch()` calls overlap: the user
@@ -393,7 +445,14 @@ interface EnsureArgs {
 
 async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   const cached = agentSessions.get(args.chatSessionId);
-  if (cached) return cached;
+  if (cached) {
+    if (isAgentSessionAlive(args.chatSessionId)) return cached;
+    // Stale corpse: the SDK or our liveness probe knows the subprocess
+    // is gone. Drop it and fall through to a fresh spawn. The previous
+    // ensureAgentSession returned dead handles unconditionally, which
+    // produced silent "Session is closed" throws on the very next send.
+    invalidateAgentSession(args.chatSessionId);
+  }
 
   const providerType = mapHarnessToProvider(args.harness);
   const provider = getProvider(providerType);

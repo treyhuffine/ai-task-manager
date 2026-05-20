@@ -16,6 +16,7 @@ import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverButton } from './takeover/takeover-button';
 import { TailscaleMenuItems } from './tailscale-menu-items';
+import { ResyncMenuItem } from './resync-menu-item';
 import { useTailscaleUrl } from '@/hooks/use-tailscale-url';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
@@ -355,6 +356,8 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
                 )}
                 <div className="h-px bg-border" />
                 <div className="p-1">{takeoverMenuItem}</div>
+                <div className="h-px bg-border" />
+                <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>
                 {archiveMenuItem && (
                   <>
                     <div className="h-px bg-border" />
@@ -516,6 +519,9 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
 
               <div className="h-px bg-border" />
               <div className="p-1">{takeoverMenuItem}</div>
+
+              <div className="h-px bg-border" />
+              <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>
 
               {archiveMenuItem && (
                 <>

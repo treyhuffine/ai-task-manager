@@ -14,7 +14,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const limit = Number(request.nextUrl.searchParams.get('limit') ?? '1000');
+    const limit = Number(request.nextUrl.searchParams.get('limit') ?? '10000');
     const offset = Number(request.nextUrl.searchParams.get('offset') ?? '0');
     const rows = listChatEvents(id, { limit, offset });
     return Response.json(rows);

@@ -169,6 +169,14 @@ export interface ReconcileResult {
   skipped?: 'no_transcript' | 'unsupported_provider' | 'no_cwd' | 'no_external_session';
 }
 
+export interface ResyncResult {
+  ok: true;
+  classification: 'healthy' | 'dead' | 'ambiguous';
+  replayed: number;
+  redispatched: boolean;
+  fixes: string[];
+}
+
 export interface WipDetection {
   modified: string[];
   untracked: string[];
@@ -431,6 +439,10 @@ export const sessionsApi = {
 
   reconcile(id: string): Promise<ReconcileResult> {
     return api.post<ReconcileResult>(`/sessions/${id}/reconcile`);
+  },
+
+  resync(id: string): Promise<ResyncResult> {
+    return api.post<ResyncResult>(`/sessions/${id}/resync`);
   },
 
   wip(id: string): Promise<WipDetection | null> {

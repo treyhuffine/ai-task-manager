@@ -1022,6 +1022,34 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
 }
 
 /**
+ * Sessions whose worktree provisioning began but never completed, and
+ * never failed cleanly either. Identifies silent hangs — the
+ * `provisionWorktreeForSession` try/catch covers thrown errors, but a
+ * promise that just never resolves (network hang, git command stuck
+ * on credential prompt, server killed mid-provision) leaves the row
+ * in a permanently-bootstrapping state. The cold-start reaper marks
+ * these with a synthetic `setup_error` so the UI surfaces them as
+ * retryable instead of stuck.
+ */
+export function listStuckBootstrapSessions(maxAgeMinutes = 5): ChatSessionRecord[] {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
+  return db
+    .select()
+    .from(chatSessions)
+    .where(
+      and(
+        eq(chatSessions.status, 'active'),
+        isNotNull(chatSessions.setup_started_at),
+        isNull(chatSessions.worktree_path),
+        isNull(chatSessions.setup_error),
+        lte(chatSessions.setup_started_at, cutoff),
+      ),
+    )
+    .all();
+}
+
+/**
  * Sessions where the user owes the agent attention. Streaming filtering is
  * the caller's job — we return candidates so the client can subtract any
  * sessions currently piping live stdio.
@@ -1152,15 +1180,55 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
   return row;
 }
 
+/**
+ * Returns chat events in chronological order. When a session has more
+ * events than `limit`, the OLDEST get cut off, not the newest — older
+ * history can be re-fetched on demand later via paging, but losing
+ * the latest content makes the chat look broken (the transcript on
+ * disk and chat_events stay in sync; only the GET response is
+ * truncated). The internal fetch goes DESC + limit to grab the tail,
+ * then reverses the page so the wire shape stays ASC for callers.
+ */
 export function listChatEvents(sessionId: string, opts: { limit?: number; offset?: number } = {}): ChatEventRecord[] {
+  const db = getDb();
+  const limit = opts.limit ?? 10_000;
+  const offset = opts.offset ?? 0;
+  const tail = db
+    .select()
+    .from(chatEvents)
+    .where(eq(chatEvents.session_id, sessionId))
+    .orderBy(desc(chatEvents.created_at), desc(chatEvents.id))
+    .limit(limit)
+    .offset(offset)
+    .all();
+  return tail.reverse();
+}
+
+/**
+ * Single chat_event by primary key. Used by the per-send retry path —
+ * when a client-minted `id` PK-conflicts on insert, the route returns
+ * the existing row instead of 500ing, making the HTTP semantics match
+ * the DB's idempotent `onConflictDoNothing`.
+ */
+export function getChatEventById(id: string): ChatEventRecord | null {
+  const db = getDb();
+  const rows = db.select().from(chatEvents).where(eq(chatEvents.id, id)).limit(1).all();
+  return rows[0] ?? null;
+}
+
+/**
+ * Most recent events for a session, newest first. Used by the health
+ * checker to classify session liveness without pulling the entire
+ * transcript — sessions can have thousands of events.
+ */
+export function listRecentChatEvents(sessionId: string, limit = 30): ChatEventRecord[] {
   const db = getDb();
   return db
     .select()
     .from(chatEvents)
     .where(eq(chatEvents.session_id, sessionId))
-    .orderBy(asc(chatEvents.created_at), asc(chatEvents.id))
-    .limit(opts.limit ?? 1000)
-    .offset(opts.offset ?? 0)
+    .orderBy(desc(chatEvents.created_at), desc(chatEvents.id))
+    .limit(limit)
     .all();
 }
 

@@ -41,6 +41,7 @@ import {
   getChatSession,
   updateChatSession,
   listReconcilableSessions,
+  listStuckBootstrapSessions,
   getAgent,
   insertChatEvent,
 } from '@/lib/db/queries';
@@ -322,34 +323,86 @@ async function reconcileCodexSession(session: ChatSessionRecord): Promise<Reconc
 // ─── Cold-start sweep ─────────────────────────────────────────
 
 /**
- * Reconcile every active session with an `external_session_id`. Used at
- * server cold start. Runs sequentially — each call is cheap when there's
- * no drift, and the sequential pattern keeps SQLite-write contention
- * trivially zero and the log output ordered.
+ * Reconcile every active session with an `external_session_id` AND
+ * heal in-memory state. Used at server cold start. Runs sequentially —
+ * each call is cheap when there's no drift, and the sequential pattern
+ * keeps SQLite-write contention trivially zero and the log output
+ * ordered.
+ *
+ * Note: sequential here only rate-limits the *kickoff* of orphan
+ * redispatches, not their subprocess spawns. health.ts fires `dispatch`
+ * as fire-and-forget so the sweep can finish quickly; the actual CLI
+ * spawns happen in parallel. For realistic loads (single-user, small
+ * number of mid-turn sessions when the server died) this is fine. If
+ * we ever observe a wide stampede on cold start — say 20+ sessions
+ * with unanswered messages — add a small spawn-rate semaphore around
+ * the `void dispatch(...)` call in health.ts. The 3-minute redispatch
+ * throttle prevents thrash on repeated cold starts but doesn't bound
+ * the initial wave.
+ *
+ * The cold-start health check redispatches confirmed orphans so the
+ * user comes back to completed responses without having to open each
+ * stuck session manually.
  */
 export async function reconcileAllSessions(): Promise<{
   checked: number;
   drifted: number;
   replayed: number;
+  redispatched: number;
+  reapedStuckBootstraps: number;
   errors: number;
 }> {
+  // Local import — health.ts imports reconcileSession from this file,
+  // so the top-of-file import would loop.
+  const { healthCheckSession } = await import('./health');
+
+  // Reap stuck bootstraps before the main sweep so they get a
+  // setup_error visible in the rail by the time the UI loads. The
+  // provisionWorktreeForSession promise is gone (it died with the
+  // previous process if the server restarted mid-provision; otherwise
+  // it's hanging on a syscall that never returns). Either way, the
+  // row is wedged with no recovery — marking it lets the UI surface
+  // a retry affordance.
+  //
+  // SAFETY: this reaper is ONLY safe from cold start. The 5-minute
+  // age check is a wall-clock heuristic, not a process-liveness one.
+  // A provision in a sibling worker (or a future scheduled-task
+  // process) could still legitimately be running at the 5-minute
+  // mark. Don't call this from a hot-path background sweep without
+  // also gating on a process-scoped "this provision is mine"
+  // marker.
+  let reapedStuckBootstraps = 0;
+  try {
+    const stuck = listStuckBootstrapSessions();
+    for (const s of stuck) {
+      updateChatSession(s.id, {
+        setup_error: 'Setup did not complete in time. Retry to start over.',
+      });
+      reapedStuckBootstraps++;
+    }
+  } catch (err) {
+    console.error('[reconcile] bootstrap reap failed:', err);
+  }
+
   const sessions: ChatSessionRecord[] = listReconcilableSessions();
   let checked = 0;
   let drifted = 0;
   let replayed = 0;
+  let redispatched = 0;
   let errors = 0;
 
   for (const session of sessions) {
     checked++;
     try {
-      const result = await reconcileSession(session.id);
-      if (result.drift) drifted++;
-      replayed += result.replayed;
+      const report = await healthCheckSession(session.id, { redispatchOrphans: true });
+      if (report.replayed > 0) drifted++;
+      replayed += report.replayed;
+      if (report.redispatched) redispatched++;
     } catch (err) {
       errors++;
       console.error(`[reconcile] session ${session.id} threw:`, err);
     }
   }
 
-  return { checked, drifted, replayed, errors };
+  return { checked, drifted, replayed, redispatched, reapedStuckBootstraps, errors };
 }

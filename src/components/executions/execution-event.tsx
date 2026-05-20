@@ -6,7 +6,8 @@ import {
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
 } from 'lucide-react';
 import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
-import { useSessionEvents } from '@/hooks/use-execution';
+import { useSessionEvents, useRetrySend } from '@/hooks/use-execution';
+import type { ClientEventStatus } from '@/hooks/use-execution';
 import { useMutation } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api/sessions';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -33,6 +34,13 @@ interface ExecutionEventProps {
   isLatestUnresolved?: boolean;
   /** True when this client sent the message via voice this session. */
   voiceSent?: boolean;
+  /**
+   * Client-only status overlay for optimistic user messages. Present
+   * only while a POST is in flight or has failed; cleared once the
+   * persisted row arrives. Drives the failed-bubble retry CTA so the
+   * user knows their send didn't reach the DB.
+   */
+  clientStatus?: ClientEventStatus;
 }
 
 /**
@@ -45,17 +53,24 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus }: ExecutionEventProps) {
   const [expanded, setExpanded] = useState(false);
 
   switch (event.source) {
     case 'user': {
       const segments = parseFileMarkers(event.content ?? '', event.attachments ?? []);
       const hasChips = segments.some((s) => s.kind === 'chip');
+      const isFailed = clientStatus?.status === 'failed';
+      const isSending = clientStatus?.status === 'sending';
       return (
         <div className="group flex flex-col">
           <Message from="user">
-            <MessageContent className="text-[12.5px] whitespace-pre-wrap break-words">
+            <MessageContent
+              className={cn(
+                'text-[12.5px] whitespace-pre-wrap break-words',
+                isFailed && 'opacity-70 border border-destructive/40',
+              )}
+            >
               {hasChips ? (
                 segments.map((seg, i) =>
                   seg.kind === 'text' ? (
@@ -70,6 +85,15 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             </MessageContent>
           </Message>
           {voiceSent && <VoiceSentBadge />}
+          {isFailed && sessionId && (
+            <FailedSendBadge sessionId={sessionId} eventId={event.id} error={clientStatus?.error} />
+          )}
+          {isSending && (
+            <div className="self-end mt-0.5 flex items-center gap-1 text-[10.5px] text-muted-foreground/70">
+              <Loader2 size={10} className="animate-spin" />
+              <span>Sending…</span>
+            </div>
+          )}
           {event.content && (
             <CopyMessageButton
               text={event.content}
@@ -497,6 +521,50 @@ function ResendLastMessageButton({ sessionId }: { sessionId: string }) {
         </>
       )}
     </button>
+  );
+}
+
+/**
+ * Inline retry affordance under a user bubble whose POST never reached
+ * the DB. The optimistic placeholder is still in cache (we no longer
+ * silently roll it back); this badge re-fires the same eventId so the
+ * same DOM node transitions failed → sending → sent.
+ */
+function FailedSendBadge({
+  sessionId,
+  eventId,
+  error,
+}: {
+  sessionId: string;
+  eventId: string;
+  error?: string;
+}) {
+  const retry = useRetrySend(sessionId);
+  return (
+    <div className="self-end mt-0.5 flex flex-col items-end gap-0.5">
+      <div className="flex items-center gap-1.5 text-[10.5px] text-destructive">
+        <AlertTriangle size={11} />
+        <span>{error ? `Send failed — ${error}` : 'Send failed'}</span>
+      </div>
+      <button
+        type="button"
+        onClick={() => retry.mutate({ eventId })}
+        disabled={retry.isPending}
+        className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-1.5 py-0.5 text-[10.5px] text-destructive hover:bg-destructive/10 disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {retry.isPending ? (
+          <>
+            <Loader2 size={10} className="animate-spin" />
+            <span>Retrying…</span>
+          </>
+        ) : (
+          <>
+            <RefreshCw size={10} />
+            <span>Retry</span>
+          </>
+        )}
+      </button>
+    </div>
   );
 }
 

@@ -1,8 +1,9 @@
 import type { NextRequest } from 'next/server';
-import { getAgent, getChatSession, insertChatEvent } from '@/lib/db/queries';
+import { getAgent, getChatEventById, getChatSession, insertChatEvent } from '@/lib/db/queries';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
 import * as executor from '@/lib/executor/adapter';
+import { healthCheckSession } from '@/lib/executor/health';
 import type { Attachment } from '@/db/types';
 
 interface PostBody {
@@ -80,11 +81,15 @@ export async function POST(
     // bloating the events cache. The transcript renderer parses markers
     // out and substitutes file chips on render.
     //
-    // No external_event_id for in-app rows — the partial unique index
-    // doesn't apply, so insertChatEvent always returns the row here.
-    // Created_at is explicit ISO so chronological sort works against
-    // agentex's StreamEvent timestamps.
-    const row = insertChatEvent({
+    // PK conflict path: the client-minted `id` is the optimistic-UI
+    // primary key, so retries (useRetrySend) carry the same id as the
+    // original send. `insertChatEvent` uses `onConflictDoNothing`, so
+    // a re-POST of an already-persisted row returns null. That's not
+    // a failure — fetch the existing row and return 201 to match the
+    // DB's idempotent semantics on the HTTP boundary. The dispatch
+    // decision happens below: on retry we delegate to the health
+    // check's orphan logic instead of unconditionally firing.
+    const inserted = insertChatEvent({
       id: body.id,
       session_id: id,
       role: 'user',
@@ -93,27 +98,52 @@ export async function POST(
       attachments,
       created_at: new Date().toISOString(),
     });
+    const isRetry = inserted === null;
+    const row = inserted ?? (body.id ? getChatEventById(body.id) : null);
     if (!row) {
-      // User-message inserts have no unique-constraint, so this is
-      // structurally unreachable. Guard anyway so the response is
-      // type-safe and a future schema change can't silently 500.
+      // Insert reported a conflict but the row isn't queryable —
+      // means a write torn between sessions or schema drift.
       return Response.json({ error: 'failed to persist user message' }, { status: 500 });
     }
 
     // Expand markers once, off the response path. Both label
     // derivation and the agent dispatch use the same expanded prompt.
     const expanded = await expandMarkers(content, attachments);
-    if (!session.label) {
+    if (!session.label && !isRetry) {
       const agent = getAgent(session.agent_id);
       void deriveAndSetSessionLabel(id, expanded, agent?.harness ?? 'claude_code');
     }
 
+    // Self-heal in-memory state before dispatch. Catches the dead
+    // cached `agentSession` case so the next send doesn't silently
+    // throw "Session is closed."
+    //
+    // On a fresh send: `redispatchOrphans:false` because this route
+    // is about to dispatch the same content — letting health also
+    // dispatch would double-fire.
+    //
+    // On a retry (PK conflict): `redispatchOrphans:true`. The row
+    // already existed, so we DON'T fire route-level dispatch below;
+    // instead we delegate to health's orphan logic which correctly
+    // distinguishes "original dispatch never ran" (subprocess dead →
+    // redispatch) from "original dispatch still mid-flight"
+    // (subprocess alive → leave alone).
+    try {
+      await healthCheckSession(id, { redispatchOrphans: isRetry });
+    } catch (err) {
+      console.error(`[POST /api/sessions/:id/messages] pre-send health check failed for ${id}:`, err);
+    }
+
     // Dispatch the *expanded* content to the agent. Fire-and-forget;
     // failures surface via logs and the runtime-status indicator.
-    executor.dispatch(id, expanded).catch((err) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);
-    });
+    // Skip on retry — the health check already decided whether to
+    // redispatch via the orphan path.
+    if (!isRetry) {
+      executor.dispatch(id, expanded).catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);
+      });
+    }
 
     return Response.json(row, { status: 201 });
   } catch (err) {

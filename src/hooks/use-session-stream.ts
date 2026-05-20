@@ -138,6 +138,20 @@ export function useSessionStream(sessionId: string | null): void {
     source.addEventListener('pending_input', handlePendingInput);
     source.addEventListener('reconcile', handleReconcile);
 
+    // Refetch authoritative state on every (re)connect. The server's
+    // connect-time seed handles runtime + pending_input + a chat_event
+    // replay since Last-Event-ID, but if the page was open across a
+    // server restart, the React Query caches for `events` and
+    // `runtime-status` can hold stale data that the seed alone won't
+    // overwrite (e.g., events emitted between the old server's death
+    // and the client's reconnect, which the new server's Last-Event-ID
+    // resume can miss if the cap is hit, OR a stale `running:true`
+    // from before the restart). Invalidate to force fresh reads.
+    source.addEventListener('open', () => {
+      queryClient.invalidateQueries({ queryKey: eventsKey });
+      queryClient.invalidateQueries({ queryKey: runtimeKey });
+    });
+
     source.onerror = (err) => {
       // EventSource auto-reconnects with backoff. We log once for
       // visibility but otherwise let the browser handle it.

@@ -314,7 +314,18 @@ export function useSendMessage(id: string) {
         source_part_index: 0,
         raw: null,
       };
-      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => [...(prev ?? []), placeholder]);
+      // Retry path: a previous failed bubble with the same id is
+      // promoted back to in-flight rather than re-inserted, so the
+      // user sees the spinner return on the bubble they clicked
+      // rather than a phantom new row above it.
+      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+        const list = prev ?? [];
+        const existing = list.findIndex((e) => e.id === input.eventId);
+        const next = existing >= 0 ? [...list] : [...list, placeholder];
+        if (existing >= 0) next[existing] = placeholder;
+        return next;
+      });
+      clearClientStatus(qc, eventsKey, input.eventId);
     },
     onSuccess: (realEvent) => {
       // The persisted row carries the same id as the placeholder, so
@@ -326,16 +337,20 @@ export function useSendMessage(id: string) {
         if (!prev) return prev;
         return prev.map((e) => (e.id === realEvent.id ? realEvent : e));
       });
+      clearClientStatus(qc, eventsKey, realEvent.id);
       qc.invalidateQueries({ queryKey: ['session', id] });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
     },
-    onError: (_err, input) => {
-      // Send failed — roll back the optimistic so the transcript
-      // doesn't carry a phantom message. The composer keeps its
-      // content; user can retry.
-      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
-        if (!prev) return prev;
-        return prev.filter((e) => e.id !== input.eventId);
+    onError: (err, input) => {
+      // Keep the optimistic bubble around but mark it failed so the
+      // renderer can show a retry CTA. Silent rollback (the old
+      // behavior) was the root cause of "I sent a message and it
+      // disappeared" — the row never reached the DB and the
+      // optimistic vanished, leaving the user with no signal that
+      // their click failed.
+      setClientStatus(qc, eventsKey, input.eventId, {
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
       });
     },
   });
@@ -354,6 +369,107 @@ export function useSendMessage(id: string) {
     mutate: (input: SendMessageInput | string) => mutation.mutate(normalize(input)),
     mutateAsync: (input: SendMessageInput | string) => mutation.mutateAsync(normalize(input)),
   };
+}
+
+/**
+ * Retry a previously-failed send. Picks up the marker content and
+ * attachments off the failed bubble in cache, re-fires the POST with
+ * the *same* event id so the same DOM node transitions failed → sending
+ * → sent without an unmount.
+ */
+export function useRetrySend(sessionId: string) {
+  const qc = useQueryClient();
+  const eventsKey = ['session', sessionId, 'events'] as const;
+  return useMutation<ChatEventRecord, Error, { eventId: string }>({
+    mutationFn: async ({ eventId }) => {
+      const events = qc.getQueryData<ChatEventRecord[]>(eventsKey) ?? [];
+      const target = events.find((e) => e.id === eventId);
+      if (!target) {
+        throw new Error('Original message no longer in cache');
+      }
+      return sessionsApi.sendMessage(sessionId, target.content ?? '', {
+        attachments: (target.attachments ?? undefined) as Attachment[] | undefined,
+        eventId: target.id,
+      });
+    },
+    onMutate: ({ eventId }) => {
+      // Flip the failed bubble back to a sending state. The send
+      // mutation's onSuccess will replace the row with the persisted
+      // version once the POST resolves; SSE-driven content from the
+      // agent flows in via the chat-events cache as usual.
+      setClientStatus(qc, eventsKey, eventId, { status: 'sending' });
+    },
+    onSuccess: (realEvent) => {
+      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+        if (!prev) return prev;
+        return prev.map((e) => (e.id === realEvent.id ? realEvent : e));
+      });
+      clearClientStatus(qc, eventsKey, realEvent.id);
+      qc.invalidateQueries({ queryKey: ['session', sessionId] });
+    },
+    onError: (err, { eventId }) => {
+      setClientStatus(qc, eventsKey, eventId, {
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    },
+  });
+}
+
+/**
+ * Client-only status table for chat events. The DB doesn't carry a
+ * "failed to send" column — it's transient UI state for optimistic
+ * placeholders that never persisted. Stored in its own query cache so
+ * the read side can subscribe without churning the events list.
+ *
+ * Keyed by event id. Cleared once the persisted row arrives.
+ */
+export interface ClientEventStatus {
+  status: 'sending' | 'failed';
+  error?: string;
+}
+
+const clientStatusKey = (sessionId: string) =>
+  ['session', sessionId, 'client-status'] as const;
+
+function setClientStatus(
+  qc: ReturnType<typeof useQueryClient>,
+  eventsKey: readonly unknown[],
+  eventId: string,
+  status: ClientEventStatus,
+): void {
+  const sessionId = (eventsKey[1] as string);
+  qc.setQueryData<Record<string, ClientEventStatus>>(clientStatusKey(sessionId), (prev) => ({
+    ...(prev ?? {}),
+    [eventId]: status,
+  }));
+}
+
+function clearClientStatus(
+  qc: ReturnType<typeof useQueryClient>,
+  eventsKey: readonly unknown[],
+  eventId: string,
+): void {
+  const sessionId = (eventsKey[1] as string);
+  qc.setQueryData<Record<string, ClientEventStatus>>(clientStatusKey(sessionId), (prev) => {
+    if (!prev || !prev[eventId]) return prev;
+    const next = { ...prev };
+    delete next[eventId];
+    return next;
+  });
+}
+
+/** Subscribe to client-only status for a session's events. */
+export function useClientEventStatus(sessionId: string | null): Record<string, ClientEventStatus> {
+  const qc = useQueryClient();
+  const key = clientStatusKey(sessionId ?? '');
+  const { data } = useQuery({
+    queryKey: key,
+    queryFn: () => qc.getQueryData<Record<string, ClientEventStatus>>(key) ?? {},
+    enabled: !!sessionId,
+    initialData: () => qc.getQueryData<Record<string, ClientEventStatus>>(key) ?? {},
+  });
+  return data ?? {};
 }
 
 export function useUpdateSession() {
@@ -522,6 +638,28 @@ export function useApplyWip(id: string) {
     onSuccess: () => {
       // The worktree's working tree just changed — repaint diff/status.
       qc.invalidateQueries({ queryKey: ['session', id] });
+    },
+  });
+}
+
+/**
+ * User-pressable Resync — the deterministic recovery fallback for when
+ * the per-send / per-view / sweep auto-checks haven't healed a session
+ * the user perceives as stuck. Force-closes the cached AgentSession,
+ * force-reconciles, bypasses the orphan redispatch throttle.
+ *
+ * Invalidates events + runtime so any state the resync just changed
+ * repaints immediately.
+ */
+export function useResyncSession(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.resync(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id, 'events'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'runtime-status'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'pending-input'] });
+      qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
   });
 }

@@ -1,21 +1,22 @@
 import type { NextRequest } from 'next/server';
-import { reconcileSession } from '@/lib/executor/reconcile';
+import { healthCheckSession } from '@/lib/executor/health';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Trigger a Claude transcript reconcile for one session. Synchronous —
- * the response includes whether drift was found and how many events
- * were replayed. The replay itself emits `chat_event` frames over the
- * SSE stream as rows land, so clients connected to the same session
- * see the catch-up in real time regardless of who initiated the
- * reconcile.
+ * Trigger a health check (which runs transcript reconcile internally,
+ * cleans in-memory state, and redispatches confirmed orphans).
+ * Synchronous — the response includes whether drift was found and
+ * how many events were replayed. Event replay emits `chat_event`
+ * frames over the SSE stream as rows land, so clients connected to
+ * the same session see the catch-up in real time regardless of who
+ * initiated the call.
  *
  * The client mounts this on session open as a fire-and-forget call;
  * the UI's "Syncing…" indicator is driven separately by the
- * `reconcile: started` / `reconcile: done` SSE frames so any open tab
- * surfaces it consistently.
+ * `reconcile: started` / `reconcile: done` SSE frames so any open
+ * tab surfaces it consistently.
  */
 export async function POST(
   _request: NextRequest,
@@ -23,8 +24,16 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const result = await reconcileSession(id);
-    return Response.json(result);
+    const report = await healthCheckSession(id, { redispatchOrphans: true });
+    // Keep the wire shape compatible with the legacy reconcile route —
+    // existing clients ignore extra fields.
+    return Response.json({
+      drift: report.replayed > 0,
+      replayed: report.replayed,
+      classification: report.classification,
+      fixes: report.fixes,
+      redispatched: report.redispatched,
+    });
   } catch (err) {
     console.error('[POST /api/sessions/:id/reconcile]', err);
     return Response.json({ error: String(err) }, { status: 500 });
