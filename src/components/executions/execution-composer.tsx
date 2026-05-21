@@ -464,6 +464,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 slashCommands={slashCommandsQuery.data?.commands}
                 mentionEntries={mentionEntries}
                 prs={prMentions}
+                draftKey={sessionId ? `exec:${sessionId}` : undefined}
               />
             )}
             {/* Floating focus hint — only when the editor is the empty

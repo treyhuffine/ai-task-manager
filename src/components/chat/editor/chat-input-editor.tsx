@@ -36,7 +36,7 @@
  * caller wraps the editor with maxHeight + overflow-y-auto.
  */
 
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -166,7 +166,20 @@ interface ChatInputEditorProps {
    * special.
    */
   prs?: PrMentionItem[];
+  /**
+   * When set, the editor persists unsent content to `localStorage`
+   * under this key. On mount (and whenever the key changes), any saved
+   * draft is loaded back so the user sees what they typed last time
+   * they were in this context. On send the parent calls `clear()`,
+   * which empties the doc and removes the entry. Skipped while any
+   * file chip is still uploading — a restored spinner chip would be
+   * stuck forever.
+   */
+  draftKey?: string;
 }
+
+const DRAFT_STORAGE_PREFIX = 'flow:chat-draft:';
+const DRAFT_SAVE_DEBOUNCE_MS = 300;
 
 // ─── Tunables ──────────────────────────────────────────────────
 //
@@ -276,6 +289,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       slashCommands,
       mentionEntries,
       prs,
+      draftKey,
     },
     ref,
   ) {
@@ -326,6 +340,73 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // Editor handle is captured at construction; uploadAndInsert needs
     // to read the latest editor instance to call commands on it.
     const editorRef = useRef<Editor | null>(null);
+
+    // Draft persistence. Keys can change while the editor stays mounted
+    // (e.g. the execution composer is reused across session switches),
+    // so we track the key the current content "belongs to" and flush
+    // synchronously on key change before loading the next.
+    const draftKeyRef = useRef(draftKey);
+    const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const writeDraftSync = useCallback((key: string) => {
+      const ed = editorRef.current;
+      if (!ed) return;
+      const storageKey = `${DRAFT_STORAGE_PREFIX}${key}`;
+      try {
+        if (ed.isEmpty) {
+          window.localStorage.removeItem(storageKey);
+          return;
+        }
+        // A pending chip serializes as a spinner with no file_name —
+        // restoring it would strand the user with a stuck placeholder.
+        // The next post-upload onUpdate will save the resolved state.
+        let hasPending = false;
+        ed.state.doc.descendants((node) => {
+          if (hasPending) return false;
+          if (node.type.name === FILE_CHIP_NAME && (node.attrs as FileChipAttrs).pending) {
+            hasPending = true;
+            return false;
+          }
+          return true;
+        });
+        if (hasPending) return;
+        window.localStorage.setItem(storageKey, JSON.stringify(ed.getJSON()));
+      } catch {
+        // Quota exceeded / storage disabled / SSR — drop silently.
+      }
+    }, []);
+
+    const scheduleDraftSave = useCallback(() => {
+      const key = draftKeyRef.current;
+      if (!key) return;
+      const ed = editorRef.current;
+      if (!ed) return;
+      // Empty editor → remove immediately so the post-send clear is
+      // visible even if the user navigates away inside the debounce
+      // window. Saves are debounced; deletes are not.
+      if (ed.isEmpty) {
+        if (draftSaveTimerRef.current) {
+          clearTimeout(draftSaveTimerRef.current);
+          draftSaveTimerRef.current = null;
+        }
+        try {
+          window.localStorage.removeItem(`${DRAFT_STORAGE_PREFIX}${key}`);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = setTimeout(() => {
+        draftSaveTimerRef.current = null;
+        // Re-read the current key at fire time: if it changed during
+        // the debounce, the key-change effect has already flushed and
+        // we shouldn't write the new content to the old slot.
+        const liveKey = draftKeyRef.current;
+        if (!liveKey) return;
+        writeDraftSync(liveKey);
+      }, DRAFT_SAVE_DEBOUNCE_MS);
+    }, [writeDraftSync]);
 
     /**
      * Core upload path. Inserts a pending placeholder chip with a
@@ -444,6 +525,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       editable: !disabled,
       onUpdate({ editor }) {
         onContentChange?.(!editor.isEmpty);
+        scheduleDraftSave();
       },
       onFocus() {
         onFocusRef.current?.();
@@ -456,6 +538,61 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       if (!editor) return;
       editor.setEditable(!disabled);
     }, [editor, disabled]);
+
+    // Load/swap drafts when the editor mounts or the key changes. The
+    // previous key's content is flushed synchronously first so a fast
+    // session switch (typed in A → pick B before the debounce fires)
+    // doesn't lose A's draft or mis-route it to B.
+    useEffect(() => {
+      if (!editor) return;
+      const previousKey = draftKeyRef.current;
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+      }
+      if (previousKey && previousKey !== draftKey) {
+        writeDraftSync(previousKey);
+      }
+      draftKeyRef.current = draftKey;
+      if (!draftKey) return;
+      let stored: string | null = null;
+      try {
+        stored = window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${draftKey}`);
+      } catch {
+        // ignore
+      }
+      if (stored) {
+        try {
+          const json = JSON.parse(stored);
+          // emitUpdate so the parent's hasContent state flips back to
+          // true after restore. The scheduled save that fires next is
+          // a no-op write of the same JSON.
+          editor.chain().setContent(json, { emitUpdate: true }).focus('end').run();
+          return;
+        } catch {
+          // Corrupt entry — fall through to clear.
+        }
+      }
+      // No draft for this key. Only wipe the editor if we're switching
+      // *between* keys; on the very first mount (previousKey undefined)
+      // leave whatever the editor was constructed with intact.
+      if (previousKey && previousKey !== draftKey) {
+        editor.commands.clearContent(true);
+      }
+    }, [editor, draftKey, writeDraftSync]);
+
+    // Final flush on unmount so a debounced save in flight isn't lost
+    // when the editor tears down (page nav, parent unmount).
+    useEffect(() => {
+      return () => {
+        if (draftSaveTimerRef.current) {
+          clearTimeout(draftSaveTimerRef.current);
+          draftSaveTimerRef.current = null;
+        }
+        const key = draftKeyRef.current;
+        if (key) writeDraftSync(key);
+      };
+    }, [writeDraftSync]);
 
     // Global hotkey focuses the chat input. Only one ChatInputEditor is
     // ever mounted (orchestrator vs. executor views are mutually
