@@ -98,7 +98,7 @@ export function WorkspaceNav() {
           </span>
           <button
             onClick={() => setCreateOpen(true)}
-            className="p-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
+            className="p-1 rounded text-primary bg-primary/10 hover:bg-primary/15 transition-colors"
             aria-label="New workspace"
             title="New workspace"
           >

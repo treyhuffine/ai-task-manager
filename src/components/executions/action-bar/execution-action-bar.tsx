@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { Send, ArrowDownToLine, ArrowUpRight, CheckCircle2, AlertCircle, Archive } from 'lucide-react';
-import { useExecutionActions, type ActionState } from '@/hooks/use-execution-actions';
+import { useExecutionActions, useHelpWithError, type ActionState } from '@/hooks/use-execution-actions';
 import { useArchiveSession } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { ApiError } from '@/lib/api/client';
@@ -9,6 +10,7 @@ import { ActionButton } from './action-button';
 import { CommitButton } from './commit-button';
 import { OpenPrButton } from './open-pr-button';
 import { MergeButton } from './merge-button';
+import { ErrorModal } from '../error-modal';
 import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
 
 interface ExecutionActionBarProps {
@@ -42,7 +44,41 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
     workspace?.is_git ?? false,
   );
   const archive = useArchiveSession();
+  const helpWithError = useHelpWithError(session.id);
   const { setActiveView } = useDashboard();
+
+  /**
+   * Lifted error-modal state — set by any handler whose mutation failed
+   * with a non-actionable error. The modal renders below the bar and
+   * exposes a "Solve with agent" CTA that forwards the failure into the
+   * chat as a prompt. The optional `action` field labels what the user
+   * was trying to do, used both in the prompt and in modal copy.
+   */
+  const [actionError, setActionError] = useState<{
+    title: string;
+    /** Short verb-phrase of what the user clicked — "Pull base", "Push", etc. */
+    action: string;
+    message: string;
+    context?: ReadonlyArray<{ label: string; value: string }>;
+  } | null>(null);
+
+  /** Pulls the most useful free-text out of either an ApiError body or a generic Error. */
+  const errorText = (err: unknown): string => {
+    if (err instanceof ApiError) {
+      const body = err.body as { message?: string; error?: string } | null;
+      const msg = body?.message ?? body?.error;
+      return msg ?? `HTTP ${err.status}`;
+    }
+    if (err instanceof Error) return err.message;
+    return String(err);
+  };
+
+  const baseContext = (): { label: string; value: string }[] => {
+    const entries: { label: string; value: string }[] = [];
+    if (session.branch_name) entries.push({ label: 'Branch', value: session.branch_name });
+    if (workspace?.base_branch) entries.push({ label: 'Base', value: workspace.base_branch });
+    return entries;
+  };
 
   const handleArchive = () => {
     if (!confirm(`Archive "${session.label ?? 'this execution'}"?`)) return;
@@ -66,7 +102,12 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
               return;
             }
           }
-          alert(`Couldn't archive: ${err instanceof Error ? err.message : String(err)}`);
+          setActionError({
+            title: "Couldn't archive",
+            action: 'Archive',
+            message: errorText(err),
+            context: baseContext(),
+          });
         },
       },
     );
@@ -89,16 +130,20 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   const handlePush = () => {
     push.mutate(undefined, {
       onError: (err) => {
-        // 409 + `non_fast_forward` is the divergence case. The state
+        // 409 + `non_fast_forward` is the divergence case — the state
         // machine reads `push.error` directly and flips to
-        // `local_diverged`; the user gets a Resolve Conflicts button
-        // instead of an alert. Other errors still surface as alerts
-        // since they're not actionable from the bar.
+        // `local_diverged`. No modal needed; the user gets a Resolve
+        // Conflicts button on the bar itself.
         if (err instanceof ApiError && err.status === 409) {
           const body = err.body as { code?: string } | null;
           if (body?.code === 'non_fast_forward') return;
         }
-        alert(`Push failed: ${err instanceof Error ? err.message : String(err)}`);
+        setActionError({
+          title: 'Push failed',
+          action: 'Push',
+          message: errorText(err),
+          context: baseContext(),
+        });
       },
     });
   };
@@ -106,10 +151,8 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   const handlePull = () => {
     pullBase.mutate(undefined, {
       onError: (err) => {
-        // 409 + `merge_conflict` is expected when pulling base into a
-        // diverged branch — the worktree is left in the conflicting
-        // state, the next status poll will surface it. We don't alert;
-        // the bar's Resolve Conflicts affordance is the right next step.
+        // 409 + `merge_conflict` is the expected conflict path —
+        // auto-dispatch resolve-conflicts and skip the modal.
         if (err instanceof ApiError && err.status === 409) {
           const body = err.body as { code?: string } | null;
           if (body?.code === 'merge_conflict') {
@@ -117,7 +160,12 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
             return;
           }
         }
-        alert(`Pull failed: ${err instanceof Error ? err.message : String(err)}`);
+        setActionError({
+          title: 'Pull failed',
+          action: 'Pull base',
+          message: errorText(err),
+          context: baseContext(),
+        });
       },
     });
   };
@@ -130,7 +178,12 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
         if (scenario === 'local_vs_remote') push.reset();
       },
       onError: (err) => {
-        alert(`Couldn't dispatch resolve-conflicts: ${err instanceof Error ? err.message : String(err)}`);
+        setActionError({
+          title: "Couldn't start conflict resolution",
+          action: 'Resolve conflicts',
+          message: errorText(err),
+          context: baseContext(),
+        });
       },
     });
   };
@@ -140,9 +193,34 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
       onError: (err) => {
         // The server also persists this to setup_error, but surface
         // the immediate message too so the user sees something change.
-        alert(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
+        setActionError({
+          title: 'Retry setup failed',
+          action: 'Retry worktree setup',
+          message: errorText(err),
+          context: baseContext(),
+        });
       },
     });
+  };
+
+  /**
+   * "Solve with agent" — forwards the captured error into the chat as a
+   * prompt. The agent investigates and either fixes it or explains what
+   * the user needs to do. Modal closes immediately so the user can
+   * watch the turn stream in.
+   */
+  const handleSolveWithAgent = () => {
+    if (!actionError) return;
+    helpWithError.mutate(
+      {
+        action: actionError.action,
+        error: actionError.message,
+        context: actionError.context,
+      },
+      {
+        onSuccess: () => setActionError(null),
+      },
+    );
   };
 
   const resolveAction = {
@@ -150,17 +228,35 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
     onClick: handleResolveConflicts,
   };
 
+  const errorModal = (
+    <ErrorModal
+      open={actionError != null}
+      onClose={() => setActionError(null)}
+      title={actionError?.title ?? 'Error'}
+      message={actionError?.message ?? ''}
+      action={{
+        label: 'Solve with agent',
+        onClick: handleSolveWithAgent,
+        pending: helpWithError.isPending,
+        hint: 'Forwards the error to the chat. The agent will investigate and fix or explain.',
+      }}
+    />
+  );
+
   if (variant === 'narrative') {
     return (
-      <Narrative
-        state={state}
-        sessionId={session.id}
-        push={{ pending: push.isPending, onClick: handlePush }}
-        pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
-        retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
-        archive={{ pending: archive.isPending, onClick: handleArchive }}
-        resolveConflicts={resolveAction}
-      />
+      <>
+        <Narrative
+          state={state}
+          sessionId={session.id}
+          push={{ pending: push.isPending, onClick: handlePush }}
+          pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
+          retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
+          archive={{ pending: archive.isPending, onClick: handleArchive }}
+          resolveConflicts={resolveAction}
+        />
+        {errorModal}
+      </>
     );
   }
 
@@ -179,13 +275,21 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   );
 
   if (variant === 'inline') {
-    return <div className="flex items-center gap-1.5 min-w-0">{buttons}</div>;
+    return (
+      <>
+        <div className="flex items-center gap-1.5 min-w-0">{buttons}</div>
+        {errorModal}
+      </>
+    );
   }
 
   return (
-    <div className="flex items-center gap-1.5 border-b border-border bg-background/95 px-3 py-1.5 overflow-x-auto">
-      {buttons}
-    </div>
+    <>
+      <div className="flex items-center gap-1.5 border-b border-border bg-background/95 px-3 py-1.5 overflow-x-auto">
+        {buttons}
+      </div>
+      {errorModal}
+    </>
   );
 }
 
