@@ -21,6 +21,7 @@ import {
   applyFoldedHeadingIds,
   getFoldedHeadingIds,
 } from './collapsible-heading'
+import { Paragraph } from './paragraph'
 import { EditorBubbleMenu } from './editor-bubble-menu'
 import { ListKeymap } from './list-keymap'
 import { SlashCommands } from './slash-commands'
@@ -107,7 +108,12 @@ export function RichEditor({
       StarterKit.configure({
         heading: false,
         codeBlock: false,
+        // Replaced with a patched Paragraph below — upstream's
+        // renderMarkdown drops blank lines adjacent to headings.
+        // See src/components/editor/paragraph.ts for the why.
+        paragraph: false,
       }),
+      Paragraph,
       CollapsibleHeading,
       Markdown,
       Placeholder.configure({
