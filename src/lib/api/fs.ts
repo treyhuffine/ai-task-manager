@@ -1,10 +1,23 @@
 import { api, ApiError } from './client';
 import type { Attachment } from '@/db/types';
 
+export interface FsBrowseEntry {
+  name: string;
+  path: string;
+  kind: 'dir' | 'file';
+}
+
 export interface FsBrowseResponse {
   path: string;
   parent: string | null;
-  entries: Array<{ name: string; path: string }>;
+  /** Realpath of the home directory — the picker's sandbox root. */
+  home?: string;
+  entries: FsBrowseEntry[];
+}
+
+export interface FsBrowseOptions {
+  showHidden?: boolean;
+  includeFiles?: boolean;
 }
 
 export type PickFolderResult =
@@ -48,10 +61,22 @@ export interface InstalledAppsResponse {
 }
 
 export const fsApi = {
-  browse(p?: string): Promise<FsBrowseResponse> {
+  browse(p?: string, opts?: FsBrowseOptions): Promise<FsBrowseResponse> {
+    const query: Record<string, string> = {};
+    if (p) query.path = p;
+    if (opts?.showHidden) query.showHidden = '1';
+    if (opts?.includeFiles) query.includeFiles = '1';
     return api.get<FsBrowseResponse>('/fs/browse', {
-      query: p ? { path: p } : undefined,
+      query: Object.keys(query).length ? query : undefined,
     });
+  },
+
+  /**
+   * Create a single subdirectory under `parent`. Name must be a single
+   * path segment; server rejects slashes, `..`, and leading dots.
+   */
+  mkdir(parent: string, name: string): Promise<{ path: string }> {
+    return api.post<{ path: string }>('/fs/mkdir', { parent, name });
   },
 
   /**

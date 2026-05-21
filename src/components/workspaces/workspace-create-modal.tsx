@@ -222,7 +222,14 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                 <FolderPicker
                   value={cwd}
                   onChange={handleCwdChange}
-                  placeholder="~/code/my-project"
+                  placeholder="Choose folder…"
+                  autoOpen
+                  onDismiss={() => {
+                    // Picker is the entry point — if user dismisses without
+                    // a folder, fold up the whole create flow instead of
+                    // stranding them on a near-empty modal.
+                    if (!cwd) handleOpenChange(false);
+                  }}
                 />
                 <p className="mt-1 text-[10px] text-muted-foreground/70">
                   Git is detected automatically. Non-git folders work too — they just don&apos;t get worktree isolation.
