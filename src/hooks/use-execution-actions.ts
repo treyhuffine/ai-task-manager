@@ -115,6 +115,22 @@ export function useResolveConflicts(id: string) {
   });
 }
 
+/**
+ * "Solve with agent" action — used by the error modal to forward a
+ * failed action-bar operation into the chat for the agent to diagnose.
+ */
+export interface HelpWithErrorInput {
+  action: string;
+  error: string;
+  context?: ReadonlyArray<{ label: string; value: string }>;
+}
+
+export function useHelpWithError(id: string) {
+  return useMutation({
+    mutationFn: (input: HelpWithErrorInput) => sessionsApi.helpWithError(id, input),
+  });
+}
+
 interface UseExecutionActionsResult {
   state: ActionState;
   commit: ReturnType<typeof useCommit>;

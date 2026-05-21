@@ -425,6 +425,17 @@ export const sessionsApi = {
     return api.post<{ ok: true }>(`/sessions/${id}/resolve-conflicts`, { scenario });
   },
 
+  helpWithError(
+    id: string,
+    input: {
+      action: string;
+      error: string;
+      context?: ReadonlyArray<{ label: string; value: string }>;
+    },
+  ): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/help-with-error`, input);
+  },
+
   retrySetup(id: string): Promise<ChatSessionRecord> {
     return api.post<ChatSessionRecord>(`/sessions/${id}/retry-setup`);
   },
