@@ -21,10 +21,26 @@ export interface PrContext {
 export type ActionState =
   | { kind: 'clean_no_branch' }
   | { kind: 'dirty'; staged: number; unstaged: number; untracked: number; pr?: PrContext }
+  /** Clean worktree, branch is behind base, no PR open yet. Surfaces a
+   *  Pull button so the user can refresh from main before any branch
+   *  divergence compounds. The original state machine only checked
+   *  "behind" with a PR in flight, leaving pre-PR branches without an
+   *  affordance to keep up with main. */
+  | { kind: 'behind_base'; behind: number }
   | { kind: 'ahead_no_pr'; ahead: number }
   | { kind: 'pr_open_in_sync'; prNumber: number; prUrl: string }
   | { kind: 'pr_open_ahead'; prNumber: number; prUrl: string; ahead: number }
   | { kind: 'pr_open_behind_base'; prNumber: number; prUrl: string; behind: number }
+  /** PR open and GitHub reports `mergeable: CONFLICTING` — base branch
+   *  has moved in a way that doesn't merge cleanly. Resolution path:
+   *  pull base into the local worktree, let the agent fix markers, push.
+   *  `behind` is informational; conflict trumps "clean pull." */
+  | { kind: 'pr_conflicting_with_base'; prNumber: number; prUrl: string; behind: number }
+  /** Local branch has diverged from `origin/<branch>` — push was rejected
+   *  non-fast-forward. Surfaces a Resolve Conflicts button that asks the
+   *  agent to fetch origin, merge, fix markers, then push. Transient —
+   *  once resolved the bar reverts to the underlying ahead/PR state. */
+  | { kind: 'local_diverged' }
   | { kind: 'pr_mergeable'; prNumber: number; prUrl: string }
   | { kind: 'pr_closed'; prNumber: number; prUrl: string }
   | { kind: 'pr_merged'; prNumber: number; prUrl: string }
@@ -82,6 +98,23 @@ export function useMergePr(id: string) {
   });
 }
 
+/**
+ * "Resolve conflicts" action — injects a fetch/merge/resolve/push prompt
+ * for the agent. Two scenarios share the endpoint, differing only in
+ * which branch the agent is asked to merge in.
+ */
+export function useResolveConflicts(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scenario: 'pr_vs_base' | 'local_vs_remote') =>
+      sessionsApi.resolveConflicts(id, scenario),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
+    },
+  });
+}
+
 interface UseExecutionActionsResult {
   state: ActionState;
   commit: ReturnType<typeof useCommit>;
@@ -90,6 +123,7 @@ interface UseExecutionActionsResult {
   retrySetup: ReturnType<typeof useRetrySetup>;
   openPr: ReturnType<typeof useOpenPr>;
   mergePr: ReturnType<typeof useMergePr>;
+  resolveConflicts: ReturnType<typeof useResolveConflicts>;
 }
 
 /**
@@ -110,6 +144,18 @@ export function useExecutionActions(
   const retrySetup = useRetrySetup(id);
   const openPr = useOpenPr(id);
   const mergePr = useMergePr(id);
+  const resolveConflicts = useResolveConflicts(id);
+
+  // A push that came back 409 / `non_fast_forward` means local and the
+  // remote tracking branch diverged. Persist that into a transient state
+  // override until the user clicks Resolve Conflicts (which clears the
+  // error via `push.reset()`).
+  const pushNonFastForward = useMemo(() => {
+    const err = push.error;
+    if (!err) return false;
+    const body = (err as { body?: unknown }).body as { code?: string } | null | undefined;
+    return body?.code === 'non_fast_forward';
+  }, [push.error]);
 
   const state = useMemo<ActionState>(() => {
     if (!session) return { kind: 'no_worktree' };
@@ -134,6 +180,12 @@ export function useExecutionActions(
       };
     }
     if (!session.worktree_path || !workspaceIsGit) return { kind: 'no_worktree' };
+
+    // Push rejection overrides every "normal" downstream state so the
+    // user always sees the resolve affordance until they act on it.
+    if (pushNonFastForward) {
+      return { kind: 'local_diverged' };
+    }
 
     const pr = prResp?.pr;
 
@@ -169,6 +221,18 @@ export function useExecutionActions(
         if (pr.state === 'CLOSED') {
           return { kind: 'pr_closed', prNumber: pr.number, prUrl: pr.url };
         }
+        // GitHub says the PR can't merge cleanly into its base. Override
+        // the behind/ahead branches below — the next step here is "ask
+        // the agent to resolve" (pull base, fix markers, push), not
+        // "merge" or "push more commits."
+        if (pr.mergeable === 'CONFLICTING') {
+          return {
+            kind: 'pr_conflicting_with_base',
+            prNumber: pr.number,
+            prUrl: pr.url,
+            behind,
+          };
+        }
         if (behind > 0) {
           return {
             kind: 'pr_open_behind_base',
@@ -189,13 +253,19 @@ export function useExecutionActions(
         return { kind: 'pr_open_in_sync', prNumber: pr.number, prUrl: pr.url };
       }
 
+      // Clean, no PR — pick the next-step affordance based on
+      // ahead/behind. Pre-PR `behind_base` is a recent addition; the
+      // original machine left clean-but-behind branches with no button.
+      if (behind > 0) {
+        return { kind: 'behind_base', behind };
+      }
       if (ahead > 0) {
         return { kind: 'ahead_no_pr', ahead };
       }
     }
 
     return { kind: 'clean_no_branch' };
-  }, [session, workspaceIsGit, prResp, status]);
+  }, [session, workspaceIsGit, prResp, status, pushNonFastForward]);
 
-  return { state, commit, push, pullBase, retrySetup, openPr, mergePr };
+  return { state, commit, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts };
 }

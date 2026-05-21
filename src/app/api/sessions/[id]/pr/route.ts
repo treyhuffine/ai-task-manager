@@ -3,6 +3,7 @@ import { getChatSession, getWorkspace, insertChatEvent } from '@/lib/db/queries'
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { buildOpenPrPrompt } from '@/lib/executor/prompts/open-pr';
 import * as executor from '@/lib/executor/adapter';
+import { getPrMergeable, type PrMergeable } from '@/lib/github/pr-mergeable';
 
 /**
  * PR surface for the execution view's action bar.
@@ -25,6 +26,13 @@ export interface PrInfo {
   baseRefName: string;
   title: string;
   updatedAt: string;
+  /**
+   * GitHub-reported mergeability. `'UNKNOWN'` either means GitHub hasn't
+   * computed it yet (typically right after a push) or our gh side-call
+   * failed — the action bar treats unknown as in-sync, not as a blocker.
+   * Only populated for OPEN PRs; closed/merged PRs carry `null`.
+   */
+  mergeable: PrMergeable | null;
 }
 
 export async function GET(
@@ -54,6 +62,7 @@ export async function GET(
       if (session.pr_number != null) {
         try {
           const pr = await repo.getPR(session.pr_number);
+          const mergeable = pr.state === 'OPEN' ? await getPrMergeable(ws.cwd, pr.number) : null;
           const info: PrInfo = {
             number: pr.number,
             url: pr.url,
@@ -63,6 +72,7 @@ export async function GET(
             baseRefName: pr.baseRefName,
             title: pr.title,
             updatedAt: pr.updatedAt,
+            mergeable,
           };
           return Response.json({ pr: info });
         } catch (err) {
@@ -101,6 +111,7 @@ export async function GET(
         }
         return Response.json({ pr: null });
       }
+      const mergeable = pr.state === 'OPEN' ? await getPrMergeable(ws.cwd, pr.number) : null;
       const info: PrInfo = {
         number: pr.number,
         url: pr.url,
@@ -110,6 +121,7 @@ export async function GET(
         baseRefName: pr.baseRefName,
         title: pr.title,
         updatedAt: pr.updatedAt,
+        mergeable,
       };
       return Response.json({ pr: info });
     } catch (err) {

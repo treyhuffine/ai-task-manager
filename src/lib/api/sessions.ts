@@ -129,6 +129,9 @@ export interface FileResponse {
 
 export type PrState = 'OPEN' | 'CLOSED' | 'MERGED';
 
+/** GitHub-reported mergeability for an open PR. */
+export type PrMergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+
 export interface PrInfo {
   number: number;
   url: string;
@@ -138,6 +141,8 @@ export interface PrInfo {
   baseRefName: string;
   title: string;
   updatedAt: string;
+  /** Populated only for OPEN PRs; closed/merged carry `null`. */
+  mergeable: PrMergeable | null;
 }
 
 export interface PrResponse {
@@ -401,8 +406,8 @@ export const sessionsApi = {
     return api.post<ChatSessionRecord>(`/sessions/${id}/archive`, { force: opts?.force ?? false });
   },
 
-  commit(id: string, message: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/commit`, { message });
+  commit(id: string, opts?: { andPush?: boolean }): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/commit`, opts ?? {});
   },
 
   push(id: string): Promise<{ ok: true }> {
@@ -411,6 +416,13 @@ export const sessionsApi = {
 
   pullBase(id: string, strategy: 'merge' | 'rebase' = 'merge'): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(`/sessions/${id}/pull-base`, { strategy });
+  },
+
+  resolveConflicts(
+    id: string,
+    scenario: 'pr_vs_base' | 'local_vs_remote',
+  ): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/resolve-conflicts`, { scenario });
   },
 
   retrySetup(id: string): Promise<ChatSessionRecord> {

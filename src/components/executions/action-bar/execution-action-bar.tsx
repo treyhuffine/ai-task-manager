@@ -37,7 +37,7 @@ interface ExecutionActionBarProps {
  * collapses to nothing (handled at the call site).
  */
 export function ExecutionActionBar({ session, workspace, variant = 'row' }: ExecutionActionBarProps) {
-  const { state, push, pullBase, retrySetup, openPr, mergePr } = useExecutionActions(
+  const { state, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts } = useExecutionActions(
     session,
     workspace?.is_git ?? false,
   );
@@ -89,6 +89,15 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   const handlePush = () => {
     push.mutate(undefined, {
       onError: (err) => {
+        // 409 + `non_fast_forward` is the divergence case. The state
+        // machine reads `push.error` directly and flips to
+        // `local_diverged`; the user gets a Resolve Conflicts button
+        // instead of an alert. Other errors still surface as alerts
+        // since they're not actionable from the bar.
+        if (err instanceof ApiError && err.status === 409) {
+          const body = err.body as { code?: string } | null;
+          if (body?.code === 'non_fast_forward') return;
+        }
         alert(`Push failed: ${err instanceof Error ? err.message : String(err)}`);
       },
     });
@@ -97,14 +106,31 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   const handlePull = () => {
     pullBase.mutate(undefined, {
       onError: (err) => {
+        // 409 + `merge_conflict` is expected when pulling base into a
+        // diverged branch — the worktree is left in the conflicting
+        // state, the next status poll will surface it. We don't alert;
+        // the bar's Resolve Conflicts affordance is the right next step.
         if (err instanceof ApiError && err.status === 409) {
           const body = err.body as { code?: string } | null;
           if (body?.code === 'merge_conflict') {
-            alert('Merge conflict — resolve in your editor or ask the agent to fix.');
+            resolveConflicts.mutate('pr_vs_base');
             return;
           }
         }
         alert(`Pull failed: ${err instanceof Error ? err.message : String(err)}`);
+      },
+    });
+  };
+
+  const handleResolveConflicts = (scenario: 'pr_vs_base' | 'local_vs_remote') => {
+    resolveConflicts.mutate(scenario, {
+      onSuccess: () => {
+        // Clear the push-rejected error so the state machine drops out
+        // of `local_diverged` once the agent's turn lands the resolution.
+        if (scenario === 'local_vs_remote') push.reset();
+      },
+      onError: (err) => {
+        alert(`Couldn't dispatch resolve-conflicts: ${err instanceof Error ? err.message : String(err)}`);
       },
     });
   };
@@ -119,6 +145,11 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
     });
   };
 
+  const resolveAction = {
+    pending: resolveConflicts.isPending,
+    onClick: handleResolveConflicts,
+  };
+
   if (variant === 'narrative') {
     return (
       <Narrative
@@ -128,6 +159,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
         pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
         retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
         archive={{ pending: archive.isPending, onClick: handleArchive }}
+        resolveConflicts={resolveAction}
       />
     );
   }
@@ -140,6 +172,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
       pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
       retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
       archive={{ pending: archive.isPending, onClick: handleArchive }}
+      resolveConflicts={resolveAction}
       openPrPending={openPr.isPending}
       mergePending={mergePr.isPending}
     />
@@ -156,6 +189,11 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   );
 }
 
+interface ResolveAction {
+  pending: boolean;
+  onClick: (scenario: 'pr_vs_base' | 'local_vs_remote') => void;
+}
+
 interface ButtonsProps {
   state: ActionState;
   sessionId: string;
@@ -163,11 +201,12 @@ interface ButtonsProps {
   pullBase: { pending: boolean; onClick: () => void };
   retrySetup: { pending: boolean; onClick: () => void };
   archive: { pending: boolean; onClick: () => void };
+  resolveConflicts: ResolveAction;
   openPrPending: boolean;
   mergePending: boolean;
 }
 
-function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, openPrPending: _openPrPending, mergePending: _mergePending }: ButtonsProps) {
+function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolveConflicts, openPrPending: _openPrPending, mergePending: _mergePending }: ButtonsProps) {
   switch (state.kind) {
     case 'setup_failed':
       return (
@@ -183,15 +222,25 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, openPr
 
     case 'dirty':
       return (
-        <>
-          <CommitButton
-            sessionId={sessionId}
-            variant="primary"
-            pendingCount={state.staged + state.unstaged + state.untracked}
-          />
-          {/* Push button reads as "ahead 0" — gh status will fill it
-              once a commit happens. Hidden for now. */}
-        </>
+        <CommitButton
+          sessionId={sessionId}
+          variant="primary"
+          andPush
+          pendingCount={state.staged + state.unstaged + state.untracked}
+        />
+      );
+
+    case 'behind_base':
+      return (
+        <ActionButton
+          icon={<ArrowDownToLine size={11} />}
+          label="Pull"
+          count={state.behind}
+          onClick={pullBase.onClick}
+          pending={pullBase.pending}
+          variant="primary"
+          title="Pull and merge updates from the base branch"
+        />
       );
 
     case 'ahead_no_pr':
@@ -253,7 +302,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, openPr
           <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
           <ActionButton
             icon={<ArrowDownToLine size={11} />}
-            label="Pull base"
+            label="Pull"
             count={state.behind}
             onClick={pullBase.onClick}
             pending={pullBase.pending}
@@ -268,6 +317,40 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, openPr
             reason="Base branch has moved. Pull base first to resolve."
           />
         </>
+      );
+
+    case 'pr_conflicting_with_base':
+      return (
+        <>
+          <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+          <ActionButton
+            icon={<AlertCircle size={11} />}
+            label="Resolve conflicts"
+            onClick={() => resolveConflicts.onClick('pr_vs_base')}
+            pending={resolveConflicts.pending}
+            variant="primary"
+            title="GitHub reports this PR can't merge cleanly. Ask the agent to pull base, resolve, and push."
+          />
+          <MergeButton
+            sessionId={sessionId}
+            prNumber={state.prNumber}
+            prUrl={state.prUrl}
+            enabled={false}
+            reason="PR has conflicts with base. Resolve first."
+          />
+        </>
+      );
+
+    case 'local_diverged':
+      return (
+        <ActionButton
+          icon={<AlertCircle size={11} />}
+          label="Resolve conflicts"
+          onClick={() => resolveConflicts.onClick('local_vs_remote')}
+          pending={resolveConflicts.pending}
+          variant="primary"
+          title="Local has diverged from origin. Ask the agent to fetch, merge, resolve, and push."
+        />
       );
 
     case 'pr_mergeable':
@@ -351,6 +434,7 @@ interface NarrativeProps {
   pullBase: { pending: boolean; onClick: () => void };
   retrySetup: { pending: boolean; onClick: () => void };
   archive: { pending: boolean; onClick: () => void };
+  resolveConflicts: ResolveAction;
 }
 
 /**
@@ -382,6 +466,10 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
     chip: 'border-amber-500/40 bg-amber-500/10',
     text: 'text-amber-700 dark:text-amber-300',
   },
+  behind_base: {
+    chip: 'border-orange-500/40 bg-orange-500/10',
+    text: 'text-orange-700 dark:text-orange-300',
+  },
   ahead_no_pr: {
     chip: 'border-blue-500/40 bg-blue-500/10',
     text: 'text-blue-700 dark:text-blue-300',
@@ -402,6 +490,14 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
     chip: 'border-orange-500/40 bg-orange-500/10',
     text: 'text-orange-700 dark:text-orange-300',
   },
+  pr_conflicting_with_base: {
+    chip: 'border-rose-500/40 bg-rose-500/10',
+    text: 'text-rose-700 dark:text-rose-300',
+  },
+  local_diverged: {
+    chip: 'border-rose-500/40 bg-rose-500/10',
+    text: 'text-rose-700 dark:text-rose-300',
+  },
   pr_merged: {
     chip: 'border-border bg-muted/40',
     text: 'text-muted-foreground',
@@ -418,7 +514,7 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
  * (via `justify-between`), and the chip itself is tinted by state so
  * the user can recognize the situation at a glance.
  */
-function Narrative({ state, sessionId, push, pullBase, retrySetup, archive }: NarrativeProps) {
+function Narrative({ state, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeProps) {
   const theme = THEME_BY_STATE[state.kind];
   if (!theme) return null;
 
@@ -434,6 +530,7 @@ function Narrative({ state, sessionId, push, pullBase, retrySetup, archive }: Na
         pullBase={pullBase}
         retrySetup={retrySetup}
         archive={archive}
+        resolveConflicts={resolveConflicts}
       />
     </div>
   );
@@ -443,7 +540,7 @@ interface NarrativeBodyProps extends NarrativeProps {
   theme: ChipTheme;
 }
 
-function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, archive }: NarrativeBodyProps) {
+function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
   switch (state.kind) {
     case 'setup_failed':
       return (
@@ -482,6 +579,25 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
             </NarrativeText>
           </NarrativeLeft>
           <CommitButton sessionId={sessionId} variant="primary" andPush />
+        </>
+      );
+
+    case 'behind_base':
+      return (
+        <>
+          <NarrativeLeft>
+            <NarrativeText themed={theme.text}>
+              <span className="font-semibold tabular-nums">{state.behind}</span> behind base
+            </NarrativeText>
+          </NarrativeLeft>
+          <ActionButton
+            icon={<ArrowDownToLine size={11} />}
+            label="Pull"
+            onClick={pullBase.onClick}
+            pending={pullBase.pending}
+            variant="primary"
+            title="Pull and merge updates from the base branch"
+          />
         </>
       );
 
@@ -557,11 +673,52 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
           </NarrativeLeft>
           <ActionButton
             icon={<ArrowDownToLine size={11} />}
-            label="Pull base"
+            label="Pull"
             onClick={pullBase.onClick}
             pending={pullBase.pending}
             variant="primary"
             title="Pull and merge updates from the base branch"
+          />
+        </>
+      );
+
+    case 'pr_conflicting_with_base':
+      return (
+        <>
+          <NarrativeLeft>
+            <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+            <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
+              <AlertCircle size={11} />
+              Conflicts with base
+            </span>
+          </NarrativeLeft>
+          <ActionButton
+            icon={<AlertCircle size={11} />}
+            label="Resolve conflicts"
+            onClick={() => resolveConflicts.onClick('pr_vs_base')}
+            pending={resolveConflicts.pending}
+            variant="primary"
+            title="Ask the agent to pull base, resolve, and push"
+          />
+        </>
+      );
+
+    case 'local_diverged':
+      return (
+        <>
+          <NarrativeLeft>
+            <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
+              <AlertCircle size={11} />
+              Diverged from origin
+            </span>
+          </NarrativeLeft>
+          <ActionButton
+            icon={<AlertCircle size={11} />}
+            label="Resolve conflicts"
+            onClick={() => resolveConflicts.onClick('local_vs_remote')}
+            pending={resolveConflicts.pending}
+            variant="primary"
+            title="Ask the agent to fetch, merge, resolve, and push"
           />
         </>
       );

@@ -1,47 +1,54 @@
 'use client';
 
-import { useState } from 'react';
 import { GitCommit } from 'lucide-react';
 import { ActionButton } from './action-button';
-import { CommitModal } from '../commit-modal';
+import { useCommit, useRuntimeStatus } from '@/hooks/use-execution';
 
 interface CommitButtonProps {
   sessionId: string;
   variant?: 'primary' | 'secondary';
   pendingCount?: number;
-  /** Auto-push to origin after the commit succeeds. */
+  /** Push to origin after the commit lands. */
   andPush?: boolean;
-  /** Override the button label (defaults to "Commit…" or "Commit and push"). */
+  /** Override the button label (defaults to "Commit" or "Commit & push"). */
   label?: string;
 }
 
 /**
- * Opens the shared `<CommitModal>` for typing a commit message. The
- * modal handles the actual `ws.git.commit` call through `useCommit`,
- * and optionally chains a push when `andPush` is set.
+ * "Commit" — injects a prompt asking the agent to draft a focused
+ * message from the diff and run `git commit` (optionally chaining a
+ * push). Same shape as `<OpenPrButton>`: no modal, no message input,
+ * the agent owns the message. Disabled while a turn is in flight so we
+ * don't queue another message on top.
  */
-export function CommitButton({ sessionId, variant = 'primary', pendingCount, andPush, label }: CommitButtonProps) {
-  const [open, setOpen] = useState(false);
-  const resolvedLabel = label ?? (andPush ? 'Commit and push' : 'Commit…');
+export function CommitButton({
+  sessionId,
+  variant = 'primary',
+  pendingCount,
+  andPush,
+  label,
+}: CommitButtonProps) {
+  const commit = useCommit(sessionId);
+  const { data: runtime } = useRuntimeStatus(sessionId);
+  const isRunning = runtime?.running ?? false;
+
+  const resolvedLabel = label ?? (andPush ? 'Commit & push' : 'Commit');
   return (
-    <>
-      <ActionButton
-        icon={<GitCommit size={11} />}
-        label={resolvedLabel}
-        count={pendingCount}
-        onClick={() => setOpen(true)}
-        variant={variant}
-        title={
-          andPush
-            ? 'Commit changes and push to origin'
-            : 'Commit staged + unstaged changes'
-        }
-      />
-      <CommitModal
-        sessionId={open ? sessionId : null}
-        onClose={() => setOpen(false)}
-        andPush={andPush}
-      />
-    </>
+    <ActionButton
+      icon={<GitCommit size={11} />}
+      label={resolvedLabel}
+      count={pendingCount}
+      pending={commit.isPending}
+      disabled={isRunning}
+      onClick={() => commit.mutate(andPush ? { andPush: true } : undefined)}
+      variant={variant}
+      title={
+        isRunning
+          ? 'Wait for the current turn to finish'
+          : andPush
+            ? 'Ask the agent to commit and push'
+            : 'Ask the agent to commit the current changes'
+      }
+    />
   );
 }

@@ -219,11 +219,22 @@ export function useDeleteDir(sessionId: string) {
   });
 }
 
+/**
+ * "Commit" action — injects a prompt asking the agent to draft a focused
+ * message from the diff and run `git commit` (and, when `andPush`, push
+ * to origin). Mirrors `useOpenPr` — no message arg, no modal; the agent
+ * writes the message itself. Invalidates worktree state on dispatch so
+ * the action bar repaints once the agent's turn lands the commit.
+ */
 export function useCommit(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (message: string) => sessionsApi.commit(id, message),
-    onSuccess: () => invalidateWorktree(qc, id),
+    mutationFn: (opts?: { andPush?: boolean }) => sessionsApi.commit(id, opts),
+    onSuccess: () => {
+      invalidateWorktree(qc, id);
+      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
+    },
   });
 }
 

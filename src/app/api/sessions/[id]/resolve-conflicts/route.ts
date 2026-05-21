@@ -1,31 +1,46 @@
 import type { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { getChatSession, getWorkspace, insertChatEvent } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
-import { buildCommitPrompt } from '@/lib/executor/prompts/commit';
+import {
+  buildResolveConflictsPrompt,
+  type ConflictScenario,
+} from '@/lib/executor/prompts/resolve-conflicts';
 import * as executor from '@/lib/executor/adapter';
 
 /**
- * Commit surface for the execution view's action bar.
+ * Resolve-conflicts surface for the execution view's action bar.
  *
- * Injects a "commit these changes with a focused message; optionally
- * push" prompt into the chat session. The agent reads the diff, drafts
- * its own commit message, and runs `git commit` (and `git push` when
- * `andPush`) via its Bash tool. Mirrors the `/pr` route's pattern —
- * intelligence belongs in the agent, the route just stages the prompt.
+ * Injects a "fetch, merge, resolve markers, commit, push" prompt into
+ * the chat session. Two scenarios — `pr_vs_base` (GitHub reports the PR
+ * as conflicting) and `local_vs_remote` (push rejected non-fast-forward).
+ * The prompt branches on `scenario` but the post-merge work is the same.
  */
+
+const BodySchema = z.object({
+  scenario: z.enum(['pr_vs_base', 'local_vs_remote']),
+});
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    const body: { andPush?: boolean } = await request.json().catch(() => ({}));
-    const andPush = body.andPush ?? false;
+    const raw = await request.json().catch(() => ({}));
+    const parsed = BodySchema.safeParse(raw);
+    if (!parsed.success) {
+      return Response.json(
+        { error: 'invalid_params', message: 'scenario must be "pr_vs_base" or "local_vs_remote"' },
+        { status: 400 },
+      );
+    }
+    const scenario: ConflictScenario = parsed.data.scenario;
 
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (session.status === 'archived') {
-      return Response.json({ error: 'Cannot commit on an archived session' }, { status: 400 });
+      return Response.json({ error: 'Cannot resolve conflicts on an archived session' }, { status: 400 });
     }
     if (executor.isRunning(id)) {
       return Response.json(
@@ -43,20 +58,22 @@ export async function POST(
     const ws = getWorkspace(session.workspace_id);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
-    if (!handle || handle.kind !== 'git') {
-      return Response.json({ error: 'Not a git workspace' }, { status: 400 });
+    if (scenario === 'pr_vs_base' && !ws.base_branch) {
+      return Response.json(
+        { error: 'no_base_branch', message: 'Workspace has no base branch configured.' },
+        { status: 400 },
+      );
     }
 
-    // Diff against the workspace's base sha — superset of the
-    // uncommitted changes (also includes already-committed work on this
-    // branch). Agent runs `git status` + `git diff` itself before
-    // composing the message; the summary just anchors the scope.
-    const diff = await handle.git.diff('base');
-    const prompt = buildCommitPrompt({
+    const handle = await openWorktreeHandle(session, ws.cwd);
+    if (!handle || handle.kind !== 'git') {
+      return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
+    }
+
+    const prompt = buildResolveConflictsPrompt({
+      scenario,
       branch: session.branch_name,
-      diff,
-      andPush,
+      baseBranch: ws.base_branch ?? undefined,
     });
 
     insertChatEvent({
@@ -68,12 +85,12 @@ export async function POST(
     });
 
     executor.dispatch(id, prompt).catch((err) => {
-      console.error(`[POST /api/sessions/:id/commit] dispatch failed for ${id}:`, err);
+      console.error(`[POST /api/sessions/:id/resolve-conflicts] dispatch failed for ${id}:`, err);
     });
 
     return Response.json({ ok: true });
   } catch (err) {
-    console.error('[POST /api/sessions/:id/commit]', err);
+    console.error('[POST /api/sessions/:id/resolve-conflicts]', err);
     const name = err instanceof Error ? err.name : 'Error';
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: name, message }, { status: 400 });
