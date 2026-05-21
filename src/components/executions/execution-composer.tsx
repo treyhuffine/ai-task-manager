@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
-import { useUpdateSession, useSessionMeta, useSessionTree } from '@/hooks/use-execution';
+import { useUpdateSession, useSessionMeta, useSessionTree, usePicker } from '@/hooks/use-execution';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META, nextPermissionMode } from '@/lib/permission-modes';
@@ -37,7 +37,11 @@ import {
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
 import { useSlashCommands } from '@/hooks/use-slash-commands';
-import type { MentionItem } from '@/components/chat/editor/mention-menu/types';
+import type {
+  FileMentionItem,
+  TaskMentionItem,
+  NoteMentionItem,
+} from '@/components/chat/editor/mention-menu/types';
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { expandPrRefs } from '@/components/chat/editor/pr-menu/expand';
 import { usePrList } from '@/hooks/use-prs';
@@ -55,7 +59,19 @@ import { usePrList } from '@/hooks/use-prs';
  */
 export interface ExecutionComposerHandle {
   insertTextAtCursor: (text: string) => void;
+  insertEntityChip: (attrs: {
+    kind: 'task' | 'note' | 'scratchpad';
+    id: string;
+    title: string;
+    status?: string;
+  }) => void;
   focus: (opts?: { end?: boolean }) => void;
+  /**
+   * Upload a file (or blob) and insert a chip at the cursor. Exposed so
+   * a parent drop zone wrapping the whole chat column can route dropped
+   * files to the same attachment pipeline as paste / paperclip.
+   */
+  uploadFile: (file: File | Blob, name?: string) => Promise<void>;
 }
 
 interface ExecutionComposerProps {
@@ -141,8 +157,16 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       insertTextAtCursor: (text: string) => {
         editorRef.current?.insertTextAtCursor(text);
       },
+      insertEntityChip: (attrs) => {
+        editorRef.current?.insertEntityChip(attrs);
+      },
       focus: (opts) => {
         editorRef.current?.focus(opts);
+      },
+      uploadFile: async (file, name) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        await editor.uploadFile(file, name);
       },
     }),
     [],
@@ -189,7 +213,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
   // Worktree files/folders → @-mention items. Same data the file tree
   // shows, transformed into the lighter shape the popup needs.
   const treeQuery = useSessionTree(sessionId);
-  const mentionEntries = useMemo<MentionItem[]>(
+  const mentionFiles = useMemo<FileMentionItem[]>(
     () =>
       (treeQuery.data?.entries ?? []).map((e) => ({
         path: e.path,
@@ -197,6 +221,30 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         kind: e.kind,
       })),
     [treeQuery.data?.entries],
+  );
+
+  // Tasks + notes from the session's workspace → @-picker entity items.
+  // The picker auto-scopes by workspace_id; a future "Show all" toggle
+  // in the popup will flip it to cross-workspace.
+  const pickerQuery = usePicker(sessionId);
+  const mentionTasks = useMemo<TaskMentionItem[]>(
+    () =>
+      (pickerQuery.data?.tasks ?? []).map((t) => ({
+        kind: 'task',
+        id: t.id,
+        title: t.title,
+        status: t.status,
+      })),
+    [pickerQuery.data?.tasks],
+  );
+  const mentionNotes = useMemo<NoteMentionItem[]>(
+    () =>
+      (pickerQuery.data?.notes ?? []).map((n) => ({
+        kind: 'note',
+        id: n.id,
+        title: n.title ?? '',
+      })),
+    [pickerQuery.data?.notes],
   );
 
   // GitHub PRs → `#`-mention items. Empty when gh is missing /
@@ -462,7 +510,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                 onFocus={handleEditorFocus}
                 slashCommands={slashCommandsQuery.data?.commands}
-                mentionEntries={mentionEntries}
+                mentionFiles={mentionFiles}
+                mentionTasks={mentionTasks}
+                mentionNotes={mentionNotes}
                 prs={prMentions}
                 draftKey={sessionId ? `exec:${sessionId}` : undefined}
               />

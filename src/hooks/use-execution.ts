@@ -683,3 +683,107 @@ export function useInterruptSession(id: string) {
     // when `dispatch`'s finally block runs setRunning(false)).
   });
 }
+
+// ─── Picker / References / Scratchpad ─────────────────────────
+
+/**
+ * Resolved task + note lookups for transcript chip rendering. Cached
+ * per-session; refetches when the events query invalidates (so new
+ * mentions show up after a turn).
+ */
+export function useSessionEntities(id: string | null) {
+  return useQuery({
+    queryKey: ['session', id, 'entities'] as const,
+    queryFn: () => sessionsApi.entities(id!),
+    enabled: !!id,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Tasks + notes surfaced in the composer's `@`-picker. Scoped to the
+ * session's workspace by default; the popup widens via the `all` toggle
+ * when the user wants cross-workspace search.
+ */
+export function usePicker(id: string | null, opts?: { all?: boolean }) {
+  return useQuery({
+    queryKey: ['session', id, 'picker', opts?.all ? 'all' : 'workspace'] as const,
+    queryFn: () => sessionsApi.picker(id!, opts),
+    enabled: !!id,
+    // Stale-but-cheap is fine — re-fetch on focus picks up new tasks.
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Three-section dataset that powers the references slide-over. The
+ * server computes section membership (in-chat / workspace / all) so the
+ * client can render without re-doing the precedence logic.
+ */
+export function useSessionReferences(
+  id: string | null,
+  scope: 'session' | 'workspace' | 'all' = 'session',
+) {
+  return useQuery({
+    queryKey: ['session', id, 'references', scope] as const,
+    queryFn: () => sessionsApi.references(id!, { scope }),
+    enabled: !!id,
+    staleTime: 10_000,
+  });
+}
+
+export function usePinSessionRef(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }) =>
+      sessionsApi.pinRef(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id, 'references'] });
+    },
+  });
+}
+
+export function useUnpinSessionRef(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }) =>
+      sessionsApi.unpinRef(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id, 'references'] });
+    },
+  });
+}
+
+export function useScratchpad(id: string | null) {
+  return useQuery({
+    queryKey: ['session', id, 'scratchpad'] as const,
+    queryFn: () => sessionsApi.scratchpad(id!),
+    enabled: !!id,
+    // Don't refetch on focus — the user is actively editing locally;
+    // a remote refetch would clobber unsaved changes.
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
+}
+
+export function useSetScratchpad(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scratch_pad: string | null) => sessionsApi.setScratchpad(id, scratch_pad),
+    // Optimistic so the editor doesn't flash. The cache holds the same
+    // shape the GET returns.
+    onMutate: async (scratch_pad) => {
+      await qc.cancelQueries({ queryKey: ['session', id, 'scratchpad'] });
+      const prior = qc.getQueryData<{ scratch_pad: string | null }>([
+        'session', id, 'scratchpad',
+      ]);
+      qc.setQueryData(['session', id, 'scratchpad'], { scratch_pad });
+      return { prior };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prior) {
+        qc.setQueryData(['session', id, 'scratchpad'], ctx.prior);
+      }
+    },
+  });
+}

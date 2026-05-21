@@ -258,6 +258,67 @@ export interface RailResponse {
   runningSessionIds: string[];
 }
 
+// ─── Picker / References / Scratchpad wire types ─────────────
+
+export interface PickerTaskItem {
+  id: string;
+  title: string;
+  status: 'active' | 'done' | 'archived';
+  area_id: string | null;
+  workspace_id: string | null;
+  updated_at: string;
+}
+
+export interface PickerNoteItem {
+  id: string;
+  title: string | null;
+  area_id: string | null;
+  workspace_id: string | null;
+  updated_at: string;
+}
+
+export interface PickerResponse {
+  tasks: PickerTaskItem[];
+  notes: PickerNoteItem[];
+}
+
+/**
+ * Lookup payload for the transcript's chip rendering — every task/note
+ * the session's chat_refs point at, indexed by id. One fetch per
+ * session beats per-chip lookups.
+ */
+export interface EntitiesResponse {
+  tasks: Array<{ id: string; title: string; status: string }>;
+  notes: Array<{ id: string; title: string | null }>;
+}
+
+/**
+ * Wire shape for the references slide-over. `inChat` is the
+ * `[[task|note|scratchpad]]`-mentioned set for this session; `workspace`
+ * is everything with `workspace_id === current` not already in chat;
+ * `all` is everything else when the scope filter widens.
+ */
+export interface ReferenceRow {
+  kind: 'task' | 'note';
+  id: string;
+  title: string;
+  status?: string;
+  area_id: string | null;
+  workspace_id: string | null;
+  updated_at: string;
+  /** Truthy when this row appears in chat_refs for the session. */
+  referenced_at?: string | null;
+  /** Number of child tasks. Tasks only — undefined for notes or when not computed. */
+  subtask_count?: number;
+}
+
+export interface ReferencesResponse {
+  inChat: ReferenceRow[];
+  workspace: ReferenceRow[];
+  all: ReferenceRow[];
+  scope: 'session' | 'workspace' | 'all';
+}
+
 export const sessionsApi = {
   get(id: string): Promise<ChatSessionWithAgent> {
     return api.get<ChatSessionWithAgent>(`/sessions/${id}`);
@@ -305,6 +366,42 @@ export const sessionsApi = {
 
   tree(id: string): Promise<TreeResponse> {
     return api.get<TreeResponse>(`/sessions/${id}/tree`);
+  },
+
+  picker(id: string, opts?: { all?: boolean }): Promise<PickerResponse> {
+    return api.get<PickerResponse>(
+      `/sessions/${id}/picker`,
+      { query: opts?.all ? { all: '1' } : undefined },
+    );
+  },
+
+  entities(id: string): Promise<EntitiesResponse> {
+    return api.get<EntitiesResponse>(`/sessions/${id}/entities`);
+  },
+
+  references(id: string, opts?: { scope?: 'session' | 'workspace' | 'all' }): Promise<ReferencesResponse> {
+    return api.get<ReferencesResponse>(
+      `/sessions/${id}/references`,
+      { query: opts?.scope ? { scope: opts.scope } : undefined },
+    );
+  },
+
+  pinRef(id: string, body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/references`, body);
+  },
+
+  unpinRef(id: string, body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }): Promise<{ ok: true }> {
+    return api.delete<{ ok: true }>(`/sessions/${id}/references`, {
+      query: { entity_type: body.entity_type, entity_id: body.entity_id },
+    });
+  },
+
+  scratchpad(id: string): Promise<{ scratch_pad: string | null }> {
+    return api.get<{ scratch_pad: string | null }>(`/sessions/${id}/scratchpad`);
+  },
+
+  setScratchpad(id: string, scratch_pad: string | null): Promise<{ scratch_pad: string | null }> {
+    return api.put<{ scratch_pad: string | null }>(`/sessions/${id}/scratchpad`, { scratch_pad });
   },
 
   file(id: string, path: string, opts?: { base?: boolean }): Promise<FileResponse> {

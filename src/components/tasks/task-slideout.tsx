@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { useDragResize } from '@/hooks/use-drag-resize';
+import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button';
 import { cn } from '@/lib/utils';
 import type { Energy, Effort, Attachment } from '@/db/types';
 
@@ -379,6 +380,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               </div>
 
               <div className="flex items-center gap-2">
+                {taskId && <ReferencingSessionsButton entityType="task" entityId={taskId} />}
                 <a
                   href={taskId ? `/task/${taskId}` : '#'}
                   onClick={(e) => {

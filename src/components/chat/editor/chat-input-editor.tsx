@@ -54,7 +54,11 @@ import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-no
 import { SlashMenuExtension } from './slash-menu/extension';
 import type { SkillCommandDescriptor } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
-import type { MentionItem } from './mention-menu/types';
+import type {
+  FileMentionItem,
+  TaskMentionItem,
+  NoteMentionItem,
+} from './mention-menu/types';
 import {
   MentionChipNode,
   MENTION_CHIP_NAME,
@@ -64,6 +68,7 @@ import { PrMenuExtension } from './pr-menu/extension';
 import type { PrMentionItem } from './pr-menu/types';
 import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './pr-menu/pr-chip-node';
 import { formatPrRef } from './pr-menu/expand';
+import { EntityChipNode, ENTITY_CHIP_NAME, type EntityChipAttrs } from './entity-chip-node';
 
 // ─── Public types ────────────────────────────────────────────────
 
@@ -89,6 +94,12 @@ export interface ChatInputEditorHandle {
   clear(): void;
   /** Insert raw text at the current selection. */
   insertTextAtCursor(text: string): void;
+  /**
+   * Insert a task / note / scratchpad reference chip at the cursor.
+   * Used by the references pane and scratchpad's promote-then-mention
+   * flow so they don't have to know about Tiptap commands.
+   */
+  insertEntityChip(attrs: EntityChipAttrs): void;
   /**
    * Capture the current document shape (text + chips + selection) as
    * an opaque snapshot that `restore` can replay. Used by the
@@ -157,9 +168,13 @@ interface ChatInputEditorProps {
   /**
    * Optional worktree files/folders for the `@`-mention menu. Sourced
    * from `useSessionTree` on the consumer side. When omitted, typing
-   * `@` does nothing special.
+   * `@` does nothing special on the file side.
    */
-  mentionEntries?: MentionItem[];
+  mentionFiles?: FileMentionItem[];
+  /** Tasks surfaced in the `@`-picker. */
+  mentionTasks?: TaskMentionItem[];
+  /** Notes surfaced in the `@`-picker. */
+  mentionNotes?: NoteMentionItem[];
   /**
    * Optional PRs for the `#`-mention menu. Sourced from `usePrList`
    * on the consumer side. When omitted, typing `#` does nothing
@@ -287,7 +302,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onFocus,
       className,
       slashCommands,
-      mentionEntries,
+      mentionFiles,
+      mentionTasks,
+      mentionNotes,
       prs,
       draftKey,
     },
@@ -305,8 +322,12 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // editor when TanStack Query refreshes the data.
     const slashCommandsRef = useRef(slashCommands);
     slashCommandsRef.current = slashCommands;
-    const mentionEntriesRef = useRef(mentionEntries);
-    mentionEntriesRef.current = mentionEntries;
+    const mentionFilesRef = useRef(mentionFiles);
+    mentionFilesRef.current = mentionFiles;
+    const mentionTasksRef = useRef(mentionTasks);
+    mentionTasksRef.current = mentionTasks;
+    const mentionNotesRef = useRef(mentionNotes);
+    mentionNotesRef.current = mentionNotes;
     const prsRef = useRef(prs);
     prsRef.current = prs;
     onFocusRef.current = onFocus;
@@ -500,12 +521,15 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         FileChipNode,
         PrChipNode,
         MentionChipNode,
+        EntityChipNode,
         PasteDropExtension,
         SlashMenuExtension.configure({
           getCommands: () => slashCommandsRef.current ?? [],
         }),
         MentionMenuExtension.configure({
-          getEntries: () => mentionEntriesRef.current ?? [],
+          getFileEntries: () => mentionFilesRef.current ?? [],
+          getTasks: () => mentionTasksRef.current ?? [],
+          getNotes: () => mentionNotesRef.current ?? [],
         }),
         PrMenuExtension.configure({
           getPrs: () => prsRef.current ?? [],
@@ -636,6 +660,15 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           if (!editor) return;
           editor.chain().focus().insertContent(text).run();
         },
+        insertEntityChip: (attrs) => {
+          if (!editor) return;
+          editor
+            .chain()
+            .focus()
+            .insertEntityChip(attrs)
+            .insertContent(' ')
+            .run();
+        },
         snapshot: () => {
           if (!editor || editor.isEmpty) return null;
           return { doc: editor.getJSON() };
@@ -763,6 +796,23 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
       }
       return false;
     }
+    if (node.type.name === ENTITY_CHIP_NAME) {
+      // Task / note / scratchpad chips emit `[[task:id]]`, `[[note:id]]`,
+      // or `[[scratchpad]]`. The server-side expandEntityMarkers
+      // resolves these into inline `<task>` / `<note>` / `<scratchpad>`
+      // blocks before dispatch.
+      const attrs = node.attrs as EntityChipAttrs;
+      const marker =
+        attrs.kind === 'scratchpad'
+          ? '[[scratchpad]]'
+          : attrs.id
+            ? `[[${attrs.kind}:${attrs.id}]]`
+            : '';
+      if (marker) {
+        lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + marker;
+      }
+      return false;
+    }
     if (node.type.name === 'paragraph') {
       lines.push('');
       return true;
@@ -828,6 +878,21 @@ function buildUiMessageParts(editor: Editor | null): {
       // is the canonical reference the agent acts on.
       const attrs = node.attrs as MentionChipAttrs;
       if (attrs.path) textBuf += `@${attrs.path}`;
+      return false;
+    }
+    if (node.type.name === ENTITY_CHIP_NAME) {
+      // Entity chips inline as `[[task:id]]` / `[[note:id]]` / `[[scratchpad]]`.
+      // The orchestrator chat doesn't hydrate these (that's an execution
+      // path); we still emit the marker so a user looking at the message
+      // later sees a stable reference token rather than a vanished chip.
+      const attrs = node.attrs as EntityChipAttrs;
+      const marker =
+        attrs.kind === 'scratchpad'
+          ? '[[scratchpad]]'
+          : attrs.id
+            ? `[[${attrs.kind}:${attrs.id}]]`
+            : '';
+      if (marker) textBuf += marker;
       return false;
     }
     if (node.type.name === 'paragraph') {

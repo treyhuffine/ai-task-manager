@@ -142,7 +142,6 @@ export async function dispatchExecutionSession(
     type: 'execution',
     workspace_id: args.workspaceId,
     label,
-    refs: {},
     worktree_path: liveMode ? ws.cwd : null,
     branch_name: liveBranch,
     base_sha: liveBaseSha,

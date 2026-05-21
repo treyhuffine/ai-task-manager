@@ -6,7 +6,7 @@
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
-  workspaces, agents, chatSessions, chatEvents,
+  workspaces, agents, chatSessions, chatEvents, chatRefs,
 } from '@/lib/db/schema';
 import { eq, and, desc, asc, sql, gt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -26,7 +26,9 @@ import type {
   AgentRecord, CreateAgentInput,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
+  ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
 } from '@/db/types';
+import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { OUTCOME_SOURCES } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
@@ -49,6 +51,7 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   }
 
   if (filter.area_id) conditions.push(eq(tasks.area_id, filter.area_id));
+  if (filter.workspace_id) conditions.push(eq(tasks.workspace_id, filter.workspace_id));
   if (filter.parent_id) conditions.push(eq(tasks.parent_id, filter.parent_id));
   if (filter.energy) conditions.push(eq(tasks.energy, filter.energy));
   if (filter.q) conditions.push(sql`${tasks.title} LIKE ${'%' + filter.q + '%'}`);
@@ -256,6 +259,7 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
   const conditions: SQL[] = [];
 
   if (filter.area_id) conditions.push(eq(notes.area_id, filter.area_id));
+  if (filter.workspace_id) conditions.push(eq(notes.workspace_id, filter.workspace_id));
   if (filter.task_id) conditions.push(eq(notes.task_id, filter.task_id));
   if (filter.status) conditions.push(eq(notes.status, filter.status));
 
@@ -866,7 +870,6 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       ...input,
       id: input.id ?? uuidv7(),
       status: input.status ?? 'active',
-      refs: input.refs ?? {},
     })
     .returning()
     .get();
@@ -954,7 +957,6 @@ export function createExecutionSession(args: {
     type: 'execution',
     workspace_id: args.workspace_id,
     label: args.label?.trim() || null,
-    refs: {},
   });
 }
 
@@ -1319,4 +1321,226 @@ export function deleteAllChatEvents(sessionId: string): number {
     .where(eq(chatSessions.id, sessionId))
     .run();
   return result.changes;
+}
+
+// ─── Chat Refs ────────────────────────────────────────────────
+// Materialized M:N references between chat sessions / events and
+// entities (tasks, notes, areas, files, the session's own scratchpad).
+// Two layers in one table — see schema.ts. `event_id IS NULL` = pin;
+// set = per-message mention. The partial unique on (session_id,
+// entity_type, entity_id) only fires for pins, so mentions can repeat.
+
+/**
+ * Insert a chat_refs row. For pins, returns the existing row on
+ * conflict (idempotent re-pinning). For mentions, always inserts.
+ */
+export function createChatRef(input: CreateChatRefInput): ChatRefRecord {
+  const db = getDb();
+  const inserted = db
+    .insert(chatRefs)
+    .values({
+      ...input,
+      id: input.id ?? uuidv7(),
+      created_at: input.created_at ?? new Date().toISOString(),
+    })
+    .onConflictDoNothing()
+    .returning()
+    .get();
+  if (inserted) return inserted;
+  // Partial-unique conflict — must have been a pin re-insert. Fetch.
+  const existing = db
+    .select()
+    .from(chatRefs)
+    .where(
+      and(
+        eq(chatRefs.session_id, input.session_id),
+        eq(chatRefs.entity_type, input.entity_type),
+        eq(chatRefs.entity_id, input.entity_id),
+        isNull(chatRefs.event_id),
+      ),
+    )
+    .get();
+  if (!existing) {
+    throw new Error('createChatRef: insert conflict but no matching row found');
+  }
+  return existing;
+}
+
+/** All refs for a session — pins (event_id null) + mentions. */
+export function listSessionRefs(
+  sessionId: string,
+  opts?: { pinnedOnly?: boolean; mentionsOnly?: boolean },
+): ChatRefRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [eq(chatRefs.session_id, sessionId)];
+  if (opts?.pinnedOnly) conditions.push(isNull(chatRefs.event_id));
+  if (opts?.mentionsOnly) conditions.push(isNotNull(chatRefs.event_id));
+  return db
+    .select()
+    .from(chatRefs)
+    .where(and(...conditions))
+    .orderBy(asc(chatRefs.position), asc(chatRefs.created_at))
+    .all();
+}
+
+/** All refs bound to a specific chat_events row. */
+export function listEventRefs(eventId: string): ChatRefRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(chatRefs)
+    .where(eq(chatRefs.event_id, eventId))
+    .orderBy(asc(chatRefs.position))
+    .all();
+}
+
+/** Reverse lookup: every ref pointing at a given entity. */
+export function listEntityRefs(
+  entityType: ChatRefEntityType,
+  entityId: string,
+): ChatRefRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(chatRefs)
+    .where(and(eq(chatRefs.entity_type, entityType), eq(chatRefs.entity_id, entityId)))
+    .orderBy(desc(chatRefs.created_at))
+    .all();
+}
+
+/** Sessions that reference an entity, deduped — for the "🔗 N sessions" UI. */
+export function listSessionsReferencingEntity(
+  entityType: ChatRefEntityType,
+  entityId: string,
+): ChatSessionRecord[] {
+  const db = getDb();
+  const seen = new Set<string>();
+  const rows = db
+    .select({ session: getTableColumns(chatSessions) })
+    .from(chatRefs)
+    .innerJoin(chatSessions, eq(chatRefs.session_id, chatSessions.id))
+    .where(
+      and(eq(chatRefs.entity_type, entityType), eq(chatRefs.entity_id, entityId)),
+    )
+    .orderBy(
+      desc(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at})`),
+    )
+    .all();
+  const out: ChatSessionRecord[] = [];
+  for (const r of rows) {
+    if (seen.has(r.session.id)) continue;
+    seen.add(r.session.id);
+    out.push(r.session);
+  }
+  return out;
+}
+
+export function deleteChatRef(id: string): boolean {
+  const db = getDb();
+  const result = db.delete(chatRefs).where(eq(chatRefs.id, id)).run();
+  return result.changes > 0;
+}
+
+/**
+ * Drop every ref currently bound to a chat_events row. Used as the
+ * idempotent prelude to `materializeEventRefs` so re-runs don't pile
+ * up duplicate mention rows.
+ */
+export function deleteEventRefs(eventId: string): number {
+  const db = getDb();
+  const result = db.delete(chatRefs).where(eq(chatRefs.event_id, eventId)).run();
+  return result.changes;
+}
+
+/**
+ * Scan a `chat_events.content` string for `[[task:id]]` / `[[note:id]]`
+ * / `[[scratchpad]]` markers and materialize one chat_refs row per
+ * occurrence, all bound to `eventId`. File markers are tracked via
+ * `chat_events.attachments` — not duplicated here. Idempotent: wipes
+ * prior event refs before inserting.
+ */
+export function materializeEventRefs(
+  eventId: string,
+  sessionId: string,
+  content: string,
+  opts?: { createdBy?: 'user' | 'agent' },
+): ChatRefRecord[] {
+  deleteEventRefs(eventId);
+  const markers = listEntityMarkers(content);
+  const created: ChatRefRecord[] = [];
+  const createdBy = opts?.createdBy ?? 'user';
+  let position = 0;
+  for (const m of markers) {
+    if (m.kind === 'file') continue;
+    const entity_id = m.kind === 'scratchpad' ? sessionId : m.id;
+    if (!entity_id) continue;
+    const row = createChatRef({
+      session_id: sessionId,
+      event_id: eventId,
+      entity_type: m.kind,
+      entity_id,
+      position,
+      created_by: createdBy,
+    });
+    created.push(row);
+    position++;
+  }
+  return created;
+}
+
+/**
+ * Pin a task/note/area/scratchpad to a session. Idempotent — re-pinning
+ * the same entity returns the existing row. Files don't take this path;
+ * they're attachment metadata, not session-level context.
+ */
+export function pinSessionRef(args: {
+  sessionId: string;
+  entityType: Exclude<ChatRefEntityType, 'file'>;
+  entityId: string;
+  position?: number;
+  hydrate?: boolean;
+  createdBy?: 'user' | 'agent';
+}): ChatRefRecord {
+  return createChatRef({
+    session_id: args.sessionId,
+    event_id: null,
+    entity_type: args.entityType,
+    entity_id: args.entityId,
+    position: args.position ?? 0,
+    hydrate: args.hydrate ?? true,
+    created_by: args.createdBy ?? 'user',
+  });
+}
+
+export function unpinSessionRef(args: {
+  sessionId: string;
+  entityType: Exclude<ChatRefEntityType, 'file'>;
+  entityId: string;
+}): boolean {
+  const db = getDb();
+  const result = db
+    .delete(chatRefs)
+    .where(
+      and(
+        eq(chatRefs.session_id, args.sessionId),
+        eq(chatRefs.entity_type, args.entityType),
+        eq(chatRefs.entity_id, args.entityId),
+        isNull(chatRefs.event_id),
+      ),
+    )
+    .run();
+  return result.changes > 0;
+}
+
+/**
+ * Update the session's scratch pad. Null clears it. Returns the updated
+ * session row. The chat_refs side is unchanged — refs survive the
+ * scratchpad text changing (the agent reads the latest body at
+ * hydration time regardless).
+ */
+export function setSessionScratchPad(
+  sessionId: string,
+  scratchPad: string | null,
+): ChatSessionRecord | null {
+  return updateChatSession(sessionId, { scratch_pad: scratchPad });
 }

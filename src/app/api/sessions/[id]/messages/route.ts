@@ -1,7 +1,14 @@
 import type { NextRequest } from 'next/server';
-import { getAgent, getChatEventById, getChatSession, insertChatEvent } from '@/lib/db/queries';
+import {
+  getAgent,
+  getChatEventById,
+  getChatSession,
+  insertChatEvent,
+  materializeEventRefs,
+} from '@/lib/db/queries';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
+import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
 import * as executor from '@/lib/executor/adapter';
 import { healthCheckSession } from '@/lib/executor/health';
 import type { Attachment } from '@/db/types';
@@ -106,9 +113,24 @@ export async function POST(
       return Response.json({ error: 'failed to persist user message' }, { status: 500 });
     }
 
-    // Expand markers once, off the response path. Both label
-    // derivation and the agent dispatch use the same expanded prompt.
-    const expanded = await expandMarkers(content, attachments);
+    // Materialize entity references (task/note/scratchpad) into chat_refs
+    // so reverse-lookup UIs ("which sessions reference this note?") and
+    // the references slide-over both work. Idempotent on retries.
+    if (!isRetry) {
+      try {
+        materializeEventRefs(row.id, id, content);
+      } catch (err) {
+        console.warn(`[POST /api/sessions/:id/messages] materializeEventRefs failed:`, err);
+      }
+    }
+
+    // Expand markers once, off the response path. Both label derivation
+    // and the agent dispatch use the same expanded prompt. Two passes:
+    // entity markers (task / note / scratchpad) first — they expand to
+    // inline `<task>` / `<note>` / `<scratchpad>` tags. File markers
+    // second — they expand to absolute paths or `<attachment>` text.
+    const entityExpanded = expandEntityMarkers(content, id);
+    const expanded = await expandMarkers(entityExpanded, attachments);
     if (!session.label && !isRetry) {
       const agent = getAgent(session.agent_id);
       void deriveAndSetSessionLabel(id, expanded, agent?.harness ?? 'claude_code');

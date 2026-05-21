@@ -92,6 +92,11 @@ export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
   parent_id: text('parent_id').references((): AnySQLiteColumn => tasks.id),
   area_id: text('area_id').references(() => areas.id),
+  // Canonical workspace this task pertains to. Distinct from `area_id`:
+  // areas are user-facing buckets ("Health"), workspaces are codebases
+  // on disk. Auto-populated when a task is created from inside an
+  // execution session (defaults from `chat_sessions.workspace_id`).
+  workspace_id: text('workspace_id').references((): AnySQLiteColumn => workspaces.id, { onDelete: 'set null' }),
   raw_input: text('raw_input').notNull(),
   stream_item_id: text('stream_item_id').references(() => stream.id),
   title: text('title').notNull(),
@@ -127,6 +132,7 @@ export const tasks = sqliteTable('tasks', {
 }, (table) => [
   index('idx_tasks_status').on(table.status),
   index('idx_tasks_area_id').on(table.area_id),
+  index('idx_tasks_workspace_id').on(table.workspace_id),
   index('idx_tasks_parent_id').on(table.parent_id),
   index('idx_tasks_sort_key').on(table.sort_key),
   index('idx_tasks_status_sort').on(table.status, table.sort_key),
@@ -277,10 +283,13 @@ export const chatSessions = sqliteTable('chat_sessions', {
   surface_ref: text('surface_ref'),
   status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
   label: text('label'),
-  refs: text('refs', { mode: 'json' })
-    .$type<{ task_ids?: string[]; note_ids?: string[]; area_ids?: string[] }>()
-    .notNull()
-    .default({}),
+
+  // Free-form scratch space scoped to this session. Markdown text the
+  // user jots into during work — observations, error logs, half-formed
+  // todos — without polluting global tasks/notes. Hydrated into the
+  // agent's turn context when the user `@scratchpad`-mentions it in a
+  // message (renders as a `[[scratchpad]]` marker in `chat_events.content`).
+  scratch_pad: text('scratch_pad'),
 
   // Execution-specific fields.
   workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
@@ -427,6 +436,10 @@ export const notes = sqliteTable('notes', {
   id: text('id').primaryKey(),
   area_id: text('area_id').references(() => areas.id),
   task_id: text('task_id').references(() => tasks.id),
+  // Canonical workspace this note pertains to. Same role as
+  // `tasks.workspace_id` — distinct from `area_id` and auto-populated
+  // when the note is created from inside an execution session.
+  workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
   title: text('title'),
   body: text('body').notNull(),
   url: text('url'),
@@ -440,5 +453,53 @@ export const notes = sqliteTable('notes', {
 }, (table) => [
   index('idx_notes_area_id').on(table.area_id),
   index('idx_notes_task_id').on(table.task_id),
+  index('idx_notes_workspace_id').on(table.workspace_id),
   index('idx_notes_status').on(table.status),
+]);
+
+// ─── Chat Refs ────────────────────────────────────────────────
+// M:N references from chat sessions (and individual events) to other
+// entities. Two layers in one table:
+//
+//   - Session-level pin: `event_id IS NULL`. The entity stays in the
+//     session's ambient context for every turn ("📎 pinned" strip).
+//   - Per-message mention: `event_id` is set. The entity was named
+//     inline in that message (`[[task:<id>]]`/`[[note:<id>]]` marker
+//     in `chat_events.content`). The marker is the render token —
+//     this row is the relational link so reverse queries ("which
+//     messages reference task X?") work without a JSON scan.
+//
+// `entity_type` discriminates the target. `entity_id` is the target
+// row id (or `Attachment.file_name` when `entity_type='file'`, since
+// files have no row of their own — they live as JSON attachments on
+// their owning entity).
+//
+// `hydrate` controls whether the orchestrator inlines the entity's
+// body into the agent's turn. Default on for inline mentions; off
+// is the escape hatch for "pinned for the human, not the agent".
+
+export const chatRefs = sqliteTable('chat_refs', {
+  id: text('id').primaryKey(),
+  session_id: text('session_id')
+    .notNull()
+    .references(() => chatSessions.id, { onDelete: 'cascade' }),
+  event_id: text('event_id').references(() => chatEvents.id, { onDelete: 'cascade' }),
+  // 'scratchpad' is a session-local reference. By convention `entity_id`
+  // stores the owning `session_id` so reverse-lookup semantics stay
+  // consistent with the other types.
+  entity_type: text('entity_type', { enum: ['task', 'note', 'area', 'file', 'scratchpad'] }).notNull(),
+  entity_id: text('entity_id').notNull(),
+  position: integer('position').notNull().default(0),
+  hydrate: integer('hydrate', { mode: 'boolean' }).notNull().default(true),
+  created_by: text('created_by', { enum: ['user', 'agent'] }).notNull().default('user'),
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  // Forward: list session pins (event_id IS NULL) or mentions for an event.
+  index('idx_chat_refs_session_event').on(table.session_id, table.event_id),
+  // Reverse: where is this entity referenced?
+  index('idx_chat_refs_entity').on(table.entity_type, table.entity_id),
+  // One pin per (session, entity). Per-message mentions can repeat freely.
+  uniqueIndex('chat_refs_session_pin_uq')
+    .on(table.session_id, table.entity_type, table.entity_id)
+    .where(sql`${table.event_id} IS NULL`),
 ]);

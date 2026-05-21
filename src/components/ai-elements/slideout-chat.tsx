@@ -23,6 +23,7 @@ import {
   ChatInputEditor, type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor'
 import { AttachButton } from '@/components/chat/editor/attach-button'
+import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone'
 import type { TaskRecord, NoteRecord } from '@/db/types'
 import { getAuthToken } from '@/lib/api/client'
 
@@ -301,7 +302,9 @@ function ChatPanel({
       )}
       style={compact ? undefined : { width: CHAT_PANEL_MIN_WIDTH, minWidth: CHAT_PANEL_MIN_WIDTH }}
     >
-      {/* Header — only in panel mode (bubble mode has its own header) */}
+      {/* Header — only in panel mode (bubble mode has its own header).
+          Sits outside the drop zone — dropping a file on the panel chrome
+          shouldn't be treated as a chat attach. */}
       {!compact && (
         <div className="flex items-center gap-2 px-3 h-11 flex-shrink-0">
           <Sparkles size={12} className="text-primary" />
@@ -309,6 +312,14 @@ function ChatPanel({
         </div>
       )}
 
+      <ChatDropZone
+        className="flex flex-1 min-h-0 flex-col"
+        onFiles={(files) => {
+          for (const f of files) void editorRef.current?.uploadFile(f)
+          editorRef.current?.focus({ end: true })
+        }}
+        disabled={disabled}
+      >
       {hasMessages ? (
         <>
           {/* Conversation area */}
@@ -368,6 +379,7 @@ function ChatPanel({
           </div>
         </div>
       )}
+      </ChatDropZone>
     </div>
   )
 }

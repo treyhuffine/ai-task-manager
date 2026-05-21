@@ -8,7 +8,7 @@ import {
   useImperativeHandle,
   forwardRef,
 } from 'react'
-import { Folder } from 'lucide-react'
+import { Folder, Square, CheckSquare, StickyNote, Notebook } from 'lucide-react'
 import { FileIcon } from '@/components/file-icon'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
 import type { MentionItem } from './types'
@@ -18,11 +18,34 @@ interface MentionMenuListProps {
   command: (item: MentionItem) => void
 }
 
+function sectionFor(item: MentionItem): 'entity' | 'task' | 'note' | 'file' {
+  if (item.kind === 'scratchpad') return 'entity'
+  if (item.kind === 'task') return 'task'
+  if (item.kind === 'note') return 'note'
+  return 'file'
+}
+
+function keyFor(item: MentionItem): string {
+  switch (item.kind) {
+    case 'scratchpad':
+      return 'scratchpad'
+    case 'task':
+      return `task:${item.id}`
+    case 'note':
+      return `note:${item.id}`
+    default:
+      return `file:${item.path}`
+  }
+}
+
 /**
- * @-mention popup. Renders each file/folder match as a one-line row
- * with the basename in mono on the left and the parent directory in
- * dimmer text on the right, so the user can disambiguate two files
- * with the same basename in different directories at a glance.
+ * `@`-picker popup. One vertical list — but rows are visually banded
+ * into sections (Scratchpad / Tasks / Notes / Files) using inline
+ * dividers so a glance tells you what kind of result you're hovering.
+ *
+ * Single index drives both arrow navigation and selection — section
+ * headers are non-interactive labels in between, not their own focus
+ * targets.
  */
 export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListProps>(
   function MentionMenuList({ items, command }, ref) {
@@ -34,7 +57,9 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
     }, [items])
 
     useEffect(() => {
-      const el = listRef.current?.children[selectedIndex] as HTMLElement | undefined
+      const el = listRef.current?.querySelector(`[data-mention-index="${selectedIndex}"]`) as
+        | HTMLElement
+        | undefined
       el?.scrollIntoView({ block: 'nearest' })
     }, [selectedIndex])
 
@@ -71,46 +96,129 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
     if (items.length === 0) {
       return (
         <div className="slash-command-menu px-3 py-2 text-xs text-muted-foreground">
-          No matching files
+          No matches
         </div>
       )
     }
 
+    // Walk the (already-ordered) item list and inject a divider before
+    // each new section's first row. The ordering convention from
+    // buildItems() is: scratchpad → tasks → notes → files.
+    const rows: React.ReactNode[] = []
+    let prevSection: ReturnType<typeof sectionFor> | null = null
+    items.forEach((item, index) => {
+      const section = sectionFor(item)
+      if (section !== prevSection) {
+        rows.push(
+          <SectionHeader key={`hdr-${section}-${index}`} kind={section} />,
+        )
+        prevSection = section
+      }
+      rows.push(
+        <MentionRow
+          key={keyFor(item)}
+          item={item}
+          index={index}
+          selected={index === selectedIndex}
+          onSelect={selectItem}
+          onHover={setSelectedIndex}
+        />,
+      )
+    })
+
     return (
       <div ref={listRef} className="slash-command-menu chat-slash-menu">
-        {items.map((item, index) => {
-          const slash = item.path.lastIndexOf('/')
-          const parent = slash === -1 ? '' : item.path.slice(0, slash)
-          return (
-            <button
-              key={item.path}
-              type="button"
-              className={`flex items-center gap-2 w-full px-2.5 py-1 rounded text-left transition-colors ${
-                index === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50'
-              }`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => selectItem(index)}
-              onMouseEnter={() => setSelectedIndex(index)}
-            >
-              <span className="shrink-0 flex items-center justify-center w-3.5">
-                {item.kind === 'dir' ? (
-                  <Folder size={11} className="text-muted-foreground/80" />
-                ) : (
-                  <FileIcon name={item.name} size={11} />
-                )}
-              </span>
-              <span className="font-mono text-[11px] text-foreground shrink-0">
-                {item.name}
-              </span>
-              {parent && (
-                <span className="text-[11px] text-muted-foreground/70 truncate min-w-0">
-                  {parent}
-                </span>
-              )}
-            </button>
-          )
-        })}
+        {rows}
       </div>
     )
   },
 )
+
+function SectionHeader({ kind }: { kind: 'entity' | 'task' | 'note' | 'file' }) {
+  const label =
+    kind === 'entity' ? 'This session' : kind === 'task' ? 'Tasks' : kind === 'note' ? 'Notes' : 'Files'
+  return (
+    <div className="px-2.5 pt-1.5 pb-0.5 text-[9px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
+      {label}
+    </div>
+  )
+}
+
+interface MentionRowProps {
+  item: MentionItem
+  index: number
+  selected: boolean
+  onSelect: (index: number) => void
+  onHover: (index: number) => void
+}
+
+function MentionRow({ item, index, selected, onSelect, onHover }: MentionRowProps) {
+  return (
+    <button
+      data-mention-index={index}
+      type="button"
+      className={`flex items-center gap-2 w-full px-2.5 py-1 rounded text-left transition-colors ${
+        selected ? 'bg-accent' : 'hover:bg-accent/50'
+      }`}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onSelect(index)}
+      onMouseEnter={() => onHover(index)}
+    >
+      <span className="shrink-0 flex items-center justify-center w-3.5">
+        <RowIcon item={item} />
+      </span>
+      <RowBody item={item} />
+    </button>
+  )
+}
+
+function RowIcon({ item }: { item: MentionItem }) {
+  if (item.kind === 'scratchpad') {
+    return <Notebook size={11} className="text-muted-foreground/80" />
+  }
+  if (item.kind === 'task') {
+    if (item.status === 'done') {
+      return <CheckSquare size={11} className="text-muted-foreground/80" />
+    }
+    return <Square size={11} className="text-muted-foreground/80" />
+  }
+  if (item.kind === 'note') {
+    return <StickyNote size={11} className="text-muted-foreground/80" />
+  }
+  if (item.kind === 'dir') {
+    return <Folder size={11} className="text-muted-foreground/80" />
+  }
+  return <FileIcon name={item.name} size={11} />
+}
+
+function RowBody({ item }: { item: MentionItem }) {
+  if (item.kind === 'scratchpad') {
+    return (
+      <>
+        <span className="text-[11px] text-foreground font-medium shrink-0">Scratchpad</span>
+        <span className="text-[10.5px] text-muted-foreground/70 truncate min-w-0">
+          for this session
+        </span>
+      </>
+    )
+  }
+  if (item.kind === 'task' || item.kind === 'note') {
+    return (
+      <span className="text-[11px] text-foreground truncate min-w-0">
+        {item.title || (item.kind === 'task' ? 'Untitled task' : 'Untitled note')}
+      </span>
+    )
+  }
+  const slash = item.path.lastIndexOf('/')
+  const parent = slash === -1 ? '' : item.path.slice(0, slash)
+  return (
+    <>
+      <span className="font-mono text-[11px] text-foreground shrink-0">{item.name}</span>
+      {parent && (
+        <span className="text-[11px] text-muted-foreground/70 truncate min-w-0">
+          {parent}
+        </span>
+      )}
+    </>
+  )
+}

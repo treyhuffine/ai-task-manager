@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
+import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useArchiveSession } from '@/hooks/use-workspaces';
@@ -12,12 +13,15 @@ import { useEditorPreference, EDITOR_LABELS } from '@/lib/client/editor-preferen
 import { revealInFinderHref, openInEditorHref, revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
-import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
+import type { WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithAgent } from '@/lib/api/sessions';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverButton } from './takeover/takeover-button';
 import { TailscaleMenuItems } from './tailscale-menu-items';
 import { ResyncMenuItem } from './resync-menu-item';
 import { useTailscaleUrl } from '@/hooks/use-tailscale-url';
+import { ReferencesButton } from './references-pane';
+import { ScratchpadButton } from './scratchpad-pane';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
 
@@ -38,9 +42,17 @@ function readPersistedLayout(): HeaderLayout {
 }
 
 interface ExecutionHeaderProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithAgent;
   workspace: WorkspaceRecord | undefined;
   onClose: () => void;
+  /** Toggle the Notes & Tasks slide-over. */
+  onToggleReferences?: () => void;
+  /** Toggle the Scratchpad slide-out. */
+  onToggleScratchpad?: () => void;
+  /** True when the references pane is currently visible. */
+  referencesOpen?: boolean;
+  /** True when the scratchpad pane is currently visible. */
+  scratchpadOpen?: boolean;
 }
 
 /**
@@ -49,7 +61,15 @@ interface ExecutionHeaderProps {
  * streaming map (live), the session's archived state, or just "idle"
  * when neither.
  */
-export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeaderProps) {
+export function ExecutionHeader({
+  session,
+  workspace,
+  onClose,
+  onToggleReferences,
+  onToggleScratchpad,
+  referencesOpen,
+  scratchpadOpen,
+}: ExecutionHeaderProps) {
   const { streamingSessionIds, setActiveView } = useDashboard();
   const archive = useArchiveSession();
   const updateSession = useUpdateSession();
@@ -141,14 +161,6 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
           ? 'bg-zinc-400'
           : 'bg-blue-500';
 
-  // Pill text colour mirrors the dot for working / respond so the
-  // call-to-action reads cleanly; ambient states stay muted.
-  const statusTextClass = isStreaming
-    ? 'text-emerald-500/90'
-    : needsResponse
-      ? 'text-amber-500/90'
-      : 'text-muted-foreground/80';
-
   const handleArchive = () => {
     if (!confirm(`Archive "${session.label ?? 'this execution'}"?`)) return;
     archive.mutate(
@@ -206,6 +218,33 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
 
   const statusDot = (
     <span className={cn('w-1.5 h-1.5 rounded-full', statusColor, isStreaming && 'animate-pulse')} />
+  );
+
+  // Tinted pill styling per state — sits adjacent to the execution label
+  // in the left cluster so the user reads it as part of the session
+  // identity, not as right-rail metadata.
+  const statusPillBg = isStreaming
+    ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-400'
+    : isArchived
+      ? 'bg-muted/60 border-border text-muted-foreground'
+      : needsResponse
+        ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
+        : session.last_outcome_event_at
+          ? 'bg-muted/60 border-border text-muted-foreground'
+          : 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400';
+
+  const statusPill = (
+    <span
+      aria-label={`Status: ${statusLabel}`}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5',
+        'text-[10px] font-semibold capitalize flex-shrink-0',
+        statusPillBg,
+      )}
+    >
+      {statusDot}
+      {statusLabel}
+    </span>
   );
 
   const archiveMenuItem = !isArchived && (
@@ -276,18 +315,10 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
           )}
         </div>
 
+        {statusPill}
+
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {liveBadge}
-          <span
-            aria-label={`Status: ${statusLabel}`}
-            className={cn(
-              'flex items-center gap-1 px-1.5 text-[11px] font-medium',
-              statusTextClass,
-            )}
-          >
-            {statusDot}
-            <span className="capitalize">{statusLabel}</span>
-          </span>
 
           {/* Consolidated session menu — details on top, archive below
               the divider. Same shape as desktop. */}
@@ -334,6 +365,13 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
                     value={statusLabel}
                     valueClass="text-foreground capitalize"
                   />
+                  {session.external_session_id && (
+                    <CopyableDetailRow
+                      label={resumeIdLabel(session.agent_harness)}
+                      value={session.external_session_id}
+                      copyLabel={`${resumeIdLabel(session.agent_harness).toLowerCase()}`}
+                    />
+                  )}
                   {session.worktree_path && (
                     <DetailRow
                       label="Path"
@@ -414,6 +452,8 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
           )}
         </div>
 
+        {statusPill}
+
         {/* Session menu — sits adjacent to the label so all the
             "passive info + meta actions" live in one spot. Details
             section (read-only) on top, actions below the divider. */}
@@ -468,6 +508,13 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
                   value={statusLabel}
                   valueClass="text-foreground capitalize"
                 />
+                {session.external_session_id && (
+                  <CopyableDetailRow
+                    label={resumeIdLabel(session.agent_harness)}
+                    value={session.external_session_id}
+                    copyLabel={`${resumeIdLabel(session.agent_harness).toLowerCase()}`}
+                  />
+                )}
                 {session.worktree_path && (
                   <DetailRow
                     label="Path"
@@ -554,15 +601,12 @@ export function ExecutionHeader({ session, workspace, onClose }: ExecutionHeader
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {liveBadge}
-          <span
-            className={cn(
-              'flex items-center gap-1.5 text-[10px] font-medium capitalize',
-              statusTextClass,
-            )}
-          >
-            {statusDot}
-            {statusLabel}
-          </span>
+          {onToggleReferences && (
+            <ReferencesButton open={referencesOpen} onClick={onToggleReferences} />
+          )}
+          {onToggleScratchpad && (
+            <ScratchpadButton open={scratchpadOpen} onClick={onToggleScratchpad} />
+          )}
           {headerLayout === 'right' && workspace?.is_git && (!!session.worktree_path || !!session.setup_error) && (
             <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
           )}
@@ -663,6 +707,65 @@ function DetailRow({
       <span className={cn('flex-1 min-w-0 text-[12px]', valueClass)}>{value}</span>
     </div>
   );
+}
+
+/**
+ * Detail row whose value is click-to-copy. Used for surfacing the
+ * harness-side session id (`external_session_id`) — the token the CLI
+ * (`claude --resume <id>` / `codex resume <id>`) needs to pick up a
+ * thread later. Visible only when bound, so the row stays out of the
+ * way for fresh sessions.
+ */
+function CopyableDetailRow({
+  label,
+  value,
+  copyLabel,
+}: {
+  label: string;
+  value: string;
+  copyLabel: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast.success(`Copied ${copyLabel}`);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+  return (
+    <div className="flex items-baseline gap-3">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 w-16 flex-shrink-0">
+        {label}
+      </span>
+      <button
+        type="button"
+        onClick={handleCopy}
+        title={`Copy ${copyLabel}`}
+        className={cn(
+          'group flex flex-1 min-w-0 items-center gap-1.5 text-left',
+          'font-mono text-[11px] text-foreground/80 hover:text-foreground',
+          'rounded px-1 -mx-1 py-0.5 hover:bg-muted/60 transition-colors',
+        )}
+      >
+        <span className="flex-1 min-w-0 truncate">{value}</span>
+        {copied ? (
+          <Check size={11} className="flex-shrink-0 text-emerald-500" />
+        ) : (
+          <Copy size={11} className="flex-shrink-0 text-muted-foreground/60 group-hover:text-muted-foreground" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+function resumeIdLabel(harness: string | null): string {
+  if (harness === 'claude') return 'Claude id';
+  if (harness === 'codex') return 'Codex id';
+  return 'Resume id';
 }
 
 interface LinkPrSectionProps {

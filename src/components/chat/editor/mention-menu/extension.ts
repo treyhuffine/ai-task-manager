@@ -8,7 +8,7 @@ import Suggestion, {
 } from '@tiptap/suggestion'
 import { createSuggestionPopupRenderer } from '../suggestion/renderer'
 import { MentionMenuList } from './popup'
-import type { MentionItem } from './types'
+import type { MentionItem, FileMentionItem, TaskMentionItem, NoteMentionItem } from './types'
 
 // Distinct PluginKey so this Suggestion plugin doesn't collide with the
 // slash and PR menus — Tiptap's `Suggestion` defaults to a shared
@@ -18,14 +18,20 @@ const MENTION_MENU_PLUGIN_KEY = new PluginKey('mentionMenuSuggestion')
 
 interface MentionMenuOptions {
   /**
-   * Getter for the current file/folder list. Wrapped in a closure so
-   * the extension always sees the latest TanStack Query data even
-   * though the editor's options are frozen at create time.
+   * Worktree files + folders. Wrapped in a closure so the extension
+   * always sees the latest TanStack Query data without re-creating the
+   * editor when the tree refreshes.
    */
-  getEntries?: () => MentionItem[]
+  getFileEntries?: () => FileMentionItem[]
+  /** Tasks for the current session's workspace. */
+  getTasks?: () => TaskMentionItem[]
+  /** Notes for the current session's workspace. */
+  getNotes?: () => NoteMentionItem[]
 }
 
-const MAX_RESULTS = 50
+const MAX_FILES = 30
+const MAX_TASKS = 15
+const MAX_NOTES = 15
 const COMMON_NOISE_DIRS = new Set([
   'node_modules',
   '.next',
@@ -36,52 +42,120 @@ const COMMON_NOISE_DIRS = new Set([
   '.cache',
 ])
 
-function rankItems(entries: MentionItem[], query: string): MentionItem[] {
+function scoreFile(item: FileMentionItem, q: string): number {
+  const lowerPath = item.path.toLowerCase()
+  const lowerName = item.name.toLowerCase()
+  if (lowerName === q) return 0
+  if (lowerName.startsWith(q)) return 1
+  if (lowerPath.endsWith('/' + q)) return 2
+  if (lowerName.includes(q)) return 3
+  if (lowerPath.includes(q)) return 4
+  return Infinity
+}
+
+function scoreText(text: string, q: string): number {
+  const lower = text.toLowerCase()
+  if (lower === q) return 0
+  if (lower.startsWith(q)) return 1
+  if (lower.includes(q)) return 2
+  return Infinity
+}
+
+function rankFiles(entries: FileMentionItem[], query: string): FileMentionItem[] {
   if (!query) {
-    // No query: show files first (they're what AI agents reference
-    // most often), then folders. Filter out the heavy build dirs so a
-    // bare `@` doesn't dump 5000 node_modules entries on the user.
     const filtered = entries.filter((e) => {
       const top = e.path.split('/')[0] ?? ''
       return !COMMON_NOISE_DIRS.has(top)
     })
-    const files = filtered.filter((e) => e.kind === 'file').slice(0, MAX_RESULTS)
-    const dirs = filtered.filter((e) => e.kind === 'dir').slice(0, MAX_RESULTS - files.length)
+    const files = filtered.filter((e) => e.kind === 'file').slice(0, MAX_FILES)
+    const dirs = filtered.filter((e) => e.kind === 'dir').slice(0, MAX_FILES - files.length)
     return [...files, ...dirs]
   }
-
   const q = query.toLowerCase()
-  type Scored = { item: MentionItem; score: number }
-  const scored: Scored[] = []
-  for (const e of entries) {
-    const lowerPath = e.path.toLowerCase()
-    const lowerName = e.name.toLowerCase()
-    let score: number
-    if (lowerName === q) score = 0
-    else if (lowerName.startsWith(q)) score = 1
-    else if (lowerPath.endsWith('/' + q)) score = 2
-    else if (lowerName.includes(q)) score = 3
-    else if (lowerPath.includes(q)) score = 4
-    else continue
-    scored.push({ item: e, score })
+  return entries
+    .map((item) => ({ item, score: scoreFile(item, q) }))
+    .filter((s) => Number.isFinite(s.score))
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score
+      if (a.item.kind !== b.item.kind) return a.item.kind === 'file' ? -1 : 1
+      return a.item.path.length - b.item.path.length
+    })
+    .slice(0, MAX_FILES)
+    .map((s) => s.item)
+}
+
+function rankTasks(tasks: TaskMentionItem[], query: string): TaskMentionItem[] {
+  if (!query) {
+    // Active first; within each status keep stored order (server returns
+    // by recency).
+    const active = tasks.filter((t) => t.status === 'active')
+    const rest = tasks.filter((t) => t.status !== 'active')
+    return [...active, ...rest].slice(0, MAX_TASKS)
   }
-  scored.sort((a, b) => {
-    if (a.score !== b.score) return a.score - b.score
-    if (a.item.kind !== b.item.kind) return a.item.kind === 'file' ? -1 : 1
-    return a.item.path.length - b.item.path.length
-  })
-  return scored.slice(0, MAX_RESULTS).map((s) => s.item)
+  const q = query.toLowerCase()
+  return tasks
+    .map((item) => ({ item, score: scoreText(item.title, q) }))
+    .filter((s) => Number.isFinite(s.score))
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score
+      // Tiebreak: active tasks before done/archived.
+      const aActive = a.item.status === 'active' ? 0 : 1
+      const bActive = b.item.status === 'active' ? 0 : 1
+      return aActive - bActive
+    })
+    .slice(0, MAX_TASKS)
+    .map((s) => s.item)
+}
+
+function rankNotes(notes: NoteMentionItem[], query: string): NoteMentionItem[] {
+  if (!query) return notes.slice(0, MAX_NOTES)
+  const q = query.toLowerCase()
+  return notes
+    .map((item) => ({ item, score: scoreText(item.title, q) }))
+    .filter((s) => Number.isFinite(s.score))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, MAX_NOTES)
+    .map((s) => s.item)
 }
 
 /**
- * Tiptap extension that opens an @-mention popover when the user
- * types `@`. Items are worktree files and folders, sourced from the
- * session tree on the React side (`useSessionTree`).
+ * Build the full picker list — entity options come first (scratchpad
+ * always, then tasks then notes), followed by file matches. The user
+ * almost always wants scratchpad / a known task before they want a
+ * file path; files tend to be longer + more specific and surface
+ * naturally as the query narrows.
+ */
+function buildItems(
+  files: FileMentionItem[],
+  tasks: TaskMentionItem[],
+  notes: NoteMentionItem[],
+  query: string,
+): MentionItem[] {
+  const q = query.toLowerCase()
+  const out: MentionItem[] = []
+
+  // Scratchpad: surface when the query is empty OR matches "scratch" /
+  // "pad" / "scratchpad". Filtering instead of always-present so the
+  // option doesn't clutter every search.
+  if (!q || 'scratchpad'.includes(q) || 'pad'.includes(q)) {
+    out.push({ kind: 'scratchpad' })
+  }
+
+  for (const t of rankTasks(tasks, query)) out.push(t)
+  for (const n of rankNotes(notes, query)) out.push(n)
+  for (const f of rankFiles(files, query)) out.push(f)
+  return out
+}
+
+/**
+ * Tiptap extension that opens an `@`-picker covering files / tasks /
+ * notes / scratchpad. One trigger, four kinds — the popup renders
+ * results in sections so visual scanning stays fast.
  *
- * Selecting an item replaces the `@<query>` range with `@<path> `
- * so the agent receives a stable, parseable reference (same shape
- * as Claude Code / Cursor / Conductor). The leading `@` is kept so
- * it remains visible in the composer.
+ * Selecting a file inserts a `MentionChipNode` (the existing chip —
+ * serialized to `@<path>` on send). Selecting a task / note / scratchpad
+ * inserts an `EntityChipNode` (serialized to `[[task:id]]` / `[[note:id]]`
+ * / `[[scratchpad]]`).
  */
 export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   name: 'mentionMenu',
@@ -91,22 +165,23 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   priority: 200,
 
   addOptions() {
-    return { getEntries: undefined }
+    return { getFileEntries: undefined, getTasks: undefined, getNotes: undefined }
   },
 
   addProseMirrorPlugins() {
-    const getEntries = () => this.options.getEntries?.() ?? []
+    const getFiles = () => this.options.getFileEntries?.() ?? []
+    const getTasks = () => this.options.getTasks?.() ?? []
+    const getNotes = () => this.options.getNotes?.() ?? []
 
     const suggestion: Partial<SuggestionOptions<MentionItem, MentionItem>> = {
       pluginKey: MENTION_MENU_PLUGIN_KEY,
       char: '@',
-      // Paths never contain spaces in normal repos — bail the suggestion
-      // when the user types one so they can keep writing normal prose.
+      // Paths never contain spaces; entity queries are also single-token.
       allowSpaces: false,
-      // `@` can appear mid-sentence ("look @ this") so we do NOT require
-      // start-of-line, unlike slash commands.
+      // `@` can appear mid-sentence; the picker fires from any position.
       startOfLine: false,
-      items: ({ query }: { query: string }) => rankItems(getEntries(), query),
+      items: ({ query }: { query: string }) =>
+        buildItems(getFiles(), getTasks(), getNotes(), query),
       command: ({
         editor,
         range,
@@ -116,16 +191,30 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         range: { from: number; to: number }
         props: MentionItem
       }) => {
-        // Drop the `@<query>` range, insert a chip carrying the full
-        // path metadata, then a single trailing space so the user can
-        // keep typing without nudging past the chip.
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .insertMentionChip(item)
-          .insertContent(' ')
-          .run()
+        const chain = editor.chain().focus().deleteRange(range)
+        if (item.kind === 'file' || item.kind === 'dir') {
+          chain.insertMentionChip(item).insertContent(' ').run()
+        } else if (item.kind === 'scratchpad') {
+          chain
+            .insertEntityChip({ kind: 'scratchpad', id: '', title: 'Scratchpad' })
+            .insertContent(' ')
+            .run()
+        } else if (item.kind === 'task') {
+          chain
+            .insertEntityChip({
+              kind: 'task',
+              id: item.id,
+              title: item.title,
+              status: item.status,
+            })
+            .insertContent(' ')
+            .run()
+        } else if (item.kind === 'note') {
+          chain
+            .insertEntityChip({ kind: 'note', id: item.id, title: item.title })
+            .insertContent(' ')
+            .run()
+        }
       },
       render: createSuggestionPopupRenderer<MentionItem>(MentionMenuList),
     }

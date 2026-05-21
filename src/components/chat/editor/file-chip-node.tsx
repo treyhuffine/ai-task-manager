@@ -124,7 +124,7 @@ function FileChipView({ node, editor, getPos, selected }: NodeViewProps) {
       contentEditable={false}
       data-drag-handle="false"
       className={cn(
-        'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
+        'inline-flex items-center align-middle gap-1 px-1.5 py-0.5 mx-0.5',
         'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
         'border-border hover:border-foreground/30 transition-colors',
         'cursor-default select-none',

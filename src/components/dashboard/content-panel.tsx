@@ -38,6 +38,7 @@ import {
   ChatInputEditor, type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor';
 import { AttachButton } from '@/components/chat/editor/attach-button';
+import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { APP_NAME } from '@/constants/app';
 import { HOTKEYS } from '@/constants/commands';
 import { useVoiceInput } from '@/hooks/use-voice-input';
@@ -360,7 +361,13 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const showVoicePanel = voice.isTranscribing || hasTranscriptToReview;
 
   return (
-    <div className="flex flex-col h-full">
+    <ChatDropZone
+      className="flex flex-col h-full"
+      onFiles={(files) => {
+        for (const f of files) void editorRef.current?.uploadFile(f);
+        editorRef.current?.focus({ end: true });
+      }}
+    >
       {/* Messages area + floating mic overlay */}
       <div className="flex-1 min-h-0 relative">
         <div className="h-full overflow-y-auto">
@@ -693,7 +700,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
           </div>
         </form>
       </div>
-    </div>
+    </ChatDropZone>
   );
 }
 

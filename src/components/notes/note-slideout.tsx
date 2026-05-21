@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat'
 import { useDragResize } from '@/hooks/use-drag-resize'
+import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/db/types'
 
@@ -241,6 +242,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             </div>
 
             <div className="flex items-center gap-3">
+              {noteId && <ReferencingSessionsButton entityType="note" entityId={noteId} />}
               <a
                 href={noteId ? `/note/${noteId}` : '#'}
                 onClick={(e) => {

@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
-  workspaces, agents, chatSessions, chatEvents,
+  workspaces, agents, chatSessions, chatEvents, chatRefs,
 } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, Attachment } from '@/lib/db/schema';
 
@@ -101,6 +101,14 @@ export type ChatSessionStatus = ChatSessionRecord['status'];
 // ─── Chat Events ──────────────────────────────────────────────
 
 export type ChatEventRecord = InferSelectModel<typeof chatEvents>;
+
+// ─── Chat Refs ────────────────────────────────────────────────
+
+export type ChatRefRecord = InferSelectModel<typeof chatRefs>;
+export type CreateChatRefInput = Omit<InferInsertModel<typeof chatRefs>, 'id'> & { id?: string };
+export type UpdateChatRefInput = Partial<Omit<CreateChatRefInput, 'created_at' | 'session_id'>>;
+export type ChatRefEntityType = ChatRefRecord['entity_type'];
+export type ChatRefCreatedBy = ChatRefRecord['created_by'];
 /**
  * Insert shape for `chat_events`. `id` is optional — `insertChatEvent`
  * mints a UUIDv7 when the caller doesn't provide one. Callers that
@@ -154,6 +162,7 @@ export interface AreaFilter {
 export interface TaskFilter {
   status?: TaskStatus | TaskStatus[];
   area_id?: string | null;
+  workspace_id?: string | null;
   parent_id?: string | null;
   energy?: Energy;
   q?: string;
@@ -164,6 +173,7 @@ export interface TaskFilter {
 
 export interface NoteFilter {
   area_id?: string | null;
+  workspace_id?: string | null;
   task_id?: string | null;
   status?: NoteStatus;
   limit?: number;

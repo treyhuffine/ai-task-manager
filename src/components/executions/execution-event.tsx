@@ -14,9 +14,16 @@ import { Message, MessageContent, MessageResponse } from '@/components/ai-elemen
 import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import { MessageFileChip } from '@/components/chat/message-file-chip';
-import { parseFileMarkers } from '@/components/chat/editor/parse-file-markers';
+import { MessageEntityChip, type EntityLookup } from '@/components/chat/message-entity-chip';
+import {
+  parseEntitySegments,
+  type EntityMarker,
+  type EntitySegment,
+} from '@/lib/entity-refs/parse-markers';
+import { useSessionEntities, useScratchpad } from '@/hooks/use-execution';
+import { dispatchOpenReference } from '@/lib/entity-refs/open-event';
 import { cn } from '@/lib/utils';
-import type { ChatEventRecord } from '@/db/types';
+import type { ChatEventRecord, Attachment } from '@/db/types';
 
 interface ExecutionEventProps {
   event: ChatEventRecord;
@@ -58,8 +65,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
 
   switch (event.source) {
     case 'user': {
-      const segments = parseFileMarkers(event.content ?? '', event.attachments ?? []);
-      const hasChips = segments.some((s) => s.kind === 'chip');
+      const content = event.content ?? '';
+      const segments = parseEntitySegments(content);
+      const hasMarkers = segments.some((s) => s.kind === 'marker');
       const isFailed = clientStatus?.status === 'failed';
       const isSending = clientStatus?.status === 'sending';
       return (
@@ -71,16 +79,14 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
                 isFailed && 'opacity-70 border border-destructive/40',
               )}
             >
-              {hasChips ? (
-                segments.map((seg, i) =>
-                  seg.kind === 'text' ? (
-                    <span key={i}>{seg.text}</span>
-                  ) : (
-                    <MessageFileChip key={i} attachment={seg.attachment} />
-                  ),
-                )
+              {hasMarkers ? (
+                <RenderMessageSegments
+                  segments={segments}
+                  attachments={event.attachments ?? []}
+                  sessionId={sessionId}
+                />
               ) : (
-                event.content ?? ''
+                content
               )}
             </MessageContent>
           </Message>
@@ -198,7 +204,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             </span>
           </div>
           {expanded && text && (
-            <pre className="mt-2 ml-5 text-[10.5px] text-muted-foreground whitespace-pre-wrap break-words font-mono">
+            <pre className="mt-2 ml-5 text-[10.5px] text-muted-foreground whitespace-pre-wrap wrap-anywhere font-mono">
               {text}
             </pre>
           )}
@@ -627,5 +633,56 @@ function extractQuestions(input: unknown): MinimalQuestion[] {
   return arr.filter(
     (q): q is MinimalQuestion =>
       !!q && typeof q === 'object' && typeof (q as MinimalQuestion).question === 'string',
+  );
+}
+
+/**
+ * Render a message body that contains entity markers. Splits the
+ * string into segments, swaps file markers for `MessageFileChip` (kept
+ * for the existing image / text / download UX) and task/note/scratchpad
+ * markers for `MessageEntityChip`. Tasks/notes look up against
+ * `useSessionEntities`; the scratchpad text comes from `useScratchpad`.
+ */
+function RenderMessageSegments({
+  segments,
+  attachments,
+  sessionId,
+}: {
+  segments: EntitySegment[];
+  attachments: Attachment[];
+  sessionId?: string;
+}) {
+  const entitiesQuery = useSessionEntities(sessionId ?? null);
+  const scratchpadQuery = useScratchpad(sessionId ?? null);
+  const attachmentMap = new Map(attachments.map((a) => [a.file_name, a]));
+
+  const lookup: EntityLookup = {
+    tasksById: new Map((entitiesQuery.data?.tasks ?? []).map((t) => [t.id, t])),
+    notesById: new Map((entitiesQuery.data?.notes ?? []).map((n) => [n.id, n])),
+    scratchpad: scratchpadQuery.data?.scratch_pad ?? null,
+  };
+
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (seg.kind === 'text') {
+          return <span key={i}>{seg.text}</span>;
+        }
+        const m = seg.marker;
+        if (m.kind === 'file') {
+          const att = attachmentMap.get(m.file_name);
+          // Unknown attachment — fall back to literal token.
+          return att ? <MessageFileChip key={i} attachment={att} /> : <span key={i}>{seg.raw}</span>;
+        }
+        return (
+          <MessageEntityChip
+            key={i}
+            marker={m}
+            lookup={lookup}
+            onOpen={(marker) => dispatchOpenReference(marker)}
+          />
+        );
+      })}
+    </>
   );
 }

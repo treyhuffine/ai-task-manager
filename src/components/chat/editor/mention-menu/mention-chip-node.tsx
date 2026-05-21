@@ -19,16 +19,18 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FileIcon, FolderIcon } from '@/components/file-icon'
 import { handleChipBackspace } from '../suggestion/chip-backspace'
-import type { MentionItem } from './types'
+import type { FileMentionItem } from './types'
 
 export const MENTION_CHIP_NAME = 'mentionChip'
 
 /**
- * Attrs mirror `MentionItem` — the chip is self-describing so the
+ * Attrs mirror `FileMentionItem` — the chip is self-describing so the
  * serializer can produce the `@<path>` wire format without
- * re-consulting the tree.
+ * re-consulting the tree. Task / note / scratchpad chips live in the
+ * sibling `EntityChipNode` so their wire format (`[[task:id]]`) doesn't
+ * collide with the file-path serialization here.
  */
-export type MentionChipAttrs = MentionItem
+export type MentionChipAttrs = FileMentionItem
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {

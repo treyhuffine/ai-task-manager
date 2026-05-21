@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession } from '@/hooks/use-execution';
@@ -34,6 +34,10 @@ import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverBanner } from './takeover/takeover-banner';
 import { SetupPlaceholder } from './setup-placeholder';
 import { ExecutionSkeleton } from './execution-skeleton';
+import { ReferencesPane } from './references-pane';
+import { ScratchpadPane } from './scratchpad-pane';
+import { useOpenReferenceListener } from '@/lib/entity-refs/open-event';
+import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -158,6 +162,51 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     composerHandleRef.current?.insertTextAtCursor(`@${relativePath} `);
     composerHandleRef.current?.focus({ end: true });
   };
+
+  // Slide-over panes that overlay the tree + viewer columns. One at a
+  // time — opening references closes the scratchpad and vice versa.
+  // Clicking the active pane's button again toggles it closed.
+  const [activePane, setActivePane] = useState<'references' | 'scratchpad' | null>(null);
+  const toggleReferences = useCallback(
+    () => setActivePane((p) => (p === 'references' ? null : 'references')),
+    [],
+  );
+  const toggleScratchpad = useCallback(
+    () => setActivePane((p) => (p === 'scratchpad' ? null : 'scratchpad')),
+    [],
+  );
+  const closePane = useCallback(() => setActivePane(null), []);
+
+  // Reset pane when session changes so a pane left open on session A
+  // doesn't leak into session B's viewer column.
+  const lastPaneSessionRef = useRef(sessionId);
+  if (lastPaneSessionRef.current !== sessionId) {
+    lastPaneSessionRef.current = sessionId;
+    if (activePane !== null) setActivePane(null);
+  }
+
+  // Transcript chips fire `flow:open-reference` events on click; surface
+  // the references pane so the user can browse / open the entity
+  // without losing chat state.
+  useOpenReferenceListener(
+    useCallback(() => {
+      setActivePane('references');
+    }, []),
+  );
+
+  // Composer-bound chip insertion used by both panes. Lives here so the
+  // pane components don't have to know about the editor's command API.
+  const handleInsertChip = useCallback(
+    (attrs: { kind: 'task' | 'note' | 'scratchpad'; id: string; title: string; status?: string }) => {
+      composerHandleRef.current?.insertEntityChip(attrs);
+      composerHandleRef.current?.focus({ end: true });
+    },
+    [],
+  );
+  const handleInsertText = useCallback((text: string) => {
+    composerHandleRef.current?.insertTextAtCursor(text);
+    composerHandleRef.current?.focus({ end: true });
+  }, []);
 
   // Terminal collapse state. We manage open/closed ourselves rather than
   // using the library's `collapsible` + `collapsedSize` props — those store
@@ -294,7 +343,14 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // reads as part of the agent conversation rather than a full-width
   // app-wide alert.
   const chatBody = (
-    <>
+    <ChatDropZone
+      className="flex flex-1 min-h-0 flex-col"
+      onFiles={(files) => {
+        for (const f of files) void composerHandleRef.current?.uploadFile(f);
+        composerHandleRef.current?.focus({ end: true });
+      }}
+      disabled={composerDisabled}
+    >
       {workspace?.is_git && !!session.worktree_path && (
         <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
       )}
@@ -338,7 +394,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           onStop={async () => { await interruptSession.mutateAsync(); }}
         />
       </div>
-    </>
+    </ChatDropZone>
   );
 
   // Mobile (under lg): the header, action bar (its own row), then
@@ -346,7 +402,15 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // layout doesn't fit on narrow viewports.
   const mobileChatColumn = (
     <div className="flex h-full flex-col min-w-0 bg-background">
-      <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
+      <ExecutionHeader
+        session={session}
+        workspace={workspace}
+        onClose={handleClose}
+        onToggleReferences={toggleReferences}
+        onToggleScratchpad={toggleScratchpad}
+        referencesOpen={activePane === 'references'}
+        scratchpadOpen={activePane === 'scratchpad'}
+      />
       <TakeoverBanner session={session} />
       {workspace?.is_git && !!session.worktree_path && (
         <ExecutionActionBar session={session} workspace={workspace} />
@@ -367,9 +431,17 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           git actions, status, and menu all sit on one row. The WIP
           banner stays in the chat column (rendered by `chatBody`). */}
       <div className="hidden lg:flex flex-col flex-1 min-w-0 min-h-0">
-        <ExecutionHeader session={session} workspace={workspace} onClose={handleClose} />
+        <ExecutionHeader
+          session={session}
+          workspace={workspace}
+          onClose={handleClose}
+          onToggleReferences={toggleReferences}
+          onToggleScratchpad={toggleScratchpad}
+          referencesOpen={activePane === 'references'}
+          scratchpadOpen={activePane === 'scratchpad'}
+        />
         <TakeoverBanner session={session} />
-        <div className="flex flex-1 min-w-0 min-h-0">
+        <div className="flex flex-1 min-w-0 min-h-0 relative">
         <ResizablePanelGroup
           orientation="horizontal"
           defaultLayout={horizontal}
@@ -420,7 +492,10 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
           <ResizableHandle withHandle />
 
-          {/* Viewer + terminal column. Min ~24% (≈400px on a 1800px viewport). */}
+          {/* Viewer + terminal column. Min ~24% (≈400px on a 1800px viewport).
+              The references / scratchpad overlay (rendered below the
+              ResizablePanelGroup) spans tree + this column when open
+              so the panes cover everything except the chat. */}
           <ResizablePanel
             id={HORIZONTAL_PANEL_IDS.right}
             defaultSize={horizontal[HORIZONTAL_PANEL_IDS.right]}
@@ -487,6 +562,39 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             </ResizablePanelGroup>
           </ResizablePanel>
         </ResizablePanelGroup>
+
+        {/* References / scratchpad overlay. Positioned to start at the
+            right edge of the chat column so the pane covers both the
+            file tree and the viewer+terminal columns. Chat stays
+            interactive on the left. The left offset follows
+            `horizontal[chat]` (a percentage), so dragging the chat
+            divider moves the overlay's edge with it. */}
+        {activePane !== null && (
+          <div
+            className="absolute top-0 right-0 bottom-0 z-30"
+            style={{ left: `${horizontal[HORIZONTAL_PANEL_IDS.chat]}%` }}
+          >
+            {activePane === 'references' && (
+              <ReferencesPane
+                sessionId={session.id}
+                workspaceId={session.workspace_id ?? null}
+                open
+                onClose={closePane}
+                onInsertChip={handleInsertChip}
+              />
+            )}
+            {activePane === 'scratchpad' && (
+              <ScratchpadPane
+                sessionId={session.id}
+                workspaceId={session.workspace_id ?? null}
+                open
+                onClose={closePane}
+                onInsertText={handleInsertText}
+                onInsertChip={handleInsertChip}
+              />
+            )}
+          </div>
+        )}
         </div>
       </div>
     </div>
