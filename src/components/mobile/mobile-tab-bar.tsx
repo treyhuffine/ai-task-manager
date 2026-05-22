@@ -15,7 +15,7 @@ const TABS: { id: MobileTab; label: string; icon: typeof MessageSquare }[] = [
 ];
 
 export function MobileTabBar() {
-  const { mobileTab, setMobileTab, setMobileCreateOpen, streamingSessionIds } = useDashboard();
+  const { mobileTab, setMobileTab, setActiveView, setMobileCreateOpen, streamingSessionIds } = useDashboard();
   const { data: needsReview } = useNeedsReviewSessions();
 
   // Two signals worth surfacing on the Agents tab:
@@ -32,7 +32,7 @@ export function MobileTabBar() {
     workingCount > 0 ? 'working' : reviewCount > 0 ? 'review' : null;
 
   return (
-    <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] select-none">
+    <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.875rem)] select-none">
       {TABS.map((tab) => {
         const isCreate = tab.id === 'create';
         const isActive = !isCreate && mobileTab === tab.id;
@@ -52,7 +52,16 @@ export function MobileTabBar() {
         return (
           <button
             key={tab.id}
-            onClick={() => setMobileTab(tab.id)}
+            onClick={() => {
+              setMobileTab(tab.id);
+              // Tapping Agents always returns to the workspaces list.
+              // Without this, if an execution is active the layout keeps
+              // showing it (mobileTab is already 'agents'), making the tap
+              // feel inert.
+              if (tab.id === 'agents') {
+                setActiveView('command');
+              }
+            }}
             className={cn(
               'flex flex-col items-center gap-0.5 py-2 px-3 min-w-[56px] transition-colors relative',
               isActive ? 'text-primary' : 'text-muted-foreground'
