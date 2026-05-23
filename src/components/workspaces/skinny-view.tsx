@@ -8,8 +8,10 @@ import { SkinnySessionRow } from './skinny-session-row';
 
 interface SkinnyViewProps {
   /** Which tab the user last had open in wide mode — drives ordering
-   *  only. The rail itself looks identical for both. */
-  tab: 'status' | 'workspace';
+   *  only. The rail itself looks identical for all variants. `history`
+   *  reuses the by-status ordering (flat, hot-first) since the skinny
+   *  rail can't represent date buckets at 44px wide. */
+  tab: 'status' | 'workspace' | 'history';
 }
 
 /**
@@ -63,10 +65,13 @@ export function SkinnyView({ tab }: SkinnyViewProps) {
 function orderSessions(
   sessions: RailSession[],
   workspaces: ReadonlyArray<{ id: string }> | undefined,
-  tab: 'status' | 'workspace',
+  tab: 'status' | 'workspace' | 'history',
 ): RailSession[] {
   const active = sessions.filter((s) => s.status === 'active');
-  if (tab === 'status') return sortSessionsHotnessDesc(active);
+  // History falls back to status ordering in skinny mode — the rail
+  // is too narrow to draw date buckets, and "most recent first" is the
+  // closest approximation of what the wide history list shows.
+  if (tab === 'status' || tab === 'history') return sortSessionsHotnessDesc(active);
 
   // Workspace tab: respect workspace list order; sessions within each
   // workspace come out hot-first. Sessions without a known workspace

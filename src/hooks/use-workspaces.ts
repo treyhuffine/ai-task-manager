@@ -11,6 +11,7 @@ import type {
 const WORKSPACES_KEY = ['workspaces'] as const;
 const NEEDS_REVIEW_KEY = ['sessions', 'needs-review'] as const;
 const RAIL_KEY = ['sessions', 'rail'] as const;
+const HISTORY_KEY = ['sessions', 'history'] as const;
 
 export function useWorkspaces(filter?: { status?: WorkspaceStatus }) {
   return useQuery({
@@ -242,6 +243,22 @@ export function useRailSessions() {
     queryKey: RAIL_KEY,
     queryFn: () => sessionsApi.rail(),
     refetchInterval: 15_000,
+  });
+}
+
+/**
+ * Execution history feed for the "By history" rail tab. Includes active
+ * AND archived executions across every workspace, capped server-side at
+ * 200. Refresh interval is slower than the rail's because the history
+ * surface is less time-critical — the SSE invalidation on session
+ * updates handles the fresh-data needs.
+ */
+export function useHistorySessions(enabled: boolean = true) {
+  return useQuery({
+    queryKey: HISTORY_KEY,
+    queryFn: () => sessionsApi.history(),
+    enabled,
+    refetchInterval: 60_000,
   });
 }
 
