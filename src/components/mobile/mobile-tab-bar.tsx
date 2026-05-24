@@ -15,21 +15,36 @@ const TABS: { id: MobileTab; label: string; icon: typeof MessageSquare }[] = [
 ];
 
 export function MobileTabBar() {
-  const { mobileTab, setMobileTab, setActiveView, setMobileCreateOpen, streamingSessionIds } = useDashboard();
+  const {
+    mobileTab,
+    setMobileTab,
+    setActiveView,
+    setMobileCreateOpen,
+    streamingSessionIds,
+    pendingInputSessionIds,
+  } = useDashboard();
   const { data: needsReview } = useNeedsReviewSessions();
 
-  // Two signals worth surfacing on the Agents tab:
-  //   - working    → at least one execution is mid-turn (emerald, animated)
+  // Three signals worth surfacing on the Agents tab:
+  //   - pending    → an execution is blocked on a user response
+  //   - working    → at least one execution is mid-turn
   //   - to review  → executions with output the user hasn't seen yet
-  // Working wins over to-review when both are present, matching the
-  // priority used elsewhere (workspace row badge, header status pill).
-  const workingCount = streamingSessionIds.size;
-  const reviewCount = (needsReview ?? []).filter(
-    (s) => !streamingSessionIds.has(s.id),
+  // Priority pending > working > review matches the header pill and
+  // session row pip: an agent waiting on you outranks an agent
+  // working, which outranks output you haven't read yet.
+  const pendingCount = pendingInputSessionIds.size;
+  // Don't double-count: a streaming session that's also pending shows
+  // under "pending," not "working."
+  const workingCount = Array.from(streamingSessionIds).filter(
+    (id) => !pendingInputSessionIds.has(id),
   ).length;
-  const badgeCount = workingCount > 0 ? workingCount : reviewCount;
-  const badgeKind: 'working' | 'review' | null =
-    workingCount > 0 ? 'working' : reviewCount > 0 ? 'review' : null;
+  const reviewCount = (needsReview ?? []).filter(
+    (s) => pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id),
+  ).length;
+  const badgeKind: 'pending' | 'working' | 'review' | null =
+    pendingCount > 0 ? 'pending' : workingCount > 0 ? 'working' : reviewCount > 0 ? 'review' : null;
+  const badgeCount =
+    badgeKind === 'pending' ? pendingCount : badgeKind === 'working' ? workingCount : reviewCount;
 
   return (
     <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.875rem)] select-none">
@@ -75,7 +90,9 @@ export function MobileTabBar() {
                     'absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full text-[7px] font-bold text-white flex items-center justify-center ring-2 ring-background',
                     badgeKind === 'working'
                       ? 'bg-emerald-500 animate-pulse'
-                      : 'bg-amber-500',
+                      : badgeKind === 'pending'
+                        ? 'bg-amber-500 animate-pulse'
+                        : 'bg-amber-500',
                   )}
                 >
                   {badgeCount}

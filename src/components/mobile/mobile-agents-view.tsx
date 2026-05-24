@@ -59,13 +59,19 @@ export function MobileAgentsView() {
 // ─── Needs Review block ───────────────────────────────────────────
 
 function NeedsReviewBlock() {
-  const { streamingSessionIds } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: candidates } = useNeedsReviewSessions();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
 
+  // Exclude sessions that are mid-turn — they'll generate a fresh
+  // outcome shortly. Exception: a streaming session blocked on user
+  // input is the most actionable kind, so let it through.
   const filtered = useMemo(
-    () => (candidates ?? []).filter((s) => !streamingSessionIds.has(s.id)),
-    [candidates, streamingSessionIds],
+    () =>
+      (candidates ?? []).filter(
+        (s) => pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id),
+      ),
+    [candidates, streamingSessionIds, pendingInputSessionIds],
   );
 
   if (filtered.length === 0) return null;
@@ -184,13 +190,18 @@ interface MobileSessionRowProps {
 }
 
 function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSessionRowProps) {
-  const { activeView, setActiveView, streamingSessionIds, setMobileTab } = useDashboard();
-  const isStreaming = streamingSessionIds.has(session.id);
+  const { activeView, setActiveView, streamingSessionIds, pendingInputSessionIds, setMobileTab } =
+    useDashboard();
+  const isPending = pendingInputSessionIds.has(session.id);
+  // Pending wins over streaming: when the agent is blocked on user input
+  // the process is still "running," but a green "working" pip would
+  // mislead — nothing is happening until the user responds.
+  const isStreaming = !isPending && streamingSessionIds.has(session.id);
   const lastOutcome = session.last_outcome_event_at;
   const needsReview =
     forceState === 'needs_review'
       ? true
-      : !isStreaming && lastOutcome && lastOutcome > (session.last_viewed_at ?? '1970-01-01');
+      : !isStreaming && !isPending && lastOutcome && lastOutcome > (session.last_viewed_at ?? '1970-01-01');
   const timestamp = lastOutcome ?? session.started_at;
   const isActive = activeView === session.id;
 
@@ -234,7 +245,12 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
         </span>
       </span>
       <span className="flex items-center gap-1.5 flex-shrink-0 text-[10px]">
-        {isStreaming ? (
+        {isPending ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-amber-500/90 font-medium">needs input</span>
+          </>
+        ) : isStreaming ? (
           <>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-emerald-500/90 font-medium">working</span>

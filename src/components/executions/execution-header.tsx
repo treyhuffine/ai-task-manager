@@ -70,7 +70,7 @@ export function ExecutionHeader({
   referencesOpen,
   scratchpadOpen,
 }: ExecutionHeaderProps) {
-  const { streamingSessionIds, setActiveView } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
   const archive = useArchiveSession();
   const updateSession = useUpdateSession();
 
@@ -129,7 +129,14 @@ export function ExecutionHeader({
   };
 
   const isStreaming = streamingSessionIds.has(session.id);
+  const isPending = pendingInputSessionIds.has(session.id);
   const isArchived = session.status === 'archived';
+  const isSetupFailed = !!session.setup_error;
+  // Mirror ExecutionView's derivation: git workspace whose session
+  // hasn't been provisioned yet. setup_error wins (separate state) so
+  // we don't render "setting up" forever on a failed provision.
+  const isSettingUp =
+    !!workspace && workspace.is_git === true && !session.worktree_path && !isSetupFailed;
 
   // "Needs response" = the agent has produced an outcome the user
   // hasn't seen since their last view. Distinguishing this from plain
@@ -141,25 +148,56 @@ export function ExecutionHeader({
     !!session.last_outcome_event_at &&
     session.last_outcome_event_at > (session.last_viewed_at ?? '1970-01-01');
 
-  const statusLabel = isStreaming
-    ? 'working'
-    : isArchived
-      ? 'archived'
-      : needsResponse
-        ? 'respond'
-        : session.last_outcome_event_at
-          ? 'idle'
-          : 'ready';
+  // Single tagged state — keeps label, dot color, and pill chrome from
+  // drifting out of sync. Order matters: archived/failed/setup are
+  // terminal-ish blockers; pending wins over streaming because the
+  // agent process is still alive but blocked on the user, so "working"
+  // would be misleading; needsResponse > idle > ready.
+  type StatusKind =
+    | 'archived'
+    | 'setup-failed'
+    | 'setting-up'
+    | 'pending'
+    | 'working'
+    | 'respond'
+    | 'idle'
+    | 'ready';
+  const statusKind: StatusKind = isArchived
+    ? 'archived'
+    : isSetupFailed
+      ? 'setup-failed'
+      : isSettingUp
+        ? 'setting-up'
+        : isPending
+          ? 'pending'
+          : isStreaming
+            ? 'working'
+            : needsResponse
+              ? 'respond'
+              : session.last_outcome_event_at
+                ? 'idle'
+                : 'ready';
 
-  const statusColor = isStreaming
-    ? 'bg-emerald-500'
-    : isArchived
-      ? 'bg-zinc-400'
-      : needsResponse
-        ? 'bg-amber-500'
-        : session.last_outcome_event_at
-          ? 'bg-zinc-400'
-          : 'bg-blue-500';
+  const statusLabel = statusKind === 'setting-up'
+    ? 'setting up'
+    : statusKind === 'setup-failed'
+      ? 'setup failed'
+      : statusKind === 'pending'
+        ? 'needs input'
+        : statusKind;
+
+  const statusColor =
+    statusKind === 'working'
+      ? 'bg-emerald-500'
+      : statusKind === 'setup-failed'
+        ? 'bg-rose-500'
+        : statusKind === 'setting-up'
+          ? 'bg-blue-500'
+          : statusKind === 'pending' || statusKind === 'respond'
+            ? 'bg-amber-500'
+            : statusKind === 'ready'
+              ? 'bg-blue-500'
+              : 'bg-zinc-400';
 
   const handleArchive = () => {
     if (!confirm(`Archive "${session.label ?? 'this execution'}"?`)) return;
@@ -216,22 +254,28 @@ export function ExecutionHeader({
     />
   ) : null;
 
+  // Pulse for live activity: agent working, setup in progress, or
+  // blocking on a user response that the user should notice.
+  const dotPulses = statusKind === 'working' || statusKind === 'setting-up' || statusKind === 'pending';
   const statusDot = (
-    <span className={cn('w-1.5 h-1.5 rounded-full', statusColor, isStreaming && 'animate-pulse')} />
+    <span className={cn('w-1.5 h-1.5 rounded-full', statusColor, dotPulses && 'animate-pulse')} />
   );
 
   // Tinted pill styling per state — sits adjacent to the execution label
   // in the left cluster so the user reads it as part of the session
   // identity, not as right-rail metadata.
-  const statusPillBg = isStreaming
-    ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-400'
-    : isArchived
-      ? 'bg-muted/60 border-border text-muted-foreground'
-      : needsResponse
-        ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
-        : session.last_outcome_event_at
-          ? 'bg-muted/60 border-border text-muted-foreground'
-          : 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400';
+  const statusPillBg =
+    statusKind === 'working'
+      ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-400'
+      : statusKind === 'setup-failed'
+        ? 'bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-400'
+        : statusKind === 'setting-up'
+          ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
+          : statusKind === 'pending' || statusKind === 'respond'
+            ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
+            : statusKind === 'ready'
+              ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
+              : 'bg-muted/60 border-border text-muted-foreground';
 
   const statusPill = (
     <span
