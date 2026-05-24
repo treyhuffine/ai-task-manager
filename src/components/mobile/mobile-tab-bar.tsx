@@ -32,7 +32,7 @@ export function MobileTabBar() {
     workingCount > 0 ? 'working' : reviewCount > 0 ? 'review' : null;
 
   return (
-    <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.875rem)] select-none">
+    <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] select-none">
       {TABS.map((tab) => {
         const isCreate = tab.id === 'create';
         const isActive = !isCreate && mobileTab === tab.id;
