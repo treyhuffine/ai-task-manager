@@ -258,6 +258,10 @@ export interface RailResponse {
   runningSessionIds: string[];
 }
 
+export interface HistoryResponse {
+  sessions: RailSession[];
+}
+
 // ─── Picker / References / Scratchpad wire types ─────────────
 
 export interface PickerTaskItem {
@@ -489,6 +493,10 @@ export const sessionsApi = {
 
   rail(): Promise<RailResponse> {
     return api.get<RailResponse>('/sessions/rail');
+  },
+
+  history(): Promise<HistoryResponse> {
+    return api.get<HistoryResponse>('/sessions/history');
   },
 
   pendingInputGlobal(): Promise<{ sessionIds: string[] }> {

@@ -1136,6 +1136,37 @@ export function listRailSessions(): RailSessionRow[] {
     .all() as RailSessionRow[];
 }
 
+/**
+ * History feed: every execution session, regardless of `status` (active
+ * AND archived) or its workspace's archive state. The history rail tab
+ * is a chronological log; an archived workspace shouldn't make its
+ * past sessions disappear, which is the opposite policy from
+ * `listRailSessions`. Capped at `limit` (default 200) so the rail
+ * doesn't load thousands of rows.
+ */
+export function listHistorySessions(opts: { limit?: number } = {}): RailSessionRow[] {
+  const db = getDb();
+  const limit = opts.limit ?? 200;
+  return db
+    .select({
+      ...getTableColumns(chatSessions),
+      workspace_name: workspaces.name,
+      workspace_emoji: workspaces.emoji,
+      workspace_attachments: workspaces.attachments,
+      workspace_area_id: workspaces.area_id,
+      workspace_is_git: workspaces.is_git,
+    })
+    .from(chatSessions)
+    // LEFT JOIN so sessions whose workspace was deleted still render —
+    // history is allowed to outlive its workspace. The renderer treats
+    // null workspace_name as "(workspace removed)".
+    .leftJoin(workspaces, eq(workspaces.id, chatSessions.workspace_id))
+    .where(eq(chatSessions.type, 'execution'))
+    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .limit(limit)
+    .all() as RailSessionRow[];
+}
+
 // ─── Chat Events ──────────────────────────────────────────────
 
 /**

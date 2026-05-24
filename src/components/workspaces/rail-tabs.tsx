@@ -7,28 +7,33 @@ import { HOTKEYS } from '@/constants/commands';
 import { cn } from '@/lib/utils';
 import { WorkspaceNav } from './workspace-nav';
 import { StatusView } from './status-view';
+import { HistoryView } from './history-view';
 import { SkinnyView } from './skinny-view';
 import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
 import { RailFooter } from './rail-footer';
 
-type RailTab = 'status' | 'workspace';
+type RailTab = 'status' | 'workspace' | 'history';
 
 const STORAGE_KEY = 'flow.rail.tab';
 const DEFAULT_TAB: RailTab = 'workspace';
 
 /**
- * Top-level switcher for the left rail. Two surfaces in wide mode:
+ * Top-level switcher for the left rail. Three surfaces in wide mode:
  *
- *   - `status` — sessions bucketed by their derived state
+ *   - `workspace` — the canonical folder tree by workspace. Houses the
+ *                workspace management actions (create, settings, reorder).
+ *   - `status` — active sessions bucketed by their derived state
  *                (Needs Approval / Unread / Waiting / Working). Cross-
  *                workspace; the workspace tree is collapsed away.
- *   - `workspace` — the existing folder tree by workspace. Houses the
- *                workspace management actions (create, settings, reorder).
+ *   - `history` — chronological feed of every execution, active AND
+ *                archived, grouped by date with a search input and
+ *                workspace-pill filter. The only tab that surfaces
+ *                archived sessions; the only tab with its own search.
  *
  * Active tab persists per-user in localStorage. Defaults to `workspace`
- * — the workspace tree is the primary navigation surface; "by status"
- * is the cross-workspace lens people switch into when triaging.
+ * — the workspace tree is the primary navigation surface; the other
+ * two are cross-workspace lenses people switch into.
  *
  * In skinny mode (`railCollapsed`) the tab UI is hidden but the tab
  * choice is preserved so expanding back doesn't reshuffle the user's
@@ -66,7 +71,9 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === 'status' || stored === 'workspace') setTab(stored);
+    if (stored === 'status' || stored === 'workspace' || stored === 'history') {
+      setTab(stored);
+    }
   }, []);
 
   const select = (next: RailTab) => {
@@ -95,6 +102,8 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
             <SkinnyView tab={tab} />
           ) : tab === 'status' ? (
             <StatusView />
+          ) : tab === 'history' ? (
+            <HistoryView />
           ) : (
             <WorkspaceNav />
           )}
@@ -131,10 +140,13 @@ function RailHeader({ collapsed, tab, onSelectTab, onToggle }: RailHeaderProps) 
   return (
     <div className="flex items-center gap-0.5 px-1 pt-1 pb-1.5 border-b border-border/40">
       <TabButton active={tab === 'workspace'} onClick={() => onSelectTab('workspace')}>
-        By workspace
+        Workspace
       </TabButton>
       <TabButton active={tab === 'status'} onClick={() => onSelectTab('status')}>
-        By status
+        Status
+      </TabButton>
+      <TabButton active={tab === 'history'} onClick={() => onSelectTab('history')}>
+        History
       </TabButton>
       <ToggleButton collapsed={collapsed} onToggle={onToggle} />
     </div>
