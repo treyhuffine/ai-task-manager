@@ -494,9 +494,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
             ) : (
               <ChatInputEditor
                 ref={editorRef}
-                placeholder={
-                  disabled ? (disabledReason ?? 'Composer is disabled') : 'Message the agent…'
-                }
+                placeholder="Ask your agent to do anything, or make changes. You can @mention files, tasks, or notes. Reference PRs with # or run /skills"
                 // Don't disable the editor while `sending` — the
                 // user can queue the next message during the POST
                 // round-trip (concurrent send is supported all the

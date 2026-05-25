@@ -188,21 +188,24 @@ function StatusPip({
   isPending: boolean;
   isUnread: boolean;
 }) {
+  // Pending wins over streaming: the agent process is still alive but
+  // blocked on a user response, so the green "working" pip would lie
+  // about what's actually happening.
+  if (isPending) {
+    return (
+      <span
+        aria-label="needs input"
+        title="Needs input"
+        className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"
+      />
+    );
+  }
   if (isStreaming) {
     return (
       <span
         aria-label="working"
         title="Working"
         className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"
-      />
-    );
-  }
-  if (isPending) {
-    return (
-      <span
-        aria-label="needs approval"
-        title="Needs approval"
-        className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"
       />
     );
   }

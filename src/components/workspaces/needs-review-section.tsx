@@ -12,14 +12,20 @@ import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
  * empty header.
  */
 export function NeedsReviewSection() {
-  const { streamingSessionIds } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: candidates } = useNeedsReviewSessions();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const [settingsId, setSettingsId] = useState<string | null>(null);
 
+  // Hide mid-turn sessions — a fresh outcome is imminent. Exception:
+  // streaming-but-blocked-on-user-input is the most actionable state
+  // there is, so let those through even though they look "streaming."
   const filtered = useMemo(
-    () => (candidates ?? []).filter((s) => !streamingSessionIds.has(s.id)),
-    [candidates, streamingSessionIds],
+    () =>
+      (candidates ?? []).filter(
+        (s) => pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id),
+      ),
+    [candidates, streamingSessionIds, pendingInputSessionIds],
   );
 
   if (filtered.length === 0) return null;
