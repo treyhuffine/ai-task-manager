@@ -10,6 +10,7 @@ import { useAreas } from '@/hooks/use-areas';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
+import { hot } from '@/lib/_debug/hot-path';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
 
@@ -82,6 +83,7 @@ export function WorkspaceRow({
   // mirrors `StatusView.classify` so a session lives in exactly one
   // bucket and the totals don't double-count.
   const counts = useMemo(() => {
+    hot('memo WorkspaceRow.counts');
     let working = 0;
     let needsApproval = 0;
     let unread = 0;

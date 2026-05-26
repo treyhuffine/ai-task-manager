@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useRailSessions } from '@/hooks/use-workspaces';
+import { hot } from '@/lib/_debug/hot-path';
 
 /**
  * Bridge from the rail GET response into the dashboard context's
@@ -22,6 +23,7 @@ export function useRailContextHydrate(): void {
   const { setPendingInputSessions, setStreamingSessions } = useDashboard();
 
   useEffect(() => {
+    hot('effect useRailContextHydrate');
     if (!data) return;
     setPendingInputSessions(data.pendingSessionIds);
     setStreamingSessions(data.runningSessionIds);

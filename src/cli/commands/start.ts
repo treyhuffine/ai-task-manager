@@ -41,6 +41,9 @@ export interface StartOptions {
   /** `true` when --portless is passed without a value, a string when a custom
    *  name is given, undefined when omitted. Resolved to a name + URL below. */
   portless?: boolean | string;
+  /** Enables the client-side hot-path render/effect tracker. Propagated to the
+   *  Next child as NEXT_PUBLIC_HOT=1 so it's inlined into the client bundle. */
+  hot?: boolean;
 }
 
 interface PortlessConfig {
@@ -69,10 +72,21 @@ export async function startCommand(opts: StartOptions) {
     process.env[APP_ROOT_ENV] = getDevAppRoot();
   }
 
+  // Propagate --hot into the Next child as NEXT_PUBLIC_HOT so the client
+  // bundle gets it at build/compile time. Set before any spawn — Next reads
+  // NEXT_PUBLIC_* once at startup. Console toggle (`window.__HOT__`) still
+  // works as the live override either way.
+  if (opts.hot) {
+    process.env.NEXT_PUBLIC_HOT = '1';
+  }
+
   intro(pc.bgCyan(pc.black(` ${APP_NAME} `)));
 
   if (opts.dev) {
     log.info(pc.dim(`Data root: ${process.env[APP_ROOT_ENV]}`));
+  }
+  if (opts.hot) {
+    log.info(pc.dim('Hot-path tracker enabled (NEXT_PUBLIC_HOT=1) — see src/lib/_debug/hot-path.ts'));
   }
 
   // Resolve --portless before anything that reads the static URL (auth bootstrap

@@ -7,6 +7,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { X, Notebook, NotebookPen, Plus, Loader2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { hot } from '@/lib/_debug/hot-path';
 import { useScratchpad, useSetScratchpad } from '@/hooks/use-execution';
 import { api } from '@/lib/api/client';
 
@@ -126,6 +127,7 @@ function ScratchpadEditor({
       },
     },
     onUpdate({ editor }) {
+      hot('editor onUpdate Scratchpad');
       const text = editor.getText();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       setStatus('saving');

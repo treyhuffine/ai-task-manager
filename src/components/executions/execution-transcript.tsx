@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { useSessionEvents, useClientEventStatus } from '@/hooks/use-execution';
+import { hot } from '@/lib/_debug/hot-path';
 import {
   Conversation,
   ConversationContent,
@@ -46,6 +47,7 @@ interface ExecutionTranscriptProps {
  * on normal completed turns.
  */
 export function ExecutionTranscript({ session, workspace, isRunning, voiceSentIds }: ExecutionTranscriptProps) {
+  hot('render ExecutionTranscript');
   const { data: rawEvents, isLoading } = useSessionEvents(session.id);
   const clientStatus = useClientEventStatus(session.id);
 

@@ -22,6 +22,7 @@ import {
 } from '@/lib/entity-refs/parse-markers';
 import { useSessionEntities, useScratchpad } from '@/hooks/use-execution';
 import { dispatchOpenReference } from '@/lib/entity-refs/open-event';
+import { hot } from '@/lib/_debug/hot-path';
 import { cn } from '@/lib/utils';
 import type { ChatEventRecord, Attachment } from '@/db/types';
 
@@ -61,6 +62,7 @@ interface ExecutionEventProps {
  *   - system / result / recap / rate_limit / error / unknown — bespoke.
  */
 export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus }: ExecutionEventProps) {
+  hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
 
   switch (event.source) {
@@ -652,6 +654,7 @@ function RenderMessageSegments({
   attachments: Attachment[];
   sessionId?: string;
 }) {
+  hot('render RenderMessageSegments');
   const entitiesQuery = useSessionEntities(sessionId ?? null);
   const scratchpadQuery = useScratchpad(sessionId ?? null);
   const attachmentMap = new Map(attachments.map((a) => [a.file_name, a]));

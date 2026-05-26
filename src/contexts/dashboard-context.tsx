@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useRef, type ReactNode, useEffect } from 'react';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Agent, Task, StreamEvent } from '@/types/dashboard';
+import { hot } from '@/lib/_debug/hot-path';
 
 interface FocusTask {
   title: string;
@@ -206,10 +207,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     });
   }, []);
   const setStreamingSessions = useCallback((sessionIds: string[]) => {
+    hot('call setStreamingSessions');
     setStreamingSessionIds((prev) => {
       if (sessionIds.length === prev.size && sessionIds.every((id) => prev.has(id))) {
         return prev;
       }
+      hot('change setStreamingSessions (set replaced)');
       return new Set(sessionIds);
     });
   }, []);
@@ -217,10 +220,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // ─── Pending-input sessions ─────────────────────────────
   const [pendingInputSessionIds, setPendingInputSessionIds] = useState<Set<string>>(() => new Set());
   const setPendingInputSessions = useCallback((sessionIds: string[]) => {
+    hot('call setPendingInputSessions');
     setPendingInputSessionIds((prev) => {
       if (sessionIds.length === prev.size && sessionIds.every((id) => prev.has(id))) {
         return prev;
       }
+      hot('change setPendingInputSessions (set replaced)');
       return new Set(sessionIds);
     });
   }, []);

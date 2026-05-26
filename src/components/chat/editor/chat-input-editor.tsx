@@ -46,6 +46,7 @@ import type { FileUIPart } from 'ai';
 import { uuidv7 } from 'uuidv7';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { hot } from '@/lib/_debug/hot-path';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -548,6 +549,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       },
       editable: !disabled,
       onUpdate({ editor }) {
+        hot('editor onUpdate ChatInputEditor');
         onContentChange?.(!editor.isEmpty);
         scheduleDraftSave();
       },

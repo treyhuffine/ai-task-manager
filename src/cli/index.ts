@@ -43,6 +43,7 @@ program
     '--portless [name]',
     `front the dev server with portless.sh at <name>.localhost (default: ${APP_SHORT_ID})`,
   )
+  .option('--hot', 'enable the client-side hot-path tracker (sets NEXT_PUBLIC_HOT=1)')
   .action(startCommand);
 
 program

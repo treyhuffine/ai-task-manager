@@ -38,6 +38,7 @@ import { ReferencesPane } from './references-pane';
 import { ScratchpadPane } from './scratchpad-pane';
 import { useOpenReferenceListener } from '@/lib/entity-refs/open-event';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
+import { hot } from '@/lib/_debug/hot-path';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -89,6 +90,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     !!session && !!workspace && workspace.is_git === true && !session.worktree_path;
 
   useEffect(() => {
+    hot('effect ExecutionView.isSettingUp-poll');
     if (!isSettingUp || !sessionId) return;
     const id = setInterval(() => {
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
@@ -99,6 +101,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // Mirror server runtime state into the dashboard's streamingSessionIds
   // so the rail's "● working" badge and other consumers stay in sync.
   useEffect(() => {
+    hot('effect ExecutionView.mirror-streaming');
     if (!sessionId) return;
     setSessionStreaming(sessionId, isRunning);
   }, [sessionId, isRunning, setSessionStreaming]);
@@ -111,6 +114,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // without waiting for the user to touch anything.
   const prevRunningRef = useRef(isRunning);
   useEffect(() => {
+    hot('effect ExecutionView.running-edge');
     if (!sessionId) return;
     if (prevRunningRef.current && !isRunning) {
       qc.invalidateQueries({ queryKey: ['session', sessionId, 'diff'] });

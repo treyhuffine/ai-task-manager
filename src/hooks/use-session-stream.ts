@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { ChatEventRecord } from '@/db/types';
 import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
+import { hot } from '@/lib/_debug/hot-path';
 
 /**
  * Subscribes to the per-session SSE stream and folds every frame into
@@ -55,6 +56,7 @@ export function useSessionStream(sessionId: string | null): void {
     };
 
     const handleChatEvent = (raw: MessageEvent) => {
+      hot('sse chat_event');
       let event: ChatEventRecord;
       try {
         event = JSON.parse(raw.data) as ChatEventRecord;
@@ -102,6 +104,7 @@ export function useSessionStream(sessionId: string | null): void {
     };
 
     const handleRuntime = (raw: MessageEvent) => {
+      hot('sse runtime');
       try {
         const data = JSON.parse(raw.data) as { running: boolean };
         queryClient.setQueryData(runtimeKey, { running: data.running });
@@ -113,6 +116,7 @@ export function useSessionStream(sessionId: string | null): void {
     };
 
     const handlePendingInput = (raw: MessageEvent) => {
+      hot('sse pending_input');
       try {
         const data = JSON.parse(raw.data) as { pending: PendingInput[] };
         queryClient.setQueryData<PendingInput[]>(pendingKey, data.pending);
