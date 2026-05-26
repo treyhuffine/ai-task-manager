@@ -138,330 +138,330 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     },
     externalRef,
   ) {
-  const [hasContent, setHasContent] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [effortMenuOpen, setEffortMenuOpen] = useState(false);
-  const [editorFocused, setEditorFocused] = useState(false);
-  const editorRef = useRef<ChatInputEditorHandle | null>(null);
+    const [hasContent, setHasContent] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [stopping, setStopping] = useState(false);
+    const [modeMenuOpen, setModeMenuOpen] = useState(false);
+    const [modelMenuOpen, setModelMenuOpen] = useState(false);
+    const [effortMenuOpen, setEffortMenuOpen] = useState(false);
+    const [editorFocused, setEditorFocused] = useState(false);
+    const editorRef = useRef<ChatInputEditorHandle | null>(null);
 
-  // Expose a narrow imperative surface — just enough for the file tree
-  // (and any future panel) to drop text into the editor and focus it.
-  // Keeps the parent from holding a full ChatInputEditorHandle, which
-  // includes upload + snapshot APIs that only the composer should drive.
-  useImperativeHandle(
-    externalRef,
-    () => ({
-      insertTextAtCursor: (text: string) => {
-        editorRef.current?.insertTextAtCursor(text);
+    // Expose a narrow imperative surface — just enough for the file tree
+    // (and any future panel) to drop text into the editor and focus it.
+    // Keeps the parent from holding a full ChatInputEditorHandle, which
+    // includes upload + snapshot APIs that only the composer should drive.
+    useImperativeHandle(
+      externalRef,
+      () => ({
+        insertTextAtCursor: (text: string) => {
+          editorRef.current?.insertTextAtCursor(text);
+        },
+        insertEntityChip: (attrs) => {
+          editorRef.current?.insertEntityChip(attrs);
+        },
+        focus: (opts) => {
+          editorRef.current?.focus(opts);
+        },
+        uploadFile: async (file, name) => {
+          const editor = editorRef.current;
+          if (!editor) return;
+          await editor.uploadFile(file, name);
+        },
+      }),
+      [],
+    );
+
+    const { data: userState } = useUserState();
+    const updateUserState = useUpdateUserState();
+    const voice = useVoiceInput();
+    const autoSend = userState?.voice_auto_send ?? true;
+    const updateSession = useUpdateSession();
+
+    const toggleAutoSend = useCallback(() => {
+      updateUserState.mutate({ voice_auto_send: !autoSend });
+    }, [autoSend, updateUserState]);
+
+    // Read receipt: textarea focus marks the session read. We also mark
+    // on send (handleSend) for the case where the user pastes-and-sends
+    // without ever clicking the editor. Both paths fire markRead eagerly
+    // so the rail snaps to "read" as soon as the user engages — no extra
+    // cleanup-time bookkeeping required.
+    const markRead = useMarkSessionRead();
+    const handleEditorFocus = useCallback(() => {
+      if (!sessionId) return;
+      markRead.mutate(sessionId);
+    }, [sessionId, markRead]);
+
+    // Auto-focus the composer when the user lands on a session — opens
+    // up the "click execution → type immediately" flow without an
+    // extra click into the textarea. Re-fires when the active session
+    // changes (rail navigation, deep link); the disabled gate suppresses
+    // focusing a composer that's archived or still setting up. We hand
+    // Tiptap a microtask so the contenteditable is mounted and ready
+    // before we call `focus()`.
+    useEffect(() => {
+      if (!sessionId || disabled) return;
+      const t = setTimeout(() => editorRef.current?.focus(), 0);
+      return () => clearTimeout(t);
+    }, [sessionId, disabled]);
+
+    const modeMeta = PERMISSION_MODE_META[permissionMode];
+    const sessionMeta = useSessionMeta(sessionId);
+    const slashCommandsQuery = useSlashCommands(sessionId);
+
+    // Worktree files/folders → @-mention items. Same data the file tree
+    // shows, transformed into the lighter shape the popup needs.
+    const treeQuery = useSessionTree(sessionId);
+    const mentionFiles = useMemo<FileMentionItem[]>(
+      () =>
+        (treeQuery.data?.entries ?? []).map((e) => ({
+          path: e.path,
+          name: e.name,
+          kind: e.kind,
+        })),
+      [treeQuery.data?.entries],
+    );
+
+    // Tasks + notes from the session's workspace → @-picker entity items.
+    // The picker auto-scopes by workspace_id; a future "Show all" toggle
+    // in the popup will flip it to cross-workspace.
+    const pickerQuery = usePicker(sessionId);
+    const mentionTasks = useMemo<TaskMentionItem[]>(
+      () =>
+        (pickerQuery.data?.tasks ?? []).map((t) => ({
+          kind: 'task',
+          id: t.id,
+          title: t.title,
+          status: t.status,
+        })),
+      [pickerQuery.data?.tasks],
+    );
+    const mentionNotes = useMemo<NoteMentionItem[]>(
+      () =>
+        (pickerQuery.data?.notes ?? []).map((n) => ({
+          kind: 'note',
+          id: n.id,
+          title: n.title ?? '',
+        })),
+      [pickerQuery.data?.notes],
+    );
+
+    // GitHub PRs → `#`-mention items. Empty when gh is missing /
+    // unauthenticated or the workspace is non-git; the popup just shows
+    // its empty state in those cases.
+    const prListQuery = usePrList(sessionId);
+    const prMentions = useMemo<PrMentionItem[]>(
+      () =>
+        (prListQuery.data?.prs ?? []).map((p) => ({
+          number: p.number,
+          title: p.title,
+          state: p.state,
+          isDraft: p.isDraft,
+          headRefName: p.headRefName,
+          baseRefName: p.baseRefName,
+          url: p.url,
+          updatedAt: p.updatedAt,
+        })),
+      [prListQuery.data?.prs],
+    );
+
+    // Mirror in a ref so handleSend always sees the latest list without
+    // forcing the send callback to re-create on every refetch.
+    const prMentionsRef = useRef(prMentions);
+    prMentionsRef.current = prMentions;
+
+    // Resolve current model/effort displays. The pinned `model` (when set)
+    // wins over the model id derived from the live system event — once the
+    // user picks a model, that's the truth even if the session hasn't
+    // dispatched yet. The system-event derivation is the fallback for
+    // sessions that haven't been pinned (null model = harness default,
+    // which we only know after the first turn).
+    const harnessModels = harness ? (MODEL_OPTIONS[harness as keyof typeof MODEL_OPTIONS] ?? []) : [];
+    const pinnedModelOption = harness && model ? findModelOption(harness, model) : null;
+    const displayModelLabel = pinnedModelOption?.label ?? sessionMeta.model?.label ?? null;
+    const showEffort = harness ? harnessSupportsEffort(harness) : false;
+    const effortOption = effort ? (EFFORT_OPTIONS.find((o) => o.id === effort) ?? null) : null;
+
+    const setPermissionMode = useCallback(
+      (next: PermissionMode) => {
+        if (next === permissionMode) return;
+        updateSession.mutate({ id: sessionId, permission_mode: next });
       },
-      insertEntityChip: (attrs) => {
-        editorRef.current?.insertEntityChip(attrs);
-      },
-      focus: (opts) => {
-        editorRef.current?.focus(opts);
-      },
-      uploadFile: async (file, name) => {
+      [permissionMode, sessionId, updateSession],
+    );
+
+    const cycleMode = useCallback(() => {
+      setPermissionMode(nextPermissionMode(permissionMode));
+    }, [permissionMode, setPermissionMode]);
+
+    const setModel = (id: string | null) => {
+      setModelMenuOpen(false);
+      if (id === model) return;
+      updateSession.mutate({ id: sessionId, model: id });
+    };
+
+    const setEffort = (level: EffortLevel | null) => {
+      setEffortMenuOpen(false);
+      if (level === effort) return;
+      updateSession.mutate({ id: sessionId, effort: level });
+    };
+
+    const handleSend = useCallback(
+      async (
+        override?: { text: string; attachments: Attachment[] },
+        opts?: { viaVoice?: boolean },
+      ) => {
         const editor = editorRef.current;
-        if (!editor) return;
-        await editor.uploadFile(file, name);
-      },
-    }),
-    [],
-  );
+        const out = override ?? editor?.getMarkerOutput() ?? { text: '', attachments: [] };
+        // Expand `#193` style PR references against the cached PR list so
+        // the agent sees title + URL + branch context without an extra
+        // `gh pr view` round-trip. Unmatched numbers pass through; voice
+        // override path also runs through it so a dictated "look at one
+        // ninety three" expanded by STT still benefits.
+        const text = expandPrRefs(out.text.trim(), prMentionsRef.current);
+        // No isRunning gate: sends are accepted mid-turn. The harness's
+        // own queue handles ordering — Claude drains as `<system-reminder>`
+        // attachments into the current turn; Codex merges as additional
+        // userMessage items in the same turn.
+        if (!text || sending || disabled) return;
+        // Send is an interaction — mark read even if the user pasted and
+        // sent without ever focusing the editor (the focus handler would
+        // have missed that path).
+        if (sessionId) markRead.mutate(sessionId);
 
-  const { data: userState } = useUserState();
-  const updateUserState = useUpdateUserState();
-  const voice = useVoiceInput();
-  const autoSend = userState?.voice_auto_send ?? true;
-  const updateSession = useUpdateSession();
-
-  const toggleAutoSend = useCallback(() => {
-    updateUserState.mutate({ voice_auto_send: !autoSend });
-  }, [autoSend, updateUserState]);
-
-  // Read receipt: textarea focus marks the session read. We also mark
-  // on send (handleSend) for the case where the user pastes-and-sends
-  // without ever clicking the editor. Both paths fire markRead eagerly
-  // so the rail snaps to "read" as soon as the user engages — no extra
-  // cleanup-time bookkeeping required.
-  const markRead = useMarkSessionRead();
-  const handleEditorFocus = useCallback(() => {
-    if (!sessionId) return;
-    markRead.mutate(sessionId);
-  }, [sessionId, markRead]);
-
-  // Auto-focus the composer when the user lands on a session — opens
-  // up the "click execution → type immediately" flow without an
-  // extra click into the textarea. Re-fires when the active session
-  // changes (rail navigation, deep link); the disabled gate suppresses
-  // focusing a composer that's archived or still setting up. We hand
-  // Tiptap a microtask so the contenteditable is mounted and ready
-  // before we call `focus()`.
-  useEffect(() => {
-    if (!sessionId || disabled) return;
-    const t = setTimeout(() => editorRef.current?.focus(), 0);
-    return () => clearTimeout(t);
-  }, [sessionId, disabled]);
-
-  const modeMeta = PERMISSION_MODE_META[permissionMode];
-  const sessionMeta = useSessionMeta(sessionId);
-  const slashCommandsQuery = useSlashCommands(sessionId);
-
-  // Worktree files/folders → @-mention items. Same data the file tree
-  // shows, transformed into the lighter shape the popup needs.
-  const treeQuery = useSessionTree(sessionId);
-  const mentionFiles = useMemo<FileMentionItem[]>(
-    () =>
-      (treeQuery.data?.entries ?? []).map((e) => ({
-        path: e.path,
-        name: e.name,
-        kind: e.kind,
-      })),
-    [treeQuery.data?.entries],
-  );
-
-  // Tasks + notes from the session's workspace → @-picker entity items.
-  // The picker auto-scopes by workspace_id; a future "Show all" toggle
-  // in the popup will flip it to cross-workspace.
-  const pickerQuery = usePicker(sessionId);
-  const mentionTasks = useMemo<TaskMentionItem[]>(
-    () =>
-      (pickerQuery.data?.tasks ?? []).map((t) => ({
-        kind: 'task',
-        id: t.id,
-        title: t.title,
-        status: t.status,
-      })),
-    [pickerQuery.data?.tasks],
-  );
-  const mentionNotes = useMemo<NoteMentionItem[]>(
-    () =>
-      (pickerQuery.data?.notes ?? []).map((n) => ({
-        kind: 'note',
-        id: n.id,
-        title: n.title ?? '',
-      })),
-    [pickerQuery.data?.notes],
-  );
-
-  // GitHub PRs → `#`-mention items. Empty when gh is missing /
-  // unauthenticated or the workspace is non-git; the popup just shows
-  // its empty state in those cases.
-  const prListQuery = usePrList(sessionId);
-  const prMentions = useMemo<PrMentionItem[]>(
-    () =>
-      (prListQuery.data?.prs ?? []).map((p) => ({
-        number: p.number,
-        title: p.title,
-        state: p.state,
-        isDraft: p.isDraft,
-        headRefName: p.headRefName,
-        baseRefName: p.baseRefName,
-        url: p.url,
-        updatedAt: p.updatedAt,
-      })),
-    [prListQuery.data?.prs],
-  );
-
-  // Mirror in a ref so handleSend always sees the latest list without
-  // forcing the send callback to re-create on every refetch.
-  const prMentionsRef = useRef(prMentions);
-  prMentionsRef.current = prMentions;
-
-  // Resolve current model/effort displays. The pinned `model` (when set)
-  // wins over the model id derived from the live system event — once the
-  // user picks a model, that's the truth even if the session hasn't
-  // dispatched yet. The system-event derivation is the fallback for
-  // sessions that haven't been pinned (null model = harness default,
-  // which we only know after the first turn).
-  const harnessModels = harness ? (MODEL_OPTIONS[harness as keyof typeof MODEL_OPTIONS] ?? []) : [];
-  const pinnedModelOption = harness && model ? findModelOption(harness, model) : null;
-  const displayModelLabel = pinnedModelOption?.label ?? sessionMeta.model?.label ?? null;
-  const showEffort = harness ? harnessSupportsEffort(harness) : false;
-  const effortOption = effort ? (EFFORT_OPTIONS.find((o) => o.id === effort) ?? null) : null;
-
-  const setPermissionMode = useCallback(
-    (next: PermissionMode) => {
-      if (next === permissionMode) return;
-      updateSession.mutate({ id: sessionId, permission_mode: next });
-    },
-    [permissionMode, sessionId, updateSession],
-  );
-
-  const cycleMode = useCallback(() => {
-    setPermissionMode(nextPermissionMode(permissionMode));
-  }, [permissionMode, setPermissionMode]);
-
-  const setModel = (id: string | null) => {
-    setModelMenuOpen(false);
-    if (id === model) return;
-    updateSession.mutate({ id: sessionId, model: id });
-  };
-
-  const setEffort = (level: EffortLevel | null) => {
-    setEffortMenuOpen(false);
-    if (level === effort) return;
-    updateSession.mutate({ id: sessionId, effort: level });
-  };
-
-  const handleSend = useCallback(
-    async (
-      override?: { text: string; attachments: Attachment[] },
-      opts?: { viaVoice?: boolean },
-    ) => {
-      const editor = editorRef.current;
-      const out = override ?? editor?.getMarkerOutput() ?? { text: '', attachments: [] };
-      // Expand `#193` style PR references against the cached PR list so
-      // the agent sees title + URL + branch context without an extra
-      // `gh pr view` round-trip. Unmatched numbers pass through; voice
-      // override path also runs through it so a dictated "look at one
-      // ninety three" expanded by STT still benefits.
-      const text = expandPrRefs(out.text.trim(), prMentionsRef.current);
-      // No isRunning gate: sends are accepted mid-turn. The harness's
-      // own queue handles ordering — Claude drains as `<system-reminder>`
-      // attachments into the current turn; Codex merges as additional
-      // userMessage items in the same turn.
-      if (!text || sending || disabled) return;
-      // Send is an interaction — mark read even if the user pasted and
-      // sent without ever focusing the editor (the focus handler would
-      // have missed that path).
-      if (sessionId) markRead.mutate(sessionId);
-
-      // Clear the editor synchronously so the textarea empties in the
-      // same paint as the optimistic transcript bubble. Snapshot first
-      // so a failed POST can restore the user's text + inline chips
-      // exactly as they were typed. Voice auto-send (override) never
-      // put text in the editor, so nothing to snapshot or clear there.
-      // Re-focus right after clearing so the user can type the next
-      // message without clicking back into the textarea — Tiptap's
-      // `clearContent` blurs the contenteditable in some cases.
-      const snapshot = override ? null : editor?.snapshot() ?? null;
-      if (!override && editor) {
-        editor.clear();
-        editor.focus();
-        setHasContent(false);
-      }
-
-      setSending(true);
-      try {
-        await onSend(text, {
-          viaVoice: opts?.viaVoice,
-          attachments: out.attachments.length > 0 ? out.attachments : undefined,
-        });
-      } catch (err) {
-        // Round-trip failed (network, 500, takeover 409, etc.). Put
-        // the user's content back so they can correct and retry —
-        // the optimistic bubble is rolled back by the send mutation's
-        // onError; the snapshot restore handles the editor side.
-        if (snapshot) {
-          editor?.restore(snapshot);
-          setHasContent(true);
+        // Clear the editor synchronously so the textarea empties in the
+        // same paint as the optimistic transcript bubble. Snapshot first
+        // so a failed POST can restore the user's text + inline chips
+        // exactly as they were typed. Voice auto-send (override) never
+        // put text in the editor, so nothing to snapshot or clear there.
+        // Re-focus right after clearing so the user can type the next
+        // message without clicking back into the textarea — Tiptap's
+        // `clearContent` blurs the contenteditable in some cases.
+        const snapshot = override ? null : editor?.snapshot() ?? null;
+        if (!override && editor) {
+          editor.clear();
+          editor.focus();
+          setHasContent(false);
         }
-        throw err;
+
+        setSending(true);
+        try {
+          await onSend(text, {
+            viaVoice: opts?.viaVoice,
+            attachments: out.attachments.length > 0 ? out.attachments : undefined,
+          });
+        } catch (err) {
+          // Round-trip failed (network, 500, takeover 409, etc.). Put
+          // the user's content back so they can correct and retry —
+          // the optimistic bubble is rolled back by the send mutation's
+          // onError; the snapshot restore handles the editor side.
+          if (snapshot) {
+            editor?.restore(snapshot);
+            setHasContent(true);
+          }
+          throw err;
+        } finally {
+          setSending(false);
+        }
+      },
+      [sending, disabled, onSend, sessionId, markRead],
+    );
+
+    // Voice transcript → composer. Auto-send dispatches a synthesized
+    // payload (text only, no attachments). Manual mode inserts the text
+    // at the editor's current cursor position so existing typed prefix
+    // and any inline chips stay where they were.
+    const lastTranscriptRef = useRef('');
+    useEffect(() => {
+      if (!voice.transcript || voice.isRecording) return;
+      if (voice.transcript === lastTranscriptRef.current) return;
+
+      lastTranscriptRef.current = voice.transcript;
+      if (autoSend) {
+        handleSend({ text: voice.transcript, attachments: [] }, { viaVoice: true });
+        voice.clearTranscript();
+      } else {
+        const editor = editorRef.current;
+        if (editor) {
+          const prefix = editor.textLength() > 0 ? ' ' : '';
+          editor.insertTextAtCursor(`${prefix}${voice.transcript}`);
+          editor.focus();
+        }
+        voice.clearTranscript();
+      }
+    }, [voice, autoSend, handleSend]);
+
+    const handleEditorBackspaceOnEmpty = useCallback(() => {
+      // No-op for execution composer — the orchestrator may use this
+      // to drop a stale chip from a parallel attachment list. Wired
+      // through so the editor doesn't swallow the keystroke.
+    }, []);
+
+    // Shift+Tab cycles permission mode. Lives at the wrapper level so
+    // the contenteditable editor can't swallow it (a Tiptap keymap would
+    // also work but binding here keeps the responsibility inside the
+    // composer module).
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Tab' && e.shiftKey) {
+        e.preventDefault();
+        cycleMode();
+      }
+    };
+
+    const handleStop = useCallback(async () => {
+      if (!onStop || stopping) return;
+      setStopping(true);
+      try {
+        await onStop();
       } finally {
-        setSending(false);
+        setStopping(false);
       }
-    },
-    [sending, disabled, onSend, sessionId, markRead],
-  );
+    }, [onStop, stopping]);
 
-  // Voice transcript → composer. Auto-send dispatches a synthesized
-  // payload (text only, no attachments). Manual mode inserts the text
-  // at the editor's current cursor position so existing typed prefix
-  // and any inline chips stay where they were.
-  const lastTranscriptRef = useRef('');
-  useEffect(() => {
-    if (!voice.transcript || voice.isRecording) return;
-    if (voice.transcript === lastTranscriptRef.current) return;
+    const canSend = hasContent && !sending && !disabled;
+    const showVoiceButton = voice.isSupported;
+    // Send/Stop button slot:
+    //   has text   → Send (even mid-turn; the harness queues internally)
+    //   no text + running → Stop
+    //   no text + idle    → disabled Send
+    // The send button is no longer gated on `isRunning`; concurrent
+    // sends are handled by Claude's mid-turn drain and Codex's same-turn
+    // merge. The route always POSTs immediately.
+    const showStopButton = !!isRunning && !!onStop && !hasContent;
 
-    lastTranscriptRef.current = voice.transcript;
-    if (autoSend) {
-      handleSend({ text: voice.transcript, attachments: [] }, { viaVoice: true });
-      voice.clearTranscript();
-    } else {
-      const editor = editorRef.current;
-      if (editor) {
-        const prefix = editor.textLength() > 0 ? ' ' : '';
-        editor.insertTextAtCursor(`${prefix}${voice.transcript}`);
-        editor.focus();
-      }
-      voice.clearTranscript();
-    }
-  }, [voice, autoSend, handleSend]);
+    const setMode = (next: PermissionMode) => {
+      setModeMenuOpen(false);
+      setPermissionMode(next);
+    };
 
-  const handleEditorBackspaceOnEmpty = useCallback(() => {
-    // No-op for execution composer — the orchestrator may use this
-    // to drop a stale chip from a parallel attachment list. Wired
-    // through so the editor doesn't swallow the keystroke.
-  }, []);
+    // Status line below the composer — voice / error / disabled / helper.
+    const statusLine = voice.isRecording
+      ? 'Recording — tap mic to stop'
+      : voice.isTranscribing
+        ? 'Transcribing…'
+        : voice.error
+          ? voice.error
+          : voice.unsupportedReason && !voice.isSupported
+            ? `Voice unavailable — ${voice.unsupportedReason}`
+            : disabled && disabledReason
+              ? disabledReason
+              : !disabled && helperText
+                ? helperText
+                : null;
+    const statusIsError = !!voice.error;
 
-  // Shift+Tab cycles permission mode. Lives at the wrapper level so
-  // the contenteditable editor can't swallow it (a Tiptap keymap would
-  // also work but binding here keeps the responsibility inside the
-  // composer module).
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Tab' && e.shiftKey) {
-      e.preventDefault();
-      cycleMode();
-    }
-  };
-
-  const handleStop = useCallback(async () => {
-    if (!onStop || stopping) return;
-    setStopping(true);
-    try {
-      await onStop();
-    } finally {
-      setStopping(false);
-    }
-  }, [onStop, stopping]);
-
-  const canSend = hasContent && !sending && !disabled;
-  const showVoiceButton = voice.isSupported;
-  // Send/Stop button slot:
-  //   has text   → Send (even mid-turn; the harness queues internally)
-  //   no text + running → Stop
-  //   no text + idle    → disabled Send
-  // The send button is no longer gated on `isRunning`; concurrent
-  // sends are handled by Claude's mid-turn drain and Codex's same-turn
-  // merge. The route always POSTs immediately.
-  const showStopButton = !!isRunning && !!onStop && !hasContent;
-
-  const setMode = (next: PermissionMode) => {
-    setModeMenuOpen(false);
-    setPermissionMode(next);
-  };
-
-  // Status line below the composer — voice / error / disabled / helper.
-  const statusLine = voice.isRecording
-    ? 'Recording — tap mic to stop'
-    : voice.isTranscribing
-      ? 'Transcribing…'
-      : voice.error
-        ? voice.error
-        : voice.unsupportedReason && !voice.isSupported
-          ? `Voice unavailable — ${voice.unsupportedReason}`
-          : disabled && disabledReason
-            ? disabledReason
-            : !disabled && helperText
-              ? helperText
-              : null;
-  const statusIsError = !!voice.error;
-
-  return (
-    <div className="flex-shrink-0" onKeyDown={handleKeyDown}>
-      <div className="px-5 py-3 max-w-3xl mx-auto">
-        <div
-          className={cn(
-            'rounded-xl border border-border bg-card transition-colors flex flex-col gap-1',
-            'focus-within:border-primary/50',
-            disabled && !showStopButton && 'opacity-60',
-          )}
-        >
-          {/* Top: rich editor — or live waveform while recording. The
+    return (
+      <div className="flex-shrink-0" onKeyDown={handleKeyDown}>
+        <div className="px-5 py-3 max-w-3xl mx-auto">
+          <div
+            className={cn(
+              'rounded-xl border border-border bg-card transition-colors flex flex-col gap-1',
+              'focus-within:border-primary/50',
+              disabled && !showStopButton && 'opacity-60',
+            )}
+          >
+            {/* Top: rich editor — or live waveform while recording. The
               editor preserves typed text + inline paste chips across
               the recording swap. Native contenteditable auto-grows;
               max-height + overflow keep tall pastes scrollable.
@@ -471,63 +471,63 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               React's onFocus/onBlur bubble from the contenteditable so
               we can flip `editorFocused` here without threading a
               second callback through ChatInputEditor. */}
-          <div
-            className="relative"
-            onFocus={() => setEditorFocused(true)}
-            onBlur={() => setEditorFocused(false)}
-          >
-            {voice.isRecording ? (
-              <div className="px-3 pt-2.5 pb-1 flex items-center" style={{ minHeight: 36 }}>
-                <LiveWaveform
-                  active={voice.isRecording}
-                  height={24}
-                  barWidth={2}
-                  barGap={1}
-                  barRadius={1}
-                  sensitivity={1.2}
-                  mode="static"
-                  fadeEdges
-                  className="text-destructive flex-1"
-                  stream={voice.stream}
+            <div
+              className="relative"
+              onFocus={() => setEditorFocused(true)}
+              onBlur={() => setEditorFocused(false)}
+            >
+              {voice.isRecording ? (
+                <div className="px-3 pt-2.5 pb-1 flex items-center" style={{ minHeight: 36 }}>
+                  <LiveWaveform
+                    active={voice.isRecording}
+                    height={24}
+                    barWidth={2}
+                    barGap={1}
+                    barRadius={1}
+                    sensitivity={1.2}
+                    mode="static"
+                    fadeEdges
+                    className="text-destructive flex-1"
+                    stream={voice.stream}
+                  />
+                </div>
+              ) : (
+                <ChatInputEditor
+                  ref={editorRef}
+                  placeholder="Ask your agent to do any work. You can @mention files, tasks, or notes. Reference PRs with # or use a slash to run /skills"
+                  // Don't disable the editor while `sending` — the
+                  // user can queue the next message during the POST
+                  // round-trip (concurrent send is supported all the
+                  // way through). The Send button itself shows a
+                  // spinner via `sending`, which is enough feedback.
+                  // Disabling here would also blur the contenteditable
+                  // and defeat the post-send refocus.
+                  disabled={disabled}
+                  onContentChange={setHasContent}
+                  onSubmit={() => handleSend()}
+                  onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
+                  onFocus={handleEditorFocus}
+                  slashCommands={slashCommandsQuery.data?.commands}
+                  mentionFiles={mentionFiles}
+                  mentionTasks={mentionTasks}
+                  mentionNotes={mentionNotes}
+                  prs={prMentions}
+                  draftKey={sessionId ? `exec:${sessionId}` : undefined}
                 />
-              </div>
-            ) : (
-              <ChatInputEditor
-                ref={editorRef}
-                placeholder="Ask your agent to do anything, or make changes. You can @mention files, tasks, or notes. Reference PRs with # or run /skills"
-                // Don't disable the editor while `sending` — the
-                // user can queue the next message during the POST
-                // round-trip (concurrent send is supported all the
-                // way through). The Send button itself shows a
-                // spinner via `sending`, which is enough feedback.
-                // Disabling here would also blur the contenteditable
-                // and defeat the post-send refocus.
-                disabled={disabled}
-                onContentChange={setHasContent}
-                onSubmit={() => handleSend()}
-                onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
-                onFocus={handleEditorFocus}
-                slashCommands={slashCommandsQuery.data?.commands}
-                mentionFiles={mentionFiles}
-                mentionTasks={mentionTasks}
-                mentionNotes={mentionNotes}
-                prs={prMentions}
-                draftKey={sessionId ? `exec:${sessionId}` : undefined}
-              />
-            )}
-            {/* Floating focus hint — only when the editor is the empty
+              )}
+              {/* Floating focus hint — only when the editor is the empty
                 "placeholder" state, mirroring the placeholder's tone. */}
-            {!voice.isRecording && !disabled && !hasContent && !editorFocused && (
-              <span className="pointer-events-none absolute top-1.5 right-2.5 hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground/50">
-                <kbd className="px-1 py-0.5 bg-muted/60 rounded text-[9px] font-sans">
-                  {HOTKEYS.focusChatInput.label}
-                </kbd>
-                <span>to focus</span>
-              </span>
-            )}
-          </div>
+              {!voice.isRecording && !disabled && !hasContent && !editorFocused && (
+                <span className="pointer-events-none absolute top-1.5 right-2.5 hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground/50">
+                  <kbd className="px-1 py-0.5 bg-muted/60 rounded text-[9px] font-sans">
+                    {HOTKEYS.focusChatInput.label}
+                  </kbd>
+                  <span>to focus</span>
+                </span>
+              )}
+            </div>
 
-          {/* Bottom toolbar. Two layouts behind the same flex row so
+            {/* Bottom toolbar. Two layouts behind the same flex row so
               vertical height stays steady:
                 · idle  : [📎][mode]  ………  [model][effort][context][mic][send]
                 · record: [auto-send labeled toggle]  …  [X cancel][stop]
@@ -535,178 +535,178 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               (you can't change model mid-record meaningfully), so we
               hide them and surface auto-send labeled clearly so the
               user knows what hitting Stop will do. */}
-          <div className="flex items-center gap-1 px-1.5 pb-1.5 flex-wrap">
-            {voice.isRecording ? (
-              // Push everything to the right so the recording cluster
-              // (Auto-send + X + stop) reads as one unit. Auto-send sits
-              // immediately next to the cancel/stop pair so it's
-              // obviously part of the recording controls.
-              <div className="flex-1" />
-            ) : (
-              <>
-                {/* ─── Left: attach · mode ─────────────────── */}
-                <AttachButton
-                  onPick={(file) => {
-                    void editorRef.current?.uploadFile(file);
-                  }}
-                  disabled={disabled}
-                  title="Attach file"
-                />
-
-                <ModePicker
-                  open={modeMenuOpen}
-                  onOpenChange={setModeMenuOpen}
-                  current={permissionMode}
-                  onSelect={setMode}
-                  disabled={updateSession.isPending}
-                />
-
+            <div className="flex items-center gap-1 px-1.5 pb-1.5 flex-wrap">
+              {voice.isRecording ? (
+                // Push everything to the right so the recording cluster
+                // (Auto-send + X + stop) reads as one unit. Auto-send sits
+                // immediately next to the cancel/stop pair so it's
+                // obviously part of the recording controls.
                 <div className="flex-1" />
+              ) : (
+                <>
+                  {/* ─── Left: attach · mode ─────────────────── */}
+                  <AttachButton
+                    onPick={(file) => {
+                      void editorRef.current?.uploadFile(file);
+                    }}
+                    disabled={disabled}
+                    title="Attach file"
+                  />
 
-                {/* ─── Right: model · effort · context ─────── */}
-                {harnessModels.length > 0 && (
-                  <ModelPicker
-                    open={modelMenuOpen}
-                    onOpenChange={setModelMenuOpen}
-                    options={harnessModels}
-                    pinnedId={model}
-                    fallbackLabel={displayModelLabel ?? 'Default'}
-                    onSelect={setModel}
+                  <ModePicker
+                    open={modeMenuOpen}
+                    onOpenChange={setModeMenuOpen}
+                    current={permissionMode}
+                    onSelect={setMode}
                     disabled={updateSession.isPending}
                   />
-                )}
 
-                {showEffort && (
-                  <EffortPicker
-                    open={effortMenuOpen}
-                    onOpenChange={setEffortMenuOpen}
-                    current={effort}
-                    onSelect={setEffort}
-                    disabled={updateSession.isPending}
-                  />
-                )}
+                  <div className="flex-1" />
 
-                {sessionMeta.contextUsedFraction != null && (
-                  <ContextRing fraction={sessionMeta.contextUsedFraction} />
-                )}
-              </>
-            )}
+                  {/* ─── Right: model · effort · context ─────── */}
+                  {harnessModels.length > 0 && (
+                    <ModelPicker
+                      open={modelMenuOpen}
+                      onOpenChange={setModelMenuOpen}
+                      options={harnessModels}
+                      pinnedId={model}
+                      fallbackLabel={displayModelLabel ?? 'Default'}
+                      onSelect={setModel}
+                      disabled={updateSession.isPending}
+                    />
+                  )}
 
-            {voice.isRecording && (
-              <AutoSendSwitch
-                on={autoSend}
-                onToggle={toggleAutoSend}
-                disabled={updateUserState.isPending}
-              />
-            )}
+                  {showEffort && (
+                    <EffortPicker
+                      open={effortMenuOpen}
+                      onOpenChange={setEffortMenuOpen}
+                      current={effort}
+                      onSelect={setEffort}
+                      disabled={updateSession.isPending}
+                    />
+                  )}
 
-            {showVoiceButton && voice.isRecording && (
-              <button
-                type="button"
-                onClick={voice.cancelRecording}
-                className={cn(
-                  'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                  'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                )}
-                aria-label="Cancel recording"
-                title="Cancel recording (discard)"
-              >
-                <X size={13} />
-              </button>
-            )}
+                  {sessionMeta.contextUsedFraction != null && (
+                    <ContextRing fraction={sessionMeta.contextUsedFraction} />
+                  )}
+                </>
+              )}
 
-            {showVoiceButton && (
-              <button
-                type="button"
-                onClick={voice.toggleRecording}
-                disabled={voice.isTranscribing || disabled}
-                className={cn(
-                  'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                  voice.isRecording
-                    ? 'text-destructive bg-destructive/10 hover:bg-destructive/20'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                  'disabled:opacity-40 disabled:cursor-not-allowed',
-                )}
-                aria-label={voice.isRecording ? 'Stop recording' : 'Voice input'}
-                title={
-                  voice.isRecording
-                    ? 'Stop recording (transcribe)'
-                    : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`
-                }
-              >
-                {voice.isTranscribing ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : voice.isRecording ? (
-                  <Square size={11} className="fill-current" />
-                ) : (
-                  <Mic size={13} />
-                )}
-              </button>
-            )}
+              {voice.isRecording && (
+                <AutoSendSwitch
+                  on={autoSend}
+                  onToggle={toggleAutoSend}
+                  disabled={updateUserState.isPending}
+                />
+              )}
 
-            {/* Send hides while recording — nothing to send until
+              {showVoiceButton && voice.isRecording && (
+                <button
+                  type="button"
+                  onClick={voice.cancelRecording}
+                  className={cn(
+                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                    'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                  )}
+                  aria-label="Cancel recording"
+                  title="Cancel recording (discard)"
+                >
+                  <X size={13} />
+                </button>
+              )}
+
+              {showVoiceButton && (
+                <button
+                  type="button"
+                  onClick={voice.toggleRecording}
+                  disabled={voice.isTranscribing || disabled}
+                  className={cn(
+                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                    voice.isRecording
+                      ? 'text-destructive bg-destructive/10 hover:bg-destructive/20'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                    'disabled:opacity-40 disabled:cursor-not-allowed',
+                  )}
+                  aria-label={voice.isRecording ? 'Stop recording' : 'Voice input'}
+                  title={
+                    voice.isRecording
+                      ? 'Stop recording (transcribe)'
+                      : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`
+                  }
+                >
+                  {voice.isTranscribing ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : voice.isRecording ? (
+                    <Square size={11} className="fill-current" />
+                  ) : (
+                    <Mic size={13} />
+                  )}
+                </button>
+              )}
+
+              {/* Send hides while recording — nothing to send until
                 transcription completes. Stop owns the slot during a
                 turn-in-flight via showStopButton (unchanged). */}
-            {showStopButton ? (
-              <button
-                type="button"
-                onClick={handleStop}
-                disabled={stopping}
+              {showStopButton ? (
+                <button
+                  type="button"
+                  onClick={handleStop}
+                  disabled={stopping}
+                  className={cn(
+                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                    'border border-border bg-background text-muted-foreground',
+                    'hover:text-foreground hover:bg-muted/40 active:scale-95',
+                    'disabled:opacity-60 disabled:cursor-not-allowed',
+                  )}
+                  aria-label="Stop agent"
+                  title="Stop agent"
+                >
+                  {stopping ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Square size={10} className="fill-current" />
+                  )}
+                </button>
+              ) : !voice.isRecording ? (
+                <button
+                  type="button"
+                  onClick={() => handleSend()}
+                  disabled={!canSend}
+                  className={cn(
+                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                    canSend
+                      ? 'bg-primary text-primary-foreground hover:opacity-90 active:scale-95'
+                      : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
+                  )}
+                  aria-label="Send message"
+                  title="Send (Enter)"
+                >
+                  {sending ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={13} />}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Status line + Shift+Tab hint. One row below the composer so
+            the layout doesn't bounce when status text appears/disappears. */}
+          <div className="flex items-center justify-between gap-2 mt-1 px-1 min-h-[14px]">
+            <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
+              ⇧⇥ to cycle modes
+            </span>
+            {statusLine && (
+              <span
                 className={cn(
-                  'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                  'border border-border bg-background text-muted-foreground',
-                  'hover:text-foreground hover:bg-muted/40 active:scale-95',
-                  'disabled:opacity-60 disabled:cursor-not-allowed',
+                  'text-[10px]',
+                  statusIsError ? 'text-destructive' : 'text-muted-foreground/70',
                 )}
-                aria-label="Stop agent"
-                title="Stop agent"
               >
-                {stopping ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Square size={10} className="fill-current" />
-                )}
-              </button>
-            ) : !voice.isRecording ? (
-              <button
-                type="button"
-                onClick={() => handleSend()}
-                disabled={!canSend}
-                className={cn(
-                  'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                  canSend
-                    ? 'bg-primary text-primary-foreground hover:opacity-90 active:scale-95'
-                    : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
-                )}
-                aria-label="Send message"
-                title="Send (Enter)"
-              >
-                {sending ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={13} />}
-              </button>
-            ) : null}
+                {statusLine}
+              </span>
+            )}
           </div>
         </div>
-
-        {/* Status line + Shift+Tab hint. One row below the composer so
-            the layout doesn't bounce when status text appears/disappears. */}
-        <div className="flex items-center justify-between gap-2 mt-1 px-1 min-h-[14px]">
-          <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
-            ⇧⇥ to cycle modes
-          </span>
-          {statusLine && (
-            <span
-              className={cn(
-                'text-[10px]',
-                statusIsError ? 'text-destructive' : 'text-muted-foreground/70',
-              )}
-            >
-              {statusLine}
-            </span>
-          )}
-        </div>
       </div>
-    </div>
-  );
+    );
   },
 );
 
