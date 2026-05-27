@@ -2,9 +2,9 @@ import type { NextRequest } from 'next/server';
 import { headers } from 'next/headers';
 import { randomUUID } from 'node:crypto';
 import {
-  getChatSession,
+  getChatSessionWithExecution,
   getWorkspace,
-  markSessionTakenOver,
+  startExecutionTakeover,
 } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import * as executor from '@/lib/executor/adapter';
@@ -66,7 +66,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) {
       return Response.json({ error: 'Session not found' }, { status: 404 });
     }
@@ -82,7 +82,7 @@ export async function POST(
         { status: 409 },
       );
     }
-    if (!session.workspace_id || !session.worktree_path || !session.branch_name) {
+    if (!session.workspace_id || !session.worktree_path || !session.branch_name || !session.execution_id) {
       return Response.json(
         { error: 'no_worktree', message: 'Session has no worktree to take over.' },
         { status: 400 },
@@ -161,7 +161,7 @@ export async function POST(
     const token = randomUUID().replace(/-/g, '');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
 
-    const updated = markSessionTakenOver(id, {
+    const updated = startExecutionTakeover(session.execution_id, {
       base_sha: baseSha,
       branch: session.branch_name,
       token,

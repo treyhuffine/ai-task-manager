@@ -1,6 +1,6 @@
 import { api } from './client';
 import type {
-  ChatSessionRecord, ChatEventRecord,
+  ChatSessionRecord, ChatSessionWithExecution, ChatEventRecord,
   PermissionMode, EffortLevel, Attachment,
 } from '@/db/types';
 
@@ -233,18 +233,24 @@ export interface ResumeFromTakeoverResponse {
  * `chat_sessions` row plus a sidecar `agent_harness` field that the GET
  * endpoint joins in. Used by the composer to pick the right model
  * catalog without a second fetch.
+ *
+ * Extends `ChatSessionWithExecution` (not the bare row) because the GET
+ * endpoint flattens the execution's worktree/branch/PR/setup/takeover
+ * state onto the response. Reads of `worktree_path` etc. on this type are
+ * execution-sourced.
  */
-export interface ChatSessionWithAgent extends ChatSessionRecord {
+export interface ChatSessionWithAgent extends ChatSessionWithExecution {
   agent_harness: string | null;
 }
 
 /**
- * Wire shape of a rail session row — chat_session columns plus the
- * workspace columns the row needs (name, emoji, cover image, area link).
- * `attachments` carries through unchanged so the renderer can resolve
- * cover images via the existing `coverAttachmentUrl` helper.
+ * Wire shape of a rail session row — flattened chat_session + execution
+ * state plus the workspace columns the row needs (name, emoji, cover
+ * image, area link). `attachments` carries through unchanged so the
+ * renderer can resolve cover images via the existing `coverAttachmentUrl`
+ * helper.
  */
-export interface RailSession extends ChatSessionRecord {
+export interface RailSession extends ChatSessionWithExecution {
   workspace_name: string | null;
   workspace_emoji: string | null;
   workspace_attachments: Attachment[] | null;

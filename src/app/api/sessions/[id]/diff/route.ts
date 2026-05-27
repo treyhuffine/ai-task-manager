@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSession, getWorkspace } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 
 /**
@@ -17,7 +17,7 @@ export async function GET(
     const { id } = await params;
     const fileFilter = request.nextUrl.searchParams.get('file');
 
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (!session.worktree_path || !session.workspace_id) return Response.json(null);
 

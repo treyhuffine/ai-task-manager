@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSession, getWorkspace, insertChatEvent } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { buildOpenPrPrompt } from '@/lib/executor/prompts/open-pr';
 import * as executor from '@/lib/executor/adapter';
@@ -41,7 +41,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (!session.workspace_id || !session.worktree_path || !session.branch_name) {
       return Response.json({ pr: null });
@@ -145,7 +145,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (session.status === 'archived') {
       return Response.json({ error: 'Cannot open a PR on an archived session' }, { status: 400 });

@@ -17,6 +17,8 @@ function s(id: string, iso: string): RailSession {
     label: 'Test',
     scratch_pad: null,
     workspace_id: 'ws-1',
+    execution_id: null,
+    execution: null,
     worktree_path: null,
     branch_name: null,
     base_sha: null,

@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSession, getWorkspace } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 
 /**
  * Merge the PR for this session via `@agentex/github`. The caller has
@@ -22,7 +22,7 @@ export async function POST(
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as MergeRequestBody;
 
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (!session.workspace_id || !session.branch_name) {
       return Response.json(

@@ -38,10 +38,11 @@ import {
   type CodexTranscriptLocation,
 } from '@agentex/agent';
 import {
-  getChatSession,
+  getChatSessionWithExecution,
   updateChatSession,
   listReconcilableSessions,
-  listStuckBootstrapSessions,
+  listStuckBootstrapExecutions,
+  recordExecutionSetupError,
   getAgent,
   insertChatEvent,
 } from '@/lib/db/queries';
@@ -49,7 +50,7 @@ import {
   publishReconcileStarted,
   publishReconcileDone,
 } from '@/lib/realtime/bus';
-import type { ChatSessionRecord } from '@/db/types';
+import type { ChatSessionRecord, ChatSessionWithExecution } from '@/db/types';
 import { mapHarnessToProvider } from './harness';
 import { persistStreamEvent, resolveCwd, isRunning } from './adapter';
 import { mapCodexLineToInput } from './codex-on-disk';
@@ -115,7 +116,7 @@ export async function reconcileSession(sessionId: string): Promise<ReconcileResu
   }
   state.inFlight.add(sessionId);
   try {
-    const session = getChatSession(sessionId);
+    const session = getChatSessionWithExecution(sessionId);
     if (!session) return { drift: false, replayed: 0, skipped: 'no_cwd' };
     if (!session.external_session_id) {
       return { drift: false, replayed: 0, skipped: 'no_external_session' };
@@ -181,7 +182,7 @@ function hasOffsetCursor(session: ChatSessionRecord): boolean {
 
 // ─── Claude ───────────────────────────────────────────────────
 
-async function reconcileClaudeSession(session: ChatSessionRecord): Promise<ReconcileResult> {
+async function reconcileClaudeSession(session: ChatSessionWithExecution): Promise<ReconcileResult> {
   if (!session.external_session_id) {
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
   }
@@ -245,7 +246,7 @@ async function reconcileClaudeSession(session: ChatSessionRecord): Promise<Recon
 
 // ─── Codex ────────────────────────────────────────────────────
 
-async function reconcileCodexSession(session: ChatSessionRecord): Promise<ReconcileResult> {
+async function reconcileCodexSession(session: ChatSessionWithExecution): Promise<ReconcileResult> {
   if (!session.external_session_id) {
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
   }
@@ -373,11 +374,9 @@ export async function reconcileAllSessions(): Promise<{
   // marker.
   let reapedStuckBootstraps = 0;
   try {
-    const stuck = listStuckBootstrapSessions();
-    for (const s of stuck) {
-      updateChatSession(s.id, {
-        setup_error: 'Setup did not complete in time. Retry to start over.',
-      });
+    const stuck = listStuckBootstrapExecutions();
+    for (const e of stuck) {
+      recordExecutionSetupError(e.id, 'Setup did not complete in time. Retry to start over.');
       reapedStuckBootstraps++;
     }
   } catch (err) {

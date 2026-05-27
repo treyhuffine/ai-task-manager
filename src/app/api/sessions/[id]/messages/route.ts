@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import {
   getAgent,
   getChatEventById,
-  getChatSession,
+  getChatSessionWithExecution,
   insertChatEvent,
   materializeEventRefs,
 } from '@/lib/db/queries';
@@ -66,7 +66,7 @@ export async function POST(
       return Response.json({ error: 'content is required' }, { status: 400 });
     }
 
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (session.status === 'archived') {
       return Response.json({ error: 'Cannot send to an archived session' }, { status: 400 });

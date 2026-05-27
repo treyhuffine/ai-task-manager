@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSession, getWorkspace } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import {
   readWorkspaceFile,
@@ -37,7 +37,7 @@ export async function GET(
       return Response.json({ error: 'Missing path parameter' }, { status: 400 });
     }
 
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (!session.workspace_id || !session.worktree_path) {
       return Response.json({ error: 'Workspace has no worktree' }, { status: 404 });
