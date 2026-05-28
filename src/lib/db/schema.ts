@@ -371,39 +371,6 @@ export const chatSessions = sqliteTable('chat_sessions', {
   // survives as an orphaned-but-readable transcript.
   execution_id: text('execution_id').references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
 
-  // ─── LEGACY execution columns ──────────────────────────────
-  // Lifted to the `executions` table. Retained during the migration
-  // transition so the additive schema change and the data backfill are
-  // non-destructive; reads now flow through `getChatSessionWithExecution`
-  // (which sources these from the joined execution) and writes go through
-  // the named execution helpers. Dropped in a follow-up migration once
-  // `scripts/check-executions-migration-complete.ts` confirms no consumer
-  // touches them directly. Do NOT read or write these columns in new code.
-  worktree_path: text('worktree_path'),
-  branch_name: text('branch_name'),
-  base_sha: text('base_sha'),
-
-  // Explicit PR link override. The action bar normally matches PRs by
-  // branch name (`pr.headRefName === session.branch_name`), but when
-  // the user opens a PR off a different branch — or wants to point at
-  // an existing PR — they can stamp the number here. The route uses
-  // it as the source of truth when set, falling back to branch match.
-  // Also set by "Create from PR" at dispatch time so the link is wired
-  // up front instead of waiting for branch-match heuristics.
-  pr_number: integer('pr_number'),
-
-  // Last worktree-provisioning failure. Null once the worktree exists;
-  // set when `provisionWorktreeForSession` throws (network, auth, fetch
-  // failure, etc.). Surfaced in the setup card with a Pull/retry action.
-  // Cleared when retry succeeds.
-  setup_error: text('setup_error'),
-
-  // When the current provisioning attempt started. Set on dispatch AND
-  // updated on every retry — so the "creating worktree… 47s" counter
-  // anchors to the current attempt instead of the original row creation
-  // (which can be hours old for a retried session).
-  setup_started_at: text('setup_started_at'),
-
   // Review derivation (timestamp-only, no state column).
   //
   // `last_viewed_at` is the read receipt — bumped on user interaction
@@ -450,26 +417,12 @@ export const chatSessions = sqliteTable('chat_sessions', {
     enum: ['bypass', 'default', 'accept_edits', 'plan'],
   }),
 
-  // "Take over locally" lifecycle. Session is in takeover iff
-  // `takeover_started_at IS NOT NULL`. All five columns clear together
-  // on resume/cancel. The token authenticates the local CLI (`flow
-  // takeover` and `flow resume`) without needing the bearer token —
-  // expires after one hour, regenerated on each new takeover.
-  takeover_started_at: text('takeover_started_at'),
-  takeover_base_sha: text('takeover_base_sha'),
-  takeover_branch: text('takeover_branch'),
-  takeover_token: text('takeover_token'),
-  takeover_token_expires_at: text('takeover_token_expires_at'),
-
   started_at: text('started_at').notNull().default(sql`(datetime('now'))`),
   archived_at: text('archived_at'),
 }, (table) => [
   uniqueIndex('chat_sessions_external_session_id_uq')
     .on(table.external_session_id)
     .where(sql`${table.external_session_id} IS NOT NULL`),
-  uniqueIndex('chat_sessions_takeover_token_uq')
-    .on(table.takeover_token)
-    .where(sql`${table.takeover_token} IS NOT NULL`),
   index('idx_chat_sessions_workspace_status')
     .on(table.workspace_id, table.status, table.last_outcome_event_at),
   index('idx_chat_sessions_agent_status').on(table.agent_id, table.status),

@@ -5,12 +5,12 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
-import type { ChatSessionRecord } from '@/db/types';
+import type { ChatSessionWithExecution } from '@/db/types';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 
 interface SessionRowProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithExecution;
   showWorkspaceLabel?: string;
   /**
    * Which surface this row is rendered on. Same session can render in

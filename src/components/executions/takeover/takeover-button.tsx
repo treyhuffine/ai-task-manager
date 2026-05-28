@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { Laptop } from 'lucide-react';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useTakeover } from '@/hooks/use-takeover';
-import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import type { TakeoverResponse } from '@/lib/api/sessions';
 import { TakeoverModal } from './takeover-modal';
 
 interface TakeoverButtonProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithExecution;
   workspace: WorkspaceRecord | undefined | null;
 }
 

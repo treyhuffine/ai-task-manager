@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2 } from 'lucide-react';
 import { useRetrySetup } from '@/hooks/use-execution';
-import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ThinkingDots } from './thinking-dots';
 
 interface SetupCardProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithExecution;
   workspace: WorkspaceRecord | undefined;
 }
 

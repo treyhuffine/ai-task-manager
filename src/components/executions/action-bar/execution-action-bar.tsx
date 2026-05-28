@@ -11,10 +11,10 @@ import { CommitButton } from './commit-button';
 import { OpenPrButton } from './open-pr-button';
 import { MergeButton } from './merge-button';
 import { ErrorModal } from '../error-modal';
-import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 
 interface ExecutionActionBarProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithExecution;
   workspace: WorkspaceRecord | undefined | null;
   /**
    * Layout variant:

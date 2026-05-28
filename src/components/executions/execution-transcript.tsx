@@ -8,13 +8,13 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
-import type { ChatEventRecord, ChatSessionRecord, WorkspaceRecord } from '@/db/types';
+import type { ChatEventRecord, ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionEvent } from './execution-event';
 import { SetupCard } from './setup-card';
 import { ThinkingState } from './thinking-state';
 
 interface ExecutionTranscriptProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithExecution;
   workspace: WorkspaceRecord | undefined;
   isRunning: boolean;
   /** Event ids that this client sent via voice — drives the badge under user messages. */

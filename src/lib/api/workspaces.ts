@@ -4,7 +4,7 @@ import type {
   WorkspaceWithCounts,
   CreateWorkspaceInput,
   UpdateWorkspaceInput,
-  ChatSessionRecord,
+  ChatSessionWithExecution,
   WorkspaceStatus,
 } from '@/db/types';
 
@@ -35,8 +35,8 @@ export const workspacesApi = {
     return api.post<{ ok: true }>('/workspaces/reorder', { ids });
   },
 
-  sessions(id: string): Promise<ChatSessionRecord[]> {
-    return api.get<ChatSessionRecord[]>(`/workspaces/${id}/sessions`);
+  sessions(id: string): Promise<ChatSessionWithExecution[]> {
+    return api.get<ChatSessionWithExecution[]>(`/workspaces/${id}/sessions`);
   },
 
   createSession(
@@ -53,8 +53,8 @@ export const workspacesApi = {
        *  Caller is opting into shared mutable state. */
       liveMode?: boolean;
     } = {},
-  ): Promise<ChatSessionRecord> {
-    return api.post<ChatSessionRecord>(`/workspaces/${id}/sessions`, {
+  ): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/workspaces/${id}/sessions`, {
       label: options.label ?? null,
       baseBranch: options.baseBranch ?? null,
       prNumber: options.prNumber ?? null,
