@@ -14,7 +14,7 @@ const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
 
 export async function GET(request: NextRequest) {
   try {
-    const includeRevoked = request.nextUrl.searchParams.get('include_revoked') === '1';
+    const includeRevoked = request.nextUrl.searchParams.get('includeRevoked') === '1';
     const rows = listApiKeys({ includeRevoked });
     return Response.json(rows);
   } catch (err) {

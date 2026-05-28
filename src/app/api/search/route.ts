@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
+import { hydrateRow } from '@/lib/db/hydrate';
 import { tasks, notes, stream } from '@/lib/db/schema';
 import { hybridSearch, vectorSearch, ftsSearch } from '@/lib/embeddings/search';
 
@@ -38,18 +39,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Hydrate results with full entity data
+    // Hydrate results with full entity data. `hydrateRow` camelizes the
+    // `attachments` JSON column so the API response stays camelCase
+    // end-to-end.
     const db = getDb();
     const results = hits
       .map((hit) => {
         let entity: Record<string, unknown> | undefined;
 
         if (hit.entityType === 'task') {
-          entity = db.select().from(tasks).where(eq(tasks.id, hit.entityId)).get();
+          entity = hydrateRow(db.select().from(tasks).where(eq(tasks.id, hit.entityId)).get());
         } else if (hit.entityType === 'note') {
-          entity = db.select().from(notes).where(eq(notes.id, hit.entityId)).get();
+          entity = hydrateRow(db.select().from(notes).where(eq(notes.id, hit.entityId)).get());
         } else if (hit.entityType === 'stream') {
-          entity = db.select().from(stream).where(eq(stream.id, hit.entityId)).get();
+          entity = hydrateRow(db.select().from(stream).where(eq(stream.id, hit.entityId)).get());
         }
 
         if (!entity) return null;

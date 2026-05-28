@@ -22,7 +22,7 @@ export interface UpdateDeviceBody {
 export const devicesApi = {
   list(opts?: { includeRevoked?: boolean }): Promise<ApiKeyRecord[]> {
     return api.get<ApiKeyRecord[]>('/devices', {
-      query: opts?.includeRevoked ? { include_revoked: 1 } : undefined,
+      query: opts?.includeRevoked ? { includeRevoked: 1 } : undefined,
     });
   },
 

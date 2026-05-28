@@ -36,6 +36,8 @@ import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { detectPortless, derivePortlessHostname, findRoute } from '@/lib/preview/portless';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
+import { camelizeKeys } from '@/lib/case/keys';
+import type { StoredAttachment } from '@/lib/db/schema';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -1485,9 +1487,7 @@ export function listRailSessions(): RailSessionRow[] {
     .where(eq(executions.status, 'active'))
     .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .all();
-  return rows.map(
-    (r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }) as RailSessionRow,
-  );
+  return rows.map((r) => hydrateRailRow(r));
 }
 
 /**
@@ -1521,9 +1521,25 @@ export function listHistorySessions(opts: { limit?: number } = {}): RailSessionR
     .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .limit(limit)
     .all();
-  return rows.map(
-    (r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }) as RailSessionRow,
-  );
+  return rows.map((r) => hydrateRailRow(r));
+}
+
+/**
+ * Camelize the aliased `workspaceAttachments` JSON column and run the
+ * row through `flattenSessionExecution`. The execution flatten copies
+ * camelCase columns through unchanged; `attachments` would otherwise
+ * stay snake_case because `hydrateRow` only recognizes a field literally
+ * named `attachments`.
+ */
+function hydrateRailRow(
+  row: ChatSessionRecord & { execution: ExecutionRecord | null; workspaceAttachments: StoredAttachment[] | null },
+): RailSessionRow {
+  const { workspaceAttachments, ...rest } = row;
+  const flat = flattenSessionExecution(rest as ChatSessionRecord & { execution: ExecutionRecord | null });
+  return {
+    ...flat,
+    workspaceAttachments: workspaceAttachments ? camelizeKeys(workspaceAttachments) : null,
+  } as RailSessionRow;
 }
 
 // ─── Chat Events ──────────────────────────────────────────────

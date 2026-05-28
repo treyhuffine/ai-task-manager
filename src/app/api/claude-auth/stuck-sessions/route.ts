@@ -1,5 +1,6 @@
 import { listSessionsStuckOnSource } from '@/lib/db/queries';
-import type { Attachment } from '@/db/types';
+import { camelizeKeys } from '@/lib/case/keys';
+import type { Attachment, StoredAttachment } from '@/db/types';
 
 export interface StuckSession {
   id: string;
@@ -25,11 +26,15 @@ export interface StuckSession {
 export async function GET() {
   const rows = listSessionsStuckOnSource('auth_required');
   const sessions: StuckSession[] = rows.map((r) => {
-    const attachments = (() => {
+    // The CTE pulls the JSON column verbatim, so the parsed shape is
+    // snake_case `StoredAttachment[]`. Camelize at the boundary to keep
+    // the wire contract camelCase and let `expandMarkers` read
+    // `.fileName` / `.mimeType` correctly downstream.
+    const attachments = ((): Attachment[] => {
       if (!r.last_user_attachments) return [];
       try {
-        const parsed = JSON.parse(r.last_user_attachments) as Attachment[];
-        return Array.isArray(parsed) ? parsed : [];
+        const parsed = JSON.parse(r.last_user_attachments) as StoredAttachment[];
+        return Array.isArray(parsed) ? camelizeKeys(parsed) : [];
       } catch {
         return [];
       }
