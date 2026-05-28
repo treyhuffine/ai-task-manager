@@ -1,167 +1,177 @@
 import { sqliteTable, text, integer, index, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+import type { SnakeizeKeys } from '@/lib/case/keys';
 
 // ─── Attachments ──────────────────────────────────────────────
 // Generic file reference stored on any entity that can carry uploads.
-// Files live in `<brain>/attachments/<file_name>`. See
+// Files live in `<brain>/attachments/<fileName>`. See
 // `src/lib/attachments/save.ts` for the write path and
 // `src/lib/attachments/derive.ts` for the body→manifest sync.
+//
+// `Attachment` is the camelCase shape the app uses. `StoredAttachment` is
+// the snake_case shape on disk in JSON columns — the app never sees this
+// directly; `queries.ts` hydrates on read and dehydrates on write via
+// `camelizeKeys` / `snakeizeKeys`. Keeping storage snake_case matches the
+// SQL column convention so a direct DB inspection looks consistent.
 
 export interface Attachment {
   /** UUIDv7-based storage filename, e.g. `01HXYZ.png`. Immutable. */
-  file_name: string;
+  fileName: string;
   /** Human-facing name from upload time, e.g. `Screenshot 2026-04-21.png`. */
-  original_name: string;
+  originalName: string;
   /** Normalized MIME type, e.g. `image/png`, `audio/webm`. */
-  mime_type: string;
+  mimeType: string;
   /** File size in bytes. */
   size: number;
   /** ISO timestamp captured when the file was written to disk. */
-  uploaded_at: string;
+  uploadedAt: string;
 }
+
+/** On-disk shape of an attachment inside a JSON column. */
+export type StoredAttachment = SnakeizeKeys<Attachment>;
 
 // ─── User State ────────────────────────────────────────────────
 
 export const userState = sqliteTable('user_state', {
-  id: integer('id').primaryKey(),
-  name: text('name'),
-  active_area_id: text('active_area_id').references(() => areas.id),
-  active_parent_task_id: text('active_parent_task_id'),
-  active_energy: text('active_energy', { enum: ['deep', 'light'] }),
-  available_minutes: integer('available_minutes'),
-  description: text('description').notNull().default(''),
-  voice_auto_send: integer('voice_auto_send', { mode: 'boolean' }).notNull().default(true),
-  voice_model: text('voice_model').notNull().default('local/parakeet-tdt-0.6b-v3'),
-  default_agent_harness: text('default_agent_harness', { enum: ['claude', 'codex'] }),
-  default_agent_model: text('default_agent_model'),
-  onboarded_at: text('onboarded_at'),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  id: integer().primaryKey(),
+  name: text(),
+  activeAreaId: text().references(() => areas.id),
+  activeParentTaskId: text(),
+  activeEnergy: text({ enum: ['deep', 'light'] }),
+  availableMinutes: integer(),
+  description: text().notNull().default(''),
+  voiceAutoSend: integer({ mode: 'boolean' }).notNull().default(true),
+  voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
+  defaultAgentHarness: text({ enum: ['claude', 'codex'] }),
+  defaultAgentModel: text(),
+  onboardedAt: text(),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
 });
 
 // ─── Areas ────────────────────────────────────────────────────
 
 export const areas = sqliteTable('areas', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  emoji: text('emoji'),
-  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
-  notes: text('notes'),
-  user_context: text('user_context'),
-  status: text('status', { enum: ['active', 'inactive', 'archived'] }).notNull().default('active'),
-  sort_order: integer('sort_order').notNull().default(0),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  id: text().primaryKey(),
+  name: text().notNull(),
+  description: text(),
+  emoji: text(),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
+  notes: text(),
+  userContext: text(),
+  status: text({ enum: ['active', 'inactive', 'archived'] }).notNull().default('active'),
+  sortOrder: integer().notNull().default(0),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
 });
 
 // ─── Stream ───────────────────────────────────────────────────
 
 export const stream = sqliteTable('stream', {
-  id: text('id').primaryKey(),
-  raw_text: text('raw_text').notNull(),
+  id: text().primaryKey(),
+  rawText: text().notNull(),
   /** Which in-app surface/flow produced the item. Decoupled from media type. */
-  source: text('source', { enum: ['capture', 'chat', 'webhook'] }).notNull().default('capture'),
+  source: text({ enum: ['capture', 'chat', 'webhook'] }).notNull().default('capture'),
   /** Original media format. Voice/image items were transcribed/OCR'd into `raw_text`. */
-  media: text('media', { enum: ['text', 'voice', 'image'] }).notNull().default('text'),
+  media: text({ enum: ['text', 'voice', 'image'] }).notNull().default('text'),
   /** How the item entered the system. `internal` = user action in the app. */
-  origin: text('origin', { enum: ['internal', 'webhook', 'api'] }).notNull().default('internal'),
+  origin: text({ enum: ['internal', 'webhook', 'api'] }).notNull().default('internal'),
   /** External system that sent it (e.g. `pocket`). Null when origin='internal'. */
-  external_source: text('external_source'),
+  externalSource: text(),
   /** Upstream id for dedupe on at-least-once deliveries. Null when origin='internal'. */
-  external_id: text('external_id'),
+  externalId: text(),
   /** Full inbound payload for audit/replay. Null when origin='internal'. */
-  external_payload: text('external_payload'),
-  status: text('status', { enum: ['pending', 'promoted', 'dismissed'] }).notNull().default('pending'),
-  dismissed_by: text('dismissed_by'),
-  promoted_to_type: text('promoted_to_type'),
-  promoted_to_id: text('promoted_to_id'),
-  promoted_at: text('promoted_at'),
-  promotion_pass: text('promotion_pass'),
+  externalPayload: text(),
+  status: text({ enum: ['pending', 'promoted', 'dismissed'] }).notNull().default('pending'),
+  dismissedBy: text(),
+  promotedToType: text(),
+  promotedToId: text(),
+  promotedAt: text(),
+  promotionPass: text(),
   /** Files attached to this stream item (e.g. raw audio when transcription
    *  failed or no STT provider was available). Derived on write from any
    *  references present in `raw_text`. */
-  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('stream_external_id_idx').on(table.external_source, table.external_id),
+  index('stream_external_id_idx').on(table.externalSource, table.externalId),
 ]);
 
 // ─── Tasks ────────────────────────────────────────────────────
 
 export const tasks = sqliteTable('tasks', {
-  id: text('id').primaryKey(),
-  parent_id: text('parent_id').references((): AnySQLiteColumn => tasks.id),
-  area_id: text('area_id').references(() => areas.id),
+  id: text().primaryKey(),
+  parentId: text().references((): AnySQLiteColumn => tasks.id),
+  areaId: text().references(() => areas.id),
   // Canonical workspace this task pertains to. Distinct from `area_id`:
   // areas are user-facing buckets ("Health"), workspaces are codebases
   // on disk. Auto-populated when a task is created from inside an
   // execution session (defaults from `chat_sessions.workspace_id`).
-  workspace_id: text('workspace_id').references((): AnySQLiteColumn => workspaces.id, { onDelete: 'set null' }),
-  raw_input: text('raw_input').notNull(),
-  stream_item_id: text('stream_item_id').references(() => stream.id),
-  title: text('title').notNull(),
-  description: text('description'),
-  body: text('body'),
-  user_context: text('user_context'),
-  ai_context: text('ai_context'),
-  outcome: text('outcome'),
-  heartbeat_days: integer('heartbeat_days'),
-  last_progress_at: text('last_progress_at'),
-  energy: text('energy', { enum: ['deep', 'light'] }),
-  effort: text('effort', { enum: ['trivial', 'small', 'medium', 'large', 'epic'] }),
-  estimated_minutes: integer('estimated_minutes'),
-  context_tags: text('context_tags', { mode: 'json' }).$type<string[]>().default([]),
-  hard_deadline: text('hard_deadline'),
-  reminder_at: text('reminder_at'),
-  resurface_after: text('resurface_after'),
-  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
-  folded_headings: text('folded_headings', { mode: 'json' }).$type<string[]>().default([]),
-  status: text('status', { enum: ['active', 'done', 'archived'] }).notNull().default('active'),
-  sort_key: text('sort_key'),
-  blocked_on: text('blocked_on'),
-  blocked_since: text('blocked_since'),
-  recurrence: text('recurrence'),
-  next_recurrence_at: text('next_recurrence_at'),
-  target_frequency: integer('target_frequency'),
-  times_deferred: integer('times_deferred').notNull().default(0),
-  last_surfaced_at: text('last_surfaced_at'),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
-  completed_at: text('completed_at'),
-  last_viewed_at: text('last_viewed_at'),
+  workspaceId: text().references((): AnySQLiteColumn => workspaces.id, { onDelete: 'set null' }),
+  rawInput: text().notNull(),
+  streamItemId: text().references(() => stream.id),
+  title: text().notNull(),
+  description: text(),
+  body: text(),
+  userContext: text(),
+  aiContext: text(),
+  outcome: text(),
+  heartbeatDays: integer(),
+  lastProgressAt: text(),
+  energy: text({ enum: ['deep', 'light'] }),
+  effort: text({ enum: ['trivial', 'small', 'medium', 'large', 'epic'] }),
+  estimatedMinutes: integer(),
+  contextTags: text({ mode: 'json' }).$type<string[]>().default([]),
+  hardDeadline: text(),
+  reminderAt: text(),
+  resurfaceAfter: text(),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
+  foldedHeadings: text({ mode: 'json' }).$type<string[]>().default([]),
+  status: text({ enum: ['active', 'done', 'archived'] }).notNull().default('active'),
+  sortKey: text(),
+  blockedOn: text(),
+  blockedSince: text(),
+  recurrence: text(),
+  nextRecurrenceAt: text(),
+  targetFrequency: integer(),
+  timesDeferred: integer().notNull().default(0),
+  lastSurfacedAt: text(),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+  completedAt: text(),
+  lastViewedAt: text(),
 }, (table) => [
   index('idx_tasks_status').on(table.status),
-  index('idx_tasks_area_id').on(table.area_id),
-  index('idx_tasks_workspace_id').on(table.workspace_id),
-  index('idx_tasks_parent_id').on(table.parent_id),
-  index('idx_tasks_sort_key').on(table.sort_key),
-  index('idx_tasks_status_sort').on(table.status, table.sort_key),
+  index('idx_tasks_area_id').on(table.areaId),
+  index('idx_tasks_workspace_id').on(table.workspaceId),
+  index('idx_tasks_parent_id').on(table.parentId),
+  index('idx_tasks_sort_key').on(table.sortKey),
+  index('idx_tasks_status_sort').on(table.status, table.sortKey),
 ]);
 
 // ─── Task Completions ─────────────────────────────────────────
 
 export const taskCompletions = sqliteTable('task_completions', {
-  id: text('id').primaryKey(),
-  task_id: text('task_id').notNull().references(() => tasks.id),
-  completed_at: text('completed_at').notNull().default(sql`(datetime('now'))`),
-  note: text('note'),
+  id: text().primaryKey(),
+  taskId: text().notNull().references(() => tasks.id),
+  completedAt: text().notNull().default(sql`(datetime('now'))`),
+  note: text(),
 }, (table) => [
-  index('idx_task_completions_task_id').on(table.task_id),
+  index('idx_task_completions_task_id').on(table.taskId),
 ]);
 
 // ─── Decks ────────────────────────────────────────────────────
 
 export const decks = sqliteTable('decks', {
-  id: text('id').primaryKey(),
-  context: text('context'),
-  context_tags: text('context_tags', { mode: 'json' }).$type<string[]>().default([]),
-  framing: text('framing'),
-  items: text('items', { mode: 'json' }).$type<DeckItem[]>().notNull().default([]),
-  alternatives: text('alternatives', { mode: 'json' }).$type<DeckAlternative[]>().notNull().default([]),
-  search_context: text('search_context'),
-  model: text('model'),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  id: text().primaryKey(),
+  context: text(),
+  contextTags: text({ mode: 'json' }).$type<string[]>().default([]),
+  framing: text(),
+  items: text({ mode: 'json' }).$type<DeckItem[]>().notNull().default([]),
+  alternatives: text({ mode: 'json' }).$type<DeckAlternative[]>().notNull().default([]),
+  searchContext: text(),
+  model: text(),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
 });
 
 export interface DeckItem {
@@ -179,28 +189,28 @@ export interface DeckAlternative {
 // ─── API Keys ─────────────────────────────────────────────────
 
 export const apiKeys = sqliteTable('api_keys', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  device_type: text('device_type', {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  description: text(),
+  deviceType: text({
     enum: ['host', 'computer', 'phone', 'tablet', 'service', 'other'],
   }).notNull().default('other'),
-  prefix: text('prefix').notNull(),
-  suffix: text('suffix').notNull(),
-  hash: text('hash').notNull().unique(),
-  env: text('env', { enum: ['live', 'test'] }).notNull().default('live'),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
-  expires_at: text('expires_at'),
-  last_used_at: text('last_used_at'),
-  last_used_ip: text('last_used_ip'),
-  last_used_user_agent: text('last_used_user_agent'),
-  revoked_at: text('revoked_at'),
-  revoked_reason: text('revoked_reason'),
+  prefix: text().notNull(),
+  suffix: text().notNull(),
+  hash: text().notNull().unique(),
+  env: text({ enum: ['live', 'test'] }).notNull().default('live'),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+  expiresAt: text(),
+  lastUsedAt: text(),
+  lastUsedIp: text(),
+  lastUsedUserAgent: text(),
+  revokedAt: text(),
+  revokedReason: text(),
 }, (table) => [
   index('idx_api_keys_hash').on(table.hash),
   index('idx_api_keys_prefix').on(table.prefix),
-  index('idx_api_keys_revoked').on(table.revoked_at),
+  index('idx_api_keys_revoked').on(table.revokedAt),
 ]);
 
 // ─── Workspaces ───────────────────────────────────────────────
@@ -209,20 +219,20 @@ export const apiKeys = sqliteTable('api_keys', {
 // sessions don't step on each other. Non-git workspaces share `cwd`.
 
 export const workspaces = sqliteTable('workspaces', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  emoji: text('emoji'),
-  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
-  cwd: text('cwd').notNull(),
-  is_git: integer('is_git', { mode: 'boolean' }).notNull().default(false),
-  base_branch: text('base_branch'),
-  remote_name: text('remote_name').default('origin'),
-  worktree_root: text('worktree_root'),
+  id: text().primaryKey(),
+  name: text().notNull(),
+  slug: text().notNull().unique(),
+  emoji: text(),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
+  cwd: text().notNull(),
+  isGit: integer({ mode: 'boolean' }).notNull().default(false),
+  baseBranch: text(),
+  remoteName: text().default('origin'),
+  worktreeRoot: text(),
   // Globs to copy from `cwd` into each new session's worktree at creation
   // time. Picomatch dialect, dot-aware. `.env*` is the default so secrets
   // travel with the worktree without symlinking back to source.
-  files_to_copy: text('files_to_copy', { mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
+  filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
   // Preview pane wiring. Nullable across the board so legacy workspaces
   // resolve to "auto-detect command mode" without a backfill.
   //
@@ -231,20 +241,20 @@ export const workspaces = sqliteTable('workspaces', {
   // hostname's route from ~/.portless/routes.json and proxies to its
   // ephemeral port. Null means auto: prefer portless when both the
   // daemon is up and a matching route exists, else command.
-  preview_mode: text('preview_mode', { enum: ['command', 'portless'] }),
-  preview_command: text('preview_command'),
-  preview_port_override: integer('preview_port_override'),
-  portless_hostname: text('portless_hostname'),
-  area_id: text('area_id').references(() => areas.id, { onDelete: 'set null' }),
-  position: integer('position').notNull().default(0),
-  collapsed: integer('collapsed', { mode: 'boolean' }).notNull().default(false),
-  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
-  archived_at: text('archived_at'),
+  previewMode: text({ enum: ['command', 'portless'] }),
+  previewCommand: text(),
+  previewPortOverride: integer(),
+  portlessHostname: text(),
+  areaId: text().references(() => areas.id, { onDelete: 'set null' }),
+  position: integer().notNull().default(0),
+  collapsed: integer({ mode: 'boolean' }).notNull().default(false),
+  status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+  archivedAt: text(),
 }, (table) => [
   index('idx_workspaces_status_position').on(table.status, table.position),
-  index('idx_workspaces_area_id').on(table.area_id),
+  index('idx_workspaces_area_id').on(table.areaId),
 ]);
 
 // ─── Agents ───────────────────────────────────────────────────
@@ -253,16 +263,16 @@ export const workspaces = sqliteTable('workspaces', {
 // running on something. `config` is harness-specific JSON.
 
 export const agents = sqliteTable('agents', {
-  id: text('id').primaryKey(),
-  user_id: text('user_id').notNull().default('local'),
-  kind: text('kind', { enum: ['orchestrator', 'executor'] }).notNull(),
-  name: text('name').notNull(),
-  role: text('role'),
-  harness: text('harness').notNull(),
-  config: text('config', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
-  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  archived_at: text('archived_at'),
+  id: text().primaryKey(),
+  userId: text().notNull().default('local'),
+  kind: text({ enum: ['orchestrator', 'executor'] }).notNull(),
+  name: text().notNull(),
+  role: text(),
+  harness: text().notNull(),
+  config: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  archivedAt: text(),
 }, (table) => [
   index('idx_agents_kind').on(table.kind),
   index('idx_agents_status').on(table.status),
@@ -281,59 +291,59 @@ export const agents = sqliteTable('agents', {
 // content chats have no execution).
 
 export const executions = sqliteTable('executions', {
-  id: text('id').primaryKey(),
-  user_id: text('user_id').notNull().default('local'),
+  id: text().primaryKey(),
+  userId: text().notNull().default('local'),
 
   // What this execution is anchored to. Required — executions are
   // workspace work artifacts. CASCADE: workspace deletion takes its
   // executions with it. The transitive cascade to chats is broken at
   // `chat_sessions.execution_id` (SET NULL) so transcripts survive the
   // workspace deletion as orphaned-but-readable history.
-  workspace_id: text('workspace_id')
+  workspaceId: text()
     .notNull()
     .references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Optional label. Most executions don't need one; recurring schedule
   // executions might be labeled "morning-triage" etc. for the UI.
-  label: text('label'),
+  label: text(),
 
   // Durable git state — lifted from chat_sessions. All nullable because
   // executions exist before worktree provisioning completes (and non-git
   // workspaces never get these set — the agent runs from `workspace.cwd`).
-  worktree_path: text('worktree_path'),
-  branch_name: text('branch_name'),
-  base_sha: text('base_sha'),
+  worktreePath: text(),
+  branchName: text(),
+  baseSha: text(),
 
   // Explicit PR link override — lifted from chat_sessions. See the column
   // comment on the (now-legacy) chat_sessions.pr_number for semantics.
-  pr_number: integer('pr_number'),
+  prNumber: integer(),
 
   // Worktree provisioning state — lifted from chat_sessions. `setup_error`
   // holds the last failure (null once the worktree exists); `setup_started_at`
   // anchors the "creating worktree… Ns" counter to the current attempt.
-  setup_error: text('setup_error'),
-  setup_started_at: text('setup_started_at'),
+  setupError: text(),
+  setupStartedAt: text(),
 
   // "Take over locally" lifecycle — lifted from chat_sessions. In takeover
   // iff `takeover_started_at IS NOT NULL`; all five clear together on
   // resume/cancel. The token authenticates the local CLI without the bearer
   // token and expires after one hour.
-  takeover_started_at: text('takeover_started_at'),
-  takeover_base_sha: text('takeover_base_sha'),
-  takeover_branch: text('takeover_branch'),
-  takeover_token: text('takeover_token'),
-  takeover_token_expires_at: text('takeover_token_expires_at'),
+  takeoverStartedAt: text(),
+  takeoverBaseSha: text(),
+  takeoverBranch: text(),
+  takeoverToken: text(),
+  takeoverTokenExpiresAt: text(),
 
-  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+  status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
 
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
-  archived_at: text('archived_at'),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+  archivedAt: text(),
 }, (table) => [
-  index('idx_executions_workspace_status').on(table.workspace_id, table.status),
+  index('idx_executions_workspace_status').on(table.workspaceId, table.status),
   uniqueIndex('uniq_executions_takeover_token')
-    .on(table.takeover_token)
-    .where(sql`${table.takeover_token} IS NOT NULL`),
+    .on(table.takeoverToken)
+    .where(sql`${table.takeoverToken} IS NOT NULL`),
 ]);
 
 // ─── Chat Sessions ────────────────────────────────────────────
@@ -345,31 +355,31 @@ export const executions = sqliteTable('executions', {
 // when bound to a CLI session.
 
 export const chatSessions = sqliteTable('chat_sessions', {
-  id: text('id').primaryKey(),
-  user_id: text('user_id').notNull().default('local'),
-  agent_id: text('agent_id').notNull().references(() => agents.id),
-  type: text('type', { enum: ['orchestration', 'content', 'execution'] }).notNull(),
-  surface_kind: text('surface_kind'),
-  surface_ref: text('surface_ref'),
-  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
-  label: text('label'),
+  id: text().primaryKey(),
+  userId: text().notNull().default('local'),
+  agentId: text().notNull().references(() => agents.id),
+  type: text({ enum: ['orchestration', 'content', 'execution'] }).notNull(),
+  surfaceKind: text(),
+  surfaceRef: text(),
+  status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
+  label: text(),
 
   // Free-form scratch space scoped to this session. Markdown text the
   // user jots into during work — observations, error logs, half-formed
   // todos — without polluting global tasks/notes. Hydrated into the
   // agent's turn context when the user `@scratchpad`-mentions it in a
   // message (renders as a `[[scratchpad]]` marker in `chat_events.content`).
-  scratch_pad: text('scratch_pad'),
+  scratchPad: text(),
 
   // Execution-specific fields.
-  workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+  workspaceId: text().references(() => workspaces.id, { onDelete: 'set null' }),
 
   // The durable work artifact this chat belongs to. NULL for orchestration
   // and content chats. NOT NULL for active execution chats (see the
   // invariant in docs/executions-spec.md §2.2). ON DELETE SET NULL: if an
   // execution is ever hard-deleted (workspace deletion cascade), the chat
   // survives as an orphaned-but-readable transcript.
-  execution_id: text('execution_id').references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
+  executionId: text().references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
 
   // Review derivation (timestamp-only, no state column).
   //
@@ -381,22 +391,22 @@ export const chatSessions = sqliteTable('chat_sessions', {
   // `unread_marker_at` is the "Mark as unread" override. When set above
   // `last_viewed_at` it forces the session into Unread even when no new
   // agent outcome has landed. Cleared on the next Mark read / interaction.
-  last_outcome_event_at: text('last_outcome_event_at'),
-  last_viewed_at: text('last_viewed_at'),
-  unread_marker_at: text('unread_marker_at'),
+  lastOutcomeEventAt: text(),
+  lastViewedAt: text(),
+  unreadMarkerAt: text(),
 
   // CLI-backed tracking; null for in-app sessions.
-  external_session_id: text('external_session_id'),
-  external_transcript_path: text('external_transcript_path'),
-  external_sync_offset: integer('external_sync_offset'),
-  external_sync_last_event_id: text('external_sync_last_event_id'),
+  externalSessionId: text(),
+  externalTranscriptPath: text(),
+  externalSyncOffset: integer(),
+  externalSyncLastEventId: text(),
 
   // How tool permission requests are handled for this session. `bypass` is
   // the default — no flag passed to Claude, callback auto-allows everything.
   // `default | accept_edits | plan` map to Claude's --permission-mode flag
   // (default | acceptEdits | plan); the callback then surfaces prompts via
   // the pending-input UI. AskUserQuestion always surfaces regardless of mode.
-  permission_mode: text('permission_mode', {
+  permissionMode: text({
     enum: ['bypass', 'default', 'accept_edits', 'plan'],
   }).notNull().default('bypass'),
 
@@ -407,30 +417,30 @@ export const chatSessions = sqliteTable('chat_sessions', {
   //
   // Effort enum values mirror Claude's `--effort` flag — `xhigh` and
   // `max` are the literal CLI values, not display strings.
-  model: text('model'),
-  effort: text('effort', { enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+  model: text(),
+  effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
 
   // When entering plan mode we stash the prior permission_mode here so
   // ExitPlanMode can revert. Mirrors Claude Code's `prePlanMode` on
   // ToolPermissionContext. Cleared when a non-plan mode is set directly.
-  pre_plan_mode: text('pre_plan_mode', {
+  prePlanMode: text({
     enum: ['bypass', 'default', 'accept_edits', 'plan'],
   }),
 
-  started_at: text('started_at').notNull().default(sql`(datetime('now'))`),
-  archived_at: text('archived_at'),
+  startedAt: text().notNull().default(sql`(datetime('now'))`),
+  archivedAt: text(),
 }, (table) => [
   uniqueIndex('chat_sessions_external_session_id_uq')
-    .on(table.external_session_id)
-    .where(sql`${table.external_session_id} IS NOT NULL`),
+    .on(table.externalSessionId)
+    .where(sql`${table.externalSessionId} IS NOT NULL`),
   index('idx_chat_sessions_workspace_status')
-    .on(table.workspace_id, table.status, table.last_outcome_event_at),
-  index('idx_chat_sessions_agent_status').on(table.agent_id, table.status),
+    .on(table.workspaceId, table.status, table.lastOutcomeEventAt),
+  index('idx_chat_sessions_agent_status').on(table.agentId, table.status),
   index('idx_chat_sessions_type_status').on(table.type, table.status),
   // Primary-chat lookup + per-execution rollups: "most-recently-active
   // non-archived chat for execution E" (docs/executions-spec.md §4).
   index('idx_chat_sessions_execution_status_activity')
-    .on(table.execution_id, table.status, table.last_outcome_event_at),
+    .on(table.executionId, table.status, table.lastOutcomeEventAt),
 ]);
 
 // ─── Chat Events ──────────────────────────────────────────────
@@ -439,64 +449,64 @@ export const chatSessions = sqliteTable('chat_sessions', {
 // External_event_id makes idempotent upsert possible across retries.
 
 export const chatEvents = sqliteTable('chat_events', {
-  id: text('id').primaryKey(),
-  session_id: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
-  role: text('role').notNull(),
-  source: text('source').notNull(),
-  content: text('content'),
-  tool_name: text('tool_name'),
-  tool_input: text('tool_input', { mode: 'json' }),
-  tool_is_error: integer('tool_is_error', { mode: 'boolean' }),
-  tool_exit_code: integer('tool_exit_code'),
-  raw: text('raw', { mode: 'json' }),
-  external_event_id: text('external_event_id'),
-  external_message_id: text('external_message_id'),
-  external_turn_id: text('external_turn_id'),
-  external_tool_call_id: text('external_tool_call_id'),
-  external_parent_tool_call_id: text('external_parent_tool_call_id'),
-  source_part_index: integer('source_part_index').notNull().default(0),
+  id: text().primaryKey(),
+  sessionId: text().notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  role: text().notNull(),
+  source: text().notNull(),
+  content: text(),
+  toolName: text(),
+  toolInput: text({ mode: 'json' }),
+  toolIsError: integer({ mode: 'boolean' }),
+  toolExitCode: integer(),
+  raw: text({ mode: 'json' }),
+  externalEventId: text(),
+  externalMessageId: text(),
+  externalTurnId: text(),
+  externalToolCallId: text(),
+  externalParentToolCallId: text(),
+  sourcePartIndex: integer().notNull().default(0),
   // Files dropped/pasted/uploaded with this message. Same shape as
   // entity attachments (tasks/notes/areas) — references files in
   // <brain>/attachments/<file_name>. Marker tokens in `content`
   // (`[[file:<file_name>]]`) point at entries here so the chip's
   // position in the message is preserved on render.
-  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   // Idempotent upsert key for CLI-backed events. Claude (JSONL uuid) and
   // Codex v2 (globally-unique item.id) both supply distinct external_event_id
   // values per row, so turn_id isn't needed for uniqueness here.
   uniqueIndex('chat_events_external_uq')
-    .on(table.session_id, table.external_event_id, table.source_part_index)
-    .where(sql`${table.external_event_id} IS NOT NULL`),
-  index('idx_chat_events_session_created').on(table.session_id, table.created_at),
-  index('idx_chat_events_tool_call_id').on(table.external_tool_call_id),
+    .on(table.sessionId, table.externalEventId, table.sourcePartIndex)
+    .where(sql`${table.externalEventId} IS NOT NULL`),
+  index('idx_chat_events_session_created').on(table.sessionId, table.createdAt),
+  index('idx_chat_events_tool_call_id').on(table.externalToolCallId),
 ]);
 
 // ─── Notes ────────────────────────────────────────────────────
 
 export const notes = sqliteTable('notes', {
-  id: text('id').primaryKey(),
-  area_id: text('area_id').references(() => areas.id),
-  task_id: text('task_id').references(() => tasks.id),
+  id: text().primaryKey(),
+  areaId: text().references(() => areas.id),
+  taskId: text().references(() => tasks.id),
   // Canonical workspace this note pertains to. Same role as
   // `tasks.workspace_id` — distinct from `area_id` and auto-populated
   // when the note is created from inside an execution session.
-  workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-  title: text('title'),
-  body: text('body').notNull(),
-  url: text('url'),
-  attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().default([]),
-  folded_headings: text('folded_headings', { mode: 'json' }).$type<string[]>().default([]),
-  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
-  context_tags: text('context_tags', { mode: 'json' }).$type<string[]>().default([]),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
-  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
-  last_viewed_at: text('last_viewed_at'),
+  workspaceId: text().references(() => workspaces.id, { onDelete: 'set null' }),
+  title: text(),
+  body: text().notNull(),
+  url: text(),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
+  foldedHeadings: text({ mode: 'json' }).$type<string[]>().default([]),
+  status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
+  contextTags: text({ mode: 'json' }).$type<string[]>().default([]),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+  lastViewedAt: text(),
 }, (table) => [
-  index('idx_notes_area_id').on(table.area_id),
-  index('idx_notes_task_id').on(table.task_id),
-  index('idx_notes_workspace_id').on(table.workspace_id),
+  index('idx_notes_area_id').on(table.areaId),
+  index('idx_notes_task_id').on(table.taskId),
+  index('idx_notes_workspace_id').on(table.workspaceId),
   index('idx_notes_status').on(table.status),
 ]);
 
@@ -522,27 +532,27 @@ export const notes = sqliteTable('notes', {
 // is the escape hatch for "pinned for the human, not the agent".
 
 export const chatRefs = sqliteTable('chat_refs', {
-  id: text('id').primaryKey(),
-  session_id: text('session_id')
+  id: text().primaryKey(),
+  sessionId: text()
     .notNull()
     .references(() => chatSessions.id, { onDelete: 'cascade' }),
-  event_id: text('event_id').references(() => chatEvents.id, { onDelete: 'cascade' }),
+  eventId: text().references(() => chatEvents.id, { onDelete: 'cascade' }),
   // 'scratchpad' is a session-local reference. By convention `entity_id`
   // stores the owning `session_id` so reverse-lookup semantics stay
   // consistent with the other types.
-  entity_type: text('entity_type', { enum: ['task', 'note', 'area', 'file', 'scratchpad'] }).notNull(),
-  entity_id: text('entity_id').notNull(),
-  position: integer('position').notNull().default(0),
-  hydrate: integer('hydrate', { mode: 'boolean' }).notNull().default(true),
-  created_by: text('created_by', { enum: ['user', 'agent'] }).notNull().default('user'),
-  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  entityType: text({ enum: ['task', 'note', 'area', 'file', 'scratchpad'] }).notNull(),
+  entityId: text().notNull(),
+  position: integer().notNull().default(0),
+  hydrate: integer({ mode: 'boolean' }).notNull().default(true),
+  createdBy: text({ enum: ['user', 'agent'] }).notNull().default('user'),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   // Forward: list session pins (event_id IS NULL) or mentions for an event.
-  index('idx_chat_refs_session_event').on(table.session_id, table.event_id),
+  index('idx_chat_refs_session_event').on(table.sessionId, table.eventId),
   // Reverse: where is this entity referenced?
-  index('idx_chat_refs_entity').on(table.entity_type, table.entity_id),
+  index('idx_chat_refs_entity').on(table.entityType, table.entityId),
   // One pin per (session, entity). Per-message mentions can repeat freely.
   uniqueIndex('chat_refs_session_pin_uq')
-    .on(table.session_id, table.entity_type, table.entity_id)
-    .where(sql`${table.event_id} IS NULL`),
+    .on(table.sessionId, table.entityType, table.entityId)
+    .where(sql`${table.eventId} IS NULL`),
 ]);

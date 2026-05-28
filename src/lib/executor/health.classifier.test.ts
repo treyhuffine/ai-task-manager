@@ -12,23 +12,23 @@ import type { ChatEventRecord } from '@/db/types';
 const { inspectActivity, RECENT_ACTIVITY_MS } = _internals;
 
 function row(
-  partial: Partial<ChatEventRecord> & Pick<ChatEventRecord, 'role' | 'source' | 'created_at'>,
+  partial: Partial<ChatEventRecord> & Pick<ChatEventRecord, 'role' | 'source' | 'createdAt'>,
 ): ChatEventRecord {
   return {
     id: 'r',
-    session_id: 's',
+    sessionId: 's',
     content: null,
-    tool_name: null,
-    tool_input: null,
-    tool_is_error: null,
-    tool_exit_code: null,
+    toolName: null,
+    toolInput: null,
+    toolIsError: null,
+    toolExitCode: null,
     raw: null,
-    external_event_id: null,
-    external_message_id: null,
-    external_turn_id: null,
-    external_tool_call_id: null,
-    external_parent_tool_call_id: null,
-    source_part_index: 0,
+    externalEventId: null,
+    externalMessageId: null,
+    externalTurnId: null,
+    externalToolCallId: null,
+    externalParentToolCallId: null,
+    sourcePartIndex: 0,
     attachments: [],
     ...partial,
   };
@@ -39,25 +39,25 @@ const stale = () => new Date(Date.now() - RECENT_ACTIVITY_MS - 60_000).toISOStri
 
 describe('inspectActivity', () => {
   it('treats a recent assistant event as active', () => {
-    const events = [row({ role: 'assistant', source: 'agent', created_at: recent() })];
+    const events = [row({ role: 'assistant', source: 'agent', createdAt: recent() })];
     expect(inspectActivity(events).hasRecentAgentEvent).toBe(true);
   });
 
   it('treats a recent tool_call as active', () => {
-    const events = [row({ role: 'assistant', source: 'tool_call', created_at: recent() })];
+    const events = [row({ role: 'assistant', source: 'tool_call', createdAt: recent() })];
     expect(inspectActivity(events).hasRecentAgentEvent).toBe(true);
   });
 
   it('does not count stale agent events as active', () => {
-    const events = [row({ role: 'assistant', source: 'agent', created_at: stale() })];
+    const events = [row({ role: 'assistant', source: 'agent', createdAt: stale() })];
     expect(inspectActivity(events).hasRecentAgentEvent).toBe(false);
   });
 
   it('flags an orphan when the latest event is a user message', () => {
     const events = [
       // DESC order — newest first.
-      row({ id: 'u', role: 'user', source: 'user', created_at: recent() }),
-      row({ role: 'system', source: 'result', created_at: stale() }),
+      row({ id: 'u', role: 'user', source: 'user', createdAt: recent() }),
+      row({ role: 'system', source: 'result', createdAt: stale() }),
     ];
     const probe = inspectActivity(events);
     expect(probe.orphan?.id).toBe('u');
@@ -65,8 +65,8 @@ describe('inspectActivity', () => {
 
   it('flags an orphan when the latest event is a permission_response', () => {
     const events = [
-      row({ id: 'p', role: 'system', source: 'permission_response', created_at: recent() }),
-      row({ role: 'tool', source: 'tool_result', created_at: stale() }),
+      row({ id: 'p', role: 'system', source: 'permission_response', createdAt: recent() }),
+      row({ role: 'tool', source: 'tool_result', createdAt: stale() }),
     ];
     const probe = inspectActivity(events);
     expect(probe.orphan?.id).toBe('p');
@@ -76,8 +76,8 @@ describe('inspectActivity', () => {
     const events = [
       // Newest: agent activity AFTER the user message. Mid-turn send,
       // not an orphan.
-      row({ role: 'assistant', source: 'tool_call', created_at: recent() }),
-      row({ role: 'user', source: 'user', created_at: stale() }),
+      row({ role: 'assistant', source: 'tool_call', createdAt: recent() }),
+      row({ role: 'user', source: 'user', createdAt: stale() }),
     ];
     const probe = inspectActivity(events);
     expect(probe.orphan).toBeNull();
@@ -85,9 +85,9 @@ describe('inspectActivity', () => {
 
   it('does not flag a session that ended cleanly as an orphan', () => {
     const events = [
-      row({ role: 'system', source: 'result', created_at: recent() }),
-      row({ role: 'assistant', source: 'agent', created_at: stale() }),
-      row({ role: 'user', source: 'user', created_at: stale() }),
+      row({ role: 'system', source: 'result', createdAt: recent() }),
+      row({ role: 'assistant', source: 'agent', createdAt: stale() }),
+      row({ role: 'user', source: 'user', createdAt: stale() }),
     ];
     const probe = inspectActivity(events);
     expect(probe.orphan).toBeNull();
@@ -106,7 +106,7 @@ describe('inspectActivity', () => {
   // detection here too.
   it('keeps permission_response detection separate from user-source check', () => {
     const events = [
-      row({ id: 'pr', role: 'system', source: 'permission_response', created_at: stale() }),
+      row({ id: 'pr', role: 'system', source: 'permission_response', createdAt: stale() }),
     ];
     const probe = inspectActivity(events);
     expect(probe.orphan?.id).toBe('pr');

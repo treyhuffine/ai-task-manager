@@ -44,7 +44,7 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
 
-    let result = tasks.filter(t => !t.parent_id); // top-level only
+    let result = tasks.filter(t => !t.parentId); // top-level only
 
     if (query) {
       const q = query.toLowerCase();
@@ -52,7 +52,7 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
     }
 
     if (areaFilter) {
-      result = result.filter(t => t.area_id === areaFilter);
+      result = result.filter(t => t.areaId === areaFilter);
     }
 
     if (energyFilter) {
@@ -61,14 +61,14 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
 
     if (sortBy === 'newest') {
       result = [...result].sort((a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     } else if (sortBy === 'deadline') {
       result = [...result].sort((a, b) => {
-        if (!a.hard_deadline && !b.hard_deadline) return 0;
-        if (!a.hard_deadline) return 1;
-        if (!b.hard_deadline) return -1;
-        return new Date(a.hard_deadline).getTime() - new Date(b.hard_deadline).getTime();
+        if (!a.hardDeadline && !b.hardDeadline) return 0;
+        if (!a.hardDeadline) return 1;
+        if (!b.hardDeadline) return -1;
+        return new Date(a.hardDeadline).getTime() - new Date(b.hardDeadline).getTime();
       });
     }
 
@@ -219,9 +219,9 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
                   {task.title}
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {task.area_id && areaMap.get(task.area_id) && (
+                  {task.areaId && areaMap.get(task.areaId) && (
                     <span className="text-[9px] px-1 py-0.5 rounded bg-muted/80 text-muted-foreground/70">
-                      {areaMap.get(task.area_id)}
+                      {areaMap.get(task.areaId)}
                     </span>
                   )}
                   {task.effort && (

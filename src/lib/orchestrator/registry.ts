@@ -47,24 +47,24 @@ const taskEffort = z.enum(['trivial', 'small', 'medium', 'large', 'epic']);
 const noteStatus = z.enum(['active', 'archived']);
 
 // Inputs mirror CreateTaskInput / CreateNoteInput but only expose the fields
-// it's safe for an agent to set. Derived/audit columns (created_at, updated_at,
-// times_deferred, completed_at, sort_key) stay out of the contract.
+// it's safe for an agent to set. Derived/audit columns (createdAt, updatedAt,
+// timesDeferred, completedAt, sortKey) stay out of the contract.
 const taskCreateShape = {
   title: z.string().min(1),
   description: z.string().optional(),
   body: z.string().optional(),
-  area_id: z.string().nullable().optional(),
-  workspace_id: z.string().nullable().optional(),
-  parent_id: z.string().nullable().optional(),
+  areaId: z.string().nullable().optional(),
+  workspaceId: z.string().nullable().optional(),
+  parentId: z.string().nullable().optional(),
   status: taskStatus.optional(),
   energy: taskEnergy.nullable().optional(),
   effort: taskEffort.nullable().optional(),
-  estimated_minutes: z.number().int().positive().nullable().optional(),
-  hard_deadline: z.string().nullable().optional(),
-  reminder_at: z.string().nullable().optional(),
+  estimatedMinutes: z.number().int().positive().nullable().optional(),
+  hardDeadline: z.string().nullable().optional(),
+  reminderAt: z.string().nullable().optional(),
   recurrence: z.string().nullable().optional(),
-  context_tags: z.array(z.string()).optional(),
-  user_context: z.string().nullable().optional(),
+  contextTags: z.array(z.string()).optional(),
+  userContext: z.string().nullable().optional(),
   outcome: z.string().nullable().optional(),
 };
 
@@ -72,11 +72,11 @@ const noteCreateShape = {
   title: z.string().optional(),
   body: z.string().min(1),
   url: z.string().nullable().optional(),
-  area_id: z.string().nullable().optional(),
-  workspace_id: z.string().nullable().optional(),
-  task_id: z.string().nullable().optional(),
+  areaId: z.string().nullable().optional(),
+  workspaceId: z.string().nullable().optional(),
+  taskId: z.string().nullable().optional(),
   status: noteStatus.optional(),
-  context_tags: z.array(z.string()).optional(),
+  contextTags: z.array(z.string()).optional(),
 };
 
 // ── Actions ──────────────────────────────────────────────────────
@@ -88,13 +88,13 @@ const describe_paths = defineAction({
     'Reflects <APP>_ROOT / <APP>_BRAIN_PATH / <APP>_DB_PATH env overrides.',
   params: {},
   handler: () => ({
-    app_root: getAppRoot(),
-    brain_dir: getBrainDir(),
-    db_path: getDbPath(),
-    config_path: getConfigPath(),
-    attachments_dir: getAttachmentsDir(),
-    tmp_dir: getTmpDir(),
-    db_exists: fs.existsSync(getDbPath()),
+    appRoot: getAppRoot(),
+    brainDir: getBrainDir(),
+    dbPath: getDbPath(),
+    configPath: getConfigPath(),
+    attachmentsDir: getAttachmentsDir(),
+    tmpDir: getTmpDir(),
+    dbExists: fs.existsSync(getDbPath()),
   }),
 });
 
@@ -119,14 +119,14 @@ const list_tasks_action = defineAction({
   description: 'List tasks with optional filters (status, area, parent, energy, text search).',
   params: {
     status: z.union([taskStatus, z.array(taskStatus)]).optional(),
-    area_id: z.string().nullable().optional(),
-    parent_id: z.string().nullable().optional(),
+    areaId: z.string().nullable().optional(),
+    parentId: z.string().nullable().optional(),
     energy: taskEnergy.optional(),
     q: z.string().optional(),
     limit: z.number().int().positive().max(1000).optional(),
     offset: z.number().int().nonnegative().optional(),
-    order_by: z
-      .enum(['sort_key', 'last_viewed_at', 'hard_deadline', 'created_at', 'updated_at'])
+    orderBy: z
+      .enum(['sortKey', 'lastViewedAt', 'hardDeadline', 'createdAt', 'updatedAt'])
       .optional(),
   },
   handler: (_ctx, input) => listTasks(input),
@@ -192,12 +192,12 @@ const list_notes_action = defineAction({
   name: 'list_notes',
   description: 'List notes with optional filters (area, linked task, status).',
   params: {
-    area_id: z.string().nullable().optional(),
-    task_id: z.string().nullable().optional(),
+    areaId: z.string().nullable().optional(),
+    taskId: z.string().nullable().optional(),
     status: noteStatus.optional(),
     limit: z.number().int().positive().max(1000).optional(),
     offset: z.number().int().nonnegative().optional(),
-    order_by: z.enum(['last_viewed_at', 'created_at', 'updated_at']).optional(),
+    orderBy: z.enum(['lastViewedAt', 'createdAt', 'updatedAt']).optional(),
   },
   handler: (_ctx, input) => listNotes(input),
 });
@@ -255,27 +255,27 @@ const create_workspace_action = defineAction({
     name: z.string().min(1),
     cwd: z.string().min(1),
     emoji: z.string().nullable().optional(),
-    area_id: z.string().nullable().optional(),
-    base_branch: z.string().nullable().optional(),
-    remote_name: z.string().optional(),
-    worktree_root: z.string().nullable().optional(),
+    areaId: z.string().nullable().optional(),
+    baseBranch: z.string().nullable().optional(),
+    remoteName: z.string().optional(),
+    worktreeRoot: z.string().nullable().optional(),
   },
   mutating: true,
   handler: async (_ctx, input) => {
     const cwd = path.resolve(input.cwd);
     const isGit = await detectIsGit(cwd);
     const baseBranch = isGit
-      ? input.base_branch ?? (await detectBaseBranch(cwd, input.remote_name ?? 'origin'))
+      ? input.baseBranch ?? (await detectBaseBranch(cwd, input.remoteName ?? 'origin'))
       : null;
     return createWorkspace({
       name: input.name,
       emoji: input.emoji ?? null,
       cwd,
-      is_git: isGit,
-      base_branch: baseBranch,
-      remote_name: isGit ? input.remote_name ?? 'origin' : null,
-      worktree_root: isGit ? input.worktree_root ?? defaultWorktreeRoot(input.name) : null,
-      area_id: input.area_id ?? null,
+      isGit: isGit,
+      baseBranch: baseBranch,
+      remoteName: isGit ? input.remoteName ?? 'origin' : null,
+      worktreeRoot: isGit ? input.worktreeRoot ?? defaultWorktreeRoot(input.name) : null,
+      areaId: input.areaId ?? null,
       status: 'active',
     });
   },
@@ -298,12 +298,12 @@ const list_workspace_sessions_action = defineAction({
   name: 'list_workspace_sessions',
   description: 'List active execution sessions in a workspace, newest activity first.',
   params: {
-    workspace_id: z.string().min(1),
+    workspaceId: z.string().min(1),
     status: workspaceStatus.optional(),
   },
-  cli: { positional: ['workspace_id'] },
-  handler: (_ctx, { workspace_id, status }) =>
-    listChatSessions({ workspace_id, status: status ?? 'active' }),
+  cli: { positional: ['workspaceId'] },
+  handler: (_ctx, { workspaceId, status }) =>
+    listChatSessions({ workspaceId, status: status ?? 'active' }),
 });
 
 export const actions = [

@@ -10,7 +10,7 @@ function status(overrides: Partial<AppPreviewStatusResponse>): AppPreviewStatusR
     mode: 'command',
     status: 'running',
     port: 3000,
-    preview_token: 'tok',
+    previewToken: 'tok',
     ...overrides,
   };
 }
@@ -155,7 +155,7 @@ describe('resolveIframeSrc', () => {
         status: status({
           mode: 'portless',
           hostname: 'myapp',
-          tailscale_url: 'https://myapp.devbox.tailnet.ts.net',
+          tailscaleUrl: 'https://myapp.devbox.tailnet.ts.net',
         }),
         pathProxyUrl: PROXY,
         browserLocation: browser('devbox.tailnet.ts.net', 'https'),
@@ -173,7 +173,7 @@ describe('resolveIframeSrc', () => {
         status: status({
           mode: 'portless',
           hostname: 'myapp',
-          tailscale_url: null,
+          tailscaleUrl: null,
         }),
         pathProxyUrl: PROXY,
         browserLocation: browser('devbox.tailnet.ts.net', 'https'),
@@ -188,7 +188,7 @@ describe('resolveIframeSrc', () => {
         status: status({
           mode: 'portless',
           hostname: 'myapp',
-          tailscale_url: 'https://myapp.devbox.tailnet.ts.net',
+          tailscaleUrl: 'https://myapp.devbox.tailnet.ts.net',
         }),
         pathProxyUrl: PROXY,
         browserLocation: browser('localhost'),
@@ -202,7 +202,7 @@ describe('resolveIframeSrc', () => {
         status: status({
           mode: 'portless',
           hostname: 'myapp',
-          tailscale_url: 'http://myapp.devbox.tailnet.ts.net',  // weirdly http
+          tailscaleUrl: 'http://myapp.devbox.tailnet.ts.net',  // weirdly http
         }),
         pathProxyUrl: PROXY,
         browserLocation: browser('devbox.tailnet.ts.net', 'https'),
@@ -219,7 +219,7 @@ describe('resolveIframeSrc', () => {
         status: status({
           mode: 'portless',
           hostname: 'myapp',
-          tailscale_url: 'https://myapp.devbox.tailnet.ts.net',
+          tailscaleUrl: 'https://myapp.devbox.tailnet.ts.net',
         }),
         pathProxyUrl: PROXY,
         browserLocation: browser('xxx.ngrok.io', 'https'),

@@ -53,8 +53,8 @@ export function WorkspaceRow({
 
   // Icon resolution: workspace own > linked area > default folder.
   const wsImage = coverAttachmentUrl(workspace.attachments);
-  const linkedArea = workspace.area_id
-    ? areas?.find((a) => a.id === workspace.area_id)
+  const linkedArea = workspace.areaId
+    ? areas?.find((a) => a.id === workspace.areaId)
     : undefined;
   const areaImage = linkedArea ? coverAttachmentUrl(linkedArea.attachments) : null;
   const iconImage = wsImage ?? (workspace.emoji ? null : areaImage);
@@ -89,7 +89,7 @@ export function WorkspaceRow({
     let unread = 0;
     const rows = railData?.sessions ?? [];
     for (const s of rows) {
-      if (s.workspace_id !== workspace.id || s.status !== 'active') continue;
+      if (s.workspaceId !== workspace.id || s.status !== 'active') continue;
       if (pendingInputSessionIds.has(s.id)) {
         needsApproval++;
         continue;
@@ -99,11 +99,11 @@ export function WorkspaceRow({
         continue;
       }
       const outcomes = [
-        s.last_outcome_event_at ?? '1970-01-01',
-        s.unread_marker_at ?? '1970-01-01',
+        s.lastOutcomeEventAt ?? '1970-01-01',
+        s.unreadMarkerAt ?? '1970-01-01',
       ];
       const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-      const lastViewed = s.last_viewed_at ?? '1970-01-01';
+      const lastViewed = s.lastViewedAt ?? '1970-01-01';
       if (lastActivity !== '1970-01-01' && lastActivity > lastViewed) {
         unread++;
       }
@@ -178,7 +178,7 @@ export function WorkspaceRow({
           >
             <Settings size={13} />
           </button>
-          {workspace.is_git && (
+          {workspace.isGit && (
             <button
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -192,7 +192,7 @@ export function WorkspaceRow({
               <Zap size={13} />
             </button>
           )}
-          {workspace.is_git && (
+          {workspace.isGit && (
             <button
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -240,10 +240,10 @@ export function WorkspaceRow({
               <SessionRow
                 key={s.id}
                 session={s}
-                workspaceIsGit={workspace.is_git}
+                workspaceIsGit={workspace.isGit}
                 onOpenWorkspaceSettings={onOpenSettings}
                 onCreateExecution={onCreateExecution}
-                onOpenCreateFrom={workspace.is_git ? onOpenCreateFrom : undefined}
+                onOpenCreateFrom={workspace.isGit ? onOpenCreateFrom : undefined}
               />
             ))
           )}

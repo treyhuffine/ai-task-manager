@@ -27,9 +27,9 @@ export async function GET(
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
 
-    const workspaceId = session.workspace_id;
-    const taskFilter = !showAll && workspaceId ? { workspace_id: workspaceId } : {};
-    const noteFilter = !showAll && workspaceId ? { workspace_id: workspaceId, status: 'active' as const } : { status: 'active' as const };
+    const workspaceId = session.workspaceId;
+    const taskFilter = !showAll && workspaceId ? { workspaceId: workspaceId } : {};
+    const noteFilter = !showAll && workspaceId ? { workspaceId: workspaceId, status: 'active' as const } : { status: 'active' as const };
 
     const tasks = listTasks({ ...taskFilter, status: ['active', 'done'], limit: 200 });
     const notes = listNotes({ ...noteFilter, limit: 200 });
@@ -39,16 +39,16 @@ export async function GET(
         id: t.id,
         title: t.title,
         status: t.status,
-        area_id: t.area_id,
-        workspace_id: t.workspace_id,
-        updated_at: t.updated_at,
+        areaId: t.areaId,
+        workspaceId: t.workspaceId,
+        updatedAt: t.updatedAt,
       })),
       notes: notes.map((n) => ({
         id: n.id,
         title: n.title,
-        area_id: n.area_id,
-        workspace_id: n.workspace_id,
-        updated_at: n.updated_at,
+        areaId: n.areaId,
+        workspaceId: n.workspaceId,
+        updatedAt: n.updatedAt,
       })),
     });
   } catch (err) {

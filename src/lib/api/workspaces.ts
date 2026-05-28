@@ -45,7 +45,7 @@ export const workspacesApi = {
       label?: string | null;
       baseBranch?: string | null;
       /** GitHub PR number — when set, server resolves the head via
-       *  `refs/pull/<N>/head` and stamps `pr_number` on the row. Takes
+       *  `refs/pull/<N>/head` and stamps `prNumber` on the row. Takes
        *  precedence over `baseBranch`. */
       prNumber?: number | null;
       /** "Live mode" — skip worktree creation. The agent runs in the
@@ -100,8 +100,8 @@ export const workspacesApi = {
         query: { cursor },
       });
     },
-    refreshToken(id: string): Promise<{ preview_token: string }> {
-      return api.post<{ preview_token: string }>(`/workspaces/${id}/preview/refresh-token`);
+    refreshToken(id: string): Promise<{ previewToken: string }> {
+      return api.post<{ previewToken: string }>(`/workspaces/${id}/preview/refresh-token`);
     },
   },
 };
@@ -114,23 +114,23 @@ export interface AppPreviewStatusResponse {
   status: AppPreviewStatus;
   port: number | null;
   /** Present for both modes. Iframe attaches it as `?_pt=` on first load. */
-  preview_token: string | null;
+  previewToken: string | null;
   /** Portless only — the hostname Flow expects the route under. */
   hostname?: string | null;
   /** Portless only — Tailscale URL surfaced into the execution header. */
-  tailscale_url?: string | null;
+  tailscaleUrl?: string | null;
   /** Tailscale funnel public URL (Portless only, if enabled). */
-  tailscale_funnel_url?: string | null;
+  tailscaleFunnelUrl?: string | null;
   /** Command mode only. */
-  started_at?: string | null;
-  exited_at?: string | null;
-  exit_code?: number | null;
+  startedAt?: string | null;
+  exitedAt?: string | null;
+  exitCode?: number | null;
   /** When the supervisor / portless route is unhealthy, an explanation. */
   message?: string | null;
 }
 
 export interface AppPreviewStartResponse extends AppPreviewStatusResponse {
-  preview_token: string;
+  previewToken: string;
 }
 
 export interface AppPreviewLogLine {

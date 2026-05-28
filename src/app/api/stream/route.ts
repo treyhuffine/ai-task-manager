@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       .select()
       .from(stream)
       .where(status ? eq(stream.status, status as 'pending' | 'promoted' | 'dismissed') : undefined)
-      .orderBy(desc(stream.created_at))
+      .orderBy(desc(stream.createdAt))
       .limit(limit)
       .offset(offset)
       .all();
@@ -34,8 +34,8 @@ export async function POST(request: NextRequest) {
   try {
     const body: CreateStreamInput = await request.json();
 
-    if (!body.raw_text) {
-      return Response.json({ error: 'raw_text is required' }, { status: 400 });
+    if (!body.rawText) {
+      return Response.json({ error: 'rawText is required' }, { status: 400 });
     }
 
     const row = createStream(body);

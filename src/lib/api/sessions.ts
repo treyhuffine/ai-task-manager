@@ -212,35 +212,35 @@ export type WipApplyResult = WipCopyResult | WipMoveResult;
 
 export interface TakeoverResponse {
   token: string;
-  expires_at: string;
-  cli_command: string;
-  fallback_command: string;
+  expiresAt: string;
+  cliCommand: string;
+  fallbackCommand: string;
   branch: string;
-  base_sha: string;
-  remote_url: string;
-  workspace_id: string;
-  started_at: string;
+  baseSha: string;
+  remoteUrl: string;
+  workspaceId: string;
+  startedAt: string;
 }
 
 export interface ResumeFromTakeoverResponse {
   ok: true;
-  files_changed: number;
+  filesChanged: number;
   shortstat: string;
-  session_id: string;
+  sessionId: string;
 }
 
 /**
- * `chat_sessions` row plus a sidecar `agent_harness` field that the GET
+ * `chat_sessions` row plus a sidecar `agentHarness` field that the GET
  * endpoint joins in. Used by the composer to pick the right model
  * catalog without a second fetch.
  *
  * Extends `ChatSessionWithExecution` (not the bare row) because the GET
  * endpoint flattens the execution's worktree/branch/PR/setup/takeover
- * state onto the response. Reads of `worktree_path` etc. on this type are
+ * state onto the response. Reads of `worktreePath` etc. on this type are
  * execution-sourced.
  */
 export interface ChatSessionWithAgent extends ChatSessionWithExecution {
-  agent_harness: string | null;
+  agentHarness: string | null;
 }
 
 /**
@@ -251,11 +251,11 @@ export interface ChatSessionWithAgent extends ChatSessionWithExecution {
  * helper.
  */
 export interface RailSession extends ChatSessionWithExecution {
-  workspace_name: string | null;
-  workspace_emoji: string | null;
-  workspace_attachments: Attachment[] | null;
-  workspace_area_id: string | null;
-  workspace_is_git: boolean | null;
+  workspaceName: string | null;
+  workspaceEmoji: string | null;
+  workspaceAttachments: Attachment[] | null;
+  workspaceAreaId: string | null;
+  workspaceIsGit: boolean | null;
 }
 
 export interface RailResponse {
@@ -274,17 +274,17 @@ export interface PickerTaskItem {
   id: string;
   title: string;
   status: 'active' | 'done' | 'archived';
-  area_id: string | null;
-  workspace_id: string | null;
-  updated_at: string;
+  areaId: string | null;
+  workspaceId: string | null;
+  updatedAt: string;
 }
 
 export interface PickerNoteItem {
   id: string;
   title: string | null;
-  area_id: string | null;
-  workspace_id: string | null;
-  updated_at: string;
+  areaId: string | null;
+  workspaceId: string | null;
+  updatedAt: string;
 }
 
 export interface PickerResponse {
@@ -305,7 +305,7 @@ export interface EntitiesResponse {
 /**
  * Wire shape for the references slide-over. `inChat` is the
  * `[[task|note|scratchpad]]`-mentioned set for this session; `workspace`
- * is everything with `workspace_id === current` not already in chat;
+ * is everything with `workspaceId === current` not already in chat;
  * `all` is everything else when the scope filter widens.
  */
 export interface ReferenceRow {
@@ -313,13 +313,13 @@ export interface ReferenceRow {
   id: string;
   title: string;
   status?: string;
-  area_id: string | null;
-  workspace_id: string | null;
-  updated_at: string;
+  areaId: string | null;
+  workspaceId: string | null;
+  updatedAt: string;
   /** Truthy when this row appears in chat_refs for the session. */
-  referenced_at?: string | null;
+  referencedAt?: string | null;
   /** Number of child tasks. Tasks only — undefined for notes or when not computed. */
-  subtask_count?: number;
+  subtaskCount?: number;
 }
 
 export interface ReferencesResponse {
@@ -338,10 +338,10 @@ export const sessionsApi = {
     id: string,
     input: {
       label?: string | null;
-      permission_mode?: PermissionMode;
+      permissionMode?: PermissionMode;
       model?: string | null;
       effort?: EffortLevel | null;
-      pr_number?: number | null;
+      prNumber?: number | null;
     },
   ): Promise<ChatSessionWithExecution> {
     return api.patch<ChatSessionWithExecution>(`/sessions/${id}`, input);
@@ -396,22 +396,22 @@ export const sessionsApi = {
     );
   },
 
-  pinRef(id: string, body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }): Promise<{ ok: true }> {
+  pinRef(id: string, body: { entityType: 'task' | 'note' | 'area'; entityId: string }): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(`/sessions/${id}/references`, body);
   },
 
-  unpinRef(id: string, body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }): Promise<{ ok: true }> {
+  unpinRef(id: string, body: { entityType: 'task' | 'note' | 'area'; entityId: string }): Promise<{ ok: true }> {
     return api.delete<{ ok: true }>(`/sessions/${id}/references`, {
-      query: { entity_type: body.entity_type, entity_id: body.entity_id },
+      query: { entityType: body.entityType, entityId: body.entityId },
     });
   },
 
-  scratchpad(id: string): Promise<{ scratch_pad: string | null }> {
-    return api.get<{ scratch_pad: string | null }>(`/sessions/${id}/scratchpad`);
+  scratchpad(id: string): Promise<{ scratchPad: string | null }> {
+    return api.get<{ scratchPad: string | null }>(`/sessions/${id}/scratchpad`);
   },
 
-  setScratchpad(id: string, scratch_pad: string | null): Promise<{ scratch_pad: string | null }> {
-    return api.put<{ scratch_pad: string | null }>(`/sessions/${id}/scratchpad`, { scratch_pad });
+  setScratchpad(id: string, scratchPad: string | null): Promise<{ scratchPad: string | null }> {
+    return api.put<{ scratchPad: string | null }>(`/sessions/${id}/scratchpad`, { scratchPad });
   },
 
   file(id: string, path: string, opts?: { base?: boolean }): Promise<FileResponse> {
@@ -515,6 +515,24 @@ export const sessionsApi = {
 
   archive(id: string, opts?: { force?: boolean }): Promise<ChatSessionWithExecution> {
     return api.post<ChatSessionWithExecution>(`/sessions/${id}/archive`, { force: opts?.force ?? false });
+  },
+
+  /** Resume an archived execution (status flip only, no worktree recreate). */
+  unarchive(id: string): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/unarchive`);
+  },
+
+  /**
+   * Resume an archived execution AND re-provision its worktree off the
+   * workspace base (or `baseBranch` if specified). Returns the row in its
+   * setting-up state; the UI's existing setup spinner waits for the new
+   * worktreePath to populate.
+   */
+  continueWork(
+    id: string,
+    opts?: { baseBranch?: string | null },
+  ): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/continue`, opts ?? {});
   },
 
   commit(id: string, opts?: { andPush?: boolean }): Promise<{ ok: true }> {

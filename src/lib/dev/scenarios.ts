@@ -33,7 +33,7 @@ export interface Scenario {
    */
   inject?: InjectBody;
   /**
-   * Sets the session's permission_mode then POSTs the prompt to
+   * Sets the session's permissionMode then POSTs the prompt to
    * /api/sessions/[id]/messages so the agent runs it for real.
    * Omitted for scenarios that only make sense via inject (e.g.
    * synthetic transcript states).
@@ -73,9 +73,9 @@ interface InjectFakeEvent {
   kind: 'fake_event';
   source: string;
   content?: string | null;
-  tool_name?: string | null;
-  tool_input?: Record<string, unknown> | null;
-  tool_is_error?: boolean;
+  toolName?: string | null;
+  toolInput?: Record<string, unknown> | null;
+  toolIsError?: boolean;
 }
 
 interface InjectBatch {
@@ -356,13 +356,13 @@ export const SCENARIOS: Scenario[] = [
     inject: {
       kind: 'batch',
       events: [
-        { source: 'tool_call', tool_name: 'Read', tool_input: { file_path: '/src/a.ts' } },
+        { source: 'tool_call', toolName: 'Read', toolInput: { file_path: '/src/a.ts' } },
         { source: 'tool_result', content: 'file a contents…' },
-        { source: 'tool_call', tool_name: 'Read', tool_input: { file_path: '/src/b.ts' } },
+        { source: 'tool_call', toolName: 'Read', toolInput: { file_path: '/src/b.ts' } },
         { source: 'tool_result', content: 'file b contents…' },
-        { source: 'tool_call', tool_name: 'Grep', tool_input: { pattern: 'TODO', path: '/src' } },
+        { source: 'tool_call', toolName: 'Grep', toolInput: { pattern: 'TODO', path: '/src' } },
         { source: 'tool_result', content: '12 matches in 4 files' },
-        { source: 'tool_call', tool_name: 'Bash', tool_input: { command: 'ls /tmp' } },
+        { source: 'tool_call', toolName: 'Bash', toolInput: { command: 'ls /tmp' } },
         { source: 'tool_result', content: 'flow-dev-scratch\nfile.txt\nlog.json' },
       ],
     },
@@ -382,11 +382,11 @@ export const SCENARIOS: Scenario[] = [
     id: 't-error-result',
     category: 'transcript',
     title: 'Tool result — error',
-    description: 'tool_is_error=true. Should render with the destructive accent.',
+    description: 'toolIsError=true. Should render with the destructive accent.',
     inject: {
       kind: 'fake_event',
       source: 'tool_result',
-      tool_is_error: true,
+      toolIsError: true,
       content: 'ENOENT: no such file or directory, open \'/missing.txt\'',
     },
   },

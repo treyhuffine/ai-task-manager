@@ -17,8 +17,8 @@ export async function GET(_request: NextRequest) {
     const status = detectPortless();
     return Response.json({
       installed: status.installed,
-      proxy_running: status.proxyRunning,
-      state_dir: status.stateDir,
+      proxyRunning: status.proxyRunning,
+      stateDir: status.stateDir,
     });
   } catch (err) {
     console.error('[GET /api/system/portless-status]', err);

@@ -84,10 +84,10 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
     createTask.mutate(
       {
         title: trimmedTitle,
-        raw_input: trimmedTitle,
+        rawInput: trimmedTitle,
         description: descriptionRef.current.trim() || undefined,
-        area_id: areaId,
-        hard_deadline: deadline || undefined,
+        areaId: areaId,
+        hardDeadline: deadline || undefined,
         effort: effort ?? undefined,
         energy: energy ?? undefined,
         ...(attachments.length > 0 ? { attachments } : {}),

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { getUserState } from '@/lib/db/queries';
 import { Wizard } from './_components/wizard';
 
-// Same reason as `/` — gating reads `onboarded_at` at request time, not build time.
+// Same reason as `/` — gating reads `onboardedAt` at request time, not build time.
 export const dynamic = 'force-dynamic';
 
 // Bounce already-onboarded users back to the dashboard unless they pass
@@ -14,7 +14,7 @@ export default async function WelcomePage({
 }) {
   const { force } = await searchParams;
   const state = getUserState();
-  if (state?.onboarded_at && !force) {
+  if (state?.onboardedAt && !force) {
     redirect('/');
   }
   return <Wizard />;

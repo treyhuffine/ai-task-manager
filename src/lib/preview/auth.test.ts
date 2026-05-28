@@ -83,7 +83,7 @@ describe('checkPreviewAuth', () => {
 
   describe('Flow session fallback', () => {
     it('accepts a valid Bearer token', () => {
-      findApiKeyByHash.mockReturnValue({ revoked_at: null, expires_at: null });
+      findApiKeyByHash.mockReturnValue({ revokedAt: null, expiresAt: null });
       const req = makeRequest('http://flow.local/preview/' + WS + '/', {
         headers: { authorization: `Bearer ${VALID_FLOW_TOKEN}` },
       });
@@ -93,7 +93,7 @@ describe('checkPreviewAuth', () => {
     });
 
     it('accepts a valid flow_session cookie', () => {
-      findApiKeyByHash.mockReturnValue({ revoked_at: null, expires_at: null });
+      findApiKeyByHash.mockReturnValue({ revokedAt: null, expiresAt: null });
       const req = makeRequest('http://flow.local/preview/' + WS + '/', {
         cookies: { flow_session: VALID_FLOW_TOKEN },
       });
@@ -102,7 +102,7 @@ describe('checkPreviewAuth', () => {
     });
 
     it('rejects revoked tokens', () => {
-      findApiKeyByHash.mockReturnValue({ revoked_at: '2025-01-01', expires_at: null });
+      findApiKeyByHash.mockReturnValue({ revokedAt: '2025-01-01', expiresAt: null });
       const req = makeRequest('http://flow.local/preview/' + WS + '/', {
         headers: { authorization: `Bearer ${VALID_FLOW_TOKEN}` },
       });
@@ -112,8 +112,8 @@ describe('checkPreviewAuth', () => {
 
     it('rejects expired tokens', () => {
       findApiKeyByHash.mockReturnValue({
-        revoked_at: null,
-        expires_at: '2020-01-01T00:00:00Z',
+        revokedAt: null,
+        expiresAt: '2020-01-01T00:00:00Z',
       });
       const req = makeRequest('http://flow.local/preview/' + WS + '/', {
         headers: { authorization: `Bearer ${VALID_FLOW_TOKEN}` },
@@ -133,7 +133,7 @@ describe('checkPreviewAuth', () => {
 
     it('treats Bearer as winning over flow_session', () => {
       findApiKeyByHash.mockImplementation((hash) =>
-        hash === `hash:${VALID_FLOW_TOKEN}` ? { revoked_at: null, expires_at: null } : null,
+        hash === `hash:${VALID_FLOW_TOKEN}` ? { revokedAt: null, expiresAt: null } : null,
       );
       const req = makeRequest('http://flow.local/preview/' + WS + '/', {
         headers: { authorization: `Bearer ${VALID_FLOW_TOKEN}` },
@@ -164,7 +164,7 @@ describe('checkPreviewAuth', () => {
 
   describe('precedence', () => {
     it('preview cookie wins over Flow session', () => {
-      findApiKeyByHash.mockReturnValue({ revoked_at: null, expires_at: null });
+      findApiKeyByHash.mockReturnValue({ revokedAt: null, expiresAt: null });
       const req = makeRequest('http://flow.local/preview/' + WS + '/', {
         cookies: {
           [previewCookieName(WS)]: VALID_PREVIEW_TOKEN,

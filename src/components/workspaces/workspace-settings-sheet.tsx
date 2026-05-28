@@ -46,16 +46,16 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     setName(ws.name);
     setEmoji(ws.emoji ?? null);
     setAttachment(ws.attachments?.[0] ?? null);
-    setAreaId(ws.area_id ?? '');
-    setBaseBranch(ws.base_branch ?? '');
-    setWorktreeRoot(ws.worktree_root ?? '');
-    setFilesToCopy(ws.files_to_copy ?? []);
+    setAreaId(ws.areaId ?? '');
+    setBaseBranch(ws.baseBranch ?? '');
+    setWorktreeRoot(ws.worktreeRoot ?? '');
+    setFilesToCopy(ws.filesToCopy ?? []);
     setPreviewMode(
-      ws.preview_mode === 'command' || ws.preview_mode === 'portless' ? ws.preview_mode : 'auto',
+      ws.previewMode === 'command' || ws.previewMode === 'portless' ? ws.previewMode : 'auto',
     );
-    setPreviewCommand(ws.preview_command ?? '');
-    setPreviewPort(ws.preview_port_override != null ? String(ws.preview_port_override) : '');
-    setPortlessHostname(ws.portless_hostname ?? '');
+    setPreviewCommand(ws.previewCommand ?? '');
+    setPreviewPort(ws.previewPortOverride != null ? String(ws.previewPortOverride) : '');
+    setPortlessHostname(ws.portlessHostname ?? '');
   }, [ws]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,14 +101,14 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
         name: nextName,
         emoji: emoji || null,
         attachments: attachment ? [attachment] : [],
-        area_id: areaId || null,
-        base_branch: baseBranch || null,
-        worktree_root: worktreeRoot || null,
-        files_to_copy: filesToCopy,
-        preview_mode: previewMode === 'auto' ? null : previewMode,
-        preview_command: previewCommand.trim() || null,
-        preview_port_override: portNum,
-        portless_hostname: portlessHostname.trim() || null,
+        areaId: areaId || null,
+        baseBranch: baseBranch || null,
+        worktreeRoot: worktreeRoot || null,
+        filesToCopy: filesToCopy,
+        previewMode: previewMode === 'auto' ? null : previewMode,
+        previewCommand: previewCommand.trim() || null,
+        previewPortOverride: portNum,
+        portlessHostname: portlessHostname.trim() || null,
       },
       {
         onSuccess: () => {
@@ -182,7 +182,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                   {attachment ? (
                     <div className="relative group inline-block">
                       <img
-                        src={`/api/attachments/${attachment.file_name}`}
+                        src={`/api/attachments/${attachment.fileName}`}
                         alt="Workspace cover"
                         className="w-20 h-20 rounded-xl object-cover border border-border"
                       />
@@ -284,7 +284,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                   </div>
                 </FieldGroup>
 
-                {ws.is_git && (
+                {ws.isGit && (
                   <>
                     <FieldGroup label="Base branch">
                       <input
@@ -333,9 +333,9 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                     Git
                   </h3>
                   <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5 text-[11px]">
-                    <Row label="Repo" value={ws.is_git ? 'yes' : 'no (non-git workspace)'} />
-                    {ws.is_git && (
-                      <Row label="Remote" value={ws.remote_name ?? '—'} mono />
+                    <Row label="Repo" value={ws.isGit ? 'yes' : 'no (non-git workspace)'} />
+                    {ws.isGit && (
+                      <Row label="Remote" value={ws.remoteName ?? '—'} mono />
                     )}
                     <GhRow gh={gh} />
                   </div>

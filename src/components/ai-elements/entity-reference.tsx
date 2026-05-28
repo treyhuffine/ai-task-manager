@@ -118,8 +118,8 @@ function stripMarkdown(text: string): string {
 // ─── Task Card ──────────────────────────────────────────────
 
 function TaskCard({ data, onClick }: { data: TaskRecord; onClick: () => void }) {
-  const deadline = formatDeadline(data.hard_deadline)
-  const isOverdue = data.hard_deadline && new Date(data.hard_deadline) < new Date()
+  const deadline = formatDeadline(data.hardDeadline)
+  const isOverdue = data.hardDeadline && new Date(data.hardDeadline) < new Date()
 
   return (
     <button
@@ -239,7 +239,7 @@ function AreaCard({ data }: { data: AreaRecord & { emoji?: string } }) {
 
 // ─── Deck Card ───────────────────────────────────────────────
 
-function DeckCard({ data, onClick }: { data: { id: string; framing?: string | null; items: { taskId: string; rationale: string }[]; created_at: string }; onClick: () => void }) {
+function DeckCard({ data, onClick }: { data: { id: string; framing?: string | null; items: { taskId: string; rationale: string }[]; createdAt: string }; onClick: () => void }) {
   const itemCount = data.items?.length ?? 0
 
   return (

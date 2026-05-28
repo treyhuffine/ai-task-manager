@@ -11,14 +11,14 @@ import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
  * the orchestrator chat (content-panel.tsx VoiceSentBadge), pulled
  * into a shared module so both surfaces render identically.
  *
- * Toggle writes through `useUpdateUserState({ voice_auto_send })`.
+ * Toggle writes through `useUpdateUserState({ voiceAutoSend })`.
  * That setting is global, but it's the same setting all our voice
  * surfaces share — touching it here flips the orchestrator chat too.
  */
 export function VoiceSentBadge() {
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
-  const voiceAutoSend = userState?.voice_auto_send ?? true;
+  const voiceAutoSend = userState?.voiceAutoSend ?? true;
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -33,7 +33,7 @@ export function VoiceSentBadge() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  const toggle = () => updateUserState.mutate({ voice_auto_send: !voiceAutoSend });
+  const toggle = () => updateUserState.mutate({ voiceAutoSend: !voiceAutoSend });
 
   return (
     <div className="flex justify-end relative" ref={popoverRef}>

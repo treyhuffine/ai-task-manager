@@ -106,7 +106,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             <CopyMessageButton
               text={event.content}
               align="right"
-              timestamp={event.created_at}
+              timestamp={event.createdAt}
             />
           )}
         </div>
@@ -128,7 +128,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
               text={event.content}
               align="left"
               alwaysVisible
-              timestamp={event.created_at}
+              timestamp={event.createdAt}
             />
           )}
         </div>
@@ -156,8 +156,8 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     }
 
     case 'tool_call': {
-      const name = event.tool_name ?? 'tool';
-      const summary = summarizeToolInput(event.tool_input);
+      const name = event.toolName ?? 'tool';
+      const summary = summarizeToolInput(event.toolInput);
       return (
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -169,9 +169,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             <span className="font-mono font-medium text-foreground">{name}</span>
             {summary && <span className="text-muted-foreground/70 truncate">{summary}</span>}
           </div>
-          {expanded && event.tool_input != null && (
+          {expanded && event.toolInput != null && (
             <pre className="mt-2 ml-5 text-[10.5px] text-muted-foreground bg-background/60 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
-              {JSON.stringify(event.tool_input, null, 2)}
+              {JSON.stringify(event.toolInput, null, 2)}
             </pre>
           )}
         </button>
@@ -179,7 +179,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     }
 
     case 'tool_result': {
-      const isError = event.tool_is_error === true;
+      const isError = event.toolIsError === true;
       const text = event.content ?? '';
       return (
         <button
@@ -263,8 +263,8 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       );
 
     case 'permission_request': {
-      const tool = event.tool_name ?? 'tool';
-      const summary = summarizeToolInput(event.tool_input);
+      const tool = event.toolName ?? 'tool';
+      const summary = summarizeToolInput(event.toolInput);
       return (
         <div className="rounded-md border border-blue-500/30 bg-blue-500/5 px-2.5 py-1.5">
           <div className="flex items-center gap-1.5 text-[11px]">
@@ -283,7 +283,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     }
 
     case 'permission_response': {
-      const allowed = !event.tool_is_error;
+      const allowed = !event.toolIsError;
       return (
         <div
           className={cn(
@@ -303,7 +303,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     }
 
     case 'question_request': {
-      const questions = extractQuestions(event.tool_input);
+      const questions = extractQuestions(event.toolInput);
       const first = questions[0];
       return (
         <div className="rounded-md border border-foreground/20 bg-foreground/5 px-2.5 py-1.5">
@@ -392,7 +392,7 @@ function AuthRequiredBanner({
   const { data: authStatus } = useClaudeAuthStatus();
   const isLoggedIn = authStatus?.loggedIn === true;
 
-  const meta = (event.tool_input ?? {}) as {
+  const meta = (event.toolInput ?? {}) as {
     httpStatus?: number | null;
     reason?: string | null;
     loginCommand?: string | null;
@@ -657,12 +657,12 @@ function RenderMessageSegments({
   hot('render RenderMessageSegments');
   const entitiesQuery = useSessionEntities(sessionId ?? null);
   const scratchpadQuery = useScratchpad(sessionId ?? null);
-  const attachmentMap = new Map(attachments.map((a) => [a.file_name, a]));
+  const attachmentMap = new Map(attachments.map((a) => [a.fileName, a]));
 
   const lookup: EntityLookup = {
     tasksById: new Map((entitiesQuery.data?.tasks ?? []).map((t) => [t.id, t])),
     notesById: new Map((entitiesQuery.data?.notes ?? []).map((n) => [n.id, n])),
-    scratchpad: scratchpadQuery.data?.scratch_pad ?? null,
+    scratchpad: scratchpadQuery.data?.scratchPad ?? null,
   };
 
   return (
@@ -673,7 +673,7 @@ function RenderMessageSegments({
         }
         const m = seg.marker;
         if (m.kind === 'file') {
-          const att = attachmentMap.get(m.file_name);
+          const att = attachmentMap.get(m.fileName);
           // Unknown attachment — fall back to literal token.
           return att ? <MessageFileChip key={i} attachment={att} /> : <span key={i}>{seg.raw}</span>;
         }

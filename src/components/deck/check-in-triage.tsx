@@ -45,9 +45,9 @@ const ENERGY_ICONS: Record<string, typeof Flame> = {
 };
 
 const ACTION_LABELS: Record<TriageAction, string> = {
-  promote_task: 'Task',
-  promote_note: 'Note',
-  append_note: 'Append',
+  promoteTask: 'Task',
+  promoteNote: 'Note',
+  appendNote: 'Append',
   boomerang: 'Boomerang',
   dismiss: 'Dismiss',
 };
@@ -185,7 +185,7 @@ function TriageCard({
   };
 
   const EnergyIcon = energy ? ENERGY_ICONS[energy] : null;
-  const showQuickActions = !item.resolved && item.recommendation.action === 'promote_task';
+  const showQuickActions = !item.resolved && item.recommendation.action === 'promoteTask';
 
   return (
     <div

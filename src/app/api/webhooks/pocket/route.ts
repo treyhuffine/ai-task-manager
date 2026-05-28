@@ -13,7 +13,7 @@
  * verification once they ship it.
  *
  * Dedup: Pocket delivers at-least-once with retries. We key on `recording.id`
- * via `origin_source='pocket'` + `external_id`.
+ * via `origin_source='pocket'` + `externalId`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -125,13 +125,13 @@ export async function POST(request: NextRequest) {
   }
 
   const row = createStream({
-    raw_text: transcript,
+    rawText: transcript,
     source: 'webhook',
     media: 'voice',
     origin: 'webhook',
-    external_source: 'pocket',
-    external_id: recordingId,
-    external_payload: bodyText,
+    externalSource: 'pocket',
+    externalId: recordingId,
+    externalPayload: bodyText,
     status: 'pending',
   });
 

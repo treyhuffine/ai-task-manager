@@ -99,7 +99,7 @@ export function Wizard() {
             name: a.name,
             emoji: a.emoji,
             attachments: a.attachments,
-            sort_order: i,
+            sortOrder: i,
           });
         } catch {
           throw new Error(`Failed to create area "${a.name}"`);
@@ -111,9 +111,9 @@ export function Wizard() {
         await api.patch('/user-state', {
           name: state.name.trim(),
           description: state.description.trim(),
-          default_agent_harness: state.agentHarness,
-          default_agent_model: null,
-          onboarded_at: new Date().toISOString(),
+          defaultAgentHarness: state.agentHarness,
+          defaultAgentModel: null,
+          onboardedAt: new Date().toISOString(),
         });
       } catch {
         throw new Error('Failed to save setup');

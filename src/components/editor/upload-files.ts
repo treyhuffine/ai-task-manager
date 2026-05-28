@@ -27,7 +27,7 @@ export async function insertUploadedFiles(
   for (const file of files) {
     try {
       const attachment = await uploadAttachment(file)
-      const src = attachmentUrl(attachment.file_name)
+      const src = attachmentUrl(attachment.fileName)
       // Clamp each iteration: the document may have grown or shrunk as
       // earlier files in the batch were inserted, and the cursor is a
       // safer landing spot than a stale absolute position.
@@ -36,7 +36,7 @@ export async function insertUploadedFiles(
         .chain()
         .insertContentAt(target, {
           type: 'image',
-          attrs: { src, alt: attachment.original_name },
+          attrs: { src, alt: attachment.originalName },
         })
         .run()
       // After insertion, the selection lands just past the new content.

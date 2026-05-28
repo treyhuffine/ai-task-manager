@@ -35,34 +35,34 @@ function buildSearchTool(rawDb: ReturnType<typeof getRawDb>) {
           .map((hit) => {
             let entity: Record<string, unknown> | undefined;
 
-            if (hit.entity_type === 'task') {
+            if (hit.entityType === 'task') {
               entity = rawDb
                 .prepare(
-                  'SELECT id, title, description, status, area_id, hard_deadline, user_context FROM tasks WHERE id = ?',
+                  'SELECT id, title, description, status, area_id AS areaId, hard_deadline AS hardDeadline, user_context AS userContext FROM tasks WHERE id = ?',
                 )
-                .get(hit.entity_id) as Record<string, unknown> | undefined;
-            } else if (hit.entity_type === 'note') {
+                .get(hit.entityId) as Record<string, unknown> | undefined;
+            } else if (hit.entityType === 'note') {
               entity = rawDb
                 .prepare('SELECT id, title, body FROM notes WHERE id = ?')
-                .get(hit.entity_id) as Record<string, unknown> | undefined;
+                .get(hit.entityId) as Record<string, unknown> | undefined;
               if (entity?.body && typeof entity.body === 'string' && entity.body.length > 500) {
                 entity.body = entity.body.slice(0, 500) + '...';
               }
-            } else if (hit.entity_type === 'stream') {
+            } else if (hit.entityType === 'stream') {
               entity = rawDb
-                .prepare('SELECT id, raw_text, created_at FROM stream WHERE id = ?')
-                .get(hit.entity_id) as Record<string, unknown> | undefined;
+                .prepare('SELECT id, raw_text AS rawText, created_at AS createdAt FROM stream WHERE id = ?')
+                .get(hit.entityId) as Record<string, unknown> | undefined;
               if (
-                entity?.raw_text &&
-                typeof entity.raw_text === 'string' &&
-                entity.raw_text.length > 500
+                entity?.rawText &&
+                typeof entity.rawText === 'string' &&
+                entity.rawText.length > 500
               ) {
-                entity.raw_text = entity.raw_text.slice(0, 500) + '...';
+                entity.rawText = entity.rawText.slice(0, 500) + '...';
               }
             }
 
             if (!entity) return null;
-            return { type: hit.entity_type, score: hit.score, ...entity };
+            return { type: hit.entityType, score: hit.score, ...entity };
           })
           .filter(Boolean);
       } catch {
@@ -101,7 +101,7 @@ function collectSearchResults(
       const rec = r as Record<string, unknown>;
       const type = rec.type as string;
       if (type === 'task') {
-        return `- Task: "${rec.title}"${rec.description ? ` — ${rec.description}` : ''}${rec.user_context ? ` (note: ${rec.user_context})` : ''}`;
+        return `- Task: "${rec.title}"${rec.description ? ` — ${rec.description}` : ''}${rec.userContext ? ` (note: ${rec.userContext})` : ''}`;
       }
       if (type === 'note') {
         const body = rec.body as string | undefined;
@@ -109,9 +109,9 @@ function collectSearchResults(
         return `- Note: "${rec.title}"${snippet}`;
       }
       if (type === 'stream') {
-        const text = rec.raw_text as string | undefined;
+        const text = rec.rawText as string | undefined;
         const snippet = text ? text.slice(0, 200) + (text.length > 200 ? '...' : '') : '';
-        return `- Stream entry (${rec.created_at}): ${snippet}`;
+        return `- Stream entry (${rec.createdAt}): ${snippet}`;
       }
       return null;
     })
@@ -142,8 +142,8 @@ export async function POST(request: NextRequest) {
     const activeTasks = db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.status, 'active'), isNull(tasks.parent_id), isNull(tasks.blocked_on)))
-      .orderBy(sql`sort_key ASC NULLS LAST`, desc(tasks.created_at))
+      .where(and(eq(tasks.status, 'active'), isNull(tasks.parentId), isNull(tasks.blockedOn)))
+      .orderBy(sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt))
       .limit(DECK_GENERATION_TASK_LIMIT)
       .all();
 
@@ -153,12 +153,12 @@ export async function POST(request: NextRequest) {
       .where(
         and(
           eq(tasks.status, 'active'),
-          isNotNull(tasks.hard_deadline),
-          lte(tasks.hard_deadline, sevenDaysFromNow),
-          isNull(tasks.blocked_on),
+          isNotNull(tasks.hardDeadline),
+          lte(tasks.hardDeadline, sevenDaysFromNow),
+          isNull(tasks.blockedOn),
         ),
       )
-      .orderBy(tasks.hard_deadline)
+      .orderBy(tasks.hardDeadline)
       .all();
 
     const recurringDue = db
@@ -168,8 +168,8 @@ export async function POST(request: NextRequest) {
         and(
           eq(tasks.status, 'active'),
           isNotNull(tasks.recurrence),
-          lte(tasks.next_recurrence_at, todayStr),
-          isNull(tasks.blocked_on),
+          lte(tasks.nextRecurrenceAt, todayStr),
+          isNull(tasks.blockedOn),
         ),
       )
       .all();
@@ -187,9 +187,9 @@ export async function POST(request: NextRequest) {
         ? db
             .select()
             .from(tasks)
-            .where(and(eq(tasks.status, 'active'), isNotNull(tasks.parent_id)))
+            .where(and(eq(tasks.status, 'active'), isNotNull(tasks.parentId)))
             .all()
-            .filter((s) => s.parent_id && taskMap.has(s.parent_id))
+            .filter((s) => s.parentId && taskMap.has(s.parentId))
         : [];
 
     const completedSubtasks =
@@ -197,24 +197,24 @@ export async function POST(request: NextRequest) {
         ? db
             .select()
             .from(tasks)
-            .where(and(eq(tasks.status, 'done'), isNotNull(tasks.parent_id)))
+            .where(and(eq(tasks.status, 'done'), isNotNull(tasks.parentId)))
             .all()
-            .filter((s) => s.parent_id && taskMap.has(s.parent_id))
+            .filter((s) => s.parentId && taskMap.has(s.parentId))
         : [];
 
     const subtasksByParent = new Map<string, { id: string; title: string; completed: boolean }[]>();
     for (const s of [...allSubtasks, ...completedSubtasks]) {
-      if (!s.parent_id) continue;
-      const list = subtasksByParent.get(s.parent_id) ?? [];
+      if (!s.parentId) continue;
+      const list = subtasksByParent.get(s.parentId) ?? [];
       list.push({ id: s.id, title: s.title, completed: s.status === 'done' });
-      subtasksByParent.set(s.parent_id, list);
+      subtasksByParent.set(s.parentId, list);
     }
 
     const activeAreas = db
       .select()
       .from(areas)
       .where(eq(areas.status, 'active'))
-      .orderBy(areas.sort_order)
+      .orderBy(areas.sortOrder)
       .all();
 
     const areaMap = new Map(activeAreas.map((a) => [a.id, a.name]));
@@ -222,13 +222,13 @@ export async function POST(request: NextRequest) {
     const recentCompletions = db
       .select({
         taskTitle: tasks.title,
-        completedAt: taskCompletions.completed_at,
-        areaId: tasks.area_id,
+        completedAt: taskCompletions.completedAt,
+        areaId: tasks.areaId,
       })
       .from(taskCompletions)
-      .innerJoin(tasks, eq(taskCompletions.task_id, tasks.id))
-      .where(gte(taskCompletions.completed_at, fiveDaysAgo))
-      .orderBy(desc(taskCompletions.completed_at))
+      .innerJoin(tasks, eq(taskCompletions.taskId, tasks.id))
+      .where(gte(taskCompletions.completedAt, fiveDaysAgo))
+      .orderBy(desc(taskCompletions.completedAt))
       .limit(20)
       .all();
 
@@ -243,24 +243,24 @@ export async function POST(request: NextRequest) {
       title: t.title,
       description: t.description,
       outcome: t.outcome,
-      parentId: t.parent_id,
-      parentTitle: t.parent_id ? parentTitleMap.get(t.parent_id) : undefined,
-      areaName: t.area_id ? areaMap.get(t.area_id) : undefined,
+      parentId: t.parentId,
+      parentTitle: t.parentId ? parentTitleMap.get(t.parentId) : undefined,
+      areaName: t.areaId ? areaMap.get(t.areaId) : undefined,
       energy: t.energy,
       effort: t.effort,
-      estimatedMinutes: t.estimated_minutes,
-      hardDeadline: t.hard_deadline,
-      lastProgressAt: t.last_progress_at,
-      timesDeferred: t.times_deferred,
-      blockedOn: t.blocked_on,
-      userContext: t.user_context,
+      estimatedMinutes: t.estimatedMinutes,
+      hardDeadline: t.hardDeadline,
+      lastProgressAt: t.lastProgressAt,
+      timesDeferred: t.timesDeferred,
+      blockedOn: t.blockedOn,
+      userContext: t.userContext,
       subtasks: subtasksByParent.get(t.id),
     }));
 
     const promptAreas = activeAreas.map((a) => ({
       id: a.id,
       name: a.name,
-      userContext: a.user_context,
+      userContext: a.userContext,
       status: a.status,
     }));
 
@@ -330,11 +330,11 @@ export async function POST(request: NextRequest) {
       .values({
         id: uuidv7(),
         context: generationContext.context ?? null,
-        context_tags: generationContext.contextTags ?? [],
+        contextTags: generationContext.contextTags ?? [],
         framing: aiResponse.framing ?? null,
         items: deckItems,
         alternatives: aiResponse.alternatives,
-        search_context: searchContext || null,
+        searchContext: searchContext || null,
         model,
       })
       .returning()

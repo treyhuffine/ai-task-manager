@@ -119,7 +119,7 @@ async function handle(
   let port: number | null = null;
   let upstreamHost: string | null = null;
   if (mode === 'portless') {
-    const hostname = ws.portless_hostname?.trim() || derivePortlessHostname({ slug: ws.slug });
+    const hostname = ws.portlessHostname?.trim() || derivePortlessHostname({ slug: ws.slug });
     const route = findRoute(hostname);
     if (!route) {
       return serviceUnavailable(

@@ -22,7 +22,7 @@ export function CommandInput({ input, setInput, onSubmit, onSendMessage, isStrea
   const { theme, isFocusMode } = useDashboard();
   const isDark = theme === 'dark';
   const { data: userState } = useUserState();
-  const voiceAutoSend = userState?.voice_auto_send ?? true;
+  const voiceAutoSend = userState?.voiceAutoSend ?? true;
 
   const voice = useVoiceInput();
 

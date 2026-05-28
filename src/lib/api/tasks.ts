@@ -28,7 +28,7 @@ export const tasksApi = {
     return api.delete(`/tasks/${id}`);
   },
 
-  complete(id: string, note?: string): Promise<{ task: TaskRecord; recurring: boolean; next_recurrence_at?: string }> {
+  complete(id: string, note?: string): Promise<{ task: TaskRecord; recurring: boolean; nextRecurrenceAt?: string }> {
     return api.post(`/tasks/${id}/complete`, { note });
   },
 };

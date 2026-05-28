@@ -5,12 +5,12 @@ import os from 'node:os';
 import { APP_SHORT_ID } from '@/constants/app';
 import type { Attachment } from '@/db/types';
 
-const ATT = (file_name: string, overrides: Partial<Attachment> = {}): Attachment => ({
-  file_name,
-  original_name: overrides.original_name ?? file_name,
-  mime_type: overrides.mime_type ?? 'image/png',
+const ATT = (fileName: string, overrides: Partial<Attachment> = {}): Attachment => ({
+  fileName,
+  originalName: overrides.originalName ?? fileName,
+  mimeType: overrides.mimeType ?? 'image/png',
   size: overrides.size ?? 1024,
-  uploaded_at: overrides.uploaded_at ?? '2026-04-21T00:00:00.000Z',
+  uploadedAt: overrides.uploadedAt ?? '2026-04-21T00:00:00.000Z',
 });
 
 describe('queries attachment derivation', () => {
@@ -43,7 +43,7 @@ describe('queries attachment derivation', () => {
       body: '![](/api/attachments/a.png)',
       attachments: [ATT('a.png'), ATT('stale.png')],
     });
-    expect(note.attachments?.map((a) => a.file_name)).toEqual(['a.png']);
+    expect(note.attachments?.map((a) => a.fileName)).toEqual(['a.png']);
   });
 
   it('updateNote re-derives when body changes', async () => {
@@ -56,7 +56,7 @@ describe('queries attachment derivation', () => {
       body: '![](/api/attachments/second.png)',
       attachments: [ATT('second.png')],
     });
-    expect(updated?.attachments?.map((a) => a.file_name)).toEqual(['second.png']);
+    expect(updated?.attachments?.map((a) => a.fileName)).toEqual(['second.png']);
   });
 
   it('updateNote leaves attachments untouched when only unrelated fields change', async () => {
@@ -66,7 +66,7 @@ describe('queries attachment derivation', () => {
       attachments: [ATT('a.png')],
     });
     const updated = updateNote(created.id, { title: 'new title' });
-    expect(updated?.attachments?.map((a) => a.file_name)).toEqual(['a.png']);
+    expect(updated?.attachments?.map((a) => a.fileName)).toEqual(['a.png']);
   });
 
   it('createTask scans both description and body for references', async () => {
@@ -75,20 +75,20 @@ describe('queries attachment derivation', () => {
       title: 'Bug repro',
       description: 'see ![](/api/attachments/screen.png)',
       body: 'full log ![](/api/attachments/log.txt)',
-      attachments: [ATT('screen.png'), ATT('log.txt', { mime_type: 'text/plain' })],
+      attachments: [ATT('screen.png'), ATT('log.txt', { mimeType: 'text/plain' })],
     });
-    expect(task.attachments?.map((a) => a.file_name).sort()).toEqual(['log.txt', 'screen.png']);
+    expect(task.attachments?.map((a) => a.fileName).sort()).toEqual(['log.txt', 'screen.png']);
   });
 
-  it('createStream derives from raw_text', async () => {
+  it('createStream derives from rawText', async () => {
     const { createStream } = await import('@/lib/db/queries');
     const row = createStream({
-      raw_text: '[voice](/api/attachments/audio.webm)',
+      rawText: '[voice](/api/attachments/audio.webm)',
       source: 'capture',
       media: 'voice',
-      attachments: [ATT('audio.webm', { mime_type: 'audio/webm' })],
+      attachments: [ATT('audio.webm', { mimeType: 'audio/webm' })],
     });
-    expect(row.attachments?.map((a) => a.file_name)).toEqual(['audio.webm']);
+    expect(row.attachments?.map((a) => a.fileName)).toEqual(['audio.webm']);
   });
 
   it('createArea preserves explicit attachments (no body to derive from)', async () => {
@@ -97,6 +97,6 @@ describe('queries attachment derivation', () => {
       name: 'Work',
       attachments: [ATT('logo.png')],
     });
-    expect(area.attachments?.map((a) => a.file_name)).toEqual(['logo.png']);
+    expect(area.attachments?.map((a) => a.fileName)).toEqual(['logo.png']);
   });
 });

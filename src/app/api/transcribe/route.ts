@@ -4,7 +4,7 @@ import { transcribe, getProviderStatus } from '@/lib/stt/transcribe';
 /**
  * POST /api/transcribe
  * Proxies audio to the configured STT provider.
- * Expects multipart/form-data with `file` (audio blob) and optional `voice_model`.
+ * Expects multipart/form-data with `file` (audio blob) and optional `voiceModel`.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    const voiceModel = (formData.get('voice_model') as string) || 'local/parakeet-tdt-0.6b-v3';
+    const voiceModel = (formData.get('voiceModel') as string) || 'local/parakeet-tdt-0.6b-v3';
     const text = await transcribe(file, voiceModel);
 
     const provider = voiceModel.split('/')[0];

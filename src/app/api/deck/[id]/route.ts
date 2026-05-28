@@ -35,7 +35,7 @@ export async function PATCH(
 
     const deck = db
       .update(decks)
-      .set({ ...body, updated_at: new Date().toISOString() })
+      .set({ ...body, updatedAt: new Date().toISOString() })
       .where(eq(decks.id, id))
       .returning()
       .get();

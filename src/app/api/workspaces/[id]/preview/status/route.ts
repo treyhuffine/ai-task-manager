@@ -6,9 +6,9 @@
  * to either 'command' or 'portless') so the UI doesn't need to consult
  * Portless separately.
  *
- *   - command mode: status, port, preview_token come from the supervisor.
+ *   - command mode: status, port, previewToken come from the supervisor.
  *   - portless mode: status + port + hostname + tailscale URLs come from
- *     `~/.portless/routes.json`. No preview_token — Portless mode iframes
+ *     `~/.portless/routes.json`. No previewToken — Portless mode iframes
  *     authenticate via the standard Flow session cookie.
  */
 
@@ -29,17 +29,17 @@ export async function GET(
     const mode = resolveWorkspacePreviewMode(ws);
 
     if (mode === 'portless') {
-      const hostname = ws.portless_hostname?.trim() || derivePortlessHostname({ slug: ws.slug });
+      const hostname = ws.portlessHostname?.trim() || derivePortlessHostname({ slug: ws.slug });
       const route = findRoute(hostname);
       if (!route) {
         return Response.json({
           mode: 'portless' as const,
           status: 'idle' as const,
           port: null,
-          preview_token: null,
+          previewToken: null,
           hostname,
-          tailscale_url: null,
-          tailscale_funnel_url: null,
+          tailscaleUrl: null,
+          tailscaleFunnelUrl: null,
           message: `No Portless app registered as ${hostname}.localhost. Run \`portless run\` in the workspace.`,
         });
       }
@@ -47,10 +47,10 @@ export async function GET(
         mode: 'portless' as const,
         status: 'running' as const,
         port: route.port,
-        preview_token: null,
+        previewToken: null,
         hostname,
-        tailscale_url: route.tailscaleUrl ?? null,
-        tailscale_funnel_url: route.tailscaleFunnel ? (route.tailscaleUrl ?? null) : null,
+        tailscaleUrl: route.tailscaleUrl ?? null,
+        tailscaleFunnelUrl: route.tailscaleFunnel ? (route.tailscaleUrl ?? null) : null,
       });
     }
 
@@ -61,10 +61,10 @@ export async function GET(
         mode: 'command' as const,
         status: 'idle' as const,
         port: null,
-        preview_token: null,
-        started_at: null,
-        exited_at: null,
-        exit_code: null,
+        previewToken: null,
+        startedAt: null,
+        exitedAt: null,
+        exitCode: null,
       });
     }
 
@@ -72,10 +72,10 @@ export async function GET(
       mode: 'command' as const,
       status: rec.status,
       port: rec.port,
-      preview_token: rec.preview_token,
-      started_at: rec.started_at,
-      exited_at: rec.exited_at,
-      exit_code: rec.exit_code,
+      previewToken: rec.previewToken,
+      startedAt: rec.startedAt,
+      exitedAt: rec.exitedAt,
+      exitCode: rec.exitCode,
     });
   } catch (err) {
     console.error('[GET /api/workspaces/:id/preview/status]', err);

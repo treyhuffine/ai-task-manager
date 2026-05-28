@@ -15,6 +15,7 @@ import {
   areas as areasTbl,
   stream as streamTbl,
 } from '@/lib/db/schema';
+import { hydrateRow } from '@/lib/db/hydrate';
 import { and, eq } from 'drizzle-orm';
 import type {
   TaskRecord,
@@ -122,8 +123,8 @@ export async function syncBatch(ctx: MutationContext): Promise<void> {
  *
  * Cascade edges:
  *   - stream → its promoted-to note (Sources section stays current)
- *   - area → tasks and notes with matching area_id
- *   - task → tasks with matching parent_id, notes with matching task_id,
+ *   - area → tasks and notes with matching areaId
+ *   - task → tasks with matching parentId, notes with matching taskId,
  *            streams promoted into this task
  *   - note → streams promoted into this note
  *
@@ -141,29 +142,29 @@ function expandCascades(ctx: MutationContext): MutationContext {
   for (const [type, id] of ctx.entries()) {
     if (type === 'stream') {
       const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
-      if (row?.promoted_to_type === 'note' && row.promoted_to_id) {
-        out.add('note', row.promoted_to_id);
+      if (row?.promotedToType === 'note' && row.promotedToId) {
+        out.add('note', row.promotedToId);
       }
       continue;
     }
 
     if (type === 'area') {
-      const refTasks = db.select({ id: tasksTbl.id }).from(tasksTbl).where(eq(tasksTbl.area_id, id)).all();
+      const refTasks = db.select({ id: tasksTbl.id }).from(tasksTbl).where(eq(tasksTbl.areaId, id)).all();
       out.addMany('task', refTasks.map((r) => r.id));
-      const refNotes = db.select({ id: notesTbl.id }).from(notesTbl).where(eq(notesTbl.area_id, id)).all();
+      const refNotes = db.select({ id: notesTbl.id }).from(notesTbl).where(eq(notesTbl.areaId, id)).all();
       out.addMany('note', refNotes.map((r) => r.id));
       continue;
     }
 
     if (type === 'task') {
-      const childTasks = db.select({ id: tasksTbl.id }).from(tasksTbl).where(eq(tasksTbl.parent_id, id)).all();
+      const childTasks = db.select({ id: tasksTbl.id }).from(tasksTbl).where(eq(tasksTbl.parentId, id)).all();
       out.addMany('task', childTasks.map((r) => r.id));
-      const refNotes = db.select({ id: notesTbl.id }).from(notesTbl).where(eq(notesTbl.task_id, id)).all();
+      const refNotes = db.select({ id: notesTbl.id }).from(notesTbl).where(eq(notesTbl.taskId, id)).all();
       out.addMany('note', refNotes.map((r) => r.id));
       const refStreams = db
         .select({ id: streamTbl.id })
         .from(streamTbl)
-        .where(and(eq(streamTbl.promoted_to_id, id), eq(streamTbl.promoted_to_type, 'task')))
+        .where(and(eq(streamTbl.promotedToId, id), eq(streamTbl.promotedToType, 'task')))
         .all();
       out.addMany('stream', refStreams.map((r) => r.id));
       continue;
@@ -173,7 +174,7 @@ function expandCascades(ctx: MutationContext): MutationContext {
       const refStreams = db
         .select({ id: streamTbl.id })
         .from(streamTbl)
-        .where(and(eq(streamTbl.promoted_to_id, id), eq(streamTbl.promoted_to_type, 'note')))
+        .where(and(eq(streamTbl.promotedToId, id), eq(streamTbl.promotedToType, 'note')))
         .all();
       out.addMany('stream', refStreams.map((r) => r.id));
       continue;
@@ -186,7 +187,7 @@ async function syncOne(type: EntityType, id: string): Promise<void> {
   const db = getDb();
 
   if (type === 'task') {
-    const row = db.select().from(tasksTbl).where(eq(tasksTbl.id, id)).get();
+    const row = hydrateRow(db.select().from(tasksTbl).where(eq(tasksTbl.id, id)).get());
     if (!row) {
       await deleteEntityFile('task', id);
       return;
@@ -196,7 +197,7 @@ async function syncOne(type: EntityType, id: string): Promise<void> {
   }
 
   if (type === 'note') {
-    const row = db.select().from(notesTbl).where(eq(notesTbl.id, id)).get();
+    const row = hydrateRow(db.select().from(notesTbl).where(eq(notesTbl.id, id)).get());
     if (!row) {
       await deleteEntityFile('note', id);
       return;
@@ -206,7 +207,7 @@ async function syncOne(type: EntityType, id: string): Promise<void> {
   }
 
   if (type === 'area') {
-    const row = db.select().from(areasTbl).where(eq(areasTbl.id, id)).get();
+    const row = hydrateRow(db.select().from(areasTbl).where(eq(areasTbl.id, id)).get());
     if (!row) {
       await deleteEntityFile('area', id);
       return;
@@ -216,7 +217,7 @@ async function syncOne(type: EntityType, id: string): Promise<void> {
   }
 
   if (type === 'stream') {
-    const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
+    const row = hydrateRow(db.select().from(streamTbl).where(eq(streamTbl.id, id)).get());
     if (!row) {
       await deleteEntityFile('stream', id);
       return;
@@ -233,7 +234,7 @@ async function syncOne(type: EntityType, id: string): Promise<void> {
  * is one indexed lookup. Returns null when the referenced row doesn't exist
  * (dangling FK) — caller falls back to the denormalized name field.
  *
- * Streams have no human title; we use their first raw_text line as the slug,
+ * Streams have no human title; we use their first rawText line as the slug,
  * matching writeStream's filename logic.
  */
 function createLinkResolver(): LinkResolver {
@@ -255,7 +256,7 @@ function createLinkResolver(): LinkResolver {
       if (type === 'stream') {
         const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
         if (!row) return null;
-        const firstLine = (row.raw_text ?? '').split('\n')[0]?.trim().slice(0, 40) ?? '';
+        const firstLine = (row.rawText ?? '').split('\n')[0]?.trim().slice(0, 40) ?? '';
         return mirrorLinkPath('stream', firstLine, row.id);
       }
       return null;
@@ -267,11 +268,11 @@ function createLinkResolver(): LinkResolver {
 
 export async function writeTask(task: TaskRecord): Promise<void> {
   const db = getDb();
-  const area = task.area_id
-    ? db.select().from(areasTbl).where(eq(areasTbl.id, task.area_id)).get()
+  const area = task.areaId
+    ? db.select().from(areasTbl).where(eq(areasTbl.id, task.areaId)).get()
     : undefined;
-  const parent = task.parent_id
-    ? db.select().from(tasksTbl).where(eq(tasksTbl.id, task.parent_id)).get()
+  const parent = task.parentId
+    ? db.select().from(tasksTbl).where(eq(tasksTbl.id, task.parentId)).get()
     : undefined;
 
   const { filename, content } = renderTask(task, {
@@ -289,26 +290,27 @@ export async function writeTask(task: TaskRecord): Promise<void> {
 
 export async function writeNote(note: NoteRecord): Promise<void> {
   const db = getDb();
-  const area = note.area_id
-    ? db.select().from(areasTbl).where(eq(areasTbl.id, note.area_id)).get()
+  const area = note.areaId
+    ? db.select().from(areasTbl).where(eq(areasTbl.id, note.areaId)).get()
     : undefined;
-  const task = note.task_id
-    ? db.select().from(tasksTbl).where(eq(tasksTbl.id, note.task_id)).get()
+  const task = note.taskId
+    ? db.select().from(tasksTbl).where(eq(tasksTbl.id, note.taskId)).get()
     : undefined;
 
-  // Streams promoted into this note — their raw_text becomes the Sources section.
+  // Streams promoted into this note — their rawText becomes the Sources section.
   // Only `promoted` streams count; later-dismissed ones would be misleading to show.
   const sources = db
     .select()
     .from(streamTbl)
     .where(
       and(
-        eq(streamTbl.promoted_to_id, note.id),
-        eq(streamTbl.promoted_to_type, 'note'),
+        eq(streamTbl.promotedToId, note.id),
+        eq(streamTbl.promotedToType, 'note'),
         eq(streamTbl.status, 'promoted'),
       ),
     )
-    .all();
+    .all()
+    .map((r) => hydrateRow(r));
 
   const { filename, content } = renderNote(note, {
     areaName: area?.name ?? null,
@@ -337,12 +339,12 @@ export async function writeArea(area: AreaRecord): Promise<void> {
 export async function writeStream(s: StreamRecord): Promise<void> {
   const db = getDb();
   let promotedToTitle: string | null = null;
-  if (s.promoted_to_id && s.promoted_to_type) {
-    if (s.promoted_to_type === 'note') {
-      const n = db.select().from(notesTbl).where(eq(notesTbl.id, s.promoted_to_id)).get();
+  if (s.promotedToId && s.promotedToType) {
+    if (s.promotedToType === 'note') {
+      const n = db.select().from(notesTbl).where(eq(notesTbl.id, s.promotedToId)).get();
       promotedToTitle = n?.title ?? null;
-    } else if (s.promoted_to_type === 'task') {
-      const t = db.select().from(tasksTbl).where(eq(tasksTbl.id, s.promoted_to_id)).get();
+    } else if (s.promotedToType === 'task') {
+      const t = db.select().from(tasksTbl).where(eq(tasksTbl.id, s.promotedToId)).get();
       promotedToTitle = t?.title ?? null;
     }
   }

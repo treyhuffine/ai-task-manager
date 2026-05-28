@@ -106,9 +106,9 @@ export async function extractTextFromAttachment(
 }
 
 async function extractRaw(attachment: Attachment): Promise<ExtractResult | null> {
-  const path = attachmentPath(attachment.file_name);
-  const mime = attachment.mime_type;
-  const lowerName = (attachment.original_name || attachment.file_name).toLowerCase();
+  const path = attachmentPath(attachment.fileName);
+  const mime = attachment.mimeType;
+  const lowerName = (attachment.originalName || attachment.fileName).toLowerCase();
 
   // ─── Plain text family (incl. SVG as XML) ─────────────────
   if (mime.startsWith('text/') || TEXT_INLINE_MIMES.has(mime)) {
@@ -198,7 +198,7 @@ async function extractRaw(attachment: Attachment): Promise<ExtractResult | null>
       if (!text.trim()) return null;
       return { text: text.trim(), via: `audio → ${provider}` };
     } catch (err) {
-      console.warn(`[extract-text] STT failed for ${attachment.file_name}:`, err);
+      console.warn(`[extract-text] STT failed for ${attachment.fileName}:`, err);
       return null;
     }
   }
@@ -219,7 +219,7 @@ export function formatExtractedAttachment(
   attachment: Attachment,
   result: ExtractResult,
 ): string {
-  const filename = escapeAttr(attachment.original_name || attachment.file_name);
+  const filename = escapeAttr(attachment.originalName || attachment.fileName);
   const kindAttr = result.via.startsWith('audio →') ? ' kind="audio-transcript"' : '';
   return `<attachment filename="${filename}"${kindAttr}>\n${result.text}\n</attachment>`;
 }

@@ -20,7 +20,7 @@ export async function PATCH(
     const body = (await request.json()) as {
       name?: string;
       description?: string | null;
-      device_type?: DeviceType;
+      deviceType?: DeviceType;
     };
 
     const patch: UpdateApiKeyInput = {};
@@ -34,11 +34,11 @@ export async function PATCH(
     if (body.description !== undefined) {
       patch.description = body.description;
     }
-    if (body.device_type !== undefined) {
-      if (!ALLOWED_DEVICE_TYPES.includes(body.device_type)) {
-        return Response.json({ error: 'invalid device_type' }, { status: 400 });
+    if (body.deviceType !== undefined) {
+      if (!ALLOWED_DEVICE_TYPES.includes(body.deviceType)) {
+        return Response.json({ error: 'invalid deviceType' }, { status: 400 });
       }
-      patch.device_type = body.device_type;
+      patch.deviceType = body.deviceType;
     }
 
     if (Object.keys(patch).length === 0) {

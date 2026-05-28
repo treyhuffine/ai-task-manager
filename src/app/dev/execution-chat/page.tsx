@@ -67,7 +67,7 @@ function DevExecutionChatInner() {
     }) => {
       // Match the mode the scenario expects, then send the prompt.
       // PATCH is idempotent — same mode = no-op so this stays cheap.
-      await sessionsApi.update(id, { permission_mode: mode });
+      await sessionsApi.update(id, { permissionMode: mode });
       await sessionsApi.sendMessage(id, prompt);
     },
     onSuccess: () => {
@@ -142,7 +142,7 @@ function DevExecutionChatInner() {
     live.mutate({ id: sessionId, mode: s.live.mode, prompt: s.live.prompt });
   };
 
-  const modeMeta = PERMISSION_MODE_META[scratch.session.permission_mode];
+  const modeMeta = PERMISSION_MODE_META[scratch.session.permissionMode];
 
   return (
     <div className="h-screen flex bg-background">

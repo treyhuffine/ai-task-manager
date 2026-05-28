@@ -34,7 +34,7 @@ const liveRows = db
     id: tasks.id,
     title: tasks.title,
     energy: tasks.energy,
-    sort_key: tasks.sort_key,
+    sortKey: tasks.sortKey,
     status: tasks.status,
   })
   .from(tasks)
@@ -75,18 +75,18 @@ if (skipped > 0) console.log(`  Skipped (no longer active or deleted): ${skipped
 if (orphaned.length > 0) {
   console.log(`  Active tasks NOT in triage file (will be left untouched): ${orphaned.length}`);
   for (const r of orphaned.slice(0, 5)) {
-    console.log(`    - ${r.title.slice(0, 70)} (sort_key=${r.sort_key ?? 'null'})`);
+    console.log(`    - ${r.title.slice(0, 70)} (sortKey=${r.sortKey ?? 'null'})`);
   }
   if (orphaned.length > 5) console.log(`    ... and ${orphaned.length - 5} more`);
 }
-console.log(`  sort_key updates: ${stillActive.length}`);
+console.log(`  sortKey updates: ${stillActive.length}`);
 console.log(`  energy fills (null → value): ${energyUpdates.length}`);
 
 console.log('\nTop 10 of new order:');
 for (let i = 0; i < Math.min(10, stillActive.length); i++) {
   const id = stillActive[i];
   const row = liveById.get(id)!;
-  const oldKey = row.sort_key ?? 'null';
+  const oldKey = row.sortKey ?? 'null';
   const newKey = newSortKeys.get(id)!;
   const tier = triageData[id]?.tier;
   console.log(`  ${String(i + 1).padStart(3)}. [${tier}] ${row.title.slice(0, 60)}`);
@@ -101,12 +101,12 @@ if (!apply) {
 console.log('\nApplying...');
 db.transaction((tx) => {
   for (const id of stillActive) {
-    tx.update(tasks).set({ sort_key: newSortKeys.get(id)! }).where(eq(tasks.id, id)).run();
+    tx.update(tasks).set({ sortKey: newSortKeys.get(id)! }).where(eq(tasks.id, id)).run();
   }
   for (const { id, energy } of energyUpdates) {
     tx.update(tasks).set({ energy }).where(eq(tasks.id, id)).run();
   }
 });
-console.log(`  Updated sort_key on ${stillActive.length} tasks`);
+console.log(`  Updated sortKey on ${stillActive.length} tasks`);
 console.log(`  Filled energy on ${energyUpdates.length} tasks`);
 console.log('Done.');

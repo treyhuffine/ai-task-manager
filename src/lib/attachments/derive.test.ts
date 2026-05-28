@@ -6,12 +6,12 @@ import {
 } from './derive';
 import type { Attachment } from '@/db/types';
 
-const ATT = (file_name: string, overrides: Partial<Attachment> = {}): Attachment => ({
-  file_name,
-  original_name: overrides.original_name ?? file_name,
-  mime_type: overrides.mime_type ?? 'image/png',
+const ATT = (fileName: string, overrides: Partial<Attachment> = {}): Attachment => ({
+  fileName,
+  originalName: overrides.originalName ?? fileName,
+  mimeType: overrides.mimeType ?? 'image/png',
   size: overrides.size ?? 1024,
-  uploaded_at: overrides.uploaded_at ?? '2026-04-21T00:00:00.000Z',
+  uploadedAt: overrides.uploadedAt ?? '2026-04-21T00:00:00.000Z',
 });
 
 describe('extractReferencedFileNames', () => {
@@ -61,7 +61,7 @@ describe('deriveAttachments', () => {
   });
 
   it('preserves prior metadata for file_names still referenced', () => {
-    const prior = [ATT('a.png', { original_name: 'Cat photo.png', size: 2048 })];
+    const prior = [ATT('a.png', { originalName: 'Cat photo.png', size: 2048 })];
     const result = deriveAttachments({
       body: 'Here ![](/api/attachments/a.png)',
       prior,
@@ -77,11 +77,11 @@ describe('deriveAttachments', () => {
       prior,
       newUploads: [],
     });
-    expect(result.map((a) => a.file_name)).toEqual(['kept.png']);
+    expect(result.map((a) => a.fileName)).toEqual(['kept.png']);
   });
 
   it('incorporates newUploads metadata for newly-referenced file_names', () => {
-    const uploads = [ATT('new.png', { original_name: 'Fresh upload.png', size: 4096 })];
+    const uploads = [ATT('new.png', { originalName: 'Fresh upload.png', size: 4096 })];
     const result = deriveAttachments({
       body: '![](/api/attachments/new.png)',
       prior: [],
@@ -97,10 +97,10 @@ describe('deriveAttachments', () => {
       newUploads: [],
     });
     expect(result).toHaveLength(1);
-    expect(result[0].file_name).toBe('mystery.png');
-    expect(result[0].mime_type).toBe('application/octet-stream');
+    expect(result[0].fileName).toBe('mystery.png');
+    expect(result[0].mimeType).toBe('application/octet-stream');
     expect(result[0].size).toBe(0);
-    expect(result[0].original_name).toBe('mystery.png');
+    expect(result[0].originalName).toBe('mystery.png');
   });
 
   it('orders output by reading order in the body', () => {
@@ -110,20 +110,20 @@ describe('deriveAttachments', () => {
       prior,
       newUploads: [],
     });
-    expect(result.map((a) => a.file_name)).toEqual(['a.png', 'b.png', 'c.png']);
+    expect(result.map((a) => a.fileName)).toEqual(['a.png', 'b.png', 'c.png']);
   });
 
-  it('prefers prior metadata over newUploads when both contain the same file_name', () => {
+  it('prefers prior metadata over newUploads when both contain the same fileName', () => {
     // Prior wins because it's the server's source of truth — newUploads is a
     // hint from the client that may contain an out-of-date transient copy.
-    const prior = [ATT('x.png', { original_name: 'Original name.png' })];
-    const uploads = [ATT('x.png', { original_name: 'Stale dup.png' })];
+    const prior = [ATT('x.png', { originalName: 'Original name.png' })];
+    const uploads = [ATT('x.png', { originalName: 'Stale dup.png' })];
     const result = deriveAttachments({
       body: '![](/api/attachments/x.png)',
       prior,
       newUploads: uploads,
     });
-    expect(result[0].original_name).toBe('Original name.png');
+    expect(result[0].originalName).toBe('Original name.png');
   });
 });
 

@@ -55,13 +55,13 @@ function parseTakeoverUrl(raw: string): ParsedUrl {
 }
 
 interface TakeoverInfoResponse {
-  session_id: string;
-  workspace_id: string;
-  workspace_name: string;
-  remote_url: string;
+  sessionId: string;
+  workspaceId: string;
+  workspaceName: string;
+  remoteUrl: string;
   branch: string;
-  base_sha: string;
-  host_label: string;
+  baseSha: string;
+  hostLabel: string;
 }
 
 async function fetchInfo(host: string, token: string): Promise<TakeoverInfoResponse> {
@@ -137,8 +137,8 @@ export async function takeoverCommand(urlArg: string | undefined, opts: Takeover
     console.log(pc.bold('Active takeovers:'));
     for (const t of active) {
       console.log(
-        `  ${pc.cyan(t.state.workspace_name)} ` +
-          pc.dim(`(${t.state.branch})  started ${t.state.started_at}\n    ${t.clonePath}`),
+        `  ${pc.cyan(t.state.workspaceName)} ` +
+          pc.dim(`(${t.state.branch})  started ${t.state.startedAt}\n    ${t.clonePath}`),
       );
     }
     return;
@@ -155,18 +155,18 @@ export async function takeoverCommand(urlArg: string | undefined, opts: Takeover
   console.log(pc.dim(`Contacting ${host}…`));
   const info = await fetchInfo(host, token);
 
-  const clonePath = cloneDirFor(info.workspace_id);
-  await ensureClone(clonePath, info.remote_url);
+  const clonePath = cloneDirFor(info.workspaceId);
+  await ensureClone(clonePath, info.remoteUrl);
   await checkout(clonePath, info.branch);
 
   writeState(clonePath, {
     host,
     token,
-    session_id: info.session_id,
-    workspace_id: info.workspace_id,
-    workspace_name: info.workspace_name,
+    sessionId: info.sessionId,
+    workspaceId: info.workspaceId,
+    workspaceName: info.workspaceName,
     branch: info.branch,
-    started_at: new Date().toISOString(),
+    startedAt: new Date().toISOString(),
   });
 
   console.log(pc.green(`✓ Branch ${info.branch} checked out at ${clonePath}.`));

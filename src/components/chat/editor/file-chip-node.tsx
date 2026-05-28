@@ -3,13 +3,13 @@
  * directly in the flow of typed text. Position-preserving (where the
  * user pasted/dropped, the chip lives), removable (X click or
  * Backspace adjacent), serializable to a marker token
- * (`[[file:<file_name>]]`) for the execution chat path or a
+ * (`[[file:<fileName>]]`) for the execution chat path or a
  * `FileUIPart` for the orchestrator path.
  *
  * The node carries the same `Attachment` shape that tasks/notes/areas
- * use — `file_name | original_name | mime_type | size | uploaded_at`
+ * use — `fileName | originalName | mimeType | size | uploadedAt`
  * — so the editor speaks the same language as every other attachment
- * surface in the app. No separate marker id; `file_name` is the
+ * surface in the app. No separate marker id; `fileName` is the
  * stable key.
  */
 
@@ -27,14 +27,14 @@ export const FILE_CHIP_NAME = 'fileChip';
 /**
  * Chip attrs are a superset of the persisted `Attachment` shape:
  *   - `pending` true while the upload is in flight (placeholder chip,
- *     spinner shown). file_name in that state is a temporary uuid
+ *     spinner shown). fileName in that state is a temporary uuid
  *     used to find + replace the chip after upload completes.
- *   - `pending_id` matches what `uploadAndInsert` stashes so the
+ *   - `pendingId` matches what `uploadAndInsert` stashes so the
  *     post-upload replace can find this exact chip.
  */
 export interface FileChipAttrs extends Attachment {
   pending?: boolean;
-  pending_id?: string;
+  pendingId?: string;
 }
 
 declare module '@tiptap/core' {
@@ -56,13 +56,13 @@ export const FileChipNode = Node.create<{}>({
 
   addAttributes() {
     return {
-      file_name: { default: '' },
-      original_name: { default: '' },
-      mime_type: { default: 'application/octet-stream' },
+      fileName: { default: '' },
+      originalName: { default: '' },
+      mimeType: { default: 'application/octet-stream' },
       size: { default: 0 },
-      uploaded_at: { default: '' },
+      uploadedAt: { default: '' },
       pending: { default: false },
-      pending_id: { default: '' },
+      pendingId: { default: '' },
     };
   },
 
@@ -99,9 +99,9 @@ export const FileChipNode = Node.create<{}>({
 
 function FileChipView({ node, editor, getPos, selected }: NodeViewProps) {
   const attrs = node.attrs as FileChipAttrs;
-  const { file_name, original_name, mime_type, size, pending } = attrs;
-  const display = original_name || file_name;
-  const isImage = mime_type.startsWith('image/');
+  const { fileName, originalName, mimeType, size, pending } = attrs;
+  const display = originalName || fileName;
+  const isImage = mimeType.startsWith('image/');
 
   const handleRemove = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -137,11 +137,11 @@ function FileChipView({ node, editor, getPos, selected }: NodeViewProps) {
         <Loader2 size={11} className="text-muted-foreground/80 shrink-0 animate-spin" />
       ) : isImage ? (
         <img
-          src={attachmentUrl(file_name)}
+          src={attachmentUrl(fileName)}
           alt={display}
           className="w-4 h-4 rounded object-cover shrink-0"
         />
-      ) : mime_type.startsWith('image/') ? (
+      ) : mimeType.startsWith('image/') ? (
         <ImageIcon size={11} className="text-muted-foreground/80 shrink-0" />
       ) : (
         <FileText size={11} className="text-muted-foreground/80 shrink-0" />

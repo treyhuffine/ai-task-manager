@@ -57,7 +57,7 @@ export function useInitialSelectedFile(
       for (let i = events.length - 1; i >= 0; i--) {
         const ev = events[i];
         if (ev.source !== 'tool_call') continue;
-        const candidate = extractFilePath(ev.tool_name, ev.tool_input);
+        const candidate = extractFilePath(ev.toolName, ev.toolInput);
         if (!candidate) continue;
         const matched = findRelativeMatch(candidate, treePaths);
         if (matched) {

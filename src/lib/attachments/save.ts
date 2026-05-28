@@ -22,39 +22,39 @@ export interface SaveAttachmentInput {
   /** Raw bytes. Any `Blob`-like (Blob, File, Buffer-wrapping Blob). */
   data: Blob | Buffer | Uint8Array;
   /** Display name preserved in the `Attachment` record. */
-  original_name: string;
+  originalName: string;
   /** Optional mime hint from the upload (e.g. `file.type`). */
-  mime_type?: string | null;
+  mimeType?: string | null;
 }
 
 /**
  * Write a file to the attachments dir and return its metadata record.
  *
- * The returned `file_name` is `<uuidv7>.<ext>` where the extension is
+ * The returned `fileName` is `<uuidv7>.<ext>` where the extension is
  * derived from the mime (primary) or original filename (fallback).
  */
 export async function saveAttachment(input: SaveAttachmentInput): Promise<Attachment> {
-  const original_name = input.original_name.trim() || 'file';
-  const mime_type = resolveMime(input.mime_type, original_name);
-  const ext = extForFile(mime_type, original_name);
-  const file_name = `${uuidv7()}.${ext}`;
+  const originalName = input.originalName.trim() || 'file';
+  const mimeType = resolveMime(input.mimeType, originalName);
+  const ext = extForFile(mimeType, originalName);
+  const fileName = `${uuidv7()}.${ext}`;
 
   const buffer = await toBuffer(input.data);
   const dir = ensureAttachmentsDir();
-  await fs.writeFile(path.join(dir, file_name), buffer);
+  await fs.writeFile(path.join(dir, fileName), buffer);
 
   return {
-    file_name,
-    original_name,
-    mime_type,
+    fileName,
+    originalName,
+    mimeType,
     size: buffer.byteLength,
-    uploaded_at: new Date().toISOString(),
+    uploadedAt: new Date().toISOString(),
   };
 }
 
-/** Resolve the absolute on-disk path for a stored file_name. */
-export function attachmentPath(file_name: string): string {
-  return path.join(getAttachmentsDir(), file_name);
+/** Resolve the absolute on-disk path for a stored fileName. */
+export function attachmentPath(fileName: string): string {
+  return path.join(getAttachmentsDir(), fileName);
 }
 
 async function toBuffer(data: Blob | Buffer | Uint8Array): Promise<Buffer> {

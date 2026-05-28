@@ -1,6 +1,6 @@
 /**
  * Areas for the shared dev seed. Created first so tasks/notes can resolve
- * `area_name` → `area_id` against them.
+ * `area_name` → `areaId` against them.
  *
  * Names are the stable reference key — keep them unique across this file
  * and don't rename casually (tasks.ts and notes.ts reference these names).
@@ -28,97 +28,97 @@ export const areas: CreateAreaInput[] = [
     name: 'AI Assistant',
     emoji: '🤖',
     description: 'Building this app. Architecture, decisions, dogfooding, roadmap.',
-    user_context:
+    userContext:
       'My primary work focus — the AI-native productivity tool I am building. ' +
       'Engineering, product, and launch work all live here as tasks or notes; ' +
       'they are not separate areas.',
     status: 'active',
-    sort_order: 1,
+    sortOrder: 1,
   },
   {
     name: 'Health',
     emoji: '💪',
     description: 'Sleep, training, nutrition, longevity. The substrate everything else runs on.',
-    user_context:
+    userContext:
       'Physical and mental health. Sleep stack, training programs, nutrition ' +
       'experiments, doctor visits, and notes on what is working. Sub-aspects ' +
       'like sleep or strength are content within notes — not their own areas.',
     status: 'active',
-    sort_order: 2,
+    sortOrder: 2,
   },
   {
     name: 'Family',
     emoji: '🏡',
     description: 'Partner, kids, parents, household logistics.',
-    user_context:
+    userContext:
       'People I love and the logistics of being there for them. School pickups, ' +
       'birthdays, family conversations to have, kid activities, parent check-ins.',
     status: 'active',
-    sort_order: 3,
+    sortOrder: 3,
   },
   {
     name: 'Home',
     emoji: '🔧',
     description: 'House, renovations, maintenance, things to fix.',
-    user_context:
+    userContext:
       'The physical place I live. Repair queue, contractor info, renovation ' +
       'projects (as tasks-with-subtasks), vendor contacts, neighborhood notes.',
     status: 'active',
-    sort_order: 4,
+    sortOrder: 4,
   },
   {
     name: 'Finance',
     emoji: '💰',
     description: 'Money in, money out. Taxes, investments, banking, big decisions.',
-    user_context:
+    userContext:
       'Personal and business finance combined. Quarterly tax planning, ' +
       'investment thesis notes, banking changes, subscription audits, big ' +
       'purchase decisions. Tax filing is a recurring task, not a separate area.',
     status: 'active',
-    sort_order: 5,
+    sortOrder: 5,
   },
   {
     name: 'Reading',
     emoji: '📚',
     description: 'Books I am reading, takeaways, reading list.',
-    user_context:
+    userContext:
       'One note per book. Takeaways, quotes, and reflections go in the body. ' +
       'A book becomes a task while actively reading (status=active, ' +
       'completes on finish), then lives on as a note. Reading list is also a note.',
     status: 'active',
-    sort_order: 6,
+    sortOrder: 6,
   },
   {
     name: 'Writing',
     emoji: '✍️',
     description: 'Essays, ideas, drafts, public output.',
-    user_context:
+    userContext:
       'Things I am writing or want to write. Half-baked ideas live here until ' +
       'they become something. Drafts in progress, published pieces, recurring ' +
       'themes I keep returning to.',
     status: 'active',
-    sort_order: 7,
+    sortOrder: 7,
   },
   {
     name: 'Network',
     emoji: '🤝',
     description: 'People and follow-ups. Conversations, intros, who to reach out to.',
-    user_context:
+    userContext:
       'Professional and personal relationships. Notes from conversations, ' +
       'follow-up reminders, intros owed and received. One note per person ' +
       'when relationships are active enough to track over time.',
     status: 'active',
-    sort_order: 8,
+    sortOrder: 8,
   },
   {
     name: 'Hobbies',
     emoji: '🎯',
     description: 'Things I do for joy. Not work, not optimization.',
-    user_context:
+    userContext:
       'Non-work pursuits done because I want to, not because I should. If a ' +
       'hobby becomes serious enough that it needs its own area (active project, ' +
       'frequent items), promote it. Otherwise it lives here.',
     status: 'active',
-    sort_order: 9,
+    sortOrder: 9,
   },
 ];

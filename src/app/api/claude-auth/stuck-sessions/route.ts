@@ -35,7 +35,7 @@ export async function GET() {
       }
     })();
     return {
-      id: r.session_id,
+      id: r.sessionId,
       label: r.label,
       lastUserMessage: r.last_user_event_id
         ? {

@@ -44,7 +44,7 @@ export function DevicesSection() {
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
 
   const createMutation = useMutation({
-    mutationFn: (input: { name: string; device_type: DeviceType }) =>
+    mutationFn: (input: { name: string; deviceType: DeviceType }) =>
       devicesApi.create(input),
     onSuccess: (res) => {
       setLastCreated(res);
@@ -72,7 +72,7 @@ export function DevicesSection() {
   const handleCreate = useCallback(() => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    createMutation.mutate({ name: trimmed, device_type: deviceType });
+    createMutation.mutate({ name: trimmed, deviceType: deviceType });
   }, [createMutation, name, deviceType]);
 
   const handleCopy = useCallback(async (label: string, url: string) => {
@@ -143,7 +143,7 @@ export function DevicesSection() {
   }, [lastCreated, baseUrls]);
 
   const active = useMemo(
-    () => (devices ?? []).filter((d) => !d.revoked_at),
+    () => (devices ?? []).filter((d) => !d.revokedAt),
     [devices],
   );
 
@@ -325,14 +325,14 @@ function DeviceRow({
   const [confirming, setConfirming] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(device.name);
-  const [draftType, setDraftType] = useState<DeviceType>(device.device_type);
+  const [draftType, setDraftType] = useState<DeviceType>(device.deviceType);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const display = tokenDisplay(device.prefix, device.suffix, device.env);
 
   const beginEdit = () => {
     setDraftName(device.name);
-    setDraftType(device.device_type);
+    setDraftType(device.deviceType);
     setError(null);
     setEditing(true);
   };
@@ -350,7 +350,7 @@ function DeviceRow({
     }
     const patch: UpdateDeviceBody = {};
     if (trimmed !== device.name) patch.name = trimmed;
-    if (draftType !== device.device_type) patch.device_type = draftType;
+    if (draftType !== device.deviceType) patch.deviceType = draftType;
     if (Object.keys(patch).length === 0) {
       setEditing(false);
       return;
@@ -419,12 +419,12 @@ function DeviceRow({
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-foreground truncate">{device.name}</p>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
-            {device.device_type}
+            {device.deviceType}
           </span>
         </div>
         <p className="text-[11px] text-muted-foreground/70 font-mono truncate">{display}</p>
         <p className="text-[11px] text-muted-foreground/60 mt-1">
-          Last used {formatDate(device.last_used_at)}
+          Last used {formatDate(device.lastUsedAt)}
         </p>
       </div>
       {confirming ? (

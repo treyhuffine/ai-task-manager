@@ -43,11 +43,11 @@ export async function GET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.workspace_id || !session.worktree_path || !session.branch_name) {
+    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
       return Response.json({ pr: null });
     }
 
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ pr: null });
 
     // `@agentex/github` is ESM-only; dynamic import for the same reason
@@ -56,12 +56,12 @@ export async function GET(
     const repo = github.repo(ws.cwd);
 
     try {
-      // 1. Explicit `pr_number` on the session row wins — used when the
+      // 1. Explicit `prNumber` on the session row wins — used when the
       //    user linked a PR manually or when the agent stamped it on
       //    PR creation.
-      if (session.pr_number != null) {
+      if (session.prNumber != null) {
         try {
-          const pr = await repo.getPR(session.pr_number);
+          const pr = await repo.getPR(session.prNumber);
           const mergeable = pr.state === 'OPEN' ? await getPrMergeable(ws.cwd, pr.number) : null;
           const info: PrInfo = {
             number: pr.number,
@@ -77,7 +77,7 @@ export async function GET(
           return Response.json({ pr: info });
         } catch (err) {
           console.warn(
-            `[GET /api/sessions/${id}/pr] linked pr_number=${session.pr_number} lookup failed:`,
+            `[GET /api/sessions/${id}/pr] linked prNumber=${session.prNumber} lookup failed:`,
             err instanceof Error ? err.message : String(err),
           );
           // Fall through to branch-match below — the linked PR might
@@ -90,10 +90,10 @@ export async function GET(
       // Exact match first; fall back to suffix match for fork-style
       // refs ("user:branch" / "user/branch") where gh sometimes reports
       // a qualified head name.
-      let matching = all.filter((p) => p.headRefName === session.branch_name);
+      let matching = all.filter((p) => p.headRefName === session.branchName);
       if (matching.length === 0) {
         matching = all.filter((p) =>
-          session.branch_name ? p.headRefName.endsWith(session.branch_name) : false,
+          session.branchName ? p.headRefName.endsWith(session.branchName) : false,
         );
       }
       // Prefer open; otherwise the most recent.
@@ -103,7 +103,7 @@ export async function GET(
         // fires when gh actually returned PRs — empty repos stay quiet.
         if (all.length > 0) {
           console.warn(
-            `[GET /api/sessions/${id}/pr] no PR matched session branch "${session.branch_name}". gh sees ${all.length} PR(s): ${all
+            `[GET /api/sessions/${id}/pr] no PR matched session branch "${session.branchName}". gh sees ${all.length} PR(s): ${all
               .slice(0, 6)
               .map((p) => `#${p.number}=${p.headRefName}`)
               .join(', ')}${all.length > 6 ? ', …' : ''}`,
@@ -156,16 +156,16 @@ export async function POST(
         { status: 409 },
       );
     }
-    if (!session.workspace_id || !session.worktree_path || !session.branch_name) {
+    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
       return Response.json(
-        { error: 'no_worktree', message: 'No worktree or branch on this session.' },
+        { error: 'noWorktree', message: 'No worktree or branch on this session.' },
         { status: 400 },
       );
     }
 
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-    if (!ws.base_branch) {
+    if (!ws.baseBranch) {
       return Response.json(
         { error: 'no_base_branch', message: 'Workspace has no base branch configured.' },
         { status: 400 },
@@ -179,8 +179,8 @@ export async function POST(
 
     const diff = await handle.git.diff('base');
     const prompt = buildOpenPrPrompt({
-      branch: session.branch_name,
-      baseBranch: ws.base_branch,
+      branch: session.branchName,
+      baseBranch: ws.baseBranch,
       diff,
     });
 
@@ -190,11 +190,11 @@ export async function POST(
     // render it as an action-bar event rather than an organic user
     // message (the executor still dispatches it as the next turn).
     insertChatEvent({
-      session_id: id,
+      sessionId: id,
       role: 'user',
       source: 'user',
       content: prompt,
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
 
     // Fire-and-forget dispatch into the executor. The agent's reply

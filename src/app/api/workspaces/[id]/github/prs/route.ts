@@ -18,7 +18,7 @@ export async function GET(
     const state = (request.nextUrl.searchParams.get('state') ?? 'open') as 'open' | 'closed' | 'merged' | 'all';
     const ws = getWorkspace(id);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-    if (!ws.is_git) return Response.json([]);
+    if (!ws.isGit) return Response.json([]);
 
     const { github } = await import('@agentex/github');
     const repo = github.repo(ws.cwd);

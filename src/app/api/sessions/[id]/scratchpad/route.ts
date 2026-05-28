@@ -1,6 +1,6 @@
 /**
  * Session scratchpad. One blob of markdown per session — see the
- * `scratch_pad` column on `chat_sessions` (schema.ts).
+ * `scratchPad` column on `chat_sessions` (schema.ts).
  *
  * GET returns the current text. PUT replaces it. The agent reads the
  * latest version at hydration time (expandEntityMarkers), so write
@@ -17,7 +17,7 @@ export async function GET(
     const { id } = await params;
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    return Response.json({ scratch_pad: session.scratch_pad });
+    return Response.json({ scratchPad: session.scratchPad });
   } catch (err) {
     console.error('[GET /api/sessions/:id/scratchpad]', err);
     return Response.json({ error: String(err) }, { status: 500 });
@@ -25,7 +25,7 @@ export async function GET(
 }
 
 interface PutBody {
-  scratch_pad?: string | null;
+  scratchPad?: string | null;
 }
 
 export async function PUT(
@@ -35,11 +35,11 @@ export async function PUT(
   try {
     const { id } = await params;
     const body: PutBody = await request.json();
-    const next = body.scratch_pad ?? null;
+    const next = body.scratchPad ?? null;
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     const updated = setSessionScratchPad(id, next === '' ? null : next);
-    return Response.json({ scratch_pad: updated?.scratch_pad ?? null });
+    return Response.json({ scratchPad: updated?.scratchPad ?? null });
   } catch (err) {
     console.error('[PUT /api/sessions/:id/scratchpad]', err);
     return Response.json({ error: String(err) }, { status: 500 });

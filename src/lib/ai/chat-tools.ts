@@ -26,7 +26,7 @@ function toolError(toolName: string, err: unknown) {
 }
 
 /** FK fields where empty strings would cause constraint failures. */
-const FK_FIELDS = new Set(['area_id', 'parent_id', 'task_id', 'stream_item_id']);
+const FK_FIELDS = new Set(['areaId', 'parentId', 'taskId', 'streamItemId']);
 
 /** Strip empty strings on FK fields only — free text fields are left as-is. */
 function cleanParams<T extends Record<string, unknown>>(params: T): T {
@@ -49,8 +49,8 @@ const taskTools = {
         z.enum(['active', 'done', 'archived']),
         z.array(z.enum(['active', 'done', 'archived'])),
       ]).optional().default('active').describe('Filter by status. Can be a single status or array.'),
-      area_id: z.string().optional().describe('Filter by area ID (UUID). Call listAreas first to get the ID.'),
-      parent_id: z.string().optional().describe('Filter by parent task ID to get subtasks'),
+      areaId: z.string().optional().describe('Filter by area ID (UUID). Call listAreas first to get the ID.'),
+      parentId: z.string().optional().describe('Filter by parent task ID to get subtasks'),
       energy: z.enum(['deep', 'light']).optional().describe('Filter by energy level'),
       q: z.string().optional().describe('Search query to filter by title'),
       limit: z.number().optional().default(50).describe('Max results to return'),
@@ -63,15 +63,15 @@ const taskTools = {
           title: t.title,
           status: t.status,
           description: t.description,
-          area_id: t.area_id,
-          parent_id: t.parent_id,
+          areaId: t.areaId,
+          parentId: t.parentId,
           energy: t.energy,
           effort: t.effort,
-          hard_deadline: t.hard_deadline,
+          hardDeadline: t.hardDeadline,
           recurrence: t.recurrence,
-          blocked_on: t.blocked_on,
-          times_deferred: t.times_deferred,
-          created_at: t.created_at,
+          blockedOn: t.blockedOn,
+          timesDeferred: t.timesDeferred,
+          createdAt: t.createdAt,
         }));
       } catch (err) {
         return toolError('listTasks', err);
@@ -96,20 +96,20 @@ const taskTools = {
   }),
 
   createTask: tool({
-    description: 'Create a new task. Use when the user wants to add a todo, action item, goal, or reminder. IMPORTANT: area_id and parent_id must be valid UUIDs — call listAreas or listTasks first to look up the correct ID. Do NOT pass area names as area_id.',
+    description: 'Create a new task. Use when the user wants to add a todo, action item, goal, or reminder. IMPORTANT: areaId and parentId must be valid UUIDs — call listAreas or listTasks first to look up the correct ID. Do NOT pass area names as areaId.',
     inputSchema: z.object({
       title: z.string().describe('Short title for the task'),
       description: z.string().optional().describe('Brief description of what needs to be done'),
       body: z.string().optional().describe('Detailed notes or plan in markdown'),
-      area_id: z.string().optional().describe('Area UUID (call listAreas first to get the ID)'),
-      parent_id: z.string().optional().describe('Parent task UUID if this is a subtask'),
+      areaId: z.string().optional().describe('Area UUID (call listAreas first to get the ID)'),
+      parentId: z.string().optional().describe('Parent task UUID if this is a subtask'),
       energy: z.enum(['deep', 'light']).optional().describe('Focus level: deep=concentrated work, light=easy/routine'),
       effort: z.enum(['trivial', 'small', 'medium', 'large', 'epic']).optional().describe('Size estimate'),
-      hard_deadline: z.string().optional().describe('Deadline as ISO date string (YYYY-MM-DD)'),
+      hardDeadline: z.string().optional().describe('Deadline as ISO date string (YYYY-MM-DD)'),
       recurrence: z.string().optional().describe('Recurrence pattern: "daily", "weekly", "monthly", "yearly", or "Xd" (e.g. "3d")'),
-      blocked_on: z.string().optional().describe('What this task is blocked on'),
+      blockedOn: z.string().optional().describe('What this task is blocked on'),
       outcome: z.string().optional().describe('Desired outcome or definition of done'),
-      user_context: z.string().optional().describe('Additional context from the user'),
+      userContext: z.string().optional().describe('Additional context from the user'),
     }),
     execute: async (rawParams) => {
       try {
@@ -130,17 +130,17 @@ const taskTools = {
       title: z.string().optional().describe('New title'),
       description: z.string().optional().describe('New description'),
       body: z.string().optional().describe('New body content (markdown)'),
-      area_id: z.string().nullish().describe('Area UUID, or null to unset'),
-      parent_id: z.string().nullish().describe('Parent task UUID, or null to make top-level'),
+      areaId: z.string().nullish().describe('Area UUID, or null to unset'),
+      parentId: z.string().nullish().describe('Parent task UUID, or null to make top-level'),
       status: z.enum(['active', 'done', 'archived']).optional().describe('New status'),
       energy: z.enum(['deep', 'light']).nullish().describe('Energy level'),
       effort: z.enum(['trivial', 'small', 'medium', 'large', 'epic']).nullish().describe('Effort estimate'),
-      hard_deadline: z.string().nullish().describe('Deadline (ISO date), or null to clear'),
+      hardDeadline: z.string().nullish().describe('Deadline (ISO date), or null to clear'),
       recurrence: z.string().nullish().describe('Recurrence pattern, or null to clear'),
-      blocked_on: z.string().nullish().describe('What blocks this, or null to unblock'),
+      blockedOn: z.string().nullish().describe('What blocks this, or null to unblock'),
       outcome: z.string().nullish().describe('Desired outcome'),
-      user_context: z.string().nullish().describe('Additional context'),
-      sort_key: z.string().nullish().describe('Sort key for ordering'),
+      userContext: z.string().nullish().describe('Additional context'),
+      sortKey: z.string().nullish().describe('Sort key for ordering'),
     }),
     execute: async ({ id, ...rawUpdates }) => {
       try {
@@ -188,7 +188,7 @@ const taskTools = {
           id: result.task.id,
           title: result.task.title,
           recurring: result.recurring,
-          next_recurrence_at: result.next_recurrence_at,
+          nextRecurrenceAt: result.nextRecurrenceAt,
         };
       } catch (err) {
         return toolError('completeTask', err);
@@ -203,8 +203,8 @@ const noteTools = {
   listNotes: tool({
     description: 'List notes with optional filters. Notes are freeform text entries that can be linked to areas or tasks.',
     inputSchema: z.object({
-      area_id: z.string().optional().describe('Filter by area UUID'),
-      task_id: z.string().optional().describe('Filter by task UUID'),
+      areaId: z.string().optional().describe('Filter by area UUID'),
+      taskId: z.string().optional().describe('Filter by task UUID'),
       status: z.enum(['active', 'archived']).optional().default('active'),
       limit: z.number().optional().default(50),
     }),
@@ -215,10 +215,10 @@ const noteTools = {
           id: n.id,
           title: n.title,
           body: n.body?.slice(0, 300) + (n.body && n.body.length > 300 ? '...' : ''),
-          area_id: n.area_id,
-          task_id: n.task_id,
+          areaId: n.areaId,
+          taskId: n.taskId,
           status: n.status,
-          created_at: n.created_at,
+          createdAt: n.createdAt,
         }));
       } catch (err) {
         return toolError('listNotes', err);
@@ -243,12 +243,12 @@ const noteTools = {
   }),
 
   createNote: tool({
-    description: 'Create a new note. Notes are freeform text that can capture ideas, meeting notes, plans, or any information. IMPORTANT: area_id and task_id must be valid UUIDs.',
+    description: 'Create a new note. Notes are freeform text that can capture ideas, meeting notes, plans, or any information. IMPORTANT: areaId and taskId must be valid UUIDs.',
     inputSchema: z.object({
       body: z.string().describe('Note content in markdown'),
       title: z.string().optional().describe('Optional title'),
-      area_id: z.string().optional().describe('Area UUID (call listAreas first)'),
-      task_id: z.string().optional().describe('Task UUID (call listTasks first)'),
+      areaId: z.string().optional().describe('Area UUID (call listAreas first)'),
+      taskId: z.string().optional().describe('Task UUID (call listTasks first)'),
     }),
     execute: async (rawParams) => {
       try {
@@ -268,8 +268,8 @@ const noteTools = {
       id: z.string().describe('The note ID to update'),
       title: z.string().optional().describe('New title'),
       body: z.string().optional().describe('New body content (markdown)'),
-      area_id: z.string().nullish().describe('Area UUID, or null to unset'),
-      task_id: z.string().nullish().describe('Task UUID, or null to unset'),
+      areaId: z.string().nullish().describe('Area UUID, or null to unset'),
+      taskId: z.string().nullish().describe('Task UUID, or null to unset'),
       status: z.enum(['active', 'archived']).optional(),
     }),
     execute: async ({ id, ...rawUpdates }) => {
@@ -342,7 +342,7 @@ const areaTools = {
     inputSchema: z.object({
       name: z.string().describe('Area name (e.g. "Work", "Health", "Side Project")'),
       description: z.string().optional().describe('What this area covers'),
-      user_context: z.string().optional().describe('User context for AI prioritization'),
+      userContext: z.string().optional().describe('User context for AI prioritization'),
     }),
     execute: async (params) => {
       try {
@@ -361,9 +361,9 @@ const areaTools = {
       id: z.string().describe('The area ID to update'),
       name: z.string().optional(),
       description: z.string().optional(),
-      user_context: z.string().nullish(),
+      userContext: z.string().nullish(),
       status: z.enum(['active', 'inactive', 'archived']).optional(),
-      sort_order: z.number().optional(),
+      sortOrder: z.number().optional(),
     }),
     execute: async ({ id, ...rawUpdates }) => {
       try {
@@ -488,31 +488,31 @@ const searchTools = {
           .map((hit) => {
             let entity: Record<string, unknown> | undefined;
 
-            if (hit.entity_type === 'task') {
+            if (hit.entityType === 'task') {
               entity = rawDb
-                .prepare('SELECT id, title, description, status, area_id, hard_deadline, user_context, body FROM tasks WHERE id = ?')
-                .get(hit.entity_id) as Record<string, unknown> | undefined;
+                .prepare('SELECT id, title, description, status, area_id AS areaId, hard_deadline AS hardDeadline, user_context AS userContext, body FROM tasks WHERE id = ?')
+                .get(hit.entityId) as Record<string, unknown> | undefined;
               if (entity?.body && typeof entity.body === 'string' && entity.body.length > 500) {
                 entity.body = entity.body.slice(0, 500) + '...';
               }
-            } else if (hit.entity_type === 'note') {
+            } else if (hit.entityType === 'note') {
               entity = rawDb
-                .prepare('SELECT id, title, body, area_id, task_id FROM notes WHERE id = ?')
-                .get(hit.entity_id) as Record<string, unknown> | undefined;
+                .prepare('SELECT id, title, body, area_id AS areaId, task_id AS taskId FROM notes WHERE id = ?')
+                .get(hit.entityId) as Record<string, unknown> | undefined;
               if (entity?.body && typeof entity.body === 'string' && entity.body.length > 500) {
                 entity.body = entity.body.slice(0, 500) + '...';
               }
-            } else if (hit.entity_type === 'stream') {
+            } else if (hit.entityType === 'stream') {
               entity = rawDb
-                .prepare('SELECT id, raw_text, created_at, source FROM stream WHERE id = ?')
-                .get(hit.entity_id) as Record<string, unknown> | undefined;
-              if (entity?.raw_text && typeof entity.raw_text === 'string' && entity.raw_text.length > 500) {
-                entity.raw_text = entity.raw_text.slice(0, 500) + '...';
+                .prepare('SELECT id, raw_text AS rawText, created_at AS createdAt, source FROM stream WHERE id = ?')
+                .get(hit.entityId) as Record<string, unknown> | undefined;
+              if (entity?.rawText && typeof entity.rawText === 'string' && entity.rawText.length > 500) {
+                entity.rawText = entity.rawText.slice(0, 500) + '...';
               }
             }
 
             if (!entity) return null;
-            return { type: hit.entity_type, score: hit.score, ...entity };
+            return { type: hit.entityType, score: hit.score, ...entity };
           })
           .filter(Boolean);
       } catch (err) {
@@ -542,10 +542,10 @@ const userStateTools = {
   updateUserState: tool({
     description: 'Update the user\'s current state. Use when they tell you about their energy, available time, or want to switch focus areas.',
     inputSchema: z.object({
-      active_area_id: z.string().nullish().describe('Set the active area UUID, or null to clear'),
-      active_parent_task_id: z.string().nullish().describe('Set the active parent task UUID, or null to clear'),
-      active_energy: z.enum(['deep', 'light']).nullish().describe('Current energy level'),
-      available_minutes: z.number().nullish().describe('How many minutes the user has available'),
+      activeAreaId: z.string().nullish().describe('Set the active area UUID, or null to clear'),
+      activeParentTaskId: z.string().nullish().describe('Set the active parent task UUID, or null to clear'),
+      activeEnergy: z.enum(['deep', 'light']).nullish().describe('Current energy level'),
+      availableMinutes: z.number().nullish().describe('How many minutes the user has available'),
       description: z.string().optional().describe('Free-text description of current state/focus'),
     }),
     execute: async (params) => {

@@ -10,7 +10,7 @@ interface PreviewBody {
 /**
  * Walk `cwd` and return the files that would be copied for the given globs.
  * Used by the create-workspace modal + settings sheet to preview the
- * `files_to_copy` field before save.
+ * `filesToCopy` field before save.
  */
 export async function POST(request: NextRequest) {
   try {

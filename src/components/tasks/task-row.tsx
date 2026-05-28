@@ -107,8 +107,8 @@ export function TaskRow({
     transition,
   };
 
-  const deadline = formatDate(task.hard_deadline);
-  const boomerang = formatDate(task.resurface_after);
+  const deadline = formatDate(task.hardDeadline);
+  const boomerang = formatDate(task.resurfaceAfter);
 
   const cycleEnergy = () => {
     const idx = ENERGY_CYCLE.indexOf(task.energy);
@@ -189,8 +189,8 @@ export function TaskRow({
         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
           {/* Area */}
           <AreaSelect
-            value={task.area_id}
-            onChange={(areaId) => onUpdate(task.id, 'area_id', areaId)}
+            value={task.areaId}
+            onChange={(areaId) => onUpdate(task.id, 'areaId', areaId)}
           />
 
           {/* Energy pill */}
@@ -223,7 +223,7 @@ export function TaskRow({
               onClick={(e) => { e.stopPropagation(); setEditingDeadline(true); }}
               className={cn(
                 'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
-                task.hard_deadline && new Date(task.hard_deadline) < new Date()
+                task.hardDeadline && new Date(task.hardDeadline) < new Date()
                   ? 'text-destructive'
                   : 'text-muted-foreground',
               )}
@@ -235,12 +235,12 @@ export function TaskRow({
             <input
               type="date"
               autoFocus
-              defaultValue={task.hard_deadline?.split('T')[0] ?? ''}
+              defaultValue={task.hardDeadline?.split('T')[0] ?? ''}
               className="text-[10px] bg-card border border-border rounded px-1 py-0.5"
               onBlur={(e) => {
                 setEditingDeadline(false);
                 const val = e.target.value;
-                onUpdate(task.id, 'hard_deadline', val ? new Date(val).toISOString() : null);
+                onUpdate(task.id, 'hardDeadline', val ? new Date(val).toISOString() : null);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -264,12 +264,12 @@ export function TaskRow({
             <input
               type="date"
               autoFocus
-              defaultValue={task.resurface_after?.split('T')[0] ?? ''}
+              defaultValue={task.resurfaceAfter?.split('T')[0] ?? ''}
               className="text-[10px] bg-card border border-border rounded px-1 py-0.5"
               onBlur={(e) => {
                 setEditingBoomerang(false);
                 const val = e.target.value;
-                onUpdate(task.id, 'resurface_after', val ? new Date(val).toISOString() : null);
+                onUpdate(task.id, 'resurfaceAfter', val ? new Date(val).toISOString() : null);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -287,7 +287,7 @@ export function TaskRow({
           )}
 
           {/* Blocked */}
-          {task.blocked_on && (
+          {task.blockedOn && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-amber-500 uppercase tracking-wider">
               <Lock size={8} /> Blocked
             </span>
@@ -310,26 +310,26 @@ export function TaskRow({
           )}
 
           {/* Has subtasks */}
-          {task.subtask_count > 0 && (
+          {task.subtaskCount > 0 && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-foreground/60 text-[8.5px] font-medium">
-                    <ListTree size={8} /> {task.subtask_count}
+                    <ListTree size={8} /> {task.subtaskCount}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="block max-w-[280px] text-xs">
-                  <p className="font-semibold mb-1">{task.subtask_count} subtask{task.subtask_count === 1 ? '' : 's'}</p>
+                  <p className="font-semibold mb-1">{task.subtaskCount} subtask{task.subtaskCount === 1 ? '' : 's'}</p>
                   <ul className="space-y-0.5">
-                    {task.subtask_preview?.split('|||').map((title, i) => (
+                    {task.subtaskPreview?.split('|||').map((title, i) => (
                       <li key={i} className="flex items-start gap-1.5">
                         <span className="mt-1.5 w-1 h-1 rounded-full bg-current flex-shrink-0" />
                         <span className="line-clamp-1">{title}</span>
                       </li>
                     ))}
                   </ul>
-                  {task.subtask_count > 4 && (
-                    <p className="mt-1 text-[10px] opacity-70">+{task.subtask_count - 4} more</p>
+                  {task.subtaskCount > 4 && (
+                    <p className="mt-1 text-[10px] opacity-70">+{task.subtaskCount - 4} more</p>
                   )}
                 </TooltipContent>
               </Tooltip>
@@ -389,12 +389,12 @@ export function TaskRow({
                 Set effort
               </DropdownMenuItem>
             )}
-            {!task.hard_deadline && (
+            {!task.hardDeadline && (
               <DropdownMenuItem onClick={() => setEditingDeadline(true)} className="text-xs">
                 <Clock size={12} className="mr-2" /> Set deadline
               </DropdownMenuItem>
             )}
-            {!task.blocked_on && (
+            {!task.blockedOn && (
               <DropdownMenuItem
                 onClick={() => setBlockPopoverOpen(true)}
                 className="text-xs"
@@ -402,11 +402,11 @@ export function TaskRow({
                 <Lock size={12} className="mr-2" /> Block
               </DropdownMenuItem>
             )}
-            {task.blocked_on && (
+            {task.blockedOn && (
               <DropdownMenuItem
                 onClick={() => {
-                  onUpdate(task.id, 'blocked_on', null);
-                  onUpdate(task.id, 'blocked_since', null);
+                  onUpdate(task.id, 'blockedOn', null);
+                  onUpdate(task.id, 'blockedSince', null);
                 }}
                 className="text-xs"
               >
@@ -434,8 +434,8 @@ export function TaskRow({
               e.preventDefault();
               const val = blockInputRef.current?.value.trim();
               if (val) {
-                onUpdate(task.id, 'blocked_on', val);
-                onUpdate(task.id, 'blocked_since', new Date().toISOString());
+                onUpdate(task.id, 'blockedOn', val);
+                onUpdate(task.id, 'blockedSince', new Date().toISOString());
               }
               setBlockPopoverOpen(false);
             }}>

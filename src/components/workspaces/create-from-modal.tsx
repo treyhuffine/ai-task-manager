@@ -439,7 +439,7 @@ function IssueTab({ workspaceId, pending, isCreating, onStart }: {
               onSelect={() => onStart({
                 kind: 'issue',
                 // Issues don't have a head branch — branch off the workspace
-                // default. baseBranch left empty defers to ws.base_branch.
+                // default. baseBranch left empty defers to ws.baseBranch.
                 baseBranch: '',
                 labelSeed: `#${issue.number} ${issue.title}`,
                 display: {

@@ -79,7 +79,7 @@ function orderSessions(
   const order = new Map((workspaces ?? []).map((w, i) => [w.id, i] as const));
   const byWs = new Map<string | null, RailSession[]>();
   for (const s of active) {
-    const key = s.workspace_id ?? null;
+    const key = s.workspaceId ?? null;
     const arr = byWs.get(key) ?? [];
     arr.push(s);
     byWs.set(key, arr);

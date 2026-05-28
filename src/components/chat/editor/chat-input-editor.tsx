@@ -12,17 +12,17 @@
  *
  *   - Long pastes are converted to `.txt` files and uploaded via
  *     `POST /api/attachments` → bytes land in
- *     `<brain>/attachments/<file_name>`.
+ *     `<brain>/attachments/<fileName>`.
  *   - Images / files dropped onto the editor are uploaded the same
  *     way.
  *   - Each successful upload returns an `Attachment` record
- *     (`{file_name, original_name, mime_type, size, uploaded_at}`)
+ *     (`{fileName, originalName, mimeType, size, uploadedAt}`)
  *     which becomes the chip node's attrs. No separate marker id —
- *     `file_name` is the stable key.
+ *     `fileName` is the stable key.
  *
  * Two output formats are exported via the imperative ref:
  *   - `getMarkerOutput()` — for execution chat. Returns
- *     `{ text: "with [[file:<file_name>]] markers", attachments: [...] }`.
+ *     `{ text: "with [[file:<fileName>]] markers", attachments: [...] }`.
  *     The server resolves markers to absolute paths before dispatching.
  *   - `getUiMessageParts()` — for orchestrator chat. Returns an
  *     ai-sdk `parts: [{type:'text',...}, {type:'file',...}]` array in
@@ -121,7 +121,7 @@ export interface ChatInputEditorHandle {
    */
   uploadFile(file: File | Blob, name?: string): Promise<void>;
   /**
-   * Execution-chat output: a single text string with `[[file:<file_name>]]`
+   * Execution-chat output: a single text string with `[[file:<fileName>]]`
    * markers where chips were, plus the attachments referenced. The server
    * resolves the markers into absolute disk paths before dispatching.
    */
@@ -226,7 +226,7 @@ function looksLikeMarkdown(text: string): boolean {
 
 function makePastedFilename(text: string): string {
   // Match Conductor's default convention. Local time is fine — this
-  // string is purely cosmetic (the file_name is the stable key).
+  // string is purely cosmetic (the fileName is the stable key).
   const now = new Date();
   const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, '-');
   const ext = looksLikeMarkdown(text) ? 'md' : 'txt';
@@ -379,7 +379,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           window.localStorage.removeItem(storageKey);
           return;
         }
-        // A pending chip serializes as a spinner with no file_name —
+        // A pending chip serializes as a spinner with no fileName —
         // restoring it would strand the user with a stuck placeholder.
         // The next post-upload onUpdate will save the resolved state.
         let hasPending = false;
@@ -434,7 +434,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
      * Core upload path. Inserts a pending placeholder chip with a
      * spinner immediately so the user sees the file land where they
      * dropped/pasted. When the upload resolves, we walk the doc to
-     * find the placeholder by `pending_id` and swap in the real
+     * find the placeholder by `pendingId` and swap in the real
      * Attachment attrs. On failure, we remove the placeholder.
      *
      * Throws on failure so the imperative `uploadFile` handle can
@@ -450,13 +450,13 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         const fileMime = file instanceof File && file.type ? file.type : 'application/octet-stream';
 
         ed.commands.insertFileChip({
-          file_name: '',
-          original_name: name,
-          mime_type: fileMime,
+          fileName: '',
+          originalName: name,
+          mimeType: fileMime,
           size: fileSize,
-          uploaded_at: '',
+          uploadedAt: '',
           pending: true,
-          pending_id: pendingId,
+          pendingId: pendingId,
         });
 
         try {
@@ -715,7 +715,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
 
 // ─── Pending-chip helpers ────────────────────────────────────────
 //
-// Walk the doc to find a chip with the given `pending_id` (set at
+// Walk the doc to find a chip with the given `pendingId` (set at
 // insert time). Swap its attrs to the real Attachment on success, or
 // delete it on failure. Tiptap's transactional API gives us atomic
 // updates — no flicker, no orphan chips on race.
@@ -725,7 +725,7 @@ function findPendingChip(editor: Editor, pendingId: string): { pos: number; size
   editor.state.doc.descendants((node, pos) => {
     if (found) return false;
     if (node.type.name !== FILE_CHIP_NAME) return true;
-    if ((node.attrs as FileChipAttrs).pending_id === pendingId) {
+    if ((node.attrs as FileChipAttrs).pendingId === pendingId) {
       found = { pos, size: node.nodeSize };
       return false;
     }
@@ -740,7 +740,7 @@ function replacePendingChip(editor: Editor, pendingId: string, attachment: Attac
   const tr = editor.state.tr.setNodeMarkup(hit.pos, undefined, {
     ...attachment,
     pending: false,
-    pending_id: '',
+    pendingId: '',
   } as FileChipAttrs);
   editor.view.dispatch(tr);
 }
@@ -766,17 +766,17 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
       // Skip chips that are still uploading. Caller is expected to
       // disable Send while any chip is pending, but if a race slips
       // through (Enter pressed during the upload roundtrip), we'd
-      // rather drop the placeholder than ship an empty file_name.
-      if (attrs.pending || !attrs.file_name) return false;
-      if (!seenFileNames.has(attrs.file_name)) {
-        seenFileNames.add(attrs.file_name);
-        const { pending: _p, pending_id: _pid, ...persisted } = attrs;
+      // rather drop the placeholder than ship an empty fileName.
+      if (attrs.pending || !attrs.fileName) return false;
+      if (!seenFileNames.has(attrs.fileName)) {
+        seenFileNames.add(attrs.fileName);
+        const { pending: _p, pendingId: _pid, ...persisted } = attrs;
         attachments.push(persisted);
       }
       // Marker token uses a double-bracket prefix so it doesn't collide
-      // with real bracketed text the user might type. file_name is
+      // with real bracketed text the user might type. fileName is
       // `<uuidv7>.<ext>` — safe in a regex character class.
-      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `[[file:${attrs.file_name}]]`;
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `[[file:${attrs.fileName}]]`;
       return false;
     }
     if (node.type.name === PR_CHIP_NAME) {
@@ -858,12 +858,12 @@ function buildUiMessageParts(editor: Editor | null): {
       flushText();
       const attrs = node.attrs as FileChipAttrs;
       // Skip pending chips — same rationale as buildMarkerOutput.
-      if (attrs.pending || !attrs.file_name) return false;
+      if (attrs.pending || !attrs.fileName) return false;
       parts.push({
         type: 'file',
-        mediaType: attrs.mime_type,
-        filename: attrs.original_name || attrs.file_name,
-        url: attachmentUrl(attrs.file_name),
+        mediaType: attrs.mimeType,
+        filename: attrs.originalName || attrs.fileName,
+        url: attachmentUrl(attrs.fileName),
       });
       return false;
     }

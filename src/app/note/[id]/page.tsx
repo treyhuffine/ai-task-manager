@@ -80,7 +80,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   const handleAreaChange = useCallback(
     (areaId: string | null) => {
       if (!noteId) return;
-      updateNote.mutate({ id: noteId, area_id: areaId });
+      updateNote.mutate({ id: noteId, areaId: areaId });
     },
     [noteId, updateNote],
   );
@@ -91,7 +91,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
       if (!noteId) return;
       if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
       foldedTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, folded_headings: folded });
+        updateNote.mutate({ id: noteId, foldedHeadings: folded });
       }, 400);
     },
     [noteId, updateNote],
@@ -189,7 +189,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                     Note
                   </span>
                   <span className="text-muted-foreground/30">&middot;</span>
-                  <AreaSelect value={note.area_id} onChange={handleAreaChange} />
+                  <AreaSelect value={note.areaId} onChange={handleAreaChange} />
                 </div>
                 <div className="pb-16">
                   <NoteEditor
@@ -199,7 +199,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                     onTitleChange={handleTitleChange}
                     onBodyChange={handleBodyChange}
                     onAttachment={handleAttachment}
-                    foldedHeadings={note.folded_headings ?? []}
+                    foldedHeadings={note.foldedHeadings ?? []}
                     onFoldedHeadingsChange={handleFoldedHeadingsChange}
                     autoFocusTitle={!note.title && note.body.trim().length === 0}
                     disabled={aiBusy}
@@ -207,16 +207,16 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                     metadata={
                       <p className="text-[10px] text-muted-foreground/50 mt-1">
                         Created{' '}
-                        {new Date(note.created_at).toLocaleDateString('en-US', {
+                        {new Date(note.createdAt).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
                           year: 'numeric',
                         })}
-                        {note.updated_at !== note.created_at && (
+                        {note.updatedAt !== note.createdAt && (
                           <>
                             {' '}
                             &middot; Edited{' '}
-                            {new Date(note.updated_at).toLocaleDateString('en-US', {
+                            {new Date(note.updatedAt).toLocaleDateString('en-US', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',

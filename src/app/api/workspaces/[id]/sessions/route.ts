@@ -8,7 +8,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const rows = listChatSessions({ workspace_id: id, status: 'active' });
+    const rows = listChatSessions({ workspaceId: id, status: 'active' });
     return Response.json(rows);
   } catch (err) {
     console.error('[GET /api/workspaces/:id/sessions]', err);

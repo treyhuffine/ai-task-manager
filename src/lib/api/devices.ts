@@ -4,8 +4,8 @@ import type { ApiKeyRecord, DeviceType } from '@/db/types';
 export interface CreateDeviceBody {
   name: string;
   description?: string | null;
-  device_type?: DeviceType;
-  expires_at?: string | null;
+  deviceType?: DeviceType;
+  expiresAt?: string | null;
 }
 
 export interface CreateDeviceResponse {
@@ -16,7 +16,7 @@ export interface CreateDeviceResponse {
 export interface UpdateDeviceBody {
   name?: string;
   description?: string | null;
-  device_type?: DeviceType;
+  deviceType?: DeviceType;
 }
 
 export const devicesApi = {

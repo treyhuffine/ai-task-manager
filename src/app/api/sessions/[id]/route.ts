@@ -11,11 +11,11 @@ export async function GET(
     const { id } = await params;
     const row = getChatSessionWithExecution(id);
     if (!row) return Response.json({ error: 'Session not found' }, { status: 404 });
-    // Sidecar `agent_harness` so the composer can pick the right model
+    // Sidecar `agentHarness` so the composer can pick the right model
     // catalog without a second round-trip. Cheap join; the agent row is
     // immutable for the session's lifetime.
-    const agent = getAgent(row.agent_id);
-    return Response.json({ ...row, agent_harness: agent?.harness ?? null });
+    const agent = getAgent(row.agentId);
+    return Response.json({ ...row, agentHarness: agent?.harness ?? null });
   } catch (err) {
     console.error('[GET /api/sessions/:id]', err);
     return Response.json({ error: String(err) }, { status: 500 });
@@ -24,13 +24,13 @@ export async function GET(
 
 interface PatchBody {
   label?: string | null;
-  permission_mode?: PermissionMode;
+  permissionMode?: PermissionMode;
   /** Provider model id. `null` clears back to the harness default. */
   model?: string | null;
   /** Effort level (Claude only — Codex ignores). `null` clears. */
   effort?: EffortLevel | null;
   /** Explicit PR link. `null` clears the link. */
-  pr_number?: number | null;
+  prNumber?: number | null;
 }
 
 /**
@@ -38,10 +38,10 @@ interface PatchBody {
  * mutations have dedicated routes (`/view`, `/archive`, etc.) so this is
  * intentionally narrow rather than a generic "update session".
  *
- * `permission_mode` change behavior: the row is updated, then the
+ * `permissionMode` change behavior: the row is updated, then the
  * cached AgentSession (if any) is closed via `executor.recycleForModeChange`.
  * The next dispatch reopens the CLI with the new `--permission-mode`
- * flag and resumes the conversation via `external_session_id`. We don't
+ * flag and resumes the conversation via `externalSessionId`. We don't
  * await the close — the route returns as soon as the row update lands.
  */
 export async function PATCH(
@@ -64,24 +64,24 @@ export async function PATCH(
     // the cached AgentSession so the next dispatch spawns a fresh CLI
     // process with the new --permission-mode / --model / --effort flags.
     let executorChanged = false;
-    if ('permission_mode' in body) {
-      const mode = body.permission_mode;
+    if ('permissionMode' in body) {
+      const mode = body.permissionMode;
       if (!mode || !PERMISSION_MODES.includes(mode)) {
         return Response.json(
-          { error: `Invalid permission_mode. Expected one of ${PERMISSION_MODES.join(', ')}.` },
+          { error: `Invalid permissionMode. Expected one of ${PERMISSION_MODES.join(', ')}.` },
           { status: 400 },
         );
       }
-      if (mode !== existing.permission_mode) {
-        updates.permission_mode = mode;
+      if (mode !== existing.permissionMode) {
+        updates.permissionMode = mode;
         executorChanged = true;
         // Track prior mode on plan entry so ExitPlanMode can revert.
         // Cleared on any non-plan transition. Mirrors Claude Code's
         // ToolPermissionContext.prePlanMode behavior.
-        if (mode === 'plan' && existing.permission_mode !== 'plan') {
-          (updates as Record<string, unknown>).pre_plan_mode = existing.permission_mode;
-        } else if (mode !== 'plan' && existing.pre_plan_mode) {
-          (updates as Record<string, unknown>).pre_plan_mode = null;
+        if (mode === 'plan' && existing.permissionMode !== 'plan') {
+          (updates as Record<string, unknown>).prePlanMode = existing.permissionMode;
+        } else if (mode !== 'plan' && existing.prePlanMode) {
+          (updates as Record<string, unknown>).prePlanMode = null;
         }
       }
     }
@@ -105,27 +105,27 @@ export async function PATCH(
         executorChanged = true;
       }
     }
-    // pr_number was lifted off chat_sessions onto the execution. Route it
+    // prNumber was lifted off chat_sessions onto the execution. Route it
     // to the execution row rather than the chat update below.
     let prChanged = false;
-    if ('pr_number' in body) {
-      const num = body.pr_number;
+    if ('prNumber' in body) {
+      const num = body.prNumber;
       if (num !== null && (typeof num !== 'number' || !Number.isInteger(num) || num <= 0)) {
         return Response.json(
-          { error: 'Invalid pr_number. Expected a positive integer or null.' },
+          { error: 'Invalid prNumber. Expected a positive integer or null.' },
           { status: 400 },
         );
       }
-      if (existing.execution_id && num !== existing.pr_number) {
-        setExecutionPR(existing.execution_id, num ?? null);
+      if (existing.executionId && num !== existing.prNumber) {
+        setExecutionPR(existing.executionId, num ?? null);
         prChanged = true;
       }
     }
 
     // No-op when nothing on the chat row changed (e.g. PATCH with
-    // permission_mode matching the current value). Drizzle's update()
+    // permissionMode matching the current value). Drizzle's update()
     // throws "No values to set" with an empty patch, so short-circuit. A
-    // pr_number-only change is applied to the execution above, so reload
+    // prNumber-only change is applied to the execution above, so reload
     // the flattened row to reflect it.
     if (Object.keys(updates).length === 0) {
       return Response.json(prChanged ? getChatSessionWithExecution(id) : existing);

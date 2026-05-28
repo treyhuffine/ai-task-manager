@@ -1,8 +1,8 @@
 /**
  * Tasks for the shared dev seed. Reference an area by `area_name`; the
- * runner resolves it to `area_id` after areas are created. Reference a
+ * runner resolves it to `areaId` after areas are created. Reference a
  * parent task by `parent_title` for subtasks; the runner resolves it to
- * `parent_id` against earlier-created tasks (parents must appear first).
+ * `parentId` against earlier-created tasks (parents must appear first).
  *
  * Title is the stable reference key — notes.ts can attach a note to a
  * task by `task_title`. Titles must be unique across this file.
@@ -14,10 +14,10 @@
  */
 import type { CreateTaskInput } from '../../src/db/types';
 
-export type SeedTask = Omit<CreateTaskInput, 'area_id' | 'raw_input' | 'parent_id'> & {
+export type SeedTask = Omit<CreateTaskInput, 'areaId' | 'rawInput' | 'parentId'> & {
   area_name?: string;
   parent_title?: string;
-  raw_input?: string;
+  rawInput?: string;
 };
 
 export const tasks: SeedTask[] = [
@@ -105,7 +105,7 @@ export const tasks: SeedTask[] = [
     title: 'Annual physical',
     area_name: 'Health',
     description: 'Schedule and attend. Last visit was a year ago this month.',
-    hard_deadline: '2026-06-15',
+    hardDeadline: '2026-06-15',
     energy: 'light',
     effort: 'small',
     status: 'active',
@@ -120,7 +120,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'small',
     status: 'active',
-    heartbeat_days: 1,
+    heartbeatDays: 1,
   },
   {
     title: 'Order new running shoes',
@@ -177,7 +177,7 @@ export const tasks: SeedTask[] = [
     title: 'Sign Sammy up for fall soccer',
     area_name: 'Family',
     description: 'Registration opens May 1. League website link in note.',
-    hard_deadline: '2026-05-15',
+    hardDeadline: '2026-05-15',
     energy: 'light',
     effort: 'small',
     status: 'active',
@@ -228,7 +228,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'trivial',
     status: 'active',
-    blocked_on: 'Choosing contractor',
+    blockedOn: 'Choosing contractor',
   },
   {
     title: 'Replace water filter',
@@ -244,7 +244,7 @@ export const tasks: SeedTask[] = [
   {
     title: 'File Q2 estimated taxes',
     area_name: 'Finance',
-    hard_deadline: '2026-06-15',
+    hardDeadline: '2026-06-15',
     energy: 'light',
     effort: 'small',
     status: 'active',
@@ -277,7 +277,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'medium',
     status: 'active',
-    last_progress_at: '2026-04-21T20:30:00Z',
+    lastProgressAt: '2026-04-21T20:30:00Z',
   },
   {
     title: 'Crossroads — Franzen',

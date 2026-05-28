@@ -26,9 +26,9 @@ import { openWorktreeHandle } from '@/lib/workspaces';
 
 export interface ResumeFromTakeoverResponse {
   ok: true;
-  files_changed: number;
+  filesChanged: number;
   shortstat: string;
-  session_id: string;
+  sessionId: string;
 }
 
 interface FileChange {
@@ -57,20 +57,20 @@ export async function POST(
 
     const session = findChatSessionByTakeoverToken(token);
     if (!session) return Response.json({ error: 'unknown_token' }, { status: 404 });
-    if (!session.takeover_started_at) {
+    if (!session.takeoverStartedAt) {
       return Response.json({ error: 'not_in_takeover' }, { status: 404 });
     }
     if (
-      session.takeover_token_expires_at &&
-      new Date(session.takeover_token_expires_at) < new Date()
+      session.takeoverTokenExpiresAt &&
+      new Date(session.takeoverTokenExpiresAt) < new Date()
     ) {
       return Response.json({ error: 'token_expired' }, { status: 410 });
     }
 
-    if (!session.workspace_id || !session.takeover_branch || !session.takeover_base_sha) {
+    if (!session.workspaceId || !session.takeoverBranch || !session.takeoverBaseSha) {
       return Response.json({ error: 'inconsistent_state' }, { status: 500 });
     }
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'workspace_not_found' }, { status: 404 });
 
     const handle = await openWorktreeHandle(session, ws.cwd);
@@ -78,8 +78,8 @@ export async function POST(
       return Response.json({ error: 'worktree_unavailable' }, { status: 404 });
     }
 
-    const baseSha = session.takeover_base_sha;
-    const branch = session.takeover_branch;
+    const baseSha = session.takeoverBaseSha;
+    const branch = session.takeoverBranch;
 
     try {
       await handle.git.raw(['fetch', 'origin', branch]);
@@ -145,7 +145,7 @@ export async function POST(
         : '(no file-level changes detected)';
 
     const content = [
-      `I took the session over locally at ${session.takeover_started_at}.`,
+      `I took the session over locally at ${session.takeoverStartedAt}.`,
       shortstat ? `Summary: ${shortstat}` : 'Summary: (no shortstat available)',
       '',
       'Files changed:',
@@ -157,20 +157,20 @@ export async function POST(
     ].join('\n');
 
     insertChatEvent({
-      session_id: session.id,
+      sessionId: session.id,
       role: 'user',
       source: 'system',
       content,
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
 
-    if (session.execution_id) clearExecutionTakeover(session.execution_id);
+    if (session.executionId) clearExecutionTakeover(session.executionId);
 
     const body: ResumeFromTakeoverResponse = {
       ok: true,
-      files_changed: files.length,
+      filesChanged: files.length,
       shortstat,
-      session_id: session.id,
+      sessionId: session.id,
     };
     return Response.json(body);
   } catch (err) {

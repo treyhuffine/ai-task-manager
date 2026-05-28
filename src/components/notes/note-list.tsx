@@ -25,12 +25,12 @@ export function NoteList() {
 
   const [statusFilter, setStatusFilter] = useState<NoteStatus | 'all'>('active');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
-  const [sortBy, setSortBy] = useState<'last_viewed_at' | 'created_at' | 'updated_at'>('last_viewed_at');
+  const [sortBy, setSortBy] = useState<'lastViewedAt' | 'createdAt' | 'updatedAt'>('lastViewedAt');
 
   const filter = {
     ...(statusFilter !== 'all' ? { status: statusFilter as NoteStatus } : {}),
-    ...(areaFilter !== 'all' ? { area_id: areaFilter } : {}),
-    order_by: sortBy,
+    ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
+    orderBy: sortBy,
   };
 
   const { data: notes, isLoading, error } = useNotes(filter);
@@ -101,9 +101,9 @@ export function NoteList() {
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-              <DropdownMenuRadioItem value="last_viewed_at" className="text-xs">Last viewed</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="created_at" className="text-xs">Created</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="updated_at" className="text-xs">Updated</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="lastViewedAt" className="text-xs">Last viewed</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="createdAt" className="text-xs">Created</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="updatedAt" className="text-xs">Updated</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>

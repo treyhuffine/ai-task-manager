@@ -11,11 +11,11 @@ import { cn } from '@/lib/utils';
 interface ReferencingSession {
   id: string;
   label: string | null;
-  workspace_id: string | null;
+  workspaceId: string | null;
   type: string;
   status: string;
-  started_at: string;
-  last_outcome_event_at: string | null;
+  startedAt: string;
+  lastOutcomeEventAt: string | null;
 }
 
 interface ReferencingSessionsResponse {

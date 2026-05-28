@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const results = db
       .select()
       .from(decks)
-      .orderBy(desc(decks.created_at))
+      .orderBy(desc(decks.createdAt))
       .limit(limit)
       .all();
 

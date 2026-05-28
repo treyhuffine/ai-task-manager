@@ -160,10 +160,10 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
       {
         name: trimmed,
         cwd: trimmedCwd,
-        area_id: areaId || null,
+        areaId: areaId || null,
         emoji: emoji ?? null,
         attachments: attachment ? [attachment] : [],
-        files_to_copy: filesToCopy,
+        filesToCopy: filesToCopy,
       },
       {
         onSuccess: () => {
@@ -269,7 +269,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                     {attachment ? (
                       <div className="relative group">
                         <img
-                          src={`/api/attachments/${attachment.file_name}`}
+                          src={`/api/attachments/${attachment.fileName}`}
                           alt="Workspace cover"
                           className="w-20 h-20 rounded-xl object-cover border border-border"
                         />

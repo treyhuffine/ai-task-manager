@@ -128,7 +128,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   const name = (opts.name ?? '').trim() || defaultDeviceName();
   const { key, token } = createApiKey({
     name,
-    device_type: deviceType,
+    deviceType: deviceType,
     description: `Paired via \`${APP_SHORT_ID} pair\` from ${os.hostname()}`,
   });
 
@@ -138,7 +138,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   console.log();
   console.log(
     pc.bold(`${APP_SHORT_ID} pair`) +
-      pc.dim(` — created device "${key.name}" (${key.device_type})`),
+      pc.dim(` — created device "${key.name}" (${key.deviceType})`),
   );
   console.log();
   console.log(await renderTerminalQr(primaryUrl));

@@ -4,7 +4,7 @@ import { retryProvisionWorktree } from '@/lib/sessions/dispatch';
 /**
  * Retry worktree provisioning for a session that failed setup. Triggered
  * from the SetupCard's Pull button after the user fixes the cause (auth,
- * network, missing remote, etc.). Clears `setup_error` up front so the UI
+ * network, missing remote, etc.). Clears `setupError` up front so the UI
  * flips out of the failed chip immediately; the column is repopulated if
  * the retry itself fails.
  */

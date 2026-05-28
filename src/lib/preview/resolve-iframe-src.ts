@@ -113,8 +113,8 @@ export function resolveIframeSrc(options: ResolveIframeSrcOptions): ResolvedIfra
 
   // 3. Tailnet browser: prefer the per-app Tailscale URL if Portless
   //    registered one. Real cert, real DNS, full app fidelity.
-  if (hostname.endsWith('.ts.net') && status.tailscale_url) {
-    const direct = status.tailscale_url;
+  if (hostname.endsWith('.ts.net') && status.tailscaleUrl) {
+    const direct = status.tailscaleUrl;
     // Tailscale URLs are HTTPS by default. If the recorded URL is HTTP
     // and Flow is HTTPS, fall back to avoid mixed content.
     if (flowIsHttps && direct.startsWith('http://')) {

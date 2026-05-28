@@ -24,14 +24,14 @@ import * as executor from '@/lib/executor/adapter';
 
 export interface TakeoverResponse {
   token: string;
-  expires_at: string;
-  cli_command: string;
-  fallback_command: string;
+  expiresAt: string;
+  cliCommand: string;
+  fallbackCommand: string;
   branch: string;
-  base_sha: string;
-  remote_url: string;
-  workspace_id: string;
-  started_at: string;
+  baseSha: string;
+  remoteUrl: string;
+  workspaceId: string;
+  startedAt: string;
 }
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -76,21 +76,21 @@ export async function POST(
         { status: 400 },
       );
     }
-    if (session.takeover_started_at) {
+    if (session.takeoverStartedAt) {
       return Response.json(
         { error: 'already_taken_over', message: 'Session is already in takeover.' },
         { status: 409 },
       );
     }
-    if (!session.workspace_id || !session.worktree_path || !session.branch_name || !session.execution_id) {
+    if (!session.workspaceId || !session.worktreePath || !session.branchName || !session.executionId) {
       return Response.json(
-        { error: 'no_worktree', message: 'Session has no worktree to take over.' },
+        { error: 'noWorktree', message: 'Session has no worktree to take over.' },
         { status: 400 },
       );
     }
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-    if (!ws.is_git) {
+    if (!ws.isGit) {
       return Response.json({ error: 'not_git', message: 'Workspace is not a git repo.' }, { status: 400 });
     }
 
@@ -161,11 +161,11 @@ export async function POST(
     const token = randomUUID().replace(/-/g, '');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
 
-    const updated = startExecutionTakeover(session.execution_id, {
-      base_sha: baseSha,
-      branch: session.branch_name,
+    const updated = startExecutionTakeover(session.executionId, {
+      baseSha: baseSha,
+      branch: session.branchName,
       token,
-      expires_at: expiresAt,
+      expiresAt: expiresAt,
     });
     if (!updated) {
       return Response.json({ error: 'persist_failed' }, { status: 500 });
@@ -178,14 +178,14 @@ export async function POST(
 
     const body: TakeoverResponse = {
       token,
-      expires_at: expiresAt,
-      cli_command: buildCliCommand(origin, token),
-      fallback_command: buildFallbackCommand(session.branch_name),
-      branch: session.branch_name,
-      base_sha: baseSha,
-      remote_url: remoteUrl,
-      workspace_id: session.workspace_id,
-      started_at: updated.takeover_started_at ?? new Date().toISOString(),
+      expiresAt: expiresAt,
+      cliCommand: buildCliCommand(origin, token),
+      fallbackCommand: buildFallbackCommand(session.branchName),
+      branch: session.branchName,
+      baseSha: baseSha,
+      remoteUrl: remoteUrl,
+      workspaceId: session.workspaceId,
+      startedAt: updated.takeoverStartedAt ?? new Date().toISOString(),
     };
     return Response.json(body);
   } catch (err) {

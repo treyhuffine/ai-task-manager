@@ -29,7 +29,7 @@ export function CreateMenu() {
   const handleNewTask = useCallback(() => {
     setOpen(false);
     createTask.mutate(
-      { title: " ", raw_input: " " },
+      { title: " ", rawInput: " " },
       {
         onSuccess: (task) => {
           openTask(task.id);

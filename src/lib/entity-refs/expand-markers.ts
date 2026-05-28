@@ -56,7 +56,7 @@ function renderNoteMarker(id: string): string | null {
 function renderScratchpadMarker(sessionId: string): string | null {
   const s = getChatSession(sessionId);
   if (!s) return null;
-  const body = trim(s.scratch_pad);
+  const body = trim(s.scratchPad);
   return body
     ? `<scratchpad>\n${body}\n</scratchpad>`
     : `<scratchpad status="empty" />`;

@@ -10,11 +10,11 @@ export async function GET(request: NextRequest) {
       status: params.get('status')
         ? (params.get('status')!.split(',') as ('active' | 'done' | 'archived')[])
         : undefined,
-      area_id: params.get('area_id') ?? undefined,
-      parent_id: params.get('parent_id') ?? undefined,
+      areaId: params.get('areaId') ?? undefined,
+      parentId: params.get('parentId') ?? undefined,
       energy: (params.get('energy') as 'deep' | 'light') ?? undefined,
       q: params.get('q') ?? undefined,
-      order_by: params.get('order_by') ?? undefined,
+      orderBy: params.get('orderBy') ?? undefined,
       limit: params.get('limit') ? parseInt(params.get('limit')!, 10) : undefined,
       offset: params.get('offset') ? parseInt(params.get('offset')!, 10) : undefined,
     });
@@ -30,9 +30,9 @@ export async function POST(request: NextRequest) {
   try {
     const body: CreateTaskInput = await request.json();
 
-    if (!body.title || !body.raw_input) {
+    if (!body.title || !body.rawInput) {
       return Response.json(
-        { error: 'title and raw_input are required' },
+        { error: 'title and rawInput are required' },
         { status: 400 }
       );
     }

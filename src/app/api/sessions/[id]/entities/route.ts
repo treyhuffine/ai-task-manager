@@ -28,8 +28,8 @@ export async function GET(
     const taskIds = new Set<string>();
     const noteIds = new Set<string>();
     for (const r of refs) {
-      if (r.entity_type === 'task') taskIds.add(r.entity_id);
-      else if (r.entity_type === 'note') noteIds.add(r.entity_id);
+      if (r.entityType === 'task') taskIds.add(r.entityId);
+      else if (r.entityType === 'note') noteIds.add(r.entityId);
     }
 
     const tasks: Array<{ id: string; title: string; status: string }> = [];

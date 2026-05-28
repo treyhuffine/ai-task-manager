@@ -169,7 +169,7 @@ export function useMarkSessionRead() {
         ...prev,
         sessions: prev.sessions.map((s) =>
           s.id === id
-            ? { ...s, last_viewed_at: now, unread_marker_at: null }
+            ? { ...s, lastViewedAt: now, unreadMarkerAt: null }
             : s,
         ),
       });
@@ -185,7 +185,7 @@ export function useMarkSessionRead() {
           && q.queryKey[2] === 'sessions' },
         (prev) => prev?.map((s) =>
           s.id === id
-            ? { ...s, last_viewed_at: now, unread_marker_at: null }
+            ? { ...s, lastViewedAt: now, unreadMarkerAt: null }
             : s,
         ),
       );
@@ -212,7 +212,7 @@ export function useMarkSessionUnread() {
       qc.setQueryData<RailResponse>(RAIL_KEY, (prev) => prev && {
         ...prev,
         sessions: prev.sessions.map((s) =>
-          s.id === id ? { ...s, unread_marker_at: now } : s,
+          s.id === id ? { ...s, unreadMarkerAt: now } : s,
         ),
       });
       qc.setQueriesData<ChatSessionRecord[]>(
@@ -220,7 +220,7 @@ export function useMarkSessionUnread() {
           q.queryKey[0] === 'workspaces'
           && q.queryKey[2] === 'sessions' },
         (prev) => prev?.map((s) =>
-          s.id === id ? { ...s, unread_marker_at: now } : s,
+          s.id === id ? { ...s, unreadMarkerAt: now } : s,
         ),
       );
     },

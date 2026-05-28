@@ -65,7 +65,7 @@ export interface UseVoiceInputReturn {
 
 export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn {
   const { data: userState } = useUserState();
-  const voiceModel = voiceModelOverride ?? userState?.voice_model ?? DEFAULT_VOICE_MODEL;
+  const voiceModel = voiceModelOverride ?? userState?.voiceModel ?? DEFAULT_VOICE_MODEL;
 
   // Status lives in a ref (source of truth for async callbacks) AND state
   // (triggers re-renders). `setVoiceStatus` is the ONLY way to update —
@@ -262,7 +262,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
           const form = new FormData();
           form.append('file', blob, 'recording.webm');
           if (voiceModelRef.current) {
-            form.append('voice_model', voiceModelRef.current);
+            form.append('voiceModel', voiceModelRef.current);
           }
           const data = await api.upload<{ text?: string; error?: string }>(
             '/transcribe',

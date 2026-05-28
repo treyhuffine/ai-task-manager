@@ -15,13 +15,13 @@ export async function POST(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.takeover_started_at) {
+    if (!session.takeoverStartedAt) {
       return Response.json(
         { error: 'not_in_takeover', message: 'Session is not in takeover.' },
         { status: 400 },
       );
     }
-    if (session.execution_id) clearExecutionTakeover(session.execution_id);
+    if (session.executionId) clearExecutionTakeover(session.executionId);
     return Response.json({ ok: true });
   } catch (err) {
     console.error('[POST /api/sessions/:id/takeover-cancel]', err);

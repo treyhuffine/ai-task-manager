@@ -33,14 +33,14 @@ export async function POST(
         { status: 409 },
       );
     }
-    if (!session.workspace_id || !session.worktree_path || !session.branch_name) {
+    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
       return Response.json(
-        { error: 'no_worktree', message: 'No worktree or branch on this session.' },
+        { error: 'noWorktree', message: 'No worktree or branch on this session.' },
         { status: 400 },
       );
     }
 
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
     const handle = await openWorktreeHandle(session, ws.cwd);
@@ -54,17 +54,17 @@ export async function POST(
     // composing the message; the summary just anchors the scope.
     const diff = await handle.git.diff('base');
     const prompt = buildCommitPrompt({
-      branch: session.branch_name,
+      branch: session.branchName,
       diff,
       andPush,
     });
 
     insertChatEvent({
-      session_id: id,
+      sessionId: id,
       role: 'user',
       source: 'user',
       content: prompt,
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
 
     executor.dispatch(id, prompt).catch((err) => {

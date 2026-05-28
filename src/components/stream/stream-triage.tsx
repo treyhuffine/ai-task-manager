@@ -91,21 +91,21 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
 
   const handlePromoteToTask = useCallback((item: StreamRecord) => {
     createTask.mutate({
-      raw_input: item.raw_text,
-      title: item.raw_text.slice(0, 200),
-      body: item.raw_text,
+      rawInput: item.rawText,
+      title: item.rawText.slice(0, 200),
+      body: item.rawText,
       attachments: item.attachments ?? [],
       ...(overrides[item.id]?.energy ? { energy: overrides[item.id].energy } : {}),
       ...(overrides[item.id]?.effort ? { effort: overrides[item.id].effort } : {}),
-      ...(overrides[item.id]?.areaId ? { area_id: overrides[item.id].areaId } : {}),
+      ...(overrides[item.id]?.areaId ? { areaId: overrides[item.id].areaId } : {}),
     }, {
       onSuccess: (task) => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'task',
-          promoted_to_id: task.id,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'task',
+          promotedToId: task.id,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
         setProcessed(prev => new Set(prev).add(item.id));
       },
@@ -114,16 +114,16 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
 
   const handlePromoteToNote = useCallback((item: StreamRecord) => {
     createNote.mutate({
-      body: item.raw_text,
+      body: item.rawText,
       attachments: item.attachments ?? [],
     }, {
       onSuccess: (note) => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'note',
-          promoted_to_id: note.id,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'note',
+          promotedToId: note.id,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
         setProcessed(prev => new Set(prev).add(item.id));
       },
@@ -132,22 +132,22 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
 
   const handleMergeIntoTask = useCallback((item: StreamRecord, targetTaskId: string) => {
     createTask.mutate({
-      raw_input: item.raw_text,
-      title: item.raw_text.slice(0, 200),
-      body: item.raw_text,
-      parent_id: targetTaskId,
+      rawInput: item.rawText,
+      title: item.rawText.slice(0, 200),
+      body: item.rawText,
+      parentId: targetTaskId,
       attachments: item.attachments ?? [],
       ...(overrides[item.id]?.energy ? { energy: overrides[item.id].energy } : {}),
       ...(overrides[item.id]?.effort ? { effort: overrides[item.id].effort } : {}),
-      ...(overrides[item.id]?.areaId ? { area_id: overrides[item.id].areaId } : {}),
+      ...(overrides[item.id]?.areaId ? { areaId: overrides[item.id].areaId } : {}),
     }, {
       onSuccess: (task) => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'task',
-          promoted_to_id: task.id,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'task',
+          promotedToId: task.id,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
         setProcessed(prev => new Set(prev).add(item.id));
       },
@@ -157,16 +157,16 @@ export function StreamTriage({ open, onOpenChange }: StreamTriageProps) {
   const handleMergeIntoNote = useCallback((item: StreamRecord, targetNoteId: string) => {
     updateNote.mutate({
       id: targetNoteId,
-      body: item.raw_text,
+      body: item.rawText,
       attachments: item.attachments ?? [],
     } as Parameters<typeof updateNote.mutate>[0], {
       onSuccess: () => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'note',
-          promoted_to_id: targetNoteId,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'note',
+          promotedToId: targetNoteId,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
         setProcessed(prev => new Set(prev).add(item.id));
       },
@@ -289,7 +289,7 @@ function TriageRow({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[12px] font-medium text-foreground leading-tight">
-            {item.raw_text}
+            {item.rawText}
           </p>
 
           <StreamAttachments attachments={item.attachments} />
@@ -339,7 +339,7 @@ function TriageRow({
 
             {/* Time */}
             <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
-              <Clock size={8} /> {timeAgo(item.created_at)}
+              <Clock size={8} /> {timeAgo(item.createdAt)}
             </span>
           </div>
         </div>

@@ -2,8 +2,8 @@ import { getRawDb } from '@/lib/db';
 import { generateEmbedding } from './embed';
 
 export interface SearchHit {
-  entity_type: 'task' | 'note' | 'stream';
-  entity_id: string;
+  entityType: 'task' | 'note' | 'stream';
+  entityId: string;
   score: number;
 }
 
@@ -18,7 +18,7 @@ export async function vectorSearch(query: string, limit = 20): Promise<SearchHit
 
   const rows = db
     .prepare(
-      `SELECT e.entity_type, e.entity_id, v.distance
+      `SELECT e.entity_type AS entityType, e.entity_id AS entityId, v.distance
        FROM embeddings_vec v
        JOIN embeddings e ON e.id = v.rowid
        WHERE v.embedding MATCH ?
@@ -26,14 +26,14 @@ export async function vectorSearch(query: string, limit = 20): Promise<SearchHit
        LIMIT ?`,
     )
     .all(queryEmbedding, limit) as Array<{
-    entity_type: 'task' | 'note' | 'stream';
-    entity_id: string;
+    entityType: 'task' | 'note' | 'stream';
+    entityId: string;
     distance: number;
   }>;
 
   return rows.map((r) => ({
-    entity_type: r.entity_type,
-    entity_id: r.entity_id,
+    entityType: r.entityType,
+    entityId: r.entityId,
     score: 1 - r.distance, // cosine similarity = 1 - cosine distance
   }));
 }
@@ -69,8 +69,8 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
 
     for (const r of taskRows) {
       hits.push({
-        entity_type: 'task',
-        entity_id: r.id,
+        entityType: 'task',
+        entityId: r.id,
         score: Math.abs(r.rank) / (1 + Math.abs(r.rank)),
       });
     }
@@ -93,8 +93,8 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
 
     for (const r of noteRows) {
       hits.push({
-        entity_type: 'note',
-        entity_id: r.id,
+        entityType: 'note',
+        entityId: r.id,
         score: Math.abs(r.rank) / (1 + Math.abs(r.rank)),
       });
     }
@@ -117,8 +117,8 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
 
     for (const r of streamRows) {
       hits.push({
-        entity_type: 'stream',
-        entity_id: r.id,
+        entityType: 'stream',
+        entityId: r.id,
         score: Math.abs(r.rank) / (1 + Math.abs(r.rank)),
       });
     }
@@ -146,27 +146,27 @@ export async function hybridSearch(
     Promise.resolve(ftsSearch(query, limit * 2)),
   ]);
 
-  // Merge scores by (entity_type, entity_id)
+  // Merge scores by (entityType, entityId)
   const merged = new Map<string, SearchHit>();
 
   for (const hit of vecResults) {
-    const key = `${hit.entity_type}:${hit.entity_id}`;
+    const key = `${hit.entityType}:${hit.entityId}`;
     merged.set(key, {
-      entity_type: hit.entity_type,
-      entity_id: hit.entity_id,
+      entityType: hit.entityType,
+      entityId: hit.entityId,
       score: vectorWeight * hit.score,
     });
   }
 
   for (const hit of ftsResults) {
-    const key = `${hit.entity_type}:${hit.entity_id}`;
+    const key = `${hit.entityType}:${hit.entityId}`;
     const existing = merged.get(key);
     if (existing) {
       existing.score += bm25Weight * hit.score;
     } else {
       merged.set(key, {
-        entity_type: hit.entity_type,
-        entity_id: hit.entity_id,
+        entityType: hit.entityType,
+        entityId: hit.entityId,
         score: bm25Weight * hit.score,
       });
     }

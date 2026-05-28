@@ -12,7 +12,7 @@ interface StatusSessionRowProps {
   session: RailSession;
   /** What bucket this row is rendered under — drives the right-side
    *  indicator (working pulse, needs-approval dot, etc.). */
-  bucket: 'needs_approval' | 'working' | 'unread' | 'waiting';
+  bucket: 'needsApproval' | 'working' | 'unread' | 'waiting';
   isUnread: boolean;
   onOpenWorkspaceSettings?: (workspaceId: string) => void;
   onCreateExecution?: (workspaceId: string) => void;
@@ -49,12 +49,12 @@ export function StatusSessionRow({
   const label = session.label ?? 'Untitled';
   const labelIsPlaceholder = !session.label;
 
-  const wsName = session.workspace_name ?? 'No workspace';
-  const wsImage = coverAttachmentUrl(session.workspace_attachments);
-  const wsEmoji = session.workspace_emoji;
+  const wsName = session.workspaceName ?? 'No workspace';
+  const wsImage = coverAttachmentUrl(session.workspaceAttachments);
+  const wsEmoji = session.workspaceEmoji;
 
-  const lastOutcome = session.last_outcome_event_at;
-  const timestamp = lastOutcome ?? session.started_at;
+  const lastOutcome = session.lastOutcomeEventAt;
+  const timestamp = lastOutcome ?? session.startedAt;
 
   return (
     <div
@@ -81,7 +81,7 @@ export function StatusSessionRow({
         wsImage={wsImage}
         wsEmoji={wsEmoji}
         wsName={wsName}
-        badge={bucket === 'needs_approval' ? 'amber' : null}
+        badge={bucket === 'needsApproval' ? 'amber' : null}
       />
 
       <div className="flex-1 min-w-0 leading-tight">
@@ -104,8 +104,8 @@ export function StatusSessionRow({
         </span>
         <SessionRowMenu
           sessionId={session.id}
-          workspaceId={session.workspace_id ?? null}
-          workspaceIsGit={session.workspace_is_git ?? false}
+          workspaceId={session.workspaceId ?? null}
+          workspaceIsGit={session.workspaceIsGit ?? false}
           isUnread={isUnread}
           label={label}
           onOpenWorkspaceSettings={onOpenWorkspaceSettings}
@@ -188,7 +188,7 @@ function BucketIndicator({
       </>
     );
   }
-  if (bucket === 'needs_approval') {
+  if (bucket === 'needsApproval') {
     return (
       <span className="text-amber-500/90 font-medium">approve</span>
     );

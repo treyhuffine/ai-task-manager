@@ -1,5 +1,5 @@
 /**
- * GET /api/attachments/[file_name]
+ * GET /api/attachments/[fileName]
  *
  * Streams an uploaded file from the attachments directory back to the
  * browser. Filenames are UUIDv7-based and content-stable, so responses are
@@ -20,17 +20,17 @@ const SAFE_FILENAME_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/;
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ file_name: string }> },
+  { params }: { params: Promise<{ fileName: string }> },
 ) {
   try {
-    const { file_name } = await params;
+    const { fileName } = await params;
 
-    if (!SAFE_FILENAME_RE.test(file_name)) {
+    if (!SAFE_FILENAME_RE.test(fileName)) {
       return Response.json({ error: 'Invalid filename' }, { status: 400 });
     }
 
     const dir = getAttachmentsDir();
-    const absolute = path.join(dir, file_name);
+    const absolute = path.join(dir, fileName);
 
     // Defense-in-depth: ensure the resolved path is still inside the
     // attachments dir after symlink / normalization resolution. The regex
@@ -49,7 +49,7 @@ export async function GET(
       throw err;
     }
 
-    const mime = resolveMime(null, file_name);
+    const mime = resolveMime(null, fileName);
 
     return new Response(new Uint8Array(bytes), {
       status: 200,
@@ -61,7 +61,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error('[GET /api/attachments/[file_name]]', err);
+    console.error('[GET /api/attachments/[fileName]]', err);
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 500 });
   }

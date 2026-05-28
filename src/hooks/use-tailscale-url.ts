@@ -4,7 +4,7 @@
  *
  * Reads from the preview status query rather than maintaining a
  * separate subscription — the status route already surfaces
- * `tailscale_url` when applicable, and one query cache key is simpler
+ * `tailscaleUrl` when applicable, and one query cache key is simpler
  * than two with overlapping concerns.
  */
 
@@ -14,7 +14,7 @@ export interface TailscaleUrlInfo {
   /** Plain tailnet URL (https://<host>.<tailnet>.ts.net). */
   url: string | null;
   /** Public funnel URL if --funnel is enabled. */
-  funnel_url: string | null;
+  funnelUrl: string | null;
   /** True if this workspace is even using Portless. */
   isPortless: boolean;
 }
@@ -29,11 +29,11 @@ export function useTailscaleUrl(workspaceId: string | null): TailscaleUrlInfo {
     refetchInterval: false,
   });
   if (!data || data.mode !== 'portless') {
-    return { url: null, funnel_url: null, isPortless: false };
+    return { url: null, funnelUrl: null, isPortless: false };
   }
   return {
-    url: data.tailscale_url ?? null,
-    funnel_url: data.tailscale_funnel_url ?? null,
+    url: data.tailscaleUrl ?? null,
+    funnelUrl: data.tailscaleFunnelUrl ?? null,
     isPortless: true,
   };
 }

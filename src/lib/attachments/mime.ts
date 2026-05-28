@@ -16,7 +16,7 @@
  * Text-like extensions that browsers often misreport as
  * `application/octet-stream`. We treat them all as `text/plain` for
  * upload purposes — Claude reads them fine; the original extension is
- * preserved on disk and in `original_name` so the user can still tell
+ * preserved on disk and in `originalName` so the user can still tell
  * a `.ts` from a `.json` after upload.
  */
 const TEXT_LIKE_EXTS: ReadonlySet<string> = new Set([

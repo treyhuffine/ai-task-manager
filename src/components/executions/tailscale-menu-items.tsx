@@ -24,7 +24,7 @@ interface TailscaleMenuItemsProps {
  * extra "Open Tailscale Funnel" item appears below.
  */
 export function TailscaleMenuItems({ workspaceId }: TailscaleMenuItemsProps) {
-  const { url, funnel_url } = useTailscaleUrl(workspaceId);
+  const { url, funnelUrl } = useTailscaleUrl(workspaceId);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
   if (!url) return null;
@@ -64,9 +64,9 @@ export function TailscaleMenuItems({ workspaceId }: TailscaleMenuItemsProps) {
         )}
         Copy Tailscale URL
       </button>
-      {funnel_url && (
+      {funnelUrl && (
         <a
-          href={funnel_url}
+          href={funnelUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 rounded px-2 py-1.5 text-[12px] text-foreground hover:bg-muted"

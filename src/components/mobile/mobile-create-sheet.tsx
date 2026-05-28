@@ -41,7 +41,7 @@ export function MobileCreateSheet() {
 
     if (id === 'task') {
       createTask.mutate(
-        { title: ' ', raw_input: ' ' },
+        { title: ' ', rawInput: ' ' },
         { onSuccess: (task) => openTask(task.id) }
       );
       return;

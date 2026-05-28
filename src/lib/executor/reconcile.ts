@@ -8,13 +8,13 @@
  * back onto the chat_session row — but the data types diverge:
  *
  *   - Claude yields `StreamEvent`s. Wire-level uuids land in
- *     `external_event_id` (see `parseStreamEvent`), so the partial
+ *     `externalEventId` (see `parseStreamEvent`), so the partial
  *     unique index makes replay-vs-live collisions a no-op. Reconcile
  *     is safe to run even while a turn is mid-flight.
  *
  *   - Codex yields `CodexTranscriptLine`s. No stable wire id ships
  *     with each line, so the live and replay paths produce distinct
- *     `external_event_id`s for the same logical event. To avoid
+ *     `externalEventId`s for the same logical event. To avoid
  *     duplicates we only reconcile when the executor's `isRunning`
  *     flag is false for that session — the live stream is the source
  *     of truth during active turns; reconcile only catches up
@@ -86,7 +86,7 @@ export interface ReconcileResult {
  *   - The cold-start sweep can overlap with an on-visit reconcile if
  *     the user opens a session within the sweep's window.
  *
- * Both would read the same `external_sync_offset`, replay the same
+ * Both would read the same `externalSyncOffset`, replay the same
  * delta, and race on the cursor update. For Claude the wire-uuid dedup
  * makes the replays idempotent at the DB level, but for Codex (no wire
  * id) the second replay would produce duplicate rows. Skipping the
@@ -118,11 +118,11 @@ export async function reconcileSession(sessionId: string): Promise<ReconcileResu
   try {
     const session = getChatSessionWithExecution(sessionId);
     if (!session) return { drift: false, replayed: 0, skipped: 'no_cwd' };
-    if (!session.external_session_id) {
+    if (!session.externalSessionId) {
       return { drift: false, replayed: 0, skipped: 'no_external_session' };
     }
 
-    const agent = getAgent(session.agent_id);
+    const agent = getAgent(session.agentId);
     const provider = agent ? mapHarnessToProvider(agent.harness) : null;
     if (provider === 'claude') return await reconcileClaudeSession(session);
     if (provider === 'codex') return await reconcileCodexSession(session);
@@ -148,7 +148,7 @@ function noReplayResult(
   skipped?: ReconcileResult['skipped'],
 ): ReconcileResult {
   if (freshlyResolved) {
-    updateChatSession(sessionId, { external_transcript_path: filePath });
+    updateChatSession(sessionId, { externalTranscriptPath: filePath });
   }
   return { drift: false, replayed: 0, skipped };
 }
@@ -156,7 +156,7 @@ function noReplayResult(
 /**
  * First-time-init outcome — write the cursor at current head without
  * replaying. Existing `chat_events` rows from before reconcile landed
- * used minted uuid7s as `external_event_id`; replaying their JSONL
+ * used minted uuid7s as `externalEventId`; replaying their JSONL
  * counterparts would produce duplicates because the wire uuid now
  * lands in that column for new writes. Anchoring without replay
  * accepts losing pre-existing drift on the first call and dedups
@@ -169,21 +169,21 @@ function anchorCursor(
   lastEventId: string | null,
 ): ReconcileResult {
   updateChatSession(sessionId, {
-    external_transcript_path: filePath,
-    external_sync_offset: size,
-    external_sync_last_event_id: lastEventId,
+    externalTranscriptPath: filePath,
+    externalSyncOffset: size,
+    externalSyncLastEventId: lastEventId,
   });
   return { drift: false, replayed: 0 };
 }
 
 function hasOffsetCursor(session: ChatSessionRecord): boolean {
-  return session.external_sync_offset !== null && session.external_sync_offset !== undefined;
+  return session.externalSyncOffset !== null && session.externalSyncOffset !== undefined;
 }
 
 // ─── Claude ───────────────────────────────────────────────────
 
 async function reconcileClaudeSession(session: ChatSessionWithExecution): Promise<ReconcileResult> {
-  if (!session.external_session_id) {
+  if (!session.externalSessionId) {
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
   }
   const cwd = resolveCwd(session);
@@ -192,11 +192,11 @@ async function reconcileClaudeSession(session: ChatSessionWithExecution): Promis
   // Resolve or recover the transcript path. After the first successful
   // resolve we cache it on the chat_session row — saves an O(1) compute
   // (and a `realpath` syscall) on subsequent reconciles.
-  let filePath = session.external_transcript_path ?? null;
+  let filePath = session.externalTranscriptPath ?? null;
   const freshlyResolved = !filePath;
   if (!filePath) {
     const location: ClaudeTranscriptLocation = await getClaudeTranscriptPath({
-      sessionId: session.external_session_id,
+      sessionId: session.externalSessionId,
       cwd,
     });
     filePath = location.filePath;
@@ -211,14 +211,14 @@ async function reconcileClaudeSession(session: ChatSessionWithExecution): Promis
     return anchorCursor(session.id, filePath, peek.size, peek.lastEvent?.eventId ?? null);
   }
 
-  if (peek.size === session.external_sync_offset) {
+  if (peek.size === session.externalSyncOffset) {
     return noReplayResult(session.id, filePath, freshlyResolved);
   }
 
   publishReconcileStarted(session.id);
   let replayed = 0;
-  let lastOffset = session.external_sync_offset!;
-  let lastEventId: string | null = session.external_sync_last_event_id ?? null;
+  let lastOffset = session.externalSyncOffset!;
+  let lastEventId: string | null = session.externalSyncLastEventId ?? null;
 
   try {
     for await (const yielded of readClaudeTranscript({
@@ -235,9 +235,9 @@ async function reconcileClaudeSession(session: ChatSessionWithExecution): Promis
   }
 
   updateChatSession(session.id, {
-    external_transcript_path: filePath,
-    external_sync_offset: lastOffset,
-    external_sync_last_event_id: lastEventId,
+    externalTranscriptPath: filePath,
+    externalSyncOffset: lastOffset,
+    externalSyncLastEventId: lastEventId,
   });
   publishReconcileDone(session.id, replayed);
 
@@ -247,7 +247,7 @@ async function reconcileClaudeSession(session: ChatSessionWithExecution): Promis
 // ─── Codex ────────────────────────────────────────────────────
 
 async function reconcileCodexSession(session: ChatSessionWithExecution): Promise<ReconcileResult> {
-  if (!session.external_session_id) {
+  if (!session.externalSessionId) {
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
   }
 
@@ -263,11 +263,11 @@ async function reconcileCodexSession(session: ChatSessionWithExecution): Promise
   // Codex rollouts are organized by date, not cwd; find() scans the
   // date tree by session id. Caching the resolved path on the chat
   // session row avoids that scan on every subsequent call.
-  let filePath = session.external_transcript_path ?? null;
+  let filePath = session.externalTranscriptPath ?? null;
   const freshlyResolved = !filePath;
   if (!filePath) {
     const location: CodexTranscriptLocation | null = await getCodexTranscriptPath({
-      sessionId: session.external_session_id,
+      sessionId: session.externalSessionId,
     });
     if (!location) {
       return { drift: false, replayed: 0, skipped: 'no_transcript' };
@@ -285,13 +285,13 @@ async function reconcileCodexSession(session: ChatSessionWithExecution): Promise
     return anchorCursor(session.id, filePath, peek.size, null);
   }
 
-  if (peek.size === session.external_sync_offset) {
+  if (peek.size === session.externalSyncOffset) {
     return noReplayResult(session.id, filePath, freshlyResolved);
   }
 
   publishReconcileStarted(session.id);
   let replayed = 0;
-  let lastOffset = session.external_sync_offset!;
+  let lastOffset = session.externalSyncOffset!;
 
   try {
     for await (const yielded of readCodexTranscript({
@@ -313,8 +313,8 @@ async function reconcileCodexSession(session: ChatSessionWithExecution): Promise
   }
 
   updateChatSession(session.id, {
-    external_transcript_path: filePath,
-    external_sync_offset: lastOffset,
+    externalTranscriptPath: filePath,
+    externalSyncOffset: lastOffset,
   });
   publishReconcileDone(session.id, replayed);
 
@@ -324,7 +324,7 @@ async function reconcileCodexSession(session: ChatSessionWithExecution): Promise
 // ─── Cold-start sweep ─────────────────────────────────────────
 
 /**
- * Reconcile every active session with an `external_session_id` AND
+ * Reconcile every active session with an `externalSessionId` AND
  * heal in-memory state. Used at server cold start. Runs sequentially —
  * each call is cheap when there's no drift, and the sequential pattern
  * keeps SQLite-write contention trivially zero and the log output
@@ -358,7 +358,7 @@ export async function reconcileAllSessions(): Promise<{
   const { healthCheckSession } = await import('./health');
 
   // Reap stuck bootstraps before the main sweep so they get a
-  // setup_error visible in the rail by the time the UI loads. The
+  // setupError visible in the rail by the time the UI loads. The
   // provisionWorktreeForSession promise is gone (it died with the
   // previous process if the server restarted mid-provision; otherwise
   // it's hanging on a syscall that never returns). Either way, the

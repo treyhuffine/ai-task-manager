@@ -30,10 +30,10 @@ interface DbTask {
   title: string;
   description: string | null;
   energy: 'deep' | 'light' | null;
-  hard_deadline: string | null;
-  created_at: string;
-  updated_at: string;
-  area_id: string | null;
+  hardDeadline: string | null;
+  createdAt: string;
+  updatedAt: string;
+  areaId: string | null;
   area_name: string | null;
   current_sort_key: string | null;
 }
@@ -46,10 +46,10 @@ function loadUserContext(): string {
 function compressDbTask(t: DbTask): string {
   const parts = [`id:${t.id}`, `"${t.title}"`];
   if (t.area_name) parts.push(`area:${t.area_name}`);
-  if (t.hard_deadline) parts.push(`due:${t.hard_deadline}`);
+  if (t.hardDeadline) parts.push(`due:${t.hardDeadline}`);
   if (t.description) parts.push(`desc:"${t.description.slice(0, 80)}"`);
-  parts.push(`created:${t.created_at}`);
-  parts.push(`updated:${t.updated_at}`);
+  parts.push(`created:${t.createdAt}`);
+  parts.push(`updated:${t.updatedAt}`);
   if (t.energy) parts.push(`energy:${t.energy}`);
   return parts.join(' | ');
 }
@@ -68,16 +68,16 @@ async function main() {
       title: tasks.title,
       description: tasks.description,
       energy: tasks.energy,
-      hard_deadline: tasks.hard_deadline,
-      created_at: tasks.created_at,
-      updated_at: tasks.updated_at,
-      area_id: tasks.area_id,
+      hardDeadline: tasks.hardDeadline,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+      areaId: tasks.areaId,
       area_name: areas.name,
-      current_sort_key: tasks.sort_key,
+      current_sort_key: tasks.sortKey,
       status: tasks.status,
     })
     .from(tasks)
-    .leftJoin(areas, eq(tasks.area_id, areas.id))
+    .leftJoin(areas, eq(tasks.areaId, areas.id))
     .all();
 
   const activeTasks: DbTask[] = rows.filter((r) => r.status === 'active');
@@ -101,11 +101,11 @@ async function main() {
       ids.sort((a, b) => {
         const ta = taskMap.get(a);
         const tb = taskMap.get(b);
-        const dueA = ta?.hard_deadline ? new Date(ta.hard_deadline).getTime() : Infinity;
-        const dueB = tb?.hard_deadline ? new Date(tb.hard_deadline).getTime() : Infinity;
+        const dueA = ta?.hardDeadline ? new Date(ta.hardDeadline).getTime() : Infinity;
+        const dueB = tb?.hardDeadline ? new Date(tb.hardDeadline).getTime() : Infinity;
         if (dueA !== dueB) return dueA - dueB;
-        const createdA = ta?.created_at ? new Date(ta.created_at).getTime() : Infinity;
-        const createdB = tb?.created_at ? new Date(tb.created_at).getTime() : Infinity;
+        const createdA = ta?.createdAt ? new Date(ta.createdAt).getTime() : Infinity;
+        const createdB = tb?.createdAt ? new Date(tb.createdAt).getTime() : Infinity;
         return createdA - createdB;
       }),
     userContext,

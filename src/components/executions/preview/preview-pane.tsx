@@ -39,14 +39,14 @@ interface PreviewPaneProps {
  */
 export function PreviewPane({ workspaceId, active = true, onOpenWorkspaceSettings }: PreviewPaneProps) {
   const { data: ws } = useWorkspace(workspaceId);
-  const command = ws?.preview_command ?? null;
+  const command = ws?.previewCommand ?? null;
 
   const startMut = useStartPreview(workspaceId);
   const stopMut = useStopPreview(workspaceId);
   const updateWorkspace = useUpdateWorkspace();
   const handleSaveCommand = async (next: string) => {
     if (!workspaceId) return;
-    await updateWorkspace.mutateAsync({ id: workspaceId, preview_command: next || null });
+    await updateWorkspace.mutateAsync({ id: workspaceId, previewCommand: next || null });
   };
 
   // Status: faster refresh while starting up so port-detection is snappy.
@@ -81,11 +81,11 @@ export function PreviewPane({ workspaceId, active = true, onOpenWorkspaceSetting
   const [iframeKey, setIframeKey] = useState(0);
   const lastTokenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (status?.preview_token && status.preview_token !== lastTokenRef.current) {
-      lastTokenRef.current = status.preview_token;
+    if (status?.previewToken && status.previewToken !== lastTokenRef.current) {
+      lastTokenRef.current = status.previewToken;
       setIframeKey((k) => k + 1);
     }
-  }, [status?.preview_token]);
+  }, [status?.previewToken]);
 
   const handleStart = () => {
     setPollFastUntil(Date.now() + 30_000);
@@ -103,10 +103,10 @@ export function PreviewPane({ workspaceId, active = true, onOpenWorkspaceSetting
   const baseUrl = workspaceId ? `/preview/${workspaceId}/` : '';
   const pathProxyUrl = useMemo(() => {
     if (!workspaceId) return '';
-    return status?.preview_token
-      ? `${baseUrl}?_pt=${encodeURIComponent(status.preview_token)}`
+    return status?.previewToken
+      ? `${baseUrl}?_pt=${encodeURIComponent(status.previewToken)}`
       : baseUrl;
-  }, [workspaceId, status?.preview_token, baseUrl]);
+  }, [workspaceId, status?.previewToken, baseUrl]);
 
   // Hybrid embedding: when the browser can reach the dev server's
   // native URL directly (loopback `*.localhost`, or a Tailscale URL
@@ -201,7 +201,7 @@ export function PreviewPane({ workspaceId, active = true, onOpenWorkspaceSetting
           <PreviewEmpty
             variant={emptyVariant}
             command={command}
-            exitCode={status?.exit_code ?? null}
+            exitCode={status?.exitCode ?? null}
             exitSignal={null}
             onSaveCommand={handleSaveCommand}
             isSavingCommand={updateWorkspace.isPending}

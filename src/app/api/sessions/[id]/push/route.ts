@@ -7,7 +7,7 @@ import { openWorktreeHandle } from '@/lib/workspaces';
  * upstream on first push. The workspace lib throws the raw `execFile`
  * error on rejection, so we sniff stderr for "non-fast-forward" and
  * surface a structured `code: 'non_fast_forward'` so the action bar can
- * transition to the `local_diverged` state and offer Resolve Conflicts.
+ * transition to the `localDiverged` state and offer Resolve Conflicts.
  */
 
 /** Reads the stderr blob off whatever shape the workspace lib lets through. */
@@ -38,10 +38,10 @@ export async function POST(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.worktree_path || !session.workspace_id) {
+    if (!session.worktreePath || !session.workspaceId) {
       return Response.json({ error: 'Session has no worktree' }, { status: 400 });
     }
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
     const handle = await openWorktreeHandle(session, ws.cwd);

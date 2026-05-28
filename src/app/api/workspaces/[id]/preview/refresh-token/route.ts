@@ -22,7 +22,7 @@ export async function POST(
         { status: 404 },
       );
     }
-    return Response.json({ preview_token: token });
+    return Response.json({ previewToken: token });
   } catch (err) {
     console.error('[POST /api/workspaces/:id/preview/refresh-token]', err);
     return Response.json(

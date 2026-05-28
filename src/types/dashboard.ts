@@ -49,7 +49,7 @@ export interface ContextChip {
 }
 
 /** AI recommendation for an unsorted stream item during triage */
-export type TriageAction = 'promote_task' | 'promote_note' | 'append_note' | 'boomerang' | 'dismiss';
+export type TriageAction = 'promoteTask' | 'promoteNote' | 'appendNote' | 'boomerang' | 'dismiss';
 export type PlacementZone = 'top' | 'mid' | 'low' | 'backlog';
 
 export interface TriageRecommendation {
@@ -58,7 +58,7 @@ export interface TriageRecommendation {
   area?: string;
   energy?: 'deep' | 'light';
   effort?: string;
-  placement?: PlacementZone; // Where in the working set (for promote_task)
+  placement?: PlacementZone; // Where in the working set (for promoteTask)
   rationale?: string;
 }
 

@@ -26,7 +26,7 @@ export function buildEmbeddingText(
         ['Description', t.description],
         ['Outcome', t.outcome],
         ['Body', t.body],
-        ['Context', t.user_context],
+        ['Context', t.userContext],
       ]);
     }
     case 'note': {
@@ -38,7 +38,7 @@ export function buildEmbeddingText(
     }
     case 'stream': {
       const s = entity as StreamRecord;
-      return s.raw_text;
+      return s.rawText;
     }
   }
 }

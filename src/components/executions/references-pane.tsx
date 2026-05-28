@@ -227,8 +227,8 @@ function Section({
  *   - "Include" button → push a `[[task:id]]` / `[[note:id]]` chip
  *     into the composer.
  *
- * Tasks with `subtask_count > 0` get an expand chevron next to the
- * title. Expanding lazy-loads subtasks via `useTasks({ parent_id })`
+ * Tasks with `subtaskCount > 0` get an expand chevron next to the
+ * title. Expanding lazy-loads subtasks via `useTasks({ parentId })`
  * and renders them indented below, each with its own Include button —
  * for the "send one subtask at a time" flow.
  */
@@ -243,7 +243,7 @@ function ReferenceListRow({
 }) {
   const { openTask, openNote } = useDashboard();
   const [expanded, setExpanded] = useState(false);
-  const hasSubtasks = row.kind === 'task' && (row.subtask_count ?? 0) > 0;
+  const hasSubtasks = row.kind === 'task' && (row.subtaskCount ?? 0) > 0;
 
   const Icon =
     row.kind === 'task'
@@ -308,7 +308,7 @@ function ReferenceListRow({
         </span>
         {hasSubtasks && !expanded && (
           <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
-            {row.subtask_count}
+            {row.subtaskCount}
           </span>
         )}
         <button
@@ -343,7 +343,7 @@ function SubtaskList({
   depth: number;
   onInsert: (attrs: EntityChipInsert) => void;
 }) {
-  const { data: subtasks, isLoading } = useTasks({ parent_id: parentId });
+  const { data: subtasks, isLoading } = useTasks({ parentId: parentId });
   const rows = (subtasks ?? []).filter((s) => s.status !== 'archived');
 
   if (isLoading) {
@@ -377,10 +377,10 @@ function SubtaskList({
             id: s.id,
             title: s.title,
             status: s.status,
-            area_id: s.area_id,
-            workspace_id: s.workspace_id,
-            updated_at: s.updated_at,
-            subtask_count: s.subtask_count,
+            areaId: s.areaId,
+            workspaceId: s.workspaceId,
+            updatedAt: s.updatedAt,
+            subtaskCount: s.subtaskCount,
           }}
           onInsert={onInsert}
         />
@@ -409,14 +409,14 @@ function CreateRow({
       if (input.kind === 'task') {
         return api.post<{ id: string; title: string }>('/tasks', {
           title: input.title,
-          workspace_id: workspaceId,
-          raw_input: input.title,
+          workspaceId: workspaceId,
+          rawInput: input.title,
         });
       }
       return api.post<{ id: string; title: string }>('/notes', {
         title: input.title,
         body: input.title,
-        workspace_id: workspaceId,
+        workspaceId: workspaceId,
       });
     },
     onSuccess: (created, input) => {

@@ -12,38 +12,38 @@ export const BUCKET_OPTIONS: { value: Bucket; label: string }[] = [
 
 interface HasSortKey {
   id: string;
-  sort_key: string | null;
+  sortKey: string | null;
 }
 
 export interface BucketPlacement<T extends HasSortKey> {
   reordered: T[];
   newKey: string;
-  /** PATCHes for tasks whose sort_key needed to be backfilled. Excludes the moved task. */
-  normalizationPatches: { id: string; sort_key: string }[];
+  /** PATCHes for tasks whose sortKey needed to be backfilled. Excludes the moved task. */
+  normalizationPatches: { id: string; sortKey: string }[];
   /** PATCH for the moved task itself. */
-  movedPatch: { id: string; sort_key: string };
+  movedPatch: { id: string; sortKey: string };
 }
 
 /**
- * Walk a sort_key-ordered list and fill in keys for any null-keyed entries,
+ * Walk a sortKey-ordered list and fill in keys for any null-keyed entries,
  * threading them between the surrounding non-null anchors.
  */
 export function backfillSortKeys<T extends HasSortKey>(list: T[]): T[] {
   const result: T[] = [];
   let i = 0;
   while (i < list.length) {
-    if (list[i].sort_key !== null) {
+    if (list[i].sortKey !== null) {
       result.push(list[i]);
       i++;
       continue;
     }
     let j = i;
-    while (j < list.length && list[j].sort_key === null) j++;
-    const prev = result.length > 0 ? result[result.length - 1].sort_key : null;
-    const next = j < list.length ? list[j].sort_key : null;
+    while (j < list.length && list[j].sortKey === null) j++;
+    const prev = result.length > 0 ? result[result.length - 1].sortKey : null;
+    const next = j < list.length ? list[j].sortKey : null;
     const keys = generateNKeysBetween(prev, next, j - i);
     for (let k = 0; k < keys.length; k++) {
-      result.push({ ...list[i + k], sort_key: keys[k] });
+      result.push({ ...list[i + k], sortKey: keys[k] });
     }
     i = j;
   }
@@ -75,28 +75,28 @@ export function computeBucketPlacement<T extends HasSortKey>(
 
   const normalized = backfillSortKeys(list);
 
-  const normalizationPatches: { id: string; sort_key: string }[] = [];
+  const normalizationPatches: { id: string; sortKey: string }[] = [];
   for (let i = 0; i < list.length; i++) {
-    if (list[i].sort_key !== normalized[i].sort_key) {
-      normalizationPatches.push({ id: list[i].id, sort_key: normalized[i].sort_key! });
+    if (list[i].sortKey !== normalized[i].sortKey) {
+      normalizationPatches.push({ id: list[i].id, sortKey: normalized[i].sortKey! });
     }
   }
 
   const others = normalized.filter(t => t.id !== taskId);
   const targetIndex = Math.max(0, Math.min(others.length, bucketTargetIndex(bucket, others.length)));
 
-  const prev = targetIndex > 0 ? others[targetIndex - 1].sort_key : null;
-  const next = targetIndex < others.length ? others[targetIndex].sort_key : null;
+  const prev = targetIndex > 0 ? others[targetIndex - 1].sortKey : null;
+  const next = targetIndex < others.length ? others[targetIndex].sortKey : null;
   const newKey = generateKeyBetween(prev, next);
 
   const movedTask = normalized.find(t => t.id === taskId)!;
   const reordered = [...others];
-  reordered.splice(targetIndex, 0, { ...movedTask, sort_key: newKey });
+  reordered.splice(targetIndex, 0, { ...movedTask, sortKey: newKey });
 
   return {
     reordered,
     newKey,
     normalizationPatches: normalizationPatches.filter(p => p.id !== taskId),
-    movedPatch: { id: taskId, sort_key: newKey },
+    movedPatch: { id: taskId, sortKey: newKey },
   };
 }

@@ -2,9 +2,9 @@
  * Shared session "hotness" key used to sort rail lists. A session's
  * hotness is the most recent timestamp across:
  *
- *   - `last_outcome_event_at` — last agent/result event landed
- *   - `unread_marker_at`      — user explicitly flagged unread
- *   - `started_at`            — session creation (floor for brand-new
+ *   - `lastOutcomeEventAt` — last agent/result event landed
+ *   - `unreadMarkerAt`      — user explicitly flagged unread
+ *   - `startedAt`            — session creation (floor for brand-new
  *                                sessions with no events yet)
  *
  * ISO 8601 strings sort lexicographically, so we compare strings
@@ -12,15 +12,15 @@
  */
 
 interface SortableSession {
-  last_outcome_event_at: string | null;
-  unread_marker_at: string | null;
-  started_at: string;
+  lastOutcomeEventAt: string | null;
+  unreadMarkerAt: string | null;
+  startedAt: string;
 }
 
 export function sessionHotnessKey(s: SortableSession): string {
-  let max = s.started_at;
-  if (s.last_outcome_event_at && s.last_outcome_event_at > max) max = s.last_outcome_event_at;
-  if (s.unread_marker_at && s.unread_marker_at > max) max = s.unread_marker_at;
+  let max = s.startedAt;
+  if (s.lastOutcomeEventAt && s.lastOutcomeEventAt > max) max = s.lastOutcomeEventAt;
+  if (s.unreadMarkerAt && s.unreadMarkerAt > max) max = s.unreadMarkerAt;
   return max;
 }
 
@@ -39,9 +39,9 @@ export function sortSessionsHotnessDesc<T extends SortableSession>(sessions: rea
 }
 
 interface UnreadableSession {
-  last_outcome_event_at: string | null;
-  unread_marker_at: string | null;
-  last_viewed_at: string | null;
+  lastOutcomeEventAt: string | null;
+  unreadMarkerAt: string | null;
+  lastViewedAt: string | null;
 }
 
 /**
@@ -50,10 +50,10 @@ interface UnreadableSession {
  * Null when neither has ever fired.
  */
 export function latestActivityAt(
-  s: { last_outcome_event_at: string | null; unread_marker_at: string | null },
+  s: { lastOutcomeEventAt: string | null; unreadMarkerAt: string | null },
 ): string | null {
-  const outcome = s.last_outcome_event_at;
-  const marker = s.unread_marker_at;
+  const outcome = s.lastOutcomeEventAt;
+  const marker = s.unreadMarkerAt;
   if (outcome && marker) return outcome > marker ? outcome : marker;
   return outcome ?? marker ?? null;
 }
@@ -67,6 +67,6 @@ export function latestActivityAt(
 export function isSessionUnread(s: UnreadableSession): boolean {
   const activity = latestActivityAt(s);
   if (!activity) return false;
-  const lastViewed = s.last_viewed_at ?? '1970-01-01';
+  const lastViewed = s.lastViewedAt ?? '1970-01-01';
   return activity > lastViewed;
 }

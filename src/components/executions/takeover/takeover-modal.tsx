@@ -87,12 +87,12 @@ export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) 
               <div>
                 <div className="text-[11px] text-muted-foreground/85 mb-1.5">
                   Branch <span className="font-mono text-foreground/85">{data.branch}</span> has been
-                  pushed to <span className="font-mono text-foreground/85">{data.remote_url}</span>.
+                  pushed to <span className="font-mono text-foreground/85">{data.remoteUrl}</span>.
                   Run this on your laptop to clone, check out, and open the workspace:
                 </div>
-                <CommandBlock command={data.cli_command} />
+                <CommandBlock command={data.cliCommand} />
                 <div className="text-[10.5px] text-muted-foreground/70 mt-1.5">
-                  Token expires {new Date(data.expires_at).toLocaleString()}.
+                  Token expires {new Date(data.expiresAt).toLocaleString()}.
                 </div>
               </div>
 
@@ -113,7 +113,7 @@ export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) 
                     Manual path — clone the repo (if needed) and check out the branch yourself, then push
                     and click <em>Done</em> below.
                   </div>
-                  <CommandBlock command={data.fallback_command} small />
+                  <CommandBlock command={data.fallbackCommand} small />
                 </div>
               )}
 

@@ -99,7 +99,7 @@ function ScratchpadEditor({
   const { data } = useScratchpad(sessionId);
   const setMutation = useSetScratchpad(sessionId);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedRef = useRef<string | null>(data?.scratch_pad ?? null);
+  const lastSavedRef = useRef<string | null>(data?.scratchPad ?? null);
   const [selectionText, setSelectionText] = useState('');
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
@@ -114,7 +114,7 @@ function ScratchpadEditor({
         placeholder: 'Jot quick thoughts for this session…',
       }),
     ],
-    content: data?.scratch_pad ?? '',
+    content: data?.scratchPad ?? '',
     editorProps: {
       attributes: {
         class: cn(
@@ -153,10 +153,10 @@ function ScratchpadEditor({
   // Sync server content on first load.
   useEffect(() => {
     if (!editor || data == null) return;
-    if (editor.getText() === (data.scratch_pad ?? '')) return;
+    if (editor.getText() === (data.scratchPad ?? '')) return;
     if (lastSavedRef.current !== null) return; // already user-edited
-    editor.commands.setContent(data.scratch_pad ?? '');
-    lastSavedRef.current = data.scratch_pad ?? '';
+    editor.commands.setContent(data.scratchPad ?? '');
+    lastSavedRef.current = data.scratchPad ?? '';
   }, [editor, data]);
 
   // Autofocus once Tiptap is mounted. The pane component only mounts
@@ -262,8 +262,8 @@ function PromotionBar({
         return api.post<{ id: string; title: string }>('/tasks', {
           title,
           body: input.text,
-          workspace_id: workspaceId,
-          raw_input: input.text,
+          workspaceId: workspaceId,
+          rawInput: input.text,
         });
       }
       const firstLine = input.text.split('\n')[0]?.trim() ?? '';
@@ -271,7 +271,7 @@ function PromotionBar({
       return api.post<{ id: string; title: string }>('/notes', {
         title,
         body: input.text,
-        workspace_id: workspaceId,
+        workspaceId: workspaceId,
       });
     },
     onSettled: (_data, _err, _input) => {

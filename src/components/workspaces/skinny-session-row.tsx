@@ -30,11 +30,11 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
   // Same unread derivation as StatusView/SessionRow so the pip is
   // consistent across all three renderings.
   const outcomes = [
-    session.last_outcome_event_at ?? '1970-01-01',
-    session.unread_marker_at ?? '1970-01-01',
+    session.lastOutcomeEventAt ?? '1970-01-01',
+    session.unreadMarkerAt ?? '1970-01-01',
   ];
   const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-  const lastViewed = session.last_viewed_at ?? '1970-01-01';
+  const lastViewed = session.lastViewedAt ?? '1970-01-01';
   const isUnread =
     !isStreaming && lastActivity !== '1970-01-01' && lastActivity > lastViewed;
 
@@ -43,9 +43,9 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
     setActiveView(session.id);
   };
 
-  const wsImage = coverAttachmentUrl(session.workspace_attachments);
-  const wsEmoji = session.workspace_emoji;
-  const wsName = session.workspace_name ?? 'No workspace';
+  const wsImage = coverAttachmentUrl(session.workspaceAttachments);
+  const wsEmoji = session.workspaceEmoji;
+  const wsName = session.workspaceName ?? 'No workspace';
 
   return (
     <div

@@ -3,12 +3,12 @@
  * file-chip segments. The transcript renderer maps these to either
  * raw text spans or `<MessageFileChip>` components.
  *
- * Marker format is `[[file:<file_name>]]` — chosen so it's vanishingly
- * unlikely to appear in real user text. `file_name` is the
+ * Marker format is `[[file:<fileName>]]` — chosen so it's vanishingly
+ * unlikely to appear in real user text. `fileName` is the
  * `<uuidv7>.<ext>` form used everywhere in the attachment system, so
  * the regex character class includes dots.
  *
- * If a marker references a file_name that's not in the attachments
+ * If a marker references a fileName that's not in the attachments
  * map, the segment falls through as plain text (the literal marker)
  * so the user sees something rather than the chip silently
  * disappearing.
@@ -27,7 +27,7 @@ export function parseFileMarkers(
   attachments: ReadonlyArray<Attachment> = [],
 ): FileSegment[] {
   if (!text) return [];
-  const map = new Map(attachments.map((a) => [a.file_name, a]));
+  const map = new Map(attachments.map((a) => [a.fileName, a]));
   const segments: FileSegment[] = [];
   let lastIndex = 0;
   for (const match of text.matchAll(MARKER_RE)) {

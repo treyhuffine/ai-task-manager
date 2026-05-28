@@ -30,7 +30,9 @@ import {
   markExecutionSetupStarted,
   markExecutionSetupComplete,
   recordExecutionSetupError,
+  resetExecutionForReprovision,
   archiveExecution,
+  unarchiveExecution,
   getOrCreateDefaultExecutor,
 } from '@/lib/db/queries';
 import {
@@ -71,13 +73,13 @@ export interface DispatchExecutionSessionArgs {
   harness?: string;
   /** Override the workspace's default base branch. Used by "Create
    *  from → Branch" (e.g. `origin/feat-foo`) and "Create from → Issue"
-   *  (workspace default). Falls back to `workspace.base_branch` when
+   *  (workspace default). Falls back to `workspace.baseBranch` when
    *  null/empty. Ignored when `prNumber` is set — that path resolves
    *  the base via a deterministic PR head fetch. */
   baseBranch?: string | null;
   /** When set, this session was started from a GitHub PR. Server fetches
    *  `refs/pull/<N>/head` from the workspace remote and uses that SHA as
-   *  the worktree base, and stamps `pr_number` on the row so the PR
+   *  the worktree base, and stamps `prNumber` on the row so the PR
    *  link is wired up front. */
   prNumber?: number | null;
   /** "Live mode" — skip worktree creation entirely. The agent runs in
@@ -99,8 +101,8 @@ export class WorkspaceNotFoundForDispatch extends Error {
  * Create an execution session. The row is inserted immediately so the
  * client can navigate into the new ExecutionView and render its
  * SetupCard right away. For git workspaces, the worktree is created in
- * the background; the row's `worktree_path`, `branch_name`, and
- * `base_sha` start null and update once `git worktree add` completes.
+ * the background; the row's `worktreePath`, `branchName`, and
+ * `baseSha` start null and update once `git worktree add` completes.
  * The UI polls the session and renders a "setting up" state until those
  * fields populate (~2-5s for fast machines, longer for big repos).
  *
@@ -109,7 +111,7 @@ export class WorkspaceNotFoundForDispatch extends Error {
  *
  * Failure mode: if worktree provisioning throws, we log and leave the
  * row in its pending state. The user can archive and retry. (We could
- * persist a setup_error column for richer UX; deferred until this
+ * persist a setupError column for richer UX; deferred until this
  * actually bites.)
  */
 export async function dispatchExecutionSession(
@@ -122,10 +124,10 @@ export async function dispatchExecutionSession(
   const sessionId = uuidv7();
   const label = args.label?.trim() || null;
   const prNumber = normalizePrNumber(args.prNumber);
-  const liveMode = !!args.liveMode && ws.is_git;
+  const liveMode = !!args.liveMode && ws.isGit;
 
   // Live mode: snapshot the current branch + HEAD of the workspace's
-  // actual folder, set worktree_path = ws.cwd, skip provisioning. The
+  // actual folder, set worktreePath = ws.cwd, skip provisioning. The
   // session lands fully populated; no SetupCard, no async wait.
   let liveBranch: string | null = null;
   let liveBaseSha: string | null = null;
@@ -140,22 +142,22 @@ export async function dispatchExecutionSession(
   // and the background provisioner populates them ~2-5s later. For Live
   // mode (or non-git workspaces) the path/branch/sha are populated up
   // front. The durable state lives on the execution; the chat just points
-  // at it via execution_id.
+  // at it via executionId.
   const { execution } = createExecutionWithChat({
     workspaceId: args.workspaceId,
     agentId: agent.id,
     chatSessionId: sessionId,
     label,
-    worktree_path: liveMode ? ws.cwd : null,
-    branch_name: liveBranch,
-    base_sha: liveBaseSha,
-    pr_number: prNumber,
-    setup_started_at: ws.is_git && !liveMode ? new Date().toISOString() : null,
+    worktreePath: liveMode ? ws.cwd : null,
+    branchName: liveBranch,
+    baseSha: liveBaseSha,
+    prNumber: prNumber,
+    setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
   });
 
-  if (ws.is_git && !liveMode) {
+  if (ws.isGit && !liveMode) {
     // Fire-and-forget. The promise resolves into the void; we record
-    // setup_error on the execution when it fails so the UI can surface a
+    // setupError on the execution when it fails so the UI can surface a
     // retry affordance instead of spinning forever.
     void provisionWorktreeForSession({
       ws,
@@ -179,7 +181,7 @@ export async function dispatchExecutionSession(
  * `POST /api/sessions/:id/retry-setup` after the user fixes the cause of a
  * prior failure (e.g. authenticated gh, brought the network back).
  *
- * Clears `setup_error` up front so the UI flips out of the failed chip the
+ * Clears `setupError` up front so the UI flips out of the failed chip the
  * moment the user clicks Pull; the column is repopulated if the retry
  * itself fails.
  */
@@ -188,23 +190,23 @@ export async function retryProvisionWorktree(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return null;
-  if (session.worktree_path) return session;
-  if (!session.workspace_id || !session.execution_id) return session;
-  const ws = getWorkspace(session.workspace_id);
+  if (session.worktreePath) return session;
+  if (!session.workspaceId || !session.executionId) return session;
+  const ws = getWorkspace(session.workspaceId);
   if (!ws) return session;
-  if (!ws.is_git) return session;
+  if (!ws.isGit) return session;
 
   // Reset the per-attempt timer (and clear any prior error) so the UI's
   // "creating worktree… Ns" anchors to this retry instead of the original
   // creation timestamp.
-  markExecutionSetupStarted(session.execution_id);
+  markExecutionSetupStarted(session.executionId);
   await provisionWorktreeForSession({
     ws,
-    executionId: session.execution_id,
+    executionId: session.executionId,
     sessionId,
     label: session.label,
     baseBranchOverride: null,
-    prNumber: session.pr_number ?? null,
+    prNumber: session.prNumber ?? null,
   });
   return getChatSessionWithExecution(sessionId);
 }
@@ -225,7 +227,7 @@ interface ProvisionArgs {
  * Background worktree creation for a freshly-created execution. Writes the
  * worktree's path, branch, and base SHA onto the execution when the library
  * finishes (via `markExecutionSetupComplete`). On failure, records the
- * message on the execution's `setup_error` so the UI can render the failure
+ * message on the execution's `setupError` so the UI can render the failure
  * and offer a Pull/retry button.
  *
  * When `prNumber` is set, fetches `refs/pull/<N>/head` first and passes
@@ -246,9 +248,9 @@ async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
       baseBranchOverride: baseRef,
     });
     markExecutionSetupComplete(executionId, {
-      worktree_path: worktree.path,
-      branch_name: worktree.branch,
-      base_sha: worktree.baseSha,
+      worktreePath: worktree.path,
+      branchName: worktree.branch,
+      baseSha: worktree.baseSha,
     });
   } catch (err) {
     const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -291,12 +293,12 @@ export async function archiveExecutionSession(
 
   // Workspace lookup is best-effort — a workspace can be deleted out from
   // under sessions, but we still want to be able to archive the row.
-  if (session.worktree_path) {
+  if (session.worktreePath) {
     // Live-mode sessions point at the workspace's actual cwd. Removing
     // that "worktree" would wipe the user's project. Detect the match
     // and skip teardown — just flip status.
-    const ws = session.workspace_id ? getWorkspace(session.workspace_id) : null;
-    const isLive = !!ws && session.worktree_path === ws.cwd;
+    const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
+    const isLive = !!ws && session.worktreePath === ws.cwd;
     if (!isLive) {
       await archiveSessionWorktree({ session, force: args.force ?? false });
     }
@@ -306,10 +308,84 @@ export async function archiveExecutionSession(
   // §5). The worktree lives on the execution, so this is the right unit to
   // archive. Orphaned chats (execution hard-deleted by a workspace delete)
   // have no execution to archive — fall back to archiving the chat itself.
-  if (session.execution_id) {
-    archiveExecution(session.execution_id);
+  if (session.executionId) {
+    archiveExecution(session.executionId);
   } else {
     archiveChatSession(args.sessionId);
+  }
+
+  return getChatSessionWithExecution(args.sessionId);
+}
+
+export interface ContinueExecutionSessionArgs {
+  sessionId: string;
+  /**
+   * Override the base for the fresh worktree. Defaults to `ws.baseBranch`
+   * — i.e. branch off the current workspace base (usually `main`), which
+   * is the right behavior for the "PR was merged, original branch was
+   * deleted" case. Pass an explicit ref to resurrect a different starting
+   * point (e.g. an unmerged feature branch the user is still iterating on).
+   */
+  baseBranchOverride?: string | null;
+}
+
+/**
+ * Re-engage an archived execution on disk: unarchive the row and spin up a
+ * fresh worktree off the workspace's current base. Companion to
+ * `archiveExecutionSession`; complements the lightweight "Resume" path
+ * (status-only flip via `unarchiveExecution`) for users who want to
+ * actually keep coding, not just chat-only-revisit.
+ *
+ * No attempt to restore the *original* branch — by the time you're using
+ * Continue, the PR is typically merged and the branch deleted upstream.
+ * The execution gets a brand new branch off `ws.baseBranch`; only the chat
+ * thread + DB identity (label, prior worktreePath history in the
+ * transcript) carry forward.
+ *
+ * Fire-and-forget on the worktree side, same shape as initial dispatch:
+ * we clear the stale worktree fields synchronously, kick off
+ * `provisionWorktreeForSession` in the background, and return the
+ * (worktreePath:null, setting-up) row. The UI's existing setting-up state
+ * picks it up and flips to ready once the background task completes.
+ */
+export async function continueExecutionSession(
+  args: ContinueExecutionSessionArgs,
+): Promise<ChatSessionWithExecution | null> {
+  const session = getChatSessionWithExecution(args.sessionId);
+  if (!session) return null;
+  // No execution = chat-only (orchestration/content) — nothing to provision.
+  if (!session.executionId) return session;
+  const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
+  // Non-git workspaces never had a worktree to recreate; just unarchive.
+  if (!ws || !ws.isGit) {
+    if (session.status === 'archived') unarchiveExecution(session.executionId);
+    return getChatSessionWithExecution(args.sessionId);
+  }
+  // Live-mode sessions never tore down their "worktree" (it's ws.cwd) so
+  // there's nothing to re-provision. Treat Continue as a plain unarchive.
+  const isLive = session.worktreePath != null && session.worktreePath === ws.cwd;
+
+  if (session.status === 'archived') {
+    unarchiveExecution(session.executionId);
+  }
+
+  if (!isLive) {
+    // Stale `worktreePath` survives archive (we deleted the directory but
+    // kept the column for the archived view to show "this session was on
+    // branch X"). Null it now so the row reads as "setting up" and the
+    // background provisioner doesn't early-return thinking it's already
+    // done.
+    resetExecutionForReprovision(session.executionId);
+    void provisionWorktreeForSession({
+      ws,
+      executionId: session.executionId,
+      sessionId: args.sessionId,
+      label: session.label,
+      baseBranchOverride: args.baseBranchOverride ?? null,
+      // `prNumber` intentionally null — Continue defaults to a fresh base.
+      // Resurrecting the original PR head is a future-option toggle.
+      prNumber: null,
+    });
   }
 
   return getChatSessionWithExecution(args.sessionId);

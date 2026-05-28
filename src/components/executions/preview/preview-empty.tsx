@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 interface PreviewEmptyProps {
   variant:
-    | 'no-command'        // workspace.preview_command is empty
+    | 'no-command'        // workspace.previewCommand is empty
     | 'idle'              // command set, never started
     | 'starting'          // process spawning
     | 'running-no-port'   // process up but no port detected

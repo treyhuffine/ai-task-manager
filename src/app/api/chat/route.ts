@@ -11,7 +11,7 @@ import type { ChatProvider } from '@/lib/ai/types';
 // field (the runtime) and a `model` field (the LLM the harness invokes).
 // Until then the conflation is tolerated because callers already pass the
 // correct value; cleaning up is a bigger refactor that pairs with
-// src/lib/ai/adapters/ and the DB's `default_agent_harness` field.
+// src/lib/ai/adapters/ and the DB's `defaultAgentHarness` field.
 
 export const maxDuration = 60;
 

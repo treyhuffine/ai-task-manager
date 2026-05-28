@@ -25,11 +25,11 @@ interface MessageFileChipProps {
  * lives inside Tiptap.
  */
 export function MessageFileChip({ attachment, variant = 'inline' }: MessageFileChipProps) {
-  const { file_name, original_name, mime_type, size } = attachment;
-  const display = original_name || file_name;
-  const isImage = mime_type.startsWith('image/');
-  const isText = mime_type.startsWith('text/');
-  const url = attachmentUrl(file_name);
+  const { fileName, originalName, mimeType, size } = attachment;
+  const display = originalName || fileName;
+  const isImage = mimeType.startsWith('image/');
+  const isText = mimeType.startsWith('text/');
+  const url = attachmentUrl(fileName);
 
   if (isImage) {
     return <ImageThumb url={url} display={display} variant={variant} size={size} />;
@@ -37,7 +37,7 @@ export function MessageFileChip({ attachment, variant = 'inline' }: MessageFileC
   if (isText) {
     return <TextExpandChip url={url} display={display} variant={variant} size={size} />;
   }
-  return <DownloadChip url={url} display={display} variant={variant} size={size} mime={mime_type} />;
+  return <DownloadChip url={url} display={display} variant={variant} size={size} mime={mimeType} />;
 }
 
 // ─── Image variant ─────────────────────────────────────────────

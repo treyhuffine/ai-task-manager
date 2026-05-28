@@ -67,13 +67,13 @@ function yamlValue(v: unknown): string {
   return s
 }
 
-/** Strip `uploaded_at` from exported attachments — stable, human-meaningful
+/** Strip `uploadedAt` from exported attachments — stable, human-meaningful
  *  fields only. */
 function attachmentsForFrontmatter(
   attachments: Attachment[] | null | undefined,
-): Array<Omit<Attachment, 'uploaded_at'>> | null {
+): Array<Omit<Attachment, 'uploadedAt'>> | null {
   if (!attachments || attachments.length === 0) return null
-  return attachments.map(({ uploaded_at, ...rest }) => rest)
+  return attachments.map(({ uploadedAt, ...rest }) => rest)
 }
 
 function buildFrontmatter(fields: Record<string, unknown>): string {
@@ -98,36 +98,36 @@ export function taskToMarkdown(
     type: 'task',
     title: task.title,
     status: task.status,
-    area: wikiLink(opts.links, 'area', task.area_id) ?? opts.areaName ?? null,
-    area_id: task.area_id,
-    parent: wikiLink(opts.links, 'task', task.parent_id),
-    parent_id: task.parent_id,
+    area: wikiLink(opts.links, 'area', task.areaId) ?? opts.areaName ?? null,
+    areaId: task.areaId,
+    parent: wikiLink(opts.links, 'task', task.parentId),
+    parentId: task.parentId,
     energy: task.energy,
     effort: task.effort,
-    estimated_minutes: task.estimated_minutes,
-    heartbeat_days: task.heartbeat_days,
-    hard_deadline: task.hard_deadline,
-    resurface_after: task.resurface_after,
-    reminder_at: task.reminder_at,
+    estimatedMinutes: task.estimatedMinutes,
+    heartbeatDays: task.heartbeatDays,
+    hardDeadline: task.hardDeadline,
+    resurfaceAfter: task.resurfaceAfter,
+    reminderAt: task.reminderAt,
     recurrence: task.recurrence,
-    next_recurrence_at: task.next_recurrence_at,
-    target_frequency: task.target_frequency,
-    context_tags: task.context_tags,
+    nextRecurrenceAt: task.nextRecurrenceAt,
+    targetFrequency: task.targetFrequency,
+    contextTags: task.contextTags,
     attachments: attachmentsForFrontmatter(task.attachments),
-    blocked_on: task.blocked_on,
-    blocked_since: task.blocked_since,
+    blockedOn: task.blockedOn,
+    blockedSince: task.blockedSince,
     outcome: task.outcome,
-    times_deferred: task.times_deferred || null,
-    last_progress_at: task.last_progress_at,
-    created_at: task.created_at,
-    updated_at: task.updated_at,
-    completed_at: task.completed_at,
+    timesDeferred: task.timesDeferred || null,
+    lastProgressAt: task.lastProgressAt,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    completedAt: task.completedAt,
   })
 
   const parts: string[] = [frontmatter, '', `# ${task.title}`]
   const description = rewriteAttachmentsForMirror(task.description ?? '').trim()
   const body = rewriteAttachmentsForMirror(task.body ?? '').trim()
-  const userContext = (task.user_context ?? '').trim()
+  const userContext = (task.userContext ?? '').trim()
   if (description) parts.push('', description)
   if (body) parts.push('', body)
   if (userContext) parts.push('', '## Context', '', userContext)
@@ -147,15 +147,15 @@ export function noteToMarkdown(
     type: 'note',
     title: note.title,
     status: note.status,
-    area: wikiLink(opts.links, 'area', note.area_id) ?? opts.areaName ?? null,
-    area_id: note.area_id,
-    task: wikiLink(opts.links, 'task', note.task_id),
-    task_id: note.task_id,
+    area: wikiLink(opts.links, 'area', note.areaId) ?? opts.areaName ?? null,
+    areaId: note.areaId,
+    task: wikiLink(opts.links, 'task', note.taskId),
+    taskId: note.taskId,
     url: note.url,
-    context_tags: note.context_tags,
+    contextTags: note.contextTags,
     attachments: attachmentsForFrontmatter(note.attachments),
-    created_at: note.created_at,
-    updated_at: note.updated_at,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
   })
 
   const body = rewriteAttachmentsForMirror(note.body ?? '').trim()
@@ -177,17 +177,17 @@ export function areaToMarkdown(
     name: area.name,
     emoji: area.emoji,
     status: area.status,
-    sort_order: area.sort_order,
+    sortOrder: area.sortOrder,
     description: area.description,
     attachments: attachmentsForFrontmatter(area.attachments),
-    created_at: area.created_at,
-    updated_at: area.updated_at,
+    createdAt: area.createdAt,
+    updatedAt: area.updatedAt,
   })
 
   const parts: string[] = [frontmatter, '', `# ${area.emoji ? area.emoji + ' ' : ''}${area.name}`]
   if (area.description) parts.push('', area.description)
   if (area.notes) parts.push('', '## Notes', '', area.notes)
-  if (area.user_context) parts.push('', '## Context', '', area.user_context)
+  if (area.userContext) parts.push('', '## Context', '', area.userContext)
   const content = parts.join('\n') + '\n'
   const filename = `${slugify(area.name) || area.id}.md`
   return { filename, content }

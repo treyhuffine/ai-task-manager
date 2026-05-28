@@ -121,7 +121,7 @@ export function getDb(dbPath?: string): DB {
   sqlite.pragma('foreign_keys = ON');
 
   rawInstance = sqlite;
-  dbInstance = drizzle(sqlite, { schema });
+  dbInstance = drizzle(sqlite, { schema, casing: 'snake_case' });
 
   // Drizzle migrations — creates/alters tables defined in schema.ts
   const migrationsFolder = path.resolve(process.cwd(), 'drizzle');

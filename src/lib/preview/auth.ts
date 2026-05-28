@@ -81,8 +81,8 @@ export function checkPreviewAuth(
 
   try {
     const key = findApiKeyByHash(hashToken(flowToken));
-    if (!key || key.revoked_at) return { ok: false, reason: 'invalid' };
-    if (key.expires_at && new Date(key.expires_at) < new Date()) {
+    if (!key || key.revokedAt) return { ok: false, reason: 'invalid' };
+    if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
       return { ok: false, reason: 'invalid' };
     }
     return { ok: true, via: 'session' };
