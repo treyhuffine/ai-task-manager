@@ -955,29 +955,6 @@ export function resetExecutionForReprovision(executionId: string): ExecutionReco
   });
 }
 
-/**
- * Drop Claude/Codex transcript pointers on every chat that belongs to this
- * execution. Pairs with `resetExecutionForReprovision`: the old worktree's
- * gone, so `externalSessionId` / `externalTranscriptPath` / `externalSyncOffset`
- * all point at a JSONL file under a deleted directory. If we leave them
- * populated, the next `ensureAgentSession` passes `--resume <oldId>` to the
- * CLI and the spawn silently bails when the transcript file isn't there —
- * which presents to the user as "I sent a message and Claude never replied."
- * Clearing forces a fresh CLI session inside the new worktree on the next
- * dispatch. The `chat_events` rows (the user-visible transcript) are
- * unaffected; only the resume token columns get cleared.
- */
-export function clearExecutionChatTranscriptState(executionId: string): void {
-  const db = getDb();
-  db.update(chatSessions)
-    .set({
-      externalSessionId: null,
-      externalTranscriptPath: null,
-      externalSyncOffset: null,
-    })
-    .where(eq(chatSessions.executionId, executionId))
-    .run();
-}
 
 // ── PR linkage ────────────────────────────────────────────────
 

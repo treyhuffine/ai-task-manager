@@ -31,7 +31,6 @@ import {
   markExecutionSetupComplete,
   recordExecutionSetupError,
   resetExecutionForReprovision,
-  clearExecutionChatTranscriptState,
   archiveExecution,
   unarchiveExecution,
   getOrCreateDefaultExecutor,
@@ -378,17 +377,16 @@ export async function continueExecutionSession(
     // background provisioner doesn't early-return thinking it's already
     // done.
     resetExecutionForReprovision(session.executionId);
-    // Drop the Claude/Codex transcript pointers too. Without this the next
-    // dispatch would try to `--resume <oldSessionId>` against a JSONL that
-    // lived inside the deleted worktree; the CLI spawn bails silently and
-    // the user sees "I sent a message and Claude never replied." Clearing
-    // forces a fresh CLI session in the new worktree on next send.
-    clearExecutionChatTranscriptState(session.executionId);
-    // Also drop any in-process executor handle for this chat. The cached
+    // Drop any in-process executor handle for this chat. The cached
     // `AgentSession` is keyed by chat id and may still hold a reference to
     // a subprocess that died (or worse, is hanging) when its worktree was
     // pulled out from under it. `invalidateAgentSession` is cheap and
     // guarantees the next dispatch goes through the fresh-spawn path.
+    //
+    // We deliberately do NOT clear `externalSessionId` / `externalTranscriptPath`
+    // here — Claude transcripts live at `~/.claude/projects/<escape(cwd)>/<sid>.jsonl`,
+    // outside the worktree, and survive archive. As long as the new worktree
+    // lands at the same path the JSONL is still discoverable for `--resume`.
     invalidateAgentSession(args.sessionId);
     void provisionWorktreeForSession({
       ws,
