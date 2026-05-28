@@ -332,19 +332,26 @@ export interface ContinueExecutionSessionArgs {
 
 /**
  * Re-engage an archived execution on disk: unarchive the row and spin up a
- * fresh worktree off the workspace's current base. Companion to
- * `archiveExecutionSession`; complements the lightweight "Resume" path
- * (status-only flip via `unarchiveExecution`) for users who want to
- * actually keep coding, not just chat-only-revisit.
+ * fresh worktree at the *original path* so Claude's transcript on disk
+ * stays discoverable for `--resume`.
  *
- * No attempt to restore the *original* branch — by the time you're using
- * Continue, the PR is typically merged and the branch deleted upstream.
- * The execution gets a brand new branch off `ws.baseBranch`; only the chat
- * thread + DB identity (label, prior worktreePath history in the
- * transcript) carry forward.
+ * Claude writes its JSONL to `~/.claude/projects/<escape(cwd)>/<sid>.jsonl`
+ * — outside the worktree, so it survives archive. If we recreate the
+ * worktree at a different path, Claude looks under
+ * `~/.claude/projects/<escape(new-cwd)>/` and finds nothing → spawn
+ * silently bails after passing `--resume <sid>`. Recreating at the
+ * original path keeps the project-dir derivation stable, so the existing
+ * JSONL is picked up and the conversation continues from where it left off.
+ *
+ * Branch handling: the original branch ref survives archive (the lib
+ * removes the worktree but not the branch), so we delete it first and let
+ * `createWorktreeForSession`'s deterministic leaf naming land attempt 1 at
+ * the original path with a fresh branch off `ws.baseBranch`. Resurrecting
+ * the original branch contents is a future option toggle — for "PR merged,
+ * keep iterating" the fresh-off-main behavior is right.
  *
  * Fire-and-forget on the worktree side, same shape as initial dispatch:
- * we clear the stale worktree fields synchronously, kick off
+ * we clear worktree fields synchronously, kick off
  * `provisionWorktreeForSession` in the background, and return the
  * (worktreePath:null, setting-up) row. The UI's existing setting-up state
  * picks it up and flips to ready once the background task completes.
@@ -371,6 +378,11 @@ export async function continueExecutionSession(
   }
 
   if (!isLive) {
+    // Hold onto the old branch name BEFORE we null it on the row — we need
+    // it to clear the stranded branch ref below so the next worktree create
+    // can land at the original path (and thus the original Claude project dir).
+    const oldBranchName = session.branchName;
+
     // Stale `worktreePath` survives archive (we deleted the directory but
     // kept the column for the archived view to show "this session was on
     // branch X"). Null it now so the row reads as "setting up" and the
@@ -388,6 +400,30 @@ export async function continueExecutionSession(
     // outside the worktree, and survive archive. As long as the new worktree
     // lands at the same path the JSONL is still discoverable for `--resume`.
     invalidateAgentSession(args.sessionId);
+
+    // Delete the stranded branch ref so `createWorktreeForSession` doesn't
+    // hit BranchExistsError on attempt 1. `@agentex/workspace.archive` removes
+    // the worktree + prunes the registration but does NOT delete the branch
+    // ref (verified in node_modules/@agentex/workspace/dist/workspace.js:255-256).
+    // Without this cleanup, the create loop bumps to attempt 2 with a `-2`
+    // suffix on both branch AND path — a different worktree dir means a
+    // different `~/.claude/projects/<escape(cwd)>` dir, which means
+    // `claude --resume <sid>` can't find the existing JSONL. Best-effort:
+    // swallow "branch not found" (the branch may already be gone if archive
+    // was run via a path that did delete it, or if the user pruned manually).
+    // `-D` (capital) so it works even if the branch had unmerged commits —
+    // the user accepted that loss when they archived.
+    if (oldBranchName) {
+      try {
+        await execFileAsync('git', ['branch', '-D', oldBranchName], { cwd: ws.cwd });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/not found|isn't a valid|no such branch/i.test(msg)) {
+          console.warn(`[continueExecutionSession] git branch -D ${oldBranchName} failed:`, msg);
+        }
+      }
+    }
+
     void provisionWorktreeForSession({
       ws,
       executionId: session.executionId,
