@@ -20,7 +20,7 @@ export async function GET(
     // Fire-and-forget: mark as viewed
     const db = getDb();
     db.update(tasks)
-      .set({ last_viewed_at: new Date().toISOString() })
+      .set({ lastViewedAt: new Date().toISOString() })
       .where(eq(tasks.id, id))
       .run();
 

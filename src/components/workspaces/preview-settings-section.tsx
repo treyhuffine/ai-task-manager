@@ -8,7 +8,7 @@ import type { WorkspaceRecord } from '@/db/types';
 type Mode = 'auto' | 'command' | 'portless';
 
 interface PreviewSettingsSectionProps {
-  ws: Pick<WorkspaceRecord, 'slug' | 'preview_mode' | 'portless_hostname'>;
+  ws: Pick<WorkspaceRecord, 'slug' | 'previewMode' | 'portlessHostname'>;
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   previewCommand: string;
@@ -29,7 +29,7 @@ interface PreviewSettingsSectionProps {
  *   - Hint banner: "install Portless" if not detected; "switch to
  *     Portless" if detected-but-not-used; nothing if already in Portless.
  *
- * The mode dropdown value `auto` corresponds to `preview_mode = null`
+ * The mode dropdown value `auto` corresponds to `previewMode = null`
  * in the database — the resolver picks at runtime.
  */
 export function PreviewSettingsSection({
@@ -38,7 +38,7 @@ export function PreviewSettingsSection({
 }: PreviewSettingsSectionProps) {
   const portlessStatusQuery = usePortlessStatus();
   const portlessInstalled = portlessStatusQuery.data?.installed ?? false;
-  const portlessRunning = portlessStatusQuery.data?.proxy_running ?? false;
+  const portlessRunning = portlessStatusQuery.data?.proxyRunning ?? false;
   const derivedHostname = ws.slug;
 
   // Effective mode for the helper text under the dropdown.

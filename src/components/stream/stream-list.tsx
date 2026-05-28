@@ -28,15 +28,15 @@ const STATUS_COLORS: Record<string, string> = {
 
 function StreamItemText({ item, onSave }: { item: StreamRecord; onSave: (id: string, text: string) => void }) {
   const [editing, setEditing] = useState(false);
-  const [editValue, setEditValue] = useState(item.raw_text);
+  const [editValue, setEditValue] = useState(item.rawText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSave = () => {
     const trimmed = editValue.trim();
-    if (trimmed && trimmed !== item.raw_text) {
+    if (trimmed && trimmed !== item.rawText) {
       onSave(item.id, trimmed);
     } else {
-      setEditValue(item.raw_text);
+      setEditValue(item.rawText);
     }
     setEditing(false);
   };
@@ -53,14 +53,14 @@ function StreamItemText({ item, onSave }: { item: StreamRecord; onSave: (id: str
           rows={Math.min(editValue.split('\n').length + 1, 5)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSave(); }
-            if (e.key === 'Escape') { setEditValue(item.raw_text); setEditing(false); }
+            if (e.key === 'Escape') { setEditValue(item.rawText); setEditing(false); }
           }}
         />
         <div className="flex gap-1 mt-0.5">
           <button onClick={handleSave} className="text-[9px] px-1.5 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90">
             <Check size={8} />
           </button>
-          <button onClick={() => { setEditValue(item.raw_text); setEditing(false); }} className="text-[9px] px-1.5 py-0.5 rounded text-muted-foreground hover:bg-muted">
+          <button onClick={() => { setEditValue(item.rawText); setEditing(false); }} className="text-[9px] px-1.5 py-0.5 rounded text-muted-foreground hover:bg-muted">
             <X size={8} />
           </button>
         </div>
@@ -77,7 +77,7 @@ function StreamItemText({ item, onSave }: { item: StreamRecord; onSave: (id: str
       onDoubleClick={() => { if (item.status === 'pending') setEditing(true); }}
       title={item.status === 'pending' ? 'Double-click to edit' : undefined}
     >
-      {item.raw_text}
+      {item.rawText}
     </p>
   );
 }
@@ -110,18 +110,18 @@ export function StreamList() {
 
   const handlePromoteToTask = useCallback((item: StreamRecord) => {
     createTask.mutate({
-      raw_input: item.raw_text,
-      title: item.raw_text.slice(0, 200),
-      body: item.raw_text,
+      rawInput: item.rawText,
+      title: item.rawText.slice(0, 200),
+      body: item.rawText,
       attachments: item.attachments ?? [],
     }, {
       onSuccess: (task) => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'task',
-          promoted_to_id: task.id,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'task',
+          promotedToId: task.id,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
       },
     });
@@ -130,22 +130,22 @@ export function StreamList() {
   const handleEditText = useCallback((id: string, text: string) => {
     updateStream.mutate({
       id,
-      raw_text: text,
+      rawText: text,
     } as Parameters<typeof updateStream.mutate>[0]);
   }, [updateStream]);
 
   const handlePromoteToNote = useCallback((item: StreamRecord) => {
     createNote.mutate({
-      body: item.raw_text,
+      body: item.rawText,
       attachments: item.attachments ?? [],
     }, {
       onSuccess: (note) => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'note',
-          promoted_to_id: note.id,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'note',
+          promotedToId: note.id,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
       },
     });
@@ -154,19 +154,19 @@ export function StreamList() {
   const handleMergeIntoTask = useCallback((item: StreamRecord, targetTaskId: string) => {
     // Create as subtask of the target task
     createTask.mutate({
-      raw_input: item.raw_text,
-      title: item.raw_text.slice(0, 200),
-      body: item.raw_text,
-      parent_id: targetTaskId,
+      rawInput: item.rawText,
+      title: item.rawText.slice(0, 200),
+      body: item.rawText,
+      parentId: targetTaskId,
       attachments: item.attachments ?? [],
     }, {
       onSuccess: (task) => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'task',
-          promoted_to_id: task.id,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'task',
+          promotedToId: task.id,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
       },
     });
@@ -176,16 +176,16 @@ export function StreamList() {
     // Append text to existing note
     updateNote.mutate({
       id: targetNoteId,
-      body: item.raw_text, // API should append, but for now we mark as promoted
+      body: item.rawText, // API should append, but for now we mark as promoted
       attachments: item.attachments ?? [],
     } as Parameters<typeof updateNote.mutate>[0], {
       onSuccess: () => {
         updateStream.mutate({
           id: item.id,
           status: 'promoted',
-          promoted_to_type: 'note',
-          promoted_to_id: targetNoteId,
-          promoted_at: new Date().toISOString(),
+          promotedToType: 'note',
+          promotedToId: targetNoteId,
+          promotedAt: new Date().toISOString(),
         } as Parameters<typeof updateStream.mutate>[0]);
       },
     });
@@ -277,13 +277,13 @@ export function StreamList() {
                       <div className="flex items-center gap-2 mt-0.5">
                         <SourceIcon size={9} className="text-muted-foreground/50" />
                         <p className="text-[8.5px] text-muted-foreground font-mono uppercase">
-                          {new Date(item.created_at).toLocaleTimeString('en-US', {
+                          {new Date(item.createdAt).toLocaleTimeString('en-US', {
                             hour: 'numeric', minute: '2-digit',
                           })}
                         </p>
-                        {isPromoted && item.promoted_to_type && (
+                        {isPromoted && item.promotedToType && (
                           <span className="text-[8.5px] text-emerald-500 font-bold">
-                            {'\u2192'} {item.promoted_to_type}
+                            {'\u2192'} {item.promotedToType}
                           </span>
                         )}
                       </div>

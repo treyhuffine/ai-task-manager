@@ -2,8 +2,8 @@ import type { NextRequest } from 'next/server';
 import { listNeedsReviewSessionCandidates } from '@/lib/db/queries';
 
 /**
- * Returns the *candidate* set — sessions where last_outcome_event_at has
- * advanced past last_viewed_at. The client filters out any session id in
+ * Returns the *candidate* set — sessions where lastOutcomeEventAt has
+ * advanced past lastViewedAt. The client filters out any session id in
  * its runtime streaming map; that map only exists in the browser, so the
  * server can't subtract it for us.
  */

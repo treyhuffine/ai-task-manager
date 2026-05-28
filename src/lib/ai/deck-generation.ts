@@ -88,8 +88,8 @@ RANKING PRINCIPLES:
 - Tasks with recent progress have momentum — they're easier to pick up. Favor continuation.
 - User context is king. If they indicate low energy, time constraints, or specific focus, that overrides default ordering.
 - The pre-existing sort order reflects the user's general priorities. Respect it unless you have a specific reason to reorder (deadline, momentum, user context today).
-- High times_deferred means the user doesn't want to do this right now. Don't push it unless it has an approaching deadline.
-- Blocked tasks (blocked_on is set) should NEVER appear in the deck or alternatives.
+- High timesDeferred means the user doesn't want to do this right now. Don't push it unless it has an approaching deadline.
+- Blocked tasks (blockedOn is set) should NEVER appear in the deck or alternatives.
 - Aim for a realistic day. Don't pack 12 hours of work. 5-7 items with a mix of effort sizes.
 - Context tags from the user (like "Low energy today") should meaningfully shift your selections — e.g., favor lighter tasks, fewer items.
 

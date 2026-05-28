@@ -8,9 +8,9 @@ export interface SearchResult {
   description?: string | null;
   body?: string | null;
   status: string;
-  area_id?: string | null;
-  created_at: string;
-  entity_type: 'task' | 'note' | 'stream';
+  areaId?: string | null;
+  createdAt: string;
+  entityType: 'task' | 'note' | 'stream';
   snippet?: string;
   score?: number;
 }

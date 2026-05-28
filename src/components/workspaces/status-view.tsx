@@ -24,7 +24,7 @@ export function StatusView() {
   // already carries the join, so we read the name off the same data —
   // no extra fetch.
   const createFromName = createFromId
-    ? data?.sessions.find((s) => s.workspace_id === createFromId)?.workspace_name ?? null
+    ? data?.sessions.find((s) => s.workspaceId === createFromId)?.workspaceName ?? null
     : null;
 
   const handleCreateExecution = (workspaceId: string) => {
@@ -41,7 +41,7 @@ export function StatusView() {
 
   const buckets = useMemo(() => {
     const map: Record<BucketId, RailSession[]> = {
-      needs_approval: [],
+      needsApproval: [],
       unread: [],
       waiting: [],
       working: [],
@@ -59,7 +59,7 @@ export function StatusView() {
     // Sort each bucket independently so the hottest row sits at the
     // top of every section. The server already returns sessions in
     // recency order, but we re-sort client-side to (a) survive any
-    // future API ordering shifts and (b) factor unread_marker_at,
+    // future API ordering shifts and (b) factor unreadMarkerAt,
     // which the SQL ORDER BY doesn't consider.
     for (const key of Object.keys(map) as BucketId[]) {
       map[key] = sortSessionsHotnessDesc(map[key]);
@@ -109,7 +109,7 @@ export function StatusView() {
                   key={s.id}
                   session={s}
                   bucket={bucketId}
-                  isUnread={bucketId === 'unread' || bucketId === 'needs_approval'}
+                  isUnread={bucketId === 'unread' || bucketId === 'needsApproval'}
                   onOpenWorkspaceSettings={setSettingsId}
                   onCreateExecution={handleCreateExecution}
                   onOpenCreateFrom={setCreateFromId}

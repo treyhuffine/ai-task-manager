@@ -49,7 +49,7 @@ export interface RichEditorProps {
   hideFooter?: boolean
   /** Called when a file is uploaded via drag/drop/paste. The parent should
    *  accumulate these in a ref and include them in the save payload so the
-   *  server can populate attachment metadata (original_name, mime_type, size)
+   *  server can populate attachment metadata (originalName, mimeType, size)
    *  on the entity's manifest without a cross-entity lookup. */
   onAttachment?: (attachment: Attachment) => void
   /** Heading IDs that should be folded on initial render. Identity is `${ordinal}:${text}`
@@ -57,7 +57,7 @@ export interface RichEditorProps {
    *  level change (toggle to re-set). */
   foldedHeadings?: readonly string[]
   /** Fires when the user toggles a heading fold. The full current set is sent
-   *  every time so the parent just persists `folded_headings = arg`. */
+   *  every time so the parent just persists `foldedHeadings = arg`. */
   onFoldedHeadingsChange?: (folded: string[]) => void
 }
 

@@ -39,8 +39,8 @@ export function useSessionEvents(id: string | null) {
       const extra = cached.filter((e) => !seen.has(e.id));
       if (extra.length === 0) return fresh;
       return [...fresh, ...extra].sort((a, b) => {
-        if (a.created_at !== b.created_at) {
-          return a.created_at < b.created_at ? -1 : 1;
+        if (a.createdAt !== b.createdAt) {
+          return a.createdAt < b.createdAt ? -1 : 1;
         }
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
@@ -307,22 +307,22 @@ export function useSendMessage(id: string) {
       // node when the POST resolves — no unmount/remount flash.
       const placeholder: ChatEventRecord = {
         id: input.eventId,
-        session_id: id,
+        sessionId: id,
         role: 'user',
         source: 'user',
         content: input.content,
         attachments: input.attachments ?? [],
-        created_at: new Date().toISOString(),
-        tool_name: null,
-        tool_input: null,
-        tool_is_error: null,
-        tool_exit_code: null,
-        external_event_id: null,
-        external_message_id: null,
-        external_turn_id: null,
-        external_tool_call_id: null,
-        external_parent_tool_call_id: null,
-        source_part_index: 0,
+        createdAt: new Date().toISOString(),
+        toolName: null,
+        toolInput: null,
+        toolIsError: null,
+        toolExitCode: null,
+        externalEventId: null,
+        externalMessageId: null,
+        externalTurnId: null,
+        externalToolCallId: null,
+        externalParentToolCallId: null,
+        sourcePartIndex: 0,
         raw: null,
       };
       // Retry path: a previous failed bubble with the same id is
@@ -489,10 +489,10 @@ export function useUpdateSession() {
     mutationFn: ({ id, ...input }: {
       id: string;
       label?: string | null;
-      permission_mode?: PermissionMode;
+      permissionMode?: PermissionMode;
       model?: string | null;
       effort?: EffortLevel | null;
-      pr_number?: number | null;
+      prNumber?: number | null;
     }) => sessionsApi.update(id, input),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['session', data.id] });
@@ -735,7 +735,7 @@ export function useSessionReferences(
 export function usePinSessionRef(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }) =>
+    mutationFn: (body: { entityType: 'task' | 'note' | 'area'; entityId: string }) =>
       sessionsApi.pinRef(id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['session', id, 'references'] });
@@ -746,7 +746,7 @@ export function usePinSessionRef(id: string) {
 export function useUnpinSessionRef(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { entity_type: 'task' | 'note' | 'area'; entity_id: string }) =>
+    mutationFn: (body: { entityType: 'task' | 'note' | 'area'; entityId: string }) =>
       sessionsApi.unpinRef(id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['session', id, 'references'] });
@@ -769,15 +769,15 @@ export function useScratchpad(id: string | null) {
 export function useSetScratchpad(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (scratch_pad: string | null) => sessionsApi.setScratchpad(id, scratch_pad),
+    mutationFn: (scratchPad: string | null) => sessionsApi.setScratchpad(id, scratchPad),
     // Optimistic so the editor doesn't flash. The cache holds the same
     // shape the GET returns.
-    onMutate: async (scratch_pad) => {
+    onMutate: async (scratchPad) => {
       await qc.cancelQueries({ queryKey: ['session', id, 'scratchpad'] });
-      const prior = qc.getQueryData<{ scratch_pad: string | null }>([
+      const prior = qc.getQueryData<{ scratchPad: string | null }>([
         'session', id, 'scratchpad',
       ]);
-      qc.setQueryData(['session', id, 'scratchpad'], { scratch_pad });
+      qc.setQueryData(['session', id, 'scratchpad'], { scratchPad });
       return { prior };
     },
     onError: (_err, _input, ctx) => {

@@ -50,11 +50,11 @@ export async function POST(
     const prompt = buildHelpWithErrorPrompt(parsed.data);
 
     insertChatEvent({
-      session_id: id,
+      sessionId: id,
       role: 'user',
       source: 'user',
       content: prompt,
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
 
     executor.dispatch(id, prompt).catch((err) => {

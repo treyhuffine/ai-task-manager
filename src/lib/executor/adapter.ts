@@ -9,7 +9,7 @@
  * keyed by our `chat_sessions.id`. `runningSessions` is the truth source
  * for "is this turn currently mid-stream"; the runtime-status endpoint
  * reads it. Process restart empties both maps; the next dispatch picks
- * up by passing the persisted `external_session_id` as `sessionParams`
+ * up by passing the persisted `externalSessionId` as `sessionParams`
  * so Claude Code resumes its on-disk JSONL session.
  *
  * Lifecycle assumptions:
@@ -337,8 +337,8 @@ export async function dispatch(
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
 
-  const agent = getAgent(session.agent_id);
-  if (!agent) throw new ExecutorError('not_found', `Agent not found: ${session.agent_id}`);
+  const agent = getAgent(session.agentId);
+  if (!agent) throw new ExecutorError('not_found', `Agent not found: ${session.agentId}`);
 
   const cwd = resolveCwd(session);
   if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
@@ -365,8 +365,8 @@ export async function dispatch(
       chatSessionId,
       harness: agent.harness,
       cwd,
-      existingExternalSessionId: session.external_session_id,
-      permissionMode: session.permission_mode,
+      existingExternalSessionId: session.externalSessionId,
+      permissionMode: session.permissionMode,
       model: session.model,
       effort: session.effort,
       writer,
@@ -407,9 +407,9 @@ export async function close(chatSessionId: string): Promise<void> {
 
 /**
  * Drop the cached AgentSession without closing pending requests. Used
- * when the user changes `permission_mode` mid-session: the next dispatch
+ * when the user changes `permissionMode` mid-session: the next dispatch
  * spawns a fresh CLI process with the new `--permission-mode` flag,
- * resuming the conversation via `external_session_id`. The Claude SDK
+ * resuming the conversation via `externalSessionId`. The Claude SDK
  * only reads the flag at startup — there's no in-protocol way to swap
  * modes without restarting the process.
  *
@@ -535,7 +535,7 @@ async function handleUserInputRequest(
   req: UserInputRequest,
 ): Promise<UserInputResponse> {
   const session = getChatSession(chatSessionId);
-  const mode: PermissionMode = session?.permission_mode ?? 'bypass';
+  const mode: PermissionMode = session?.permissionMode ?? 'bypass';
 
   const pending = classifyRequest(chatSessionId, req);
 
@@ -588,12 +588,12 @@ async function handleUserInputRequest(
 
 function revertFromPlanMode(chatSessionId: string): void {
   const session = getChatSession(chatSessionId);
-  if (!session || session.permission_mode !== 'plan') return;
-  const target: PermissionMode = (session.pre_plan_mode as PermissionMode | null) ?? 'bypass';
+  if (!session || session.permissionMode !== 'plan') return;
+  const target: PermissionMode = (session.prePlanMode as PermissionMode | null) ?? 'bypass';
   try {
     updateChatSession(chatSessionId, {
-      permission_mode: target,
-      pre_plan_mode: null,
+      permissionMode: target,
+      prePlanMode: null,
     });
   } catch (err) {
     console.error(`[executor] failed to revert plan mode for ${chatSessionId}:`, err);
@@ -605,18 +605,18 @@ function buildPendingRequestEvent(
   pending: PendingInput,
 ): CreateChatEventInput {
   const base = {
-    session_id: chatSessionId,
-    external_event_id: uuidv7(),
-    external_tool_call_id: pending.toolUseId,
+    sessionId: chatSessionId,
+    externalEventId: uuidv7(),
+    externalToolCallId: pending.toolUseId,
     role: 'system',
-    created_at: pending.createdAt,
+    createdAt: pending.createdAt,
   };
   if (pending.kind === 'question') {
     return {
       ...base,
       source: 'question_request' satisfies ChatEventSource,
       content: null,
-      tool_input: { questions: pending.questions } as Record<string, unknown>,
+      toolInput: { questions: pending.questions } as Record<string, unknown>,
       raw: { kind: 'question', questions: pending.questions },
     };
   }
@@ -624,8 +624,8 @@ function buildPendingRequestEvent(
     ...base,
     source: 'permission_request' satisfies ChatEventSource,
     content: pending.title ?? pending.description ?? null,
-    tool_name: pending.toolName,
-    tool_input: pending.input,
+    toolName: pending.toolName,
+    toolInput: pending.input,
     raw: {
       kind: 'permission',
       title: pending.title,
@@ -640,11 +640,11 @@ function buildPendingResponseEvent(
   response: UserInputResponse,
 ): CreateChatEventInput {
   const base = {
-    session_id: chatSessionId,
-    external_event_id: uuidv7(),
-    external_tool_call_id: pending.toolUseId,
+    sessionId: chatSessionId,
+    externalEventId: uuidv7(),
+    externalToolCallId: pending.toolUseId,
     role: 'system',
-    created_at: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   };
   if (pending.kind === 'question') {
     const answers = (response.updatedInput?.answers ?? null) as Record<string, string> | null;
@@ -652,7 +652,7 @@ function buildPendingResponseEvent(
       ...base,
       source: 'question_response' satisfies ChatEventSource,
       content: answers ? formatAnswerSummary(answers) : 'declined',
-      tool_input: { answers, allow: response.allow } as Record<string, unknown>,
+      toolInput: { answers, allow: response.allow } as Record<string, unknown>,
       raw: { allow: response.allow, answers },
     };
   }
@@ -660,8 +660,8 @@ function buildPendingResponseEvent(
     ...base,
     source: 'permission_response' satisfies ChatEventSource,
     content: response.allow ? 'allowed' : (response.message ?? 'denied'),
-    tool_name: pending.toolName,
-    tool_is_error: !response.allow,
+    toolName: pending.toolName,
+    toolIsError: !response.allow,
     raw: {
       allow: response.allow,
       message: response.message ?? null,
@@ -714,8 +714,8 @@ function capturePromotedSessionId(chatSessionId: string, event: StreamEvent): vo
   if (event.type !== 'system') return;
   if (!event.sessionId) return;
   const session = getChatSession(chatSessionId);
-  if (!session || session.external_session_id === event.sessionId) return;
-  updateChatSession(chatSessionId, { external_session_id: event.sessionId });
+  if (!session || session.externalSessionId === event.sessionId) return;
+  updateChatSession(chatSessionId, { externalSessionId: event.sessionId });
 }
 
 // ─── Stream event → chat_events row ───────────────────────────
@@ -735,7 +735,7 @@ export async function persistStreamEvent(
  * mapping table in `docs/executor-wiring-spec.md` for the full
  * source-discriminator semantics.
  *
- * `external_event_id` is the provider's wire-level event id when present
+ * `externalEventId` is the provider's wire-level event id when present
  * (Claude exposes a stable uuid per event; Codex doesn't). Using the wire
  * id means a row written via the live stream and the same row re-derived
  * during a JSONL replay collide on the partial unique index — replay is
@@ -749,12 +749,12 @@ export function parseStreamEvent(
   event: StreamEvent,
 ): CreateChatEventInput | null {
   const externalEventId = event.eventId ?? uuidv7();
-  const created_at = event.timestamp || new Date().toISOString();
+  const createdAt = event.timestamp || new Date().toISOString();
   const base = {
-    session_id: chatSessionId,
-    external_event_id: externalEventId,
+    sessionId: chatSessionId,
+    externalEventId: externalEventId,
     raw: event as unknown as Record<string, unknown>,
-    created_at,
+    createdAt,
   };
 
   switch (event.type) {
@@ -785,9 +785,9 @@ export function parseStreamEvent(
         role: 'assistant',
         source: 'tool_call' satisfies ChatEventSource,
         content: null,
-        tool_name: event.name,
-        tool_input: (event.input ?? null) as Record<string, unknown> | null,
-        external_tool_call_id: event.toolCallId ?? null,
+        toolName: event.name,
+        toolInput: (event.input ?? null) as Record<string, unknown> | null,
+        externalToolCallId: event.toolCallId ?? null,
       };
     case 'tool_result':
       return {
@@ -795,8 +795,8 @@ export function parseStreamEvent(
         role: 'tool',
         source: 'tool_result' satisfies ChatEventSource,
         content: event.content ?? null,
-        tool_is_error: event.isError ?? false,
-        external_tool_call_id: event.toolCallId ?? null,
+        toolIsError: event.isError ?? false,
+        externalToolCallId: event.toolCallId ?? null,
       };
     case 'result':
       // Claude packs the final agent message text into `event.result`,
@@ -811,7 +811,7 @@ export function parseStreamEvent(
         role: 'system',
         source: 'result' satisfies ChatEventSource,
         content: null,
-        tool_is_error: event.isError ?? false,
+        toolIsError: event.isError ?? false,
       };
     case 'auth_required': {
       // Provider can't reach its API because the user isn't authenticated
@@ -824,7 +824,7 @@ export function parseStreamEvent(
         role: 'system',
         source: 'auth_required' satisfies ChatEventSource,
         content: event.message ?? 'Claude needs to log in again',
-        tool_input: {
+        toolInput: {
           httpStatus: event.httpStatus,
           reason: event.reason,
           loginCommand: event.loginCommand,
@@ -857,20 +857,20 @@ export function parseStreamEvent(
       };
     }
     case 'unknown':
-      return mapUnknownEvent(chatSessionId, event, externalEventId, created_at);
+      return mapUnknownEvent(chatSessionId, event, externalEventId, createdAt);
     default: {
       // True forward-compat: a type we don't know about at all (not even
       // agentex's `unknown`). Persist with the type as content so the
       // user sees something readable.
       const fallback = event as { type?: string; timestamp?: string };
       return {
-        session_id: chatSessionId,
-        external_event_id: externalEventId,
+        sessionId: chatSessionId,
+        externalEventId: externalEventId,
         role: 'system',
         source: 'unknown' satisfies ChatEventSource,
         content: fallback.type ?? null,
         raw: event as unknown as Record<string, unknown>,
-        created_at: fallback.timestamp ?? new Date().toISOString(),
+        createdAt: fallback.timestamp ?? new Date().toISOString(),
       };
     }
   }
@@ -915,7 +915,7 @@ function mapUnknownEvent(
   chatSessionId: string,
   event: StreamEvent,
   externalEventId: string,
-  created_at: string,
+  createdAt: string,
 ): CreateChatEventInput | null {
   const ev = event as { subtype?: string; raw?: Record<string, unknown> };
   const claudeSubtype = typeof ev.raw?.['subtype'] === 'string' ? (ev.raw['subtype'] as string) : null;
@@ -926,10 +926,10 @@ function mapUnknownEvent(
   const rawContent = typeof ev.raw?.['content'] === 'string' ? (ev.raw['content'] as string) : null;
 
   const base = {
-    session_id: chatSessionId,
-    external_event_id: externalEventId,
+    sessionId: chatSessionId,
+    externalEventId: externalEventId,
     raw: event as unknown as Record<string, unknown>,
-    created_at,
+    createdAt,
   };
 
   // Drop Claude's JSONL-only bookkeeping types up front. These never
@@ -985,15 +985,15 @@ function mapUnknownEvent(
  * For git workspaces: the worktree path. For non-git: the workspace's
  * cwd directly. Returns null if the chat_session has no workspace.
  *
- * `worktree_path` lives on the execution now, so callers pass a flattened
+ * `worktreePath` lives on the execution now, so callers pass a flattened
  * `getChatSessionWithExecution` row (or anything structurally carrying the
  * two fields). Accepting it structurally keeps this compiling after the
  * legacy chat_sessions columns are dropped.
  */
-export function resolveCwd(session: { worktree_path: string | null; workspace_id: string | null }): string | null {
-  if (session.worktree_path) return session.worktree_path;
-  if (!session.workspace_id) return null;
-  const workspace = getWorkspace(session.workspace_id);
+export function resolveCwd(session: { worktreePath: string | null; workspaceId: string | null }): string | null {
+  if (session.worktreePath) return session.worktreePath;
+  if (!session.workspaceId) return null;
+  const workspace = getWorkspace(session.workspaceId);
   return workspace?.cwd ?? null;
 }
 

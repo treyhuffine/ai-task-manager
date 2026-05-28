@@ -43,13 +43,13 @@ export async function runSeed() {
   let createdTasks = 0;
   for (const t of seedTasks) {
     const { area_name, parent_title, ...rest } = t;
-    const area_id = area_name ? areaIdByName.get(area_name) ?? null : null;
-    const parent_id = parent_title ? taskIdByTitle.get(parent_title) ?? null : null;
+    const areaId = area_name ? areaIdByName.get(area_name) ?? null : null;
+    const parentId = parent_title ? taskIdByTitle.get(parent_title) ?? null : null;
     const created = queries.createTask({
       ...rest,
-      raw_input: rest.raw_input ?? rest.title,
-      area_id,
-      parent_id,
+      rawInput: rest.rawInput ?? rest.title,
+      areaId,
+      parentId,
     });
     taskIdByTitle.set(created.title, created.id);
     createdTasks++;
@@ -59,9 +59,9 @@ export async function runSeed() {
   let createdNotes = 0;
   for (const n of seedNotes) {
     const { area_name, task_title, ...rest } = n;
-    const area_id = area_name ? areaIdByName.get(area_name) ?? null : null;
-    const task_id = task_title ? taskIdByTitle.get(task_title) ?? null : null;
-    queries.createNote({ ...rest, area_id, task_id });
+    const areaId = area_name ? areaIdByName.get(area_name) ?? null : null;
+    const taskId = task_title ? taskIdByTitle.get(task_title) ?? null : null;
+    queries.createNote({ ...rest, areaId, taskId });
     createdNotes++;
   }
   console.log(pc.green(`  ✓ ${createdNotes} notes`));
@@ -71,7 +71,7 @@ export async function runSeed() {
   queries.updateUserState({
     name: 'Dev User',
     description: 'Building the AI assistant. Multi-business operator with a full life.',
-    onboarded_at: new Date().toISOString(),
+    onboardedAt: new Date().toISOString(),
   });
   console.log(pc.green(`  ✓ user state (onboarded)`));
 }

@@ -31,12 +31,12 @@ function resolveCwd(sessionId: string): ResolvedCwd {
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return { ok: false, error: 'Session not found', status: 404 };
 
-  if (isExistingDir(session.worktree_path)) {
-    return { ok: true, cwd: session.worktree_path };
+  if (isExistingDir(session.worktreePath)) {
+    return { ok: true, cwd: session.worktreePath };
   }
 
-  if (session.workspace_id) {
-    const ws = getWorkspace(session.workspace_id);
+  if (session.workspaceId) {
+    const ws = getWorkspace(session.workspaceId);
     if (isExistingDir(ws?.cwd)) {
       return { ok: true, cwd: ws.cwd };
     }
@@ -45,10 +45,10 @@ function resolveCwd(sessionId: string): ResolvedCwd {
   // Both candidates missing — be specific about which so the user
   // can fix it. Worktree set but missing is the common case (session
   // archived or its worktree was pruned).
-  if (session.worktree_path) {
+  if (session.worktreePath) {
     return {
       ok: false,
-      error: `Worktree directory does not exist: ${session.worktree_path}`,
+      error: `Worktree directory does not exist: ${session.worktreePath}`,
       status: 409,
     };
   }

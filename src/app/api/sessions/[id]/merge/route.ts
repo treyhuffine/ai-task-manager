@@ -24,14 +24,14 @@ export async function POST(
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.workspace_id || !session.branch_name) {
+    if (!session.workspaceId || !session.branchName) {
       return Response.json(
-        { error: 'no_worktree', message: 'No branch on this session.' },
+        { error: 'noWorktree', message: 'No branch on this session.' },
         { status: 400 },
       );
     }
 
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
     const { github, GhCommandError, NotInstalledError, NotAuthenticatedError } =
@@ -40,7 +40,7 @@ export async function POST(
 
     // Resolve the PR number from the session's branch.
     const all = await repo.listPRs({ state: 'open' });
-    const pr = all.find((p) => p.headRefName === session.branch_name);
+    const pr = all.find((p) => p.headRefName === session.branchName);
     if (!pr) {
       return Response.json(
         { error: 'no_open_pr', message: 'No open PR for this session\'s branch.' },

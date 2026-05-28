@@ -3,9 +3,9 @@ import { api } from './client';
 export interface RecentItem {
   id: string;
   title: string;
-  entity_type: 'task' | 'note';
-  last_viewed_at: string;
-  has_body?: boolean;
+  entityType: 'task' | 'note';
+  lastViewedAt: string;
+  hasBody?: boolean;
 }
 
 export const recentsApi = {

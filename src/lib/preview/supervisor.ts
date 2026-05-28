@@ -3,7 +3,7 @@
  * scoped to a single Flow server process.
  *
  * One subprocess per workspace at most. The user clicks Start in the
- * preview pane; the supervisor spawns the workspace's `preview_command`
+ * preview pane; the supervisor spawns the workspace's `previewCommand`
  * (whatever string they configured) under a shell, in the workspace's
  * cwd (or worktree path for git workspaces). Stdout + stderr go through
  * the port detector and into a bounded ring buffer the UI tails.
@@ -42,20 +42,20 @@ export interface PreviewLogLine {
 }
 
 export interface PreviewProcessRecord {
-  workspace_id: string;
+  workspaceId: string;
   pid: number;
   command: string;
   cwd: string;
   status: PreviewStatus;
   port: number | null;
   /** A short-lived token the client embeds in the iframe `?_pt=` query. */
-  preview_token: string;
+  previewToken: string;
   /** ISO timestamp of last status transition. */
-  started_at: string;
+  startedAt: string;
   /** Set when status is `crashed` or `stopped`. */
-  exited_at: string | null;
+  exitedAt: string | null;
   /** Process exit code if known, else null. */
-  exit_code: number | null;
+  exitCode: number | null;
   /** Signal name if the process was killed by a signal, else null. */
   signal: string | null;
 }
@@ -82,8 +82,8 @@ const PORT_DETECT_TIMEOUT_MS = 30_000;
 const KILL_GRACE_MS = 5_000;
 
 export interface SupervisorEventMap {
-  status: [{ workspace_id: string; status: PreviewStatus; port: number | null }];
-  log: [{ workspace_id: string; line: PreviewLogLine }];
+  status: [{ workspaceId: string; status: PreviewStatus; port: number | null }];
+  log: [{ workspaceId: string; line: PreviewLogLine }];
 }
 
 class PreviewSupervisor extends EventEmitter {
@@ -108,15 +108,15 @@ class PreviewSupervisor extends EventEmitter {
    *     load against a process about to disappear.
    */
   async start(input: {
-    workspace_id: string;
+    workspaceId: string;
     command: string;
     cwd: string;
     /** Pin a fixed port; skip stdout scraping. */
-    port_override?: number | null;
+    portOverride?: number | null;
     /** Additional env to layer on top of process.env (e.g., PORT preferences). */
     env?: Record<string, string>;
   }): Promise<PreviewProcessRecord> {
-    const existing = this.procs.get(input.workspace_id);
+    const existing = this.procs.get(input.workspaceId);
     if (existing) {
       // Stop-in-flight: wait it out, then spawn fresh.
       if (existing.expectingExit && existing.child && existing.status !== 'stopped' && existing.status !== 'crashed') {
@@ -136,7 +136,7 @@ class PreviewSupervisor extends EventEmitter {
         return toPublic(existing);
       }
       // Clean any old record so the slot is free.
-      this.procs.delete(input.workspace_id);
+      this.procs.delete(input.workspaceId);
     }
 
     if (!input.command.trim()) {
@@ -144,7 +144,7 @@ class PreviewSupervisor extends EventEmitter {
     }
 
     const detector = new PortDetector({ ignorePorts: this.getIgnoredPorts() });
-    if (input.port_override) detector.set(input.port_override);
+    if (input.portOverride) detector.set(input.portOverride);
 
     const previewToken = randomBytes(16).toString('base64url');
 
@@ -167,11 +167,11 @@ class PreviewSupervisor extends EventEmitter {
     // The child's PID == its PGID because we set `detached: true`.
     try {
       writePid({
-        workspace_id: input.workspace_id,
+        workspaceId: input.workspaceId,
         pid: child.pid,
         pgid: child.pid,
         command: input.command,
-        started_at: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
       });
     } catch (err) {
       // PID-file write failures aren't fatal — the process is running,
@@ -181,16 +181,16 @@ class PreviewSupervisor extends EventEmitter {
 
     const now = new Date().toISOString();
     const rec: InternalRecord = {
-      workspace_id: input.workspace_id,
+      workspaceId: input.workspaceId,
       pid: child.pid,
       command: input.command,
       cwd: input.cwd,
       status: 'starting',
-      port: input.port_override ?? null,
-      preview_token: previewToken,
-      started_at: now,
-      exited_at: null,
-      exit_code: null,
+      port: input.portOverride ?? null,
+      previewToken: previewToken,
+      startedAt: now,
+      exitedAt: null,
+      exitCode: null,
       signal: null,
       child,
       detector,
@@ -198,7 +198,7 @@ class PreviewSupervisor extends EventEmitter {
       logs: [],
       pending: { stdout: '', stderr: '' },
       expectingExit: false,
-      pinnedPort: input.port_override ?? null,
+      pinnedPort: input.portOverride ?? null,
       detectTimeout: null,
     };
 
@@ -210,7 +210,7 @@ class PreviewSupervisor extends EventEmitter {
         // running — UI will surface the "no port detected" affordance.
         if (rec.status === 'starting') {
           rec.status = 'running';
-          this.emit('status', { workspace_id: rec.workspace_id, status: 'running', port: null });
+          this.emit('status', { workspaceId: rec.workspaceId, status: 'running', port: null });
         }
       }, PORT_DETECT_TIMEOUT_MS);
     }
@@ -226,9 +226,9 @@ class PreviewSupervisor extends EventEmitter {
       this.onExit(rec, null, null);
     });
 
-    this.procs.set(input.workspace_id, rec);
+    this.procs.set(input.workspaceId, rec);
     this.emit('status', {
-      workspace_id: rec.workspace_id,
+      workspaceId: rec.workspaceId,
       status: rec.status,
       port: rec.port,
     });
@@ -254,8 +254,8 @@ class PreviewSupervisor extends EventEmitter {
     const child = rec.child;
     if (!child) {
       rec.status = 'stopped';
-      rec.exited_at = new Date().toISOString();
-      this.emit('status', { workspace_id: rec.workspace_id, status: 'stopped', port: null });
+      rec.exitedAt = new Date().toISOString();
+      this.emit('status', { workspaceId: rec.workspaceId, status: 'stopped', port: null });
       return toPublic(rec);
     }
 
@@ -314,15 +314,15 @@ class PreviewSupervisor extends EventEmitter {
   isTokenValid(workspaceId: string, token: string): boolean {
     const rec = this.procs.get(workspaceId);
     if (!rec) return false;
-    return rec.preview_token === token;
+    return rec.previewToken === token;
   }
 
   /** Rotate the preview token (used by /refresh-token). */
   rotateToken(workspaceId: string): string | null {
     const rec = this.procs.get(workspaceId);
     if (!rec) return null;
-    rec.preview_token = randomBytes(16).toString('base64url');
-    return rec.preview_token;
+    rec.previewToken = randomBytes(16).toString('base64url');
+    return rec.previewToken;
   }
 
   /**
@@ -371,7 +371,7 @@ class PreviewSupervisor extends EventEmitter {
           }
           if (rec.status === 'starting') {
             rec.status = 'running';
-            this.emit('status', { workspace_id: rec.workspace_id, status: 'running', port: found });
+            this.emit('status', { workspaceId: rec.workspaceId, status: 'running', port: found });
           }
         }
       }
@@ -400,7 +400,7 @@ class PreviewSupervisor extends EventEmitter {
     if (rec.logs.length > MAX_LOG_LINES) {
       rec.logs.splice(0, rec.logs.length - MAX_LOG_LINES);
     }
-    this.emit('log', { workspace_id: rec.workspace_id, line: entry });
+    this.emit('log', { workspaceId: rec.workspaceId, line: entry });
   }
 
   private onExit(rec: InternalRecord, code: number | null, signal: NodeJS.Signals | null): void {
@@ -416,9 +416,9 @@ class PreviewSupervisor extends EventEmitter {
         rec.pending[stream] = '';
       }
     }
-    rec.exit_code = code;
+    rec.exitCode = code;
     rec.signal = signal;
-    rec.exited_at = new Date().toISOString();
+    rec.exitedAt = new Date().toISOString();
     if (rec.expectingExit) {
       rec.status = 'stopped';
     } else {
@@ -427,9 +427,9 @@ class PreviewSupervisor extends EventEmitter {
     rec.port = null;
     rec.child = null;
     // Clean up the PID file — the process is gone, no orphan to sweep.
-    try { deletePid(rec.workspace_id); } catch { /* ignore */ }
+    try { deletePid(rec.workspaceId); } catch { /* ignore */ }
     this.emit('status', {
-      workspace_id: rec.workspace_id,
+      workspaceId: rec.workspaceId,
       status: rec.status,
       port: null,
     });

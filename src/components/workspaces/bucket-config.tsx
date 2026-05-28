@@ -8,12 +8,12 @@ import type { RailSession } from '@/lib/api/sessions';
 // Both reads use the same classify() so the count in the HUD always
 // matches the rows in the rail.
 
-export type BucketId = 'needs_approval' | 'unread' | 'waiting' | 'working';
+export type BucketId = 'needsApproval' | 'unread' | 'waiting' | 'working';
 
 // Top-to-bottom render order in the rail body. Reorder by editing this
 // array — both the rail and the HUD pills follow it.
 export const BUCKET_ORDER: readonly BucketId[] = [
-  'needs_approval',
+  'needsApproval',
   'unread',
   'waiting',
   'working',
@@ -32,8 +32,8 @@ export interface BucketConfig {
 }
 
 export const BUCKET_CONFIG: Record<BucketId, BucketConfig> = {
-  needs_approval: {
-    id: 'needs_approval',
+  needsApproval: {
+    id: 'needsApproval',
     label: 'Needs approval',
     accentClass: 'text-amber-600 dark:text-amber-400',
     countBgClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
@@ -73,18 +73,18 @@ export function classifySession(
   pending: ReadonlySet<string>,
   streaming: ReadonlySet<string>,
 ): BucketId {
-  if (pending.has(session.id)) return 'needs_approval';
+  if (pending.has(session.id)) return 'needsApproval';
   if (streaming.has(session.id)) return 'working';
 
-  // Unread = max(last_outcome_event_at, unread_marker_at) > last_viewed_at.
+  // Unread = max(lastOutcomeEventAt, unreadMarkerAt) > lastViewedAt.
   // Sentinel '1970-01-01' lets nulls compare lexicographically as
   // "earliest possible time" without explicit null handling.
   const outcomes = [
-    session.last_outcome_event_at ?? '1970-01-01',
-    session.unread_marker_at ?? '1970-01-01',
+    session.lastOutcomeEventAt ?? '1970-01-01',
+    session.unreadMarkerAt ?? '1970-01-01',
   ];
   const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-  const lastViewed = session.last_viewed_at ?? '1970-01-01';
+  const lastViewed = session.lastViewedAt ?? '1970-01-01';
   if (lastActivity > lastViewed && lastActivity !== '1970-01-01') {
     return 'unread';
   }

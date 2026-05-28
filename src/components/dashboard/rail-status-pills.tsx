@@ -27,7 +27,7 @@ export function RailStatusPills() {
 
   const buckets = useMemo(() => {
     const map: Record<BucketId, RailSession[]> = {
-      needs_approval: [],
+      needsApproval: [],
       unread: [],
       waiting: [],
       working: [],
@@ -145,9 +145,9 @@ function PillSessionRow({ session, onPick }: PillSessionRowProps) {
   const isActive = activeView === session.id;
   const label = session.label ?? 'Untitled';
   const labelIsPlaceholder = !session.label;
-  const wsName = session.workspace_name ?? 'No workspace';
-  const wsImage = coverAttachmentUrl(session.workspace_attachments);
-  const wsEmoji = session.workspace_emoji;
+  const wsName = session.workspaceName ?? 'No workspace';
+  const wsImage = coverAttachmentUrl(session.workspaceAttachments);
+  const wsEmoji = session.workspaceEmoji;
 
   const handleOpen = () => {
     setActiveView(session.id);

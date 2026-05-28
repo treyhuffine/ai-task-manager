@@ -23,6 +23,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { workspaces, chatSessions } from '@/lib/db/schema';
 import { createWorkspace, createExecutionSession, getAgent } from '@/lib/db/queries';
+import { hydrateRow } from '@/lib/db/hydrate';
 
 const SCRATCH_SLUG = '__dev_scratch__';
 const SCRATCH_CWD = join(tmpdir(), 'flow-dev-scratch');
@@ -36,18 +37,18 @@ export async function GET() {
     // is idempotent.
     mkdirSync(SCRATCH_CWD, { recursive: true });
 
-    let workspace = db
+    let workspace = hydrateRow(db
       .select()
       .from(workspaces)
       .where(eq(workspaces.slug, SCRATCH_SLUG))
-      .get();
+      .get());
 
     if (!workspace) {
       workspace = createWorkspace({
         name: 'Dev scratch',
         slug: SCRATCH_SLUG,
         cwd: SCRATCH_CWD,
-        is_git: false,
+        isGit: false,
       });
     }
 
@@ -56,22 +57,22 @@ export async function GET() {
       .from(chatSessions)
       .where(
         and(
-          eq(chatSessions.workspace_id, workspace.id),
+          eq(chatSessions.workspaceId, workspace.id),
           eq(chatSessions.type, 'execution'),
           eq(chatSessions.status, 'active'),
         ),
       )
-      .orderBy(desc(chatSessions.started_at))
+      .orderBy(desc(chatSessions.startedAt))
       .limit(1)
       .get();
 
     const session = existing ?? createExecutionSession({
-      workspace_id: workspace.id,
+      workspaceId: workspace.id,
       label: 'Dev scratch session',
     });
-    const agent = getAgent(session.agent_id);
+    const agent = getAgent(session.agentId);
     return Response.json({
-      session: { ...session, agent_harness: agent?.harness ?? null },
+      session: { ...session, agentHarness: agent?.harness ?? null },
       workspace,
     });
   } catch (err) {

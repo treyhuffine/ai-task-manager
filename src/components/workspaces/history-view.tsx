@@ -48,12 +48,12 @@ export function HistoryView() {
   const workspacePills = useMemo(() => {
     const seen = new Map<string, { id: string; name: string; emoji: string | null; image: string | null }>();
     for (const s of data?.sessions ?? []) {
-      if (!s.workspace_id || seen.has(s.workspace_id)) continue;
-      seen.set(s.workspace_id, {
-        id: s.workspace_id,
-        name: s.workspace_name ?? 'Workspace',
-        emoji: s.workspace_emoji,
-        image: coverAttachmentUrl(s.workspace_attachments),
+      if (!s.workspaceId || seen.has(s.workspaceId)) continue;
+      seen.set(s.workspaceId, {
+        id: s.workspaceId,
+        name: s.workspaceName ?? 'Workspace',
+        emoji: s.workspaceEmoji,
+        image: coverAttachmentUrl(s.workspaceAttachments),
       });
     }
     return Array.from(seen.values());
@@ -63,12 +63,12 @@ export function HistoryView() {
     const q = deferredFilter.trim().toLowerCase();
     const wsScope = selectedWs.size > 0 ? selectedWs : null;
     return (data?.sessions ?? []).filter((s) => {
-      if (wsScope && (!s.workspace_id || !wsScope.has(s.workspace_id))) return false;
+      if (wsScope && (!s.workspaceId || !wsScope.has(s.workspaceId))) return false;
       if (!q) return true;
       const haystack = [
         s.label ?? '',
-        s.workspace_name ?? '',
-        s.branch_name ?? '',
+        s.workspaceName ?? '',
+        s.branchName ?? '',
       ].join(' ').toLowerCase();
       return haystack.includes(q);
     });
@@ -86,7 +86,7 @@ export function HistoryView() {
   };
 
   const createFromName = createFromId
-    ? data?.sessions.find((s) => s.workspace_id === createFromId)?.workspace_name ?? null
+    ? data?.sessions.find((s) => s.workspaceId === createFromId)?.workspaceName ?? null
     : null;
   const handleCreateExecution = (workspaceId: string) => {
     if (createExecution.isPending) return;
@@ -154,7 +154,7 @@ export function HistoryView() {
                     session={s}
                     onOpenWorkspaceSettings={setSettingsId}
                     onCreateExecution={handleCreateExecution}
-                    onOpenCreateFrom={s.workspace_is_git ? setCreateFromId : undefined}
+                    onOpenCreateFrom={s.workspaceIsGit ? setCreateFromId : undefined}
                   />
                 ))}
               </div>
@@ -279,7 +279,7 @@ export function groupByDateBucket(sessions: RailSession[], now: Date = new Date(
   const groups = new Map<string, DateGroup>();
 
   for (const s of sessions) {
-    const ts = s.last_outcome_event_at ?? s.started_at;
+    const ts = s.lastOutcomeEventAt ?? s.startedAt;
     const bucket = describeBucket(ts, now);
     const existing = groups.get(bucket.id);
     if (existing) {

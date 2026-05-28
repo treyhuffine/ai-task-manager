@@ -4,6 +4,7 @@
  */
 
 import { getDb } from '@/lib/db';
+import { hydrateRow } from '@/lib/db/hydrate';
 import {
   tasks as tasksTbl,
   notes as notesTbl,
@@ -51,14 +52,14 @@ export async function reconcileAll(): Promise<ReconcileStats> {
   let skipped = 0;
 
   // Tasks
-  const dbTasks = db.select().from(tasksTbl).all();
+  const dbTasks = db.select().from(tasksTbl).all().map((r) => hydrateRow(r));
   const dbTaskIds = new Set<string>();
   for (const t of dbTasks) {
     dbTaskIds.add(t.id);
     const current = await findByIdInType('task', t.id);
     if (current.length === 1) {
       const fileTs = await readUpdatedAt(current[0]);
-      if (fileTs && fileTs >= t.updated_at) {
+      if (fileTs && fileTs >= t.updatedAt) {
         skipped++;
         continue;
       }
@@ -68,14 +69,14 @@ export async function reconcileAll(): Promise<ReconcileStats> {
   }
 
   // Notes
-  const dbNotes = db.select().from(notesTbl).all();
+  const dbNotes = db.select().from(notesTbl).all().map((r) => hydrateRow(r));
   const dbNoteIds = new Set<string>();
   for (const n of dbNotes) {
     dbNoteIds.add(n.id);
     const current = await findByIdInType('note', n.id);
     if (current.length === 1) {
       const fileTs = await readUpdatedAt(current[0]);
-      if (fileTs && fileTs >= n.updated_at) {
+      if (fileTs && fileTs >= n.updatedAt) {
         skipped++;
         continue;
       }
@@ -85,14 +86,14 @@ export async function reconcileAll(): Promise<ReconcileStats> {
   }
 
   // Areas
-  const dbAreas = db.select().from(areasTbl).all();
+  const dbAreas = db.select().from(areasTbl).all().map((r) => hydrateRow(r));
   const dbAreaIds = new Set<string>();
   for (const a of dbAreas) {
     dbAreaIds.add(a.id);
     const current = await findByIdInType('area', a.id);
     if (current.length === 1) {
       const fileTs = await readUpdatedAt(current[0]);
-      if (fileTs && fileTs >= a.updated_at) {
+      if (fileTs && fileTs >= a.updatedAt) {
         skipped++;
         continue;
       }
@@ -101,8 +102,8 @@ export async function reconcileAll(): Promise<ReconcileStats> {
     synced++;
   }
 
-  // Streams — no updated_at on stream, so always rewrite. Cheap at typical sizes.
-  const dbStreams = db.select().from(streamTbl).all();
+  // Streams — no updatedAt on stream, so always rewrite. Cheap at typical sizes.
+  const dbStreams = db.select().from(streamTbl).all().map((r) => hydrateRow(r));
   const dbStreamIds = new Set<string>();
   for (const s of dbStreams) {
     dbStreamIds.add(s.id);

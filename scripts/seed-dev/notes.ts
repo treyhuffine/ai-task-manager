@@ -18,7 +18,7 @@
  */
 import type { CreateNoteInput } from '../../src/db/types';
 
-export type SeedNote = Omit<CreateNoteInput, 'area_id' | 'task_id'> & {
+export type SeedNote = Omit<CreateNoteInput, 'areaId' | 'taskId'> & {
   area_name?: string;
   task_title?: string;
 };

@@ -11,7 +11,7 @@ interface SubtaskSectionProps {
 }
 
 export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
-  const { data: subtasks } = useTasks({ parent_id: parentId })
+  const { data: subtasks } = useTasks({ parentId: parentId })
   const createTask = useCreateTask()
   const completeTask = useCompleteTask()
   const updateTask = useUpdateTask()
@@ -32,8 +32,8 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
     }
     createTask.mutate({
       title: newTitle.trim(),
-      raw_input: newTitle.trim(),
-      parent_id: parentId,
+      rawInput: newTitle.trim(),
+      parentId: parentId,
     })
     setNewTitle('')
     // Keep input focused for rapid entry
@@ -42,7 +42,7 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
 
   const handleToggleComplete = useCallback((id: string, currentStatus: string) => {
     if (currentStatus === 'done') {
-      updateTask.mutate({ id, status: 'active', completed_at: null } as Parameters<typeof updateTask.mutate>[0])
+      updateTask.mutate({ id, status: 'active', completedAt: null } as Parameters<typeof updateTask.mutate>[0])
     } else {
       completeTask.mutate({ id })
     }

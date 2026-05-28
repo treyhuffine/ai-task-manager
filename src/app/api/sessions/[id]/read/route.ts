@@ -2,8 +2,8 @@ import type { NextRequest } from 'next/server';
 import { markSessionRead } from '@/lib/db/queries';
 
 /**
- * Mark the session as read. Bumps `last_viewed_at = now()` and clears
- * any prior `unread_marker_at` (which the "Mark as unread" affordance
+ * Mark the session as read. Bumps `lastViewedAt = now()` and clears
+ * any prior `unreadMarkerAt` (which the "Mark as unread" affordance
  * may have set). Fired by the client on actual interaction with the
  * chat — textarea focus, send, or explicit Mark read.
  *

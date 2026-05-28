@@ -5,7 +5,7 @@ import { sessionsApi } from '@/lib/api/sessions';
 
 /**
  * Mutations for the takeover lifecycle. The query side lives on the
- * session row itself (`takeover_started_at`/`takeover_token`/etc.),
+ * session row itself (`takeoverStartedAt`/`takeoverToken`/etc.),
  * which `useSession` already streams. After any of these resolve, we
  * invalidate the session query so the action bar + banner re-derive.
  */
@@ -30,7 +30,7 @@ export function useTakeover(sessionId: string) {
 
   /** Browser "Done — pull my changes" — same endpoint the CLI hits
    *  with `flow resume`. Caller must pass the token (read off the
-   *  session row's `takeover_token`). */
+   *  session row's `takeoverToken`). */
   const resume = useMutation({
     mutationFn: (token: string) => sessionsApi.resumeFromTakeover(token),
     onSuccess: () => {

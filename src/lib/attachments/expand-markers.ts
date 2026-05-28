@@ -1,5 +1,5 @@
 /**
- * Expand `[[file:<file_name>]]` markers in a user-prompt string into
+ * Expand `[[file:<fileName>]]` markers in a user-prompt string into
  * the agent-readable form. Two outcomes per marker:
  *
  *   - For mimes Claude Code's Read tool handles natively (text, code,
@@ -37,7 +37,7 @@ function claudeCodeReadsNatively(mime: string): boolean {
 
 export async function expandMarkers(content: string, attachments: Attachment[]): Promise<string> {
   if (attachments.length === 0) return content;
-  const map = new Map<string, Attachment>(attachments.map((a) => [a.file_name, a]));
+  const map = new Map<string, Attachment>(attachments.map((a) => [a.fileName, a]));
 
   // Two-pass: collect every match, resolve replacements concurrently
   // (mammoth/xlsx/STT can be slow), then splice. `String#replace` has
@@ -53,8 +53,8 @@ export async function expandMarkers(content: string, attachments: Attachment[]):
       matches.push({ start, end, replacement: m[0] });
       continue;
     }
-    if (claudeCodeReadsNatively(a.mime_type)) {
-      matches.push({ start, end, replacement: attachmentPath(a.file_name) });
+    if (claudeCodeReadsNatively(a.mimeType)) {
+      matches.push({ start, end, replacement: attachmentPath(a.fileName) });
       continue;
     }
     const slot = matches.length;
@@ -65,10 +65,10 @@ export async function expandMarkers(content: string, attachments: Attachment[]):
           const result = await extractTextFromAttachment(a);
           matches[slot]!.replacement = result
             ? formatExtractedAttachment(a, result)
-            : `<attachment filename="${a.original_name || a.file_name}" status="unreadable" />`;
+            : `<attachment filename="${a.originalName || a.fileName}" status="unreadable" />`;
         } catch (err) {
-          console.warn(`[expandMarkers] extract failed for ${a.file_name}:`, err);
-          matches[slot]!.replacement = `<attachment filename="${a.original_name || a.file_name}" status="extract-error" />`;
+          console.warn(`[expandMarkers] extract failed for ${a.fileName}:`, err);
+          matches[slot]!.replacement = `<attachment filename="${a.originalName || a.fileName}" status="extract-error" />`;
         }
       })(),
     );

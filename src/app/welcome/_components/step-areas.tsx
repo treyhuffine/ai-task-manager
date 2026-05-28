@@ -16,8 +16,8 @@ const PRESETS: WizardState['areas'] = [
 
 /** Render the area's cover image: first image-like attachment wins. */
 function coverSrc(attachments: Attachment[] | null | undefined): string | null {
-  const first = attachments?.find((a) => a.mime_type.startsWith('image/'));
-  return first ? `/api/attachments/${first.file_name}` : null;
+  const first = attachments?.find((a) => a.mimeType.startsWith('image/'));
+  return first ? `/api/attachments/${first.fileName}` : null;
 }
 
 export function StepAreas({
@@ -139,7 +139,7 @@ export function StepAreas({
           {newAttachment ? (
             <div className="relative shrink-0">
               <img
-                src={`/api/attachments/${newAttachment.file_name}`}
+                src={`/api/attachments/${newAttachment.fileName}`}
                 alt="Area"
                 className="size-10 rounded-md border border-border object-cover"
               />

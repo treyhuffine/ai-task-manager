@@ -3,7 +3,7 @@
  *
  * Produces the frontmatter + body content written to disk by the live mirror.
  * Shape differs from the bulk `export` command:
- *   - Frontmatter carries `managed_by: flow` and denormalized display names
+ *   - Frontmatter carries `managedBy: flow` and denormalized display names
  *   - Header HTML comment warns readers the file is managed
  *   - Notes include a "Sources" section when other entities were promoted into them
  *   - Stream items are a first-class type (bulk export doesn't cover them)
@@ -128,13 +128,13 @@ function yamlValue(v: unknown): string {
   return s;
 }
 
-/** Strip `uploaded_at` for mirror frontmatter — noise that churns every
- *  edit and has no human value. Keep file_name/original_name/mime_type/size. */
+/** Strip `uploadedAt` for mirror frontmatter — noise that churns every
+ *  edit and has no human value. Keep fileName/originalName/mimeType/size. */
 function attachmentsForFrontmatter(
   attachments: Attachment[] | null | undefined,
-): Array<Omit<Attachment, 'uploaded_at'>> | null {
+): Array<Omit<Attachment, 'uploadedAt'>> | null {
   if (!attachments || attachments.length === 0) return null;
-  return attachments.map(({ uploaded_at, ...rest }) => rest);
+  return attachments.map(({ uploadedAt, ...rest }) => rest);
 }
 
 function buildFrontmatter(fields: Record<string, unknown>): string {
@@ -162,38 +162,38 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
     type: 'task',
     title: task.title,
     status: task.status,
-    area: wikiLink(opts.links, 'area', task.area_id),
-    area_id: task.area_id,
-    area_name: opts.areaName ?? null,
-    parent: wikiLink(opts.links, 'task', task.parent_id),
-    parent_id: task.parent_id,
-    parent_title: opts.parentTitle ?? null,
+    area: wikiLink(opts.links, 'area', task.areaId),
+    areaId: task.areaId,
+    areaName: opts.areaName ?? null,
+    parent: wikiLink(opts.links, 'task', task.parentId),
+    parentId: task.parentId,
+    parentTitle: opts.parentTitle ?? null,
     energy: task.energy,
     effort: task.effort,
-    estimated_minutes: task.estimated_minutes,
-    heartbeat_days: task.heartbeat_days,
-    hard_deadline: task.hard_deadline,
-    resurface_after: task.resurface_after,
-    reminder_at: task.reminder_at,
+    estimatedMinutes: task.estimatedMinutes,
+    heartbeatDays: task.heartbeatDays,
+    hardDeadline: task.hardDeadline,
+    resurfaceAfter: task.resurfaceAfter,
+    reminderAt: task.reminderAt,
     recurrence: task.recurrence,
-    next_recurrence_at: task.next_recurrence_at,
-    target_frequency: task.target_frequency,
-    context_tags: task.context_tags,
+    nextRecurrenceAt: task.nextRecurrenceAt,
+    targetFrequency: task.targetFrequency,
+    contextTags: task.contextTags,
     attachments: attachmentsForFrontmatter(task.attachments),
-    blocked_on: task.blocked_on,
-    blocked_since: task.blocked_since,
+    blockedOn: task.blockedOn,
+    blockedSince: task.blockedSince,
     outcome: task.outcome,
-    times_deferred: task.times_deferred || null,
-    last_progress_at: task.last_progress_at,
-    created_at: task.created_at,
-    updated_at: task.updated_at,
-    completed_at: task.completed_at,
-    managed_by: APP_SHORT_ID,
+    timesDeferred: task.timesDeferred || null,
+    lastProgressAt: task.lastProgressAt,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    completedAt: task.completedAt,
+    managedBy: APP_SHORT_ID,
   });
 
   const description = rewriteAttachmentsForMirror(task.description ?? '').trim();
   const body = rewriteAttachmentsForMirror(task.body ?? '').trim();
-  const userContext = (task.user_context ?? '').trim();
+  const userContext = (task.userContext ?? '').trim();
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', `# ${task.title}`];
   if (description) parts.push('', description);
@@ -228,20 +228,20 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
     type: 'note',
     title: note.title,
     status: note.status,
-    area: wikiLink(opts.links, 'area', note.area_id),
-    area_id: note.area_id,
-    area_name: opts.areaName ?? null,
-    task: wikiLink(opts.links, 'task', note.task_id),
-    task_id: note.task_id,
-    task_title: opts.taskTitle ?? null,
+    area: wikiLink(opts.links, 'area', note.areaId),
+    areaId: note.areaId,
+    areaName: opts.areaName ?? null,
+    task: wikiLink(opts.links, 'task', note.taskId),
+    taskId: note.taskId,
+    taskTitle: opts.taskTitle ?? null,
     url: note.url,
-    context_tags: note.context_tags,
+    contextTags: note.contextTags,
     attachments: attachmentsForFrontmatter(note.attachments),
     sources: sourceLinks.length > 0 ? sourceLinks : null,
-    source_ids: sourceIds.length > 0 ? sourceIds : null,
-    created_at: note.created_at,
-    updated_at: note.updated_at,
-    managed_by: APP_SHORT_ID,
+    sourceIds: sourceIds.length > 0 ? sourceIds : null,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+    managedBy: APP_SHORT_ID,
   });
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS];
@@ -254,7 +254,7 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
     for (const s of sources) {
       const heading = streamSourceHeading(s, opts.links);
       parts.push(`### ${heading}`);
-      const rawText = rewriteAttachmentsForMirror(s.raw_text ?? '');
+      const rawText = rewriteAttachmentsForMirror(s.rawText ?? '');
       const quoted = rawText.split('\n').map((line) => `> ${line}`).join('\n');
       parts.push('', quoted, '');
     }
@@ -267,7 +267,7 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
 }
 
 function streamSourceHeading(s: StreamRecord, links?: LinkResolver): string {
-  const date = (s.created_at ?? '').slice(0, 19).replace('T', ' ');
+  const date = (s.createdAt ?? '').slice(0, 19).replace('T', ' ');
   const source = s.source ?? 'capture';
   const label = `${source} — ${date}`.trim();
   const target = links?.linkFor('stream', s.id);
@@ -289,12 +289,12 @@ export function renderArea(area: AreaRecord, _opts: RenderAreaOpts = {}): { file
     name: area.name,
     status: area.status,
     emoji: area.emoji,
-    sort_order: area.sort_order,
+    sortOrder: area.sortOrder,
     description: area.description,
     attachments: attachmentsForFrontmatter(area.attachments),
-    created_at: area.created_at,
-    updated_at: area.updated_at,
-    managed_by: APP_SHORT_ID,
+    createdAt: area.createdAt,
+    updatedAt: area.updatedAt,
+    managedBy: APP_SHORT_ID,
   });
 
   const parts: string[] = [
@@ -306,7 +306,7 @@ export function renderArea(area: AreaRecord, _opts: RenderAreaOpts = {}): { file
   ];
   if (area.description) parts.push('', area.description);
   if (area.notes) parts.push('', '## Notes', '', area.notes);
-  if (area.user_context) parts.push('', '## Context', '', area.user_context);
+  if (area.userContext) parts.push('', '## Context', '', area.userContext);
 
   return {
     filename: mirrorFilename(area.name, area.id),
@@ -324,8 +324,8 @@ export interface RenderStreamOpts {
 
 export function renderStream(s: StreamRecord, opts: RenderStreamOpts = {}): { filename: string; content: string } {
   const promotedLink =
-    s.promoted_to_type && s.promoted_to_id
-      ? wikiLink(opts.links, s.promoted_to_type as EntityType, s.promoted_to_id)
+    s.promotedToType && s.promotedToId
+      ? wikiLink(opts.links, s.promotedToType as EntityType, s.promotedToId)
       : null;
 
   const frontmatter = buildFrontmatter({
@@ -333,21 +333,21 @@ export function renderStream(s: StreamRecord, opts: RenderStreamOpts = {}): { fi
     type: 'stream',
     source: s.source,
     status: s.status,
-    promoted_to: promotedLink,
-    promoted_to_type: s.promoted_to_type,
-    promoted_to_id: s.promoted_to_id,
-    promoted_to_title: opts.promotedToTitle ?? null,
-    promoted_at: s.promoted_at,
-    dismissed_by: s.dismissed_by,
+    promotedTo: promotedLink,
+    promotedToType: s.promotedToType,
+    promotedToId: s.promotedToId,
+    promotedToTitle: opts.promotedToTitle ?? null,
+    promotedAt: s.promotedAt,
+    dismissedBy: s.dismissedBy,
     attachments: attachmentsForFrontmatter(s.attachments),
-    created_at: s.created_at,
-    managed_by: APP_SHORT_ID,
+    createdAt: s.createdAt,
+    managedBy: APP_SHORT_ID,
   });
 
-  const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', rewriteAttachmentsForMirror(s.raw_text ?? '').trim()];
+  const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', rewriteAttachmentsForMirror(s.rawText ?? '').trim()];
 
-  // Short slug from the first few words of raw_text, to keep filenames scannable.
-  const firstLine = (s.raw_text ?? '').split('\n')[0]?.trim() ?? '';
+  // Short slug from the first few words of rawText, to keep filenames scannable.
+  const firstLine = (s.rawText ?? '').split('\n')[0]?.trim() ?? '';
   const slug = firstLine.length > 0 ? firstLine.slice(0, 40) : '';
 
   return {

@@ -60,7 +60,7 @@ export function proxy(request: NextRequest) {
 
   // `/api/takeover/<token>/...` is the CLI surface for "Take over locally."
   // The `token` in the path IS the auth — handlers validate it against
-  // `chat_sessions.takeover_token` and its `_expires_at`. Tokens are
+  // `chat_sessions.takeoverToken` and its `_expires_at`. Tokens are
   // single-purpose, scoped to one session, and rotate on every new
   // takeover so they're a strictly weaker credential than the bearer
   // key. Exempted here so the CLI can reach the endpoints without
@@ -73,16 +73,16 @@ export function proxy(request: NextRequest) {
   if (!token) return unauthorized();
 
   const key = findApiKeyByHash(hashToken(token));
-  if (!key || key.revoked_at) return unauthorized();
+  if (!key || key.revokedAt) return unauthorized();
 
-  if (key.expires_at && new Date(key.expires_at) < new Date()) {
+  if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
     return unauthorized();
   }
 
   try {
     touchApiKey(key.id, {
       ip: request.headers.get('x-forwarded-for') ?? null,
-      user_agent: request.headers.get('user-agent') ?? null,
+      userAgent: request.headers.get('user-agent') ?? null,
     });
   } catch (err) {
     console.error('[auth] touchApiKey failed:', err);

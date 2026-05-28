@@ -169,7 +169,7 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
   const [activeTab, setActiveTab] = useState<ProviderTab>('all')
   const [modelPickerOpen, setModelPickerOpen] = useState(true)
 
-  const selectedModelId = userState?.voice_model ?? DEFAULT_VOICE_MODEL
+  const selectedModelId = userState?.voiceModel ?? DEFAULT_VOICE_MODEL
   const selectedModel = VOICE_MODEL_MAP.get(selectedModelId)
 
   // Probe provider availability when sheet opens
@@ -213,7 +213,7 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
   const handleSelectModel = useCallback(
     (modelId: string) => {
       updateUserState.mutate(
-        { voice_model: modelId },
+        { voiceModel: modelId },
         { onSuccess: () => setLastSavedAt(new Date()) }
       )
       setModelPickerOpen(false)
@@ -299,23 +299,23 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
               <button
                 type="button"
                 role="switch"
-                aria-checked={userState?.voice_auto_send ?? true}
+                aria-checked={userState?.voiceAutoSend ?? true}
                 onClick={() => {
-                  const next = !(userState?.voice_auto_send ?? true)
+                  const next = !(userState?.voiceAutoSend ?? true)
                   updateUserState.mutate(
-                    { voice_auto_send: next },
+                    { voiceAutoSend: next },
                     { onSuccess: () => setLastSavedAt(new Date()) }
                   )
                 }}
                 className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  (userState?.voice_auto_send ?? true)
+                  (userState?.voiceAutoSend ?? true)
                     ? 'bg-primary'
                     : 'bg-muted'
                 }`}
               >
                 <span
                   className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                    (userState?.voice_auto_send ?? true) ? 'translate-x-5' : 'translate-x-0'
+                    (userState?.voiceAutoSend ?? true) ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>

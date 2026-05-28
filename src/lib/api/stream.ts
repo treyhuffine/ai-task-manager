@@ -22,7 +22,7 @@ export const streamApi = {
   dismiss(id: string): Promise<StreamRecord> {
     return api.patch<StreamRecord>(`/stream/${id}`, {
       status: 'dismissed',
-      dismissed_by: 'user',
+      dismissedBy: 'user',
     });
   },
 };

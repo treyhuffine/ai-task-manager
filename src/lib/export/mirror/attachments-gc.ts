@@ -5,7 +5,7 @@
  * it referenced. This sweep is the cleanup side of that contract.
  *
  * Algorithm:
- *   1. Enumerate every `file_name` referenced by any entity's `attachments[]`
+ *   1. Enumerate every `fileName` referenced by any entity's `attachments[]`
  *      column across all six tables (tasks, notes, areas, stream, workspaces,
  *      chat_events). Missing a table here causes the GC to see referenced
  *      files as orphans and silently break the user's images.
@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { getDb } from '@/lib/db';
+import { hydrateRow } from '@/lib/db/hydrate';
 import {
   tasks as tasksTbl,
   notes as notesTbl,
@@ -54,7 +55,7 @@ function ensureAttachmentsDirsExist(): void {
   fs.mkdirSync(archiveAttachmentsDir(), { recursive: true });
 }
 
-/** Collect every file_name referenced by any entity. Must cover every table
+/** Collect every fileName referenced by any entity. Must cover every table
  *  that has an `attachments` column in the schema — see schema.ts. */
 export function collectReferencedFileNames(): Set<string> {
   const db = getDb();
@@ -62,16 +63,16 @@ export function collectReferencedFileNames(): Set<string> {
 
   const push = (rows: Array<{ attachments: Attachment[] | null }>) => {
     for (const r of rows) {
-      for (const a of r.attachments ?? []) out.add(a.file_name);
+      for (const a of r.attachments ?? []) out.add(a.fileName);
     }
   };
 
-  push(db.select({ attachments: tasksTbl.attachments }).from(tasksTbl).all());
-  push(db.select({ attachments: notesTbl.attachments }).from(notesTbl).all());
-  push(db.select({ attachments: areasTbl.attachments }).from(areasTbl).all());
-  push(db.select({ attachments: streamTbl.attachments }).from(streamTbl).all());
-  push(db.select({ attachments: workspacesTbl.attachments }).from(workspacesTbl).all());
-  push(db.select({ attachments: chatEventsTbl.attachments }).from(chatEventsTbl).all());
+  push(db.select({ attachments: tasksTbl.attachments }).from(tasksTbl).all().map((r) => hydrateRow(r)));
+  push(db.select({ attachments: notesTbl.attachments }).from(notesTbl).all().map((r) => hydrateRow(r)));
+  push(db.select({ attachments: areasTbl.attachments }).from(areasTbl).all().map((r) => hydrateRow(r)));
+  push(db.select({ attachments: streamTbl.attachments }).from(streamTbl).all().map((r) => hydrateRow(r)));
+  push(db.select({ attachments: workspacesTbl.attachments }).from(workspacesTbl).all().map((r) => hydrateRow(r)));
+  push(db.select({ attachments: chatEventsTbl.attachments }).from(chatEventsTbl).all().map((r) => hydrateRow(r)));
 
   return out;
 }
@@ -154,9 +155,9 @@ export async function sweepAttachments(): Promise<AttachmentsGcStats> {
  * for callers that know they need a specific file back (e.g. after a manual
  * DB edit). The sweep does the bulk-heal automatically.
  */
-export async function restoreArchivedAttachment(file_name: string): Promise<boolean> {
-  const src = path.join(archiveAttachmentsDir(), file_name);
-  const dest = path.join(getAttachmentsDir(), file_name);
+export async function restoreArchivedAttachment(fileName: string): Promise<boolean> {
+  const src = path.join(archiveAttachmentsDir(), fileName);
+  const dest = path.join(getAttachmentsDir(), fileName);
   try {
     await fsp.rename(src, dest);
     return true;

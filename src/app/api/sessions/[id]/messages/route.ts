@@ -18,7 +18,7 @@ interface PostBody {
   /**
    * Files attached to this message — same `Attachment` shape as
    * tasks/notes/areas use. Marker tokens in `content`
-   * (`[[file:<file_name>]]`) point at entries here. The shape (no
+   * (`[[file:<fileName>]]`) point at entries here. The shape (no
    * `content` field) reflects that the bytes already live on disk —
    * the upload happened via `POST /api/attachments` before submit.
    */
@@ -71,7 +71,7 @@ export async function POST(
     if (session.status === 'archived') {
       return Response.json({ error: 'Cannot send to an archived session' }, { status: 400 });
     }
-    if (session.takeover_started_at) {
+    if (session.takeoverStartedAt) {
       return Response.json(
         {
           error: 'session_in_takeover',
@@ -98,12 +98,12 @@ export async function POST(
     // check's orphan logic instead of unconditionally firing.
     const inserted = insertChatEvent({
       id: body.id,
-      session_id: id,
+      sessionId: id,
       role: 'user',
       source: 'user',
       content,
       attachments,
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
     const isRetry = inserted === null;
     const row = inserted ?? (body.id ? getChatEventById(body.id) : null);
@@ -132,7 +132,7 @@ export async function POST(
     const entityExpanded = expandEntityMarkers(content, id);
     const expanded = await expandMarkers(entityExpanded, attachments);
     if (!session.label && !isRetry) {
-      const agent = getAgent(session.agent_id);
+      const agent = getAgent(session.agentId);
       void deriveAndSetSessionLabel(id, expanded, agent?.harness ?? 'claude_code');
     }
 

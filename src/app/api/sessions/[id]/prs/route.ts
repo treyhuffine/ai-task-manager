@@ -39,11 +39,11 @@ export async function GET(
     const { id } = await params;
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.workspace_id) return Response.json({ prs: [] } satisfies PrListResponse);
+    if (!session.workspaceId) return Response.json({ prs: [] } satisfies PrListResponse);
 
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ prs: [] } satisfies PrListResponse);
-    if (ws.is_git !== true) return Response.json({ prs: [] } satisfies PrListResponse);
+    if (ws.isGit !== true) return Response.json({ prs: [] } satisfies PrListResponse);
 
     // ESM-only — same dynamic import pattern the single-PR route uses.
     const { github, NotInstalledError, NotAuthenticatedError } = await import('@agentex/github');

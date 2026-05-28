@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
-import { getRawDb } from '@/lib/db';
+import { eq } from 'drizzle-orm';
+import { getDb } from '@/lib/db';
+import { tasks, notes, stream } from '@/lib/db/schema';
 import { hybridSearch, vectorSearch, ftsSearch } from '@/lib/embeddings/search';
 
 export async function GET(request: NextRequest) {
@@ -15,7 +17,7 @@ export async function GET(request: NextRequest) {
       return Response.json([]);
     }
 
-    let hits: Array<{ entity_type: string; entity_id: string; score: number }>;
+    let hits: Array<{ entityType: string; entityId: string; score: number }>;
 
     if (mode === 'keyword') {
       hits = ftsSearch(q, limit);
@@ -37,30 +39,24 @@ export async function GET(request: NextRequest) {
     }
 
     // Hydrate results with full entity data
-    const db = getRawDb();
+    const db = getDb();
     const results = hits
       .map((hit) => {
         let entity: Record<string, unknown> | undefined;
 
-        if (hit.entity_type === 'task') {
-          entity = db.prepare('SELECT * FROM tasks WHERE id = ?').get(hit.entity_id) as
-            | Record<string, unknown>
-            | undefined;
-        } else if (hit.entity_type === 'note') {
-          entity = db.prepare('SELECT * FROM notes WHERE id = ?').get(hit.entity_id) as
-            | Record<string, unknown>
-            | undefined;
-        } else if (hit.entity_type === 'stream') {
-          entity = db.prepare('SELECT * FROM stream WHERE id = ?').get(hit.entity_id) as
-            | Record<string, unknown>
-            | undefined;
+        if (hit.entityType === 'task') {
+          entity = db.select().from(tasks).where(eq(tasks.id, hit.entityId)).get();
+        } else if (hit.entityType === 'note') {
+          entity = db.select().from(notes).where(eq(notes.id, hit.entityId)).get();
+        } else if (hit.entityType === 'stream') {
+          entity = db.select().from(stream).where(eq(stream.id, hit.entityId)).get();
         }
 
         if (!entity) return null;
 
         return {
           ...entity,
-          entity_type: hit.entity_type,
+          entityType: hit.entityType,
           score: hit.score,
         };
       })

@@ -19,7 +19,7 @@ export async function uploadAttachment(file: File | Blob, name?: string): Promis
     // and the server can derive an extension.
     formData.append('file', file, name ?? 'upload');
   }
-  if (name) formData.append('original_name', name);
+  if (name) formData.append('originalName', name);
 
   return api.upload<Attachment>('/attachments', formData);
 }

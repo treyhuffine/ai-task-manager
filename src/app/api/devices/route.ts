@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       name?: string;
       description?: string | null;
-      device_type?: DeviceType;
-      expires_at?: string | null;
+      deviceType?: DeviceType;
+      expiresAt?: string | null;
     };
 
     const name = body.name?.trim();
@@ -37,16 +37,16 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'name is required' }, { status: 400 });
     }
 
-    const device_type: DeviceType =
-      body.device_type && ALLOWED_DEVICE_TYPES.includes(body.device_type)
-        ? body.device_type
+    const deviceType: DeviceType =
+      body.deviceType && ALLOWED_DEVICE_TYPES.includes(body.deviceType)
+        ? body.deviceType
         : deviceTypeFromUserAgent(request.headers.get('user-agent'));
 
     const input: CreateApiKeyInput = {
       name,
       description: body.description ?? null,
-      device_type,
-      expires_at: body.expires_at ?? null,
+      deviceType,
+      expiresAt: body.expiresAt ?? null,
     };
 
     const { key, token } = createApiKey(input);

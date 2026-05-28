@@ -23,7 +23,7 @@ export function BrainDumpModal({ open, onOpenChange }: BrainDumpModalProps) {
     if (!trimmed || createStream.isPending) return;
 
     createStream.mutate(
-      { raw_text: trimmed, source: "capture" },
+      { rawText: trimmed, source: "capture" },
       {
         onSuccess: () => {
           setText("");

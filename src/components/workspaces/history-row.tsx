@@ -40,7 +40,7 @@ export function HistoryRow({
   onOpenCreateFrom,
 }: HistoryRowProps) {
   const { activeView, setActiveView } = useDashboard();
-  const { data: diffStats } = useDiffStats(session.worktree_path ? session.id : null);
+  const { data: diffStats } = useDiffStats(session.worktreePath ? session.id : null);
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   const isActive = activeView === session.id;
@@ -54,12 +54,12 @@ export function HistoryRow({
   const label = session.label ?? 'Untitled';
   const labelIsPlaceholder = !session.label;
 
-  const wsName = session.workspace_name ?? 'Workspace removed';
-  const wsImage = coverAttachmentUrl(session.workspace_attachments);
-  const wsEmoji = session.workspace_emoji;
-  const branch = session.branch_name;
+  const wsName = session.workspaceName ?? 'Workspace removed';
+  const wsImage = coverAttachmentUrl(session.workspaceAttachments);
+  const wsEmoji = session.workspaceEmoji;
+  const branch = session.branchName;
 
-  const timestamp = session.last_outcome_event_at ?? session.started_at;
+  const timestamp = session.lastOutcomeEventAt ?? session.startedAt;
 
   return (
     <div
@@ -118,8 +118,8 @@ export function HistoryRow({
 
       <SessionRowMenu
         sessionId={session.id}
-        workspaceId={session.workspace_id ?? null}
-        workspaceIsGit={session.workspace_is_git ?? false}
+        workspaceId={session.workspaceId ?? null}
+        workspaceIsGit={session.workspaceIsGit ?? false}
         isUnread={false}
         label={label}
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}

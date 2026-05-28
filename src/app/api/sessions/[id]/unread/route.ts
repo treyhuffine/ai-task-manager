@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { markSessionUnread } from '@/lib/db/queries';
 
 /**
- * Force the session into the Unread bucket. Sets `unread_marker_at = now`
+ * Force the session into the Unread bucket. Sets `unreadMarkerAt = now`
  * so the rail's read derivation flags this row as unread on the next
  * render, even when no new agent outcome has landed. Cleared on the next
  * Mark read / interaction.

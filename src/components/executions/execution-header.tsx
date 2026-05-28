@@ -131,12 +131,12 @@ export function ExecutionHeader({
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
   const isArchived = session.status === 'archived';
-  const isSetupFailed = !!session.setup_error;
+  const isSetupFailed = !!session.setupError;
   // Mirror ExecutionView's derivation: git workspace whose session
-  // hasn't been provisioned yet. setup_error wins (separate state) so
+  // hasn't been provisioned yet. setupError wins (separate state) so
   // we don't render "setting up" forever on a failed provision.
   const isSettingUp =
-    !!workspace && workspace.is_git === true && !session.worktree_path && !isSetupFailed;
+    !!workspace && workspace.isGit === true && !session.worktreePath && !isSetupFailed;
 
   // "Needs response" = the agent has produced an outcome the user
   // hasn't seen since their last view. Distinguishing this from plain
@@ -145,8 +145,8 @@ export function ExecutionHeader({
   const needsResponse =
     !isStreaming &&
     !isArchived &&
-    !!session.last_outcome_event_at &&
-    session.last_outcome_event_at > (session.last_viewed_at ?? '1970-01-01');
+    !!session.lastOutcomeEventAt &&
+    session.lastOutcomeEventAt > (session.lastViewedAt ?? '1970-01-01');
 
   // Single tagged state — keeps label, dot color, and pill chrome from
   // drifting out of sync. Order matters: archived/failed/setup are
@@ -174,7 +174,7 @@ export function ExecutionHeader({
             ? 'working'
             : needsResponse
               ? 'respond'
-              : session.last_outcome_event_at
+              : session.lastOutcomeEventAt
                 ? 'idle'
                 : 'ready';
 
@@ -301,8 +301,8 @@ export function ExecutionHeader({
     </button>
   );
 
-  const worktreeLinks = session.worktree_path ? (
-    <WorktreeDeepLinks worktreePath={session.worktree_path} />
+  const worktreeLinks = session.worktreePath ? (
+    <WorktreeDeepLinks worktreePath={session.worktreePath} />
   ) : null;
 
   const takeoverMenuItem = <TakeoverButton session={session} workspace={workspace} />;
@@ -312,10 +312,10 @@ export function ExecutionHeader({
   // not in Portless mode or no route is registered — `TailscaleMenuItems`
   // renders nothing in that case, so we conditionally render the wrapper
   // divider only when there's something to show.
-  const tailscale = useTailscaleUrl(session.workspace_id ?? null);
+  const tailscale = useTailscaleUrl(session.workspaceId ?? null);
   const hasTailscaleItems = !!tailscale.url;
   const tailscaleMenuSection = hasTailscaleItems ? (
-    <TailscaleMenuItems workspaceId={session.workspace_id ?? null} />
+    <TailscaleMenuItems workspaceId={session.workspaceId ?? null} />
   ) : null;
 
   // Detect Live mode: git workspace whose session points at the
@@ -324,8 +324,8 @@ export function ExecutionHeader({
   // — the badge is specifically for "you opted into shared state on a
   // git workspace."
   const isLive =
-    !!workspace?.is_git && !!session.worktree_path && session.worktree_path === workspace.cwd;
-  const liveBadge = isLive ? <LiveBadge branch={session.branch_name} /> : null;
+    !!workspace?.isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
+  const liveBadge = isLive ? <LiveBadge branch={session.branchName} /> : null;
 
   return (
     <div className="flex-shrink-0 border-b border-border bg-background">
@@ -390,17 +390,17 @@ export function ExecutionHeader({
                     value={workspace?.name ?? '—'}
                     valueClass="font-medium text-foreground"
                   />
-                  {session.branch_name && (
+                  {session.branchName && (
                     <DetailRow
                       label="Branch"
-                      value={session.branch_name}
+                      value={session.branchName}
                       valueClass="font-mono text-foreground break-all"
                     />
                   )}
-                  {session.base_sha && (
+                  {session.baseSha && (
                     <DetailRow
                       label="Base"
-                      value={`@${session.base_sha.slice(0, 7)}`}
+                      value={`@${session.baseSha.slice(0, 7)}`}
                       valueClass="font-mono text-foreground"
                     />
                   )}
@@ -409,17 +409,17 @@ export function ExecutionHeader({
                     value={statusLabel}
                     valueClass="text-foreground capitalize"
                   />
-                  {session.external_session_id && (
+                  {session.externalSessionId && (
                     <CopyableDetailRow
-                      label={resumeIdLabel(session.agent_harness)}
-                      value={session.external_session_id}
-                      copyLabel={`${resumeIdLabel(session.agent_harness).toLowerCase()}`}
+                      label={resumeIdLabel(session.agentHarness)}
+                      value={session.externalSessionId}
+                      copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
                     />
                   )}
-                  {session.worktree_path && (
+                  {session.worktreePath && (
                     <DetailRow
                       label="Path"
-                      value={session.worktree_path}
+                      value={session.worktreePath}
                       valueClass="font-mono text-[11px] text-foreground/80 break-all"
                     />
                   )}
@@ -526,24 +526,24 @@ export function ExecutionHeader({
                   value={workspace?.name ?? '—'}
                   valueClass="font-medium text-foreground"
                 />
-                {workspace?.base_branch && (
+                {workspace?.baseBranch && (
                   <DetailRow
                     label="Base branch"
-                    value={workspace.base_branch}
+                    value={workspace.baseBranch}
                     valueClass="font-mono text-foreground"
                   />
                 )}
-                {session.branch_name && (
+                {session.branchName && (
                   <DetailRow
                     label="Branch"
-                    value={session.branch_name}
+                    value={session.branchName}
                     valueClass="font-mono text-foreground break-all"
                   />
                 )}
-                {session.base_sha && (
+                {session.baseSha && (
                   <DetailRow
                     label="Base sha"
-                    value={`@${session.base_sha.slice(0, 7)}`}
+                    value={`@${session.baseSha.slice(0, 7)}`}
                     valueClass="font-mono text-foreground"
                   />
                 )}
@@ -552,31 +552,31 @@ export function ExecutionHeader({
                   value={statusLabel}
                   valueClass="text-foreground capitalize"
                 />
-                {session.external_session_id && (
+                {session.externalSessionId && (
                   <CopyableDetailRow
-                    label={resumeIdLabel(session.agent_harness)}
-                    value={session.external_session_id}
-                    copyLabel={`${resumeIdLabel(session.agent_harness).toLowerCase()}`}
+                    label={resumeIdLabel(session.agentHarness)}
+                    value={session.externalSessionId}
+                    copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
                   />
                 )}
-                {session.worktree_path && (
+                {session.worktreePath && (
                   <DetailRow
                     label="Path"
-                    value={session.worktree_path}
+                    value={session.worktreePath}
                     valueClass="font-mono text-[11px] text-foreground/80 break-all"
                   />
                 )}
-                {session.started_at && (
+                {session.startedAt && (
                   <DetailRow
                     label="Started"
-                    value={new Date(session.started_at).toLocaleString()}
+                    value={new Date(session.startedAt).toLocaleString()}
                     valueClass="text-foreground/85"
                   />
                 )}
-                {session.pr_number != null && (
+                {session.prNumber != null && (
                   <DetailRow
                     label="Linked PR"
-                    value={`#${session.pr_number}`}
+                    value={`#${session.prNumber}`}
                     valueClass="font-mono text-foreground"
                   />
                 )}
@@ -590,7 +590,7 @@ export function ExecutionHeader({
               <div className="p-2">
                 <LinkPrSection
                   sessionId={session.id}
-                  linkedNumber={session.pr_number ?? null}
+                  linkedNumber={session.prNumber ?? null}
                 />
               </div>
 
@@ -628,7 +628,7 @@ export function ExecutionHeader({
             position differs. `inline` sits adjacent to the label;
             `center` floats in the middle spacer; `right` lives in the
             right cluster just before state + editor. */}
-        {headerLayout === 'inline' && workspace?.is_git && (!!session.worktree_path || !!session.setup_error) && (
+        {headerLayout === 'inline' && workspace?.isGit && (!!session.worktreePath || !!session.setupError) && (
           <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
         )}
 
@@ -638,7 +638,7 @@ export function ExecutionHeader({
             headerLayout === 'center' ? 'justify-center' : '',
           )}
         >
-          {headerLayout === 'center' && workspace?.is_git && (!!session.worktree_path || !!session.setup_error) && (
+          {headerLayout === 'center' && workspace?.isGit && (!!session.worktreePath || !!session.setupError) && (
             <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
           )}
         </div>
@@ -651,7 +651,7 @@ export function ExecutionHeader({
           {onToggleScratchpad && (
             <ScratchpadButton open={scratchpadOpen} onClick={onToggleScratchpad} />
           )}
-          {headerLayout === 'right' && workspace?.is_git && (!!session.worktree_path || !!session.setup_error) && (
+          {headerLayout === 'right' && workspace?.isGit && (!!session.worktreePath || !!session.setupError) && (
             <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
           )}
         </div>
@@ -664,7 +664,7 @@ export function ExecutionHeader({
  * Amber "LIVE" pill — surfaces "this session is running in the
  * workspace folder on the current branch, no worktree isolation." Same
  * detection logic as the dispatcher's `liveMode` flag: git workspace
- * whose session.worktree_path matches workspace.cwd. Tooltip explains
+ * whose session.worktreePath matches workspace.cwd. Tooltip explains
  * the consequences for users who land on a Live session without
  * remembering they started one.
  */
@@ -755,7 +755,7 @@ function DetailRow({
 
 /**
  * Detail row whose value is click-to-copy. Used for surfacing the
- * harness-side session id (`external_session_id`) — the token the CLI
+ * harness-side session id (`externalSessionId`) — the token the CLI
  * (`claude --resume <id>` / `codex resume <id>`) needs to pick up a
  * thread later. Visible only when bound, so the row stays out of the
  * way for fresh sessions.
@@ -819,7 +819,7 @@ interface LinkPrSectionProps {
 
 /**
  * "Link this session to a PR by number/URL." Used when the PR's head
- * branch doesn't match the session's `branch_name` — e.g. the PR was
+ * branch doesn't match the session's `branchName` — e.g. the PR was
  * opened from a fork, or the branch was renamed. The route prefers
  * the explicit link when set; clearing it falls back to branch match.
  */
@@ -836,7 +836,7 @@ function LinkPrSection({ sessionId, linkedNumber }: LinkPrSectionProps) {
     }
     setError(null);
     update.mutate(
-      { id: sessionId, pr_number: parsed },
+      { id: sessionId, prNumber: parsed },
       {
         onSuccess: () => setInput(''),
         onError: (err) => setError(err instanceof Error ? err.message : String(err)),
@@ -846,7 +846,7 @@ function LinkPrSection({ sessionId, linkedNumber }: LinkPrSectionProps) {
 
   const handleUnlink = () => {
     setError(null);
-    update.mutate({ id: sessionId, pr_number: null });
+    update.mutate({ id: sessionId, prNumber: null });
   };
 
   return (

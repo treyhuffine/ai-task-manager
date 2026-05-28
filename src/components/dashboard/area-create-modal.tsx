@@ -148,7 +148,7 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
                 {attachment ? (
                   <div className="relative group">
                     <img
-                      src={`/api/attachments/${attachment.file_name}`}
+                      src={`/api/attachments/${attachment.fileName}`}
                       alt="Area image"
                       className="w-20 h-20 rounded-xl object-cover border border-border"
                     />

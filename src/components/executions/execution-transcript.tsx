@@ -26,7 +26,7 @@ interface ExecutionTranscriptProps {
  * ThinkingState while the agent is mid-turn.
  *
  * Filtering: `system` events with `subtype === 'init'` are noise — the
- * adapter already wrote `external_session_id` into the session row from
+ * adapter already wrote `externalSessionId` into the session row from
  * those events. Showing every "init" divider in the transcript clutters
  * the chat without telling the user anything. Other system subtypes
  * (compaction boundaries etc.) still render.
@@ -67,10 +67,10 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
     // when the user actually clicked send. Falls back to session start
     // when there are no events yet (fresh execution mid-spawn).
     for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i].source === 'user') return events[i].created_at;
+      if (events[i].source === 'user') return events[i].createdAt;
     }
-    return session.started_at;
-  }, [events, session.started_at]);
+    return session.startedAt;
+  }, [events, session.startedAt]);
 
   return (
     <Conversation className="flex-1 min-h-0">
@@ -134,7 +134,7 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
 /**
  * Drop transcript noise:
  *   - `system` events with subtype `init` — agentex always emits one
- *     at session start; the row is useful for the `external_session_id`
+ *     at session start; the row is useful for the `externalSessionId`
  *     capture but adds nothing to the chat surface.
  *   - `result` events entirely — the row exists for analytics
  *     (cost/usage/stopReason live in `raw`), but the user-visible

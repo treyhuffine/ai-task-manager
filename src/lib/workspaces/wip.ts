@@ -7,7 +7,7 @@
  * is the bridge: detect the WIP, then either *move* it (git stash + pop) so
  * it lives in the new worktree, or *copy* it so both repos retain it.
  *
- * Files already covered by the workspace's `files_to_copy` patterns are
+ * Files already covered by the workspace's `filesToCopy` patterns are
  * filtered out — `@agentex/workspace`'s `copyFromSource` already handled
  * those at worktree-create time.
  */
@@ -34,7 +34,7 @@ export interface WipDetection {
 
 /**
  * Run `git status --porcelain=v1 -z` in `sourceCwd`, then strip out any
- * paths the workspace's `files_to_copy` patterns already cover. Empty
+ * paths the workspace's `filesToCopy` patterns already cover. Empty
  * result on a clean tree or a non-git path.
  */
 export async function detectSourceWip(

@@ -94,7 +94,7 @@ export function sessionChannel(sessionId: string): string {
  * derivation here means callers don't have to remember the prefix.
  */
 export function publishChatEvent(event: ChatEventRecord): void {
-  publish(sessionChannel(event.session_id), { kind: 'chat_event', event });
+  publish(sessionChannel(event.sessionId), { kind: 'chat_event', event });
 }
 
 export function publishRuntime(sessionId: string, running: boolean): void {

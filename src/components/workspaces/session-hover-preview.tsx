@@ -184,12 +184,12 @@ function PreviewBody({ sessionId }: { sessionId: string }) {
   const { data: events, isLoading } = useSessionEvents(sessionId);
 
   const workspace = useMemo(
-    () => (session?.workspace_id ? workspaces?.find((w) => w.id === session.workspace_id) : undefined),
-    [session?.workspace_id, workspaces],
+    () => (session?.workspaceId ? workspaces?.find((w) => w.id === session.workspaceId) : undefined),
+    [session?.workspaceId, workspaces],
   );
   const area = useMemo(
-    () => (workspace?.area_id ? areas?.find((a) => a.id === workspace.area_id) : undefined),
-    [workspace?.area_id, areas],
+    () => (workspace?.areaId ? areas?.find((a) => a.id === workspace.areaId) : undefined),
+    [workspace?.areaId, areas],
   );
 
   const messages = useMemo(() => pickPreviewMessages(events ?? []), [events]);

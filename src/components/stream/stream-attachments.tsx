@@ -22,39 +22,39 @@ export function StreamAttachments({ attachments }: StreamAttachmentsProps) {
   return (
     <div className="flex flex-col gap-1 mt-1">
       {attachments.map((a) => {
-        const url = attachmentUrl(a.file_name);
+        const url = attachmentUrl(a.fileName);
         if (isAudioAttachment(a)) {
           return (
             <audio
-              key={a.file_name}
+              key={a.fileName}
               controls
               preload="none"
               src={url}
               className="h-7 max-w-full"
-              aria-label={a.original_name}
+              aria-label={a.originalName}
             />
           );
         }
-        if (a.mime_type.startsWith('image/')) {
+        if (a.mimeType.startsWith('image/')) {
           return (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={a.file_name}
+              key={a.fileName}
               src={url}
-              alt={a.original_name}
+              alt={a.originalName}
               className="max-h-32 rounded border border-border object-cover"
             />
           );
         }
         return (
           <a
-            key={a.file_name}
+            key={a.fileName}
             href={url}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[10px] text-primary hover:underline truncate"
           >
-            {a.original_name}
+            {a.originalName}
           </a>
         );
       })}

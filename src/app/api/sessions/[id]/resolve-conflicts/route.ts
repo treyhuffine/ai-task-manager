@@ -48,17 +48,17 @@ export async function POST(
         { status: 409 },
       );
     }
-    if (!session.workspace_id || !session.worktree_path || !session.branch_name) {
+    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
       return Response.json(
-        { error: 'no_worktree', message: 'No worktree or branch on this session.' },
+        { error: 'noWorktree', message: 'No worktree or branch on this session.' },
         { status: 400 },
       );
     }
 
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
-    if (scenario === 'pr_vs_base' && !ws.base_branch) {
+    if (scenario === 'pr_vs_base' && !ws.baseBranch) {
       return Response.json(
         { error: 'no_base_branch', message: 'Workspace has no base branch configured.' },
         { status: 400 },
@@ -72,16 +72,16 @@ export async function POST(
 
     const prompt = buildResolveConflictsPrompt({
       scenario,
-      branch: session.branch_name,
-      baseBranch: ws.base_branch ?? undefined,
+      branch: session.branchName,
+      baseBranch: ws.baseBranch ?? undefined,
     });
 
     insertChatEvent({
-      session_id: id,
+      sessionId: id,
       role: 'user',
       source: 'user',
       content: prompt,
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
 
     executor.dispatch(id, prompt).catch((err) => {

@@ -21,7 +21,7 @@ export interface EventWriter {
 
 /**
  * Default v1 writer. Calls into the queries layer's idempotent insert.
- * `insertChatEvent` already bumps the session's `last_outcome_event_at`
+ * `insertChatEvent` already bumps the session's `lastOutcomeEventAt`
  * for `agent` / `result` source rows, so we don't have to track that
  * here.
  */

@@ -50,7 +50,7 @@ export function NeedsReviewSection() {
               key={session.id}
               session={session}
               variant="needs-review"
-              showWorkspaceLabel={wsName(session.workspace_id)}
+              showWorkspaceLabel={wsName(session.workspaceId)}
               onOpenWorkspaceSettings={setSettingsId}
             />
           ))}

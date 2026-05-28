@@ -74,7 +74,7 @@ interface TaskSlideoutProps {
 export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSlideoutProps) {
   const isOpen = taskId !== null;
   const { data: task } = useTask(taskId);
-  const { data: parentTask } = useTask(task?.parent_id ?? null);
+  const { data: parentTask } = useTask(task?.parentId ?? null);
   const { openTask } = useDashboard();
   const router = useRouter();
   const updateTask = useUpdateTask();
@@ -84,7 +84,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
 
   // Global priority-ordered list, used to compute bucket placement and the position readout.
-  const priorityFilter = { status: 'active' as const, order_by: 'sort_key' as const };
+  const priorityFilter = { status: 'active' as const, orderBy: 'sortKey' as const };
   const { data: priorityList } = useTasks(priorityFilter);
   const queryClient = useQueryClient();
 
@@ -163,7 +163,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
       queryClient.setQueryData(priorityKey, placement.reordered);
 
       const allPatches = [...placement.normalizationPatches, placement.movedPatch];
-      Promise.all(allPatches.map((p) => tasksApi.update(p.id, { sort_key: p.sort_key })))
+      Promise.all(allPatches.map((p) => tasksApi.update(p.id, { sortKey: p.sortKey })))
         .then(() => {
           queryClient.invalidateQueries({ queryKey: ['tasks'] });
         })
@@ -181,7 +181,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     return {
       index: idx,
       total: priorityList.length,
-      hasKey: priorityList[idx].sort_key !== null,
+      hasKey: priorityList[idx].sortKey !== null,
     };
   })();
 
@@ -233,7 +233,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
       if (!taskId) return;
       if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
       foldedTimerRef.current = setTimeout(() => {
-        updateTask.mutate({ id: taskId, folded_headings: folded } as Parameters<
+        updateTask.mutate({ id: taskId, foldedHeadings: folded } as Parameters<
           typeof updateTask.mutate
         >[0]);
       }, 400);
@@ -244,7 +244,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const handleComplete = useCallback(() => {
     if (!taskId || !task) return;
     if (task.status === 'done') {
-      updateTask.mutate({ id: taskId, status: 'active', completed_at: null } as Parameters<
+      updateTask.mutate({ id: taskId, status: 'active', completedAt: null } as Parameters<
         typeof updateTask.mutate
       >[0]);
     } else {
@@ -440,17 +440,17 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                     <div className="pt-4 px-4 md:px-12">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
-                          {task.parent_id ? 'Subtask' : 'Task'}
+                          {task.parentId ? 'Subtask' : 'Task'}
                         </span>
                         <span className="text-muted-foreground/30">·</span>
                         <AreaSelect
-                          value={task.area_id}
-                          onChange={(areaId) => saveField('area_id', areaId)}
+                          value={task.areaId}
+                          onChange={(areaId) => saveField('areaId', areaId)}
                         />
                       </div>
-                      {task.parent_id && parentTask && (
+                      {task.parentId && parentTask && (
                         <button
-                          onClick={() => openTask(task.parent_id!)}
+                          onClick={() => openTask(task.parentId!)}
                           className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors group"
                         >
                           <ChevronLeft size={12} className="opacity-60 group-hover:opacity-100" />
@@ -477,27 +477,27 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                       />
                       <p className="text-[10px] text-muted-foreground/50 mt-1">
                         Created{' '}
-                        {new Date(task.created_at).toLocaleDateString('en-US', {
+                        {new Date(task.createdAt).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
                           year: 'numeric',
                         })}
-                        {task.updated_at !== task.created_at && (
+                        {task.updatedAt !== task.createdAt && (
                           <>
                             {' '}
                             · Edited{' '}
-                            {new Date(task.updated_at).toLocaleDateString('en-US', {
+                            {new Date(task.updatedAt).toLocaleDateString('en-US', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',
                             })}
                           </>
                         )}
-                        {task.completed_at && (
+                        {task.completedAt && (
                           <>
                             {' '}
                             · Completed{' '}
-                            {new Date(task.completed_at).toLocaleDateString('en-US', {
+                            {new Date(task.completedAt).toLocaleDateString('en-US', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',
@@ -609,13 +609,13 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                             <input
                               type="date"
                               autoFocus
-                              defaultValue={task.hard_deadline?.split('T')[0] ?? ''}
+                              defaultValue={task.hardDeadline?.split('T')[0] ?? ''}
                               className="text-[12px] bg-card border border-border rounded px-2 py-1"
                               onBlur={(e) => {
                                 setEditingDeadline(false);
                                 const val = e.target.value;
                                 saveField(
-                                  'hard_deadline',
+                                  'hardDeadline',
                                   val ? new Date(val).toISOString() : null,
                                 );
                               }}
@@ -629,13 +629,13 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                               onClick={() => setEditingDeadline(true)}
                               className={cn(
                                 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors hover:bg-muted',
-                                task.hard_deadline && new Date(task.hard_deadline) < new Date()
+                                task.hardDeadline && new Date(task.hardDeadline) < new Date()
                                   ? 'text-destructive'
                                   : 'text-muted-foreground',
                               )}
                             >
                               <Clock size={10} />
-                              {formatDate(task.hard_deadline) ?? 'Set deadline'}
+                              {formatDate(task.hardDeadline) ?? 'Set deadline'}
                             </button>
                           )}
                         </div>
@@ -647,13 +647,13 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                             <input
                               type="date"
                               autoFocus
-                              defaultValue={task.resurface_after?.split('T')[0] ?? ''}
+                              defaultValue={task.resurfaceAfter?.split('T')[0] ?? ''}
                               className="text-[12px] bg-card border border-border rounded px-2 py-1"
                               onBlur={(e) => {
                                 setEditingBoomerang(false);
                                 const val = e.target.value;
                                 saveField(
-                                  'resurface_after',
+                                  'resurfaceAfter',
                                   val ? new Date(val).toISOString() : null,
                                 );
                               }}
@@ -670,7 +670,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                               )}
                             >
                               <Timer size={10} />
-                              {formatDate(task.resurface_after) ?? 'Set snooze'}
+                              {formatDate(task.resurfaceAfter) ?? 'Set snooze'}
                             </button>
                           )}
                         </div>
@@ -686,17 +686,17 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                         )}
 
                         {/* Blocked */}
-                        {task.blocked_on && (
+                        {task.blockedOn && (
                           <>
                             <span className="text-muted-foreground font-medium">Blocked on</span>
                             <div className="flex items-center gap-2">
                               <span className="inline-flex items-center gap-1 text-amber-500 font-medium">
-                                <Lock size={10} /> {task.blocked_on}
+                                <Lock size={10} /> {task.blockedOn}
                               </span>
                               <button
                                 onClick={() => {
-                                  saveField('blocked_on', null);
-                                  saveField('blocked_since', null);
+                                  saveField('blockedOn', null);
+                                  saveField('blockedSince', null);
                                 }}
                                 className="text-[10px] text-muted-foreground hover:text-foreground underline"
                               >
@@ -721,7 +721,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                         editable={!aiBusy}
                         placeholder="Type '/' for commands..."
                         hideFooter
-                        foldedHeadings={task.folded_headings ?? []}
+                        foldedHeadings={task.foldedHeadings ?? []}
                         onFoldedHeadingsChange={handleFoldedHeadingsChange}
                       />
                     </div>

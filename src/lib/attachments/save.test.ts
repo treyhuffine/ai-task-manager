@@ -27,17 +27,17 @@ describe('saveAttachment', () => {
     const bytes = Buffer.from('hello, world');
     const result = await saveAttachment({
       data: bytes,
-      original_name: 'Notes about the migration.txt',
-      mime_type: 'text/plain',
+      originalName: 'Notes about the migration.txt',
+      mimeType: 'text/plain',
     });
 
-    expect(result.file_name).toMatch(/^[a-f0-9-]+\.txt$/);
-    expect(result.original_name).toBe('Notes about the migration.txt');
-    expect(result.mime_type).toBe('text/plain');
+    expect(result.fileName).toMatch(/^[a-f0-9-]+\.txt$/);
+    expect(result.originalName).toBe('Notes about the migration.txt');
+    expect(result.mimeType).toBe('text/plain');
     expect(result.size).toBe(bytes.byteLength);
-    expect(result.uploaded_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(result.uploadedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
-    const written = fs.readFileSync(path.join(tmpDir, 'brain', 'attachments', result.file_name));
+    const written = fs.readFileSync(path.join(tmpDir, 'brain', 'attachments', result.fileName));
     expect(written.toString()).toBe('hello, world');
   });
 
@@ -45,37 +45,37 @@ describe('saveAttachment', () => {
     const { saveAttachment } = await import('./save');
     const result = await saveAttachment({
       data: Buffer.from([1, 2, 3]),
-      original_name: 'no-extension',
-      mime_type: 'image/png',
+      originalName: 'no-extension',
+      mimeType: 'image/png',
     });
-    expect(result.file_name).toMatch(/\.png$/);
+    expect(result.fileName).toMatch(/\.png$/);
   });
 
   it('recovers mime from filename when header is octet-stream', async () => {
     const { saveAttachment } = await import('./save');
     const result = await saveAttachment({
       data: Buffer.from([1, 2]),
-      original_name: 'photo.jpg',
-      mime_type: 'application/octet-stream',
+      originalName: 'photo.jpg',
+      mimeType: 'application/octet-stream',
     });
-    expect(result.mime_type).toBe('image/jpeg');
-    expect(result.file_name).toMatch(/\.jpg$/);
+    expect(result.mimeType).toBe('image/jpeg');
+    expect(result.fileName).toMatch(/\.jpg$/);
   });
 
   it('uses UUIDv7 so lexicographic sort == chronological order', async () => {
     const { saveAttachment } = await import('./save');
     const a = await saveAttachment({
       data: Buffer.from('a'),
-      original_name: 'a.png',
-      mime_type: 'image/png',
+      originalName: 'a.png',
+      mimeType: 'image/png',
     });
     // Small delay to guarantee timestamp advance between uuidv7 calls.
     await new Promise((r) => setTimeout(r, 2));
     const b = await saveAttachment({
       data: Buffer.from('b'),
-      original_name: 'b.png',
-      mime_type: 'image/png',
+      originalName: 'b.png',
+      mimeType: 'image/png',
     });
-    expect(a.file_name < b.file_name).toBe(true);
+    expect(a.fileName < b.fileName).toBe(true);
   });
 });

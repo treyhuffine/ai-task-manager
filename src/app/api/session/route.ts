@@ -37,10 +37,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'empty token' }, { status: 401 });
   }
   const key = findApiKeyByHash(hashToken(token));
-  if (!key || key.revoked_at) {
+  if (!key || key.revokedAt) {
     return NextResponse.json({ error: 'invalid token' }, { status: 401 });
   }
-  if (key.expires_at && new Date(key.expires_at) < new Date()) {
+  if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
     return NextResponse.json({ error: 'expired token' }, { status: 401 });
   }
 

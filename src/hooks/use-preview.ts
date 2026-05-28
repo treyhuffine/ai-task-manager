@@ -69,7 +69,7 @@ export function useStopPreview(workspaceId: string | null) {
 
 export function useRefreshPreviewToken(workspaceId: string | null) {
   const qc = useQueryClient();
-  return useMutation<{ preview_token: string }, Error, void>({
+  return useMutation<{ previewToken: string }, Error, void>({
     mutationFn: async () => {
       if (!workspaceId) throw new Error('no_workspace');
       return workspacesApi.appPreview.refreshToken(workspaceId);
@@ -80,7 +80,7 @@ export function useRefreshPreviewToken(workspaceId: string | null) {
       if (prev) {
         qc.setQueryData(PREVIEW_KEY(workspaceId), {
           ...prev,
-          preview_token: data.preview_token,
+          previewToken: data.previewToken,
         });
       }
     },

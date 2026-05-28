@@ -69,14 +69,14 @@ export function useSessionStream(sessionId: string | null): void {
         // on first connect or after an invalidation. Skip dupes.
         if (list.some((e) => e.id === event.id)) return list;
 
-        // Insert preserving (created_at ASC, id ASC) — same ordering
+        // Insert preserving (createdAt ASC, id ASC) — same ordering
         // the listChatEvents query uses. New events almost always
         // append; the sorted-insert path covers out-of-order writes
         // (e.g., a slow disk on one row + a fast write on the next).
         const out = [...list, event];
         out.sort((a, b) => {
-          if (a.created_at !== b.created_at) {
-            return a.created_at < b.created_at ? -1 : 1;
+          if (a.createdAt !== b.createdAt) {
+            return a.createdAt < b.createdAt ? -1 : 1;
           }
           return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
         });
@@ -85,7 +85,7 @@ export function useSessionStream(sessionId: string | null): void {
 
       // Turn-completion landings (source='result') are the strongest
       // "this session moved buckets" signal — invalidate the rail so
-      // its snapshot picks up the new last_outcome_event_at and the
+      // its snapshot picks up the new lastOutcomeEventAt and the
       // server-side running/pending lists.
       if (event.source === 'result') {
         invalidateRail();

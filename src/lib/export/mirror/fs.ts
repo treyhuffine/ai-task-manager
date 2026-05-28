@@ -169,13 +169,13 @@ export async function listIdsInType(type: EntityType): Promise<string[]> {
   return ids;
 }
 
-/** Read the frontmatter `updated_at` from a file. Cheap heuristic — no full YAML parse. */
+/** Read the frontmatter `updatedAt` from a file. Cheap heuristic — no full YAML parse. */
 export async function readUpdatedAt(filePath: string): Promise<string | null> {
   try {
     const head = await fsp.readFile(filePath, 'utf8');
-    // Look for `updated_at: <value>` in the first ~2KB
+    // Look for `updatedAt: <value>` in the first ~2KB
     const slice = head.slice(0, 2048);
-    const match = slice.match(/^updated_at:\s*("?)([^"\n]+)\1/m);
+    const match = slice.match(/^updatedAt:\s*("?)([^"\n]+)\1/m);
     if (!match) return null;
     return match[2].trim();
   } catch {

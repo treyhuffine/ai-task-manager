@@ -23,13 +23,13 @@ export async function GET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.workspace_id) return Response.json({ entries: [] satisfies TreeEntry[] });
+    if (!session.workspaceId) return Response.json({ entries: [] satisfies TreeEntry[] });
 
-    const ws = getWorkspace(session.workspace_id);
+    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ entries: [] satisfies TreeEntry[] });
 
     // No worktree yet (worktree provisioning in flight) — return empty.
-    if (!session.worktree_path) return Response.json({ entries: [] satisfies TreeEntry[] });
+    if (!session.worktreePath) return Response.json({ entries: [] satisfies TreeEntry[] });
 
     const handle = await openWorktreeHandle(session, ws.cwd);
     if (!handle) return Response.json({ entries: [] satisfies TreeEntry[] });

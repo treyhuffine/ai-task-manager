@@ -16,13 +16,13 @@ import type { Attachment } from '@/db/types';
 // (mime → which library) is covered by integration smoke and the
 // type signature.
 
-function mkAtt(file_name: string, overrides: Partial<Attachment> = {}): Attachment {
+function mkAtt(fileName: string, overrides: Partial<Attachment> = {}): Attachment {
   return {
-    file_name,
-    original_name: overrides.original_name ?? file_name,
-    mime_type: overrides.mime_type ?? 'text/plain',
+    fileName,
+    originalName: overrides.originalName ?? fileName,
+    mimeType: overrides.mimeType ?? 'text/plain',
     size: overrides.size ?? 0,
-    uploaded_at: overrides.uploaded_at ?? '2026-04-21T00:00:00.000Z',
+    uploadedAt: overrides.uploadedAt ?? '2026-04-21T00:00:00.000Z',
   };
 }
 
@@ -70,7 +70,7 @@ describe('extractTextFromAttachment', () => {
     const code = 'export const x: number = 42;\n';
     writeFixture('foo.ts', code);
     const { extractTextFromAttachment } = await import('./extract-text');
-    const result = await extractTextFromAttachment(mkAtt('foo.ts', { mime_type: 'text/plain' }));
+    const result = await extractTextFromAttachment(mkAtt('foo.ts', { mimeType: 'text/plain' }));
     expect(result?.text).toBe(code);
     expect(result?.via).toBe('utf8');
   });
@@ -79,7 +79,7 @@ describe('extractTextFromAttachment', () => {
     const json = '{"key":"value"}';
     writeFixture('data.json', json);
     const { extractTextFromAttachment } = await import('./extract-text');
-    const result = await extractTextFromAttachment(mkAtt('data.json', { mime_type: 'application/json' }));
+    const result = await extractTextFromAttachment(mkAtt('data.json', { mimeType: 'application/json' }));
     expect(result?.text).toBe(json);
   });
 
@@ -87,7 +87,7 @@ describe('extractTextFromAttachment', () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect /></svg>';
     writeFixture('icon.svg', svg);
     const { extractTextFromAttachment } = await import('./extract-text');
-    const result = await extractTextFromAttachment(mkAtt('icon.svg', { mime_type: 'image/svg+xml' }));
+    const result = await extractTextFromAttachment(mkAtt('icon.svg', { mimeType: 'image/svg+xml' }));
     expect(result?.text).toBe(svg);
     expect(result?.via).toBe('svg → source');
   });
@@ -111,7 +111,7 @@ describe('extractTextFromAttachment', () => {
 
     const { extractTextFromAttachment } = await import('./extract-text');
     const result = await extractTextFromAttachment(mkAtt('data.xlsx', {
-      mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     }));
     expect(result?.text).toContain('## Sheet: Inventory');
     expect(result?.text).toContain('name,qty');
@@ -138,7 +138,7 @@ describe('extractTextFromAttachment', () => {
       transcribe: vi.fn(),
     }));
     const { extractTextFromAttachment } = await import('./extract-text');
-    const result = await extractTextFromAttachment(mkAtt('memo.webm', { mime_type: 'audio/webm' }));
+    const result = await extractTextFromAttachment(mkAtt('memo.webm', { mimeType: 'audio/webm' }));
     expect(result).toBeNull();
   });
 
@@ -149,7 +149,7 @@ describe('extractTextFromAttachment', () => {
       transcribe: vi.fn().mockResolvedValue('   '),
     }));
     const { extractTextFromAttachment } = await import('./extract-text');
-    const result = await extractTextFromAttachment(mkAtt('silent.webm', { mime_type: 'audio/webm' }));
+    const result = await extractTextFromAttachment(mkAtt('silent.webm', { mimeType: 'audio/webm' }));
     expect(result).toBeNull();
   });
 
@@ -160,7 +160,7 @@ describe('extractTextFromAttachment', () => {
       transcribe: vi.fn().mockResolvedValue('  hello, world  '),
     }));
     const { extractTextFromAttachment } = await import('./extract-text');
-    const result = await extractTextFromAttachment(mkAtt('memo.webm', { mime_type: 'audio/webm' }));
+    const result = await extractTextFromAttachment(mkAtt('memo.webm', { mimeType: 'audio/webm' }));
     expect(result?.text).toBe('hello, world');
     expect(result?.via).toBe('audio → local/parakeet-tdt-0.6b-v3');
   });
@@ -168,7 +168,7 @@ describe('extractTextFromAttachment', () => {
   it('returns null for unsupported mimes (e.g. video)', async () => {
     writeFixture('clip.mp4', Buffer.from([0, 0, 0, 0]));
     const { extractTextFromAttachment } = await import('./extract-text');
-    const result = await extractTextFromAttachment(mkAtt('clip.mp4', { mime_type: 'video/mp4' }));
+    const result = await extractTextFromAttachment(mkAtt('clip.mp4', { mimeType: 'video/mp4' }));
     expect(result).toBeNull();
   });
 });
@@ -177,7 +177,7 @@ describe('formatExtractedAttachment', () => {
   it('wraps text with filename and escapes attribute injection', async () => {
     const { formatExtractedAttachment } = await import('./extract-text');
     const out = formatExtractedAttachment(
-      mkAtt('foo.txt', { original_name: 'My "Notes" & <stuff>.txt' }),
+      mkAtt('foo.txt', { originalName: 'My "Notes" & <stuff>.txt' }),
       { text: 'body', via: 'utf8' },
     );
     // `>` isn't required to be escaped in XML attribute values; only
@@ -191,7 +191,7 @@ describe('formatExtractedAttachment', () => {
   it('adds audio-transcript hint for STT-derived text', async () => {
     const { formatExtractedAttachment } = await import('./extract-text');
     const out = formatExtractedAttachment(
-      mkAtt('a.webm', { mime_type: 'audio/webm', original_name: 'memo.webm' }),
+      mkAtt('a.webm', { mimeType: 'audio/webm', originalName: 'memo.webm' }),
       { text: 'hello', via: 'audio → local/parakeet-tdt-0.6b-v3' },
     );
     expect(out).toContain('kind="audio-transcript"');

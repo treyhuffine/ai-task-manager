@@ -233,7 +233,7 @@ function inspectActivity(recentDesc: ChatEventRecord[]): ActivityProbe {
   let hasRecentAgentEvent = false;
   for (const e of recentDesc) {
     if (!AGENT_ACTIVITY_SOURCES.has(e.source as ChatEventSource)) continue;
-    const age = now - new Date(e.created_at).getTime();
+    const age = now - new Date(e.createdAt).getTime();
     if (age <= RECENT_ACTIVITY_MS) {
       hasRecentAgentEvent = true;
       break;

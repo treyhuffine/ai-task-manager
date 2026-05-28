@@ -9,7 +9,7 @@
  *        creates a stream item with media='voice'
  *      → if no STT provider is available, saves the audio file to the
  *        attachments dir and creates a stream item noting the pending
- *        transcription. The raw_text embeds `/api/attachments/<file_name>`
+ *        transcription. The rawText embeds `/api/attachments/<fileName>`
  *        so the saved audio shows up in the stream's attachments manifest.
  *
  *   2. Image file (multipart/form-data with `file` field, image/* MIME)
@@ -36,15 +36,15 @@ import { transcribe, pickProvider } from '@/lib/stt/transcribe';
 import type { Attachment } from '@/db/types';
 
 /** Save an audio blob through the attachments system and build an inline
- *  reference that the stream's `raw_text` can carry. */
+ *  reference that the stream's `rawText` can carry. */
 async function saveVoiceAttachment(file: Blob): Promise<Attachment> {
   const mime = file.type || 'audio/webm';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const ext = mime.split('/')[1]?.split(';')[0] ?? 'webm';
   return saveAttachment({
     data: file,
-    original_name: `voice-memo-${stamp}.${ext}`,
-    mime_type: mime,
+    originalName: `voice-memo-${stamp}.${ext}`,
+    mimeType: mime,
   });
 }
 
@@ -55,8 +55,8 @@ async function saveImageAttachment(file: Blob): Promise<Attachment> {
   const name = (file as unknown as { name?: string }).name;
   return saveAttachment({
     data: file,
-    original_name: name && name.trim() ? name : `photo-${stamp}.${ext}`,
-    mime_type: mime,
+    originalName: name && name.trim() ? name : `photo-${stamp}.${ext}`,
+    mimeType: mime,
   });
 }
 
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
           media = 'image';
           
           const imageAttachments = await Promise.all(files.map(saveImageAttachment));
-          const imageRefs = imageAttachments.map(a => `![${a.original_name}](/api/attachments/${a.file_name})`).join('\n\n');
+          const imageRefs = imageAttachments.map(a => `![${a.originalName}](/api/attachments/${a.fileName})`).join('\n\n');
           const userText = (formData.get('text') as string | null) ?? null;
 
           let extracted: string | null = null;
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
             const imageItems = await Promise.all(
               files.map(async (file, idx) => ({
                 bytes: new Uint8Array(await file.arrayBuffer()),
-                mime: imageAttachments[idx].mime_type,
+                mime: imageAttachments[idx].mimeType,
               }))
             );
             extracted = await extractImageContent(imageItems, userText);
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
             : `[Images — extraction pending]${userText?.trim() ? `\n\n${userText.trim()}` : ''}\n\n${imageRefs}`;
 
           const row = createStream({
-            raw_text: body,
+            rawText: body,
             source,
             media,
             status: 'pending',
@@ -172,8 +172,8 @@ export async function POST(request: NextRequest) {
         media = 'voice';
 
         // Voice model priority: explicit param → user preference → auto-pick
-        const explicitModel = formData.get('voice_model') as string | null;
-        let voiceModel: string | null = explicitModel || getUserState()?.voice_model || null;
+        const explicitModel = formData.get('voiceModel') as string | null;
+        let voiceModel: string | null = explicitModel || getUserState()?.voiceModel || null;
 
         if (!voiceModel) {
           try {
@@ -189,17 +189,17 @@ export async function POST(request: NextRequest) {
           } catch (err) {
             // Transcription failed — save audio so it's not lost
             attachment = await saveVoiceAttachment(file);
-            rawText = `[Voice memo — transcription failed]\n\n[${attachment.original_name}](/api/attachments/${attachment.file_name})`;
-            console.warn('[POST /api/capture] Transcription failed, audio saved:', attachment.file_name, err);
+            rawText = `[Voice memo — transcription failed]\n\n[${attachment.originalName}](/api/attachments/${attachment.fileName})`;
+            console.warn('[POST /api/capture] Transcription failed, audio saved:', attachment.fileName, err);
           }
         } else {
           // No STT provider at all — save audio for later
           attachment = await saveVoiceAttachment(file);
-          rawText = `[Voice memo — pending transcription]\n\n[${attachment.original_name}](/api/attachments/${attachment.file_name})`;
+          rawText = `[Voice memo — pending transcription]\n\n[${attachment.originalName}](/api/attachments/${attachment.fileName})`;
         }
 
         const row = createStream({
-          raw_text: rawText,
+          rawText: rawText,
           source,
           media,
           status: 'pending',
@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
     }
 
     const row = createStream({
-      raw_text: rawText,
+      rawText: rawText,
       source,
       media,
       status: 'pending',

@@ -8,7 +8,7 @@
  *   - GC can enumerate referenced files with a SQL query, not a Tiptap walk
  *   - Exported frontmatter can list attachments without re-parsing the body
  *   - UI counts ("📎 3") render without mounting the editor
- *   - Richer metadata (original_name, mime_type, size, uploaded_at) can live
+ *   - Richer metadata (originalName, mimeType, size, uploadedAt) can live
  *     alongside the pointer (the body only carries `src`)
  *
  * The derive step runs on every save. New file_names found in the body are
@@ -21,19 +21,19 @@
 import type { Attachment } from '@/db/types';
 
 /**
- * Only internal `/api/attachments/<file_name>` references are recognized.
+ * Only internal `/api/attachments/<fileName>` references are recognized.
  * External image URLs (screenshots pasted from a web page) are ignored — we
  * don't own those files and shouldn't pretend to manage them.
  *
- * The captured file_name is constrained to the on-disk shape: uuid-ish
+ * The captured fileName is constrained to the on-disk shape: uuid-ish
  * segment, dot, extension. This prevents a path-traversal reference in the
  * body from showing up in the manifest.
  */
 const ATTACHMENT_REF_RE = /\/api\/attachments\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)/g;
 
 /**
- * Collect every file_name referenced by `/api/attachments/<file>` inside the
- * given body. Dedupes by file_name, first occurrence wins. Returns the
+ * Collect every fileName referenced by `/api/attachments/<file>` inside the
+ * given body. Dedupes by fileName, first occurrence wins. Returns the
  * file_names in reading order.
  */
 export function extractReferencedFileNames(body: string | null | undefined): string[] {
@@ -66,7 +66,7 @@ export interface DeriveAttachmentsInput {
 /**
  * Derive the authoritative `attachments[]` manifest for an entity from its
  * body. Invariants:
- *   - Output contains exactly one row per file_name referenced in the body.
+ *   - Output contains exactly one row per fileName referenced in the body.
  *   - Rows that existed in `prior` keep their full metadata.
  *   - Rows that were uploaded in the current session use the freshly-
  *     captured metadata.
@@ -75,10 +75,10 @@ export interface DeriveAttachmentsInput {
  */
 export function deriveAttachments(input: DeriveAttachmentsInput): Attachment[] {
   const priorByName = new Map<string, Attachment>();
-  for (const a of input.prior ?? []) priorByName.set(a.file_name, a);
+  for (const a of input.prior ?? []) priorByName.set(a.fileName, a);
 
   const uploadsByName = new Map<string, Attachment>();
-  for (const a of input.newUploads ?? []) uploadsByName.set(a.file_name, a);
+  for (const a of input.newUploads ?? []) uploadsByName.set(a.fileName, a);
 
   const referenced = extractReferencedFileNames(input.body);
   const out: Attachment[] = [];
@@ -98,11 +98,11 @@ export function deriveAttachments(input: DeriveAttachmentsInput): Attachment[] {
     // Record a stub so GC won't delete the file; metadata is filled in on the
     // next save by a side fetch or left as best-effort.
     out.push({
-      file_name: name,
-      original_name: name,
-      mime_type: 'application/octet-stream',
+      fileName: name,
+      originalName: name,
+      mimeType: 'application/octet-stream',
       size: 0,
-      uploaded_at: new Date().toISOString(),
+      uploadedAt: new Date().toISOString(),
     });
   }
   return out;

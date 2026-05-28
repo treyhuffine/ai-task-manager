@@ -41,9 +41,9 @@ interface FakeEventBody {
   kind: 'fake_event';
   source: ChatEventSource;
   content?: string | null;
-  tool_name?: string | null;
-  tool_input?: Record<string, unknown> | null;
-  tool_is_error?: boolean;
+  toolName?: string | null;
+  toolInput?: Record<string, unknown> | null;
+  toolIsError?: boolean;
 }
 
 interface BatchBody {
@@ -133,29 +133,29 @@ function handlePendingQuestion(sessionId: string, body: PendingQuestionBody) {
   // shows the round-trip.
   void register(pending).then((resp) => {
     insertChatEvent({
-      session_id: sessionId,
-      external_event_id: uuidv7(),
-      external_tool_call_id: requestId,
+      sessionId: sessionId,
+      externalEventId: uuidv7(),
+      externalToolCallId: requestId,
       role: 'system',
       source: 'question_response' satisfies ChatEventSource,
       content: resp.allow
         ? formatAnswers((resp.updatedInput?.answers as Record<string, string>) ?? null)
         : 'declined',
-      tool_input: { answers: resp.updatedInput?.answers ?? null, allow: resp.allow },
+      toolInput: { answers: resp.updatedInput?.answers ?? null, allow: resp.allow },
       raw: { allow: resp.allow, answers: resp.updatedInput?.answers ?? null, injected: true },
     });
   });
 
   insertChatEvent({
-    session_id: sessionId,
-    external_event_id: uuidv7(),
-    external_tool_call_id: requestId,
+    sessionId: sessionId,
+    externalEventId: uuidv7(),
+    externalToolCallId: requestId,
     role: 'system',
     source: 'question_request' satisfies ChatEventSource,
     content: null,
-    tool_input: { questions: body.questions } as Record<string, unknown>,
+    toolInput: { questions: body.questions } as Record<string, unknown>,
     raw: { kind: 'question', questions: body.questions, injected: true },
-    created_at: now,
+    createdAt: now,
   });
 
   return Response.json({ ok: true, requestId });
@@ -179,29 +179,29 @@ function handlePendingPermission(sessionId: string, body: PendingPermissionBody)
 
   void register(pending).then((resp) => {
     insertChatEvent({
-      session_id: sessionId,
-      external_event_id: uuidv7(),
-      external_tool_call_id: requestId,
+      sessionId: sessionId,
+      externalEventId: uuidv7(),
+      externalToolCallId: requestId,
       role: 'system',
       source: 'permission_response' satisfies ChatEventSource,
       content: resp.allow ? 'allowed' : (resp.message ?? 'denied'),
-      tool_name: body.toolName,
-      tool_is_error: !resp.allow,
+      toolName: body.toolName,
+      toolIsError: !resp.allow,
       raw: { allow: resp.allow, message: resp.message ?? null, injected: true },
     });
   });
 
   insertChatEvent({
-    session_id: sessionId,
-    external_event_id: uuidv7(),
-    external_tool_call_id: requestId,
+    sessionId: sessionId,
+    externalEventId: uuidv7(),
+    externalToolCallId: requestId,
     role: 'system',
     source: 'permission_request' satisfies ChatEventSource,
     content: body.title ?? body.description ?? null,
-    tool_name: body.toolName,
-    tool_input: body.input,
+    toolName: body.toolName,
+    toolInput: body.input,
     raw: { kind: 'permission', title: body.title, description: body.description, injected: true },
-    created_at: now,
+    createdAt: now,
   });
 
   return Response.json({ ok: true, requestId });
@@ -222,16 +222,16 @@ function handleBatch(sessionId: string, body: BatchBody) {
 
 function insertSyntheticEvent(sessionId: string, body: FakeEventBody): string | null {
   const event: CreateChatEventInput = {
-    session_id: sessionId,
-    external_event_id: uuidv7(),
+    sessionId: sessionId,
+    externalEventId: uuidv7(),
     role: roleForSource(body.source),
     source: body.source,
     content: body.content ?? null,
-    tool_name: body.tool_name ?? null,
-    tool_input: body.tool_input ?? null,
-    tool_is_error: body.tool_is_error ?? null,
+    toolName: body.toolName ?? null,
+    toolInput: body.toolInput ?? null,
+    toolIsError: body.toolIsError ?? null,
     raw: { ...body, injected: true } as Record<string, unknown>,
-    created_at: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   };
   return insertChatEvent(event)?.id ?? null;
 }

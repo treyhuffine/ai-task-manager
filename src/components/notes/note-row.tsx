@@ -85,17 +85,17 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
         {/* Metadata row */}
         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
           <AreaSelect
-            value={note.area_id}
-            onChange={(areaId) => onUpdate(note.id, 'area_id', areaId)}
+            value={note.areaId}
+            onChange={(areaId) => onUpdate(note.id, 'areaId', areaId)}
           />
 
           <span className="text-[8.5px] text-muted-foreground">
-            {formatRelativeDate(note.created_at)}
+            {formatRelativeDate(note.createdAt)}
           </span>
 
           <TaskPicker
-            value={note.task_id}
-            onChange={(taskId) => onUpdate(note.id, 'task_id', taskId)}
+            value={note.taskId}
+            onChange={(taskId) => onUpdate(note.id, 'taskId', taskId)}
           />
 
           {note.url && (

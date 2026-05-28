@@ -30,7 +30,7 @@ export async function POST(
       );
     }
 
-    const command = ws.preview_command?.trim();
+    const command = ws.previewCommand?.trim();
     if (!command) {
       return Response.json(
         {
@@ -43,20 +43,20 @@ export async function POST(
 
     const cwd = await workspaceCwdForPreview(ws);
     const rec = await getSupervisor().start({
-      workspace_id: id,
+      workspaceId: id,
       command,
       cwd,
-      port_override: ws.preview_port_override ?? null,
+      portOverride: ws.previewPortOverride ?? null,
     });
 
     return Response.json({
       mode: 'command' as const,
       status: rec.status,
       port: rec.port,
-      preview_token: rec.preview_token,
-      started_at: rec.started_at,
-      exited_at: rec.exited_at,
-      exit_code: rec.exit_code,
+      previewToken: rec.previewToken,
+      startedAt: rec.startedAt,
+      exitedAt: rec.exitedAt,
+      exitCode: rec.exitCode,
     });
   } catch (err) {
     if (err instanceof SupervisorError) {

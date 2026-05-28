@@ -25,8 +25,8 @@ export async function POST(request: NextRequest) {
 
     const cwd = path.resolve(body.cwd);
 
-    const isGit = body.is_git ?? (await detectIsGit(cwd));
-    const baseBranch = isGit ? body.base_branch ?? (await detectBaseBranch(cwd, body.remote_name ?? 'origin')) : null;
+    const isGit = body.isGit ?? (await detectIsGit(cwd));
+    const baseBranch = isGit ? body.baseBranch ?? (await detectBaseBranch(cwd, body.remoteName ?? 'origin')) : null;
 
     const row = createWorkspace({
       name: body.name,
@@ -34,11 +34,11 @@ export async function POST(request: NextRequest) {
       emoji: body.emoji ?? null,
       attachments: body.attachments ?? [],
       cwd,
-      is_git: isGit,
-      base_branch: baseBranch,
-      remote_name: isGit ? body.remote_name ?? 'origin' : null,
-      worktree_root: isGit ? body.worktree_root ?? defaultWorktreeRoot(body.slug ?? body.name) : null,
-      area_id: body.area_id ?? null,
+      isGit: isGit,
+      baseBranch: baseBranch,
+      remoteName: isGit ? body.remoteName ?? 'origin' : null,
+      worktreeRoot: isGit ? body.worktreeRoot ?? defaultWorktreeRoot(body.slug ?? body.name) : null,
+      areaId: body.areaId ?? null,
       status: body.status ?? 'active',
     });
     return Response.json(row, { status: 201 });

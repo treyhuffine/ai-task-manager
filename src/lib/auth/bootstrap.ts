@@ -2,7 +2,7 @@
  * Idempotent local-host bootstrap.
  *
  * On first run (or after a reset):
- *   1. Create an api_keys row for the host machine (device_type = 'host').
+ *   1. Create an api_keys row for the host machine (deviceType = 'host').
  *   2. Persist the plaintext token to ~/<APP_SHORT_ID>/config.json so
  *      `pnpm auth:pair` can reprint the URL on demand.
  *
@@ -101,7 +101,7 @@ export function ensureLocalToken(): LocalTokenInfo {
   const existing = readAuthConfig();
   if (existing?.localToken) {
     const row = findApiKeyByHash(hashToken(existing.localToken));
-    if (row && !row.revoked_at) {
+    if (row && !row.revokedAt) {
       return {
         plaintext: existing.localToken,
         pairingUrl: buildPairingUrl(existing.localToken),
@@ -112,7 +112,7 @@ export function ensureLocalToken(): LocalTokenInfo {
 
   const { token } = createApiKey({
     name: `${os.hostname()} (host)`,
-    device_type: 'host',
+    deviceType: 'host',
     description: 'Auto-generated local host token',
   });
 

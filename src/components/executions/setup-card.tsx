@@ -19,7 +19,7 @@ interface SetupCardProps {
  *
  * Two states:
  *
- *   - **Setting up** (git workspace, no worktree_path yet) — what we
+ *   - **Setting up** (git workspace, no worktreePath yet) — what we
  *     know so far + a final "creating worktree…" row with animated
  *     dots and elapsed time. The known rows fill in once provisioning
  *     finishes.
@@ -31,11 +31,11 @@ interface SetupCardProps {
 export function SetupCard({ session, workspace }: SetupCardProps) {
   if (!workspace) return null;
 
-  const isGit = workspace.is_git;
-  const hasError = isGit && !session.worktree_path && !!session.setup_error;
+  const isGit = workspace.isGit;
+  const hasError = isGit && !session.worktreePath && !!session.setupError;
   // Treat error state as terminal — drop the spinner row so the user
   // doesn't see "creating worktree…" next to a "setup failed" row.
-  const isSettingUp = isGit && !session.worktree_path && !hasError;
+  const isSettingUp = isGit && !session.worktreePath && !hasError;
 
   return (
     <div className="space-y-1.5 mb-1">
@@ -59,19 +59,19 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
       />
 
       {/* Git-ready: branch + base SHA + worktree path */}
-      {isGit && session.branch_name && (
+      {isGit && session.branchName && (
         <SetupRow
           icon={<GitBranch size={11} />}
           text={
             <span className="font-mono">
               <span className="text-muted-foreground/80">Branched </span>
-              <span className="text-foreground/90">{session.branch_name}</span>
+              <span className="text-foreground/90">{session.branchName}</span>
               <span className="text-muted-foreground/80"> from </span>
-              <span className="text-foreground/90">{workspace.base_branch ?? 'main'}</span>
-              {session.base_sha && (
+              <span className="text-foreground/90">{workspace.baseBranch ?? 'main'}</span>
+              {session.baseSha && (
                 <span className="text-muted-foreground/60">
                   {' @'}
-                  {session.base_sha.slice(0, 7)}
+                  {session.baseSha.slice(0, 7)}
                 </span>
               )}
             </span>
@@ -79,10 +79,10 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
         />
       )}
 
-      {session.worktree_path && (
+      {session.worktreePath && (
         <SetupRow
           icon={<Folder size={11} />}
-          text={<span className="font-mono text-muted-foreground/70 truncate">{session.worktree_path}</span>}
+          text={<span className="font-mono text-muted-foreground/70 truncate">{session.worktreePath}</span>}
         />
       )}
 
@@ -100,14 +100,14 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
         />
       )}
 
-      {/* Loading row — last item, removed once worktree_path lands.
-          Anchored to `setup_started_at` so the counter resets on each
-          retry; falls back to `started_at` for rows created before this
+      {/* Loading row — last item, removed once worktreePath lands.
+          Anchored to `setupStartedAt` so the counter resets on each
+          retry; falls back to `startedAt` for rows created before this
           column existed. */}
       {isSettingUp && (
         <SettingUpRow
-          baseBranch={workspace.base_branch ?? 'main'}
-          startedAt={session.setup_started_at ?? session.started_at}
+          baseBranch={workspace.baseBranch ?? 'main'}
+          startedAt={session.setupStartedAt ?? session.startedAt}
         />
       )}
 
@@ -115,8 +115,8 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
       {hasError && (
         <SetupErrorRow
           sessionId={session.id}
-          error={session.setup_error ?? 'Unknown error'}
-          prNumber={session.pr_number ?? null}
+          error={session.setupError ?? 'Unknown error'}
+          prNumber={session.prNumber ?? null}
         />
       )}
     </div>

@@ -206,7 +206,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   const isStreaming = status === 'streaming';
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
-  const voiceAutoSend = userState?.voice_auto_send ?? true;
+  const voiceAutoSend = userState?.voiceAutoSend ?? true;
 
   // Track which message IDs were sent via voice
   const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(new Set());
@@ -316,7 +316,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
     }
   }, [messages]);
 
-  // Auto-send: when voice_auto_send is on and transcript arrives, send immediately
+  // Auto-send: when voiceAutoSend is on and transcript arrives, send immediately
   useEffect(() => {
     if (voiceAutoSend && voice.transcript.trim() && !voice.isRecording && !voice.isTranscribing) {
       handleVoiceSend();
@@ -337,7 +337,7 @@ function ChatContent({ panelId }: { panelId: PanelId }) {
   }, [voice]);
 
   const handleToggleAutoSend = useCallback(() => {
-    updateUserState.mutate({ voice_auto_send: !voiceAutoSend });
+    updateUserState.mutate({ voiceAutoSend: !voiceAutoSend });
   }, [updateUserState, voiceAutoSend]);
 
   // Close more actions on outside click

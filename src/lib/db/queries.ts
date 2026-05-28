@@ -35,6 +35,7 @@ import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { detectPortless, derivePortlessHostname, findRoute } from '@/lib/preview/portless';
+import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -51,9 +52,9 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
     }
   }
 
-  if (filter.area_id) conditions.push(eq(tasks.area_id, filter.area_id));
-  if (filter.workspace_id) conditions.push(eq(tasks.workspace_id, filter.workspace_id));
-  if (filter.parent_id) conditions.push(eq(tasks.parent_id, filter.parent_id));
+  if (filter.areaId) conditions.push(eq(tasks.areaId, filter.areaId));
+  if (filter.workspaceId) conditions.push(eq(tasks.workspaceId, filter.workspaceId));
+  if (filter.parentId) conditions.push(eq(tasks.parentId, filter.parentId));
   if (filter.energy) conditions.push(eq(tasks.energy, filter.energy));
   if (filter.q) conditions.push(sql`${tasks.title} LIKE ${'%' + filter.q + '%'}`);
 
@@ -61,20 +62,20 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   const offset = filter.offset ?? 0;
 
   const orderClauses = (() => {
-    switch (filter.order_by) {
-      case 'last_viewed_at': return [sql`last_viewed_at DESC NULLS LAST`, desc(tasks.created_at)];
-      case 'hard_deadline':  return [sql`hard_deadline ASC NULLS LAST`, desc(tasks.created_at)];
-      case 'created_at':     return [desc(tasks.created_at)];
-      case 'updated_at':     return [desc(tasks.updated_at)];
-      default:               return [sql`sort_key ASC NULLS LAST`, desc(tasks.created_at)];
+    switch (filter.orderBy) {
+      case 'lastViewedAt': return [sql`${tasks.lastViewedAt} DESC NULLS LAST`, desc(tasks.createdAt)];
+      case 'hardDeadline':  return [sql`${tasks.hardDeadline} ASC NULLS LAST`, desc(tasks.createdAt)];
+      case 'createdAt':     return [desc(tasks.createdAt)];
+      case 'updatedAt':     return [desc(tasks.updatedAt)];
+      default:               return [sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt)];
     }
   })();
 
-  return db
+  const rows = db
     .select({
       ...getTableColumns(tasks),
-      subtask_count: sql<number>`(SELECT COUNT(*) FROM tasks t2 WHERE t2.parent_id = ${sql.raw('"tasks"."id"')})`.as('subtask_count'),
-      subtask_preview: sql<string | null>`(SELECT GROUP_CONCAT(t3.title, '|||') FROM (SELECT title FROM tasks t3 WHERE t3.parent_id = ${sql.raw('"tasks"."id"')} LIMIT 4) t3)`.as('subtask_preview'),
+      subtaskCount: sql<number>`(SELECT COUNT(*) FROM tasks t2 WHERE t2.parent_id = ${sql.raw('"tasks"."id"')})`.as('subtaskCount'),
+      subtaskPreview: sql<string | null>`(SELECT GROUP_CONCAT(t3.title, '|||') FROM (SELECT title FROM tasks t3 WHERE t3.parent_id = ${sql.raw('"tasks"."id"')} LIMIT 4) t3)`.as('subtaskPreview'),
     })
     .from(tasks)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -82,11 +83,12 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
     .limit(limit)
     .offset(offset)
     .all();
+  return rows.map((r) => hydrateRow(r));
 }
 
 export function getTask(id: string): TaskRecord | undefined {
   const db = getDb();
-  return db.select().from(tasks).where(eq(tasks.id, id)).get();
+  return hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
 }
 
 /** Tasks carry free-form markdown in both `description` and `body`. The
@@ -100,7 +102,7 @@ function taskAttachmentText(
   return `${description ?? ''}\n${body ?? ''}`;
 }
 
-export function createTask(input: Omit<CreateTaskInput, 'raw_input'> & { raw_input?: string }): TaskRecord {
+export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput?: string }): TaskRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -113,21 +115,22 @@ export function createTask(input: Omit<CreateTaskInput, 'raw_input'> & { raw_inp
     newUploads: input.attachments ?? [],
   });
 
-  const row = db
+  const rest = withoutAttachments(input);
+  const row = hydrateRow(db
     .insert(tasks)
     .values({
-      ...input,
-      raw_input: input.raw_input ?? input.title,
+      ...rest,
+      rawInput: input.rawInput ?? input.title,
       id: uuidv7(),
       status: input.status ?? 'active',
-      context_tags: input.context_tags ?? [],
-      attachments,
-      times_deferred: 0,
-      created_at: now,
-      updated_at: now,
+      contextTags: input.contextTags ?? [],
+      attachments: dehydrateAttachments(attachments) ?? [],
+      timesDeferred: 0,
+      createdAt: now,
+      updatedAt: now,
     })
     .returning()
-    .get();
+    .get());
 
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
@@ -137,7 +140,7 @@ export function createTask(input: Omit<CreateTaskInput, 'raw_input'> & { raw_inp
 export function updateTask(id: string, input: UpdateTaskInput): TaskRecord | null {
   const db = getDb();
 
-  const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
+  const existing = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
   if (!existing) return null;
 
   // Re-derive the manifest if body or description changed, or if the client
@@ -157,16 +160,17 @@ export function updateTask(id: string, input: UpdateTaskInput): TaskRecord | nul
         })
       : undefined;
 
-  const row = db
+  const rest = withoutAttachments(input);
+  const row = hydrateRow(db
     .update(tasks)
     .set({
-      ...input,
-      ...(attachments !== undefined ? { attachments } : {}),
-      updated_at: new Date().toISOString(),
+      ...rest,
+      ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.id, id))
     .returning()
-    .get();
+    .get());
 
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
@@ -182,10 +186,10 @@ export function deleteTask(id: string): boolean {
   return true;
 }
 
-export function completeTask(id: string, note?: string): { task: TaskRecord; recurring: boolean; next_recurrence_at?: string } | null {
+export function completeTask(id: string, note?: string): { task: TaskRecord; recurring: boolean; nextRecurrenceAt?: string } | null {
   const db = getDb();
 
-  const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
+  const task = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
   if (!task) return null;
 
   const now = new Date().toISOString();
@@ -193,34 +197,34 @@ export function completeTask(id: string, note?: string): { task: TaskRecord; rec
   if (task.recurrence) {
     db.insert(taskCompletions).values({
       id: uuidv7(),
-      task_id: id,
-      completed_at: now,
+      taskId: id,
+      completedAt: now,
       note: note ?? null,
     }).run();
 
     const nextDate = computeNextRecurrence(task.recurrence, now);
 
-    const updated = db
+    const updated = hydrateRow(db
       .update(tasks)
-      .set({ next_recurrence_at: nextDate, last_progress_at: now, updated_at: now })
+      .set({ nextRecurrenceAt: nextDate, lastProgressAt: now, updatedAt: now })
       .where(eq(tasks.id, id))
       .returning()
-      .get();
+      .get());
 
     void syncEntity('task', updated.id);
-    return { task: updated, recurring: true, next_recurrence_at: nextDate };
+    return { task: updated, recurring: true, nextRecurrenceAt: nextDate };
   } else {
-    const updated = db
+    const updated = hydrateRow(db
       .update(tasks)
-      .set({ status: 'done', completed_at: now, updated_at: now })
+      .set({ status: 'done', completedAt: now, updatedAt: now })
       .where(eq(tasks.id, id))
       .returning()
-      .get();
+      .get());
 
     db.insert(taskCompletions).values({
       id: uuidv7(),
-      task_id: id,
-      completed_at: now,
+      taskId: id,
+      completedAt: now,
       note: note ?? null,
     }).run();
 
@@ -259,23 +263,23 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
   const db = getDb();
   const conditions: SQL[] = [];
 
-  if (filter.area_id) conditions.push(eq(notes.area_id, filter.area_id));
-  if (filter.workspace_id) conditions.push(eq(notes.workspace_id, filter.workspace_id));
-  if (filter.task_id) conditions.push(eq(notes.task_id, filter.task_id));
+  if (filter.areaId) conditions.push(eq(notes.areaId, filter.areaId));
+  if (filter.workspaceId) conditions.push(eq(notes.workspaceId, filter.workspaceId));
+  if (filter.taskId) conditions.push(eq(notes.taskId, filter.taskId));
   if (filter.status) conditions.push(eq(notes.status, filter.status));
 
   const limit = filter.limit ?? 10000;
   const offset = filter.offset ?? 0;
 
   const orderClauses = (() => {
-    switch (filter.order_by) {
-      case 'created_at':     return [desc(notes.created_at)];
-      case 'updated_at':     return [desc(notes.updated_at)];
-      default:               return [sql`last_viewed_at DESC NULLS LAST`, desc(notes.created_at)];
+    switch (filter.orderBy) {
+      case 'createdAt':     return [desc(notes.createdAt)];
+      case 'updatedAt':     return [desc(notes.updatedAt)];
+      default:               return [sql`${notes.lastViewedAt} DESC NULLS LAST`, desc(notes.createdAt)];
     }
   })();
 
-  return db
+  const rows = db
     .select()
     .from(notes)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -283,11 +287,12 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
     .limit(limit)
     .offset(offset)
     .all();
+  return rows.map((r) => hydrateRow(r));
 }
 
 export function getNote(id: string): NoteRecord | undefined {
   const db = getDb();
-  return db.select().from(notes).where(eq(notes.id, id)).get();
+  return hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
 }
 
 export function createNote(input: CreateNoteInput): NoteRecord {
@@ -300,19 +305,20 @@ export function createNote(input: CreateNoteInput): NoteRecord {
     newUploads: input.attachments ?? [],
   });
 
-  const row = db
+  const rest = withoutAttachments(input);
+  const row = hydrateRow(db
     .insert(notes)
     .values({
-      ...input,
+      ...rest,
       id: uuidv7(),
       status: input.status ?? 'active',
-      context_tags: input.context_tags ?? [],
-      attachments,
-      created_at: now,
-      updated_at: now,
+      contextTags: input.contextTags ?? [],
+      attachments: dehydrateAttachments(attachments) ?? [],
+      createdAt: now,
+      updatedAt: now,
     })
     .returning()
-    .get();
+    .get());
 
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
@@ -322,7 +328,7 @@ export function createNote(input: CreateNoteInput): NoteRecord {
 export function updateNote(id: string, input: UpdateNoteInput): NoteRecord | null {
   const db = getDb();
 
-  const existing = db.select().from(notes).where(eq(notes.id, id)).get();
+  const existing = hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
   if (!existing) return null;
 
   const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'body');
@@ -336,16 +342,17 @@ export function updateNote(id: string, input: UpdateNoteInput): NoteRecord | nul
         })
       : undefined;
 
-  const row = db
+  const rest = withoutAttachments(input);
+  const row = hydrateRow(db
     .update(notes)
     .set({
-      ...input,
-      ...(attachments !== undefined ? { attachments } : {}),
-      updated_at: new Date().toISOString(),
+      ...rest,
+      ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(notes.id, id))
     .returning()
-    .get();
+    .get());
 
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
@@ -366,16 +373,16 @@ export function deleteNote(id: string): boolean {
 /** Lookup an existing stream item by upstream id (e.g. Pocket recording.id).
  *  Used to dedupe at-least-once webhook redeliveries. */
 export function findStreamByExternalId(
-  external_source: string,
-  external_id: string,
+  externalSource: string,
+  externalId: string,
 ): StreamRecord | undefined {
   const db = getDb();
-  return db
+  return hydrateRow(db
     .select()
     .from(stream)
-    .where(and(eq(stream.external_source, external_source), eq(stream.external_id, external_id)))
+    .where(and(eq(stream.externalSource, externalSource), eq(stream.externalId, externalId)))
     .limit(1)
-    .get();
+    .get());
 }
 
 export function createStream(input: CreateStreamInput): StreamRecord {
@@ -383,23 +390,24 @@ export function createStream(input: CreateStreamInput): StreamRecord {
   const now = new Date().toISOString();
 
   const attachments = deriveAttachments({
-    body: input.raw_text ?? '',
+    body: input.rawText ?? '',
     prior: [],
     newUploads: input.attachments ?? [],
   });
 
-  const row = db
+  const rest = withoutAttachments(input);
+  const row = hydrateRow(db
     .insert(stream)
     .values({
-      ...input,
+      ...rest,
       id: uuidv7(),
       source: input.source ?? 'capture',
       status: input.status ?? 'pending',
-      attachments,
-      created_at: input.created_at ?? now,
+      attachments: dehydrateAttachments(attachments) ?? [],
+      createdAt: input.createdAt ?? now,
     })
     .returning()
-    .get();
+    .get());
 
   void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
   void syncEntity('stream', row.id);
@@ -409,29 +417,30 @@ export function createStream(input: CreateStreamInput): StreamRecord {
 export function updateStream(id: string, input: UpdateStreamInput): StreamRecord | null {
   const db = getDb();
 
-  const existing = db.select().from(stream).where(eq(stream.id, id)).get();
+  const existing = hydrateRow(db.select().from(stream).where(eq(stream.id, id)).get());
   if (!existing) return null;
 
-  const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'raw_text');
+  const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'rawText');
   const attachmentsHint = input.attachments;
   const attachments =
     bodyChanged || attachmentsHint !== undefined
       ? deriveAttachments({
-          body: bodyChanged ? input.raw_text ?? '' : existing.raw_text,
+          body: bodyChanged ? input.rawText ?? '' : existing.rawText,
           prior: existing.attachments ?? [],
           newUploads: attachmentsHint ?? [],
         })
       : undefined;
 
-  const row = db
+  const rest = withoutAttachments(input);
+  const row = hydrateRow(db
     .update(stream)
     .set({
-      ...input,
-      ...(attachments !== undefined ? { attachments } : {}),
+      ...rest,
+      ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
     })
     .where(eq(stream.id, id))
     .returning()
-    .get();
+    .get());
 
   void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
   void syncEntity('stream', row.id);
@@ -439,7 +448,7 @@ export function updateStream(id: string, input: UpdateStreamInput): StreamRecord
 }
 
 export function dismissStream(id: string): StreamRecord | null {
-  return updateStream(id, { status: 'dismissed', dismissed_by: 'user' });
+  return updateStream(id, { status: 'dismissed', dismissedBy: 'user' });
 }
 
 // ─── Areas ────────────────────────────────────────────────────
@@ -448,17 +457,18 @@ export function listAreas(filter: AreaFilter = {}): AreaRecord[] {
   const db = getDb();
   const status = filter.status ?? 'active';
 
-  return db
+  const rows = db
     .select()
     .from(areas)
     .where(status !== 'all' ? eq(areas.status, status as 'active' | 'inactive' | 'archived') : undefined)
-    .orderBy(asc(areas.sort_order))
+    .orderBy(asc(areas.sortOrder))
     .all();
+  return rows.map((r) => hydrateRow(r));
 }
 
 export function getArea(id: string): AreaRecord | undefined {
   const db = getDb();
-  return db.select().from(areas).where(eq(areas.id, id)).get();
+  return hydrateRow(db.select().from(areas).where(eq(areas.id, id)).get());
 }
 
 export function createArea(input: CreateAreaInput): AreaRecord {
@@ -467,18 +477,19 @@ export function createArea(input: CreateAreaInput): AreaRecord {
 
   // Areas have no body — attachments are the cover image(s) the UI passes
   // directly. Any other attachments in the payload are accepted as-is.
-  const row = db
+  const { attachments: inputAttachments, ...rest } = input;
+  const row = hydrateRow(db
     .insert(areas)
     .values({
-      ...input,
+      ...rest,
       id: uuidv7(),
       status: input.status ?? 'active',
-      attachments: input.attachments ?? [],
-      created_at: now,
-      updated_at: now,
+      attachments: dehydrateAttachments(inputAttachments) ?? [],
+      createdAt: now,
+      updatedAt: now,
     })
     .returning()
-    .get();
+    .get());
 
   void syncEntity('area', row.id);
   return row;
@@ -487,15 +498,20 @@ export function createArea(input: CreateAreaInput): AreaRecord {
 export function updateArea(id: string, input: UpdateAreaInput): AreaRecord | null {
   const db = getDb();
 
-  const existing = db.select().from(areas).where(eq(areas.id, id)).get();
+  const existing = hydrateRow(db.select().from(areas).where(eq(areas.id, id)).get());
   if (!existing) return null;
 
-  const row = db
+  const { attachments: inputAttachments, ...rest } = input;
+  const row = hydrateRow(db
     .update(areas)
-    .set({ ...input, updated_at: new Date().toISOString() })
+    .set({
+      ...rest,
+      ...(inputAttachments !== undefined ? { attachments: dehydrateAttachments(inputAttachments) ?? [] } : {}),
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(areas.id, id))
     .returning()
-    .get();
+    .get());
 
   if (row) void syncEntity('area', row.id);
   return row;
@@ -508,7 +524,7 @@ export function getLatestDeck(): DeckRecord | null {
   return db
     .select()
     .from(decks)
-    .orderBy(desc(decks.created_at))
+    .orderBy(desc(decks.createdAt))
     .limit(1)
     .all()[0] ?? null;
 }
@@ -523,7 +539,7 @@ export function updateDeck(id: string, input: UpdateDeckInput): DeckRecord | nul
 
   const deck = db
     .update(decks)
-    .set({ ...input, updated_at: new Date().toISOString() })
+    .set({ ...input, updatedAt: new Date().toISOString() })
     .where(eq(decks.id, id))
     .returning()
     .get();
@@ -542,7 +558,7 @@ export function updateUserState(input: UpdateUserStateInput) {
   const db = getDb();
   return db
     .update(userState)
-    .set({ ...input, updated_at: new Date().toISOString() })
+    .set({ ...input, updatedAt: new Date().toISOString() })
     .where(eq(userState.id, 1))
     .returning()
     .get();
@@ -566,9 +582,9 @@ export function createApiKey(
       suffix: token.suffix,
       hash: token.hash,
       env: token.env,
-      device_type: input.device_type ?? 'other',
-      created_at: now,
-      updated_at: now,
+      deviceType: input.deviceType ?? 'other',
+      createdAt: now,
+      updatedAt: now,
     })
     .returning()
     .get();
@@ -580,8 +596,8 @@ export function listApiKeys(options: { includeRevoked?: boolean } = {}): ApiKeyR
   const db = getDb();
   const q = db.select().from(apiKeys);
   const rows = options.includeRevoked
-    ? q.orderBy(desc(apiKeys.created_at)).all()
-    : q.where(isNull(apiKeys.revoked_at)).orderBy(desc(apiKeys.created_at)).all();
+    ? q.orderBy(desc(apiKeys.createdAt)).all()
+    : q.where(isNull(apiKeys.revokedAt)).orderBy(desc(apiKeys.createdAt)).all();
   return rows;
 }
 
@@ -595,7 +611,7 @@ export function updateApiKey(id: string, input: UpdateApiKeyInput): ApiKeyRecord
   const now = new Date().toISOString();
   const row = db
     .update(apiKeys)
-    .set({ ...input, updated_at: now })
+    .set({ ...input, updatedAt: now })
     .where(eq(apiKeys.id, id))
     .returning()
     .get();
@@ -607,7 +623,7 @@ export function revokeApiKey(id: string, reason?: string): ApiKeyRecord | null {
   const now = new Date().toISOString();
   const row = db
     .update(apiKeys)
-    .set({ revoked_at: now, revoked_reason: reason ?? null, updated_at: now })
+    .set({ revokedAt: now, revokedReason: reason ?? null, updatedAt: now })
     .where(eq(apiKeys.id, id))
     .returning()
     .get();
@@ -616,14 +632,14 @@ export function revokeApiKey(id: string, reason?: string): ApiKeyRecord | null {
 
 export function touchApiKey(
   id: string,
-  meta: { ip?: string | null; user_agent?: string | null } = {},
+  meta: { ip?: string | null; userAgent?: string | null } = {},
 ): void {
   const db = getDb();
   db.update(apiKeys)
     .set({
-      last_used_at: new Date().toISOString(),
-      last_used_ip: meta.ip ?? null,
-      last_used_user_agent: meta.user_agent ?? null,
+      lastUsedAt: new Date().toISOString(),
+      lastUsedIp: meta.ip ?? null,
+      lastUsedUserAgent: meta.userAgent ?? null,
     })
     .where(eq(apiKeys.id, id))
     .run();
@@ -649,7 +665,7 @@ function deriveUniqueWorkspaceSlug(name: string): string {
 
 /**
  * Workspaces with aggregated session counts. Single SQL avoids N+1 over the
- * left-nav render path. `needs_review_candidate_count` is the candidate set
+ * left-nav render path. `needsReviewCandidateCount` is the candidate set
  * before runtime streaming filtering — the client subtracts streaming
  * sessions to get the rendered count.
  */
@@ -660,38 +676,38 @@ export function listWorkspaces(filter: { status?: WorkspaceStatus } = {}): Works
   const rows = db
     .select({
       ...getTableColumns(workspaces),
-      session_count: sql<number>`(
+      sessionCount: sql<number>`(
         SELECT COUNT(*) FROM chat_sessions cs
         WHERE cs.workspace_id = ${sql.raw('"workspaces"."id"')} AND cs.status = 'active'
-      )`.as('session_count'),
-      needs_review_candidate_count: sql<number>`(
+      )`.as('sessionCount'),
+      needsReviewCandidateCount: sql<number>`(
         SELECT COUNT(*) FROM chat_sessions cs
         WHERE cs.workspace_id = ${sql.raw('"workspaces"."id"')}
           AND cs.status = 'active'
           AND cs.last_outcome_event_at IS NOT NULL
           AND cs.last_outcome_event_at > COALESCE(cs.last_viewed_at, '1970-01-01')
-      )`.as('needs_review_candidate_count'),
-      active_session_count: sql<number>`(
+      )`.as('needsReviewCandidateCount'),
+      activeSessionCount: sql<number>`(
         SELECT COUNT(*) FROM chat_sessions cs
         WHERE cs.workspace_id = ${sql.raw('"workspaces"."id"')} AND cs.status = 'active'
-      )`.as('active_session_count'),
+      )`.as('activeSessionCount'),
     })
     .from(workspaces)
     .where(eq(workspaces.status, status))
-    .orderBy(asc(workspaces.position), asc(workspaces.created_at))
+    .orderBy(asc(workspaces.position), asc(workspaces.createdAt))
     .all();
 
-  return rows;
+  return rows.map((r) => hydrateRow(r));
 }
 
 export function getWorkspace(id: string): WorkspaceRecord | undefined {
   const db = getDb();
-  return db.select().from(workspaces).where(eq(workspaces.id, id)).get();
+  return hydrateRow(db.select().from(workspaces).where(eq(workspaces.id, id)).get());
 }
 
 /**
  * Create a workspace. Caller is responsible for filesystem detection
- * (`is_git`, `base_branch`) — we don't shell out from the query layer.
+ * (`isGit`, `baseBranch`) — we don't shell out from the query layer.
  * If `slug` is omitted we derive a unique one from `name`.
  * `position` defaults to MAX(position)+1 so new workspaces appear at the end.
  */
@@ -706,37 +722,44 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
     .get();
   const position = input.position ?? ((maxPosition?.max ?? -1) + 1);
 
-  const row = db
+  const { attachments: inputAttachments, ...rest } = input;
+  const row = hydrateRow(db
     .insert(workspaces)
     .values({
-      ...input,
+      ...rest,
       id: uuidv7(),
       slug,
       position,
       status: input.status ?? 'active',
-      created_at: now,
-      updated_at: now,
+      ...(inputAttachments !== undefined ? { attachments: dehydrateAttachments(inputAttachments) ?? [] } : {}),
+      createdAt: now,
+      updatedAt: now,
     })
     .returning()
-    .get();
+    .get());
   return row;
 }
 
 export function updateWorkspace(id: string, input: UpdateWorkspaceInput): WorkspaceRecord | null {
   const db = getDb();
-  const row = db
+  const { attachments: inputAttachments, ...rest } = input;
+  const row = hydrateRow(db
     .update(workspaces)
-    .set({ ...input, updated_at: new Date().toISOString() })
+    .set({
+      ...rest,
+      ...(inputAttachments !== undefined ? { attachments: dehydrateAttachments(inputAttachments) ?? [] } : {}),
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(workspaces.id, id))
     .returning()
-    .get();
+    .get());
   return row ?? null;
 }
 
 /**
  * Resolve the effective preview mode for a workspace.
  *
- *   1. Explicit `preview_mode` wins (user pinned a mode).
+ *   1. Explicit `previewMode` wins (user pinned a mode).
  *   2. If unset, prefer 'portless' when the daemon is running AND a route
  *      already exists for the workspace's derived hostname.
  *   3. Otherwise fall back to 'command'.
@@ -749,14 +772,14 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceInput): Worksp
  * we degrade safely to command mode rather than 500ing the proxy.
  */
 export function resolveWorkspacePreviewMode(
-  ws: Pick<WorkspaceRecord, 'preview_mode' | 'portless_hostname' | 'slug'>,
+  ws: Pick<WorkspaceRecord, 'previewMode' | 'portlessHostname' | 'slug'>,
 ): 'command' | 'portless' {
-  if (ws.preview_mode === 'command' || ws.preview_mode === 'portless') {
-    return ws.preview_mode;
+  if (ws.previewMode === 'command' || ws.previewMode === 'portless') {
+    return ws.previewMode;
   }
   try {
     if (!detectPortless().proxyRunning) return 'command';
-    const hostname = ws.portless_hostname?.trim() ||
+    const hostname = ws.portlessHostname?.trim() ||
       derivePortlessHostname({ slug: ws.slug });
     return findRoute(hostname) ? 'portless' : 'command';
   } catch {
@@ -767,12 +790,12 @@ export function resolveWorkspacePreviewMode(
 export function archiveWorkspace(id: string): WorkspaceRecord | null {
   const now = new Date().toISOString();
   const db = getDb();
-  const row = db
+  const row = hydrateRow(db
     .update(workspaces)
-    .set({ status: 'archived', archived_at: now, updated_at: now })
+    .set({ status: 'archived', archivedAt: now, updatedAt: now })
     .where(eq(workspaces.id, id))
     .returning()
-    .get();
+    .get());
   return row ?? null;
 }
 
@@ -787,7 +810,7 @@ export function reorderWorkspaces(orderedIds: string[]): void {
   db.transaction((tx) => {
     orderedIds.forEach((id, index) => {
       tx.update(workspaces)
-        .set({ position: index, updated_at: now })
+        .set({ position: index, updatedAt: now })
         .where(eq(workspaces.id, id))
         .run();
     });
@@ -817,7 +840,7 @@ export function createAgent(input: CreateAgentInput): AgentRecord {
 
 /**
  * Find or create the default executor agent for a harness. Sessions point
- * at an agent_id; until per-workspace agents are a real product surface we
+ * at an agentId; until per-workspace agents are a real product surface we
  * collapse all executor sessions onto a single shared agent per harness.
  */
 export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
@@ -826,7 +849,7 @@ export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
     .select()
     .from(agents)
     .where(and(eq(agents.kind, 'executor'), eq(agents.harness, harness), eq(agents.status, 'active')))
-    .orderBy(asc(agents.created_at))
+    .orderBy(asc(agents.createdAt))
     .limit(1)
     .get();
   if (existing) return existing;
@@ -840,7 +863,7 @@ export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
 
 // ─── Executions ───────────────────────────────────────────────
 // A durable work artifact (worktree + branch + PR + takeover state)
-// anchored to a workspace. Chats point at it via execution_id. The
+// anchored to a workspace. Chats point at it via executionId. The
 // git/worktree/PR/takeover columns were lifted off chat_sessions; reads
 // flow through `getChatSessionWithExecution` (flattened) and writes go
 // through the named helpers below. See docs/executions-spec.md.
@@ -859,20 +882,20 @@ export function createExecution(input: CreateExecutionInput): ExecutionRecord {
       ...input,
       id: input.id ?? uuidv7(),
       status: input.status ?? 'active',
-      created_at: input.created_at ?? now,
-      updated_at: input.updated_at ?? now,
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
     })
     .returning()
     .get();
 }
 
-/** Low-level execution patch. Always bumps updated_at. Prefer the named
+/** Low-level execution patch. Always bumps updatedAt. Prefer the named
  *  helpers below at call sites so the mutation intent is explicit. */
 export function updateExecution(id: string, input: UpdateExecutionInput): ExecutionRecord | null {
   const db = getDb();
   const row = db
     .update(executions)
-    .set({ ...input, updated_at: new Date().toISOString() })
+    .set({ ...input, updatedAt: new Date().toISOString() })
     .where(eq(executions.id, id))
     .returning()
     .get();
@@ -882,64 +905,64 @@ export function updateExecution(id: string, input: UpdateExecutionInput): Execut
 // ── Setup / provisioning ──────────────────────────────────────
 
 /** Mark the start of a worktree-provisioning attempt. Clears any prior
- *  setup_error so a retry flips the UI out of the failed chip immediately;
- *  the per-attempt timer (setup_started_at) re-anchors to now. */
+ *  setupError so a retry flips the UI out of the failed chip immediately;
+ *  the per-attempt timer (setupStartedAt) re-anchors to now. */
 export function markExecutionSetupStarted(executionId: string): ExecutionRecord | null {
   return updateExecution(executionId, {
-    setup_started_at: new Date().toISOString(),
-    setup_error: null,
+    setupStartedAt: new Date().toISOString(),
+    setupError: null,
   });
 }
 
 /** Record a successful worktree provision. */
 export function markExecutionSetupComplete(
   executionId: string,
-  params: { worktree_path: string; branch_name: string; base_sha: string },
+  params: { worktreePath: string; branchName: string; baseSha: string },
 ): ExecutionRecord | null {
   return updateExecution(executionId, {
-    worktree_path: params.worktree_path,
-    branch_name: params.branch_name,
-    base_sha: params.base_sha,
-    setup_error: null,
+    worktreePath: params.worktreePath,
+    branchName: params.branchName,
+    baseSha: params.baseSha,
+    setupError: null,
   });
 }
 
 export function recordExecutionSetupError(executionId: string, error: string): ExecutionRecord | null {
-  return updateExecution(executionId, { setup_error: error });
+  return updateExecution(executionId, { setupError: error });
 }
 
 export function clearExecutionSetupError(executionId: string): ExecutionRecord | null {
-  return updateExecution(executionId, { setup_error: null });
+  return updateExecution(executionId, { setupError: null });
 }
 
 // ── PR linkage ────────────────────────────────────────────────
 
 export function setExecutionPR(executionId: string, prNumber: number | null): ExecutionRecord | null {
-  return updateExecution(executionId, { pr_number: prNumber });
+  return updateExecution(executionId, { prNumber: prNumber });
 }
 
 // ── Takeover lifecycle (all five columns move together) ───────
 
 export function startExecutionTakeover(
   executionId: string,
-  params: { token: string; branch: string; base_sha: string; expires_at: string },
+  params: { token: string; branch: string; baseSha: string; expiresAt: string },
 ): ExecutionRecord | null {
   return updateExecution(executionId, {
-    takeover_started_at: new Date().toISOString(),
-    takeover_base_sha: params.base_sha,
-    takeover_branch: params.branch,
-    takeover_token: params.token,
-    takeover_token_expires_at: params.expires_at,
+    takeoverStartedAt: new Date().toISOString(),
+    takeoverBaseSha: params.baseSha,
+    takeoverBranch: params.branch,
+    takeoverToken: params.token,
+    takeoverTokenExpiresAt: params.expiresAt,
   });
 }
 
 export function clearExecutionTakeover(executionId: string): ExecutionRecord | null {
   return updateExecution(executionId, {
-    takeover_started_at: null,
-    takeover_base_sha: null,
-    takeover_branch: null,
-    takeover_token: null,
-    takeover_token_expires_at: null,
+    takeoverStartedAt: null,
+    takeoverBaseSha: null,
+    takeoverBranch: null,
+    takeoverToken: null,
+    takeoverTokenExpiresAt: null,
   });
 }
 
@@ -954,7 +977,7 @@ export function clearExecutionTakeover(executionId: string): ExecutionRecord | n
  */
 export function findChatSessionByTakeoverToken(token: string): ChatSessionWithExecution | undefined {
   const db = getDb();
-  const exec = db.select().from(executions).where(eq(executions.takeover_token, token)).get();
+  const exec = db.select().from(executions).where(eq(executions.takeoverToken, token)).get();
   if (!exec) return undefined;
   // V1 invariant: an execution has exactly one chat, so "most-recently-active"
   // IS the chat that initiated the takeover. When multi-chat-per-execution
@@ -964,8 +987,8 @@ export function findChatSessionByTakeoverToken(token: string): ChatSessionWithEx
   const chat = db
     .select()
     .from(chatSessions)
-    .where(and(eq(chatSessions.execution_id, exec.id), eq(chatSessions.status, 'active')))
-    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .where(and(eq(chatSessions.executionId, exec.id), eq(chatSessions.status, 'active')))
+    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .get();
   if (!chat) return undefined;
   return flattenSessionExecution({ ...chat, execution: exec });
@@ -974,7 +997,7 @@ export function findChatSessionByTakeoverToken(token: string): ChatSessionWithEx
 /**
  * Executions whose worktree provisioning began but never completed and
  * never failed cleanly — silent hangs the cold-start reaper marks with a
- * synthetic setup_error so the UI surfaces them as retryable. Mirrors the
+ * synthetic setupError so the UI surfaces them as retryable. Mirrors the
  * old `listStuckBootstrapSessions`, but the provisioning state lives on
  * the execution now.
  */
@@ -987,10 +1010,10 @@ export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord
     .where(
       and(
         eq(executions.status, 'active'),
-        isNotNull(executions.setup_started_at),
-        isNull(executions.worktree_path),
-        isNull(executions.setup_error),
-        lte(executions.setup_started_at, cutoff),
+        isNotNull(executions.setupStartedAt),
+        isNull(executions.worktreePath),
+        isNull(executions.setupError),
+        lte(executions.setupStartedAt, cutoff),
       ),
     )
     .all();
@@ -1000,7 +1023,7 @@ export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord
 
 /**
  * Archive an execution and cascade to its chats. Product code never
- * hard-deletes — this flips status='archived' (+ archived_at) on the
+ * hard-deletes — this flips status='archived' (+ archivedAt) on the
  * execution and every still-active chat that belongs to it, in one
  * transaction. The worktree teardown is the caller's responsibility
  * (filesystem op lives in `archiveExecutionSession`).
@@ -1011,14 +1034,14 @@ export function archiveExecution(executionId: string): ExecutionRecord | null {
   return db.transaction((tx) => {
     const row = tx
       .update(executions)
-      .set({ status: 'archived', archived_at: now, updated_at: now })
+      .set({ status: 'archived', archivedAt: now, updatedAt: now })
       .where(eq(executions.id, executionId))
       .returning()
       .get();
     if (!row) return null;
     tx.update(chatSessions)
-      .set({ status: 'archived', archived_at: now })
-      .where(and(eq(chatSessions.execution_id, executionId), eq(chatSessions.status, 'active')))
+      .set({ status: 'archived', archivedAt: now })
+      .where(and(eq(chatSessions.executionId, executionId), eq(chatSessions.status, 'active')))
       .run();
     return row;
   });
@@ -1027,7 +1050,7 @@ export function archiveExecution(executionId: string): ExecutionRecord | null {
 /** Reactivate an archived execution. Does not touch its chats — they stay
  *  archived unless explicitly reopened (rare; v1 has no UI for it). */
 export function unarchiveExecution(executionId: string): ExecutionRecord | null {
-  return updateExecution(executionId, { status: 'active', archived_at: null });
+  return updateExecution(executionId, { status: 'active', archivedAt: null });
 }
 
 // ── Read bridge (chat_session flattened with execution state) ──
@@ -1051,24 +1074,24 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
   return {
     ...row,
     execution: e,
-    worktree_path: e?.worktree_path ?? null,
-    branch_name: e?.branch_name ?? null,
-    base_sha: e?.base_sha ?? null,
-    pr_number: e?.pr_number ?? null,
-    setup_error: e?.setup_error ?? null,
-    setup_started_at: e?.setup_started_at ?? null,
-    takeover_started_at: e?.takeover_started_at ?? null,
-    takeover_base_sha: e?.takeover_base_sha ?? null,
-    takeover_branch: e?.takeover_branch ?? null,
-    takeover_token: e?.takeover_token ?? null,
-    takeover_token_expires_at: e?.takeover_token_expires_at ?? null,
+    worktreePath: e?.worktreePath ?? null,
+    branchName: e?.branchName ?? null,
+    baseSha: e?.baseSha ?? null,
+    prNumber: e?.prNumber ?? null,
+    setupError: e?.setupError ?? null,
+    setupStartedAt: e?.setupStartedAt ?? null,
+    takeoverStartedAt: e?.takeoverStartedAt ?? null,
+    takeoverBaseSha: e?.takeoverBaseSha ?? null,
+    takeoverBranch: e?.takeoverBranch ?? null,
+    takeoverToken: e?.takeoverToken ?? null,
+    takeoverTokenExpiresAt: e?.takeoverTokenExpiresAt ?? null,
   } as T & ChatSessionWithExecution;
 }
 
 /**
  * Single chat session with its execution's git/worktree/PR/takeover state
  * flattened on top. Drop-in replacement for `getChatSession` at every
- * call site that reads worktree_path / branch_name / base_sha / pr_number
+ * call site that reads worktreePath / branchName / baseSha / prNumber
  * / setup_* / takeover_*. Returns null for unknown ids. Synchronous, like
  * the rest of this layer.
  */
@@ -1080,7 +1103,7 @@ export function getChatSessionWithExecution(id: string): ChatSessionWithExecutio
       execution: getTableColumns(executions),
     })
     .from(chatSessions)
-    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
+    .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .where(eq(chatSessions.id, id))
     .get();
   if (!row) return null;
@@ -1090,13 +1113,13 @@ export function getChatSessionWithExecution(id: string): ChatSessionWithExecutio
 // ─── Chat Sessions ────────────────────────────────────────────
 
 export function listChatSessions(filter: {
-  workspace_id?: string;
+  workspaceId?: string;
   status?: 'active' | 'archived';
   type?: 'orchestration' | 'content' | 'execution';
 } = {}): ChatSessionWithExecution[] {
   const db = getDb();
   const conditions: SQL[] = [];
-  if (filter.workspace_id) conditions.push(eq(chatSessions.workspace_id, filter.workspace_id));
+  if (filter.workspaceId) conditions.push(eq(chatSessions.workspaceId, filter.workspaceId));
   if (filter.status) conditions.push(eq(chatSessions.status, filter.status));
   if (filter.type) conditions.push(eq(chatSessions.type, filter.type));
   // LEFT JOIN + flatten so consumers (workspace session rows, the
@@ -1108,9 +1131,9 @@ export function listChatSessions(filter: {
       execution: getTableColumns(executions),
     })
     .from(chatSessions)
-    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
+    .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map((r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }));
 }
@@ -1146,25 +1169,25 @@ export function updateChatSession(id: string, input: UpdateChatSessionInput): Ch
 }
 
 export function archiveChatSession(id: string): ChatSessionRecord | null {
-  return updateChatSession(id, { status: 'archived', archived_at: new Date().toISOString() });
+  return updateChatSession(id, { status: 'archived', archivedAt: new Date().toISOString() });
 }
 
 // Takeover lifecycle moved to the execution: see `startExecutionTakeover`,
 // `clearExecutionTakeover`, and `findChatSessionByTakeoverToken` in the
-// Executions section above. The token + branch + base_sha now live on the
+// Executions section above. The token + branch + baseSha now live on the
 // `executions` row, not chat_sessions.
 
 /**
  * Atomically create an execution artifact and its first chat (the chat
- * points at the execution via execution_id). This is the single creation
+ * points at the execution via executionId). This is the single creation
  * chokepoint for execution chats — both the user-facing dispatch path and
  * the dev scratch route go through it — so the §2.2 invariant ("active
- * execution chats have execution_id NOT NULL") can never be violated by a
+ * execution chats have executionId NOT NULL") can never be violated by a
  * crash between two inserts.
  *
  * Initial execution state is optional: live-mode dispatches pass the
- * already-known worktree_path/branch_name/base_sha; git dispatches pass
- * `setup_started_at` and leave the worktree fields null for the background
+ * already-known worktreePath/branchName/baseSha; git dispatches pass
+ * `setupStartedAt` and leave the worktree fields null for the background
  * provisioner to fill via `markExecutionSetupComplete`.
  */
 export function createExecutionWithChat(params: {
@@ -1172,11 +1195,11 @@ export function createExecutionWithChat(params: {
   agentId: string;
   chatSessionId?: string;
   label: string | null;
-  worktree_path?: string | null;
-  branch_name?: string | null;
-  base_sha?: string | null;
-  pr_number?: number | null;
-  setup_started_at?: string | null;
+  worktreePath?: string | null;
+  branchName?: string | null;
+  baseSha?: string | null;
+  prNumber?: number | null;
+  setupStartedAt?: string | null;
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const db = getDb();
   const now = new Date().toISOString();
@@ -1186,16 +1209,16 @@ export function createExecutionWithChat(params: {
       .insert(executions)
       .values({
         id: executionId,
-        workspace_id: params.workspaceId,
+        workspaceId: params.workspaceId,
         label: params.label,
-        worktree_path: params.worktree_path ?? null,
-        branch_name: params.branch_name ?? null,
-        base_sha: params.base_sha ?? null,
-        pr_number: params.pr_number ?? null,
-        setup_started_at: params.setup_started_at ?? null,
+        worktreePath: params.worktreePath ?? null,
+        branchName: params.branchName ?? null,
+        baseSha: params.baseSha ?? null,
+        prNumber: params.prNumber ?? null,
+        setupStartedAt: params.setupStartedAt ?? null,
         status: 'active',
-        created_at: now,
-        updated_at: now,
+        createdAt: now,
+        updatedAt: now,
       })
       .returning()
       .get();
@@ -1203,10 +1226,10 @@ export function createExecutionWithChat(params: {
       .insert(chatSessions)
       .values({
         id: params.chatSessionId ?? uuidv7(),
-        agent_id: params.agentId,
+        agentId: params.agentId,
         type: 'execution',
-        workspace_id: params.workspaceId,
-        execution_id: executionId,
+        workspaceId: params.workspaceId,
+        executionId: executionId,
         label: params.label,
         status: 'active',
       })
@@ -1219,10 +1242,10 @@ export function createExecutionWithChat(params: {
 /**
  * Create a new execution session in a workspace. Auto-resolves the default
  * executor agent (currently Claude Code) so callers don't have to pass an
- * agent_id.
+ * agentId.
  *
  * Creates the execution artifact eagerly, in the same transaction as the
- * chat, so the chat always has an `execution_id` (docs/executions-spec.md
+ * chat, so the chat always has an `executionId` (docs/executions-spec.md
  * §5: "created eagerly when a chat opens; worktree provisioned lazily at
  * first dispatch"). Worktree creation is deferred to the dispatch path —
  * the execution lands with null worktree fields and the rail surfaces a
@@ -1232,13 +1255,13 @@ export function createExecutionWithChat(params: {
  * copied to both the execution (for the artifact) and the chat.
  */
 export function createExecutionSession(args: {
-  workspace_id: string;
+  workspaceId: string;
   label?: string | null;
   harness?: string;
 }): ChatSessionRecord {
   const agent = getOrCreateDefaultExecutor(args.harness ?? 'claude_code');
   const { session } = createExecutionWithChat({
-    workspaceId: args.workspace_id,
+    workspaceId: args.workspaceId,
     agentId: agent.id,
     label: args.label?.trim() || null,
   });
@@ -1246,7 +1269,7 @@ export function createExecutionSession(args: {
 }
 
 /**
- * Set last_viewed_at = now() and clear unread_marker_at. Used to be fired
+ * Set lastViewedAt = now() and clear unreadMarkerAt. Used to be fired
  * on session open ("opening = read receipt"); now triggered on actual
  * interaction (textarea focus, send, explicit Mark read). Kept as a named
  * alias so older callers compile until they migrate.
@@ -1256,38 +1279,38 @@ export function markSessionViewed(id: string): ChatSessionRecord | null {
 }
 
 /**
- * Marks the session as read by the user. Updates last_viewed_at to now
+ * Marks the session as read by the user. Updates lastViewedAt to now
  * and clears any "Mark as unread" override the user previously toggled.
  */
 export function markSessionRead(id: string): ChatSessionRecord | null {
   return updateChatSession(id, {
-    last_viewed_at: new Date().toISOString(),
-    unread_marker_at: null,
+    lastViewedAt: new Date().toISOString(),
+    unreadMarkerAt: null,
   });
 }
 
 /**
  * Force the session into the Unread bucket even when no new agent output
- * has landed. Sets unread_marker_at = now() so the read derivation
+ * has landed. Sets unreadMarkerAt = now() so the read derivation
  * (`max(last_outcome, unread_marker) > last_viewed`) classifies the session
  * as unread on the next rail render.
  */
 export function markSessionUnread(id: string): ChatSessionRecord | null {
-  return updateChatSession(id, { unread_marker_at: new Date().toISOString() });
+  return updateChatSession(id, { unreadMarkerAt: new Date().toISOString() });
 }
 
 /** Advance the outcome timestamp. Called when an `agent`/`result` event lands. */
 export function bumpSessionOutcome(id: string, at: string = new Date().toISOString()): void {
   const db = getDb();
   db.update(chatSessions)
-    .set({ last_outcome_event_at: at })
+    .set({ lastOutcomeEventAt: at })
     .where(eq(chatSessions.id, id))
     .run();
 }
 
 /**
  * Sessions whose on-disk Claude transcript should be checked for drift.
- * Non-archived, with an `external_session_id` (set on first system event,
+ * Non-archived, with an `externalSessionId` (set on first system event,
  * so a session that's never dispatched is excluded). The reconcile sweep
  * iterates this — order doesn't matter, so we lean on the
  * last-outcome-first ordering since "active recently" is also the most
@@ -1301,16 +1324,16 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
     .where(
       and(
         eq(chatSessions.status, 'active'),
-        isNotNull(chatSessions.external_session_id),
+        isNotNull(chatSessions.externalSessionId),
       ),
     )
-    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .all();
 }
 
 // Stuck-bootstrap detection moved to the execution: see
 // `listStuckBootstrapExecutions` in the Executions section above. The
-// provisioning state (setup_started_at / worktree_path / setup_error) now
+// provisioning state (setupStartedAt / worktreePath / setupError) now
 // lives on the `executions` row.
 
 /**
@@ -1318,9 +1341,9 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
  * the caller's job — we return candidates so the client can subtract any
  * sessions currently piping live stdio.
  *
- * "Unread" derivation: the most recent of (last_outcome_event_at,
- * unread_marker_at) is newer than the user's last interaction
- * (last_viewed_at). unread_marker_at lets the user force a session into
+ * "Unread" derivation: the most recent of (lastOutcomeEventAt,
+ * unreadMarkerAt) is newer than the user's last interaction
+ * (lastViewedAt). unreadMarkerAt lets the user force a session into
  * Unread without an outcome event (the "Mark as unread" affordance).
  */
 export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
@@ -1331,24 +1354,24 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
       execution: getTableColumns(executions),
     })
     .from(chatSessions)
-    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
+    .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .where(
       and(
         eq(chatSessions.status, 'active'),
-        sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.unread_marker_at}) IS NOT NULL`,
+        sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
         sql`COALESCE(
           MAX(
-            COALESCE(${chatSessions.last_outcome_event_at}, '1970-01-01'),
-            COALESCE(${chatSessions.unread_marker_at}, '1970-01-01')
+            COALESCE(${chatSessions.lastOutcomeEventAt}, '1970-01-01'),
+            COALESCE(${chatSessions.unreadMarkerAt}, '1970-01-01')
           ),
           '1970-01-01'
-        ) > COALESCE(${chatSessions.last_viewed_at}, '1970-01-01')`,
+        ) > COALESCE(${chatSessions.lastViewedAt}, '1970-01-01')`,
       ),
     )
     .orderBy(sql`COALESCE(
       MAX(
-        COALESCE(${chatSessions.last_outcome_event_at}, '1970-01-01'),
-        COALESCE(${chatSessions.unread_marker_at}, '1970-01-01')
+        COALESCE(${chatSessions.lastOutcomeEventAt}, '1970-01-01'),
+        COALESCE(${chatSessions.unreadMarkerAt}, '1970-01-01')
       ),
       '1970-01-01'
     ) DESC`)
@@ -1362,17 +1385,17 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
 //
 // One join of chat_sessions × workspaces for the left-rail "by status"
 // view. Each row carries enough workspace metadata (name, emoji, icon
-// image, area_id) for the row renderer to draw without a second fetch.
+// image, areaId) for the row renderer to draw without a second fetch.
 // Bucket classification (Needs Approval / Working / Unread / Waiting
 // Response) is done client-side from this list plus the live
 // pendingInput + streaming sets.
 
 export interface RailSessionRow extends ChatSessionWithExecution {
-  workspace_name: string | null;
-  workspace_emoji: string | null;
-  workspace_attachments: Attachment[] | null;
-  workspace_area_id: string | null;
-  workspace_is_git: boolean | null;
+  workspaceName: string | null;
+  workspaceEmoji: string | null;
+  workspaceAttachments: Attachment[] | null;
+  workspaceAreaId: string | null;
+  workspaceIsGit: boolean | null;
 }
 
 /**
@@ -1395,11 +1418,11 @@ export function listRailSessions(): RailSessionRow[] {
     .select({
       ...getTableColumns(chatSessions),
       execution: getTableColumns(executions),
-      workspace_name: workspaces.name,
-      workspace_emoji: workspaces.emoji,
-      workspace_attachments: workspaces.attachments,
-      workspace_area_id: workspaces.area_id,
-      workspace_is_git: workspaces.is_git,
+      workspaceName: workspaces.name,
+      workspaceEmoji: workspaces.emoji,
+      workspaceAttachments: workspaces.attachments,
+      workspaceAreaId: workspaces.areaId,
+      workspaceIsGit: workspaces.isGit,
     })
     .from(executions)
     // INNER JOIN — the rail mirrors the workspace tree, which only shows
@@ -1407,7 +1430,7 @@ export function listRailSessions(): RailSessionRow[] {
     // here too (keeps bucket counts consistent with the tree).
     .innerJoin(
       workspaces,
-      and(eq(workspaces.id, executions.workspace_id), eq(workspaces.status, 'active')),
+      and(eq(workspaces.id, executions.workspaceId), eq(workspaces.status, 'active')),
     )
     // Attach the execution's primary chat (most-recently-active, non-archived)
     // via a correlated subquery. INNER JOIN so an execution with no active
@@ -1422,7 +1445,7 @@ export function listRailSessions(): RailSessionRow[] {
       )`,
     )
     .where(eq(executions.status, 'active'))
-    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map(
     (r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }) as RailSessionRow,
@@ -1444,20 +1467,20 @@ export function listHistorySessions(opts: { limit?: number } = {}): RailSessionR
     .select({
       ...getTableColumns(chatSessions),
       execution: getTableColumns(executions),
-      workspace_name: workspaces.name,
-      workspace_emoji: workspaces.emoji,
-      workspace_attachments: workspaces.attachments,
-      workspace_area_id: workspaces.area_id,
-      workspace_is_git: workspaces.is_git,
+      workspaceName: workspaces.name,
+      workspaceEmoji: workspaces.emoji,
+      workspaceAttachments: workspaces.attachments,
+      workspaceAreaId: workspaces.areaId,
+      workspaceIsGit: workspaces.isGit,
     })
     .from(chatSessions)
     // LEFT JOIN so sessions whose workspace was deleted still render —
     // history is allowed to outlive its workspace. The renderer treats
-    // null workspace_name as "(workspace removed)".
-    .leftJoin(workspaces, eq(workspaces.id, chatSessions.workspace_id))
-    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
+    // null workspaceName as "(workspace removed)".
+    .leftJoin(workspaces, eq(workspaces.id, chatSessions.workspaceId))
+    .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .where(eq(chatSessions.type, 'execution'))
-    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .limit(limit)
     .all();
   return rows.map(
@@ -1474,8 +1497,8 @@ export function listHistorySessions(opts: { limit?: number } = {}): RailSessionR
  * realtime broadcast and outcome-timestamp bump are guaranteed.
  *
  * Idempotent for CLI-backed events: replays of the same wire event
- * produce the same `external_event_id`, and the partial unique index
- * turns retries into no-ops. Rows without an `external_event_id`
+ * produce the same `externalEventId`, and the partial unique index
+ * turns retries into no-ops. Rows without an `externalEventId`
  * (in-app user messages) aren't covered by the index and always insert.
  *
  * Returns the inserted row on success, or `null` when the insert was
@@ -1490,21 +1513,26 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
   // row and the persisted row share React keys and there's no
   // unmount/remount when the POST resolves.
   const id = input.id ?? uuidv7();
+  const { attachments: inputAttachments, ...rest } = input;
   // `.returning().all()` gives us the row that was actually written (or
   // an empty array on conflict). Cheaper than a follow-up SELECT and
   // ensures the broadcast carries the canonical row, not a synthesized
   // one — important because the DB may have filled defaults.
   const rows = db
     .insert(chatEvents)
-    .values({ ...input, id })
+    .values({
+      ...rest,
+      id,
+      ...(inputAttachments !== undefined ? { attachments: dehydrateAttachments(inputAttachments) ?? [] } : {}),
+    })
     .onConflictDoNothing()
     .returning()
     .all();
   if (rows.length === 0) return null;
-  const row = rows[0]!;
+  const row = hydrateRow(rows[0]!);
 
   if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
-    bumpSessionOutcome(input.session_id, input.created_at ?? new Date().toISOString());
+    bumpSessionOutcome(input.sessionId, input.createdAt ?? new Date().toISOString());
   }
 
   publishChatEvent(row);
@@ -1527,12 +1555,12 @@ export function listChatEvents(sessionId: string, opts: { limit?: number; offset
   const tail = db
     .select()
     .from(chatEvents)
-    .where(eq(chatEvents.session_id, sessionId))
-    .orderBy(desc(chatEvents.created_at), desc(chatEvents.id))
+    .where(eq(chatEvents.sessionId, sessionId))
+    .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
     .limit(limit)
     .offset(offset)
     .all();
-  return tail.reverse();
+  return tail.reverse().map((r) => hydrateRow(r));
 }
 
 /**
@@ -1544,7 +1572,7 @@ export function listChatEvents(sessionId: string, opts: { limit?: number; offset
 export function getChatEventById(id: string): ChatEventRecord | null {
   const db = getDb();
   const rows = db.select().from(chatEvents).where(eq(chatEvents.id, id)).limit(1).all();
-  return rows[0] ?? null;
+  return rows[0] ? hydrateRow(rows[0]) : null;
 }
 
 /**
@@ -1554,13 +1582,14 @@ export function getChatEventById(id: string): ChatEventRecord | null {
  */
 export function listRecentChatEvents(sessionId: string, limit = 30): ChatEventRecord[] {
   const db = getDb();
-  return db
+  const rows = db
     .select()
     .from(chatEvents)
-    .where(eq(chatEvents.session_id, sessionId))
-    .orderBy(desc(chatEvents.created_at), desc(chatEvents.id))
+    .where(eq(chatEvents.sessionId, sessionId))
+    .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
     .limit(limit)
     .all();
+  return rows.map((r) => hydrateRow(r));
 }
 
 /**
@@ -1572,13 +1601,14 @@ export function listRecentChatEvents(sessionId: string, limit = 30): ChatEventRe
  */
 export function listChatEventsAfter(sessionId: string, afterId: string, limit = 1000): ChatEventRecord[] {
   const db = getDb();
-  return db
+  const rows = db
     .select()
     .from(chatEvents)
-    .where(and(eq(chatEvents.session_id, sessionId), gt(chatEvents.id, afterId)))
-    .orderBy(asc(chatEvents.created_at), asc(chatEvents.id))
+    .where(and(eq(chatEvents.sessionId, sessionId), gt(chatEvents.id, afterId)))
+    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
     .limit(limit)
     .all();
+  return rows.map((r) => hydrateRow(r));
 }
 
 /**
@@ -1593,7 +1623,7 @@ export function listChatEventsAfter(sessionId: string, afterId: string, limit = 
  * need a "resume" prompt.
  */
 export interface StuckSessionRow {
-  session_id: string;
+  sessionId: string;
   label: string | null;
   last_user_event_id: string | null;
   last_user_content: string | null;
@@ -1622,7 +1652,7 @@ export function listSessionsStuckOnSource(source: ChatEventSource): StuckSession
          WHERE source = 'user' AND rn_in_source = 1
        )
        SELECT
-         l.session_id AS session_id,
+         l.session_id AS sessionId,
          s.label AS label,
          lu.event_id AS last_user_event_id,
          lu.content AS last_user_content,
@@ -1644,9 +1674,9 @@ export function listSessionsStuckOnSource(source: ChatEventSource): StuckSession
  */
 export function deleteAllChatEvents(sessionId: string): number {
   const db = getDb();
-  const result = db.delete(chatEvents).where(eq(chatEvents.session_id, sessionId)).run();
+  const result = db.delete(chatEvents).where(eq(chatEvents.sessionId, sessionId)).run();
   db.update(chatSessions)
-    .set({ last_outcome_event_at: null, last_viewed_at: null })
+    .set({ lastOutcomeEventAt: null, lastViewedAt: null })
     .where(eq(chatSessions.id, sessionId))
     .run();
   return result.changes;
@@ -1655,9 +1685,9 @@ export function deleteAllChatEvents(sessionId: string): number {
 // ─── Chat Refs ────────────────────────────────────────────────
 // Materialized M:N references between chat sessions / events and
 // entities (tasks, notes, areas, files, the session's own scratchpad).
-// Two layers in one table — see schema.ts. `event_id IS NULL` = pin;
-// set = per-message mention. The partial unique on (session_id,
-// entity_type, entity_id) only fires for pins, so mentions can repeat.
+// Two layers in one table — see schema.ts. `eventId IS NULL` = pin;
+// set = per-message mention. The partial unique on (sessionId,
+// entityType, entityId) only fires for pins, so mentions can repeat.
 
 /**
  * Insert a chat_refs row. For pins, returns the existing row on
@@ -1670,7 +1700,7 @@ export function createChatRef(input: CreateChatRefInput): ChatRefRecord {
     .values({
       ...input,
       id: input.id ?? uuidv7(),
-      created_at: input.created_at ?? new Date().toISOString(),
+      createdAt: input.createdAt ?? new Date().toISOString(),
     })
     .onConflictDoNothing()
     .returning()
@@ -1682,10 +1712,10 @@ export function createChatRef(input: CreateChatRefInput): ChatRefRecord {
     .from(chatRefs)
     .where(
       and(
-        eq(chatRefs.session_id, input.session_id),
-        eq(chatRefs.entity_type, input.entity_type),
-        eq(chatRefs.entity_id, input.entity_id),
-        isNull(chatRefs.event_id),
+        eq(chatRefs.sessionId, input.sessionId),
+        eq(chatRefs.entityType, input.entityType),
+        eq(chatRefs.entityId, input.entityId),
+        isNull(chatRefs.eventId),
       ),
     )
     .get();
@@ -1695,20 +1725,20 @@ export function createChatRef(input: CreateChatRefInput): ChatRefRecord {
   return existing;
 }
 
-/** All refs for a session — pins (event_id null) + mentions. */
+/** All refs for a session — pins (eventId null) + mentions. */
 export function listSessionRefs(
   sessionId: string,
   opts?: { pinnedOnly?: boolean; mentionsOnly?: boolean },
 ): ChatRefRecord[] {
   const db = getDb();
-  const conditions: SQL[] = [eq(chatRefs.session_id, sessionId)];
-  if (opts?.pinnedOnly) conditions.push(isNull(chatRefs.event_id));
-  if (opts?.mentionsOnly) conditions.push(isNotNull(chatRefs.event_id));
+  const conditions: SQL[] = [eq(chatRefs.sessionId, sessionId)];
+  if (opts?.pinnedOnly) conditions.push(isNull(chatRefs.eventId));
+  if (opts?.mentionsOnly) conditions.push(isNotNull(chatRefs.eventId));
   return db
     .select()
     .from(chatRefs)
     .where(and(...conditions))
-    .orderBy(asc(chatRefs.position), asc(chatRefs.created_at))
+    .orderBy(asc(chatRefs.position), asc(chatRefs.createdAt))
     .all();
 }
 
@@ -1718,7 +1748,7 @@ export function listEventRefs(eventId: string): ChatRefRecord[] {
   return db
     .select()
     .from(chatRefs)
-    .where(eq(chatRefs.event_id, eventId))
+    .where(eq(chatRefs.eventId, eventId))
     .orderBy(asc(chatRefs.position))
     .all();
 }
@@ -1732,8 +1762,8 @@ export function listEntityRefs(
   return db
     .select()
     .from(chatRefs)
-    .where(and(eq(chatRefs.entity_type, entityType), eq(chatRefs.entity_id, entityId)))
-    .orderBy(desc(chatRefs.created_at))
+    .where(and(eq(chatRefs.entityType, entityType), eq(chatRefs.entityId, entityId)))
+    .orderBy(desc(chatRefs.createdAt))
     .all();
 }
 
@@ -1747,12 +1777,12 @@ export function listSessionsReferencingEntity(
   const rows = db
     .select({ session: getTableColumns(chatSessions) })
     .from(chatRefs)
-    .innerJoin(chatSessions, eq(chatRefs.session_id, chatSessions.id))
+    .innerJoin(chatSessions, eq(chatRefs.sessionId, chatSessions.id))
     .where(
-      and(eq(chatRefs.entity_type, entityType), eq(chatRefs.entity_id, entityId)),
+      and(eq(chatRefs.entityType, entityType), eq(chatRefs.entityId, entityId)),
     )
     .orderBy(
-      desc(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at})`),
+      desc(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt})`),
     )
     .all();
   const out: ChatSessionRecord[] = [];
@@ -1777,7 +1807,7 @@ export function deleteChatRef(id: string): boolean {
  */
 export function deleteEventRefs(eventId: string): number {
   const db = getDb();
-  const result = db.delete(chatRefs).where(eq(chatRefs.event_id, eventId)).run();
+  const result = db.delete(chatRefs).where(eq(chatRefs.eventId, eventId)).run();
   return result.changes;
 }
 
@@ -1801,15 +1831,15 @@ export function materializeEventRefs(
   let position = 0;
   for (const m of markers) {
     if (m.kind === 'file') continue;
-    const entity_id = m.kind === 'scratchpad' ? sessionId : m.id;
-    if (!entity_id) continue;
+    const entityId = m.kind === 'scratchpad' ? sessionId : m.id;
+    if (!entityId) continue;
     const row = createChatRef({
-      session_id: sessionId,
-      event_id: eventId,
-      entity_type: m.kind,
-      entity_id,
+      sessionId: sessionId,
+      eventId: eventId,
+      entityType: m.kind,
+      entityId,
       position,
-      created_by: createdBy,
+      createdBy: createdBy,
     });
     created.push(row);
     position++;
@@ -1831,13 +1861,13 @@ export function pinSessionRef(args: {
   createdBy?: 'user' | 'agent';
 }): ChatRefRecord {
   return createChatRef({
-    session_id: args.sessionId,
-    event_id: null,
-    entity_type: args.entityType,
-    entity_id: args.entityId,
+    sessionId: args.sessionId,
+    eventId: null,
+    entityType: args.entityType,
+    entityId: args.entityId,
     position: args.position ?? 0,
     hydrate: args.hydrate ?? true,
-    created_by: args.createdBy ?? 'user',
+    createdBy: args.createdBy ?? 'user',
   });
 }
 
@@ -1851,10 +1881,10 @@ export function unpinSessionRef(args: {
     .delete(chatRefs)
     .where(
       and(
-        eq(chatRefs.session_id, args.sessionId),
-        eq(chatRefs.entity_type, args.entityType),
-        eq(chatRefs.entity_id, args.entityId),
-        isNull(chatRefs.event_id),
+        eq(chatRefs.sessionId, args.sessionId),
+        eq(chatRefs.entityType, args.entityType),
+        eq(chatRefs.entityId, args.entityId),
+        isNull(chatRefs.eventId),
       ),
     )
     .run();
@@ -1871,5 +1901,5 @@ export function setSessionScratchPad(
   sessionId: string,
   scratchPad: string | null,
 ): ChatSessionRecord | null {
-  return updateChatSession(sessionId, { scratch_pad: scratchPad });
+  return updateChatSession(sessionId, { scratchPad: scratchPad });
 }

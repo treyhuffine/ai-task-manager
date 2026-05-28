@@ -39,8 +39,8 @@ describe('sweepAttachments', () => {
 
     const orphan = await saveAttachment({
       data: Buffer.from('uncited'),
-      original_name: 'Leftover.png',
-      mime_type: 'image/png',
+      originalName: 'Leftover.png',
+      mimeType: 'image/png',
     });
 
     const stats = await sweepAttachments();
@@ -49,7 +49,7 @@ describe('sweepAttachments', () => {
     expect(stats.onDisk).toBe(1);
 
     const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
-    expect(fs.existsSync(path.join(attachmentsDir, orphan.file_name))).toBe(true);
+    expect(fs.existsSync(path.join(attachmentsDir, orphan.fileName))).toBe(true);
   });
 
   it('archives orphans only when GC is explicitly enabled', async () => {
@@ -61,17 +61,17 @@ describe('sweepAttachments', () => {
 
     const kept = await saveAttachment({
       data: Buffer.from('referenced'),
-      original_name: 'Cover.png',
-      mime_type: 'image/png',
+      originalName: 'Cover.png',
+      mimeType: 'image/png',
     });
     const orphan = await saveAttachment({
       data: Buffer.from('uncited'),
-      original_name: 'Leftover.png',
-      mime_type: 'image/png',
+      originalName: 'Leftover.png',
+      mimeType: 'image/png',
     });
 
     createArea({ name: 'Area with cover', attachments: [kept] });
-    createNote({ body: `![Cover](/api/attachments/${kept.file_name})` });
+    createNote({ body: `![Cover](/api/attachments/${kept.fileName})` });
 
     const stats = await sweepAttachments();
     expect(stats.gcEnabled).toBe(true);
@@ -80,9 +80,9 @@ describe('sweepAttachments', () => {
 
     const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
     const archiveDir = path.join(tmpDir, 'brain', '.archive', 'attachments');
-    expect(fs.existsSync(path.join(attachmentsDir, kept.file_name))).toBe(true);
-    expect(fs.existsSync(path.join(attachmentsDir, orphan.file_name))).toBe(false);
-    expect(fs.existsSync(path.join(archiveDir, orphan.file_name))).toBe(true);
+    expect(fs.existsSync(path.join(attachmentsDir, kept.fileName))).toBe(true);
+    expect(fs.existsSync(path.join(attachmentsDir, orphan.fileName))).toBe(false);
+    expect(fs.existsSync(path.join(archiveDir, orphan.fileName))).toBe(true);
   });
 
   it('treats workspace attachments as referenced (regression: was missed)', async () => {
@@ -94,8 +94,8 @@ describe('sweepAttachments', () => {
 
     const photo = await saveAttachment({
       data: Buffer.from('workspace photo'),
-      original_name: 'cover.png',
-      mime_type: 'image/png',
+      originalName: 'cover.png',
+      mimeType: 'image/png',
     });
 
     createWorkspace({
@@ -109,7 +109,7 @@ describe('sweepAttachments', () => {
     expect(stats.referenced).toBe(1);
 
     const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
-    expect(fs.existsSync(path.join(attachmentsDir, photo.file_name))).toBe(true);
+    expect(fs.existsSync(path.join(attachmentsDir, photo.fileName))).toBe(true);
   });
 
   it('treats chat_events attachments as referenced (regression: was missed)', async () => {
@@ -117,13 +117,14 @@ describe('sweepAttachments', () => {
 
     const { getDb } = await import('@/lib/db');
     const { agents, chatSessions, chatEvents } = await import('@/lib/db/schema');
+    const { dehydrateAttachments } = await import('@/lib/db/hydrate');
     const { saveAttachment } = await import('@/lib/attachments/save');
     const { sweepAttachments } = await import('./attachments-gc');
 
     const file = await saveAttachment({
       data: Buffer.from('chat photo'),
-      original_name: 'chat.png',
-      mime_type: 'image/png',
+      originalName: 'chat.png',
+      mimeType: 'image/png',
     });
 
     const db = getDb();
@@ -131,16 +132,16 @@ describe('sweepAttachments', () => {
       .values({ id: 'ag-1', kind: 'orchestrator', name: 'test', harness: 'test' })
       .run();
     db.insert(chatSessions)
-      .values({ id: 'cs-1', agent_id: 'ag-1', type: 'orchestration', label: 'test' })
+      .values({ id: 'cs-1', agentId: 'ag-1', type: 'orchestration', label: 'test' })
       .run();
     db.insert(chatEvents)
       .values({
         id: 'ev-1',
-        session_id: 'cs-1',
+        sessionId: 'cs-1',
         role: 'user',
         source: 'user',
-        content: `[[file:${file.file_name}]]`,
-        attachments: [file],
+        content: `[[file:${file.fileName}]]`,
+        attachments: dehydrateAttachments([file]) ?? [],
       })
       .run();
 
@@ -149,7 +150,7 @@ describe('sweepAttachments', () => {
     expect(stats.referenced).toBe(1);
 
     const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
-    expect(fs.existsSync(path.join(attachmentsDir, file.file_name))).toBe(true);
+    expect(fs.existsSync(path.join(attachmentsDir, file.fileName))).toBe(true);
   });
 
   it('restores a referenced file that was incorrectly archived earlier', async () => {
@@ -159,8 +160,8 @@ describe('sweepAttachments', () => {
 
     const file = await saveAttachment({
       data: Buffer.from('photo bytes'),
-      original_name: 'photo.png',
-      mime_type: 'image/png',
+      originalName: 'photo.png',
+      mimeType: 'image/png',
     });
 
     // Simulate a prior bad sweep: file got moved to archive while the DB
@@ -169,16 +170,16 @@ describe('sweepAttachments', () => {
     const archiveDir = path.join(tmpDir, 'brain', '.archive', 'attachments');
     fs.mkdirSync(archiveDir, { recursive: true });
     fs.renameSync(
-      path.join(attachmentsDir, file.file_name),
-      path.join(archiveDir, file.file_name),
+      path.join(attachmentsDir, file.fileName),
+      path.join(archiveDir, file.fileName),
     );
 
-    createNote({ body: `![](/api/attachments/${file.file_name})` });
+    createNote({ body: `![](/api/attachments/${file.fileName})` });
 
     const stats = await sweepAttachments();
     expect(stats.restored).toBe(1);
-    expect(fs.existsSync(path.join(attachmentsDir, file.file_name))).toBe(true);
-    expect(fs.existsSync(path.join(archiveDir, file.file_name))).toBe(false);
+    expect(fs.existsSync(path.join(attachmentsDir, file.fileName))).toBe(true);
+    expect(fs.existsSync(path.join(archiveDir, file.fileName))).toBe(false);
   });
 
   it('tolerates a missing attachments directory', async () => {

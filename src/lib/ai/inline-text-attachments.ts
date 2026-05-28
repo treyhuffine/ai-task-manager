@@ -74,14 +74,14 @@ async function readAttachmentBytes(url: string): Promise<Buffer | null> {
  * use it.
  */
 function attachmentFromPart(url: string, part: { mediaType?: string; filename?: string }): Attachment | null {
-  const file_name = fileNameFromUrl(url);
-  if (!file_name) return null;
+  const fileName = fileNameFromUrl(url);
+  if (!fileName) return null;
   return {
-    file_name,
-    original_name: part.filename ?? file_name,
-    mime_type: part.mediaType ?? 'application/octet-stream',
+    fileName,
+    originalName: part.filename ?? fileName,
+    mimeType: part.mediaType ?? 'application/octet-stream',
     size: 0,
-    uploaded_at: '',
+    uploadedAt: '',
   };
 }
 

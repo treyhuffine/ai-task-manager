@@ -79,7 +79,7 @@ Today's date: ${new Date().toISOString().slice(0, 10)}`;
  * Pick a model to call directly via API key.
  *
  * Short-term: API-key-driven selection for the MCP's inner agent. The
- * `default_agent_harness` field on user state is intentionally NOT
+ * `defaultAgentHarness` field on user state is intentionally NOT
  * consulted here — that field represents the user's preferred harness
  * (claude-code, codex, opencode, etc.), which will drive execution in
  * the future and may use subscription auth rather than API keys. For
@@ -88,7 +88,7 @@ Today's date: ${new Date().toISOString().slice(0, 10)}`;
  *
  * Resolution order for model ID:
  *   1. MCP_MODEL env (explicit override)
- *   2. default_agent_model from user state
+ *   2. defaultAgentModel from user state
  *   3. MODEL_STANDARD env (matches chat adapters' convention)
  *   4. Hardcoded fallback
  *
@@ -97,7 +97,7 @@ Today's date: ${new Date().toISOString().slice(0, 10)}`;
 function pickModel() {
   const modelId =
     process.env.MCP_MODEL ||
-    getUserState()?.default_agent_model ||
+    getUserState()?.defaultAgentModel ||
     process.env.MODEL_STANDARD ||
     'gpt-5.4-mini';
 

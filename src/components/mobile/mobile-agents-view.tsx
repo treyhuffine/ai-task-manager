@@ -94,7 +94,7 @@ function NeedsReviewBlock() {
           <MobileSessionRow
             key={session.id}
             session={session}
-            workspaceLabel={wsName(session.workspace_id)}
+            workspaceLabel={wsName(session.workspaceId)}
             forceState="needs_review"
           />
         ))}
@@ -112,8 +112,8 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
   const expanded = !workspace.collapsed;
   const { data: sessions } = useWorkspaceSessions(expanded ? workspace.id : null);
 
-  const linkedArea = workspace.area_id
-    ? areas?.find((a) => a.id === workspace.area_id)
+  const linkedArea = workspace.areaId
+    ? areas?.find((a) => a.id === workspace.areaId)
     : undefined;
   const wsImage = coverAttachmentUrl(workspace.attachments);
   const areaImage = linkedArea ? coverAttachmentUrl(linkedArea.attachments) : null;
@@ -122,7 +122,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
 
   const childSessions = sessions ?? [];
   const streamingCount = childSessions.filter((s) => streamingSessionIds.has(s.id)).length;
-  const reviewCount = Math.max(workspace.needs_review_candidate_count - streamingCount, 0);
+  const reviewCount = Math.max(workspace.needsReviewCandidateCount - streamingCount, 0);
 
   const toggle = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
 
@@ -148,8 +148,8 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
             {workspace.name}
           </span>
           <span className="block text-[11px] text-muted-foreground/70">
-            {workspace.session_count}{' '}
-            {workspace.session_count === 1 ? 'execution' : 'executions'}
+            {workspace.sessionCount}{' '}
+            {workspace.sessionCount === 1 ? 'execution' : 'executions'}
           </span>
         </span>
         <Badge streaming={streamingCount} review={reviewCount} />
@@ -197,12 +197,12 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
   // the process is still "running," but a green "working" pip would
   // mislead — nothing is happening until the user responds.
   const isStreaming = !isPending && streamingSessionIds.has(session.id);
-  const lastOutcome = session.last_outcome_event_at;
+  const lastOutcome = session.lastOutcomeEventAt;
   const needsReview =
     forceState === 'needs_review'
       ? true
-      : !isStreaming && !isPending && lastOutcome && lastOutcome > (session.last_viewed_at ?? '1970-01-01');
-  const timestamp = lastOutcome ?? session.started_at;
+      : !isStreaming && !isPending && lastOutcome && lastOutcome > (session.lastViewedAt ?? '1970-01-01');
+  const timestamp = lastOutcome ?? session.startedAt;
   const isActive = activeView === session.id;
 
   const label = session.label ?? 'Untitled';

@@ -42,14 +42,14 @@ function taskToDeckItem(
   return {
     id: task.id,
     title: task.title,
-    parentTitle: task.parent_id ? parentMap.get(task.parent_id) : undefined,
-    areaId: task.area_id ?? undefined,
-    areaName: task.area_id ? areaMap.get(task.area_id) : undefined,
+    parentTitle: task.parentId ? parentMap.get(task.parentId) : undefined,
+    areaId: task.areaId ?? undefined,
+    areaName: task.areaId ? areaMap.get(task.areaId) : undefined,
     rationale: task.description || task.outcome || '',
     energy: task.energy ?? undefined,
     effort: task.effort ? EFFORT_SHORT[task.effort] ?? task.effort : undefined,
-    estimatedMinutes: task.estimated_minutes ?? undefined,
-    hardDeadline: task.hard_deadline ?? undefined,
+    estimatedMinutes: task.estimatedMinutes ?? undefined,
+    hardDeadline: task.hardDeadline ?? undefined,
     taskId: task.id,
   };
 }
@@ -84,7 +84,7 @@ function PreviousDeckPreview({
       if (!task) return null;
       return {
         title: task.title,
-        areaName: task.area_id ? areaMap.get(task.area_id) : undefined,
+        areaName: task.areaId ? areaMap.get(task.areaId) : undefined,
         done: task.status === 'done',
       };
     })
@@ -147,7 +147,7 @@ function hydrateDeckRecord(
     if (dbItem.continuityContext) item.continuityContext = dbItem.continuityContext;
     if (dbItem.source === 'user') item.manuallyAdded = true;
 
-    const childTasks = tasks.filter(t => t.parent_id === task.id);
+    const childTasks = tasks.filter(t => t.parentId === task.id);
     if (childTasks.length > 0) {
       item.subtasks = childTasks.map(ct => ({
         id: ct.id,
@@ -166,9 +166,9 @@ function hydrateDeckRecord(
     alternatives.push({
       id: task.id,
       title: task.title,
-      parentTitle: task.parent_id ? parentMap.get(task.parent_id) : undefined,
-      areaId: task.area_id ?? undefined,
-      areaName: task.area_id ? areaMap.get(task.area_id) : undefined,
+      parentTitle: task.parentId ? parentMap.get(task.parentId) : undefined,
+      areaId: task.areaId ?? undefined,
+      areaName: task.areaId ? areaMap.get(task.areaId) : undefined,
       energy: task.energy ?? undefined,
       effort: task.effort ? EFFORT_SHORT[task.effort] ?? task.effort : undefined,
       reason: dbAlt.reason,
@@ -182,7 +182,7 @@ function hydrateDeckRecord(
     items,
     alternatives,
     radarItems: [],
-    generatedAt: record.created_at,
+    generatedAt: record.createdAt,
   };
 }
 
@@ -262,7 +262,7 @@ export function DeckContainer() {
     api.get<DeckRecord | null>('/deck')
       .then((record) => {
         if (record) {
-          const recordDate = record.created_at.slice(0, 10);
+          const recordDate = record.createdAt.slice(0, 10);
           const todayStr = new Date().toISOString().slice(0, 10);
           if (recordDate === todayStr && !forceAsPrevious) {
             const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
@@ -365,7 +365,7 @@ export function DeckContainer() {
   const generateDeckFallback = useCallback(() => {
     if (!tasks) return;
 
-    const topLevel = tasks.filter(t => !t.parent_id);
+    const topLevel = tasks.filter(t => !t.parentId);
     const deckTasks = topLevel.slice(0, 7);
     const altTasks = topLevel.slice(7, 12);
 
@@ -373,9 +373,9 @@ export function DeckContainer() {
     const alternatives: AlternativeItem[] = altTasks.map(t => ({
       id: t.id,
       title: t.title,
-      parentTitle: t.parent_id ? parentMap.get(t.parent_id) : undefined,
-      areaId: t.area_id ?? undefined,
-      areaName: t.area_id ? areaMap.get(t.area_id) : undefined,
+      parentTitle: t.parentId ? parentMap.get(t.parentId) : undefined,
+      areaId: t.areaId ?? undefined,
+      areaName: t.areaId ? areaMap.get(t.areaId) : undefined,
       energy: t.energy ?? undefined,
       effort: t.effort ? EFFORT_SHORT[t.effort] ?? t.effort : undefined,
       reason: 'Lower in priority',

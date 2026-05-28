@@ -15,17 +15,17 @@ interface TakeoverBannerProps {
  * Persistent strip above the transcript that surfaces "this session
  * is being worked on locally" plus the Resume / Cancel actions. The
  * action bar is hidden whenever this is shown — see
- * `useExecutionActions`'s `taken_over` ActionState.
+ * `useExecutionActions`'s `takenOver` ActionState.
  */
 export function TakeoverBanner({ session }: TakeoverBannerProps) {
   const { resume, cancel } = useTakeover(session.id);
   const [error, setError] = useState<string | null>(null);
 
-  if (!session.takeover_started_at || !session.takeover_token) return null;
+  if (!session.takeoverStartedAt || !session.takeoverToken) return null;
 
   const handleResume = () => {
     setError(null);
-    resume.mutate(session.takeover_token!, {
+    resume.mutate(session.takeoverToken!, {
       onError: (err) => {
         if (err instanceof ApiError && err.status === 409) {
           const body = err.body as { message?: string } | null;
@@ -60,7 +60,7 @@ export function TakeoverBanner({ session }: TakeoverBannerProps) {
           <span className="font-medium">Taken over locally</span>
           <span className="text-muted-foreground/85">
             {' '}
-            · started {formatCompactRelative(session.takeover_started_at)} ago
+            · started {formatCompactRelative(session.takeoverStartedAt)} ago
           </span>
         </span>
         <button

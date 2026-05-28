@@ -40,14 +40,14 @@ import { TaskRow } from './task-row';
 import { cn } from '@/lib/utils';
 import type { TaskStatus, Energy, TaskListRecord } from '@/db/types';
 
-type SortOption = 'sort_key' | 'last_viewed_at' | 'hard_deadline' | 'created_at' | 'updated_at';
+type SortOption = 'sortKey' | 'lastViewedAt' | 'hardDeadline' | 'createdAt' | 'updatedAt';
 
 const SORT_LABELS: Record<SortOption, string> = {
-  sort_key: 'Priority Order',
-  last_viewed_at: 'Last viewed',
-  hard_deadline: 'Deadline',
-  created_at: 'Created',
-  updated_at: 'Updated',
+  sortKey: 'Priority Order',
+  lastViewedAt: 'Last viewed',
+  hardDeadline: 'Deadline',
+  createdAt: 'Created',
+  updatedAt: 'Updated',
 };
 
 export function TaskList() {
@@ -57,7 +57,7 @@ export function TaskList() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('active');
   const [energyFilter, setEnergyFilter] = useState<Energy | 'all'>('all');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
-  const [sortBy, setSortBy] = useState<SortOption>('last_viewed_at');
+  const [sortBy, setSortBy] = useState<SortOption>('lastViewedAt');
   const [switchedFromSort, setSwitchedFromSort] = useState<SortOption | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
@@ -77,8 +77,8 @@ export function TaskList() {
   const filter = {
     ...(statusFilter !== 'all' ? { status: statusFilter as TaskStatus } : {}),
     ...(energyFilter !== 'all' ? { energy: energyFilter as Energy } : {}),
-    ...(areaFilter !== 'all' ? { area_id: areaFilter } : {}),
-    order_by: sortBy,
+    ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
+    orderBy: sortBy,
   };
 
   const queryClient = useQueryClient();
@@ -99,8 +99,8 @@ export function TaskList() {
   const handleComplete = useCallback((id: string) => {
     const task = tasks?.find(t => t.id === id);
     if (task?.status === 'done') {
-      // Uncomplete: set back to active, clear completed_at
-      updateTask.mutate({ id, status: 'active', completed_at: null } as Parameters<typeof updateTask.mutate>[0]);
+      // Uncomplete: set back to active, clear completedAt
+      updateTask.mutate({ id, status: 'active', completedAt: null } as Parameters<typeof updateTask.mutate>[0]);
     } else {
       completeTask.mutate({ id });
     }
@@ -115,8 +115,8 @@ export function TaskList() {
     date.setDate(date.getDate() + days);
     updateTask.mutate({
       id,
-      resurface_after: date.toISOString(),
-      times_deferred: undefined, // let the server handle increment ideally, but for now just set resurface
+      resurfaceAfter: date.toISOString(),
+      timesDeferred: undefined, // let the server handle increment ideally, but for now just set resurface
     } as Parameters<typeof updateTask.mutate>[0]);
   }, [updateTask]);
 
@@ -125,9 +125,9 @@ export function TaskList() {
   }, [updateTask]);
 
   const handleDragIntercept = useCallback((taskId: string) => {
-    if (sortBy === 'sort_key') return;
+    if (sortBy === 'sortKey') return;
     setSwitchedFromSort(sortBy);
-    setSortBy('sort_key');
+    setSortBy('sortKey');
     setHighlightId(taskId);
   }, [sortBy]);
 
@@ -140,20 +140,20 @@ export function TaskList() {
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id || !tasks) return;
-    if (sortBy !== 'sort_key') return;
+    if (sortBy !== 'sortKey') return;
 
     const oldIndex = tasks.findIndex(t => t.id === active.id);
     const newIndex = tasks.findIndex(t => t.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
     // Backfill any null sort_keys in the visible order. Tasks are created without a
-    // sort_key; without this, generateKeyBetween(null, null) returns 'a0' which sorts
+    // sortKey; without this, generateKeyBetween(null, null) returns 'a0' which sorts
     // ahead of every keyed task and the dragged item jumps to the top.
     const normalized = backfillSortKeys(tasks);
-    const normalizationPatches: { id: string; sort_key: string }[] = [];
+    const normalizationPatches: { id: string; sortKey: string }[] = [];
     for (let i = 0; i < tasks.length; i++) {
-      if (tasks[i].sort_key !== normalized[i].sort_key) {
-        normalizationPatches.push({ id: tasks[i].id, sort_key: normalized[i].sort_key! });
+      if (tasks[i].sortKey !== normalized[i].sortKey) {
+        normalizationPatches.push({ id: tasks[i].id, sortKey: normalized[i].sortKey! });
       }
     }
 
@@ -162,24 +162,24 @@ export function TaskList() {
 
     // Compute the moved item's new key from its now-non-null neighbors.
     const movedIdx = newIndex;
-    const prevKey = movedIdx > 0 ? reordered[movedIdx - 1].sort_key : null;
-    const nextKey = movedIdx < reordered.length - 1 ? reordered[movedIdx + 1].sort_key : null;
+    const prevKey = movedIdx > 0 ? reordered[movedIdx - 1].sortKey : null;
+    const nextKey = movedIdx < reordered.length - 1 ? reordered[movedIdx + 1].sortKey : null;
     const newKey = generateKeyBetween(prevKey, nextKey);
 
-    reordered[movedIdx] = { ...reordered[movedIdx], sort_key: newKey };
+    reordered[movedIdx] = { ...reordered[movedIdx], sortKey: newKey };
     const previousData = queryClient.getQueryData(queryKey);
     queryClient.setQueryData(queryKey, reordered);
 
     // Fire all PATCHes in parallel: normalization fixes for previously-null tasks,
     // plus the moved item's new key. Bypass the mutation hook so we don't trigger
     // N invalidations; we invalidate once at the end.
-    const movedPatch = { id: active.id as string, sort_key: newKey };
+    const movedPatch = { id: active.id as string, sortKey: newKey };
     const allPatches = [
       ...normalizationPatches.filter(p => p.id !== movedPatch.id),
       movedPatch,
     ];
 
-    Promise.all(allPatches.map(p => tasksApi.update(p.id, { sort_key: p.sort_key })))
+    Promise.all(allPatches.map(p => tasksApi.update(p.id, { sortKey: p.sortKey })))
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
       })
@@ -194,21 +194,21 @@ export function TaskList() {
     if (!placement) return;
 
     // If we're not in Priority Order, switch to it so the gesture's effect is visible.
-    if (sortBy !== 'sort_key') {
+    if (sortBy !== 'sortKey') {
       setSwitchedFromSort(sortBy);
-      setSortBy('sort_key');
+      setSortBy('sortKey');
       setHighlightId(taskId);
     } else {
       setHighlightId(taskId);
     }
 
     // Optimistic cache update against the priority-ordered query.
-    const priorityKey = ['tasks', { ...filter, order_by: 'sort_key' as const }];
+    const priorityKey = ['tasks', { ...filter, orderBy: 'sortKey' as const }];
     const previousData = queryClient.getQueryData(priorityKey);
     queryClient.setQueryData(priorityKey, placement.reordered);
 
     const allPatches = [...placement.normalizationPatches, placement.movedPatch];
-    Promise.all(allPatches.map(p => tasksApi.update(p.id, { sort_key: p.sort_key })))
+    Promise.all(allPatches.map(p => tasksApi.update(p.id, { sortKey: p.sortKey })))
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
       })
@@ -314,11 +314,11 @@ export function TaskList() {
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => { setSortBy(v as SortOption); dismissSwitchBanner(); }}>
-              <DropdownMenuRadioItem value="last_viewed_at" className="text-xs">Last viewed</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="sort_key" className="text-xs">Priority Order</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="hard_deadline" className="text-xs">Deadline</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="created_at" className="text-xs">Created</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="updated_at" className="text-xs">Updated</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="lastViewedAt" className="text-xs">Last viewed</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="sortKey" className="text-xs">Priority Order</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="hardDeadline" className="text-xs">Deadline</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="createdAt" className="text-xs">Created</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="updatedAt" className="text-xs">Updated</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -360,7 +360,7 @@ export function TaskList() {
         onSnooze={handleSnooze}
         onArchive={handleArchive}
         onOpen={openTask}
-        dragEnabled={sortBy === 'sort_key'}
+        dragEnabled={sortBy === 'sortKey'}
         highlightId={highlightId}
         onDragIntercept={handleDragIntercept}
         onPickBucket={handlePickBucket}

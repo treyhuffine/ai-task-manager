@@ -55,7 +55,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const { setActiveView, setSessionStreaming } = useDashboard();
   const qc = useQueryClient();
   const { data: session, isLoading, error } = useSession(sessionId);
-  const { data: workspace } = useWorkspace(session?.workspace_id ?? null);
+  const { data: workspace } = useWorkspace(session?.workspaceId ?? null);
   const { data: runtime } = useRuntimeStatus(sessionId);
   // Live chat-event stream: appends rows into the events cache as the
   // executor (or any other write path) inserts them. Replaces the 3s
@@ -82,11 +82,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
   // Setting-up state: dispatch creates the chat_session row immediately
   // and provisions the worktree in the background (~2-5s for `git
-  // worktree add` + fromSource apply). Until worktree_path lands on the
+  // worktree add` + fromSource apply). Until worktreePath lands on the
   // row we render the SettingUp variant of the SetupCard. The row gets
   // updated by the server, so we poll the session query.
   const isSettingUp =
-    !!session && !!workspace && workspace.is_git === true && !session.worktree_path;
+    !!session && !!workspace && workspace.isGit === true && !session.worktreePath;
 
   useEffect(() => {
     if (!isSettingUp || !sessionId) return;
@@ -351,8 +351,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       }}
       disabled={composerDisabled}
     >
-      {workspace?.is_git && !!session.worktree_path && (
-        <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktree_path} />
+      {workspace?.isGit && !!session.worktreePath && (
+        <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
       )}
       {reconciling && <SyncingPill />}
       <ExecutionTranscript
@@ -370,10 +370,10 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         <ExecutionComposer
           ref={composerHandleRef}
           sessionId={session.id}
-          permissionMode={session.permission_mode}
+          permissionMode={session.permissionMode}
           model={session.model}
           effort={session.effort}
-          harness={session.agent_harness ?? null}
+          harness={session.agentHarness ?? null}
           disabled={composerDisabled}
           disabledReason={composerDisabledReason}
           isRunning={isRunning}
@@ -412,7 +412,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         scratchpadOpen={activePane === 'scratchpad'}
       />
       <TakeoverBanner session={session} />
-      {workspace?.is_git && !!session.worktree_path && (
+      {workspace?.isGit && !!session.worktreePath && (
         <ExecutionActionBar session={session} workspace={workspace} />
       )}
       {chatBody}
@@ -472,9 +472,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             {isSettingUp ? (
               <SetupPlaceholder
                 variant="tree"
-                animated={!session.setup_error}
+                animated={!session.setupError}
                 label={
-                  session.setup_error
+                  session.setupError
                     ? 'Setup failed — see chat to retry'
                     : 'Preparing environment…'
                 }
@@ -484,7 +484,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                 sessionId={session.id}
                 selectedPath={selectedPath}
                 onSelect={handleFilePicked}
-                worktreePath={session.worktree_path}
+                worktreePath={session.worktreePath}
                 onReferenceInChat={handleReferenceFileInChat}
               />
             )}
@@ -515,9 +515,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                 {isSettingUp ? (
                   <SetupPlaceholder
                     variant="viewer"
-                    animated={!session.setup_error}
+                    animated={!session.setupError}
                     label={
-                      session.setup_error
+                      session.setupError
                         ? 'Setup failed — see chat to retry'
                         : 'Preparing environment…'
                     }
@@ -525,7 +525,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                 ) : (
                   <ViewerArea
                     sessionId={session.id}
-                    workspaceId={session.workspace_id ?? null}
+                    workspaceId={session.workspaceId ?? null}
                     selectedPath={selectedPath}
                     onCloseFile={() => setSelectedPath(null)}
                     filePickSignal={filePickSignal}
@@ -549,7 +549,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                   setTerminalCollapsed(size.inPixels <= 40);
                 }}
               >
-                {session.workspace_id && (
+                {session.workspaceId && (
                   <ExecutionTerminalPanel
                     sessionId={session.id}
                     disabled={isSettingUp}
@@ -577,7 +577,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             {activePane === 'references' && (
               <ReferencesPane
                 sessionId={session.id}
-                workspaceId={session.workspace_id ?? null}
+                workspaceId={session.workspaceId ?? null}
                 open
                 onClose={closePane}
                 onInsertChip={handleInsertChip}
@@ -586,7 +586,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             {activePane === 'scratchpad' && (
               <ScratchpadPane
                 sessionId={session.id}
-                workspaceId={session.workspace_id ?? null}
+                workspaceId={session.workspaceId ?? null}
                 open
                 onClose={closePane}
                 onInsertText={handleInsertText}

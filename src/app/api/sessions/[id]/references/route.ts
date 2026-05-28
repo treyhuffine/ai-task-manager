@@ -6,7 +6,7 @@
  *   - all:       everything else (only populated when ?scope=all)
  *
  * POST — pin a task/note/area to the session (writes chat_refs row).
- * DELETE — unpin via ?entity_type=&entity_id= query.
+ * DELETE — unpin via ?entityType=&entityId= query.
  *
  * The slide-over uses one request per scope rather than three separate
  * endpoints because section precedence is a server concern — keeping
@@ -37,14 +37,14 @@ function taskToRow(
     id: t.id,
     title: t.title,
     status: t.status,
-    area_id: t.area_id,
-    workspace_id: t.workspace_id,
-    updated_at: t.updated_at,
-    referenced_at: referencedAt ?? null,
-    // `subtask_count` is computed by `listTasks` via a correlated subquery;
+    areaId: t.areaId,
+    workspaceId: t.workspaceId,
+    updatedAt: t.updatedAt,
+    referencedAt: referencedAt ?? null,
+    // `subtaskCount` is computed by `listTasks` via a correlated subquery;
     // `getTask` (single-row fetch) doesn't carry it. Falls through to
     // undefined for inChat tasks resolved off the workspace map.
-    subtask_count: 'subtask_count' in t ? t.subtask_count : undefined,
+    subtaskCount: 'subtaskCount' in t ? t.subtaskCount : undefined,
   };
 }
 
@@ -53,10 +53,10 @@ function noteToRow(n: NoteRecord, referencedAt?: string | null): ReferenceRow {
     kind: 'note',
     id: n.id,
     title: n.title ?? 'Untitled',
-    area_id: n.area_id,
-    workspace_id: n.workspace_id,
-    updated_at: n.updated_at,
-    referenced_at: referencedAt ?? null,
+    areaId: n.areaId,
+    workspaceId: n.workspaceId,
+    updatedAt: n.updatedAt,
+    referencedAt: referencedAt ?? null,
   };
 }
 
@@ -78,24 +78,24 @@ export async function GET(
     const refs: ChatRefRecord[] = listSessionRefs(id);
     const inChatTaskIds = new Set<string>();
     const inChatNoteIds = new Set<string>();
-    const refTimestamps = new Map<string, string>(); // key: `${type}:${id}` → most recent created_at
+    const refTimestamps = new Map<string, string>(); // key: `${type}:${id}` → most recent createdAt
     for (const r of refs) {
-      const key = `${r.entity_type}:${r.entity_id}`;
+      const key = `${r.entityType}:${r.entityId}`;
       const prior = refTimestamps.get(key);
-      if (!prior || prior < r.created_at) refTimestamps.set(key, r.created_at);
-      if (r.entity_type === 'task') inChatTaskIds.add(r.entity_id);
-      else if (r.entity_type === 'note') inChatNoteIds.add(r.entity_id);
+      if (!prior || prior < r.createdAt) refTimestamps.set(key, r.createdAt);
+      if (r.entityType === 'task') inChatTaskIds.add(r.entityId);
+      else if (r.entityType === 'note') inChatNoteIds.add(r.entityId);
     }
 
     // Workspace task/note lists fetched up front so inChat tasks can
-    // pull subtask_count from the same payload (listTasks includes it
+    // pull subtaskCount from the same payload (listTasks includes it
     // as a correlated subquery — getTask doesn't). Tasks in chat but
-    // outside the workspace fall back to getTask without subtask_count.
-    const workspaceTasks = session.workspace_id
-      ? listTasks({ workspace_id: session.workspace_id, status: ['active', 'done'], limit: 200 })
+    // outside the workspace fall back to getTask without subtaskCount.
+    const workspaceTasks = session.workspaceId
+      ? listTasks({ workspaceId: session.workspaceId, status: ['active', 'done'], limit: 200 })
       : [];
-    const workspaceNotes = session.workspace_id
-      ? listNotes({ workspace_id: session.workspace_id, status: 'active', limit: 200 })
+    const workspaceNotes = session.workspaceId
+      ? listNotes({ workspaceId: session.workspaceId, status: 'active', limit: 200 })
       : [];
     const workspaceTasksById = new Map(workspaceTasks.map((t) => [t.id, t]));
 
@@ -109,7 +109,7 @@ export async function GET(
       const n = getNote(nid);
       if (n) inChat.push(noteToRow(n, refTimestamps.get(`note:${nid}`)));
     }
-    inChat.sort((a, b) => (b.referenced_at ?? '').localeCompare(a.referenced_at ?? ''));
+    inChat.sort((a, b) => (b.referencedAt ?? '').localeCompare(a.referencedAt ?? ''));
 
     // workspace — workspace-scoped, not already in chat.
     const workspace: ReferenceRow[] = [];
@@ -126,7 +126,7 @@ export async function GET(
       const aActive = a.kind === 'task' && a.status === 'active' ? 0 : 1;
       const bActive = b.kind === 'task' && b.status === 'active' ? 0 : 1;
       if (aActive !== bActive) return aActive - bActive;
-      return b.updated_at.localeCompare(a.updated_at);
+      return b.updatedAt.localeCompare(a.updatedAt);
     });
 
     // all — cross-workspace, not already in inChat/workspace.
@@ -146,7 +146,7 @@ export async function GET(
         if (inChatOrWorkspace.has(`note:${n.id}`)) continue;
         all.push(noteToRow(n));
       }
-      all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
       all = all.slice(0, SECTION_CAP * 2);
     }
 
@@ -163,8 +163,8 @@ export async function GET(
 }
 
 interface PinBody {
-  entity_type?: 'task' | 'note' | 'area';
-  entity_id?: string;
+  entityType?: 'task' | 'note' | 'area';
+  entityId?: string;
   hydrate?: boolean;
 }
 
@@ -175,17 +175,17 @@ export async function POST(
   try {
     const { id } = await params;
     const body: PinBody = await request.json();
-    const entity_type = body.entity_type;
-    const entity_id = body.entity_id;
-    if (!entity_type || !entity_id) {
-      return Response.json({ error: 'entity_type and entity_id required' }, { status: 400 });
+    const entityType = body.entityType;
+    const entityId = body.entityId;
+    if (!entityType || !entityId) {
+      return Response.json({ error: 'entityType and entityId required' }, { status: 400 });
     }
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     pinSessionRef({
       sessionId: id,
-      entityType: entity_type,
-      entityId: entity_id,
+      entityType: entityType,
+      entityId: entityId,
       hydrate: body.hydrate ?? true,
     });
     return Response.json({ ok: true }, { status: 201 });
@@ -202,18 +202,18 @@ export async function DELETE(
   try {
     const { id } = await params;
     const url = new URL(request.url);
-    const entity_type = url.searchParams.get('entity_type') as
+    const entityType = url.searchParams.get('entityType') as
       | 'task' | 'note' | 'area' | null;
-    const entity_id = url.searchParams.get('entity_id');
-    if (!entity_type || !entity_id) {
-      return Response.json({ error: 'entity_type and entity_id required' }, { status: 400 });
+    const entityId = url.searchParams.get('entityId');
+    if (!entityType || !entityId) {
+      return Response.json({ error: 'entityType and entityId required' }, { status: 400 });
     }
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     unpinSessionRef({
       sessionId: id,
-      entityType: entity_type,
-      entityId: entity_id,
+      entityType: entityType,
+      entityId: entityId,
     });
     return Response.json({ ok: true });
   } catch (err) {

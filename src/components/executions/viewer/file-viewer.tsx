@@ -241,7 +241,7 @@ function FileViewerHeader({
   // honest even if a legacy state, race, or new code path slips an
   // absolute path through to the viewer.
   const { data: session } = useSession(sessionId);
-  const displayPath = toRelativePath(path, session?.worktree_path ?? null);
+  const displayPath = toRelativePath(path, session?.worktreePath ?? null);
   return (
     <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 min-w-0">
       <FileIcon name={displayPath} />
@@ -323,7 +323,7 @@ function FileViewerHeader({
       <RevealButton sessionId={sessionId} path={path} />
       <FileHeaderMoreMenu
         relativePath={displayPath}
-        worktreePath={session?.worktree_path ?? null}
+        worktreePath={session?.worktreePath ?? null}
         onReferenceInChat={onReferenceInChat}
       />
       {onClose && (
@@ -426,7 +426,7 @@ function RevealButton({ sessionId, path }: RevealButtonProps) {
   const location = useClientLocation();
   const { editor } = useEditorPreference();
   const { data: session } = useSession(sessionId);
-  const worktreePath = session?.worktree_path ?? null;
+  const worktreePath = session?.worktreePath ?? null;
   const absolutePath = worktreePath ? `${worktreePath}/${path}` : null;
   const [revealing, setRevealing] = useState(false);
 

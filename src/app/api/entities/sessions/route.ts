@@ -26,11 +26,11 @@ export async function GET(request: NextRequest) {
       sessions: sessions.map((s) => ({
         id: s.id,
         label: s.label,
-        workspace_id: s.workspace_id,
+        workspaceId: s.workspaceId,
         type: s.type,
         status: s.status,
-        started_at: s.started_at,
-        last_outcome_event_at: s.last_outcome_event_at,
+        startedAt: s.startedAt,
+        lastOutcomeEventAt: s.lastOutcomeEventAt,
       })),
     });
   } catch (err) {

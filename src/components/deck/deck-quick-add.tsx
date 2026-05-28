@@ -32,7 +32,7 @@ export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardPro
     if (!trimmed || createTask.isPending) return;
 
     createTask.mutate(
-      { title: trimmed, raw_input: trimmed },
+      { title: trimmed, rawInput: trimmed },
       {
         onSuccess: (task) => {
           onTaskCreated(task);

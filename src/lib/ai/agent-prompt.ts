@@ -12,13 +12,13 @@ You have tools to directly create, read, update, and delete tasks, notes, and ar
 - status: active, done, archived
 - energy: deep (focused work) or light (easy/routine)
 - effort: trivial, small, medium, large, epic
-- hard_deadline: date if time-sensitive
+- hardDeadline: date if time-sensitive
 - recurrence: "daily", "weekly", "monthly", "yearly", or "Xd" (e.g. "3d")
-- blocked_on: text describing what blocks it
-- parent_id: for subtasks (hierarchical)
-- area_id: which area it belongs to
-- context_tags: freeform tags
-- user_context: notes from the user about this task
+- blockedOn: text describing what blocks it
+- parentId: for subtasks (hierarchical)
+- areaId: which area it belongs to
+- contextTags: freeform tags
+- userContext: notes from the user about this task
 
 **Notes** are freeform text entries (ideas, meeting notes, plans, research). They have a body (markdown), optional title, and can link to an area or task.
 
@@ -31,7 +31,7 @@ You have tools to directly create, read, update, and delete tasks, notes, and ar
 **User State** tracks the user's current energy level, available minutes, active area focus, and a free-text description.
 
 ## CRITICAL: IDs are UUIDs, not names
-All entity IDs (area_id, task_id, parent_id) are UUIDs like "0192f3a1-7b2c-7d4e-8f1a-2b3c4d5e6f7a". **Never pass a name (like "Bounce") as an ID.** When the user refers to an area or task by name, call listAreas or listTasks first to find the matching UUID, then use that UUID in subsequent tool calls.
+All entity IDs (areaId, taskId, parentId) are UUIDs like "0192f3a1-7b2c-7d4e-8f1a-2b3c4d5e6f7a". **Never pass a name (like "Bounce") as an ID.** When the user refers to an area or task by name, call listAreas or listTasks first to find the matching UUID, then use that UUID in subsequent tool calls.
 
 ## Entity references
 When you mention a specific task, note, area, or deck in your response, use the reference syntax so the UI renders a clickable card:

@@ -6,10 +6,10 @@
  * multipart `file` field, writes the bytes to `<brain>/attachments/`,
  * and returns the full `Attachment` record so the client can:
  *
- *   1. Insert the returned `file_name` into the Tiptap body as an image src:
- *      `/api/attachments/<file_name>`
+ *   1. Insert the returned `fileName` into the Tiptap body as an image src:
+ *      `/api/attachments/<fileName>`
  *   2. Include the full record in the entity save payload so the server can
- *      attach metadata (original_name, mime_type, size) to the manifest.
+ *      attach metadata (originalName, mimeType, size) to the manifest.
  *
  * Auth: bearer token (middleware handles it).
  */
@@ -45,15 +45,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Name can come either from a File.name or a separate `original_name` field
+    // Name can come either from a File.name or a separate `originalName` field
     // (useful when callers construct a Blob manually, e.g. the capture route).
     const originalNameRaw =
       typeof (file as File).name === 'string' && (file as File).name
         ? (file as File).name
-        : (formData.get('original_name') as string | null) ?? '';
-    const original_name = originalNameRaw.trim() || 'file';
+        : (formData.get('originalName') as string | null) ?? '';
+    const originalName = originalNameRaw.trim() || 'file';
 
-    const mime = resolveMime(file.type, original_name);
+    const mime = resolveMime(file.type, originalName);
     if (!isAllowedMime(mime)) {
       return Response.json(
         { error: `Disallowed mime type: ${mime}` },
@@ -63,8 +63,8 @@ export async function POST(request: NextRequest) {
 
     const attachment = await saveAttachment({
       data: file,
-      original_name,
-      mime_type: mime,
+      originalName,
+      mimeType: mime,
     });
 
     return Response.json(attachment, { status: 201 });

@@ -42,7 +42,7 @@ export async function GET(
     return Response.json({ error: 'session not found' }, { status: 404 });
   }
 
-  const agent = getAgent(session.agent_id);
+  const agent = getAgent(session.agentId);
   if (!agent) {
     return Response.json({ error: 'agent not found' }, { status: 404 });
   }

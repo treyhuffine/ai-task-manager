@@ -123,7 +123,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
       if (!noteId) return
       if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current)
       foldedTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, folded_headings: folded })
+        updateNote.mutate({ id: noteId, foldedHeadings: folded })
       }, 400)
     },
     [noteId, updateNote]
@@ -132,7 +132,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const handleAreaChange = useCallback(
     (areaId: string | null) => {
       if (!noteId) return
-      updateNote.mutate({ id: noteId, area_id: areaId })
+      updateNote.mutate({ id: noteId, areaId: areaId })
     },
     [noteId, updateNote]
   )
@@ -297,7 +297,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                     <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">Note</span>
                     <span className="text-muted-foreground/30">·</span>
                     <AreaSelect
-                      value={note.area_id}
+                      value={note.areaId}
                       onChange={handleAreaChange}
                     />
                   </div>
@@ -309,16 +309,16 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                       onTitleChange={handleTitleChange}
                       onBodyChange={handleBodyChange}
                       onAttachment={handleAttachment}
-                      foldedHeadings={note.folded_headings ?? []}
+                      foldedHeadings={note.foldedHeadings ?? []}
                       onFoldedHeadingsChange={handleFoldedHeadingsChange}
                       autoFocusTitle={!note.title && note.body.trim().length === 0}
                       hideFooter
                       disabled={aiBusy}
                       metadata={
                         <p className="text-[10px] text-muted-foreground/50 mt-1">
-                          Created {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          {note.updated_at !== note.created_at && (
-                            <> &middot; Edited {new Date(note.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                          Created {new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {note.updatedAt !== note.createdAt && (
+                            <> &middot; Edited {new Date(note.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
                           )}
                           <> &middot; {wordCount} words &middot; {charCount} chars</>
                         </p>

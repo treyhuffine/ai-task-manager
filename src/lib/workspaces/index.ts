@@ -28,7 +28,7 @@ const execFileAsync = promisify(execFile);
  * so we accept it structurally rather than coupling to a full row type.
  */
 export interface WorktreePointer {
-  worktree_path: string | null;
+  worktreePath: string | null;
 }
 
 // Cached lazy-loaded module. The library has no side effects on import,
@@ -136,11 +136,11 @@ export async function fetchPrHead(args: {
   prNumber: number;
 }): Promise<FetchPrHeadResult> {
   const { ws, prNumber } = args;
-  if (!ws.is_git) throw new Error('fetchPrHead called on non-git workspace');
+  if (!ws.isGit) throw new Error('fetchPrHead called on non-git workspace');
   if (!Number.isInteger(prNumber) || prNumber <= 0) {
     throw new Error(`fetchPrHead: invalid prNumber ${prNumber}`);
   }
-  const remote = ws.remote_name ?? 'origin';
+  const remote = ws.remoteName ?? 'origin';
   const localRef = `refs/agentex/pr/${prNumber}`;
   // `+` is the force-fetch prefix — overwrites the local ref even if the PR
   // history was rewritten. Without it, a force-push to the PR would make
@@ -166,7 +166,7 @@ async function refreshBaseFromRemote(args: {
   baseBranch: string;
 }): Promise<{ ref: string; fetched: boolean; warning: string | null }> {
   const { ws, baseBranch } = args;
-  const remote = ws.remote_name ?? 'origin';
+  const remote = ws.remoteName ?? 'origin';
   // Strip an existing `<remote>/` prefix so we send a clean upstream
   // branch name to `git fetch`.
   const remoteSlashed = `${remote}/`;
@@ -208,17 +208,17 @@ export async function createWorktreeForSession(args: {
   sessionLabel: string | null | undefined;
   /** Override the workspace's default base branch — used by "Create from"
    *  flows where the user picks an existing PR head, branch, or issue
-   *  base. Falls back to `ws.base_branch` when omitted. */
+   *  base. Falls back to `ws.baseBranch` when omitted. */
   baseBranchOverride?: string | null;
 }): Promise<CreateWorktreeForSessionResult> {
   const { ws, sessionId, sessionLabel, baseBranchOverride } = args;
-  if (!ws.is_git) {
+  if (!ws.isGit) {
     throw new Error('createWorktreeForSession called on non-git workspace');
   }
   const trimmedOverride = baseBranchOverride?.trim();
-  const requestedBase = trimmedOverride || ws.base_branch;
+  const requestedBase = trimmedOverride || ws.baseBranch;
   if (!requestedBase) {
-    throw new Error(`Workspace ${ws.slug} has no base_branch`);
+    throw new Error(`Workspace ${ws.slug} has no baseBranch`);
   }
   // Only refresh from remote on the default "+" path. When the caller
   // passed an explicit override we trust it as-is — for PRs that's the
@@ -233,7 +233,7 @@ export async function createWorktreeForSession(args: {
     }
   }
   const lib = await loadLib();
-  const root = ws.worktree_root ?? defaultWorktreeRoot(ws.slug);
+  const root = ws.worktreeRoot ?? defaultWorktreeRoot(ws.slug);
   // Worktree leaf is `<workspace-slug>-<6hex>` so the dirname carries
   // context in IDE tabs / Finder where you only see the leaf. The 6 hex
   // chars come from the UUIDv7's random portion (not the timestamp
@@ -263,7 +263,7 @@ export async function createWorktreeForSession(args: {
       // so secrets / local configs travel with the session. Failures here
       // shouldn't kill the worktree — log and continue; the user can re-
       // run a copy from settings later.
-      const expanded = expandFilesToCopyPatterns(ws.files_to_copy ?? []);
+      const expanded = expandFilesToCopyPatterns(ws.filesToCopy ?? []);
       if (expanded.length > 0) {
         try {
           await handle.copyFromSource(expanded);
@@ -293,7 +293,7 @@ export async function createWorktreeForSession(args: {
  * ref entry that's noise in a picker.
  */
 export async function listWorkspaceBranches(ws: WorkspaceRecord): Promise<string[]> {
-  if (!ws.is_git) return [];
+  if (!ws.isGit) return [];
   const lib = await loadLib();
   try {
     const result = await lib.workspace.open(ws.cwd);
@@ -324,10 +324,10 @@ export async function openWorktreeHandle(
   session: WorktreePointer,
   sourceCwd: string,
 ): Promise<import('@agentex/workspace').Workspace | null> {
-  if (!session.worktree_path) return null;
+  if (!session.worktreePath) return null;
   const lib = await loadLib();
   try {
-    return await lib.workspace.open(session.worktree_path, { source: sourceCwd });
+    return await lib.workspace.open(session.worktreePath, { source: sourceCwd });
   } catch (err) {
     if (err instanceof lib.WorkspaceNotFoundError) return null;
     throw err;
@@ -342,10 +342,10 @@ export async function archiveSessionWorktree(args: {
   session: WorktreePointer;
   force?: boolean;
 }): Promise<void> {
-  if (!args.session.worktree_path) return;
+  if (!args.session.worktreePath) return;
   const lib = await loadLib();
   try {
-    await lib.workspace.archive(args.session.worktree_path, { force: args.force ?? false });
+    await lib.workspace.archive(args.session.worktreePath, { force: args.force ?? false });
   } catch (err) {
     if (err instanceof lib.WorkspaceNotFoundError) return;
     throw err;

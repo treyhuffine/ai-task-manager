@@ -41,7 +41,7 @@ interface ExecutionActionBarProps {
 export function ExecutionActionBar({ session, workspace, variant = 'row' }: ExecutionActionBarProps) {
   const { state, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts } = useExecutionActions(
     session,
-    workspace?.is_git ?? false,
+    workspace?.isGit ?? false,
   );
   const archive = useArchiveSession();
   const helpWithError = useHelpWithError(session.id);
@@ -75,8 +75,8 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
 
   const baseContext = (): { label: string; value: string }[] => {
     const entries: { label: string; value: string }[] = [];
-    if (session.branch_name) entries.push({ label: 'Branch', value: session.branch_name });
-    if (workspace?.base_branch) entries.push({ label: 'Base', value: workspace.base_branch });
+    if (session.branchName) entries.push({ label: 'Branch', value: session.branchName });
+    if (workspace?.baseBranch) entries.push({ label: 'Base', value: workspace.baseBranch });
     return entries;
   };
 
@@ -114,15 +114,15 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   };
 
   // Hide entirely for non-git, no-worktree, or archived sessions.
-  // `setup_failed` is rendered so the user can retry the fetch.
-  // `taken_over` is rendered as a separate banner above the transcript
+  // `setupFailed` is rendered so the user can retry the fetch.
+  // `takenOver` is rendered as a separate banner above the transcript
   // (see TakeoverBanner) — the regular ship actions don't apply while
   // the user's laptop owns the work.
   if (
-    state.kind === 'no_worktree' ||
+    state.kind === 'noWorktree' ||
     state.kind === 'archived' ||
-    state.kind === 'clean_no_branch' ||
-    state.kind === 'taken_over'
+    state.kind === 'cleanNoBranch' ||
+    state.kind === 'takenOver'
   ) {
     return null;
   }
@@ -132,7 +132,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
       onError: (err) => {
         // 409 + `non_fast_forward` is the divergence case — the state
         // machine reads `push.error` directly and flips to
-        // `local_diverged`. No modal needed; the user gets a Resolve
+        // `localDiverged`. No modal needed; the user gets a Resolve
         // Conflicts button on the bar itself.
         if (err instanceof ApiError && err.status === 409) {
           const body = err.body as { code?: string } | null;
@@ -174,7 +174,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
     resolveConflicts.mutate(scenario, {
       onSuccess: () => {
         // Clear the push-rejected error so the state machine drops out
-        // of `local_diverged` once the agent's turn lands the resolution.
+        // of `localDiverged` once the agent's turn lands the resolution.
         if (scenario === 'local_vs_remote') push.reset();
       },
       onError: (err) => {
@@ -191,7 +191,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   const handleRetrySetup = () => {
     retrySetup.mutate(undefined, {
       onError: (err) => {
-        // The server also persists this to setup_error, but surface
+        // The server also persists this to setupError, but surface
         // the immediate message too so the user sees something change.
         setActionError({
           title: 'Retry setup failed',
@@ -312,7 +312,7 @@ interface ButtonsProps {
 
 function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolveConflicts, openPrPending: _openPrPending, mergePending: _mergePending }: ButtonsProps) {
   switch (state.kind) {
-    case 'setup_failed':
+    case 'setupFailed':
       return (
         <ActionButton
           icon={<ArrowDownToLine size={11} />}
@@ -334,7 +334,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         />
       );
 
-    case 'behind_base':
+    case 'behindBase':
       return (
         <ActionButton
           icon={<ArrowDownToLine size={11} />}
@@ -347,7 +347,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         />
       );
 
-    case 'ahead_no_pr':
+    case 'aheadNoPr':
       return (
         <>
           <ActionButton
@@ -363,7 +363,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         </>
       );
 
-    case 'pr_open_in_sync':
+    case 'prOpenInSync':
       return (
         <>
           <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
@@ -377,7 +377,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         </>
       );
 
-    case 'pr_open_ahead':
+    case 'prOpenAhead':
       return (
         <>
           <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
@@ -400,7 +400,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         </>
       );
 
-    case 'pr_open_behind_base':
+    case 'prOpenBehindBase':
       return (
         <>
           <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
@@ -423,7 +423,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         </>
       );
 
-    case 'pr_conflicting_with_base':
+    case 'prConflictingWithBase':
       return (
         <>
           <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
@@ -445,7 +445,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         </>
       );
 
-    case 'local_diverged':
+    case 'localDiverged':
       return (
         <ActionButton
           icon={<AlertCircle size={11} />}
@@ -457,7 +457,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         />
       );
 
-    case 'pr_mergeable':
+    case 'prMergeable':
       return (
         <>
           <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
@@ -471,7 +471,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         </>
       );
 
-    case 'pr_merged':
+    case 'prMerged':
       return (
         <>
           <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] font-medium text-muted-foreground">
@@ -496,7 +496,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         </>
       );
 
-    case 'pr_closed':
+    case 'prClosed':
       return (
         <PrChip prNumber={state.prNumber} prUrl={state.prUrl} closed />
       );
@@ -555,14 +555,14 @@ type ChipTheme = {
 };
 
 const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
-  no_worktree: null,
-  clean_no_branch: null,
+  noWorktree: null,
+  cleanNoBranch: null,
   archived: null,
   // The action bar short-circuits before reaching this map when the
   // session is in takeover (banner replaces the bar entirely), but
   // TypeScript's exhaustiveness check still needs the entry.
-  taken_over: null,
-  setup_failed: {
+  takenOver: null,
+  setupFailed: {
     chip: 'border-rose-500/40 bg-rose-500/10',
     text: 'text-rose-700 dark:text-rose-300',
   },
@@ -570,43 +570,43 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
     chip: 'border-amber-500/40 bg-amber-500/10',
     text: 'text-amber-700 dark:text-amber-300',
   },
-  behind_base: {
+  behindBase: {
     chip: 'border-orange-500/40 bg-orange-500/10',
     text: 'text-orange-700 dark:text-orange-300',
   },
-  ahead_no_pr: {
+  aheadNoPr: {
     chip: 'border-blue-500/40 bg-blue-500/10',
     text: 'text-blue-700 dark:text-blue-300',
   },
-  pr_open_in_sync: {
+  prOpenInSync: {
     chip: 'border-emerald-500/40 bg-emerald-500/10',
     text: 'text-emerald-700 dark:text-emerald-300',
   },
-  pr_mergeable: {
+  prMergeable: {
     chip: 'border-emerald-500/40 bg-emerald-500/10',
     text: 'text-emerald-700 dark:text-emerald-300',
   },
-  pr_open_ahead: {
+  prOpenAhead: {
     chip: 'border-amber-500/40 bg-amber-500/10',
     text: 'text-amber-700 dark:text-amber-300',
   },
-  pr_open_behind_base: {
+  prOpenBehindBase: {
     chip: 'border-orange-500/40 bg-orange-500/10',
     text: 'text-orange-700 dark:text-orange-300',
   },
-  pr_conflicting_with_base: {
+  prConflictingWithBase: {
     chip: 'border-rose-500/40 bg-rose-500/10',
     text: 'text-rose-700 dark:text-rose-300',
   },
-  local_diverged: {
+  localDiverged: {
     chip: 'border-rose-500/40 bg-rose-500/10',
     text: 'text-rose-700 dark:text-rose-300',
   },
-  pr_merged: {
+  prMerged: {
     chip: 'border-border bg-muted/40',
     text: 'text-muted-foreground',
   },
-  pr_closed: {
+  prClosed: {
     chip: 'border-rose-500/40 bg-rose-500/10',
     text: 'text-rose-700 dark:text-rose-300',
   },
@@ -646,7 +646,7 @@ interface NarrativeBodyProps extends NarrativeProps {
 
 function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
   switch (state.kind) {
-    case 'setup_failed':
+    case 'setupFailed':
       return (
         <>
           <NarrativeLeft>
@@ -686,7 +686,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'behind_base':
+    case 'behindBase':
       return (
         <>
           <NarrativeLeft>
@@ -705,7 +705,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'ahead_no_pr':
+    case 'aheadNoPr':
       return (
         <>
           <NarrativeLeft>
@@ -728,8 +728,8 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'pr_open_in_sync':
-    case 'pr_mergeable':
+    case 'prOpenInSync':
+    case 'prMergeable':
       return (
         <>
           <NarrativeLeft>
@@ -746,7 +746,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'pr_open_ahead':
+    case 'prOpenAhead':
       return (
         <>
           <NarrativeLeft>
@@ -766,7 +766,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'pr_open_behind_base':
+    case 'prOpenBehindBase':
       return (
         <>
           <NarrativeLeft>
@@ -786,7 +786,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'pr_conflicting_with_base':
+    case 'prConflictingWithBase':
       return (
         <>
           <NarrativeLeft>
@@ -807,7 +807,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'local_diverged':
+    case 'localDiverged':
       return (
         <>
           <NarrativeLeft>
@@ -827,7 +827,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'pr_merged':
+    case 'prMerged':
       return (
         <>
           <NarrativeLeft>
@@ -848,7 +848,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         </>
       );
 
-    case 'pr_closed':
+    case 'prClosed':
       return (
         <NarrativeLeft>
           <PrChip prNumber={state.prNumber} prUrl={state.prUrl} closed />

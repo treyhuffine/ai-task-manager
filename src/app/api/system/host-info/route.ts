@@ -12,14 +12,14 @@ import { getAppRoot } from '@/lib/config/paths';
 export interface HostInfoResponse {
   hostname: string;
   platform: NodeJS.Platform;
-  app_root: string;
+  appRoot: string;
 }
 
 export function GET() {
   const body: HostInfoResponse = {
     hostname: os.hostname(),
     platform: process.platform,
-    app_root: getAppRoot(),
+    appRoot: getAppRoot(),
   };
   return Response.json(body);
 }

@@ -13,12 +13,12 @@ export async function GET(request: NextRequest) {
       .select({
         id: tasks.id,
         title: tasks.title,
-        entity_type: sql<string>`'task'`.as('entity_type'),
-        last_viewed_at: tasks.last_viewed_at,
+        entityType: sql<string>`'task'`.as('entityType'),
+        lastViewedAt: tasks.lastViewedAt,
       })
       .from(tasks)
-      .where(isNotNull(tasks.last_viewed_at))
-      .orderBy(desc(tasks.last_viewed_at))
+      .where(isNotNull(tasks.lastViewedAt))
+      .orderBy(desc(tasks.lastViewedAt))
       .limit(limit)
       .all();
 
@@ -27,19 +27,19 @@ export async function GET(request: NextRequest) {
       .select({
         id: notes.id,
         title: sql<string>`COALESCE(${notes.title}, substr(${notes.body}, 1, 60))`.as('title'),
-        entity_type: sql<string>`'note'`.as('entity_type'),
-        last_viewed_at: notes.last_viewed_at,
-        has_body: sql<boolean>`(length(trim(${notes.body})) > 0)`.as('has_body'),
+        entityType: sql<string>`'note'`.as('entityType'),
+        lastViewedAt: notes.lastViewedAt,
+        hasBody: sql<boolean>`(length(trim(${notes.body})) > 0)`.as('hasBody'),
       })
       .from(notes)
-      .where(isNotNull(notes.last_viewed_at))
-      .orderBy(desc(notes.last_viewed_at))
+      .where(isNotNull(notes.lastViewedAt))
+      .orderBy(desc(notes.lastViewedAt))
       .limit(limit)
       .all();
 
-    // Merge and sort by last_viewed_at, take top N
+    // Merge and sort by lastViewedAt, take top N
     const merged = [...recentTasks, ...recentNotes]
-      .sort((a, b) => (b.last_viewed_at ?? '').localeCompare(a.last_viewed_at ?? ''))
+      .sort((a, b) => (b.lastViewedAt ?? '').localeCompare(a.lastViewedAt ?? ''))
       .slice(0, limit);
 
     return Response.json(merged);

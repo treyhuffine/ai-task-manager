@@ -2,6 +2,7 @@ import { openai } from '@ai-sdk/openai';
 import { streamText, tool, stepCountIs, type UIMessage, convertToModelMessages } from 'ai';
 import { z } from 'zod';
 import { getDb } from '@/lib/db';
+import { hydrateRow } from '@/lib/db/hydrate';
 import { tasks, notes } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { upsertEmbedding, buildEmbeddingText } from '@/lib/embeddings/embed';
@@ -54,14 +55,14 @@ function formatTaskContext(doc: Record<string, unknown>): string {
   if (doc.status) lines.push(`**Status:** ${doc.status}`);
   if (doc.energy) lines.push(`**Energy:** ${doc.energy}`);
   if (doc.effort) lines.push(`**Effort:** ${doc.effort}`);
-  if (doc.hard_deadline) lines.push(`**Deadline:** ${doc.hard_deadline}`);
-  if (doc.resurface_after) lines.push(`**Resurface after:** ${doc.resurface_after}`);
+  if (doc.hardDeadline) lines.push(`**Deadline:** ${doc.hardDeadline}`);
+  if (doc.resurfaceAfter) lines.push(`**Resurface after:** ${doc.resurfaceAfter}`);
   if (doc.recurrence) lines.push(`**Recurrence:** ${doc.recurrence}`);
-  if (doc.blocked_on) lines.push(`**Blocked on:** ${doc.blocked_on}`);
+  if (doc.blockedOn) lines.push(`**Blocked on:** ${doc.blockedOn}`);
   if (doc.description) lines.push(`**Description:** ${doc.description}`);
   if (doc.body) lines.push(`\n**Body:**\n${doc.body}`);
   if (doc.outcome) lines.push(`**Desired outcome:** ${doc.outcome}`);
-  if (doc.user_context) lines.push(`**User context:** ${doc.user_context}`);
+  if (doc.userContext) lines.push(`**User context:** ${doc.userContext}`);
   return lines.join('\n') || '_Empty task_';
 }
 
@@ -87,12 +88,13 @@ function buildTaskTools(documentId: string) {
         const db = getDb();
         const row = db
           .update(tasks)
-          .set({ title, updated_at: new Date().toISOString() })
+          .set({ title, updatedAt: new Date().toISOString() })
           .where(eq(tasks.id, documentId))
           .returning()
           .get();
         if (!row) return { success: false, error: 'Task not found' };
-        void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+        const hydrated = hydrateRow(row);
+        void upsertEmbedding('task', hydrated.id, buildEmbeddingText('task', hydrated));
         void syncEntity('task', row.id);
         return { success: true, title: row.title };
       },
@@ -107,12 +109,13 @@ function buildTaskTools(documentId: string) {
         const db = getDb();
         const row = db
           .update(tasks)
-          .set({ body, updated_at: new Date().toISOString() })
+          .set({ body, updatedAt: new Date().toISOString() })
           .where(eq(tasks.id, documentId))
           .returning()
           .get();
         if (!row) return { success: false, error: 'Task not found' };
-        void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+        const hydrated = hydrateRow(row);
+        void upsertEmbedding('task', hydrated.id, buildEmbeddingText('task', hydrated));
         void syncEntity('task', row.id);
         return { success: true, bodyLength: row.body?.length ?? 0 };
       },
@@ -124,30 +127,30 @@ function buildTaskTools(documentId: string) {
         status: z.enum(['active', 'done', 'archived']).optional().describe('Task status'),
         energy: z.enum(['deep', 'light']).nullish().describe('Energy level required'),
         effort: z.enum(['trivial', 'small', 'medium', 'large', 'epic']).nullish().describe('Effort estimate'),
-        hard_deadline: z.string().nullish().describe('Deadline as ISO date string, or null to clear'),
-        resurface_after: z.string().nullish().describe('Snooze/resurface date as ISO string, or null to clear'),
+        hardDeadline: z.string().nullish().describe('Deadline as ISO date string, or null to clear'),
+        resurfaceAfter: z.string().nullish().describe('Snooze/resurface date as ISO string, or null to clear'),
         recurrence: z.string().nullish().describe('Recurrence pattern like "daily", "weekly", etc.'),
-        blocked_on: z.string().nullish().describe('What the task is blocked on, or null to unblock'),
+        blockedOn: z.string().nullish().describe('What the task is blocked on, or null to unblock'),
         description: z.string().nullish().describe('Short description of the task'),
         outcome: z.string().nullish().describe('Desired outcome for the task'),
       }),
       execute: async (props) => {
         const db = getDb();
-        const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
         for (const [key, value] of Object.entries(props)) {
           if (value !== undefined) {
             updates[key] = value;
           }
         }
         if (props.status === 'done') {
-          updates.completed_at = new Date().toISOString();
+          updates.completedAt = new Date().toISOString();
         } else if (props.status === 'active') {
-          updates.completed_at = null;
+          updates.completedAt = null;
         }
-        if (props.blocked_on === null) {
-          updates.blocked_since = null;
-        } else if (props.blocked_on) {
-          updates.blocked_since = new Date().toISOString();
+        if (props.blockedOn === null) {
+          updates.blockedSince = null;
+        } else if (props.blockedOn) {
+          updates.blockedSince = new Date().toISOString();
         }
 
         const row = db
@@ -157,7 +160,8 @@ function buildTaskTools(documentId: string) {
           .returning()
           .get();
         if (!row) return { success: false, error: 'Task not found' };
-        void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+        const hydrated = hydrateRow(row);
+        void upsertEmbedding('task', hydrated.id, buildEmbeddingText('task', hydrated));
         const updatedFields = Object.keys(props).filter(k => (props as Record<string, unknown>)[k] !== undefined);
         return { success: true, updated: updatedFields };
       },
@@ -176,13 +180,14 @@ function buildNoteTools(documentId: string) {
         const db = getDb();
         const row = db
           .update(notes)
-          .set({ title, updated_at: new Date().toISOString() })
+          .set({ title, updatedAt: new Date().toISOString() })
           .where(eq(notes.id, documentId))
           .returning()
           .get();
         if (!row) return { success: false, error: 'Note not found' };
-        void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
-        void syncEntity('note', row.id);
+        const hydrated = hydrateRow(row);
+        void upsertEmbedding('note', hydrated.id, buildEmbeddingText('note', hydrated));
+        void syncEntity('note', hydrated.id);
         return { success: true, title: row.title };
       },
     }),
@@ -196,13 +201,14 @@ function buildNoteTools(documentId: string) {
         const db = getDb();
         const row = db
           .update(notes)
-          .set({ body, updated_at: new Date().toISOString() })
+          .set({ body, updatedAt: new Date().toISOString() })
           .where(eq(notes.id, documentId))
           .returning()
           .get();
         if (!row) return { success: false, error: 'Note not found' };
-        void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
-        void syncEntity('note', row.id);
+        const hydrated = hydrateRow(row);
+        void upsertEmbedding('note', hydrated.id, buildEmbeddingText('note', hydrated));
+        void syncEntity('note', hydrated.id);
         return { success: true, bodyLength: row.body?.length ?? 0 };
       },
     }),
@@ -214,7 +220,7 @@ function buildNoteTools(documentId: string) {
       }),
       execute: async (props) => {
         const db = getDb();
-        const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
         for (const [key, value] of Object.entries(props)) {
           if (value !== undefined) updates[key] = value;
         }

@@ -33,7 +33,7 @@ function toastCaptured(item: StreamRecord, extra?: { extracted?: string }) {
       : item.media === "image"
       ? "Image"
       : "Note";
-  const preview = truncate(extra?.extracted || item.raw_text || "", 80);
+  const preview = truncate(extra?.extracted || item.rawText || "", 80);
   toast.success(`${mediaLabel} captured`, {
     description: preview || undefined,
   });
@@ -151,7 +151,7 @@ export function QuickCaptureModal({ open, onOpenChange }: QuickCaptureModalProps
     if (!trimmed) return;
 
     createStream.mutate(
-      { raw_text: trimmed, source: "capture", media: usedVoice ? "voice" : "text" },
+      { rawText: trimmed, source: "capture", media: usedVoice ? "voice" : "text" },
       {
         onSuccess: (item) => {
           toastCaptured(item);

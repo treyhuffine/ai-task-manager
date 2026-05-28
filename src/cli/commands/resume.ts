@@ -30,9 +30,9 @@ interface ResumeOptions {
 
 interface ResumeResponse {
   ok: true;
-  files_changed: number;
+  filesChanged: number;
   shortstat: string;
-  session_id: string;
+  sessionId: string;
 }
 
 function pick(active: ActiveTakeover[], filter: string | undefined): ActiveTakeover | null {
@@ -41,13 +41,13 @@ function pick(active: ActiveTakeover[], filter: string | undefined): ActiveTakeo
     if (active.length === 1) return active[0];
     return null; // ambiguous — caller will print options
   }
-  // Match by workspace_id OR workspace_name (case-insensitive).
+  // Match by workspaceId OR workspaceName (case-insensitive).
   const lower = filter.toLowerCase();
   return (
     active.find(
       (t) =>
-        t.state.workspace_id === filter ||
-        t.state.workspace_name.toLowerCase() === lower,
+        t.state.workspaceId === filter ||
+        t.state.workspaceName.toLowerCase() === lower,
     ) ?? null
   );
 }
@@ -117,7 +117,7 @@ export async function resumeCommand(opts: ResumeOptions) {
       console.error(pc.red('Multiple active takeovers — disambiguate with --workspace <name-or-id>:'));
       for (const t of active) {
         console.error(
-          `  ${pc.cyan(t.state.workspace_name)} ${pc.dim(t.state.workspace_id)} — ${t.state.branch}`,
+          `  ${pc.cyan(t.state.workspaceName)} ${pc.dim(t.state.workspaceId)} — ${t.state.branch}`,
         );
       }
     } else {
@@ -127,7 +127,7 @@ export async function resumeCommand(opts: ResumeOptions) {
   }
 
   const { clonePath, state } = chosen;
-  console.log(pc.dim(`Resuming ${state.workspace_name} (${state.branch}) at ${clonePath}`));
+  console.log(pc.dim(`Resuming ${state.workspaceName} (${state.branch}) at ${clonePath}`));
 
   // Stage any uncommitted local edits so the push captures them. The
   // happy path here is "user hit save in the editor and forgot to
@@ -157,7 +157,7 @@ export async function resumeCommand(opts: ResumeOptions) {
 
   console.log(
     pc.green(
-      `✓ Host pulled ${response.files_changed} file(s)${response.shortstat ? ` (${response.shortstat})` : ''}, posted diff to agent.`,
+      `✓ Host pulled ${response.filesChanged} file(s)${response.shortstat ? ` (${response.shortstat})` : ''}, posted diff to agent.`,
     ),
   );
   console.log(pc.dim(`Open the session to continue: ${state.host}`));

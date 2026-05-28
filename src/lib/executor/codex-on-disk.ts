@@ -57,12 +57,12 @@ export function mapCodexLineToInput(
   const p = line.payload as Record<string, unknown>;
   const innerType = typeof p.type === 'string' ? p.type : null;
 
-  const created_at = line.timestamp ?? new Date().toISOString();
+  const createdAt = line.timestamp ?? new Date().toISOString();
   const base = {
-    session_id: chatSessionId,
-    external_event_id: uuidv7(),
+    sessionId: chatSessionId,
+    externalEventId: uuidv7(),
     raw: line.raw,
-    created_at,
+    createdAt,
   };
 
   if (line.type === 'response_item') {
@@ -96,9 +96,9 @@ export function mapCodexLineToInput(
         role: 'assistant',
         source: 'tool_call' satisfies ChatEventSource,
         content: null,
-        tool_name: typeof p.name === 'string' ? p.name : null,
-        tool_input: parseToolArguments(p.arguments),
-        external_tool_call_id:
+        toolName: typeof p.name === 'string' ? p.name : null,
+        toolInput: parseToolArguments(p.arguments),
+        externalToolCallId:
           typeof p.call_id === 'string' ? p.call_id :
           typeof p.id === 'string' ? p.id : null,
       };
@@ -110,7 +110,7 @@ export function mapCodexLineToInput(
         role: 'tool',
         source: 'tool_result' satisfies ChatEventSource,
         content: typeof p.output === 'string' ? p.output : null,
-        external_tool_call_id: typeof p.call_id === 'string' ? p.call_id : null,
+        externalToolCallId: typeof p.call_id === 'string' ? p.call_id : null,
       };
     }
 

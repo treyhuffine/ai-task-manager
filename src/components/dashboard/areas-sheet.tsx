@@ -156,14 +156,14 @@ export function AreasSheet({ open, onOpenChange }: AreasSheetProps) {
         // Build a full list preserving any items not in displayedAreas
         const reorderedIds = new Set(reordered.map((a) => a.id))
         const others = prev.filter((a) => !reorderedIds.has(a.id))
-        return [...reordered.map((a, i) => ({ ...a, sort_order: i })), ...others]
+        return [...reordered.map((a, i) => ({ ...a, sortOrder: i })), ...others]
       }
     )
 
-    // Persist new sort_order for each moved item
+    // Persist new sortOrder for each moved item
     reordered.forEach((area, i) => {
-      if (area.sort_order !== i) {
-        updateArea.mutate({ id: area.id, sort_order: i })
+      if (area.sortOrder !== i) {
+        updateArea.mutate({ id: area.id, sortOrder: i })
       }
     })
   }, [displayedAreas, queryClient, updateArea])

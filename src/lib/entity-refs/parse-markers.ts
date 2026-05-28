@@ -4,8 +4,8 @@
  * to `src/components/chat/editor/parse-file-markers.ts`, but covering
  * the entity-level references too:
  *
- *   - `[[file:<file_name>]]`        — attachment chip (existing).
- *   - `[[task:<task_id>]]`           — task reference.
+ *   - `[[file:<fileName>]]`        — attachment chip (existing).
+ *   - `[[task:<taskId>]]`           — task reference.
  *   - `[[note:<note_id>]]`           — note reference.
  *   - `[[scratchpad]]`               — the owning session's scratchpad.
  *
@@ -15,7 +15,7 @@
  * rows and hydrate referenced bodies into the agent prompt.
  */
 export type EntityMarker =
-  | { kind: 'file'; file_name: string }
+  | { kind: 'file'; fileName: string }
   | { kind: 'task'; id: string }
   | { kind: 'note'; id: string }
   | { kind: 'scratchpad' };
@@ -24,7 +24,7 @@ export type EntitySegment =
   | { kind: 'text'; text: string }
   | { kind: 'marker'; marker: EntityMarker; raw: string };
 
-/** Strict id charset matches what UUIDv7 + file_name conventions emit. */
+/** Strict id charset matches what UUIDv7 + fileName conventions emit. */
 const MARKER_RE = /\[\[(file|task|note|scratchpad)(?::([A-Za-z0-9_.-]+))?\]\]/g;
 
 /**
@@ -47,7 +47,7 @@ export function parseEntitySegments(text: string): EntitySegment[] {
     if (kind === 'scratchpad') {
       marker = { kind: 'scratchpad' };
     } else if (kind === 'file' && id) {
-      marker = { kind: 'file', file_name: id };
+      marker = { kind: 'file', fileName: id };
     } else if ((kind === 'task' || kind === 'note') && id) {
       marker = { kind, id };
     }

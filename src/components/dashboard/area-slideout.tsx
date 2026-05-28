@@ -34,8 +34,8 @@ interface AreaSlideoutProps {
 export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSlideoutProps) {
   const isOpen = areaId !== null
   const { data: area } = useArea(areaId)
-  const { data: tasks = [] } = useTasks(areaId ? { area_id: areaId } : { area_id: '__none__' })
-  const { data: notes = [] } = useNotes(areaId ? { area_id: areaId } : { area_id: '__none__' })
+  const { data: tasks = [] } = useTasks(areaId ? { areaId: areaId } : { areaId: '__none__' })
+  const { data: notes = [] } = useNotes(areaId ? { areaId: areaId } : { areaId: '__none__' })
   const { openTask, openNote } = useDashboard()
   const updateArea = useUpdateArea()
   const createTask = useCreateTask()
@@ -148,7 +148,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
     if (!trimmed || !areaId || createTask.isPending) return
     setNewTaskTitle('')
     createTask.mutate(
-      { title: trimmed, raw_input: trimmed, area_id: areaId },
+      { title: trimmed, rawInput: trimmed, areaId: areaId },
       { onSuccess: () => setTimeout(() => taskInputRef.current?.focus(), 50) }
     )
   }, [newTaskTitle, areaId, createTask])
@@ -158,7 +158,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
     if (!trimmed || !areaId || createNote.isPending) return
     setNewNoteTitle('')
     createNote.mutate(
-      { title: trimmed, body: '', area_id: areaId },
+      { title: trimmed, body: '', areaId: areaId },
       { onSuccess: () => setTimeout(() => noteInputRef.current?.focus(), 50) }
     )
   }, [newNoteTitle, areaId, createNote])
@@ -366,14 +366,14 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                           <span className="text-[12px] font-medium text-foreground truncate">
                             {task.title}
                           </span>
-                          {task.hard_deadline && (
+                          {task.hardDeadline && (
                             <span className={cn(
                               'ml-auto text-[9px] font-medium flex-shrink-0',
-                              new Date(task.hard_deadline) < new Date()
+                              new Date(task.hardDeadline) < new Date()
                                 ? 'text-destructive'
                                 : 'text-muted-foreground/50'
                             )}>
-                              {new Date(task.hard_deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              {new Date(task.hardDeadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                             </span>
                           )}
                         </button>
@@ -461,7 +461,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                             )}
                           </div>
                           <span className="text-[9px] text-muted-foreground/40 flex-shrink-0">
-                            {new Date(note.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            {new Date(note.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </span>
                         </button>
                       ))}

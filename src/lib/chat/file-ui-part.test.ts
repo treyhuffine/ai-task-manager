@@ -3,7 +3,7 @@ import type { FileUIPart } from 'ai';
 import { fileNameFromUrl, fileUIPartToAttachment } from './file-ui-part';
 
 describe('fileNameFromUrl', () => {
-  it('extracts file_name from our standard serve URL', () => {
+  it('extracts fileName from our standard serve URL', () => {
     expect(fileNameFromUrl('/api/attachments/0193abcd.png')).toBe('0193abcd.png');
     expect(fileNameFromUrl('/api/attachments/abc-def_123.txt')).toBe('abc-def_123.txt');
   });
@@ -32,17 +32,17 @@ describe('fileUIPartToAttachment', () => {
   it('builds an Attachment from a standard URL', () => {
     const att = fileUIPartToAttachment(mkPart({ filename: 'photo.png' }));
     expect(att).toEqual({
-      file_name: 'abc.png',
-      original_name: 'photo.png',
-      mime_type: 'image/png',
+      fileName: 'abc.png',
+      originalName: 'photo.png',
+      mimeType: 'image/png',
       size: 0,
-      uploaded_at: '',
+      uploadedAt: '',
     });
   });
 
-  it('falls back to file_name when no filename is provided', () => {
+  it('falls back to fileName when no filename is provided', () => {
     const att = fileUIPartToAttachment(mkPart({ filename: undefined }));
-    expect(att?.original_name).toBe('abc.png');
+    expect(att?.originalName).toBe('abc.png');
   });
 
   it('returns null for parts without a recognizable URL', () => {

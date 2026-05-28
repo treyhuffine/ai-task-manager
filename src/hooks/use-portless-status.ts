@@ -12,8 +12,8 @@ import { api } from '@/lib/api/client';
 
 export interface PortlessStatusResponse {
   installed: boolean;
-  proxy_running: boolean;
-  state_dir: string;
+  proxyRunning: boolean;
+  stateDir: string;
 }
 
 export function usePortlessStatus() {

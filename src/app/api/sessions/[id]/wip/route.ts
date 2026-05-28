@@ -24,13 +24,13 @@ export async function GET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.worktree_path || !session.workspace_id) {
+    if (!session.worktreePath || !session.workspaceId) {
       return Response.json(null);
     }
-    const ws = getWorkspace(session.workspace_id);
-    if (!ws || !ws.is_git) return Response.json(null);
+    const ws = getWorkspace(session.workspaceId);
+    if (!ws || !ws.isGit) return Response.json(null);
 
-    const wip = await detectSourceWip(ws.cwd, ws.files_to_copy ?? []);
+    const wip = await detectSourceWip(ws.cwd, ws.filesToCopy ?? []);
     return Response.json(wip);
   } catch (err) {
     console.error('[GET /api/sessions/:id/wip]', err);
@@ -67,15 +67,15 @@ export async function POST(
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.worktree_path || !session.workspace_id) {
+    if (!session.worktreePath || !session.workspaceId) {
       return Response.json({ error: 'Worktree not provisioned yet' }, { status: 409 });
     }
-    const ws = getWorkspace(session.workspace_id);
-    if (!ws || !ws.is_git) {
+    const ws = getWorkspace(session.workspaceId);
+    if (!ws || !ws.isGit) {
       return Response.json({ error: 'Workspace is not a git workspace' }, { status: 409 });
     }
 
-    const wip = await detectSourceWip(ws.cwd, ws.files_to_copy ?? []);
+    const wip = await detectSourceWip(ws.cwd, ws.filesToCopy ?? []);
     const allFiles = [...wip.modified, ...wip.untracked];
     if (allFiles.length === 0) {
       return Response.json({ action: body.action, empty: true });
@@ -84,7 +84,7 @@ export async function POST(
     if (body.action === 'copy') {
       const result = await copyWipToWorktree({
         sourceCwd: ws.cwd,
-        worktreePath: session.worktree_path,
+        worktreePath: session.worktreePath,
         files: allFiles,
       });
       return Response.json({ action: 'copy', ...result });
@@ -92,7 +92,7 @@ export async function POST(
 
     const result = await moveWipToWorktree({
       sourceCwd: ws.cwd,
-      worktreePath: session.worktree_path,
+      worktreePath: session.worktreePath,
       files: allFiles,
     });
     return Response.json({ action: 'move', ...result });

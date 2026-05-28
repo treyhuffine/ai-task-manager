@@ -9,7 +9,7 @@
  * Strategy:
  *   1. **At spawn**, before the child actually starts, write a small
  *      JSON file at `<brain>/preview/<workspace-id>.pid` containing
- *      `{ pid, pgid, command, started_at }`. Persisted before the
+ *      `{ pid, pgid, command, startedAt }`. Persisted before the
  *      process is even running, so we never have a kid we don't know about.
  *   2. **At clean exit / stop**, delete the file.
  *   3. **On Flow boot**, scan the directory for stale entries:
@@ -32,11 +32,11 @@ import { getBrainDir } from '@/lib/config/paths';
 const execFileAsync = promisify(execFile);
 
 export interface PidRecord {
-  workspace_id: string;
+  workspaceId: string;
   pid: number;
   pgid: number;
   command: string;
-  started_at: string;
+  startedAt: string;
 }
 
 function getPreviewDir(): string {
@@ -60,8 +60,8 @@ function sanitize(id: string): string {
 
 export function writePid(rec: PidRecord): void {
   const dir = ensureDir();
-  const tmp = path.join(dir, `${sanitize(rec.workspace_id)}.pid.tmp`);
-  const target = recordPath(rec.workspace_id);
+  const tmp = path.join(dir, `${sanitize(rec.workspaceId)}.pid.tmp`);
+  const target = recordPath(rec.workspaceId);
   fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
   // Atomic move so a partial write never leaves a half-formed file.
   fs.renameSync(tmp, target);
@@ -87,7 +87,7 @@ export function listPidRecords(): PidRecord[] {
       const parsed = JSON.parse(raw) as PidRecord;
       if (
         typeof parsed === 'object' && parsed !== null &&
-        typeof parsed.workspace_id === 'string' &&
+        typeof parsed.workspaceId === 'string' &&
         typeof parsed.pid === 'number' &&
         typeof parsed.command === 'string'
       ) {
@@ -141,7 +141,7 @@ export async function sweepOrphans(): Promise<{ checked: number; killed: number;
   for (const rec of records) {
     try {
       if (!isAlive(rec.pid)) {
-        deletePid(rec.workspace_id);
+        deletePid(rec.workspaceId);
         continue;
       }
       const match = await commandLineMatches(rec.pid, rec.command);
@@ -174,7 +174,7 @@ export async function sweepOrphans(): Promise<{ checked: number; killed: number;
           try { process.kill(rec.pid, 'SIGKILL'); } catch { /* fine */ }
         }
       }
-      deletePid(rec.workspace_id);
+      deletePid(rec.workspaceId);
       killed++;
     } catch {
       skipped++;

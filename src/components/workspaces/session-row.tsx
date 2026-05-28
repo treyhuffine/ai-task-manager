@@ -50,7 +50,7 @@ export function SessionRow({
   onOpenCreateFrom,
 }: SessionRowProps) {
   const { activeView, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
-  const { data: diffStats } = useDiffStats(session.worktree_path ? session.id : null);
+  const { data: diffStats } = useDiffStats(session.worktreePath ? session.id : null);
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   const isStreaming = streamingSessionIds.has(session.id);
@@ -58,18 +58,18 @@ export function SessionRow({
 
   // Match StatusView's unread derivation so both surfaces agree on
   // which sessions are flagged: the user's "Mark as unread" override
-  // (unread_marker_at) wins even when no outcome event has landed.
+  // (unreadMarkerAt) wins even when no outcome event has landed.
   const outcomes = [
-    session.last_outcome_event_at ?? '1970-01-01',
-    session.unread_marker_at ?? '1970-01-01',
+    session.lastOutcomeEventAt ?? '1970-01-01',
+    session.unreadMarkerAt ?? '1970-01-01',
   ];
   const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-  const lastViewed = session.last_viewed_at ?? '1970-01-01';
+  const lastViewed = session.lastViewedAt ?? '1970-01-01';
   const isUnread = !isStreaming
     && lastActivity !== '1970-01-01'
     && lastActivity > lastViewed;
 
-  const timestamp = session.last_outcome_event_at ?? session.started_at;
+  const timestamp = session.lastOutcomeEventAt ?? session.startedAt;
   const isActive = activeView === session.id;
 
   // Read receipt fires on navigate-away, not click-in (handled in
@@ -159,7 +159,7 @@ export function SessionRow({
         </span>
         <SessionRowMenu
           sessionId={session.id}
-          workspaceId={session.workspace_id ?? null}
+          workspaceId={session.workspaceId ?? null}
           workspaceIsGit={workspaceIsGit ?? false}
           isUnread={isUnread || isPending}
           label={label}

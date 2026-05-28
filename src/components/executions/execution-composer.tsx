@@ -97,7 +97,7 @@ interface ExecutionComposerProps {
    * the VoiceSentBadge. `opts.attachments` carries any files (pasted
    * text, images, dropped files) the user inserted; they're persisted
    * alongside the user event and the server expands their
-   * `[[file:<file_name>]]` markers in `message` before dispatching to
+   * `[[file:<fileName>]]` markers in `message` before dispatching to
    * the agent.
    */
   onSend: (
@@ -118,7 +118,7 @@ interface ExecutionComposerProps {
  * Voice input goes through the project's `useVoiceInput` hook, which
  * already handles the parakeet local STT, groq/openai cloud, and the
  * Web Speech API fallback. Transcripts append to the current input;
- * we honor the user's `voice_auto_send` preference for whether to fire
+ * we honor the user's `voiceAutoSend` preference for whether to fire
  * immediately.
  */
 export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionComposerProps>(
@@ -175,11 +175,11 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const { data: userState } = useUserState();
     const updateUserState = useUpdateUserState();
     const voice = useVoiceInput();
-    const autoSend = userState?.voice_auto_send ?? true;
+    const autoSend = userState?.voiceAutoSend ?? true;
     const updateSession = useUpdateSession();
 
     const toggleAutoSend = useCallback(() => {
-      updateUserState.mutate({ voice_auto_send: !autoSend });
+      updateUserState.mutate({ voiceAutoSend: !autoSend });
     }, [autoSend, updateUserState]);
 
     // Read receipt: textarea focus marks the session read. We also mark
@@ -224,7 +224,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     );
 
     // Tasks + notes from the session's workspace → @-picker entity items.
-    // The picker auto-scopes by workspace_id; a future "Show all" toggle
+    // The picker auto-scopes by workspaceId; a future "Show all" toggle
     // in the popup will flip it to cross-workspace.
     const pickerQuery = usePicker(sessionId);
     const mentionTasks = useMemo<TaskMentionItem[]>(
@@ -286,7 +286,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const setPermissionMode = useCallback(
       (next: PermissionMode) => {
         if (next === permissionMode) return;
-        updateSession.mutate({ id: sessionId, permission_mode: next });
+        updateSession.mutate({ id: sessionId, permissionMode: next });
       },
       [permissionMode, sessionId, updateSession],
     );

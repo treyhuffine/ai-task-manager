@@ -26,13 +26,13 @@ export async function openSessionWorktree(id: string): Promise<WorktreeResolutio
   if (!session) {
     return { ok: false, response: Response.json({ error: 'Session not found' }, { status: 404 }) };
   }
-  if (!session.workspace_id || !session.worktree_path) {
+  if (!session.workspaceId || !session.worktreePath) {
     return {
       ok: false,
       response: Response.json({ error: 'Workspace has no worktree' }, { status: 404 }),
     };
   }
-  const ws = getWorkspace(session.workspace_id);
+  const ws = getWorkspace(session.workspaceId);
   if (!ws) {
     return {
       ok: false,

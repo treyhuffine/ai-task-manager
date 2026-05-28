@@ -7,7 +7,7 @@ import type { WipApplyResult } from '@/lib/api/sessions';
 
 interface WipHandoffBannerProps {
   sessionId: string;
-  /** True once `worktree_path` is populated — gates the WIP fetch so we
+  /** True once `worktreePath` is populated — gates the WIP fetch so we
    *  don't probe before the worktree exists. */
   worktreeReady: boolean;
 }

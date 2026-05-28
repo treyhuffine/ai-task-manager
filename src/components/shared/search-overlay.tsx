@@ -85,7 +85,7 @@ export function SearchOverlay() {
 
   // Filter results by type if prefix is active
   const filteredResults = typeFilter
-    ? results?.filter((r) => r.entity_type === typeFilter)
+    ? results?.filter((r) => r.entityType === typeFilter)
     : results;
 
   const handleSelect = useCallback((entityType: string, id: string) => {
@@ -105,7 +105,7 @@ export function SearchOverlay() {
       case 'create-task':
         setOpen(false);
         createTask.mutate(
-          { title: ' ', raw_input: ' ' },
+          { title: ' ', rawInput: ' ' },
           { onSuccess: (task) => openTask(task.id) },
         );
         break;
@@ -267,17 +267,17 @@ export function SearchOverlay() {
             <Command.Group heading="Recent" className={GROUP_CLASS}>
               {recents.map((item) => (
                 <Command.Item
-                  key={`recent-${item.entity_type}-${item.id}`}
-                  value={`recent-${item.entity_type}-${item.id}`}
-                  onSelect={() => handleSelect(item.entity_type, item.id)}
+                  key={`recent-${item.entityType}-${item.id}`}
+                  value={`recent-${item.entityType}-${item.id}`}
+                  onSelect={() => handleSelect(item.entityType, item.id)}
                   className={ITEM_CLASS}
                 >
-                  <EntityIcon type={item.entity_type} hasBody={item.has_body} className="text-primary/60 flex-shrink-0" />
+                  <EntityIcon type={item.entityType} hasBody={item.hasBody} className="text-primary/60 flex-shrink-0" />
                   <span className="text-[12px] font-medium leading-tight line-clamp-1 flex-1">
                     {item.title || '(untitled)'}
                   </span>
                   <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                    {item.entity_type}
+                    {item.entityType}
                   </span>
                 </Command.Item>
               ))}
@@ -289,7 +289,7 @@ export function SearchOverlay() {
             <Command.Group heading="Results" className={GROUP_CLASS}>
               {filteredResults.map((result) => (
                 <SearchResultItem
-                  key={`${result.entity_type}-${result.id}`}
+                  key={`${result.entityType}-${result.id}`}
                   result={result}
                   onSelect={handleSelect}
                 />
@@ -327,12 +327,12 @@ function SearchResultItem({
 
   return (
     <Command.Item
-      value={`${result.entity_type}-${result.id}`}
-      onSelect={() => onSelect(result.entity_type, result.id)}
+      value={`${result.entityType}-${result.id}`}
+      onSelect={() => onSelect(result.entityType, result.id)}
       className="flex items-start gap-3 px-2 py-2 rounded-md text-left cursor-pointer data-[selected=true]:bg-muted/50"
     >
       <div className="mt-0.5 flex-shrink-0">
-        <EntityIcon type={result.entity_type} hasBody={!!result.body?.trim()} className="text-primary/60" />
+        <EntityIcon type={result.entityType} hasBody={!!result.body?.trim()} className="text-primary/60" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[12px] font-medium leading-tight line-clamp-1">{title}</p>
@@ -343,10 +343,10 @@ function SearchResultItem({
         )}
         <div className="mt-0.5 flex items-center gap-2">
           <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
-            {result.entity_type}
+            {result.entityType}
           </span>
           <span className="text-[8px] text-muted-foreground/60">
-            {new Date(result.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            {new Date(result.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>
           {result.score != null && (
             <span className="text-[8px] text-muted-foreground/40">

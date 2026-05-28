@@ -30,8 +30,8 @@ export function TakeoverButton({ session, workspace }: TakeoverButtonProps) {
   const [error, setError] = useState<string | null>(null);
 
   if (location.kind === 'host') return null;
-  if (!workspace?.is_git) return null;
-  if (session.takeover_started_at) return null;
+  if (!workspace?.isGit) return null;
+  if (session.takeoverStartedAt) return null;
   if (session.status === 'archived') return null;
 
   const handleClick = () => {

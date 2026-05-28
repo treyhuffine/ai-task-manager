@@ -80,7 +80,7 @@ beforeEach(() => {
   getSessionInventory.mockReset();
 
   // Sensible defaults: session/agent exist, no inventory, empty discovery.
-  getChatSession.mockReturnValue({ id: SESSION_ID, agent_id: 'agent-1' });
+  getChatSession.mockReturnValue({ id: SESSION_ID, agentId: 'agent-1' });
   getAgent.mockReturnValue({ id: 'agent-1', harness: 'claude_code' });
   getSessionInventory.mockReturnValue(null);
   discoverSkillCommands.mockResolvedValue({ commands: [], diagnostics: [] });

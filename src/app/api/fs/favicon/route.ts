@@ -96,12 +96,12 @@ export async function POST(request: NextRequest) {
       }
 
       const buffer = await fs.readFile(real);
-      const original_name = path.basename(real);
-      const mime = resolveMime(null, original_name);
+      const originalName = path.basename(real);
+      const mime = resolveMime(null, originalName);
       const attachment = await saveAttachment({
         data: buffer,
-        original_name,
-        mime_type: mime,
+        originalName,
+        mimeType: mime,
       });
       return Response.json({ kind: 'found', attachment, source: rel });
     }
