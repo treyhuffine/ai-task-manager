@@ -30,6 +30,7 @@
  *   - MCP elicitation.
  */
 
+import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import { getProvider, listInstalledSkills, commandInventoryFromEvent } from '@agentex/agent';
 import type {
@@ -989,9 +990,17 @@ function mapUnknownEvent(
  * `getChatSessionWithExecution` row (or anything structurally carrying the
  * two fields). Accepting it structurally keeps this compiling after the
  * legacy chat_sessions columns are dropped.
+ *
+ * Stale-path guard: an execution row can outlive its worktree (archive
+ * teardown, manual cleanup, dev resets, reconciler running offline).
+ * Auto-resume-on-view handles the click-archived-chat case by nulling
+ * `worktreePath` before re-provision, but dispatch/reconcile still see
+ * stale paths in the other scenarios. `existsSync` falls through to the
+ * workspace cwd so `spawn` doesn't fail with `ENOENT` on a deleted dir.
+ * Mirrors the local guard in `terminals/route.ts`.
  */
 export function resolveCwd(session: { worktreePath: string | null; workspaceId: string | null }): string | null {
-  if (session.worktreePath) return session.worktreePath;
+  if (session.worktreePath && existsSync(session.worktreePath)) return session.worktreePath;
   if (!session.workspaceId) return null;
   const workspace = getWorkspace(session.workspaceId);
   return workspace?.cwd ?? null;
