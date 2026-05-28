@@ -517,6 +517,24 @@ export const sessionsApi = {
     return api.post<ChatSessionWithExecution>(`/sessions/${id}/archive`, { force: opts?.force ?? false });
   },
 
+  /** Resume an archived execution (status flip only, no worktree recreate). */
+  unarchive(id: string): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/unarchive`);
+  },
+
+  /**
+   * Resume an archived execution AND re-provision its worktree off the
+   * workspace base (or `baseBranch` if specified). Returns the row in its
+   * setting-up state; the UI's existing setup spinner waits for the new
+   * worktreePath to populate.
+   */
+  continueWork(
+    id: string,
+    opts?: { baseBranch?: string | null },
+  ): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/continue`, opts ?? {});
+  },
+
   commit(id: string, opts?: { andPush?: boolean }): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(`/sessions/${id}/commit`, opts ?? {});
   },

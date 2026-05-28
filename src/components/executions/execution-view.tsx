@@ -326,16 +326,15 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     );
   }
 
-  const isArchived = session.status === 'archived';
   // While running, leave the composer enabled so the stop button reads
   // as active (it lives in the send slot). The send button itself
   // doesn't render — `isRunning` swaps it for stop in the composer.
-  const composerDisabled = isArchived || isSettingUp;
-  const composerDisabledReason = isSettingUp
-    ? 'Setting up worktree…'
-    : isArchived
-      ? 'This execution is archived.'
-      : undefined;
+  // Archived sessions stay enabled too: sending IS the resume signal
+  // (POST /api/sessions/[id]/messages cascade-unarchives before
+  // dispatching), so the user can click in and type without an
+  // intermediate "Unarchive" click.
+  const composerDisabled = isSettingUp;
+  const composerDisabledReason = isSettingUp ? 'Setting up worktree…' : undefined;
 
   // Chat body — WIP banner + transcript + composer. Used in both
   // desktop and mobile chat columns. The header (and on desktop, the

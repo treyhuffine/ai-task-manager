@@ -30,7 +30,9 @@ import {
   markExecutionSetupStarted,
   markExecutionSetupComplete,
   recordExecutionSetupError,
+  resetExecutionForReprovision,
   archiveExecution,
+  unarchiveExecution,
   getOrCreateDefaultExecutor,
 } from '@/lib/db/queries';
 import {
@@ -310,6 +312,80 @@ export async function archiveExecutionSession(
     archiveExecution(session.executionId);
   } else {
     archiveChatSession(args.sessionId);
+  }
+
+  return getChatSessionWithExecution(args.sessionId);
+}
+
+export interface ContinueExecutionSessionArgs {
+  sessionId: string;
+  /**
+   * Override the base for the fresh worktree. Defaults to `ws.baseBranch`
+   * — i.e. branch off the current workspace base (usually `main`), which
+   * is the right behavior for the "PR was merged, original branch was
+   * deleted" case. Pass an explicit ref to resurrect a different starting
+   * point (e.g. an unmerged feature branch the user is still iterating on).
+   */
+  baseBranchOverride?: string | null;
+}
+
+/**
+ * Re-engage an archived execution on disk: unarchive the row and spin up a
+ * fresh worktree off the workspace's current base. Companion to
+ * `archiveExecutionSession`; complements the lightweight "Resume" path
+ * (status-only flip via `unarchiveExecution`) for users who want to
+ * actually keep coding, not just chat-only-revisit.
+ *
+ * No attempt to restore the *original* branch — by the time you're using
+ * Continue, the PR is typically merged and the branch deleted upstream.
+ * The execution gets a brand new branch off `ws.baseBranch`; only the chat
+ * thread + DB identity (label, prior worktreePath history in the
+ * transcript) carry forward.
+ *
+ * Fire-and-forget on the worktree side, same shape as initial dispatch:
+ * we clear the stale worktree fields synchronously, kick off
+ * `provisionWorktreeForSession` in the background, and return the
+ * (worktreePath:null, setting-up) row. The UI's existing setting-up state
+ * picks it up and flips to ready once the background task completes.
+ */
+export async function continueExecutionSession(
+  args: ContinueExecutionSessionArgs,
+): Promise<ChatSessionWithExecution | null> {
+  const session = getChatSessionWithExecution(args.sessionId);
+  if (!session) return null;
+  // No execution = chat-only (orchestration/content) — nothing to provision.
+  if (!session.executionId) return session;
+  const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
+  // Non-git workspaces never had a worktree to recreate; just unarchive.
+  if (!ws || !ws.isGit) {
+    if (session.status === 'archived') unarchiveExecution(session.executionId);
+    return getChatSessionWithExecution(args.sessionId);
+  }
+  // Live-mode sessions never tore down their "worktree" (it's ws.cwd) so
+  // there's nothing to re-provision. Treat Continue as a plain unarchive.
+  const isLive = session.worktreePath != null && session.worktreePath === ws.cwd;
+
+  if (session.status === 'archived') {
+    unarchiveExecution(session.executionId);
+  }
+
+  if (!isLive) {
+    // Stale `worktreePath` survives archive (we deleted the directory but
+    // kept the column for the archived view to show "this session was on
+    // branch X"). Null it now so the row reads as "setting up" and the
+    // background provisioner doesn't early-return thinking it's already
+    // done.
+    resetExecutionForReprovision(session.executionId);
+    void provisionWorktreeForSession({
+      ws,
+      executionId: session.executionId,
+      sessionId: args.sessionId,
+      label: session.label,
+      baseBranchOverride: args.baseBranchOverride ?? null,
+      // `prNumber` intentionally null — Continue defaults to a fresh base.
+      // Resurrecting the original PR head is a future-option toggle.
+      prNumber: null,
+    });
   }
 
   return getChatSessionWithExecution(args.sessionId);

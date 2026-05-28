@@ -935,6 +935,24 @@ export function clearExecutionSetupError(executionId: string): ExecutionRecord |
   return updateExecution(executionId, { setupError: null });
 }
 
+/**
+ * Reset worktree-identity fields on an execution so a fresh `provisionWorktreeForSession`
+ * call repopulates them. Used by the "Continue" flow when reopening an archived
+ * execution whose worktree was torn down — the row's `worktreePath` still
+ * points at the deleted directory after archive, so we null it (along with
+ * `branchName` / `baseSha`) and bump `setupStartedAt` so the UI's
+ * "setting up..." anchor reads as starting now, not at the original create.
+ */
+export function resetExecutionForReprovision(executionId: string): ExecutionRecord | null {
+  return updateExecution(executionId, {
+    worktreePath: null,
+    branchName: null,
+    baseSha: null,
+    setupStartedAt: new Date().toISOString(),
+    setupError: null,
+  });
+}
+
 // ── PR linkage ────────────────────────────────────────────────
 
 export function setExecutionPR(executionId: string, prNumber: number | null): ExecutionRecord | null {
@@ -1047,10 +1065,30 @@ export function archiveExecution(executionId: string): ExecutionRecord | null {
   });
 }
 
-/** Reactivate an archived execution. Does not touch its chats — they stay
- *  archived unless explicitly reopened (rare; v1 has no UI for it). */
+/**
+ * Reactivate an archived execution. Symmetric inverse of `archiveExecution`:
+ * flips status='active' (+ clears archivedAt) on the execution and on every
+ * chat that's currently archived under it, in one transaction. The cascade
+ * is what makes "send to an archived execution" a valid resume signal —
+ * without it the chats stay disabled even after the execution is active.
+ */
 export function unarchiveExecution(executionId: string): ExecutionRecord | null {
-  return updateExecution(executionId, { status: 'active', archivedAt: null });
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db.transaction((tx) => {
+    const row = tx
+      .update(executions)
+      .set({ status: 'active', archivedAt: null, updatedAt: now })
+      .where(eq(executions.id, executionId))
+      .returning()
+      .get();
+    if (!row) return null;
+    tx.update(chatSessions)
+      .set({ status: 'active', archivedAt: null })
+      .where(and(eq(chatSessions.executionId, executionId), eq(chatSessions.status, 'archived')))
+      .run();
+    return row;
+  });
 }
 
 // ── Read bridge (chat_session flattened with execution state) ──
