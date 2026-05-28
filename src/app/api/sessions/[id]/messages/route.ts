@@ -5,7 +5,6 @@ import {
   getChatSessionWithExecution,
   insertChatEvent,
   materializeEventRefs,
-  unarchiveExecution,
 } from '@/lib/db/queries';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
@@ -67,21 +66,15 @@ export async function POST(
       return Response.json({ error: 'content is required' }, { status: 400 });
     }
 
-    let session = getChatSessionWithExecution(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    // Sending IS the resume signal. If the user revisits an archived
-    // execution and types a message, treat it as intent to reopen:
-    // cascade-unarchive the execution and its chats, then continue the
-    // send as normal. The composer stays enabled for archived sessions
-    // (no extra click) — the read-side picks the status flip up via
-    // the standard session-record invalidation after the POST resolves.
-    if (session.status === 'archived' && session.executionId) {
-      unarchiveExecution(session.executionId);
-      session = getChatSessionWithExecution(id) ?? session;
-    }
     if (session.status === 'archived') {
-      // No execution to reopen — chat-only sessions (orchestration/content)
-      // still reject. Their unarchive UX isn't part of this change.
+      // Stale state — `ExecutionView` auto-resumes archived sessions on
+      // mount via `useContinueSession`, so the canonical UI flow never
+      // reaches this branch. Hitting it means the client raced ahead of
+      // the resume mutation (or this is a direct API call from a stale
+      // tab). Reject cleanly; the frontend's session invalidation will
+      // catch it on the next refetch.
       return Response.json({ error: 'Cannot send to an archived session' }, { status: 400 });
     }
     if (session.takeoverStartedAt) {

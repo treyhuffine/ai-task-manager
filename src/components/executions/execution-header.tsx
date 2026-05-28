@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, RotateCcw, Play } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useArchiveSession } from '@/hooks/use-workspaces';
-import { useUpdateSession, useUnarchiveSession, useContinueSession } from '@/hooks/use-execution';
+import { useUpdateSession } from '@/hooks/use-execution';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useEditorPreference, EDITOR_LABELS } from '@/lib/client/editor-preference';
 import { revealInFinderHref, openInEditorHref, revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
@@ -72,8 +72,6 @@ export function ExecutionHeader({
 }: ExecutionHeaderProps) {
   const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
   const archive = useArchiveSession();
-  const unarchive = useUnarchiveSession(session.id);
-  const continueWork = useContinueSession(session.id);
   const updateSession = useUpdateSession();
 
   // Header layout variant — three arrangements the user can flip between
@@ -200,27 +198,6 @@ export function ExecutionHeader({
             : statusKind === 'ready'
               ? 'bg-blue-500'
               : 'bg-zinc-400';
-
-  const handleResume = () => {
-    unarchive.mutate(undefined, {
-      onError: (err) => {
-        toast.error(`Couldn't resume: ${err instanceof Error ? err.message : String(err)}`);
-      },
-    });
-  };
-
-  const handleContinue = () => {
-    const baseLabel = workspace?.baseBranch || 'the workspace base branch';
-    const ok = confirm(
-      `Continue this execution? A fresh worktree will be created from ${baseLabel}. Use this when the original branch was merged / deleted upstream and you want to keep iterating.`,
-    );
-    if (!ok) return;
-    continueWork.mutate(undefined, {
-      onError: (err) => {
-        toast.error(`Couldn't continue: ${err instanceof Error ? err.message : String(err)}`);
-      },
-    });
-  };
 
   const handleArchive = () => {
     if (!confirm(`Archive "${session.label ?? 'this execution'}"?`)) return;
@@ -350,60 +327,6 @@ export function ExecutionHeader({
     !!workspace?.isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   const liveBadge = isLive ? <LiveBadge branch={session.branchName} /> : null;
 
-  // Resume pill: visible in the right cluster only when archived. Status-
-  // only flip (no disk side-effect), so it's safe to fire without a
-  // confirmation dialog — clicking is reversible (Archive returns once
-  // the row is active). The heavier disk-side resume lives in the kebab
-  // as "Continue work".
-  const resumePill = isArchived ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={handleResume}
-          disabled={unarchive.isPending}
-          aria-label="Resume execution"
-          className={cn(
-            'inline-flex items-center gap-1 rounded-md border px-2 py-0.5',
-            'text-[10.5px] font-semibold transition-colors flex-shrink-0',
-            'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15',
-            'disabled:opacity-60 disabled:cursor-not-allowed',
-          )}
-        >
-          <RotateCcw size={11} />
-          Resume
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={4}>
-        <div className="space-y-1 max-w-[260px]">
-          <div className="font-semibold">Resume execution</div>
-          <div className="text-[11px] opacity-90 leading-snug">
-            Reactivates this execution so the chat re-enables. The worktree
-            stays gone — use Continue (in the session menu) if you want a
-            fresh worktree to keep coding in.
-          </div>
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
-
-  // "Continue work" lives in the kebab — it's the heavier resume that
-  // touches disk. Hidden for live-mode (no worktree to recreate) and for
-  // chat-only sessions (no execution). Wrapped in a confirm() because it
-  // creates a new branch + worktree directory.
-  const continueMenuItem =
-    isArchived && workspace?.isGit && !isLive && !!session.executionId ? (
-      <button
-        onClick={handleContinue}
-        disabled={continueWork.isPending}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors disabled:opacity-60"
-      >
-        <Play size={11} />
-        <span className="flex-1 text-left">Continue work</span>
-        <span className="text-[10px] text-muted-foreground/80">recreate worktree</span>
-      </button>
-    ) : null;
-
   return (
     <div className="flex-shrink-0 border-b border-border bg-background">
       {/* ─── Mobile header (under lg) ────────────────────────── */}
@@ -438,8 +361,7 @@ export function ExecutionHeader({
 
         {statusPill}
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {resumePill}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
           {liveBadge}
 
           {/* Consolidated session menu — details on top, archive below
@@ -518,12 +440,6 @@ export function ExecutionHeader({
                 <div className="p-1">{takeoverMenuItem}</div>
                 <div className="h-px bg-border" />
                 <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>
-                {continueMenuItem && (
-                  <>
-                    <div className="h-px bg-border" />
-                    <div className="p-1">{continueMenuItem}</div>
-                  </>
-                )}
                 {archiveMenuItem && (
                   <>
                     <div className="h-px bg-border" />
@@ -698,13 +614,6 @@ export function ExecutionHeader({
               <div className="h-px bg-border" />
               <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>
 
-              {continueMenuItem && (
-                <>
-                  <div className="h-px bg-border" />
-                  <div className="p-1">{continueMenuItem}</div>
-                </>
-              )}
-
               {archiveMenuItem && (
                 <>
                   <div className="h-px bg-border" />
@@ -735,7 +644,6 @@ export function ExecutionHeader({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {resumePill}
           {liveBadge}
           {onToggleReferences && (
             <ReferencesButton open={referencesOpen} onClick={onToggleReferences} />

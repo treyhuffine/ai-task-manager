@@ -276,29 +276,13 @@ export function useRetrySetup(id: string) {
 }
 
 /**
- * Lightweight "Resume" — flips an archived execution back to active
- * without touching disk. Pairs with the `Resume` pill in the execution
- * header. The worktree stays gone; chat re-enables. Heavier
- * `useContinueSession` is the choice when the user wants the worktree
- * back too.
- */
-export function useUnarchiveSession(id: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => sessionsApi.unarchive(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
-      qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
-    },
-  });
-}
-
-/**
- * "Continue" — unarchive + re-provision a fresh worktree off the
- * workspace base. Returns immediately with `worktreePath:null`; the UI's
- * existing setting-up spinner runs until the background provisioner
- * stamps the new path/branch/baseSha.
+ * Conductor-style "Continue" — unarchive an archived execution AND
+ * re-provision a fresh worktree off the workspace base. Returns
+ * immediately with `worktreePath:null`; the UI's existing setting-up
+ * spinner runs until the background provisioner stamps the new
+ * path/branch/baseSha. Fired automatically from `ExecutionView` on mount
+ * when the session is archived — the user never sees an explicit button,
+ * opening the view IS the resume signal.
  */
 export function useContinueSession(id: string) {
   const qc = useQueryClient();

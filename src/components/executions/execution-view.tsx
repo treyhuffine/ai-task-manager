@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession } from '@/hooks/use-execution';
+import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession, useContinueSession } from '@/hooks/use-execution';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { useSessionReconcile } from '@/hooks/use-session-reconcile';
 import { useWorkspace, useMarkSessionRead } from '@/hooks/use-workspaces';
@@ -69,7 +69,35 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const { reconciling } = useSessionReconcile(sessionId);
   const sendMessage = useSendMessage(sessionId);
   const interruptSession = useInterruptSession(sessionId);
+  const continueWork = useContinueSession(sessionId);
   const isRunning = runtime?.running ?? false;
+
+  // Conductor-style auto-resume: opening an archived execution is the
+  // signal to reopen — fire `continue` once on mount so the row flips to
+  // active and a fresh worktree provisions in the background. By the time
+  // the user reads a few lines of transcript and decides to type, the
+  // worktree is usually already there. The existing setting-up state
+  // (driven by `isSettingUp` above) covers the wait.
+  //
+  // Doing this on view (rather than on send, which we tried first) avoids
+  // a multi-second hiccup between hitting send and the agent actually
+  // dispatching. The user-perceived latency hides inside the page
+  // transition, matching the way Conductor handles archived sessions.
+  //
+  // Per-session ref guards against re-fire after the mutation succeeds
+  // and the cache refetches (status will be 'active' on the next render,
+  // so the gate would self-clear anyway; the ref is belt-and-suspenders
+  // against transient errors that leave status='archived').
+  const resumedSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!session || !sessionId) return;
+    if (resumedSessionIdRef.current === sessionId) return;
+    resumedSessionIdRef.current = sessionId;
+    if (session.status === 'archived') {
+      continueWork.mutate(undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.status, sessionId]);
 
   // Persisted resizable column / row sizes — per-session in localStorage.
   const {
@@ -333,12 +361,20 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // While running, leave the composer enabled so the stop button reads
   // as active (it lives in the send slot). The send button itself
   // doesn't render — `isRunning` swaps it for stop in the composer.
-  // Archived sessions stay enabled too: sending IS the resume signal
-  // (POST /api/sessions/[id]/messages cascade-unarchives before
-  // dispatching), so the user can click in and type without an
-  // intermediate "Unarchive" click.
-  const composerDisabled = isSettingUp;
-  const composerDisabledReason = isSettingUp ? 'Setting up worktree…' : undefined;
+  //
+  // Archived: covers the brief window between mount and the auto-resume
+  // mutation succeeding. As soon as `continueWork` flips the row to
+  // `active` and clears `worktreePath`, the next branch (`isSettingUp`)
+  // takes over and the message reads as the normal setup spinner. Avoids
+  // a race where a very fast user could send during the ~200-500ms
+  // round-trip and hit a 400 from `/messages`.
+  const isResuming = session.status === 'archived';
+  const composerDisabled = isResuming || isSettingUp;
+  const composerDisabledReason = isResuming
+    ? 'Resuming…'
+    : isSettingUp
+      ? 'Setting up worktree…'
+      : undefined;
 
   // Chat body — WIP banner + transcript + composer. Used in both
   // desktop and mobile chat columns. The header (and on desktop, the
