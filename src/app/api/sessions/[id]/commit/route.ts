@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSession, getWorkspace, insertChatEvent } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { buildCommitPrompt } from '@/lib/executor/prompts/commit';
 import * as executor from '@/lib/executor/adapter';
@@ -22,7 +22,7 @@ export async function POST(
     const body: { andPush?: boolean } = await request.json().catch(() => ({}));
     const andPush = body.andPush ?? false;
 
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (session.status === 'archived') {
       return Response.json({ error: 'Cannot commit on an archived session' }, { status: 400 });

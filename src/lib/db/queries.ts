@@ -6,7 +6,7 @@
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
-  workspaces, agents, chatSessions, chatEvents, chatRefs,
+  workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
 } from '@/lib/db/schema';
 import { eq, and, desc, asc, sql, gt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -24,6 +24,7 @@ import type {
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus,
   AgentRecord, CreateAgentInput,
+  ExecutionRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
@@ -837,24 +838,281 @@ export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
   });
 }
 
+// ─── Executions ───────────────────────────────────────────────
+// A durable work artifact (worktree + branch + PR + takeover state)
+// anchored to a workspace. Chats point at it via execution_id. The
+// git/worktree/PR/takeover columns were lifted off chat_sessions; reads
+// flow through `getChatSessionWithExecution` (flattened) and writes go
+// through the named helpers below. See docs/executions-spec.md.
+
+export function getExecution(id: string): ExecutionRecord | undefined {
+  const db = getDb();
+  return db.select().from(executions).where(eq(executions.id, id)).get();
+}
+
+export function createExecution(input: CreateExecutionInput): ExecutionRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db
+    .insert(executions)
+    .values({
+      ...input,
+      id: input.id ?? uuidv7(),
+      status: input.status ?? 'active',
+      created_at: input.created_at ?? now,
+      updated_at: input.updated_at ?? now,
+    })
+    .returning()
+    .get();
+}
+
+/** Low-level execution patch. Always bumps updated_at. Prefer the named
+ *  helpers below at call sites so the mutation intent is explicit. */
+export function updateExecution(id: string, input: UpdateExecutionInput): ExecutionRecord | null {
+  const db = getDb();
+  const row = db
+    .update(executions)
+    .set({ ...input, updated_at: new Date().toISOString() })
+    .where(eq(executions.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+// ── Setup / provisioning ──────────────────────────────────────
+
+/** Mark the start of a worktree-provisioning attempt. Clears any prior
+ *  setup_error so a retry flips the UI out of the failed chip immediately;
+ *  the per-attempt timer (setup_started_at) re-anchors to now. */
+export function markExecutionSetupStarted(executionId: string): ExecutionRecord | null {
+  return updateExecution(executionId, {
+    setup_started_at: new Date().toISOString(),
+    setup_error: null,
+  });
+}
+
+/** Record a successful worktree provision. */
+export function markExecutionSetupComplete(
+  executionId: string,
+  params: { worktree_path: string; branch_name: string; base_sha: string },
+): ExecutionRecord | null {
+  return updateExecution(executionId, {
+    worktree_path: params.worktree_path,
+    branch_name: params.branch_name,
+    base_sha: params.base_sha,
+    setup_error: null,
+  });
+}
+
+export function recordExecutionSetupError(executionId: string, error: string): ExecutionRecord | null {
+  return updateExecution(executionId, { setup_error: error });
+}
+
+export function clearExecutionSetupError(executionId: string): ExecutionRecord | null {
+  return updateExecution(executionId, { setup_error: null });
+}
+
+// ── PR linkage ────────────────────────────────────────────────
+
+export function setExecutionPR(executionId: string, prNumber: number | null): ExecutionRecord | null {
+  return updateExecution(executionId, { pr_number: prNumber });
+}
+
+// ── Takeover lifecycle (all five columns move together) ───────
+
+export function startExecutionTakeover(
+  executionId: string,
+  params: { token: string; branch: string; base_sha: string; expires_at: string },
+): ExecutionRecord | null {
+  return updateExecution(executionId, {
+    takeover_started_at: new Date().toISOString(),
+    takeover_base_sha: params.base_sha,
+    takeover_branch: params.branch,
+    takeover_token: params.token,
+    takeover_token_expires_at: params.expires_at,
+  });
+}
+
+export function clearExecutionTakeover(executionId: string): ExecutionRecord | null {
+  return updateExecution(executionId, {
+    takeover_started_at: null,
+    takeover_base_sha: null,
+    takeover_branch: null,
+    takeover_token: null,
+    takeover_token_expires_at: null,
+  });
+}
+
+/**
+ * Token-based lookup for the takeover CLI/browser flow. The token lives
+ * on the execution now; we return the execution's primary chat (most
+ * recently active, non-archived) flattened with execution state so the
+ * resume/cancel routes can dispatch a handoff message into it. Returns
+ * undefined when the token is unknown or already cleared. Expiry is
+ * enforced at the route layer so callers can distinguish "expired" from
+ * "not found."
+ */
+export function findChatSessionByTakeoverToken(token: string): ChatSessionWithExecution | undefined {
+  const db = getDb();
+  const exec = db.select().from(executions).where(eq(executions.takeover_token, token)).get();
+  if (!exec) return undefined;
+  // V1 invariant: an execution has exactly one chat, so "most-recently-active"
+  // IS the chat that initiated the takeover. When multi-chat-per-execution
+  // lands (deferred, spec §9), the takeover should record which chat started
+  // it (e.g. a takeover_chat_session_id on executions) so the resume handoff
+  // lands in the right chat rather than whichever sorted first here.
+  const chat = db
+    .select()
+    .from(chatSessions)
+    .where(and(eq(chatSessions.execution_id, exec.id), eq(chatSessions.status, 'active')))
+    .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
+    .get();
+  if (!chat) return undefined;
+  return flattenSessionExecution({ ...chat, execution: exec });
+}
+
+/**
+ * Executions whose worktree provisioning began but never completed and
+ * never failed cleanly — silent hangs the cold-start reaper marks with a
+ * synthetic setup_error so the UI surfaces them as retryable. Mirrors the
+ * old `listStuckBootstrapSessions`, but the provisioning state lives on
+ * the execution now.
+ */
+export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord[] {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
+  return db
+    .select()
+    .from(executions)
+    .where(
+      and(
+        eq(executions.status, 'active'),
+        isNotNull(executions.setup_started_at),
+        isNull(executions.worktree_path),
+        isNull(executions.setup_error),
+        lte(executions.setup_started_at, cutoff),
+      ),
+    )
+    .all();
+}
+
+// ── Archive / unarchive ───────────────────────────────────────
+
+/**
+ * Archive an execution and cascade to its chats. Product code never
+ * hard-deletes — this flips status='archived' (+ archived_at) on the
+ * execution and every still-active chat that belongs to it, in one
+ * transaction. The worktree teardown is the caller's responsibility
+ * (filesystem op lives in `archiveExecutionSession`).
+ */
+export function archiveExecution(executionId: string): ExecutionRecord | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db.transaction((tx) => {
+    const row = tx
+      .update(executions)
+      .set({ status: 'archived', archived_at: now, updated_at: now })
+      .where(eq(executions.id, executionId))
+      .returning()
+      .get();
+    if (!row) return null;
+    tx.update(chatSessions)
+      .set({ status: 'archived', archived_at: now })
+      .where(and(eq(chatSessions.execution_id, executionId), eq(chatSessions.status, 'active')))
+      .run();
+    return row;
+  });
+}
+
+/** Reactivate an archived execution. Does not touch its chats — they stay
+ *  archived unless explicitly reopened (rare; v1 has no UI for it). */
+export function unarchiveExecution(executionId: string): ExecutionRecord | null {
+  return updateExecution(executionId, { status: 'active', archived_at: null });
+}
+
+// ── Read bridge (chat_session flattened with execution state) ──
+
+/**
+ * Normalize a chat row left-joined to executions into the flattened
+ * `ChatSessionWithExecution` shape: the execution's durable git/worktree/
+ * PR/takeover state hoisted to the top level under the field names the
+ * columns used to have on chat_sessions. The execution is the sole source
+ * of truth. Drizzle returns an all-null object (not null) for an unmatched
+ * left join, so we coalesce on the execution's id to decide whether it's
+ * real; a chat with no execution (orchestration/content) reports null.
+ *
+ * Generic over the row type so list queries (rail/history) keep their
+ * extra joined columns.
+ */
+function flattenSessionExecution<T extends ChatSessionRecord>(
+  row: T & { execution: ExecutionRecord | null },
+): T & ChatSessionWithExecution {
+  const e = row.execution && row.execution.id != null ? row.execution : null;
+  return {
+    ...row,
+    execution: e,
+    worktree_path: e?.worktree_path ?? null,
+    branch_name: e?.branch_name ?? null,
+    base_sha: e?.base_sha ?? null,
+    pr_number: e?.pr_number ?? null,
+    setup_error: e?.setup_error ?? null,
+    setup_started_at: e?.setup_started_at ?? null,
+    takeover_started_at: e?.takeover_started_at ?? null,
+    takeover_base_sha: e?.takeover_base_sha ?? null,
+    takeover_branch: e?.takeover_branch ?? null,
+    takeover_token: e?.takeover_token ?? null,
+    takeover_token_expires_at: e?.takeover_token_expires_at ?? null,
+  } as T & ChatSessionWithExecution;
+}
+
+/**
+ * Single chat session with its execution's git/worktree/PR/takeover state
+ * flattened on top. Drop-in replacement for `getChatSession` at every
+ * call site that reads worktree_path / branch_name / base_sha / pr_number
+ * / setup_* / takeover_*. Returns null for unknown ids. Synchronous, like
+ * the rest of this layer.
+ */
+export function getChatSessionWithExecution(id: string): ChatSessionWithExecution | null {
+  const db = getDb();
+  const row = db
+    .select({
+      ...getTableColumns(chatSessions),
+      execution: getTableColumns(executions),
+    })
+    .from(chatSessions)
+    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
+    .where(eq(chatSessions.id, id))
+    .get();
+  if (!row) return null;
+  return flattenSessionExecution(row as ChatSessionRecord & { execution: ExecutionRecord | null });
+}
+
 // ─── Chat Sessions ────────────────────────────────────────────
 
 export function listChatSessions(filter: {
   workspace_id?: string;
   status?: 'active' | 'archived';
   type?: 'orchestration' | 'content' | 'execution';
-} = {}): ChatSessionRecord[] {
+} = {}): ChatSessionWithExecution[] {
   const db = getDb();
   const conditions: SQL[] = [];
   if (filter.workspace_id) conditions.push(eq(chatSessions.workspace_id, filter.workspace_id));
   if (filter.status) conditions.push(eq(chatSessions.status, filter.status));
   if (filter.type) conditions.push(eq(chatSessions.type, filter.type));
-  return db
-    .select()
+  // LEFT JOIN + flatten so consumers (workspace session rows, the
+  // orchestrator's list_workspace_sessions) see worktree/branch/PR/setup
+  // state sourced from the execution, not the dead chat_sessions columns.
+  const rows = db
+    .select({
+      ...getTableColumns(chatSessions),
+      execution: getTableColumns(executions),
+    })
     .from(chatSessions)
+    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
     .all();
+  return rows.map((r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }));
 }
 
 export function getChatSession(id: string): ChatSessionRecord | undefined {
@@ -891,60 +1149,87 @@ export function archiveChatSession(id: string): ChatSessionRecord | null {
   return updateChatSession(id, { status: 'archived', archived_at: new Date().toISOString() });
 }
 
+// Takeover lifecycle moved to the execution: see `startExecutionTakeover`,
+// `clearExecutionTakeover`, and `findChatSessionByTakeoverToken` in the
+// Executions section above. The token + branch + base_sha now live on the
+// `executions` row, not chat_sessions.
+
 /**
- * Stamp a chat_session as "taken over locally." Caller is responsible
- * for having pushed the branch first — these columns are the durable
- * marker that lets resume/cancel/CLI find the session later.
+ * Atomically create an execution artifact and its first chat (the chat
+ * points at the execution via execution_id). This is the single creation
+ * chokepoint for execution chats — both the user-facing dispatch path and
+ * the dev scratch route go through it — so the §2.2 invariant ("active
+ * execution chats have execution_id NOT NULL") can never be violated by a
+ * crash between two inserts.
+ *
+ * Initial execution state is optional: live-mode dispatches pass the
+ * already-known worktree_path/branch_name/base_sha; git dispatches pass
+ * `setup_started_at` and leave the worktree fields null for the background
+ * provisioner to fill via `markExecutionSetupComplete`.
  */
-export function markSessionTakenOver(
-  id: string,
-  input: {
-    base_sha: string;
-    branch: string;
-    token: string;
-    expires_at: string;
-  },
-): ChatSessionRecord | null {
-  return updateChatSession(id, {
-    takeover_started_at: new Date().toISOString(),
-    takeover_base_sha: input.base_sha,
-    takeover_branch: input.branch,
-    takeover_token: input.token,
-    takeover_token_expires_at: input.expires_at,
-  });
-}
-
-/** Token-based session lookup for the CLI. Returns null when the token
- *  is unknown or already cleared by a resume/cancel. Expiry is enforced
- *  at the route layer so the caller can distinguish "expired" from
- *  "not found." */
-export function findSessionByTakeoverToken(token: string): ChatSessionRecord | undefined {
+export function createExecutionWithChat(params: {
+  workspaceId: string;
+  agentId: string;
+  chatSessionId?: string;
+  label: string | null;
+  worktree_path?: string | null;
+  branch_name?: string | null;
+  base_sha?: string | null;
+  pr_number?: number | null;
+  setup_started_at?: string | null;
+}): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const db = getDb();
-  return db
-    .select()
-    .from(chatSessions)
-    .where(eq(chatSessions.takeover_token, token))
-    .get();
-}
-
-/** Clear all five takeover_* columns. Called by resume + cancel. */
-export function clearSessionTakeover(id: string): ChatSessionRecord | null {
-  return updateChatSession(id, {
-    takeover_started_at: null,
-    takeover_base_sha: null,
-    takeover_branch: null,
-    takeover_token: null,
-    takeover_token_expires_at: null,
+  const now = new Date().toISOString();
+  return db.transaction((tx) => {
+    const executionId = uuidv7();
+    const execution = tx
+      .insert(executions)
+      .values({
+        id: executionId,
+        workspace_id: params.workspaceId,
+        label: params.label,
+        worktree_path: params.worktree_path ?? null,
+        branch_name: params.branch_name ?? null,
+        base_sha: params.base_sha ?? null,
+        pr_number: params.pr_number ?? null,
+        setup_started_at: params.setup_started_at ?? null,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      })
+      .returning()
+      .get();
+    const session = tx
+      .insert(chatSessions)
+      .values({
+        id: params.chatSessionId ?? uuidv7(),
+        agent_id: params.agentId,
+        type: 'execution',
+        workspace_id: params.workspaceId,
+        execution_id: executionId,
+        label: params.label,
+        status: 'active',
+      })
+      .returning()
+      .get();
+    return { execution, session };
   });
 }
 
 /**
  * Create a new execution session in a workspace. Auto-resolves the default
  * executor agent (currently Claude Code) so callers don't have to pass an
- * agent_id. Worktree creation is deferred to the actual dispatch path —
- * this just lands the row so the rail surfaces it.
+ * agent_id.
  *
- * Label is optional; null/empty means "derive from first message."
+ * Creates the execution artifact eagerly, in the same transaction as the
+ * chat, so the chat always has an `execution_id` (docs/executions-spec.md
+ * §5: "created eagerly when a chat opens; worktree provisioned lazily at
+ * first dispatch"). Worktree creation is deferred to the dispatch path —
+ * the execution lands with null worktree fields and the rail surfaces a
+ * "not started" state until provisioning runs.
+ *
+ * Label is optional; null/empty means "derive from first message." It's
+ * copied to both the execution (for the artifact) and the chat.
  */
 export function createExecutionSession(args: {
   workspace_id: string;
@@ -952,12 +1237,12 @@ export function createExecutionSession(args: {
   harness?: string;
 }): ChatSessionRecord {
   const agent = getOrCreateDefaultExecutor(args.harness ?? 'claude_code');
-  return createChatSession({
-    agent_id: agent.id,
-    type: 'execution',
-    workspace_id: args.workspace_id,
+  const { session } = createExecutionWithChat({
+    workspaceId: args.workspace_id,
+    agentId: agent.id,
     label: args.label?.trim() || null,
   });
+  return session;
 }
 
 /**
@@ -1023,33 +1308,10 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
     .all();
 }
 
-/**
- * Sessions whose worktree provisioning began but never completed, and
- * never failed cleanly either. Identifies silent hangs — the
- * `provisionWorktreeForSession` try/catch covers thrown errors, but a
- * promise that just never resolves (network hang, git command stuck
- * on credential prompt, server killed mid-provision) leaves the row
- * in a permanently-bootstrapping state. The cold-start reaper marks
- * these with a synthetic `setup_error` so the UI surfaces them as
- * retryable instead of stuck.
- */
-export function listStuckBootstrapSessions(maxAgeMinutes = 5): ChatSessionRecord[] {
-  const db = getDb();
-  const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
-  return db
-    .select()
-    .from(chatSessions)
-    .where(
-      and(
-        eq(chatSessions.status, 'active'),
-        isNotNull(chatSessions.setup_started_at),
-        isNull(chatSessions.worktree_path),
-        isNull(chatSessions.setup_error),
-        lte(chatSessions.setup_started_at, cutoff),
-      ),
-    )
-    .all();
-}
+// Stuck-bootstrap detection moved to the execution: see
+// `listStuckBootstrapExecutions` in the Executions section above. The
+// provisioning state (setup_started_at / worktree_path / setup_error) now
+// lives on the `executions` row.
 
 /**
  * Sessions where the user owes the agent attention. Streaming filtering is
@@ -1098,7 +1360,7 @@ export function listNeedsReviewSessionCandidates(): ChatSessionRecord[] {
 // Response) is done client-side from this list plus the live
 // pendingInput + streaming sets.
 
-export interface RailSessionRow extends ChatSessionRecord {
+export interface RailSessionRow extends ChatSessionWithExecution {
   workspace_name: string | null;
   workspace_emoji: string | null;
   workspace_attachments: Attachment[] | null;
@@ -1106,34 +1368,58 @@ export interface RailSessionRow extends ChatSessionRecord {
   workspace_is_git: boolean | null;
 }
 
+/**
+ * The "by status" rail is a list of active **executions** (the durable work
+ * artifacts), not chats. We iterate `executions` and attach each one's
+ * *primary chat* — the most-recently-active, non-archived chat — for the
+ * conversation handle the rest of the app still addresses by: the row's
+ * `id` is that chat's id (navigation into the execution view, executor
+ * running/pending correlation, mark-read all key off chat_session_id), and
+ * the bucket classification reads the chat's outcome/viewed timestamps.
+ *
+ * V1 is 1:1 (one chat per execution), so "primary chat" is simply the one
+ * chat. When multi-chat-per-execution lands (spec §7), this is where the
+ * per-execution state rollup goes — the structure (one row per execution)
+ * is already correct.
+ */
 export function listRailSessions(): RailSessionRow[] {
   const db = getDb();
-  return db
+  const rows = db
     .select({
       ...getTableColumns(chatSessions),
+      execution: getTableColumns(executions),
       workspace_name: workspaces.name,
       workspace_emoji: workspaces.emoji,
       workspace_attachments: workspaces.attachments,
       workspace_area_id: workspaces.area_id,
       workspace_is_git: workspaces.is_git,
     })
-    .from(chatSessions)
-    // INNER JOIN — by-workspace renders sessions inside active workspaces
-    // (`useWorkspaces({ status: 'active' })`), so any execution whose
-    // workspace was archived is invisible there. Drop them here too so
-    // the bucket counts match what users see in the workspace tree.
-    .innerJoin(workspaces, eq(workspaces.id, chatSessions.workspace_id))
-    .where(and(
-      eq(chatSessions.status, 'active'),
-      // Rail is the executions surface — orchestration + content
-      // sessions live in their own UIs (main chat / task & note
-      // slideouts) and don't carry a workspace_id, so they'd render
-      // as "No workspace" rows here and inflate every bucket count.
-      eq(chatSessions.type, 'execution'),
-      eq(workspaces.status, 'active'),
-    ))
+    .from(executions)
+    // INNER JOIN — the rail mirrors the workspace tree, which only shows
+    // active workspaces, so executions in an archived workspace are hidden
+    // here too (keeps bucket counts consistent with the tree).
+    .innerJoin(
+      workspaces,
+      and(eq(workspaces.id, executions.workspace_id), eq(workspaces.status, 'active')),
+    )
+    // Attach the execution's primary chat (most-recently-active, non-archived)
+    // via a correlated subquery. INNER JOIN so an execution with no active
+    // chat drops out (nothing to open) — can't happen in v1's 1:1 model.
+    .innerJoin(
+      chatSessions,
+      sql`${chatSessions.id} = (
+        SELECT cs2.id FROM chat_sessions cs2
+        WHERE cs2.execution_id = ${executions.id} AND cs2.status = 'active'
+        ORDER BY COALESCE(cs2.last_outcome_event_at, cs2.started_at) DESC
+        LIMIT 1
+      )`,
+    )
+    .where(eq(executions.status, 'active'))
     .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
-    .all() as RailSessionRow[];
+    .all();
+  return rows.map(
+    (r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }) as RailSessionRow,
+  );
 }
 
 /**
@@ -1147,9 +1433,10 @@ export function listRailSessions(): RailSessionRow[] {
 export function listHistorySessions(opts: { limit?: number } = {}): RailSessionRow[] {
   const db = getDb();
   const limit = opts.limit ?? 200;
-  return db
+  const rows = db
     .select({
       ...getTableColumns(chatSessions),
+      execution: getTableColumns(executions),
       workspace_name: workspaces.name,
       workspace_emoji: workspaces.emoji,
       workspace_attachments: workspaces.attachments,
@@ -1161,10 +1448,14 @@ export function listHistorySessions(opts: { limit?: number } = {}): RailSessionR
     // history is allowed to outlive its workspace. The renderer treats
     // null workspace_name as "(workspace removed)".
     .leftJoin(workspaces, eq(workspaces.id, chatSessions.workspace_id))
+    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
     .where(eq(chatSessions.type, 'execution'))
     .orderBy(sql`COALESCE(${chatSessions.last_outcome_event_at}, ${chatSessions.started_at}) DESC`)
     .limit(limit)
-    .all() as RailSessionRow[];
+    .all();
+  return rows.map(
+    (r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }) as RailSessionRow,
+  );
 }
 
 // ─── Chat Events ──────────────────────────────────────────────

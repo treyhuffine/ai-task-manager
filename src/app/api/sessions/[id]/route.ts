@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSession, getAgent, updateChatSession } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getAgent, updateChatSession, setExecutionPR } from '@/lib/db/queries';
 import { PERMISSION_MODES, EFFORT_LEVELS, type PermissionMode, type EffortLevel } from '@/db/types';
 import * as executor from '@/lib/executor/adapter';
 
@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const row = getChatSession(id);
+    const row = getChatSessionWithExecution(id);
     if (!row) return Response.json({ error: 'Session not found' }, { status: 404 });
     // Sidecar `agent_harness` so the composer can pick the right model
     // catalog without a second round-trip. Cheap join; the agent row is
@@ -52,7 +52,7 @@ export async function PATCH(
     const { id } = await params;
     const body: PatchBody = await request.json();
 
-    const existing = getChatSession(id);
+    const existing = getChatSessionWithExecution(id);
     if (!existing) return Response.json({ error: 'Session not found' }, { status: 404 });
 
     const updates: PatchBody = {};
@@ -105,6 +105,9 @@ export async function PATCH(
         executorChanged = true;
       }
     }
+    // pr_number was lifted off chat_sessions onto the execution. Route it
+    // to the execution row rather than the chat update below.
+    let prChanged = false;
     if ('pr_number' in body) {
       const num = body.pr_number;
       if (num !== null && (typeof num !== 'number' || !Number.isInteger(num) || num <= 0)) {
@@ -113,17 +116,19 @@ export async function PATCH(
           { status: 400 },
         );
       }
-      if (num !== existing.pr_number) {
-        updates.pr_number = num;
+      if (existing.execution_id && num !== existing.pr_number) {
+        setExecutionPR(existing.execution_id, num ?? null);
+        prChanged = true;
       }
     }
 
-    // No-op when nothing actually changed (e.g. PATCH with permission_mode
-    // matching the current value). Drizzle's update() throws "No values to
-    // set" with an empty patch, so short-circuit instead. The dev page
-    // hits this path on every Live click that doesn't switch modes.
+    // No-op when nothing on the chat row changed (e.g. PATCH with
+    // permission_mode matching the current value). Drizzle's update()
+    // throws "No values to set" with an empty patch, so short-circuit. A
+    // pr_number-only change is applied to the execution above, so reload
+    // the flattened row to reflect it.
     if (Object.keys(updates).length === 0) {
-      return Response.json(existing);
+      return Response.json(prChanged ? getChatSessionWithExecution(id) : existing);
     }
 
     const row = updateChatSession(id, updates);
@@ -136,7 +141,9 @@ export async function PATCH(
       });
     }
 
-    return Response.json(row);
+    // Return the flattened row so the client sees worktree/branch/pr state
+    // sourced from the execution, consistent with GET.
+    return Response.json(getChatSessionWithExecution(id));
   } catch (err) {
     console.error('[PATCH /api/sessions/:id]', err);
     return Response.json({ error: String(err) }, { status: 400 });

@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { getChatSession, getWorkspace, insertChatEvent } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import {
   buildResolveConflictsPrompt,
@@ -37,7 +37,7 @@ export async function POST(
     }
     const scenario: ConflictScenario = parsed.data.scenario;
 
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (session.status === 'archived') {
       return Response.json({ error: 'Cannot resolve conflicts on an archived session' }, { status: 400 });

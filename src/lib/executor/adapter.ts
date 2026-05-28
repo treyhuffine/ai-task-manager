@@ -41,6 +41,7 @@ import type {
 } from '@agentex/agent';
 import {
   getChatSession,
+  getChatSessionWithExecution,
   getAgent,
   getWorkspace,
   updateChatSession,
@@ -49,7 +50,6 @@ import { getAppRoot } from '@/lib/config/paths';
 import type {
   ChatEventSource,
   CreateChatEventInput,
-  ChatSessionRecord,
   PermissionMode,
   EffortLevel,
 } from '@/db/types';
@@ -334,7 +334,7 @@ export async function dispatch(
   userMessage: string,
   writer: EventWriter = localEventWriter,
 ): Promise<void> {
-  const session = getChatSession(chatSessionId);
+  const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
 
   const agent = getAgent(session.agent_id);
@@ -984,8 +984,13 @@ function mapUnknownEvent(
 /**
  * For git workspaces: the worktree path. For non-git: the workspace's
  * cwd directly. Returns null if the chat_session has no workspace.
+ *
+ * `worktree_path` lives on the execution now, so callers pass a flattened
+ * `getChatSessionWithExecution` row (or anything structurally carrying the
+ * two fields). Accepting it structurally keeps this compiling after the
+ * legacy chat_sessions columns are dropped.
  */
-export function resolveCwd(session: ChatSessionRecord): string | null {
+export function resolveCwd(session: { worktree_path: string | null; workspace_id: string | null }): string | null {
   if (session.worktree_path) return session.worktree_path;
   if (!session.workspace_id) return null;
   const workspace = getWorkspace(session.workspace_id);

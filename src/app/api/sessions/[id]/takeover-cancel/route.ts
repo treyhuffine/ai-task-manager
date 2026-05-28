@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSession, clearSessionTakeover } from '@/lib/db/queries';
+import { getChatSessionWithExecution, clearExecutionTakeover } from '@/lib/db/queries';
 
 /**
  * Abandon an in-flight takeover without pulling from the remote branch.
@@ -13,7 +13,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     if (!session.takeover_started_at) {
       return Response.json(
@@ -21,7 +21,7 @@ export async function POST(
         { status: 400 },
       );
     }
-    clearSessionTakeover(id);
+    if (session.execution_id) clearExecutionTakeover(session.execution_id);
     return Response.json({ ok: true });
   } catch (err) {
     console.error('[POST /api/sessions/:id/takeover-cancel]', err);

@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
-  workspaces, agents, chatSessions, chatEvents, chatRefs,
+  workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
 } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, Attachment } from '@/lib/db/schema';
 
@@ -90,6 +90,13 @@ export type CreateAgentInput = Omit<InferInsertModel<typeof agents>, 'id'>;
 export type UpdateAgentInput = Partial<Omit<CreateAgentInput, 'created_at'>>;
 export type AgentKind = AgentRecord['kind'];
 
+// ─── Executions ───────────────────────────────────────────────
+
+export type ExecutionRecord = InferSelectModel<typeof executions>;
+export type CreateExecutionInput = Omit<InferInsertModel<typeof executions>, 'id'> & { id?: string };
+export type UpdateExecutionInput = Partial<Omit<CreateExecutionInput, 'created_at'>>;
+export type ExecutionStatus = ExecutionRecord['status'];
+
 // ─── Chat Sessions ────────────────────────────────────────────
 
 export type ChatSessionRecord = InferSelectModel<typeof chatSessions>;
@@ -97,6 +104,33 @@ export type CreateChatSessionInput = Omit<InferInsertModel<typeof chatSessions>,
 export type UpdateChatSessionInput = Partial<Omit<CreateChatSessionInput, 'started_at'>>;
 export type ChatSessionType = ChatSessionRecord['type'];
 export type ChatSessionStatus = ChatSessionRecord['status'];
+
+/**
+ * A chat_session joined to its execution, with the execution's durable
+ * git/worktree/PR/takeover state flattened onto the top level under the
+ * same field names the columns used to have on `chat_sessions`. This is
+ * the read shape every consumer of worktree/branch/PR/takeover state uses
+ * (`getChatSessionWithExecution`) — a drop-in for the old flat row.
+ *
+ * The flattened fields are sourced from the execution. During the lift's
+ * transition window they shadow the (still-present, now-dead) legacy
+ * columns on `chat_sessions`; once those columns are dropped this type is
+ * their sole declaration, so consumers keep compiling either way.
+ */
+export type ChatSessionWithExecution = ChatSessionRecord & {
+  execution: ExecutionRecord | null;
+  worktree_path: string | null;
+  branch_name: string | null;
+  base_sha: string | null;
+  pr_number: number | null;
+  setup_error: string | null;
+  setup_started_at: string | null;
+  takeover_started_at: string | null;
+  takeover_base_sha: string | null;
+  takeover_branch: string | null;
+  takeover_token: string | null;
+  takeover_token_expires_at: string | null;
+};
 
 // ─── Chat Events ──────────────────────────────────────────────
 

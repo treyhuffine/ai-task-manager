@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import * as fs from 'node:fs';
-import { getChatSession, getWorkspace } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { createTerminal, listTerminals, TerminalSpawnError } from '@/lib/terminal/pty-manager';
 
 export const runtime = 'nodejs';
@@ -28,7 +28,7 @@ function isExistingDir(p: string | null | undefined): p is string {
  * check, node-pty raises `posix_spawnp failed` on a stale path.
  */
 function resolveCwd(sessionId: string): ResolvedCwd {
-  const session = getChatSession(sessionId);
+  const session = getChatSessionWithExecution(sessionId);
   if (!session) return { ok: false, error: 'Session not found', status: 404 };
 
   if (isExistingDir(session.worktree_path)) {
@@ -66,7 +66,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     return Response.json(listTerminals(id));
   } catch (err) {

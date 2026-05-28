@@ -1,7 +1,7 @@
 import {
-  findSessionByTakeoverToken,
+  findChatSessionByTakeoverToken,
   getWorkspace,
-  clearSessionTakeover,
+  clearExecutionTakeover,
   insertChatEvent,
 } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
@@ -55,7 +55,7 @@ export async function POST(
     const { token } = await params;
     if (!token) return Response.json({ error: 'no_token' }, { status: 400 });
 
-    const session = findSessionByTakeoverToken(token);
+    const session = findChatSessionByTakeoverToken(token);
     if (!session) return Response.json({ error: 'unknown_token' }, { status: 404 });
     if (!session.takeover_started_at) {
       return Response.json({ error: 'not_in_takeover' }, { status: 404 });
@@ -164,7 +164,7 @@ export async function POST(
       created_at: new Date().toISOString(),
     });
 
-    clearSessionTakeover(session.id);
+    if (session.execution_id) clearExecutionTakeover(session.execution_id);
 
     const body: ResumeFromTakeoverResponse = {
       ok: true,

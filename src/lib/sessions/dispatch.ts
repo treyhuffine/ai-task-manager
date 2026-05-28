@@ -24,10 +24,13 @@ import { promisify } from 'node:util';
 import { uuidv7 } from 'uuidv7';
 import {
   getWorkspace,
-  createChatSession,
   archiveChatSession,
-  getChatSession,
-  updateChatSession,
+  getChatSessionWithExecution,
+  createExecutionWithChat,
+  markExecutionSetupStarted,
+  markExecutionSetupComplete,
+  recordExecutionSetupError,
+  archiveExecution,
   getOrCreateDefaultExecutor,
 } from '@/lib/db/queries';
 import {
@@ -35,7 +38,7 @@ import {
   archiveSessionWorktree,
   fetchPrHead,
 } from '@/lib/workspaces';
-import type { ChatSessionRecord, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 
 const execFileAsync = promisify(execFile);
 
@@ -111,7 +114,7 @@ export class WorkspaceNotFoundForDispatch extends Error {
  */
 export async function dispatchExecutionSession(
   args: DispatchExecutionSessionArgs,
-): Promise<ChatSessionRecord> {
+): Promise<ChatSessionWithExecution> {
   const ws = getWorkspace(args.workspaceId);
   if (!ws) throw new WorkspaceNotFoundForDispatch(args.workspaceId);
 
@@ -132,15 +135,16 @@ export async function dispatchExecutionSession(
     liveBaseSha = snap.sha;
   }
 
-  // Insert immediately. For worktree dispatches the row starts with
-  // null worktree fields and the background provisioner populates
-  // them ~2-5s later. For Live mode (or non-git workspaces) the
-  // path/branch/sha are populated up front.
-  const session = createChatSession({
-    id: sessionId,
-    agent_id: agent.id,
-    type: 'execution',
-    workspace_id: args.workspaceId,
+  // Create the execution artifact + its first chat atomically. For
+  // worktree dispatches the execution starts with null worktree fields
+  // and the background provisioner populates them ~2-5s later. For Live
+  // mode (or non-git workspaces) the path/branch/sha are populated up
+  // front. The durable state lives on the execution; the chat just points
+  // at it via execution_id.
+  const { execution } = createExecutionWithChat({
+    workspaceId: args.workspaceId,
+    agentId: agent.id,
+    chatSessionId: sessionId,
     label,
     worktree_path: liveMode ? ws.cwd : null,
     branch_name: liveBranch,
@@ -151,10 +155,11 @@ export async function dispatchExecutionSession(
 
   if (ws.is_git && !liveMode) {
     // Fire-and-forget. The promise resolves into the void; we record
-    // setup_error on the row when it fails so the UI can surface a
+    // setup_error on the execution when it fails so the UI can surface a
     // retry affordance instead of spinning forever.
     void provisionWorktreeForSession({
       ws,
+      executionId: execution.id,
       sessionId,
       label,
       baseBranchOverride: args.baseBranch ?? null,
@@ -162,7 +167,11 @@ export async function dispatchExecutionSession(
     });
   }
 
-  return session;
+  // Return the flattened session so the POST response carries the
+  // execution's worktree/branch/PR state — matters for live mode, where
+  // those are populated up front and the client renders the running state
+  // immediately instead of waiting for a refetch.
+  return getChatSessionWithExecution(sessionId)!;
 }
 
 /**
@@ -176,33 +185,36 @@ export async function dispatchExecutionSession(
  */
 export async function retryProvisionWorktree(
   sessionId: string,
-): Promise<ChatSessionRecord | null> {
-  const session = getChatSession(sessionId);
+): Promise<ChatSessionWithExecution | null> {
+  const session = getChatSessionWithExecution(sessionId);
   if (!session) return null;
   if (session.worktree_path) return session;
-  if (!session.workspace_id) return session;
+  if (!session.workspace_id || !session.execution_id) return session;
   const ws = getWorkspace(session.workspace_id);
   if (!ws) return session;
   if (!ws.is_git) return session;
 
-  // Reset the per-attempt timer so the UI's "creating worktree… Ns"
-  // anchors to this retry instead of the original creation timestamp.
-  updateChatSession(sessionId, {
-    setup_error: null,
-    setup_started_at: new Date().toISOString(),
-  });
+  // Reset the per-attempt timer (and clear any prior error) so the UI's
+  // "creating worktree… Ns" anchors to this retry instead of the original
+  // creation timestamp.
+  markExecutionSetupStarted(session.execution_id);
   await provisionWorktreeForSession({
     ws,
+    executionId: session.execution_id,
     sessionId,
     label: session.label,
     baseBranchOverride: null,
     prNumber: session.pr_number ?? null,
   });
-  return getChatSession(sessionId) ?? null;
+  return getChatSessionWithExecution(sessionId);
 }
 
 interface ProvisionArgs {
   ws: WorkspaceRecord;
+  /** The execution whose worktree state these results are written to. */
+  executionId: string;
+  /** The initiating chat's id — still used to derive the worktree leaf /
+   *  branch suffix. Cosmetic; the artifact is recorded on the execution. */
   sessionId: string;
   label: string | null;
   baseBranchOverride: string | null;
@@ -210,17 +222,17 @@ interface ProvisionArgs {
 }
 
 /**
- * Background worktree creation for a freshly-inserted session row.
- * Updates `chat_sessions` with the worktree's path, branch, and base
- * SHA when the library finishes. On failure, records the message on
- * the row's `setup_error` column so the UI can render the failure and
- * offer a Pull/retry button.
+ * Background worktree creation for a freshly-created execution. Writes the
+ * worktree's path, branch, and base SHA onto the execution when the library
+ * finishes (via `markExecutionSetupComplete`). On failure, records the
+ * message on the execution's `setup_error` so the UI can render the failure
+ * and offer a Pull/retry button.
  *
  * When `prNumber` is set, fetches `refs/pull/<N>/head` first and passes
  * that ref as the base — works for same-repo and fork PRs alike.
  */
 async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
-  const { ws, sessionId, label, baseBranchOverride, prNumber } = args;
+  const { ws, executionId, sessionId, label, baseBranchOverride, prNumber } = args;
   try {
     let baseRef = baseBranchOverride;
     if (prNumber !== null) {
@@ -233,16 +245,15 @@ async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
       sessionLabel: label,
       baseBranchOverride: baseRef,
     });
-    updateChatSession(sessionId, {
+    markExecutionSetupComplete(executionId, {
       worktree_path: worktree.path,
       branch_name: worktree.branch,
       base_sha: worktree.baseSha,
-      setup_error: null,
     });
   } catch (err) {
     const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-    console.error(`[dispatch] worktree provisioning failed for ${sessionId}:`, msg);
-    updateChatSession(sessionId, { setup_error: msg });
+    console.error(`[dispatch] worktree provisioning failed for execution ${executionId}:`, msg);
+    recordExecutionSetupError(executionId, msg);
   }
 }
 
@@ -274,8 +285,8 @@ export interface ArchiveExecutionSessionArgs {
  */
 export async function archiveExecutionSession(
   args: ArchiveExecutionSessionArgs,
-): Promise<ChatSessionRecord | null> {
-  const session = getChatSession(args.sessionId);
+): Promise<ChatSessionWithExecution | null> {
+  const session = getChatSessionWithExecution(args.sessionId);
   if (!session) return null;
 
   // Workspace lookup is best-effort — a workspace can be deleted out from
@@ -291,5 +302,15 @@ export async function archiveExecutionSession(
     }
   }
 
-  return archiveChatSession(args.sessionId);
+  // Archiving the execution cascades to all its chats (docs/executions-spec
+  // §5). The worktree lives on the execution, so this is the right unit to
+  // archive. Orphaned chats (execution hard-deleted by a workspace delete)
+  // have no execution to archive — fall back to archiving the chat itself.
+  if (session.execution_id) {
+    archiveExecution(session.execution_id);
+  } else {
+    archiveChatSession(args.sessionId);
+  }
+
+  return getChatSessionWithExecution(args.sessionId);
 }

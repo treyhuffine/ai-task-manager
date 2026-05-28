@@ -268,11 +268,81 @@ export const agents = sqliteTable('agents', {
   index('idx_agents_status').on(table.status),
 ]);
 
+// ─── Executions ───────────────────────────────────────────────
+// A durable work artifact anchored to a workspace: the worktree, branch,
+// base SHA, PR linkage, provisioning state, and "take over locally"
+// lifecycle. Distinct from a chat_session, which is a single conversation
+// against the artifact — one execution can host many chats over its life
+// (e.g. a recurring schedule starts a fresh chat each fire against the
+// same worktree). See `docs/executions-spec.md`.
+//
+// These columns were lifted off `chat_sessions`; a chat now points at its
+// execution via `chat_sessions.execution_id` (nullable — orchestration and
+// content chats have no execution).
+
+export const executions = sqliteTable('executions', {
+  id: text('id').primaryKey(),
+  user_id: text('user_id').notNull().default('local'),
+
+  // What this execution is anchored to. Required — executions are
+  // workspace work artifacts. CASCADE: workspace deletion takes its
+  // executions with it. The transitive cascade to chats is broken at
+  // `chat_sessions.execution_id` (SET NULL) so transcripts survive the
+  // workspace deletion as orphaned-but-readable history.
+  workspace_id: text('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+
+  // Optional label. Most executions don't need one; recurring schedule
+  // executions might be labeled "morning-triage" etc. for the UI.
+  label: text('label'),
+
+  // Durable git state — lifted from chat_sessions. All nullable because
+  // executions exist before worktree provisioning completes (and non-git
+  // workspaces never get these set — the agent runs from `workspace.cwd`).
+  worktree_path: text('worktree_path'),
+  branch_name: text('branch_name'),
+  base_sha: text('base_sha'),
+
+  // Explicit PR link override — lifted from chat_sessions. See the column
+  // comment on the (now-legacy) chat_sessions.pr_number for semantics.
+  pr_number: integer('pr_number'),
+
+  // Worktree provisioning state — lifted from chat_sessions. `setup_error`
+  // holds the last failure (null once the worktree exists); `setup_started_at`
+  // anchors the "creating worktree… Ns" counter to the current attempt.
+  setup_error: text('setup_error'),
+  setup_started_at: text('setup_started_at'),
+
+  // "Take over locally" lifecycle — lifted from chat_sessions. In takeover
+  // iff `takeover_started_at IS NOT NULL`; all five clear together on
+  // resume/cancel. The token authenticates the local CLI without the bearer
+  // token and expires after one hour.
+  takeover_started_at: text('takeover_started_at'),
+  takeover_base_sha: text('takeover_base_sha'),
+  takeover_branch: text('takeover_branch'),
+  takeover_token: text('takeover_token'),
+  takeover_token_expires_at: text('takeover_token_expires_at'),
+
+  status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+
+  created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  archived_at: text('archived_at'),
+}, (table) => [
+  index('idx_executions_workspace_status').on(table.workspace_id, table.status),
+  uniqueIndex('uniq_executions_takeover_token')
+    .on(table.takeover_token)
+    .where(sql`${table.takeover_token} IS NOT NULL`),
+]);
+
 // ─── Chat Sessions ────────────────────────────────────────────
 // One row per chat thread. `type` discriminates: orchestration (main thread),
 // content (scoped to a task/note), execution (CLI-backed work). Execution
-// sessions populate workspace_id + worktree_path + base_sha and may carry
-// external_session_id when bound to a CLI session.
+// chats carry workspace_id and point at an `execution_id`; the durable
+// git/worktree/PR/takeover state lives on the `executions` row, read back
+// through `getChatSessionWithExecution`. They may carry external_session_id
+// when bound to a CLI session.
 
 export const chatSessions = sqliteTable('chat_sessions', {
   id: text('id').primaryKey(),
@@ -293,6 +363,22 @@ export const chatSessions = sqliteTable('chat_sessions', {
 
   // Execution-specific fields.
   workspace_id: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+
+  // The durable work artifact this chat belongs to. NULL for orchestration
+  // and content chats. NOT NULL for active execution chats (see the
+  // invariant in docs/executions-spec.md §2.2). ON DELETE SET NULL: if an
+  // execution is ever hard-deleted (workspace deletion cascade), the chat
+  // survives as an orphaned-but-readable transcript.
+  execution_id: text('execution_id').references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
+
+  // ─── LEGACY execution columns ──────────────────────────────
+  // Lifted to the `executions` table. Retained during the migration
+  // transition so the additive schema change and the data backfill are
+  // non-destructive; reads now flow through `getChatSessionWithExecution`
+  // (which sources these from the joined execution) and writes go through
+  // the named execution helpers. Dropped in a follow-up migration once
+  // `scripts/check-executions-migration-complete.ts` confirms no consumer
+  // touches them directly. Do NOT read or write these columns in new code.
   worktree_path: text('worktree_path'),
   branch_name: text('branch_name'),
   base_sha: text('base_sha'),
@@ -388,6 +474,10 @@ export const chatSessions = sqliteTable('chat_sessions', {
     .on(table.workspace_id, table.status, table.last_outcome_event_at),
   index('idx_chat_sessions_agent_status').on(table.agent_id, table.status),
   index('idx_chat_sessions_type_status').on(table.type, table.status),
+  // Primary-chat lookup + per-execution rollups: "most-recently-active
+  // non-archived chat for execution E" (docs/executions-spec.md §4).
+  index('idx_chat_sessions_execution_status_activity')
+    .on(table.execution_id, table.status, table.last_outcome_event_at),
 ]);
 
 // ─── Chat Events ──────────────────────────────────────────────

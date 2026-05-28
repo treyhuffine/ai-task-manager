@@ -1,6 +1,6 @@
 import os from 'node:os';
 import {
-  findSessionByTakeoverToken,
+  findChatSessionByTakeoverToken,
   getWorkspace,
 } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
@@ -35,7 +35,7 @@ export async function GET(
     const { token } = await params;
     if (!token) return Response.json({ error: 'no_token' }, { status: 400 });
 
-    const session = findSessionByTakeoverToken(token);
+    const session = findChatSessionByTakeoverToken(token);
     if (!session) {
       return Response.json({ error: 'unknown_token' }, { status: 404 });
     }

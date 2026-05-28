@@ -17,9 +17,19 @@ import { promisify } from 'node:util';
 import slugify from '@sindresorhus/slugify';
 import { getAppRoot } from '@/lib/config/paths';
 import { expandFilesToCopyPatterns } from '@/lib/workspaces/files-to-copy';
-import type { WorkspaceRecord, ChatSessionRecord } from '@/db/types';
+import type { WorkspaceRecord } from '@/db/types';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Minimal structural shape for "something that points at a worktree on
+ * disk." Worktree path lives on the execution now, surfaced flattened by
+ * `getChatSessionWithExecution`; these helpers only need that one field,
+ * so we accept it structurally rather than coupling to a full row type.
+ */
+export interface WorktreePointer {
+  worktree_path: string | null;
+}
 
 // Cached lazy-loaded module. The library has no side effects on import,
 // so caching the resolved namespace avoids repeated dynamic-import overhead.
@@ -311,7 +321,7 @@ export async function listWorkspaceBranches(ws: WorkspaceRecord): Promise<string
  * the worktree path no longer exists on disk (multi-device, user deleted).
  */
 export async function openWorktreeHandle(
-  session: ChatSessionRecord,
+  session: WorktreePointer,
   sourceCwd: string,
 ): Promise<import('@agentex/workspace').Workspace | null> {
   if (!session.worktree_path) return null;
@@ -329,7 +339,7 @@ export async function openWorktreeHandle(
  * we treat that as success. Throws on dirty/unpushed unless `force` is set.
  */
 export async function archiveSessionWorktree(args: {
-  session: ChatSessionRecord;
+  session: WorktreePointer;
   force?: boolean;
 }): Promise<void> {
   if (!args.session.worktree_path) return;

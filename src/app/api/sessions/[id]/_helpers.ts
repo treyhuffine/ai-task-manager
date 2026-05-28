@@ -5,7 +5,7 @@
  * or one of the documented runtime/segment configs.
  */
 
-import { getChatSession, getWorkspace } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { FileReadError } from '@/lib/workspaces/read-file';
 import { FileWriteError } from '@/lib/workspaces/write-file';
@@ -22,7 +22,7 @@ export type WorktreeResolution =
  * check every mutating handler would otherwise repeat.
  */
 export async function openSessionWorktree(id: string): Promise<WorktreeResolution> {
-  const session = getChatSession(id);
+  const session = getChatSessionWithExecution(id);
   if (!session) {
     return { ok: false, response: Response.json({ error: 'Session not found' }, { status: 404 }) };
   }
