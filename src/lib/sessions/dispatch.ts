@@ -37,6 +37,7 @@ import {
 } from '@/lib/db/queries';
 import {
   createWorktreeForSession,
+  resumeWorktreeForSession,
   archiveSessionWorktree,
   fetchPrHead,
 } from '@/lib/workspaces';
@@ -222,32 +223,78 @@ interface ProvisionArgs {
   label: string | null;
   baseBranchOverride: string | null;
   prNumber: number | null;
+  /**
+   * Resume context. When present and the original branch still exists, we
+   * recreate the worktree at the *original* path with the *original*
+   * branch checked out — preserves git state and keeps Claude's
+   * cwd-derived transcript dir valid so `--resume <sid>` finds the
+   * existing JSONL. Falls through to fresh `createWorktreeForSession` if
+   * the resume path isn't usable (branch deleted out-of-band, etc).
+   */
+  resume?: {
+    worktreePath: string;
+    branch: string;
+    baseSha: string;
+  };
 }
 
 /**
- * Background worktree creation for a freshly-created execution. Writes the
- * worktree's path, branch, and base SHA onto the execution when the library
- * finishes (via `markExecutionSetupComplete`). On failure, records the
- * message on the execution's `setupError` so the UI can render the failure
- * and offer a Pull/retry button.
+ * Background worktree creation for an execution. Two modes:
  *
- * When `prNumber` is set, fetches `refs/pull/<N>/head` first and passes
- * that ref as the base — works for same-repo and fork PRs alike.
+ * 1. Fresh (default): `createWorktreeForSession` provisions a new worktree
+ *    off `ws.baseBranch` with a new branch. Used by initial dispatch and
+ *    `retryProvisionWorktree`.
+ *
+ * 2. Resume (`args.resume` set): `resumeWorktreeForSession` checks out
+ *    the original branch at the original path. Used by
+ *    `continueExecutionSession`. If the branch was deleted out-of-band,
+ *    falls through to fresh-create automatically.
+ *
+ * Either way, writes the worktree's path / branch / baseSha onto the
+ * execution when finished (via `markExecutionSetupComplete`). On failure,
+ * records the message on the execution's `setupError` so the UI can
+ * render the failure and offer a Pull/retry button.
+ *
+ * When `prNumber` is set (fresh mode only), fetches `refs/pull/<N>/head`
+ * first and passes that ref as the base — works for same-repo and fork
+ * PRs alike. Resume mode ignores `prNumber` since we're checking out an
+ * existing branch.
  */
 async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
-  const { ws, executionId, sessionId, label, baseBranchOverride, prNumber } = args;
+  const { ws, executionId, sessionId, label, baseBranchOverride, prNumber, resume } = args;
   try {
-    let baseRef = baseBranchOverride;
-    if (prNumber !== null) {
-      const fetched = await fetchPrHead({ ws, prNumber });
-      baseRef = fetched.ref;
+    let worktree: { path: string; branch: string; baseSha: string } | null = null;
+
+    if (resume) {
+      worktree = await resumeWorktreeForSession({
+        ws,
+        worktreePath: resume.worktreePath,
+        branch: resume.branch,
+        baseSha: resume.baseSha,
+        sessionId,
+      });
+      // `resumeWorktreeForSession` returns null when the resume path isn't
+      // usable (branch was deleted, path was somehow taken, etc.). In that
+      // case we fall through to the fresh-create path below — the user
+      // still gets a working worktree, just not at the original path /
+      // branch. Claude's transcript will be invisible to the fresh CLI
+      // session in that case (different cwd → different project dir).
     }
-    const worktree = await createWorktreeForSession({
-      ws,
-      sessionId,
-      sessionLabel: label,
-      baseBranchOverride: baseRef,
-    });
+
+    if (!worktree) {
+      let baseRef = baseBranchOverride;
+      if (prNumber !== null) {
+        const fetched = await fetchPrHead({ ws, prNumber });
+        baseRef = fetched.ref;
+      }
+      worktree = await createWorktreeForSession({
+        ws,
+        sessionId,
+        sessionLabel: label,
+        baseBranchOverride: baseRef,
+      });
+    }
+
     markExecutionSetupComplete(executionId, {
       worktreePath: worktree.path,
       branchName: worktree.branch,
@@ -331,17 +378,25 @@ export interface ContinueExecutionSessionArgs {
 }
 
 /**
- * Re-engage an archived execution on disk: unarchive the row and spin up a
- * fresh worktree off `ws.baseBranch`. Fire-and-forget; the UI's existing
- * setting-up state covers the wait until the new worktree lands.
+ * Re-engage an archived execution on disk: unarchive the row and recreate
+ * the worktree at the *original* path with the *original* branch checked
+ * out. Fire-and-forget on the worktree side; the UI's existing setting-up
+ * state covers the wait until provisioning finishes.
  *
- * Note that the new worktree typically lands at a `-N` suffixed path
- * because the original branch ref survives archive
- * (`@agentex/workspace.archive` removes the worktree but not the branch).
- * That's intentionally non-destructive — we don't delete the branch —
- * but it means Claude's transcript dir (which keys off cwd) won't match
- * the new path on its own. Transcript migration runs in the provisioner
- * after the worktree is created (see `provisionWorktreeForSession`).
+ * Why same-path + same-branch: Claude Code's transcript dir is
+ * `~/.claude/projects/<escape(cwd)>/<sid>.jsonl`. If the new worktree
+ * lands at a different path (because the branch ref survived archive and
+ * collided with the create-fresh attempt), Claude's resume looks in the
+ * wrong project dir and the existing JSONL is invisible. Reusing the
+ * branch in-place keeps everything coherent: same cwd → same project dir
+ * → `claude --resume <sid>` finds the existing transcript → conversation
+ * continues without loss.
+ *
+ * If the original branch was deleted out-of-band (manual `git branch -D`
+ * or similar), `resumeWorktreeForSession` returns null and we fall back
+ * to creating a fresh worktree off `ws.baseBranch`. The chat history is
+ * preserved in the DB transcript either way; only Claude's working memory
+ * is lost in the fallback case.
  */
 export async function continueExecutionSession(
   args: ContinueExecutionSessionArgs,
@@ -365,6 +420,18 @@ export async function continueExecutionSession(
   }
 
   if (!isLive) {
+    // Capture the worktree identity BEFORE we null it on the row — the
+    // provisioner uses this to recreate at the same path with the same
+    // branch (same-path resume is what makes Claude's `--resume` work).
+    const resumeContext =
+      session.worktreePath && session.branchName && session.baseSha
+        ? {
+            worktreePath: session.worktreePath,
+            branch: session.branchName,
+            baseSha: session.baseSha,
+          }
+        : undefined;
+
     // Stale `worktreePath` survives archive (we deleted the directory but
     // kept the column for the archived view to show "this session was on
     // branch X"). Null it now so the row reads as "setting up" and the
@@ -387,6 +454,7 @@ export async function continueExecutionSession(
       // `prNumber` intentionally null — Continue defaults to a fresh base.
       // Resurrecting the original PR head is a future-option toggle.
       prNumber: null,
+      resume: resumeContext,
     });
   }
 
