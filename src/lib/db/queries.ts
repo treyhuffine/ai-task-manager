@@ -1323,11 +1323,15 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
  * (last_viewed_at). unread_marker_at lets the user force a session into
  * Unread without an outcome event (the "Mark as unread" affordance).
  */
-export function listNeedsReviewSessionCandidates(): ChatSessionRecord[] {
+export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
   const db = getDb();
-  return db
-    .select()
+  const rows = db
+    .select({
+      ...getTableColumns(chatSessions),
+      execution: getTableColumns(executions),
+    })
     .from(chatSessions)
+    .leftJoin(executions, eq(chatSessions.execution_id, executions.id))
     .where(
       and(
         eq(chatSessions.status, 'active'),
@@ -1349,6 +1353,9 @@ export function listNeedsReviewSessionCandidates(): ChatSessionRecord[] {
       '1970-01-01'
     ) DESC`)
     .all();
+  return rows.map(
+    (r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }),
+  );
 }
 
 // ─── Rail (status view) ────────────────────────────────────────

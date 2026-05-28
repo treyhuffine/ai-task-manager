@@ -5,10 +5,10 @@ import { Laptop, Loader2, RotateCw, XCircle } from 'lucide-react';
 import { useTakeover } from '@/hooks/use-takeover';
 import { ApiError } from '@/lib/api/client';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
-import type { ChatSessionRecord } from '@/db/types';
+import type { ChatSessionWithExecution } from '@/db/types';
 
 interface TakeoverBannerProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithExecution;
 }
 
 /**

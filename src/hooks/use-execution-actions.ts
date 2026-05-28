@@ -10,7 +10,7 @@ import {
   useRetrySetup,
   useSessionStatus,
 } from '@/hooks/use-execution';
-import type { ChatSessionRecord } from '@/db/types';
+import type { ChatSessionWithExecution } from '@/db/types';
 
 /** PR context that travels with worktree-state variants when present. */
 export interface PrContext {
@@ -148,7 +148,7 @@ interface UseExecutionActionsResult {
  * mutation handles for every action the bar might surface.
  */
 export function useExecutionActions(
-  session: ChatSessionRecord | undefined,
+  session: ChatSessionWithExecution | undefined,
   workspaceIsGit: boolean | null | undefined,
 ): UseExecutionActionsResult {
   const id = session?.id ?? '';

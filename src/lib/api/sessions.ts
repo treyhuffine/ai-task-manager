@@ -343,8 +343,8 @@ export const sessionsApi = {
       effort?: EffortLevel | null;
       pr_number?: number | null;
     },
-  ): Promise<ChatSessionRecord> {
-    return api.patch<ChatSessionRecord>(`/sessions/${id}`, input);
+  ): Promise<ChatSessionWithExecution> {
+    return api.patch<ChatSessionWithExecution>(`/sessions/${id}`, input);
   },
 
   pendingInput(id: string): Promise<PendingInput[]> {
@@ -477,8 +477,8 @@ export const sessionsApi = {
     return api.post<MergeResponse>(`/sessions/${id}/merge`, body ?? {});
   },
 
-  needsReview(): Promise<ChatSessionRecord[]> {
-    return api.get<ChatSessionRecord[]>('/sessions/needs-review');
+  needsReview(): Promise<ChatSessionWithExecution[]> {
+    return api.get<ChatSessionWithExecution[]>('/sessions/needs-review');
   },
 
   /**
@@ -513,8 +513,8 @@ export const sessionsApi = {
     return api.get<DiffStats | null>(`/sessions/${id}/diff-stats`);
   },
 
-  archive(id: string, opts?: { force?: boolean }): Promise<ChatSessionRecord> {
-    return api.post<ChatSessionRecord>(`/sessions/${id}/archive`, { force: opts?.force ?? false });
+  archive(id: string, opts?: { force?: boolean }): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/archive`, { force: opts?.force ?? false });
   },
 
   commit(id: string, opts?: { andPush?: boolean }): Promise<{ ok: true }> {
@@ -547,8 +547,8 @@ export const sessionsApi = {
     return api.post<{ ok: true }>(`/sessions/${id}/help-with-error`, input);
   },
 
-  retrySetup(id: string): Promise<ChatSessionRecord> {
-    return api.post<ChatSessionRecord>(`/sessions/${id}/retry-setup`);
+  retrySetup(id: string): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/retry-setup`);
   },
 
   sendMessage(
