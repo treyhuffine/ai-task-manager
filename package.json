@@ -49,7 +49,7 @@
   "dependencies": {
     "@agentex/agent": "^0.0.17",
     "@agentex/github": "^0.0.1",
-    "@agentex/workspace": "^0.0.2",
+    "@agentex/workspace": "^0.0.4",
     "@ai-sdk/anthropic": "^3.0.63",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/react": "^3.0.136",

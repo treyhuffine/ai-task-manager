@@ -291,23 +291,26 @@ export async function createWorktreeForSession(args: {
  * Resume an archived session by recreating its worktree at the *original*
  * path with the *original* branch checked out. Companion to
  * `createWorktreeForSession`: rather than spawning a fresh branch off
- * `ws.baseBranch`, this checks out the branch that survived archive (the
- * lib removes the worktree but not the branch ref). Preserves git state
- * exactly AND keeps the cwd stable so downstream tools that key off it —
- * notably Claude Code, whose transcript dir is
+ * `ws.baseBranch`, this reuses the branch that survived archive (the lib
+ * removes the worktree but, by default, not the branch ref). Preserves
+ * git state exactly AND keeps the cwd stable so downstream tools that
+ * key off cwd — notably Claude Code, whose transcript dir is
  * `~/.claude/projects/<escape(cwd)>/<sid>.jsonl` — find their existing
  * state without a migration step.
  *
  * Returns `null` to signal "fall back to `createWorktreeForSession`":
  *   - the workspace isn't git,
- *   - the worktree path is somehow still occupied (no clean reuse),
- *   - the branch ref was deleted out-of-band,
- *   - the `git worktree add` itself failed.
+ *   - the original path is somehow still occupied,
+ *   - the `workspace.create` call failed (branch deleted, branch already
+ *     checked out elsewhere, etc).
  *
- * Why shell `git worktree add` directly: `@agentex/workspace.create`
- * always uses `-b <branch>` so it can only *create* branches, never check
- * out existing ones. Adding a `reuseBranch?: boolean` option upstream is
- * the right cleanup; this is the bridge until then.
+ * Implemented via `lib.workspace.create({ reuseBranch: true })` (added in
+ * `@agentex/workspace@0.0.4`): if the branch exists, the lib does
+ * `git worktree add <path> <branch>` and re-runs the `fromSource` copy
+ * automatically; if it doesn't, the lib falls through to its normal
+ * create-new path, which produces a fresh branch at the same path off
+ * `ws.baseBranch`. Either outcome lands at the same cwd, which is what
+ * matters for Claude transcript discovery.
  */
 export async function resumeWorktreeForSession(args: {
   ws: WorkspaceRecord;
@@ -316,32 +319,27 @@ export async function resumeWorktreeForSession(args: {
   baseSha: string;
   sessionId: string;
 }): Promise<CreateWorktreeForSessionResult | null> {
-  const { ws, worktreePath, branch, baseSha, sessionId } = args;
+  const { ws, worktreePath, branch, sessionId } = args;
   if (!ws.isGit) return null;
   if (existsSync(worktreePath)) return null;
+  if (!ws.baseBranch) return null;
 
-  if (!(await branchExistsLocally(ws.cwd, branch))) return null;
-
-  try {
-    await execFileAsync('git', ['worktree', 'add', worktreePath, branch], { cwd: ws.cwd });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[resumeWorktreeForSession] git worktree add failed for session ${sessionId}:`, msg);
-    return null;
-  }
-
-  // Hydrate a handle so we can re-copy env files via the lib's
-  // `copyFromSource` (parity with the initial-create path). `open()` needs
-  // either the metadata file the lib's `create()` wrote (which still
-  // exists from the original session — it lives in the worktree itself,
-  // gone now) or explicit baseBranch / baseSha. We pass the latter.
   const lib = await loadLib();
   try {
-    const handle = await lib.workspace.open(worktreePath, {
+    const handle = await lib.workspace.create({
+      kind: 'git',
       source: ws.cwd,
-      baseBranch: ws.baseBranch ?? branch,
-      baseSha,
+      baseBranch: ws.baseBranch,
+      path: worktreePath,
+      branch,
+      reuseBranch: true,
+      // `applyFromSource` defaults true → the lib copies the workspace's
+      // configured `fromSource` block automatically. We still drive the
+      // app-specific `filesToCopy` (env files) explicitly below for parity
+      // with `createWorktreeForSession`.
     });
+    if (handle.kind !== 'git') return null;
+
     const expanded = expandFilesToCopyPatterns(ws.filesToCopy ?? []);
     if (expanded.length > 0) {
       try {
@@ -353,30 +351,16 @@ export async function resumeWorktreeForSession(args: {
         );
       }
     }
+
+    return {
+      path: handle.path,
+      branch: handle.git.branch,
+      baseSha: handle.git.baseSha,
+    };
   } catch (err) {
-    // Env-file copy is best-effort. If open / copyFromSource fail, the
-    // worktree still exists with the checked-out branch — the agent can
-    // still operate. Log and move on.
-    console.warn(`[resumeWorktreeForSession] handle hydration failed for session ${sessionId}:`, err);
-  }
-
-  return { path: worktreePath, branch, baseSha };
-}
-
-/**
- * `git show-ref --verify --quiet refs/heads/<branch>` — returns true if a
- * local branch by that name exists in `repoCwd`, false otherwise.
- */
-async function branchExistsLocally(repoCwd: string, branch: string): Promise<boolean> {
-  try {
-    await execFileAsync(
-      'git',
-      ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`],
-      { cwd: repoCwd },
-    );
-    return true;
-  } catch {
-    return false;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[resumeWorktreeForSession] workspace.create failed for session ${sessionId}:`, msg);
+    return null;
   }
 }
 
