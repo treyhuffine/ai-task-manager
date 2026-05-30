@@ -213,7 +213,7 @@ export async function retryProvisionWorktree(
   return getChatSessionWithExecution(sessionId);
 }
 
-interface ProvisionArgs {
+export interface ProvisionArgs {
   ws: WorkspaceRecord;
   /** The execution whose worktree state these results are written to. */
   executionId: string;
@@ -260,7 +260,7 @@ interface ProvisionArgs {
  * PRs alike. Resume mode ignores `prNumber` since we're checking out an
  * existing branch.
  */
-async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
+export async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
   const { ws, executionId, sessionId, label, baseBranchOverride, prNumber, resume } = args;
   try {
     let worktree: { path: string; branch: string; baseSha: string } | null = null;

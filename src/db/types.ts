@@ -5,9 +5,10 @@ import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
+  schedules, runs,
   Attachment,
 } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative, Attachment, StoredAttachment } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, Attachment, StoredAttachment, RunArtifactRef } from '@/lib/db/schema';
 
 /**
  * Override the `attachments` column type on a record. Drizzle infers the
@@ -198,6 +199,30 @@ export type EffortLevel = NonNullable<ChatSessionRecord['effort']>;
 
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly EffortLevel[];
 
+// ─── Schedules ────────────────────────────────────────────────
+
+export type ScheduleRecord = InferSelectModel<typeof schedules>;
+export type CreateScheduleInput = Omit<InferInsertModel<typeof schedules>, 'id'> & { id?: string };
+export type UpdateScheduleInput = Partial<Omit<CreateScheduleInput, 'createdAt'>>;
+export type ScheduleKind = ScheduleRecord['kind'];
+export type ScheduleTargetKind = ScheduleRecord['targetKind'];
+export type ScheduleConcurrencyPolicy = ScheduleRecord['concurrencyPolicy'];
+export type ScheduleCatchUpPolicy = ScheduleRecord['catchUpPolicy'];
+export type ScheduleLastRunStatus = NonNullable<ScheduleRecord['lastRunStatus']>;
+
+// ─── Runs ─────────────────────────────────────────────────────
+
+export type RunRecord = InferSelectModel<typeof runs>;
+export type CreateRunInput = Omit<InferInsertModel<typeof runs>, 'id'> & { id?: string };
+export type UpdateRunInput = Partial<Omit<CreateRunInput, 'createdAt' | 'queuedAt'>>;
+export type RunStatus = RunRecord['status'];
+export type RunTrigger = RunRecord['trigger'];
+
+/** Schedule + its most recent run state, joined for the schedules list view. */
+export type ScheduleWithLastRun = ScheduleRecord & {
+  lastRun: RunRecord | null;
+};
+
 // ─── Filters (query params) ──────────────────────────────────
 
 export interface AreaFilter {
@@ -221,6 +246,9 @@ export interface NoteFilter {
   workspaceId?: string | null;
   taskId?: string | null;
   status?: NoteStatus;
+  /** When true, restrict to notes whose title starts with "Decision: " — the
+   *  agent-written-decisions convention. See docs/async-agents-v1.md §4.5. */
+  decisionsOnly?: boolean;
   limit?: number;
   offset?: number;
   orderBy?: string;

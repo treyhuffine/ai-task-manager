@@ -1,0 +1,44 @@
+{
+  "anthropic/claude-opus-4-7": {
+    "input": 1500,
+    "cached": 150,
+    "cacheCreation": 1875,
+    "output": 7500
+  },
+  "anthropic/claude-opus-4-6": {
+    "input": 1500,
+    "cached": 150,
+    "cacheCreation": 1875,
+    "output": 7500
+  },
+  "anthropic/claude-sonnet-4-6": {
+    "input": 300,
+    "cached": 30,
+    "cacheCreation": 375,
+    "output": 1500
+  },
+  "anthropic/claude-sonnet-4-5": {
+    "input": 300,
+    "cached": 30,
+    "cacheCreation": 375,
+    "output": 1500
+  },
+  "anthropic/claude-haiku-4-5": {
+    "input": 100,
+    "cached": 10,
+    "cacheCreation": 125,
+    "output": 500
+  },
+  "openai/gpt-5": {
+    "input": 250,
+    "cached": 25,
+    "cacheCreation": 250,
+    "output": 1000
+  },
+  "openai/gpt-5-mini": {
+    "input": 50,
+    "cached": 5,
+    "cacheCreation": 50,
+    "output": 200
+  }
+}

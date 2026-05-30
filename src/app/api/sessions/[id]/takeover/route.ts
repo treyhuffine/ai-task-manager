@@ -166,6 +166,10 @@ export async function POST(
       branch: session.branchName,
       token,
       expiresAt: expiresAt,
+      // Pin the chat that initiated the takeover so resume lands in
+      // *this* chat even when sibling chats accumulate on the
+      // execution (recurring schedule fires).
+      chatSessionId: id,
     });
     if (!updated) {
       return Response.json({ error: 'persist_failed' }, { status: 500 });

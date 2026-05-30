@@ -29,6 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { APP_SHORT_ID } from '@/constants/app';
 import { renderAppRootClaudeMd } from './claude-md-template';
+import { renderBrainMemoryMd } from './memory-template';
 
 const ENV_PREFIX = APP_SHORT_ID.toUpperCase();
 
@@ -166,6 +167,14 @@ export function ensureBrainDir(): string {
   const dir = getBrainDir();
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  // Drop a brain-level MEMORY.md the first time we create the dir.
+  // Same idempotency rule as the app-root CLAUDE.md: written once,
+  // never overwritten, so user edits survive forever. Includes the
+  // Decisions convention so agents learn it on first session.
+  const memoryPath = path.join(dir, 'MEMORY.md');
+  if (!fs.existsSync(memoryPath)) {
+    fs.writeFileSync(memoryPath, renderBrainMemoryMd(), { mode: 0o600 });
   }
   return dir;
 }

@@ -13,6 +13,7 @@ import { registerCommitCommand } from './commands/commit';
 import { registerExportCommand } from './commands/export';
 import { registerAgentCommand } from './commands/agent';
 import { registerSkillsCommand } from './commands/skills';
+import { registerScheduleCommands } from './commands/schedule';
 import { registerTakeoverCommand } from './commands/takeover';
 import { registerResumeCommand } from './commands/resume';
 
@@ -86,6 +87,7 @@ registerCommitCommand(program);
 registerExportCommand(program);
 registerAgentCommand(program);
 registerSkillsCommand(program);
+registerScheduleCommands(program);
 registerTakeoverCommand(program);
 registerResumeCommand(program);
 

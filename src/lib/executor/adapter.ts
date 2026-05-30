@@ -63,14 +63,52 @@ import {
   type PendingInput,
 } from './pending-input';
 import { publishRuntime } from '@/lib/realtime/bus';
+import { handleRunStreamEvent, registerToolCallName } from '@/lib/runs/event-hooks';
+import { resolveSkillDirsForSession } from './skills';
+import { beginRun, endRun } from '@/lib/runs/artifact-bucket';
+import {
+  createRun as createRunRow,
+  markRunStarted as markRunStartedRow,
+  markRunCompleted as markRunCompletedRow,
+  markRunFailed as markRunFailedRow,
+  findActiveRunForExecution,
+  bumpSessionOutcome,
+} from '@/lib/db/queries';
+import { budgetGate } from '@/lib/runs/budget';
 
 // ─── Public errors ────────────────────────────────────────────
 
 export class ExecutorError extends Error {
-  constructor(public code: 'not_found' | 'invalid_state' | 'unsupported' | 'already_running', message: string) {
+  constructor(
+    public code:
+      | 'not_found'
+      | 'invalid_state'
+      | 'unsupported'
+      | 'already_running'
+      | 'budget_exceeded',
+    message: string,
+  ) {
     super(message);
     this.name = 'ExecutorError';
   }
+}
+
+/**
+ * Optional opt-in flags for dispatch.
+ *
+ * `overBudget` — the caller has explicitly acknowledged the budget
+ * overage in the UI; we proceed past the block. Otherwise we reject
+ * with `budget_exceeded` and the chat surface renders a confirm prompt.
+ *
+ * `internalCall` — the caller is the scheduled-run wrapper in
+ * `src/lib/runs/dispatch.ts` and has already evaluated the budget +
+ * execution-mutex gates. Skips both checks; the scheduler is the
+ * source of truth for them in this code path. Untrusted callers
+ * (chat composer, route handlers) must NOT set this.
+ */
+export interface DispatchOptions {
+  overBudget?: boolean;
+  internalCall?: boolean;
 }
 
 // ─── Module state ─────────────────────────────────────────────
@@ -218,6 +256,24 @@ export function _resetSkillDirsCache(): void {
   cachedSkillDirs = null;
 }
 
+/**
+ * Merge two skill-dir lists, deduping while preserving order. The
+ * second list (user skills) gets precedence: when the same source dir
+ * appears in both, the user-skill placement wins. Doesn't dedupe by
+ * skill *name* — that lives in `resolveSkillsForSession`; this is the
+ * unique-paths layer.
+ */
+function mergeSkillDirs(bundled: string[], userSkills: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const dir of [...userSkills, ...bundled]) {
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    out.push(dir);
+  }
+  return out;
+}
+
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
   agentSessions.clear();
@@ -334,6 +390,7 @@ export async function dispatch(
   chatSessionId: string,
   userMessage: string,
   writer: EventWriter = localEventWriter,
+  options: DispatchOptions = {},
 ): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
@@ -343,6 +400,35 @@ export async function dispatch(
 
   const cwd = resolveCwd(session);
   if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
+
+  // Budget guard. Manual sends past the monthly ceiling require an
+  // explicit `overBudget: true` from the UI's confirmation prompt.
+  // Skipped for the scheduled wrapper, which evaluated the gate in
+  // `dispatchRun` before getting here.
+  if (!options.internalCall && !options.overBudget) {
+    if (budgetGate() === 'block') {
+      throw new ExecutorError(
+        'budget_exceeded',
+        'Monthly budget exceeded. Send again with "over budget" confirmation to proceed.',
+      );
+    }
+  }
+
+  // Execution-level run mutex (docs/executions-spec.md §5). When this
+  // chat belongs to an execution and a scheduled (or peer) run is
+  // already mutating the worktree, reject — V1 default per
+  // async-agents-v1.md open question #7. The scheduled wrapper has
+  // already claimed the active run for this execution before calling
+  // us, so we skip the check on its behalf.
+  if (session.executionId && !options.internalCall) {
+    const blocker = findActiveRunForExecution(session.executionId);
+    if (blocker) {
+      throw new ExecutorError(
+        'already_running',
+        'A scheduled run is in flight against this execution. Try again in a few seconds.',
+      );
+    }
+  }
 
   // Provider capability gate. Both currently-shipped providers
   // (claude, codex) set `concurrentSend: true`, so this branch is
@@ -360,6 +446,29 @@ export async function dispatch(
     );
   }
 
+  // Run-row instrumentation (task #12). Every dispatch creates a run row
+  // — manual, scheduled, or webhook — so cost tracking and budget
+  // guards are honest. The scheduled wrapper sets `internalCall: true`
+  // because it has already created the row + registered the run; we
+  // only spawn a `trigger='manual'` row for top-level callers.
+  let manualRun: { runId: string; ownsLifecycle: boolean } | null = null;
+  if (!options.internalCall) {
+    const created = createRunRow({
+      scheduleId: null,
+      workspaceId: session.workspaceId ?? null,
+      executionId: session.executionId ?? null,
+      chatSessionId,
+      agentId: session.agentId,
+      trigger: 'manual',
+      triggerPayload: null,
+      scheduledFor: null,
+      status: 'queued',
+    });
+    markRunStartedRow(created.id);
+    beginRun(created.id, chatSessionId);
+    manualRun = { runId: created.id, ownsLifecycle: true };
+  }
+
   startInflight(chatSessionId);
   try {
     const agentSession = await ensureAgentSession({
@@ -374,8 +483,29 @@ export async function dispatch(
     });
     const { result } = await agentSession.send(userMessage);
     await result;
+    if (manualRun?.ownsLifecycle) {
+      markRunCompletedRow(manualRun.runId);
+    }
+  } catch (err) {
+    if (manualRun?.ownsLifecycle) {
+      markRunFailedRow(manualRun.runId, {
+        errorCode: 'agent_error',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+      // Touch the chat's outcome timestamp so a failure before any
+      // assistant turn still surfaces in the inbox. Without this, a
+      // turn that throws inside `ensureAgentSession` / the first
+      // `send` would leave the chat invisibly stuck — the unread
+      // derivation only ticks on `agent` / `result` events written
+      // through the event writer.
+      try { bumpSessionOutcome(chatSessionId); } catch { /* best-effort */ }
+    }
+    throw err;
   } finally {
     endInflight(chatSessionId);
+    if (manualRun?.ownsLifecycle) {
+      endRun(manualRun.runId, chatSessionId);
+    }
   }
 }
 
@@ -479,7 +609,14 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // opens at the workspace cwd, which is typically *not* under app-root, so
   // Claude's ancestor walk won't see them. Pass them through skillDirs so
   // agentex symlinks them into a temp dir and adds it via --add-dir.
-  const skillDirs = await _resolveBundledSkillDirs();
+  //
+  // On top of bundled, layer in the author-neutral user-skill paths:
+  //   - Global: <brain>/skills/<name>/SKILL.md
+  //   - Workspace: <workspace>/.flow/skills/<name>/SKILL.md (workspace wins
+  //     on name collision). See src/lib/executor/skills.ts.
+  const bundled = await _resolveBundledSkillDirs();
+  const userSkills = resolveSkillDirsForSession(args.cwd);
+  const skillDirs = mergeSkillDirs(bundled, userSkills);
   if (skillDirs.length > 0) config.skillDirs = skillDirs;
 
   const handle = await provider.createSession({
@@ -494,6 +631,12 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
         _recordSessionInventory(args.chatSessionId, event);
         await persistStreamEvent(args.chatSessionId, event, args.writer);
         capturePromotedSessionId(args.chatSessionId, event);
+        // Run telemetry: cost capture (#13), artifact accumulation (#14),
+        // summary extraction (#15). No-op when there's no active run
+        // registered for this chat — the manual-dispatch path registers
+        // one before sending, scheduled dispatches do it via the
+        // dispatcher wrapper.
+        await handleRunStreamEventSafe(args.chatSessionId, event);
       } catch (err) {
         // One bad event shouldn't crash the whole turn — log and keep going.
         console.error(`[executor] failed to persist event for ${args.chatSessionId}:`, err);
@@ -720,6 +863,27 @@ function capturePromotedSessionId(chatSessionId: string, event: StreamEvent): vo
 }
 
 // ─── Stream event → chat_events row ───────────────────────────
+
+/**
+ * Defensive wrapper around the run-telemetry hook. Captures tool-call
+ * names as they pass through (so a later `tool_result` can be
+ * attributed to a mutating action), then defers to `handleRunStreamEvent`
+ * for cost + artifact + summary accumulation. Errors are swallowed —
+ * dropping a telemetry event is preferable to losing the user's turn.
+ */
+async function handleRunStreamEventSafe(
+  chatSessionId: string,
+  event: StreamEvent,
+): Promise<void> {
+  try {
+    if (event.type === 'tool_call' && event.toolCallId) {
+      registerToolCallName(event.toolCallId, event.name);
+    }
+    await handleRunStreamEvent(chatSessionId, event);
+  } catch (err) {
+    console.warn(`[runs] telemetry hook failed for ${chatSessionId}:`, err);
+  }
+}
 
 export async function persistStreamEvent(
   chatSessionId: string,

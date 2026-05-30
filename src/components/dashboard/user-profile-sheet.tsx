@@ -381,6 +381,21 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
 
           {/* Appearance */}
           <div className="mt-8 space-y-4">
+            <h3 className="text-sm font-medium text-foreground">
+              Monthly budget
+            </h3>
+            <BudgetField
+              value={userState?.monthlyBudgetUsd ?? null}
+              onSave={(v) =>
+                updateUserState.mutate(
+                  { monthlyBudgetUsd: v },
+                  { onSuccess: () => setLastSavedAt(new Date()) }
+                )
+              }
+            />
+          </div>
+
+          <div className="mt-8 space-y-4">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               {isDark ? <Moon size={14} /> : <Sun size={14} />}
               Appearance
@@ -421,5 +436,59 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/**
+ * Inline editor for the monthly USD ceiling. Empty input clears the
+ * budget (back to "no limit"). Persists on blur to keep the
+ * mutation count low.
+ */
+function BudgetField({
+  value,
+  onSave,
+}: {
+  value: number | null;
+  onSave: (next: number | null) => void;
+}) {
+  const [draft, setDraft] = useState<string>(value != null ? String(value) : '');
+  useEffect(() => {
+    setDraft(value != null ? String(value) : '');
+  }, [value]);
+  return (
+    <div className="p-3 rounded-lg border border-border bg-background space-y-2">
+      <p className="text-[11px] text-muted-foreground/60">
+        Cap monthly spend across scheduled + manual runs. At 75% the TopHud
+        warns; at 100% scheduled runs auto-pause and manual sends require
+        explicit confirmation. Leave blank for no limit.
+      </p>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">$</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step={1}
+          value={draft}
+          placeholder="No limit"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            const trimmed = draft.trim();
+            if (!trimmed) {
+              if (value != null) onSave(null);
+              return;
+            }
+            const parsed = Number(trimmed);
+            if (!Number.isFinite(parsed) || parsed < 0) {
+              setDraft(value != null ? String(value) : '');
+              return;
+            }
+            if (parsed !== value) onSave(parsed);
+          }}
+          className="w-32 rounded-md border border-border bg-card px-2 py-1 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <span className="text-[11px] text-muted-foreground/60">/ month</span>
+      </div>
+    </div>
   )
 }

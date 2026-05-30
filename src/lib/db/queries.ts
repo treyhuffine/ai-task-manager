@@ -7,6 +7,7 @@ import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
+  schedules, runs,
 } from '@/lib/db/schema';
 import { eq, and, desc, asc, sql, gt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -28,6 +29,8 @@ import type {
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
+  ScheduleRecord, CreateScheduleInput, UpdateScheduleInput,
+  RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, ScheduleWithLastRun,
 } from '@/db/types';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { OUTCOME_SOURCES } from '@/db/types';
@@ -269,6 +272,14 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
   if (filter.workspaceId) conditions.push(eq(notes.workspaceId, filter.workspaceId));
   if (filter.taskId) conditions.push(eq(notes.taskId, filter.taskId));
   if (filter.status) conditions.push(eq(notes.status, filter.status));
+  if (filter.decisionsOnly) {
+    // Convention: agent-written decisions land as notes with a
+    // 'Decision: ' title prefix. Surfaces the convention without a
+    // schema column. See docs/async-agents-v1.md §4.5. Lower-cased
+    // comparison so 'decision: …' / 'DECISION: …' / etc. all match —
+    // SQLite's default LIKE is case-sensitive for ASCII.
+    conditions.push(sql`LOWER(${notes.title}) LIKE 'decision: %'`);
+  }
 
   const limit = filter.limit ?? 10000;
   const offset = filter.offset ?? 0;
@@ -821,6 +832,15 @@ export function reorderWorkspaces(orderedIds: string[]): void {
 
 // ─── Agents ───────────────────────────────────────────────────
 
+export function listAgents(filter: { status?: 'active' | 'archived' } = {}): AgentRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.status) conditions.push(eq(agents.status, filter.status));
+  let query = db.select().from(agents).$dynamic();
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(asc(agents.name)).all();
+}
+
 export function getAgent(id: string): AgentRecord | undefined {
   const db = getDb();
   return db.select().from(agents).where(eq(agents.id, id)).get();
@@ -859,6 +879,31 @@ export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
     kind: 'executor',
     harness,
     name: harness === 'claude_code' ? 'Claude Code' : harness,
+    config: {},
+  });
+}
+
+/**
+ * Find or create the default orchestrator agent. Mirrors
+ * `getOrCreateDefaultExecutor` for the orchestrator side — used by the
+ * schedule action's `agentId` default when `targetKind='orchestrator'`
+ * and the caller didn't pick one. Single shared agent until per-purpose
+ * orchestrators become real surfaces.
+ */
+export function getOrCreateDefaultOrchestrator(harness = 'claude_code'): AgentRecord {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(agents)
+    .where(and(eq(agents.kind, 'orchestrator'), eq(agents.status, 'active')))
+    .orderBy(asc(agents.createdAt))
+    .limit(1)
+    .get();
+  if (existing) return existing;
+  return createAgent({
+    kind: 'orchestrator',
+    harness,
+    name: 'Orchestrator',
     config: {},
   });
 }
@@ -966,7 +1011,17 @@ export function setExecutionPR(executionId: string, prNumber: number | null): Ex
 
 export function startExecutionTakeover(
   executionId: string,
-  params: { token: string; branch: string; baseSha: string; expiresAt: string },
+  params: {
+    token: string;
+    branch: string;
+    baseSha: string;
+    expiresAt: string;
+    /** Chat session that initiated the takeover. Optional for backward
+     *  compat with legacy callers; new callers should pass it so the
+     *  resume handoff lands in the exact chat under multi-chat
+     *  executions. */
+    chatSessionId?: string | null;
+  },
 ): ExecutionRecord | null {
   return updateExecution(executionId, {
     takeoverStartedAt: new Date().toISOString(),
@@ -974,6 +1029,7 @@ export function startExecutionTakeover(
     takeoverBranch: params.branch,
     takeoverToken: params.token,
     takeoverTokenExpiresAt: params.expiresAt,
+    takeoverChatSessionId: params.chatSessionId ?? null,
   });
 }
 
@@ -984,6 +1040,7 @@ export function clearExecutionTakeover(executionId: string): ExecutionRecord | n
     takeoverBranch: null,
     takeoverToken: null,
     takeoverTokenExpiresAt: null,
+    takeoverChatSessionId: null,
   });
 }
 
@@ -1000,11 +1057,23 @@ export function findChatSessionByTakeoverToken(token: string): ChatSessionWithEx
   const db = getDb();
   const exec = db.select().from(executions).where(eq(executions.takeoverToken, token)).get();
   if (!exec) return undefined;
-  // V1 invariant: an execution has exactly one chat, so "most-recently-active"
-  // IS the chat that initiated the takeover. When multi-chat-per-execution
-  // lands (deferred, spec §9), the takeover should record which chat started
-  // it (e.g. a takeover_chat_session_id on executions) so the resume handoff
-  // lands in the right chat rather than whichever sorted first here.
+  // Prefer the chat that initiated the takeover (recorded on the
+  // execution at startExecutionTakeover time). This is the only correct
+  // target once executions accumulate multiple chats — scheduled
+  // recurring fires now spawn sibling chats against the same execution,
+  // and "most-recently-active" can resolve to a chat that wasn't part
+  // of the takeover at all.
+  if (exec.takeoverChatSessionId) {
+    const initiating = db
+      .select()
+      .from(chatSessions)
+      .where(eq(chatSessions.id, exec.takeoverChatSessionId))
+      .get();
+    if (initiating) return flattenSessionExecution({ ...initiating, execution: exec });
+    // Initiating chat was hard-deleted while takeover was live (rare,
+    // but the cascade is SET NULL on chat_sessions). Fall through to
+    // the legacy heuristic so the user can still resume *somewhere*.
+  }
   const chat = db
     .select()
     .from(chatSessions)
@@ -1241,6 +1310,11 @@ export function createExecutionWithChat(params: {
   baseSha?: string | null;
   prNumber?: number | null;
   setupStartedAt?: string | null;
+  /** Optional per-session model override (e.g. propagated from a
+   *  schedule's `model` field). Null = use the harness default. */
+  model?: string | null;
+  /** Optional per-session effort override (Claude `--effort` flag). */
+  effort?: ChatSessionRecord['effort'];
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const db = getDb();
   const now = new Date().toISOString();
@@ -1273,6 +1347,8 @@ export function createExecutionWithChat(params: {
         executionId: executionId,
         label: params.label,
         status: 'active',
+        ...(params.model !== undefined ? { model: params.model } : {}),
+        ...(params.effort !== undefined ? { effort: params.effort } : {}),
       })
       .returning()
       .get();
@@ -1957,4 +2033,384 @@ export function setSessionScratchPad(
   scratchPad: string | null,
 ): ChatSessionRecord | null {
   return updateChatSession(sessionId, { scratchPad: scratchPad });
+}
+
+// ─── Schedules ────────────────────────────────────────────────
+// All schedule mutations route through here so the scheduler tick, the
+// orchestrator actions, and the UI share a single write path. Reads
+// land in two flavors: bare `ScheduleRecord` for the tick (it doesn't
+// want the extra join cost) and `ScheduleWithLastRun` for surfaces
+// that render status pills.
+
+export interface ScheduleFilter {
+  enabled?: boolean;
+  kind?: ScheduleRecord['kind'];
+  targetKind?: ScheduleRecord['targetKind'];
+  workspaceId?: string | null;
+  /** Default 'all' — include archived workspaces' schedules unless overridden. */
+  limit?: number;
+  offset?: number;
+}
+
+export function listSchedules(filter: ScheduleFilter = {}): ScheduleRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.enabled != null) conditions.push(eq(schedules.enabled, filter.enabled));
+  if (filter.kind) conditions.push(eq(schedules.kind, filter.kind));
+  if (filter.targetKind) conditions.push(eq(schedules.targetKind, filter.targetKind));
+  if (filter.workspaceId === null) conditions.push(isNull(schedules.workspaceId));
+  else if (filter.workspaceId) conditions.push(eq(schedules.workspaceId, filter.workspaceId));
+  let query = db.select().from(schedules).$dynamic();
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  query = query.orderBy(desc(schedules.createdAt));
+  if (filter.limit) query = query.limit(filter.limit);
+  if (filter.offset) query = query.offset(filter.offset);
+  return query.all();
+}
+
+export function getSchedule(id: string): ScheduleRecord | undefined {
+  const db = getDb();
+  return db.select().from(schedules).where(eq(schedules.id, id)).get();
+}
+
+/**
+ * Lookup by user-facing name within scope. workspaceId === undefined
+ * means brain-level only; pass a workspaceId to scope to that workspace.
+ * Matches the partial-unique index semantics — exact within-scope.
+ */
+export function findScheduleByName(
+  name: string,
+  workspaceId?: string | null,
+): ScheduleRecord | undefined {
+  const db = getDb();
+  const scopeFilter =
+    workspaceId == null ? isNull(schedules.workspaceId) : eq(schedules.workspaceId, workspaceId);
+  return db
+    .select()
+    .from(schedules)
+    .where(and(eq(schedules.name, name), scopeFilter))
+    .get();
+}
+
+export function createSchedule(input: CreateScheduleInput): ScheduleRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db
+    .insert(schedules)
+    .values({
+      ...input,
+      id: input.id ?? uuidv7(),
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    })
+    .returning()
+    .get();
+}
+
+export function updateSchedule(
+  id: string,
+  input: UpdateScheduleInput,
+): ScheduleRecord | null {
+  const db = getDb();
+  const row = db
+    .update(schedules)
+    .set({ ...input, updatedAt: new Date().toISOString() })
+    .where(eq(schedules.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+/**
+ * Delete a schedule. Runs that reference it get scheduleId nulled (ON
+ * DELETE SET NULL) so the run history survives. Owning execution and
+ * its chats are unaffected — multiple schedules can share an
+ * execution.
+ */
+export function deleteSchedule(id: string): boolean {
+  const db = getDb();
+  const result = db.delete(schedules).where(eq(schedules.id, id)).run();
+  return result.changes > 0;
+}
+
+/** Schedules due to fire — what the tick reads. */
+export function listDueSchedules(now: Date): ScheduleRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(schedules)
+    .where(
+      and(
+        eq(schedules.enabled, true),
+        isNotNull(schedules.nextRunAt),
+        lte(schedules.nextRunAt, now.toISOString()),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Atomically advance the schedule's nextRunAt and record the fire time.
+ * Used by the tick BEFORE dispatching — that's the at-most-once
+ * guarantee. Returns the patched row so caller can verify.
+ */
+export function advanceScheduleNextRun(
+  id: string,
+  nextRunAt: string | null,
+  firedAt: string,
+): ScheduleRecord | null {
+  return updateSchedule(id, {
+    nextRunAt: nextRunAt,
+    lastFiredAt: firedAt,
+  });
+}
+
+/** Persist the result of a run back to its parent schedule. */
+export function setScheduleLastRun(
+  id: string,
+  runId: string,
+  status: 'completed' | 'failed' | 'skipped',
+): ScheduleRecord | null {
+  // Reset consecutive_failures on success, otherwise bump it.
+  const current = getSchedule(id);
+  if (!current) return null;
+  const nextFailures =
+    status === 'failed' ? current.consecutiveFailures + 1 : 0;
+  return updateSchedule(id, {
+    lastRunId: runId,
+    lastRunStatus: status,
+    consecutiveFailures: nextFailures,
+  });
+}
+
+export function resetScheduleFailures(id: string): ScheduleRecord | null {
+  return updateSchedule(id, { consecutiveFailures: 0 });
+}
+
+/** Find the schedule (if any) currently owning this execution. */
+export function findSchedulesByOwningExecution(executionId: string): ScheduleRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(schedules)
+    .where(eq(schedules.owningExecutionId, executionId))
+    .all();
+}
+
+/** Webhook lookup. Single row by definition (unique index). */
+export function findScheduleByWebhookPublicId(publicId: string): ScheduleRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(schedules)
+    .where(eq(schedules.webhookPublicId, publicId))
+    .get();
+}
+
+/** Pair a schedule with its most-recent run for the list view. */
+export function listSchedulesWithLastRun(filter: ScheduleFilter = {}): ScheduleWithLastRun[] {
+  const list = listSchedules(filter);
+  if (list.length === 0) return [];
+  const db = getDb();
+  // Single round-trip — fetch last-run rows for the result set in one shot.
+  const ids = list.map((s) => s.lastRunId).filter((id): id is string => !!id);
+  const lastRuns = ids.length
+    ? db.select().from(runs).where(inArray(runs.id, ids)).all()
+    : [];
+  const byId = new Map<string, RunRecord>(lastRuns.map((r) => [r.id, r]));
+  return list.map((s) => ({
+    ...s,
+    lastRun: s.lastRunId ? byId.get(s.lastRunId) ?? null : null,
+  }));
+}
+
+// ─── Runs ─────────────────────────────────────────────────────
+// Runs are append-mostly: insert at queued, update through running →
+// terminal. Heavy reads are the inbox view (status, recency) and the
+// spend rollups. Keep the write paths granular so the dispatcher and
+// the result-event handler can each call exactly what they need.
+
+export interface RunFilter {
+  status?: RunStatus | RunStatus[];
+  trigger?: RunTrigger | RunTrigger[];
+  scheduleId?: string;
+  agentId?: string;
+  executionId?: string;
+  workspaceId?: string;
+  /** Inclusive lower bound on startedAt (ISO). */
+  since?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function listRuns(filter: RunFilter = {}): RunRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.status) {
+    const arr = Array.isArray(filter.status) ? filter.status : [filter.status];
+    conditions.push(arr.length === 1 ? eq(runs.status, arr[0]) : inArray(runs.status, arr));
+  }
+  if (filter.trigger) {
+    const arr = Array.isArray(filter.trigger) ? filter.trigger : [filter.trigger];
+    conditions.push(arr.length === 1 ? eq(runs.trigger, arr[0]) : inArray(runs.trigger, arr));
+  }
+  if (filter.scheduleId) conditions.push(eq(runs.scheduleId, filter.scheduleId));
+  if (filter.agentId) conditions.push(eq(runs.agentId, filter.agentId));
+  if (filter.executionId) conditions.push(eq(runs.executionId, filter.executionId));
+  if (filter.workspaceId) conditions.push(eq(runs.workspaceId, filter.workspaceId));
+  if (filter.since) conditions.push(gte(runs.startedAt, filter.since));
+  let query = db.select().from(runs).$dynamic();
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  query = query.orderBy(desc(runs.createdAt));
+  if (filter.limit) query = query.limit(filter.limit);
+  if (filter.offset) query = query.offset(filter.offset);
+  return query.all();
+}
+
+export function getRun(id: string): RunRecord | undefined {
+  const db = getDb();
+  return db.select().from(runs).where(eq(runs.id, id)).get();
+}
+
+export function createRun(input: CreateRunInput): RunRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db
+    .insert(runs)
+    .values({
+      ...input,
+      id: input.id ?? uuidv7(),
+      queuedAt: input.queuedAt ?? now,
+      createdAt: input.createdAt ?? now,
+    })
+    .returning()
+    .get();
+}
+
+export function updateRun(id: string, input: UpdateRunInput): RunRecord | null {
+  const db = getDb();
+  const row = db.update(runs).set(input).where(eq(runs.id, id)).returning().get();
+  return row ?? null;
+}
+
+/** Transition a queued run to running. */
+export function markRunStarted(id: string, startedAt: string = new Date().toISOString()): RunRecord | null {
+  return updateRun(id, { status: 'running', startedAt });
+}
+
+/** Terminal transition with timing. completedAt defaults to now.
+ *  Guards against re-finalizing a row that already reached a terminal
+ *  state (completed/failed/skipped) — the second call would otherwise
+ *  silently overwrite. */
+export function markRunCompleted(
+  id: string,
+  patch: Partial<Pick<RunRecord, 'summary' | 'artifactRefs' | 'model' | 'inputTokens' | 'outputTokens' | 'cachedInputTokens' | 'cacheCreationInputTokens' | 'costUsd'>> = {},
+): RunRecord | null {
+  const current = getRun(id);
+  if (!current) return null;
+  if (current.status !== 'queued' && current.status !== 'running') return current;
+  const completedAt = new Date().toISOString();
+  const durationMs = current.startedAt
+    ? Math.max(0, new Date(completedAt).getTime() - new Date(current.startedAt).getTime())
+    : null;
+  return updateRun(id, {
+    ...patch,
+    status: 'completed',
+    completedAt,
+    durationMs,
+  });
+}
+
+export function markRunFailed(
+  id: string,
+  patch: { errorCode: string; errorMessage: string; statusReason?: string | null } = { errorCode: 'agent_error', errorMessage: 'unknown' },
+): RunRecord | null {
+  const current = getRun(id);
+  if (!current) return null;
+  if (current.status !== 'queued' && current.status !== 'running') return current;
+  const completedAt = new Date().toISOString();
+  const durationMs = current.startedAt
+    ? Math.max(0, new Date(completedAt).getTime() - new Date(current.startedAt).getTime())
+    : null;
+  return updateRun(id, {
+    status: 'failed',
+    completedAt,
+    durationMs,
+    errorCode: patch.errorCode,
+    errorMessage: patch.errorMessage.slice(0, 2000),
+    statusReason: patch.statusReason ?? null,
+  });
+}
+
+/**
+ * Boot recovery: anything in `running` OR `queued` from a prior process
+ * is a ghost — the in-memory dispatcher state didn't survive the
+ * restart. `queued` would normally only persist for the synchronous
+ * window between `createRun` and `markRunStarted`, but a crash there
+ * leaves an orphan that the mutex check wouldn't catch (it only looks
+ * at running). Reap both so the execution-level mutex clears cleanly
+ * and the inbox doesn't show a fake spinning run forever.
+ */
+export function reapStaleRunningRuns(): number {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const result = db
+    .update(runs)
+    .set({
+      status: 'failed',
+      errorCode: 'process_restart',
+      errorMessage: 'Process restarted while this run was active.',
+      completedAt: now,
+    })
+    .where(inArray(runs.status, ['queued', 'running']))
+    .returning()
+    .all();
+  return result.length;
+}
+
+/** The execution-level mutex check — one row max in `running`. */
+export function findActiveRunForExecution(executionId: string): RunRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.executionId, executionId), eq(runs.status, 'running')))
+    .get();
+}
+
+/** Per-schedule concurrency check (distinct from the execution mutex). */
+export function findActiveRunForSchedule(scheduleId: string): RunRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.scheduleId, scheduleId), eq(runs.status, 'running')))
+    .get();
+}
+
+/**
+ * Sum costUsd across runs since the given ISO timestamp. Used by the
+ * budget guardrail (current month) and the TopHud (today). Skipped /
+ * failed runs are included — Anthropic charges for failed turns too,
+ * and the user wants visibility into that spend.
+ */
+export function sumRunCostSince(sinceIso: string): number {
+  const db = getDb();
+  const row = db
+    .select({ total: sql<number>`COALESCE(SUM(${runs.costUsd}), 0)` })
+    .from(runs)
+    .where(gte(runs.startedAt, sinceIso))
+    .get();
+  return row?.total ?? 0;
+}
+
+/** Active run count for the TopHud indicator. */
+export function countActiveRuns(): number {
+  const db = getDb();
+  const row = db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(runs)
+    .where(inArray(runs.status, ['queued', 'running']))
+    .get();
+  return row?.count ?? 0;
 }

@@ -26,10 +26,14 @@ export function NoteList() {
   const [statusFilter, setStatusFilter] = useState<NoteStatus | 'all'>('active');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
   const [sortBy, setSortBy] = useState<'lastViewedAt' | 'createdAt' | 'updatedAt'>('lastViewedAt');
+  // Decisions-only filter — agent-written notes with title prefix
+  // "Decision: ". See docs/async-agents-v1.md §4.5.
+  const [decisionsOnly, setDecisionsOnly] = useState(false);
 
   const filter = {
     ...(statusFilter !== 'all' ? { status: statusFilter as NoteStatus } : {}),
     ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
+    ...(decisionsOnly ? { decisionsOnly: true } : {}),
     orderBy: sortBy,
   };
 
@@ -107,6 +111,20 @@ export function NoteList() {
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Decisions filter — agent-written notes with "Decision: " prefix */}
+        <button
+          onClick={() => setDecisionsOnly((v) => !v)}
+          title={decisionsOnly ? 'Show all notes' : 'Show decisions only'}
+          className={cn(
+            'px-2 py-0.5 text-[8.5px] font-bold uppercase tracking-wider rounded border transition-all',
+            decisionsOnly
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border bg-card text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Decisions
+        </button>
 
         <div className="flex-1" />
         <button

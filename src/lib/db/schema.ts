@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import type { SnakeizeKeys } from '@/lib/case/keys';
 
@@ -44,6 +44,13 @@ export const userState = sqliteTable('user_state', {
   voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
   defaultAgentHarness: text({ enum: ['claude', 'codex'] }),
   defaultAgentModel: text(),
+  // Monthly spend ceiling in USD for scheduled + manual runs combined.
+  // Null means no budget enforced. When `currentMonthSpend()` crosses
+  // thresholds, dispatch behavior changes: <75% no-op, 75–99% warn in
+  // TopHud, ≥100% scheduled runs auto-pause (`schedules.disabledReason =
+  // 'budget_exceeded'`) and manual sends require an explicit confirm.
+  // See docs/async-agents-v1.md §4.7.
+  monthlyBudgetUsd: real(),
   onboardedAt: text(),
   updatedAt: text().notNull().default(sql`(datetime('now'))`),
 });
@@ -325,14 +332,24 @@ export const executions = sqliteTable('executions', {
   setupStartedAt: text(),
 
   // "Take over locally" lifecycle — lifted from chat_sessions. In takeover
-  // iff `takeover_started_at IS NOT NULL`; all five clear together on
+  // iff `takeover_started_at IS NOT NULL`; all six clear together on
   // resume/cancel. The token authenticates the local CLI without the bearer
   // token and expires after one hour.
+  //
+  // `takeoverChatSessionId` records the chat that initiated the takeover
+  // so the resume handoff lands in the exact chat the user started in —
+  // a workspace execution can have multiple sibling chats (scheduled
+  // fires accumulate them) and "most-recently-active" can pick the
+  // wrong one once that happens. ON DELETE SET NULL keeps the
+  // execution-side state valid if the initiating chat is ever hard-
+  // deleted. Legacy executions with NULL fall back to the old "most-
+  // recent active chat" heuristic in `findChatSessionByTakeoverToken`.
   takeoverStartedAt: text(),
   takeoverBaseSha: text(),
   takeoverBranch: text(),
   takeoverToken: text(),
   takeoverTokenExpiresAt: text(),
+  takeoverChatSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
 
   status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
 
@@ -380,6 +397,15 @@ export const chatSessions = sqliteTable('chat_sessions', {
   // execution is ever hard-deleted (workspace deletion cascade), the chat
   // survives as an orphaned-but-readable transcript.
   executionId: text().references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
+
+  // Provenance: the run that created this chat. NULL for chats the user
+  // opened directly without a run kicking them off (manual chat send from
+  // the composer, scratch sessions, etc.). Subsequent runs against this
+  // chat are tracked via `runs.chatSessionId` — this field is set once at
+  // chat creation and never mutated. ON DELETE SET NULL preserves the
+  // chat if the originating run is ever deleted. See
+  // docs/async-agents-v1.md §4.3.
+  createdByRunId: text().references((): AnySQLiteColumn => runs.id, { onDelete: 'set null' }),
 
   // Review derivation (timestamp-only, no state column).
   //
@@ -556,3 +582,243 @@ export const chatRefs = sqliteTable('chat_refs', {
     .on(table.sessionId, table.entityType, table.entityId)
     .where(sql`${table.eventId} IS NULL`),
 ]);
+
+// ─── Schedules ────────────────────────────────────────────────
+// A schedule is "fire under these conditions." User-editable. The 60s
+// scheduler tick (src/lib/scheduler/runner.ts) reads `nextRunAt <= now`,
+// advances it first (at-most-once), then dispatches a run. Cost,
+// transcripts, and outcome live on `runs` and `chatSessions`; this row
+// just describes the trigger.
+//
+// Dispatch behavior is derived from `kind` + `targetKind` (no
+// session_strategy enum) — see docs/executions-spec.md §6 and
+// docs/async-agents-v1.md §4.3.
+
+export const schedules = sqliteTable('schedules', {
+  id: text().primaryKey(),
+  userId: text().notNull().default('local'),
+  name: text().notNull(),
+  description: text(),
+  enabled: integer({ mode: 'boolean' }).notNull().default(true),
+
+  // What runs and where. `agentId` is required at the row level; the form
+  // defaults it from the workspace's bound executor or the orchestrator
+  // agent depending on targetKind.
+  agentId: text().notNull().references(() => agents.id),
+  workspaceId: text().references(() => workspaces.id, { onDelete: 'cascade' }),
+  targetKind: text({ enum: ['workspace', 'orchestrator'] }).notNull(),
+
+  // The thing to do when fired.
+  prompt: text().notNull(),
+  // V2 — stored but NOT honored at runtime today. The executor adapter
+  // currently passes ALL discovered skills via `skillDirs` (see
+  // resolveSkillDirsForSession in src/lib/executor/skills.ts), so the
+  // agent's auto-loader already has full inventory and `skillHints`
+  // would be redundant. The column lives so the create surface can
+  // accept it without a migration once we add runtime use (e.g.
+  // filtering skillDirs to only the listed names, or surfacing the
+  // intent in the agent's prompt envelope).
+  skillHints: text({ mode: 'json' }).$type<string[]>(),
+
+  // Trigger kind. Exactly one of cron_expression / interval_seconds /
+  // run_at / (webhook_public_id + webhook_secret_hash) is populated for
+  // the matching kind. Validated in the orchestrator action layer (see
+  // task #19 / src/lib/scheduler/cron.ts validateCronExpression).
+  kind: text({ enum: ['at', 'every', 'cron', 'webhook'] }).notNull(),
+  cronExpression: text(),
+  intervalSeconds: integer(),
+  runAt: text(),
+  timezone: text().default('UTC'),
+
+  // Optional "only fire during business hours" window. `HH:MM` strings
+  // interpreted in `timezone`. Tick skips dispatch when current time in
+  // tz is outside the window. Heartbeat (V2) will lean on this heavily.
+  activeHoursStart: text(),
+  activeHoursEnd: text(),
+
+  // When a previous run for THIS schedule is still active.
+  // skip_if_running        — record this fire as 'skipped', reason 'schedule_busy'
+  // coalesce_if_active     — (default) append prompt to the active run's chat
+  // allow_concurrent       — spawn a new run alongside the existing one
+  // Distinct from the execution-level mutex (cross-schedule, same
+  // execution); see docs/executions-spec.md §5.
+  concurrencyPolicy: text({
+    enum: ['skip_if_running', 'coalesce_if_active', 'allow_concurrent'],
+  }).notNull().default('coalesce_if_active'),
+
+  // V2 — stored but NOT honored at runtime today. The runner currently
+  // fires a missed slot at most once on the next tick regardless of
+  // policy (behaves like `skip_missed`). The column ships so the
+  // create surface can accept it without a migration once the runner
+  // grows a catch-up loop. See src/lib/scheduler/runner.ts.
+  //
+  // skip_missed (default)  — drop missed slots, set nextRunAt to next future fire
+  // run_all (V2)           — fire once per missed window, capped at maxCatchUpRuns
+  catchUpPolicy: text({
+    enum: ['skip_missed', 'run_all'],
+  }).notNull().default('skip_missed'),
+  maxCatchUpRuns: integer().notNull().default(3),
+
+  // Schedule → execution ownership. The FK lives on the schedule (not on
+  // executions) so many schedules can point at one execution — morning-
+  // triage + evening-summary writing into the same workspace artifact
+  // falls out without a unique-constraint workaround. ON DELETE SET
+  // NULL: archiving/deleting the execution doesn't break the schedule;
+  // next fire creates a fresh execution. See docs/executions-spec.md
+  // §2.3. NULL for one-off (`kind='at'`) and orchestrator schedules.
+  owningExecutionId: text().references(() => executions.id, { onDelete: 'set null' }),
+
+  // Webhook intake (kind='webhook' only). publicId is the path segment
+  // at /api/triggers/<publicId>; secretHash is bcrypt'd HMAC key.
+  // Verified via HMAC-SHA256 over the raw request body.
+  webhookPublicId: text(),
+  webhookSecretHash: text(),
+
+  // Per-run overrides applied to the dispatched session. Null = inherit
+  // the harness default.
+  model: text(),
+  effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+  timeoutSeconds: integer().notNull().default(900),
+
+  // Scheduler bookkeeping. nextRunAt is advanced atomically by the tick
+  // BEFORE dispatch — that's the at-most-once guarantee. lastRunStatus
+  // captures the most recent outcome for fast list rendering without
+  // joining runs.
+  nextRunAt: text(),
+  lastFiredAt: text(),
+  lastRunId: text(),
+  lastRunStatus: text({
+    enum: ['completed', 'failed', 'skipped'],
+  }),
+  // Bumped on failed run, reset to 0 on completed. >= 3 surfaces a
+  // banner; no auto-pause (silent failure is worse than surfaced
+  // failure). See task #25.
+  consecutiveFailures: integer().notNull().default(0),
+  // Why the schedule is disabled. Populated only when `enabled=false`
+  // and the source was automatic (budget guard, manual pause leaves
+  // null). Used by the schedule detail view to render context.
+  disabledReason: text(),
+
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  // Name uniqueness — two PARTIAL unique indexes (not one composite).
+  // SQLite treats NULLs in unique indexes as distinct, so a plain
+  // UNIQUE(workspaceId, name) would silently allow duplicate
+  // brain-level (workspaceId IS NULL) names.
+  uniqueIndex('uniq_schedules_brain_name')
+    .on(table.name)
+    .where(sql`${table.workspaceId} IS NULL`),
+  uniqueIndex('uniq_schedules_workspace_name')
+    .on(table.workspaceId, table.name)
+    .where(sql`${table.workspaceId} IS NOT NULL`),
+  // Hot path for the tick: enabled schedules due to fire.
+  index('idx_schedules_enabled_next_run').on(table.enabled, table.nextRunAt),
+  // Webhook intake lookup by public id.
+  uniqueIndex('uniq_schedules_webhook_public_id')
+    .on(table.webhookPublicId)
+    .where(sql`${table.webhookPublicId} IS NOT NULL`),
+  index('idx_schedules_workspace_status').on(table.workspaceId, table.enabled),
+]);
+
+// ─── Runs ─────────────────────────────────────────────────────
+// A run is "this execution happened (or is happening)." UNIFIED across
+// all dispatch sources: every executor.dispatch() call creates a row,
+// whether the dispatch came from the scheduler tick, a webhook, or a
+// user chat send. Without this, manual chat is invisible to spend
+// tracking and the budget guardrail lies. See docs/async-agents-v1.md
+// §4.3.
+
+export const runs = sqliteTable('runs', {
+  id: text().primaryKey(),
+  // Which schedule fired this (null for manual chat sends).
+  scheduleId: text().references(() => schedules.id, { onDelete: 'set null' }),
+  // Denormalized FKs for cheap rollups. workspaceId is null for
+  // orchestrator-target runs; executionId follows the chat's executionId
+  // (null for orchestration/content chats).
+  workspaceId: text().references(() => workspaces.id, { onDelete: 'set null' }),
+  executionId: text().references(() => executions.id, { onDelete: 'set null' }),
+  // The chat where the transcript lives.
+  chatSessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
+  // The agent that ran. Carried for grouping/spend-by-agent without a
+  // join through chatSessions.
+  agentId: text().notNull().references(() => agents.id),
+
+  // What kicked this off. 'manual' = user chat send, the rest are
+  // scheduler-driven.
+  trigger: text({
+    enum: ['manual', 'cron', 'every', 'at', 'webhook'],
+  }).notNull(),
+  // Verbatim payload for webhook triggers (so the prompt can reference
+  // it via context), kept as JSON for any future structured triggers.
+  triggerPayload: text({ mode: 'json' }).$type<Record<string, unknown> | string | null>(),
+  // For scheduler-driven runs, the wall-clock time the slot fired (the
+  // tick's idea of "now"). Null for manual + webhook.
+  scheduledFor: text(),
+
+  // Simple status enum — no awaiting_input/blocked vocabulary in V1
+  // (multi-state action protocol is V2+). statusReason captures
+  // structured codes for skip/fail flavors.
+  status: text({
+    enum: ['queued', 'running', 'completed', 'failed', 'skipped'],
+  }).notNull().default('queued'),
+  statusReason: text(),
+
+  // Lifecycle timestamps. queuedAt is always set; startedAt fires when
+  // the run transitions queued → running; completedAt + durationMs
+  // populate together at terminal.
+  queuedAt: text().notNull().default(sql`(datetime('now'))`),
+  startedAt: text(),
+  completedAt: text(),
+  durationMs: integer(),
+
+  // Usage rollup from @agentex/agent's `result` event. costUsd prefers
+  // the SDK's reported value when present (Anthropic) and falls back to
+  // the in-repo pricing table (src/lib/pricing/models.ts) for providers
+  // that don't supply one.
+  model: text(),
+  inputTokens: integer().default(0),
+  outputTokens: integer().default(0),
+  cachedInputTokens: integer().default(0),
+  cacheCreationInputTokens: integer().default(0),
+  costUsd: real().default(0),
+
+  // Auto-extracted from the last assistant message at terminal (task
+  // #15). NULL when the run failed before any assistant turn.
+  summary: text(),
+  // Inferred from successful mutating action calls during the run (task
+  // #14). `[{kind:'task', id:'...'}, {kind:'note', id:'...'}, ...]`.
+  // Deduped by (kind, id).
+  artifactRefs: text({ mode: 'json' }).$type<RunArtifactRef[]>(),
+
+  // Failure metadata. errorCode for stable program-readable categories
+  // (process_restart, timeout, agent_error, ...), errorMessage for the
+  // human-readable detail.
+  errorCode: text(),
+  errorMessage: text(),
+
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  // Per-schedule history.
+  index('idx_runs_schedule_status').on(table.scheduleId, table.status),
+  // "what's currently running" + "today's spend" lookups.
+  index('idx_runs_status_started').on(table.status, table.startedAt),
+  // Filter pills on the runs view.
+  index('idx_runs_trigger_started').on(table.trigger, table.startedAt),
+  // Execution-level run mutex check — at most one workspace run per
+  // execution may be `status='running'` at any time. The mutex is the
+  // reason this index exists; it's the hot path. See
+  // docs/executions-spec.md §5.
+  index('idx_runs_execution_status').on(table.executionId, table.status),
+]);
+
+/**
+ * Entity reference accumulated into `runs.artifactRefs` when a run's
+ * orchestrator successfully calls a mutating action. Kind matches the
+ * entity surface in the action registry; id is the row id of the
+ * affected entity (or a sentinel like `MEMORY.md` for the memory file).
+ */
+export interface RunArtifactRef {
+  kind: 'task' | 'note' | 'workspace' | 'memory';
+  id: string;
+}

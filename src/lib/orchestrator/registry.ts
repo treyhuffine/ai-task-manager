@@ -27,8 +27,25 @@ import {
   createWorkspace,
   archiveWorkspace,
   listChatSessions,
+  listSchedulesWithLastRun,
+  getSchedule,
+  findScheduleByName,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  listRuns,
+  getRun,
+  markRunFailed,
+  resetScheduleFailures,
+  getOrCreateDefaultExecutor,
+  getOrCreateDefaultOrchestrator,
 } from '@/lib/db/queries';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
+import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
+import { generateWebhookCredentials } from '@/lib/scheduler/webhook';
+import { dispatchRun } from '@/lib/runs/dispatch';
+import { abort as abortChatSession } from '@/lib/executor/adapter';
+import { inventorySkills } from '@/lib/executor/skills';
 import path from 'node:path';
 import {
   getAppRoot,
@@ -306,6 +323,371 @@ const list_workspace_sessions_action = defineAction({
     listChatSessions({ workspaceId, status: status ?? 'active' }),
 });
 
+// ── Schedules + Runs ─────────────────────────────────────────
+
+const scheduleKind = z.enum(['at', 'every', 'cron', 'webhook']);
+const scheduleTargetKind = z.enum(['workspace', 'orchestrator']);
+const scheduleConcurrencyPolicy = z.enum([
+  'skip_if_running',
+  'coalesce_if_active',
+  'allow_concurrent',
+]);
+const scheduleCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
+const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped']);
+const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
+
+const list_schedules_action = defineAction({
+  name: 'list_schedules',
+  description: 'List schedules with last-run rollup. Filters: enabled, kind, target, workspace_id.',
+  params: {
+    enabled: z.boolean().optional(),
+    kind: scheduleKind.optional(),
+    targetKind: scheduleTargetKind.optional(),
+    workspaceId: z.string().nullable().optional(),
+    limit: z.number().int().positive().max(500).optional(),
+    offset: z.number().int().nonnegative().optional(),
+  },
+  handler: (_ctx, input) => listSchedulesWithLastRun(input),
+});
+
+const get_schedule_action = defineAction({
+  name: 'get_schedule',
+  description: 'Fetch a single schedule by id (or unique name within scope).',
+  params: {
+    id: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+    workspaceId: z.string().nullable().optional(),
+  },
+  handler: (_ctx, { id, name, workspaceId }) => {
+    if (!id && !name) {
+      throw new ActionError('invalid_params', 'Provide id or name');
+    }
+    const row = id
+      ? getSchedule(id)
+      : findScheduleByName(name!, workspaceId ?? null);
+    if (!row) throw new ActionError('not_found', `Schedule not found: ${id ?? name}`);
+    return row;
+  },
+});
+
+const createScheduleShape = {
+  name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
+  // Optional in the contract: the handler defaults to the
+  // orchestrator agent (target=orchestrator) or the workspace's bound
+  // executor (target=workspace) when omitted. Same form-level default
+  // policy the spec describes; surfaces the same handle to CLI + UI.
+  agentId: z.string().min(1).optional(),
+  workspaceId: z.string().nullable().optional(),
+  targetKind: scheduleTargetKind,
+  prompt: z.string().min(1),
+  skillHints: z.array(z.string()).nullable().optional(),
+  kind: scheduleKind,
+  cronExpression: z.string().nullable().optional(),
+  intervalSeconds: z.number().int().positive().nullable().optional(),
+  runAt: z.string().nullable().optional(),
+  timezone: z.string().nullable().optional(),
+  activeHoursStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  activeHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  concurrencyPolicy: scheduleConcurrencyPolicy.optional(),
+  catchUpPolicy: scheduleCatchUpPolicy.optional(),
+  maxCatchUpRuns: z.number().int().positive().max(10).optional(),
+  model: z.string().nullable().optional(),
+  effort: effortLevel.nullable().optional(),
+  timeoutSeconds: z.number().int().positive().nullable().optional(),
+} as const;
+
+const create_schedule_action = defineAction({
+  name: 'create_schedule',
+  description:
+    'Create a schedule. The exact set of kind-specific fields is enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials).',
+  params: createScheduleShape,
+  mutating: true,
+  handler: (_ctx, input) => {
+    // Per-kind validation: catch bad rows here rather than at the tick.
+    if (input.kind === 'cron') {
+      if (!input.cronExpression) {
+        throw new ActionError('invalid_params', 'cron_expression is required when kind=cron');
+      }
+      const v = validateCronExpression(input.cronExpression, input.timezone ?? 'UTC');
+      if (!v.valid) throw new ActionError('invalid_params', `Invalid cron: ${v.error}`);
+    } else if (input.kind === 'every') {
+      if (!input.intervalSeconds) {
+        throw new ActionError('invalid_params', 'interval_seconds is required when kind=every');
+      }
+    } else if (input.kind === 'at') {
+      if (!input.runAt) {
+        throw new ActionError('invalid_params', 'run_at is required when kind=at');
+      }
+    }
+
+    // Workspace target needs workspace_id; orchestrator must not have one.
+    if (input.targetKind === 'workspace' && !input.workspaceId) {
+      throw new ActionError('invalid_params', 'workspace_id is required when target_kind=workspace');
+    }
+    if (input.targetKind === 'orchestrator' && input.workspaceId) {
+      // Orchestrator schedules don't anchor to a workspace; allowing
+      // a workspaceId here would let an orchestration chat be created
+      // with a workspace cwd via `createChatForFire` (dispatch.ts),
+      // which is the wrong execution-isolation story.
+      throw new ActionError('invalid_params', 'workspace_id must be null when target_kind=orchestrator');
+    }
+
+    // Resolve agentId default. Form-level (not schema-level) so the
+    // orchestrator/workspace defaults match the spec without forcing
+    // every caller to know the agent registry layout.
+    const agentId =
+      input.agentId ??
+      (input.targetKind === 'orchestrator'
+        ? getOrCreateDefaultOrchestrator().id
+        : getOrCreateDefaultExecutor('claude_code').id);
+
+    // Webhook credentials generated server-side; the plaintext secret
+    // is returned exactly once on the create response.
+    let webhookCredentials: ReturnType<typeof generateWebhookCredentials> | null = null;
+    let webhookPublicId: string | null = null;
+    let webhookSecretHash: string | null = null;
+    if (input.kind === 'webhook') {
+      webhookCredentials = generateWebhookCredentials();
+      webhookPublicId = webhookCredentials.publicId;
+      webhookSecretHash = webhookCredentials.secretHash;
+    }
+
+    // Compute first nextRunAt so the tick has something to act on.
+    const draft = {
+      kind: input.kind,
+      cronExpression: input.cronExpression ?? null,
+      intervalSeconds: input.intervalSeconds ?? null,
+      runAt: input.runAt ?? null,
+      timezone: input.timezone ?? 'UTC',
+      lastFiredAt: null as string | null,
+    };
+    const nextRunAt = computeNextRun(draft);
+
+    const row = createSchedule({
+      name: input.name,
+      description: input.description ?? null,
+      enabled: input.enabled ?? true,
+      agentId,
+      workspaceId: input.workspaceId ?? null,
+      targetKind: input.targetKind,
+      prompt: input.prompt,
+      skillHints: input.skillHints ?? null,
+      kind: input.kind,
+      cronExpression: input.cronExpression ?? null,
+      intervalSeconds: input.intervalSeconds ?? null,
+      runAt: input.runAt ?? null,
+      timezone: input.timezone ?? 'UTC',
+      activeHoursStart: input.activeHoursStart ?? null,
+      activeHoursEnd: input.activeHoursEnd ?? null,
+      concurrencyPolicy: input.concurrencyPolicy ?? 'coalesce_if_active',
+      catchUpPolicy: input.catchUpPolicy ?? 'skip_missed',
+      maxCatchUpRuns: input.maxCatchUpRuns ?? 3,
+      webhookPublicId,
+      webhookSecretHash,
+      model: input.model ?? null,
+      effort: input.effort ?? null,
+      timeoutSeconds: input.timeoutSeconds ?? 900,
+      nextRunAt,
+    });
+
+    return webhookCredentials
+      ? {
+          schedule: row,
+          // Plaintext secret — show once, never stored. Callers must
+          // persist this on their side to sign future webhook requests.
+          webhookSecret: webhookCredentials.secret,
+          webhookPublicId,
+        }
+      : { schedule: row };
+  },
+});
+
+const update_schedule_action = defineAction({
+  name: 'update_schedule',
+  description:
+    'Patch a schedule. Cron / interval / runAt changes recompute nextRunAt automatically.',
+  params: {
+    id: z.string().min(1),
+    name: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+    enabled: z.boolean().optional(),
+    prompt: z.string().min(1).optional(),
+    skillHints: z.array(z.string()).nullable().optional(),
+    cronExpression: z.string().nullable().optional(),
+    intervalSeconds: z.number().int().positive().nullable().optional(),
+    runAt: z.string().nullable().optional(),
+    timezone: z.string().nullable().optional(),
+    activeHoursStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+    activeHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+    concurrencyPolicy: scheduleConcurrencyPolicy.optional(),
+    catchUpPolicy: scheduleCatchUpPolicy.optional(),
+    model: z.string().nullable().optional(),
+    effort: effortLevel.nullable().optional(),
+    timeoutSeconds: z.number().int().positive().optional(),
+    disabledReason: z.string().nullable().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, input) => {
+    const { id, ...rest } = input;
+    const current = getSchedule(id);
+    if (!current) throw new ActionError('not_found', `Schedule not found: ${id}`);
+
+    // Validate cron if it's changing.
+    const cronExpression =
+      rest.cronExpression !== undefined ? rest.cronExpression : current.cronExpression;
+    if (cronExpression && current.kind === 'cron') {
+      const tz = rest.timezone ?? current.timezone ?? 'UTC';
+      const v = validateCronExpression(cronExpression, tz);
+      if (!v.valid) throw new ActionError('invalid_params', `Invalid cron: ${v.error}`);
+    }
+
+    // Recompute nextRunAt when the trigger config changes.
+    const triggerChanged =
+      rest.cronExpression !== undefined ||
+      rest.intervalSeconds !== undefined ||
+      rest.runAt !== undefined ||
+      rest.timezone !== undefined;
+    let nextRunAt = current.nextRunAt;
+    if (triggerChanged) {
+      nextRunAt = computeNextRun({
+        kind: current.kind,
+        cronExpression: cronExpression ?? null,
+        intervalSeconds:
+          rest.intervalSeconds !== undefined ? rest.intervalSeconds : current.intervalSeconds,
+        runAt: rest.runAt !== undefined ? rest.runAt : current.runAt,
+        timezone: rest.timezone !== undefined ? rest.timezone : current.timezone,
+        lastFiredAt: current.lastFiredAt,
+      });
+    }
+
+    const row = updateSchedule(id, { ...rest, nextRunAt });
+    return row;
+  },
+});
+
+const delete_schedule_action = defineAction({
+  name: 'delete_schedule',
+  description:
+    'Delete a schedule. Existing runs survive (schedule_id nulled). Owned execution is preserved — many schedules can share executions, so removing one doesn\'t archive shared work.',
+  params: { id: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const ok = deleteSchedule(id);
+    if (!ok) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    return { id, deleted: true };
+  },
+});
+
+const run_schedule_action = defineAction({
+  name: 'run_schedule',
+  description:
+    'Fire a schedule immediately, outside its cadence. Recorded as trigger=manual (user-initiated immediate) so the run history is consistent with chat-send dispatches.',
+  params: {
+    id: z.string().min(1),
+    triggerPayload: z.unknown().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: async (_ctx, { id, triggerPayload }) => {
+    const schedule = getSchedule(id);
+    if (!schedule) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    const result = await dispatchRun({
+      schedule,
+      trigger: 'manual',
+      triggerPayload: (triggerPayload as Record<string, unknown> | string | undefined) ?? null,
+    });
+    return { run: result.run, chatSessionId: result.chatSession?.id ?? null };
+  },
+});
+
+const list_runs_action = defineAction({
+  name: 'list_runs',
+  description: 'List runs with filters. Defaults to newest-first across all sources.',
+  params: {
+    status: z.union([runStatusFilter, z.array(runStatusFilter)]).optional(),
+    trigger: z.union([runTriggerFilter, z.array(runTriggerFilter)]).optional(),
+    scheduleId: z.string().optional(),
+    agentId: z.string().optional(),
+    executionId: z.string().optional(),
+    workspaceId: z.string().optional(),
+    since: z.string().optional(),
+    limit: z.number().int().positive().max(500).optional(),
+    offset: z.number().int().nonnegative().optional(),
+  },
+  handler: (_ctx, input) => listRuns(input),
+});
+
+const get_run_action = defineAction({
+  name: 'get_run',
+  description: 'Fetch a single run by id, including usage and outcome metadata.',
+  params: { id: z.string().min(1) },
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const row = getRun(id);
+    if (!row) throw new ActionError('not_found', `Run not found: ${id}`);
+    return row;
+  },
+});
+
+const cancel_run_action = defineAction({
+  name: 'cancel_run',
+  description:
+    'Best-effort cancel of an in-flight run. The agent receives SIGTERM via the executor; the run row is marked failed with status_reason=cancelled. Already-terminal runs return their current state unchanged.',
+  params: { id: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: async (_ctx, { id }) => {
+    const run = getRun(id);
+    if (!run) throw new ActionError('not_found', `Run not found: ${id}`);
+    if (run.status !== 'running' && run.status !== 'queued') {
+      return run;
+    }
+    if (run.chatSessionId) {
+      try {
+        await abortChatSession(run.chatSessionId);
+      } catch (err) {
+        console.warn(`[cancel_run] abort failed for ${run.chatSessionId}:`, err);
+      }
+    }
+    return (
+      markRunFailed(id, {
+        errorCode: 'cancelled',
+        errorMessage: 'Cancelled by user',
+        statusReason: 'cancelled',
+      }) ?? run
+    );
+  },
+});
+
+const reset_schedule_failures_action = defineAction({
+  name: 'reset_schedule_failures',
+  description:
+    'Clear the consecutive_failures counter on a schedule. Used by the "Reset failure count" affordance once the user has investigated the failures. Does not change enabled state.',
+  params: { id: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const row = resetScheduleFailures(id);
+    if (!row) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    return row;
+  },
+});
+
+const list_skills_action = defineAction({
+  name: 'list_skills',
+  description:
+    'Return the merged skill inventory (brain-level + workspace-level) visible to the orchestrator. Workspace overrides global on name collision.',
+  params: {
+    workspaceCwd: z.string().nullable().optional(),
+  },
+  handler: (_ctx, { workspaceCwd }) => inventorySkills(workspaceCwd ?? null),
+});
+
 export const actions = [
   describe_paths,
   describe_schema,
@@ -322,4 +704,15 @@ export const actions = [
   create_workspace_action,
   archive_workspace_action,
   list_workspace_sessions_action,
+  list_schedules_action,
+  get_schedule_action,
+  create_schedule_action,
+  update_schedule_action,
+  delete_schedule_action,
+  run_schedule_action,
+  list_runs_action,
+  get_run_action,
+  cancel_run_action,
+  reset_schedule_failures_action,
+  list_skills_action,
 ];

@@ -141,6 +141,20 @@
       "when": 1779972891042,
       "tag": "0019_happy_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1780074897294,
+      "tag": "0020_brave_malcolm_colcord",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1780082809456,
+      "tag": "0021_pretty_iron_patriot",
+      "breakpoints": true
     }
   ]
 }

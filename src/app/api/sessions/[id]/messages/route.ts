@@ -1,11 +1,13 @@
 import type { NextRequest } from 'next/server';
 import {
+  findActiveRunForExecution,
   getAgent,
   getChatEventById,
   getChatSessionWithExecution,
   insertChatEvent,
   materializeEventRefs,
 } from '@/lib/db/queries';
+import { budgetGate } from '@/lib/runs/budget';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
@@ -86,6 +88,47 @@ export async function POST(
         },
         { status: 409 },
       );
+    }
+
+    // Skip pre-flight for retries (client re-POSTs the same body.id
+    // after a transient failure). The original send already cleared
+    // the gates; rejecting the retry here would surface a 409 to the
+    // user while their original message is still in flight inside the
+    // executor — confusing and wrong. The orphan-healing path below
+    // (via `healthCheckSession`) handles the actual re-dispatch
+    // decision. `getChatEventById` is a cheap PK lookup.
+    const isExistingRetry = !!(body.id && getChatEventById(body.id));
+
+    // Pre-flight the gates the executor would also enforce, BEFORE we
+    // persist the user event. The executor's `dispatch` is fire-and-
+    // forget below, so a throw there only lands as a server-side log;
+    // the client gets 201 and shows a "sent" message that the agent
+    // never actually saw. Surfacing these failures at request time
+    // keeps the UI honest. Skipped on retry — see above.
+    if (!isExistingRetry) {
+      if (session.executionId) {
+        const blocker = findActiveRunForExecution(session.executionId);
+        if (blocker) {
+          return Response.json(
+            {
+              error: 'execution_busy',
+              message:
+                'A scheduled run is in flight against this execution. Try again in a few seconds.',
+            },
+            { status: 409 },
+          );
+        }
+      }
+      if (budgetGate() === 'block') {
+        return Response.json(
+          {
+            error: 'budget_exceeded',
+            message:
+              'Monthly budget exceeded. Raise the budget in Settings, or re-send with the explicit over-budget confirmation.',
+          },
+          { status: 402 },
+        );
+      }
     }
 
     // Persist the user event with the *marker* version of content. The

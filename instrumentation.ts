@@ -143,4 +143,16 @@ export async function register() {
   } catch (err) {
     console.warn('[preview] shutdown hook init failed', err);
   }
+
+  // Scheduler tick — fires every 60s, reads enabled `schedules` whose
+  // `next_run_at` has matured, and dispatches runs. Includes its own
+  // boot recovery (reaping stuck `running` runs from a prior process)
+  // and a file lock so two ticks can't dispatch the same row. See
+  // src/lib/scheduler/runner.ts.
+  try {
+    const { startScheduler } = await import('@/lib/scheduler/runner');
+    startScheduler();
+  } catch (err) {
+    console.warn('[scheduler] init failed', err);
+  }
 }

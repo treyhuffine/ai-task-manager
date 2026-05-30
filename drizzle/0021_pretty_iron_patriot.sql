@@ -1,0 +1,1 @@
+ALTER TABLE `executions` ADD `takeover_chat_session_id` text REFERENCES chat_sessions(id) ON DELETE SET NULL;
