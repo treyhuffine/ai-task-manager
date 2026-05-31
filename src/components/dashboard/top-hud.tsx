@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Search, Inbox, Zap, X, Clock } from 'lucide-react';
-import Link from 'next/link';
+import { Search, Inbox, Zap, X } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useLatestExecutionId } from '@/hooks/use-latest-execution';
 import { HOTKEYS } from '@/constants/commands';
@@ -11,7 +10,7 @@ import { CreateMenu } from './create-menu';
 import { UserProfileSheet } from './user-profile-sheet';
 import { DevicesSheet } from './devices-sheet';
 import { RailStatusPills } from './rail-status-pills';
-import { RunsStatusStrip } from './runs-status-strip';
+import { BudgetWarningPill } from './budget-warning-pill';
 
 // Flip to false to hide (not yet launched)
 const SHOW_INBOX = true;
@@ -69,16 +68,7 @@ export function TopHud() {
 
       <div className="flex-1" />
 
-      <RunsStatusStrip />
-
-      <Link
-        href="/schedules"
-        className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
-        aria-label="Schedules"
-        title="Schedules"
-      >
-        <Clock size={14} />
-      </Link>
+      <BudgetWarningPill />
 
       <div className="flex items-center gap-2">
         <button

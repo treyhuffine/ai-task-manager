@@ -83,6 +83,7 @@ export function computeNextRun(
   from: Date = new Date(),
 ): string | null {
   switch (schedule.kind) {
+    case 'manual':
     case 'webhook':
       return null;
     case 'at': {

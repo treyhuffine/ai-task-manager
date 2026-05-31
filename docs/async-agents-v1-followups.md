@@ -285,11 +285,75 @@ Five capabilities Flow built above the SDK because the existing surface didn't c
 
 ---
 
-## 4. Spec deviations (deferred, not bugs)
+## 4. UI simplification status (V1.5, landed)
+
+The original V1 schedule create form had a 5-section layout (What / When
+/ Where / Settings / Save) with 15+ visible fields — far heavier than
+Claude's, ChatGPT's, or OpenClaw's equivalent. Reworked into the simple
+shape per Claude's reference (Name + Description + Prompt + workspace
+pill + model pill + Frequency + Advanced).
+
+**Visible by default:**
+- Name (required)
+- Description (required)
+- Prompt textarea, with workspace + model pills below
+- Frequency dropdown (Manual / Hourly / Daily-at / Weekly-on-X-at /
+  Monthly-on-N-at / Webhook / Custom cron)
+- Advanced (collapsed)
+
+**Hidden / removed from the UI (still reachable via CLI / API):**
+- Target-kind picker — schedules always target a workspace now; the
+  orchestrator-target schedules path stays alive for the CLI + agent
+  surface. The UI re-exposes it when the orchestrator gets smart
+  enough to interpret loose intent (see 4.1 below).
+- Skills selector — `skillHints` isn't honored at runtime yet (see
+  `schema.ts:skillHints` comment).
+- Catch-up policy — also not honored (see `schema.ts:catchUpPolicy`
+  comment).
+
+**New `kind='manual'`**: a schedule with no automatic firing. Only
+runs via the "Run now" button or `flow schedule run <name>`. Lets a
+user save a scheduled task without committing to a cadence; they can
+convert to a real schedule later by editing.
+
+**Friendly frequency compiler** (`src/lib/scheduler/frequency.ts`)
+maps the menu choices to cron expressions. Round-trips for the edit
+view; falls back to "Custom" for stored expressions that don't match
+any preset.
+
+**CLI matching surface:**
+```
+flow schedule create --name daily-briefing \
+  --description "Summarize calendar + inbox" \
+  --prompt "Check my calendar..." \
+  --workspace <id> \
+  --daily-at 9:00am
+```
+Plus `--hourly`, `--weekly-on monday --at 9am`, `--monthly-on 1 --at 9am`,
+`--manual`, `--webhook`. The raw `--cron`, `--every`, `--run-at`
+escape hatches stay.
+
+### 4.1 Re-expose orchestrator schedules when the orchestrator gets smart
+
+The reason OpenClaw / Hermes can show a single "What should the agent
+do?" textarea is their orchestrator can read loose intent and figure
+out which workspace / project to act on. Flow's orchestrator can do
+some of that today (it has the action registry), but the UX trade-off
+is muddier — users who pick a workspace explicitly land in a clean
+git-isolated execution; orchestrator schedules don't, so they're more
+"talk to the agent about things" than "do work that produces commits."
+
+When the orchestrator surface grows (multi-state action protocol,
+goals, self-directed autonomy per `async-agents-v1.md §11`), re-add
+the target picker. Until then, workspace is the safer default.
+
+---
+
+## 5. Spec deviations (deferred, not bugs)
 
 These were called out in the original async-agents-v1 spec and explicitly deferred. Captured here so they don't sneak back into a V1 review.
 
-### 4.1 Trigger badge in 4-col execution view
+### 5.1 Trigger badge in 4-col execution view
 
 `docs/async-agents-v1.md §8.4` calls for a header strip on the execution view when the chat has `createdByRunId` + the run has `scheduleId`:
 
@@ -299,7 +363,7 @@ Built `/runs` page as a substitute. The integration belongs in the in-flight `ex
 
 **Where to wire it when the refactor stabilizes**: `src/components/executions/execution-view.tsx` header section. The data is already on `getChatSessionWithExecution(id)` via the join to `runs` (would need a small query addition for the schedule lookup).
 
-### 4.2 Bundled-group unread chips
+### 5.2 Bundled-group unread chips
 
 Same — collapses multiple unread runs of one schedule in the executions list:
 
@@ -309,7 +373,7 @@ Needs the executions list to group rows by `scheduleId` and roll up unread count
 
 ---
 
-## 5. Things explicitly kept out of scope
+## 6. Things explicitly kept out of scope
 
 For posterity, the things that have been considered and intentionally NOT added to the follow-up list:
 
@@ -322,7 +386,7 @@ For posterity, the things that have been considered and intentionally NOT added 
 
 ---
 
-## 6. Recommended landing order
+## 7. Recommended landing order
 
 If picking these up in batches:
 
@@ -358,7 +422,7 @@ Single milestone. Communicate the breaking change to anyone with live webhook in
 
 ---
 
-## 7. References
+## 8. References
 
 - Implementation: `src/lib/{runs,scheduler,pricing,executor}/`, `src/app/{api,schedules,runs}/`
 - V1 spec: `docs/async-agents-v1.md`

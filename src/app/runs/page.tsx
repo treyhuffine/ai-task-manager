@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { useRuns } from '@/hooks/use-schedules';
 import { cn } from '@/lib/utils';
 import type { RunRecord, RunTrigger } from '@/db/types';
+import { RunActivityBadge } from '@/components/runs/run-activity-badge';
 
 type Filter = 'all' | 'manual' | 'scheduled' | 'webhook';
 
@@ -96,24 +97,21 @@ export default function RunsPage() {
 }
 
 function RunRow({ run }: { run: RunRecord }) {
+  // For terminal runs we pass the status directly so the badge skips
+  // the observe-polling round-trip. For active runs (running/queued)
+  // it polls and surfaces "Working", "Bash · 4 min", "Quiet · 12 min",
+  // etc. — the actual signal, not just the wall-clock status.
+  const terminal =
+    run.status === 'completed' || run.status === 'failed' || run.status === 'skipped'
+      ? run.status
+      : undefined;
   return (
     <Link
       href={run.chatSessionId ? `/?session=${run.chatSessionId}` : `/runs/${run.id}`}
       className="flex items-center gap-3 p-3 rounded-md border border-border bg-card hover:bg-muted text-sm"
     >
       <TriggerBadge trigger={run.trigger} />
-      <span
-        className={cn(
-          'px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider font-medium',
-          run.status === 'completed' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-          run.status === 'running' && 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
-          run.status === 'failed' && 'bg-destructive/10 text-destructive',
-          run.status === 'skipped' && 'bg-muted text-muted-foreground',
-          run.status === 'queued' && 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
-        )}
-      >
-        {run.status}
-      </span>
+      <RunActivityBadge runId={run.id} terminalStatus={terminal} />
       <span className="flex-1 truncate text-muted-foreground text-[12px]">
         {run.summary ?? run.errorMessage ?? '—'}
       </span>

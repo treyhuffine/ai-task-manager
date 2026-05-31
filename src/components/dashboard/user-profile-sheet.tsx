@@ -9,12 +9,14 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { SlidersHorizontal, Mic, Globe, Server, Cloud, CheckCircle2, AlertCircle, ChevronDown, Sun, Moon } from 'lucide-react'
+import { SlidersHorizontal, Mic, Globe, Server, Cloud, CheckCircle2, AlertCircle, ChevronDown, Sun, Moon, DollarSign } from 'lucide-react'
 import { useDashboard } from '@/contexts/dashboard-context'
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state'
 import { VOICE_MODELS, VOICE_MODEL_MAP, DEFAULT_VOICE_MODEL, type VoiceModel } from '@/constants/voice-models'
 import type { ProviderStatus } from '@/hooks/use-voice-input'
 import { api } from '@/lib/api/client'
+import { useRunsStats } from '@/hooks/use-runs-stats'
+import { OPEN_USER_PROFILE_EVENT } from './budget-warning-pill'
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
@@ -234,6 +236,16 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
     }
   }, [])
 
+  // Listen for the budget-warning pill (TopHud) — clicking it should
+  // open this sheet so the user lands on the budget control + spending
+  // breakdown in one shot. Avoids hoisting open state through the
+  // dashboard tree.
+  useEffect(() => {
+    const handler = () => setOpen(true)
+    window.addEventListener(OPEN_USER_PROFILE_EVENT, handler)
+    return () => window.removeEventListener(OPEN_USER_PROFILE_EVENT, handler)
+  }, [setOpen])
+
   const filteredModels = VOICE_MODELS.filter((m) => {
     if (activeTab === 'all') return true
     if (activeTab === 'cloud') return m.provider === 'groq' || m.provider === 'openai'
@@ -379,11 +391,13 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
 
           </div>
 
-          {/* Appearance */}
-          <div className="mt-8 space-y-4">
-            <h3 className="text-sm font-medium text-foreground">
-              Monthly budget
+          {/* Spending */}
+          <div className="mt-8 space-y-3">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <DollarSign size={14} />
+              Spending
             </h3>
+            <SpendingSummary />
             <BudgetField
               value={userState?.monthlyBudgetUsd ?? null}
               onSave={(v) =>
@@ -440,9 +454,9 @@ export function UserProfileSheet({ open: controlledOpen, onOpenChange, children 
 }
 
 /**
- * Inline editor for the monthly USD ceiling. Empty input clears the
- * budget (back to "no limit"). Persists on blur to keep the
- * mutation count low.
+ * Inline editor for the monthly USD ceiling. Default = null
+ * (unlimited). Empty input clears any cap. Persists on blur to keep
+ * the mutation count low.
  */
 function BudgetField({
   value,
@@ -455,12 +469,20 @@ function BudgetField({
   useEffect(() => {
     setDraft(value != null ? String(value) : '');
   }, [value]);
+  const unlimited = value == null;
   return (
     <div className="p-3 rounded-lg border border-border bg-background space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-foreground">Monthly budget</p>
+        {unlimited && (
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
+            Unlimited
+          </span>
+        )}
+      </div>
       <p className="text-[11px] text-muted-foreground/60">
-        Cap monthly spend across scheduled + manual runs. At 75% the TopHud
-        warns; at 100% scheduled runs auto-pause and manual sends require
-        explicit confirmation. Leave blank for no limit.
+        Set a USD cap and the TopHud warns at 75%, auto-pauses scheduled
+        runs at 100% (manual sends ask first). Default is unlimited.
       </p>
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">$</span>
@@ -470,7 +492,7 @@ function BudgetField({
           min={0}
           step={1}
           value={draft}
-          placeholder="No limit"
+          placeholder="Unlimited"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => {
             const trimmed = draft.trim();
@@ -491,4 +513,66 @@ function BudgetField({
       </div>
     </div>
   )
+}
+
+/**
+ * Today + this-month spend. Polls the same `/api/runs/stats` endpoint
+ * the TopHud's BudgetWarningPill uses, so both surfaces share one
+ * number. Graceful when no budget is set — shows just the totals.
+ */
+function SpendingSummary() {
+  const { data } = useRunsStats();
+  if (!data) {
+    return (
+      <div className="p-3 rounded-lg border border-border bg-background">
+        <p className="text-[11px] text-muted-foreground/60">Loading…</p>
+      </div>
+    );
+  }
+  const hasBudget = data.budget != null && data.budget > 0;
+  const pct = data.budgetFraction != null ? Math.round(data.budgetFraction * 100) : null;
+  return (
+    <div className="p-3 rounded-lg border border-border bg-background space-y-3">
+      <SpendRow label="Today" value={data.todaySpend} />
+      <SpendRow
+        label="This month"
+        value={data.monthSpend}
+        right={
+          hasBudget && pct != null ? (
+            <span
+              className={`text-[11px] tabular-nums ${
+                data.budgetState === 'block'
+                  ? 'text-destructive'
+                  : data.budgetState === 'warn'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-muted-foreground'
+              }`}
+            >
+              {pct}% of ${data.budget!.toFixed(0)}
+            </span>
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
+function SpendRow({
+  label,
+  value,
+  right,
+}: {
+  label: string;
+  value: number;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="font-medium tabular-nums">${value.toFixed(2)}</span>
+        {right}
+      </div>
+    </div>
+  );
 }

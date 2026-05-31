@@ -43,8 +43,13 @@ import {
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/scheduler/webhook';
-import { dispatchRun } from '@/lib/runs/dispatch';
-import { abort as abortChatSession } from '@/lib/executor/adapter';
+// `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
+// which has no `require` condition in its package exports. Top-level imports
+// here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
+// invocation — even `flow start --dev`, which doesn't need either symbol.
+// Loading them lazily inside the two action handlers that use them lets the
+// dev CLI boot under tsx and matches the actual call graph: `run_schedule`
+// and `cancel_run` are the only paths that touch the executor.
 import { inventorySkills } from '@/lib/executor/skills';
 import path from 'node:path';
 import {
@@ -325,7 +330,7 @@ const list_workspace_sessions_action = defineAction({
 
 // ── Schedules + Runs ─────────────────────────────────────────
 
-const scheduleKind = z.enum(['at', 'every', 'cron', 'webhook']);
+const scheduleKind = z.enum(['manual', 'at', 'every', 'cron', 'webhook']);
 const scheduleTargetKind = z.enum(['workspace', 'orchestrator']);
 const scheduleConcurrencyPolicy = z.enum([
   'skip_if_running',
@@ -402,7 +407,7 @@ const createScheduleShape = {
 const create_schedule_action = defineAction({
   name: 'create_schedule',
   description:
-    'Create a schedule. The exact set of kind-specific fields is enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials).',
+    'Create a schedule. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_schedule).',
   params: createScheduleShape,
   mutating: true,
   handler: (_ctx, input) => {
@@ -489,7 +494,10 @@ const create_schedule_action = defineAction({
       webhookSecretHash,
       model: input.model ?? null,
       effort: input.effort ?? null,
-      timeoutSeconds: input.timeoutSeconds ?? 900,
+      // Null when the caller omits it — no wall-clock cap. The
+      // runtime `runWithTimeout` skips the race when seconds is null
+      // or <= 0; the run completes whenever the executor returns.
+      timeoutSeconds: input.timeoutSeconds ?? null,
       nextRunAt,
     });
 
@@ -596,6 +604,9 @@ const run_schedule_action = defineAction({
   handler: async (_ctx, { id, triggerPayload }) => {
     const schedule = getSchedule(id);
     if (!schedule) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    // Lazy: see the import-section comment. Pulls in the executor adapter
+    // and `@agentex/agent` only on actual run-trigger invocations.
+    const { dispatchRun } = await import('@/lib/runs/dispatch');
     const result = await dispatchRun({
       schedule,
       trigger: 'manual',
@@ -649,6 +660,9 @@ const cancel_run_action = defineAction({
     }
     if (run.chatSessionId) {
       try {
+        // Lazy: see the import-section comment. Pulls in `@agentex/agent`
+        // only when a cancel actually needs to talk to a running session.
+        const { abort: abortChatSession } = await import('@/lib/executor/adapter');
         await abortChatSession(run.chatSessionId);
       } catch (err) {
         console.warn(`[cancel_run] abort failed for ${run.chatSessionId}:`, err);

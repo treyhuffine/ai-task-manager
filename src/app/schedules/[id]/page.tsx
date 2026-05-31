@@ -33,6 +33,8 @@ import {
 } from '@/hooks/use-schedules';
 import { cn } from '@/lib/utils';
 import type { RunRecord } from '@/db/types';
+import { describeFrequency } from '@/lib/scheduler/frequency';
+import { RunActivityBadge } from '@/components/runs/run-activity-badge';
 
 export default function ScheduleDetailPage() {
   const params = useParams<{ id: string }>();
@@ -68,14 +70,19 @@ export default function ScheduleDetailPage() {
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-semibold truncate">{schedule.name}</h1>
+          {schedule.description && (
+            <p className="text-[12px] text-muted-foreground truncate">
+              {schedule.description}
+            </p>
+          )}
           <p className="text-[11px] text-muted-foreground">
-            {schedule.kind === 'cron'
-              ? `${schedule.cronExpression} (${schedule.timezone ?? 'UTC'})`
-              : schedule.kind === 'every'
-                ? `every ${schedule.intervalSeconds}s`
-                : schedule.kind === 'at'
-                  ? `once at ${schedule.runAt ?? '—'}`
-                  : 'webhook'}
+            {describeFrequency({
+              kind: schedule.kind,
+              cronExpression: schedule.cronExpression,
+              intervalSeconds: schedule.intervalSeconds,
+              runAt: schedule.runAt,
+              timezone: schedule.timezone,
+            })}
             {schedule.enabled ? '' : ' · paused'}
           </p>
         </div>
@@ -237,23 +244,16 @@ export default function ScheduleDetailPage() {
 }
 
 function RunRowSmall({ run }: { run: RunRecord }) {
+  const terminal =
+    run.status === 'completed' || run.status === 'failed' || run.status === 'skipped'
+      ? run.status
+      : undefined;
   return (
     <Link
       href={run.chatSessionId ? `/?session=${run.chatSessionId}` : `/runs/${run.id}`}
       className="flex items-center gap-3 p-2 rounded-md border border-border bg-card hover:bg-muted text-sm"
     >
-      <span
-        className={cn(
-          'px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider font-medium',
-          run.status === 'completed' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-          run.status === 'running' && 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
-          run.status === 'failed' && 'bg-destructive/10 text-destructive',
-          run.status === 'skipped' && 'bg-muted text-muted-foreground',
-          run.status === 'queued' && 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
-        )}
-      >
-        {run.status}
-      </span>
+      <RunActivityBadge runId={run.id} terminalStatus={terminal} />
       <span className="flex-1 truncate text-muted-foreground text-[12px]">
         {run.summary ?? run.errorMessage ?? '—'}
       </span>

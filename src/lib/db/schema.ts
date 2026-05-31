@@ -624,7 +624,13 @@ export const schedules = sqliteTable('schedules', {
   // run_at / (webhook_public_id + webhook_secret_hash) is populated for
   // the matching kind. Validated in the orchestrator action layer (see
   // task #19 / src/lib/scheduler/cron.ts validateCronExpression).
-  kind: text({ enum: ['at', 'every', 'cron', 'webhook'] }).notNull(),
+  // 'manual' = no automatic firing; only the "Run now" button + the
+  // `run_schedule` action invoke it. nextRunAt stays null forever for
+  // manual rows so the tick query never picks them up. Lets a user
+  // save a "scheduled task" without committing to a cadence — they
+  // can fire it ad-hoc, or convert to a real schedule later by
+  // editing the kind.
+  kind: text({ enum: ['manual', 'at', 'every', 'cron', 'webhook'] }).notNull(),
   cronExpression: text(),
   intervalSeconds: integer(),
   runAt: text(),
@@ -678,7 +684,14 @@ export const schedules = sqliteTable('schedules', {
   // the harness default.
   model: text(),
   effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
-  timeoutSeconds: integer().notNull().default(900),
+  // Optional hard cap on wall-clock runtime per fire. NULL = no
+  // timeout (the default for new schedules); positive int = seconds.
+  // The honest signal for "is this run stuck" lives in the observe-
+  // run primitive (`src/lib/runs/observe.ts`) — wall-clock timeouts
+  // are a blunt safety net for the rare case where the user
+  // explicitly wants to cap a misbehaving schedule. Existing rows
+  // with the legacy 900s default keep their behavior until edited.
+  timeoutSeconds: integer(),
 
   // Scheduler bookkeeping. nextRunAt is advanced atomically by the tick
   // BEFORE dispatch — that's the at-most-once guarantee. lastRunStatus

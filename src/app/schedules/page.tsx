@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { useSchedules, useUpdateSchedule } from '@/hooks/use-schedules';
 import { cn } from '@/lib/utils';
 import type { ScheduleWithLastRun } from '@/db/types';
+import { describeFrequency } from '@/lib/scheduler/frequency';
 
 export default function SchedulesPage() {
   const router = useRouter();
@@ -134,16 +135,13 @@ function ScheduleRow({
 }
 
 function humanizeCadence(s: ScheduleWithLastRun): string {
-  switch (s.kind) {
-    case 'cron':
-      return `cron \`${s.cronExpression}\` (${s.timezone ?? 'UTC'})`;
-    case 'every':
-      return `every ${s.intervalSeconds}s`;
-    case 'at':
-      return `once at ${s.runAt ? humanize(s.runAt) : '—'}`;
-    case 'webhook':
-      return 'webhook';
-  }
+  return describeFrequency({
+    kind: s.kind,
+    cronExpression: s.cronExpression,
+    intervalSeconds: s.intervalSeconds,
+    runAt: s.runAt,
+    timezone: s.timezone,
+  });
 }
 
 function humanize(iso: string): string {

@@ -233,8 +233,11 @@ function resolveTarget(schedule: ScheduleRecord): {
     return { execution: null, chat: null };
   }
 
-  // Workspace one-off: fresh execution + fresh chat each fire.
-  if (schedule.kind === 'at') {
+  // One-off semantics: `at` (a scheduled single fire) and `manual`
+  // (no cadence, only fires via Run now) both create a fresh
+  // execution + fresh chat per dispatch. Recurring kinds reuse the
+  // owning execution below.
+  if (schedule.kind === 'at' || schedule.kind === 'manual') {
     if (!schedule.workspaceId) {
       throw new Error(`Schedule ${schedule.id} targets workspace but has no workspace_id`);
     }

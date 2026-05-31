@@ -32,20 +32,33 @@ function registerScheduleCommand(program: Command) {
 
   schedule
     .command('create')
-    .description('Create a new schedule.')
+    .description(
+      'Create a new schedule. Prefer the friendly cadence flags ' +
+        '(--manual / --hourly / --daily-at / --weekly-on / --monthly-on / --webhook / --cron) ' +
+        'over the low-level --cron/--every/--at trio.',
+    )
     .requiredOption('--name <name>', 'Human-facing name. Unique within scope.')
     .option('--prompt <prompt>', 'Prompt text. One of --prompt or --prompt-file is required.')
     .option('--prompt-file <path>', 'Path to a file containing the prompt text.')
-    .option('--description <text>', 'Long-form description.')
-    .option('--cron <expr>', '5-field cron expression. One of --cron/--every/--at/--webhook required.')
+    .option('--description <text>', 'Short description (shown alongside the name).')
+    // ── Friendly cadence ──
+    .option('--manual', 'No automatic firing; only fires via `flow schedule run`.')
+    .option('--hourly', 'Fire at the top of every hour.')
+    .option('--daily-at <time>', 'Fire daily at HH:MM (e.g. 09:00).')
+    .option('--weekly-on <day>', 'Weekday: monday|tuesday|... (use with --at).')
+    .option('--monthly-on <day>', 'Day of month 1-28 (use with --at).', Number)
+    .option('--at <time>', 'HH:MM time, used with --weekly-on / --monthly-on.')
+    // ── Raw cadence (advanced) ──
+    .option('--cron <expr>', '5-field cron expression (advanced).')
     .option('--every <seconds>', 'Interval in seconds.', Number)
-    .option('--at <iso>', 'Absolute ISO timestamp for a one-shot schedule.')
-    .option('--webhook', 'Webhook-triggered schedule. Returns a public id + secret on create.')
+    .option('--run-at <iso>', 'Absolute ISO timestamp for a one-shot schedule.')
+    .option('--webhook', 'Webhook-triggered schedule.')
     .option('--timezone <tz>', 'IANA timezone for cron interpretation.', 'UTC')
-    .option('--target <kind>', 'workspace | orchestrator', 'orchestrator')
+    // ── Target / agent ──
+    .option('--target <kind>', 'workspace | orchestrator', 'workspace')
     .option('--workspace <id-or-slug>', 'Target workspace (required when target=workspace).')
-    .option('--agent <id>', 'Agent id to dispatch as. Defaults to the orchestrator agent.')
-    .option('--skill <name...>', 'Skill hint(s) for the dispatched session.')
+    .option('--agent <id>', 'Agent id to dispatch as. Defaults to the target type default.')
+    // ── Per-run overrides ──
     .option('--model <model>', 'Per-run model override.')
     .option('--effort <level>', 'low | medium | high | xhigh | max')
     .option('--timeout <seconds>', 'Run timeout (seconds).', Number)
@@ -58,7 +71,6 @@ function registerScheduleCommand(program: Command) {
       'skip_if_running | coalesce_if_active | allow_concurrent',
       'coalesce_if_active',
     )
-    .option('--catch-up <policy>', 'skip_missed | run_all', 'skip_missed')
     .action(async (opts) => {
       const promptText = opts.promptFile
         ? fs.readFileSync(opts.promptFile, 'utf8')
@@ -69,22 +81,24 @@ function registerScheduleCommand(program: Command) {
         );
         process.exit(1);
       }
-      const kind = pickKind(opts);
+
+      // Compile friendly cadence flags into kind + cronExpression. Raw
+      // --cron / --every / --run-at / --webhook still win if set —
+      // they're the low-level escape hatch.
+      const compiled = await compileCadence(opts);
+
       const [startHours, endHours] = parseActiveHours(opts.activeHours);
       const input: Record<string, unknown> = {
         name: opts.name,
         description: opts.description ?? null,
         prompt: promptText,
-        // Omit (not null) when not provided — the action resolves the
-        // orchestrator/workspace default agent from targetKind.
         ...(opts.agent ? { agentId: opts.agent } : {}),
         targetKind: opts.target,
         workspaceId: opts.workspace ?? null,
-        skillHints: opts.skill ?? null,
-        kind,
-        cronExpression: opts.cron ?? null,
-        intervalSeconds: opts.every ?? null,
-        runAt: opts.at ?? null,
+        kind: compiled.kind,
+        cronExpression: compiled.cronExpression,
+        intervalSeconds: compiled.intervalSeconds,
+        runAt: compiled.runAt,
         timezone: opts.timezone,
         model: opts.model ?? null,
         effort: opts.effort ?? null,
@@ -92,7 +106,6 @@ function registerScheduleCommand(program: Command) {
         activeHoursStart: startHours,
         activeHoursEnd: endHours,
         concurrencyPolicy: opts.concurrency,
-        catchUpPolicy: opts.catchUp,
       };
       const envelope = await runAction('create_schedule', input, { remote: false });
       unwrapAndPrint(envelope);
@@ -348,12 +361,90 @@ async function resolveScheduleByIdOrName(idOrName: string): Promise<ScheduleReco
   throw new Error('unreachable');
 }
 
-function pickKind(opts: Record<string, unknown>): string {
-  if (opts.webhook) return 'webhook';
-  if (opts.cron) return 'cron';
-  if (opts.every) return 'every';
-  if (opts.at) return 'at';
-  throw new Error('One of --cron, --every, --at, or --webhook is required');
+/**
+ * Resolve the schedule's cadence from CLI flags. Friendly flags
+ * (--manual / --hourly / --daily-at / --weekly-on / --monthly-on /
+ * --webhook) take priority; --cron / --every / --run-at are the
+ * advanced escape hatch.
+ *
+ * Returns the four fields the create_schedule action needs:
+ * `{ kind, cronExpression, intervalSeconds, runAt }`.
+ */
+async function compileCadence(opts: Record<string, unknown>): Promise<{
+  kind: string;
+  cronExpression: string | null;
+  intervalSeconds: number | null;
+  runAt: string | null;
+}> {
+  const { frequencyToSchedule } = await import('@/lib/scheduler/frequency');
+
+  // Friendly cadence first.
+  if (opts.manual) {
+    return { kind: 'manual', cronExpression: null, intervalSeconds: null, runAt: null };
+  }
+  if (opts.webhook) {
+    return { kind: 'webhook', cronExpression: null, intervalSeconds: null, runAt: null };
+  }
+  if (opts.hourly) {
+    const c = frequencyToSchedule({ kind: 'hourly' });
+    return { kind: c.kind, cronExpression: c.cronExpression, intervalSeconds: null, runAt: null };
+  }
+  if (opts.dailyAt) {
+    const c = frequencyToSchedule({ kind: 'daily', time: opts.dailyAt as string });
+    return { kind: c.kind, cronExpression: c.cronExpression, intervalSeconds: null, runAt: null };
+  }
+  if (opts.weeklyOn) {
+    const weekday = parseWeekday(opts.weeklyOn as string);
+    if (!opts.at) throw new Error('--weekly-on requires --at HH:MM');
+    const c = frequencyToSchedule({ kind: 'weekly', weekday, time: opts.at as string });
+    return { kind: c.kind, cronExpression: c.cronExpression, intervalSeconds: null, runAt: null };
+  }
+  if (opts.monthlyOn) {
+    if (!opts.at) throw new Error('--monthly-on requires --at HH:MM');
+    const c = frequencyToSchedule({
+      kind: 'monthly',
+      dayOfMonth: opts.monthlyOn as number,
+      time: opts.at as string,
+    });
+    return { kind: c.kind, cronExpression: c.cronExpression, intervalSeconds: null, runAt: null };
+  }
+
+  // Advanced raw cadence.
+  if (opts.cron) {
+    return { kind: 'cron', cronExpression: opts.cron as string, intervalSeconds: null, runAt: null };
+  }
+  if (opts.every) {
+    return { kind: 'every', cronExpression: null, intervalSeconds: opts.every as number, runAt: null };
+  }
+  if (opts.runAt) {
+    return { kind: 'at', cronExpression: null, intervalSeconds: null, runAt: opts.runAt as string };
+  }
+
+  throw new Error(
+    'Pick a cadence: --manual, --hourly, --daily-at, --weekly-on, --monthly-on, --webhook, ' +
+      '--cron, --every, or --run-at.',
+  );
+}
+
+const WEEKDAY_NAMES: Record<string, 0 | 1 | 2 | 3 | 4 | 5 | 6> = {
+  sun: 0, sunday: 0,
+  mon: 1, monday: 1,
+  tue: 2, tuesday: 2,
+  wed: 3, wednesday: 3,
+  thu: 4, thursday: 4,
+  fri: 5, friday: 5,
+  sat: 6, saturday: 6,
+};
+
+function parseWeekday(spec: string): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
+  const key = spec.trim().toLowerCase();
+  const v = WEEKDAY_NAMES[key];
+  if (v == null) {
+    throw new Error(
+      `--weekly-on "${spec}": expected monday|tuesday|wednesday|thursday|friday|saturday|sunday`,
+    );
+  }
+  return v;
 }
 
 function parseActiveHours(spec?: string): [string | null, string | null] {

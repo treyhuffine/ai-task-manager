@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Calendar, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,8 @@ import { SkinnyView } from './skinny-view';
 import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
 import { RailFooter } from './rail-footer';
+import { SchedulesModal } from '@/components/schedules/schedules-modal';
+import { useRunsStats } from '@/hooks/use-runs-stats';
 
 type RailTab = 'status' | 'workspace' | 'history';
 
@@ -64,6 +66,7 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
     toggleExecutionRailOpen,
   } = useDashboard();
   const [tab, setTab] = useState<RailTab>(DEFAULT_TAB);
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
   const collapsed = !!forceCollapsed || railCollapsed;
   const onToggle =
     toggleTarget === 'execution' ? toggleExecutionRailOpen : toggleRailCollapsed;
@@ -86,6 +89,10 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
   return (
     <SessionHoverProvider>
       <div className="flex flex-col h-full">
+        <SchedulesButton
+          collapsed={collapsed}
+          onClick={() => setSchedulesOpen(true)}
+        />
         <RailHeader
           collapsed={collapsed}
           tab={tab}
@@ -111,7 +118,69 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
         {!collapsed && <RailFooter />}
       </div>
       <SessionHoverPreview />
+      <SchedulesModal open={schedulesOpen} onClose={() => setSchedulesOpen(false)} />
     </SessionHoverProvider>
+  );
+}
+
+/**
+ * Prominent button at the top of the rail. Two modes:
+ *   - expanded: full-width "Schedules" pill with the calendar icon
+ *   - collapsed (skinny rail): icon-only button centered
+ * Both open the SchedulesModal — same surface, same affordance.
+ */
+function SchedulesButton({
+  collapsed,
+  onClick,
+}: {
+  collapsed: boolean;
+  onClick: () => void;
+}) {
+  const { data } = useRunsStats();
+  const activeRuns = data?.activeRuns ?? 0;
+
+  if (collapsed) {
+    return (
+      <div className="flex items-center justify-center pt-2 pb-1 border-b border-border/40">
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={
+            activeRuns > 0
+              ? `Open schedules — ${activeRuns} run${activeRuns === 1 ? '' : 's'} active`
+              : 'Open schedules'
+          }
+          title={activeRuns > 0 ? `${activeRuns} active` : 'Schedules'}
+          className="relative p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors"
+        >
+          <Calendar size={14} />
+          {activeRuns > 0 && (
+            <span
+              className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500"
+              aria-hidden
+            />
+          )}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="px-2 pt-2 pb-1 border-b border-border/40">
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] font-medium text-foreground bg-muted/40 hover:bg-muted/70 transition-colors"
+      >
+        <Calendar size={12} className="text-primary" />
+        <span>Schedules</span>
+        {activeRuns > 0 && (
+          <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[10px] tabular-nums">
+            <span className="size-1.5 rounded-full bg-blue-500" />
+            {activeRuns}
+          </span>
+        )}
+      </button>
+    </div>
   );
 }
 
