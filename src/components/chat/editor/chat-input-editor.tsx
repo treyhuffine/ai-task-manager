@@ -152,6 +152,15 @@ interface ChatInputEditorProps {
   onContentChange?: (hasContent: boolean) => void;
   /** Called when the user hits Enter (without Shift). */
   onSubmit?: () => void;
+  /**
+   * Whether a bare Enter submits. `true` (default) is the desktop
+   * behavior — Enter sends, Shift+Enter inserts a newline. `false` flips
+   * it for touch UX: Enter inserts a newline and the user submits with
+   * the send button, matching the native iOS/Android return key. Mod+Enter
+   * (Cmd/Ctrl) always submits regardless, as a hardware-keyboard escape
+   * hatch.
+   */
+  submitOnEnter?: boolean;
   /** Called for any unhandled Backspace-on-empty (parent may want to react). */
   onBackspaceOnEmpty?: () => void;
   /** Optional toast hook for upload errors. Defaults to console.error. */
@@ -300,6 +309,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       disabled,
       onContentChange,
       onSubmit,
+      submitOnEnter = true,
       onBackspaceOnEmpty,
       onUploadError,
       onFocus,
@@ -315,6 +325,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
   ) {
     const onSubmitRef = useRef(onSubmit);
     onSubmitRef.current = onSubmit;
+    // Mirror in a ref so the keymap (built once via useMemo) always reads
+    // the latest value without re-creating the editor when the consumer
+    // flips between mobile/desktop layouts.
+    const submitOnEnterRef = useRef(submitOnEnter);
+    submitOnEnterRef.current = submitOnEnter;
     const onBackspaceRef = useRef(onBackspaceOnEmpty);
     onBackspaceRef.current = onBackspaceOnEmpty;
     const onUploadErrorRef = useRef(onUploadError);
@@ -342,6 +357,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           addKeyboardShortcuts() {
             return {
               Enter: () => {
+                // Mobile composer (submitOnEnter=false): Enter is a
+                // newline, like the native return key. Send is button-only.
+                if (!submitOnEnterRef.current) {
+                  return this.editor.commands.setHardBreak();
+                }
                 onSubmitRef.current?.();
                 return true;
               },

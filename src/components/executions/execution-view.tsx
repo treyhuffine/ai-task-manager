@@ -381,7 +381,16 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // action bar) lives elsewhere; the WIP banner stays in-column so it
   // reads as part of the agent conversation rather than a full-width
   // app-wide alert.
-  const chatBody = (
+  //
+  // Parametrized by `submitOnEnter` because the same body renders in both
+  // the mobile (`lg:hidden`) and desktop (`hidden lg:flex`) subtrees, and
+  // they want opposite Enter semantics: the mobile composer treats Enter
+  // as a newline (send via button, like a native phone keyboard); the
+  // desktop composer submits on Enter. Both subtrees mount simultaneously
+  // (see project_composer_double_mount), so binding the behavior to the
+  // column rather than to a runtime viewport check keeps each instance
+  // matched to the layout that's actually visible at its breakpoint.
+  const renderChatBody = (submitOnEnter: boolean) => (
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"
       onFiles={(files) => {
@@ -415,6 +424,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           harness={session.agentHarness ?? null}
           disabled={composerDisabled}
           disabledReason={composerDisabledReason}
+          submitOnEnter={submitOnEnter}
           isRunning={isRunning}
           onSend={async (content, opts) => {
             const event = await sendMessage.mutateAsync({
@@ -454,7 +464,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       {workspace?.isGit && !!session.worktreePath && (
         <ExecutionActionBar session={session} workspace={workspace} />
       )}
-      {chatBody}
+      {/* Mobile: Enter inserts a newline; the send button submits. */}
+      {renderChatBody(false)}
     </div>
   );
 
@@ -496,7 +507,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             minSize={20}
           >
             <div className="flex h-full flex-col min-w-0 bg-background">
-              {chatBody}
+              {/* Desktop: Enter submits (Shift+Enter for a newline). */}
+              {renderChatBody(true)}
             </div>
           </ResizablePanel>
 

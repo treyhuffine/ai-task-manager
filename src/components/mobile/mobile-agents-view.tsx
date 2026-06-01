@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ChevronRight,
   Folder,
   FolderPlus,
   GitBranch,
   Inbox,
+  Plus,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
@@ -14,7 +15,9 @@ import {
   useNeedsReviewSessions,
   useWorkspaceSessions,
   useUpdateWorkspace,
+  useCreateExecution,
 } from '@/hooks/use-workspaces';
+import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { useAreas } from '@/hooks/use-areas';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
@@ -32,6 +35,7 @@ import type { ChatSessionRecord, WorkspaceWithCounts } from '@/db/types';
  */
 export function MobileAgentsView() {
   const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
+  const [createWsOpen, setCreateWsOpen] = useState(false);
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -41,6 +45,14 @@ export function MobileAgentsView() {
         <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
           Workspaces
         </span>
+        <button
+          type="button"
+          onClick={() => setCreateWsOpen(true)}
+          className="w-8 h-8 -mr-1.5 flex items-center justify-center rounded-lg text-primary bg-primary/10 active:bg-primary/20 transition-colors"
+          aria-label="New workspace"
+        >
+          <FolderPlus size={16} />
+        </button>
       </div>
 
       <div className="px-3 pb-24 space-y-1">
@@ -49,9 +61,13 @@ export function MobileAgentsView() {
             Loading…
           </div>
         )}
-        {!isLoading && (workspaces?.length ?? 0) === 0 && <EmptyWorkspaces />}
+        {!isLoading && (workspaces?.length ?? 0) === 0 && (
+          <EmptyWorkspaces onCreate={() => setCreateWsOpen(true)} />
+        )}
         {workspaces?.map((ws) => <WorkspaceBlock key={ws.id} workspace={ws} />)}
       </div>
+
+      <WorkspaceCreateModal open={createWsOpen} onOpenChange={setCreateWsOpen} />
     </div>
   );
 }
@@ -106,11 +122,29 @@ function NeedsReviewBlock() {
 // ─── Workspace block (collapsible) ────────────────────────────────
 
 function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
-  const { streamingSessionIds } = useDashboard();
+  const { streamingSessionIds, setActiveView, setMobileTab } = useDashboard();
   const { data: areas } = useAreas();
   const updateWs = useUpdateWorkspace();
+  const createExecution = useCreateExecution();
   const expanded = !workspace.collapsed;
   const { data: sessions } = useWorkspaceSessions(expanded ? workspace.id : null);
+
+  // Mirror the desktop rail's WorkspaceNav.handleCreateExecution: create
+  // the row, then drop straight into the new ExecutionView. The label is
+  // null until the first message derives one server-side; the header
+  // renders "Untitled" in the meantime.
+  const handleCreateExecution = () => {
+    if (createExecution.isPending) return;
+    createExecution.mutate(
+      { workspaceId: workspace.id },
+      {
+        onSuccess: (session) => {
+          setMobileTab('agents');
+          setActiveView(session.id);
+        },
+      },
+    );
+  };
 
   const linkedArea = workspace.areaId
     ? areas?.find((a) => a.id === workspace.areaId)
@@ -128,46 +162,72 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
 
   return (
     <div className="rounded-xl">
-      <button
-        type="button"
-        onClick={toggle}
-        className="w-full flex items-center gap-3 px-2 py-2.5 rounded-lg active:bg-muted/40 transition-colors"
-      >
-        <span className="w-8 h-8 flex items-center justify-center flex-shrink-0">
-          {iconImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={iconImage} alt="" className="w-7 h-7 rounded-md object-cover" />
-          ) : iconEmoji ? (
-            <span className="text-2xl leading-none">{iconEmoji}</span>
-          ) : (
-            <Folder size={18} className="text-muted-foreground/60" />
-          )}
-        </span>
-        <span className="flex-1 min-w-0 text-left">
-          <span className="block text-[14px] font-semibold text-foreground truncate">
-            {workspace.name}
+      {/* Header row: the label area + chevron toggle collapse; the trailing
+          + button creates a new execution. Two sibling buttons (not nested)
+          so a tap on + never also fires the collapse toggle. */}
+      <div className="w-full flex items-center gap-2 px-2 py-2.5 rounded-lg active:bg-muted/40 transition-colors">
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex items-center gap-3 flex-1 min-w-0 text-left"
+        >
+          <span className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+            {iconImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={iconImage} alt="" className="w-7 h-7 rounded-md object-cover" />
+            ) : iconEmoji ? (
+              <span className="text-2xl leading-none">{iconEmoji}</span>
+            ) : (
+              <Folder size={18} className="text-muted-foreground/60" />
+            )}
           </span>
-          <span className="block text-[11px] text-muted-foreground/70">
-            {workspace.sessionCount}{' '}
-            {workspace.sessionCount === 1 ? 'execution' : 'executions'}
+          <span className="flex-1 min-w-0">
+            <span className="block text-[14px] font-semibold text-foreground truncate">
+              {workspace.name}
+            </span>
+            <span className="block text-[11px] text-muted-foreground/70">
+              {workspace.sessionCount}{' '}
+              {workspace.sessionCount === 1 ? 'execution' : 'executions'}
+            </span>
           </span>
-        </span>
+        </button>
         <Badge streaming={streamingCount} review={reviewCount} />
-        <ChevronRight
-          size={16}
-          className={cn(
-            'text-muted-foreground/60 transition-transform flex-shrink-0',
-            expanded && 'rotate-90',
-          )}
-        />
-      </button>
+        <button
+          type="button"
+          onClick={handleCreateExecution}
+          disabled={createExecution.isPending}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40"
+          aria-label="New execution"
+        >
+          <Plus size={18} />
+        </button>
+        <button
+          type="button"
+          onClick={toggle}
+          className="w-6 h-8 flex items-center justify-center flex-shrink-0"
+          aria-label={expanded ? 'Collapse workspace' : 'Expand workspace'}
+        >
+          <ChevronRight
+            size={16}
+            className={cn(
+              'text-muted-foreground/60 transition-transform',
+              expanded && 'rotate-90',
+            )}
+          />
+        </button>
+      </div>
 
       {expanded && (
         <div className="pl-3 pr-1 pt-1 pb-2 space-y-1">
           {childSessions.length === 0 ? (
-            <p className="pl-9 py-2 text-[11px] italic text-muted-foreground/50">
-              No sessions yet
-            </p>
+            <button
+              type="button"
+              onClick={handleCreateExecution}
+              disabled={createExecution.isPending}
+              className="ml-9 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-primary active:bg-primary/10 transition-colors disabled:opacity-40"
+            >
+              <Plus size={13} /> New execution
+            </button>
           ) : (
             childSessions.map((s) => <MobileSessionRow key={s.id} session={s} />)
           )}
@@ -292,18 +352,22 @@ function Badge({ streaming, review }: { streaming: number; review: number }) {
 
 // ─── Empty state ──────────────────────────────────────────────────
 
-function EmptyWorkspaces() {
+function EmptyWorkspaces({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="px-6 py-10 text-center text-muted-foreground">
       <Inbox className="w-8 h-8 mx-auto opacity-30 mb-3" />
       <p className="text-[13px] font-medium text-foreground">No workspaces yet</p>
       <p className="text-[11px] text-muted-foreground/70 mt-1 leading-relaxed">
-        Create one from the desktop to start running agents.
+        Add a workspace to start running agents.
       </p>
-      <p className="mt-3 inline-flex items-center gap-1 text-[11px] text-muted-foreground/60">
-        <FolderPlus size={11} />
-        Add from desktop
-      </p>
+      <button
+        type="button"
+        onClick={onCreate}
+        className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-primary bg-primary/10 active:bg-primary/20 transition-colors"
+      >
+        <FolderPlus size={13} />
+        New workspace
+      </button>
     </div>
   );
 }

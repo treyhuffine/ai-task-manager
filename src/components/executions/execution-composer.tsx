@@ -88,6 +88,13 @@ interface ExecutionComposerProps {
   disabledReason?: string;
   /** Helper copy under the composer, sets expectations. */
   helperText?: string;
+  /**
+   * Whether a bare Enter submits. Defaults to true (desktop). The mobile
+   * chat column passes false so Enter inserts a newline and the user
+   * sends with the button — matching the native phone keyboard. See
+   * `ChatInputEditor.submitOnEnter` for the keymap detail.
+   */
+  submitOnEnter?: boolean;
   /** A turn is currently in flight — flips Send to Stop. */
   isRunning?: boolean;
   /**
@@ -132,6 +139,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       disabled,
       disabledReason,
       helperText,
+      submitOnEnter = true,
       isRunning,
       onSend,
       onStop,
@@ -271,16 +279,21 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const prMentionsRef = useRef(prMentions);
     prMentionsRef.current = prMentions;
 
-    // Resolve current model/effort displays. The model the CLI reports back
-    // (via the live system event) wins, because we send tier *aliases*
-    // (`opus`/`sonnet`/`haiku`) — only the CLI knows which precise version
-    // that resolved to (e.g. "Opus 4.8"). Before the first turn there's no
-    // system event yet, so we fall back to the picked option's generic
-    // catalog label ("Opus"). Net: the chip reads "Opus" until dispatch,
-    // then upgrades to "Opus 4.8" once the run reports its model.
+    // The chip shows the user's *selection*, never what last ran. For Claude
+    // a pick is a tier alias (`opus`/`sonnet`/`haiku`), shown as the generic
+    // tier ("Opus") = "latest Opus", resolved at run time. With no explicit
+    // pick (model === null) the selection is literally "Default" — let the
+    // harness choose — so the chip reads "Default" (the ModelPicker
+    // substitutes that for a null label). We deliberately do NOT fall back to
+    // the previous run's resolved model: showing "Sonnet 4.6" for a Default
+    // session (or "Opus 4.7" for an `opus` pick) makes a stale per-run
+    // snapshot look like a pinned selection and contradicts the dropdown's
+    // highlighted row. The precise version that actually ran is a per-run
+    // fact (runs.model / the system event), surfaced in the transcript — not
+    // a property of the selection.
     const harnessModels = harness ? (MODEL_OPTIONS[harness as keyof typeof MODEL_OPTIONS] ?? []) : [];
     const pinnedModelOption = harness && model ? findModelOption(harness, model) : null;
-    const displayModelLabel = sessionMeta.model?.label ?? pinnedModelOption?.label ?? null;
+    const displayModelLabel = pinnedModelOption?.label ?? null;
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOption = effort ? (EFFORT_OPTIONS.find((o) => o.id === effort) ?? null) : null;
 
@@ -506,6 +519,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   disabled={disabled}
                   onContentChange={setHasContent}
                   onSubmit={() => handleSend()}
+                  submitOnEnter={submitOnEnter}
                   onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                   onFocus={handleEditorFocus}
                   slashCommands={slashCommandsQuery.data?.commands}
@@ -680,7 +694,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
                   )}
                   aria-label="Send message"
-                  title="Send (Enter)"
+                  title={submitOnEnter ? 'Send (Enter)' : 'Send'}
                 >
                   {sending ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={13} />}
                 </button>
