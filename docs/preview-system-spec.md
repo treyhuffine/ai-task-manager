@@ -53,27 +53,39 @@ Tailscale paths and a stdout-port-scraper. We're replacing it.
 - `src/components/executions/*`, `src/components/workspaces/preview-settings-section.tsx` — UI.
 - DB: Drizzle schema under `drizzle/` + `src/lib/db/`.
 
-**Companion spec:** beamd-side work (npm packaging, `--json` output, auth)
-is in the beamd repo at `docs/build-spec.md`. beamd is **one binary**
-(`beamd serve` = edge; `beamd up`/`down` = client). This Flow spec assumes
-the `beamd` npm package is installable and the client command surface is
-`beamd up <port> --as <name> [-d|--detach] [--json]` / `beamd down <name>`
-(`up` is **foreground by default**; Flow always uses `-d` for the
-detached, non-blocking path). Client state lives under `~/.beamd/`. Until
-`--json` ships, fall back to parsing the single-line URL output.
+**Companion spec:** the canonical "drive beamd from a host app" guide lives in
+the beamd repo at `docs/consuming-beamd.md` — read it. beamd is **one binary**
+(`beamd serve` = edge; `beamd open`/`close`/`run`/`list`/`status` = client).
+Key facts this integration depends on:
+
+- **Package: `@beamd/cli`** (the npm name — the bare `beamd` was blocked by
+  npm's name-similarity guard). It installs a `beamd` command; spawn it via
+  `node_modules/.bin/beamd` or `require.resolve("@beamd/cli/bin/beamd.cjs")`.
+- **Command surface:** `beamd open <port> --as <name> [-d] [--json]` (foreground
+  by default — Flow **always** passes `-d` for the detached, non-blocking path)
+  / `beamd close <name> [--json]` / `beamd list --json` / `beamd status --json`.
+  `--json` has shipped; always use it (one object/array, nothing else).
+- **Auth is `--config <path>`, NOT `~/.beamd/config`.** `~/.beamd/config` is now
+  the *interactive profile store* — automation must stay out of it. Write a
+  dedicated `{server, token}` YAML (under Flow's data dir) and pass `--config
+  <that path>` to **every** beamd call; it bypasses profiles entirely (the
+  documented automation path). Per-call `--server/--token` are not the model.
+- **Read the `url` from `open --json`; never assemble it.** beamd defaults to
+  **flat** routing (`https://<name>.<base>`); a namespaced edge is
+  `https://<name>.<slug>.<base>`. Either way `url` is authoritative and `slug`
+  may be `""`.
 
 ---
 
 ## Phase 0 — DO NOW (personal use, against today's beamd)
 
 The sections below are the full plan. For immediate personal use with the
-**current** beamd binary (it already works — no rename/merge needed), do
-only these, in order. Skip auth, manual URLs, settings, plugins, and the
-preview-object polish for now.
+current `@beamd/cli` binary, do only these, in order. Skip auth, manual URLs,
+settings, plugins, and the preview-object polish for now.
 
 - [ ] **Minimal provider seam** (§1, trimmed): just `LocalhostProvider` + `BeamdProvider`. No plugin registry/manual/settings yet.
 - [ ] **Port handling** (§2, trimmed): assign a stable port per worktree, inject `PORT`, confirm-listening, persist `{ startCommand, port, name }`.
-- [ ] **BeamdProvider against today's binary** (§4): call the *current* `beam expose <port> --as <worktree>` and parse the printed URL line (no `--json` yet); lazy bring-up; `stop()` = `beam unexpose <name>`.
+- [ ] **BeamdProvider** (§4): `beamd open <port> --as <worktree> -d --json` (detached), read `{url}` from the JSON; lazy bring-up; `stop()` = `beamd close <worktree>`. Point `--config` at your `{server, token}` file.
 - [ ] **2-mode picker** (§5): `localhost` on the Mini, beamd URL elsewhere; retire the `/preview` path-proxy.
 
 **Defer:** auth/sharing, manual-URL storage, settings panel, multi-service
@@ -142,14 +154,14 @@ fragile stdout scrape as the primary mechanism).
 
 ## 4. BeamdProvider — drive the bundled `beamd`  `[P0]`
 
-- [ ] Add the **`beamd`** npm package as a dependency (bundles the right binary). Until published, allow a configured path to a local `beamd` binary.
-- [ ] On configure (from settings, §7): write `~/.beamd/config` (`server`, `token`) — or pass `--server/--token` per call.
-- [ ] `resolve(ctx)`: **lazy bring-up.** (1) Is the app listening on its assigned port? If not, start it from the persisted `startCommand` (§2) and confirm-listening. (2) Is the tunnel up? If not, `beamd up <port> --as <previewName(ctx)> -d --json` (detached, non-blocking), parse `{url}`. Return `{ url, stop: () => beamd down <name> }`. Fall back to parsing the single-line URL if `--json` isn't available yet.
+- [ ] Add **`@beamd/cli`** as a dependency (bundles the right per-platform binary; resolve it via `node_modules/.bin/beamd` or `require.resolve("@beamd/cli/bin/beamd.cjs")`). Until published you can point at a local `beamd` build path.
+- [ ] On configure (from settings, §7): write a dedicated `{server, token}` config file under Flow's data dir (e.g. `~/.flow/beamd.yaml`) and pass `--config <that path>` to **every** beamd call. **Do not write `~/.beamd/config`** — that's the user's interactive profile store; `--config` is the automation path that bypasses it entirely (so Flow never collides with the user's own `beamd login`).
+- [ ] `resolve(ctx)`: **lazy bring-up.** (1) Is the app listening on its assigned port? If not, start it from the persisted `startCommand` (§2) and confirm-listening. (2) Is the tunnel up? If not, `beamd open <port> --as <previewName(ctx)> -d --json --config <cfg>` (detached, non-blocking), and read the `url` field from the JSON object. Return `{ url, stop: () => beamd close <name> --config <cfg> }`. (Trust `url` — it's correct whether the edge is flat (`<name>.<base>`) or namespaced (`<name>.<slug>.<base>`); don't reconstruct it.)
 - [ ] **No eager reconcile on boot.** Because the URL = a stable name and bring-up is lazy, a Flow/host restart is a non-event: the first `resolve()` cold-starts *both* the server and the tunnel. (Optional: eagerly bring up only the `pinned` set from §2 — never everything, or you melt the host.)
-- [ ] **Idle-evict (symmetric):** after N idle minutes, stop the server and `beamd down` the tunnel; the name/URL stays reserved so it cold-starts again on next `resolve()`.
+- [ ] **Idle-evict (symmetric):** after N idle minutes, stop the server and `beamd close` the tunnel; the name/URL stays reserved so it cold-starts again on next `resolve()`.
 - [ ] Add a **"restore set"** action (per workspace) that brings up a chosen group at once, reading from the §2 desired-state.
 - [ ] Surface beamd errors (not logged in, agent down, tunnel cap hit) as actionable preview statuses.
-- **Acceptance:** for a worktree, `BeamdProvider.resolve` returns `https://<worktree>.<slug>.<base>` that loads the app with a real cert from another device, **cold-starting the server if it was down**; `stop()` removes the tunnel; after a host reboot, opening a worktree's preview brings server+tunnel back at the same URL with no manual step.
+- **Acceptance:** for a worktree, `BeamdProvider.resolve` returns the `url` from `open --json` (e.g. `https://<worktree>.<base>` on a flat edge) that loads the app with a real cert from another device, **cold-starting the server if it was down**; `stop()` removes the tunnel; after a host reboot, opening a worktree's preview brings server+tunnel back at the same URL with no manual step.
 
 ---
 
@@ -181,7 +193,7 @@ path — Flow stores it and uses it for the preview.
 One place to choose how previews are reached.
 
 - [ ] Extend the preview settings UI: choose the **active remote provider** (Localhost-only / Beam / Portless / Manual / installed plugins).
-- [ ] Beam fields: `server` (e.g. `demobeamd.dynami.sm:443`) + `token`; "Test connection" (calls `beam status --json` or attempts login).
+- [ ] Beam fields: `server` (e.g. `demobeamd.dynami.sm`) + `token`, written to the dedicated `--config` file from §4 (**not** `~/.beamd/config`); "Test connection" runs `beamd status --json --config <cfg>` (reports `{profile, agentRunning, server, slug, healthy}`).
 - [ ] Manual default: optional URL **template** (e.g. `https://{name}.mytunnel.com`) used when no explicit per-execution URL is set.
 - [ ] Persist settings (existing settings store / `~/.flow` or DB).
 - **Acceptance:** changing the provider in settings changes which URL previews resolve to, with no code edit; beamd config entered here is what BeamdProvider uses.
@@ -224,7 +236,7 @@ share). Spec separately before building; summary tasks:
 - [ ] Model `Preview { worktree, service?, status, urls, thumbnail, lastViewedAt }` with states `building|starting|running|crashed|stopped`.
 - [ ] **Thumbnails:** on `running` (or on completion), capture via `/api/capture` and show on the execution card for glanceable triage.
 - [ ] **Lazy start + idle-evict:** start the server on first view; stop it after N idle minutes; keep the name/URL stable so it cold-starts on next open.
-- [ ] **Share:** a "Share" action that produces a public (optionally signed/expiring — needs beamd auth from `build-spec.md §6`) link.
+- [ ] **Share:** a "Share" action that produces a public (optionally signed/expiring — needs beamd preview-auth; see the beamd repo's `docs/preview-auth-spec.md`) link.
 - **Acceptance:** an overnight queue of finished tasks shows thumbnails; opening a cold task spins it up with visible status; idle tasks stop on their own; the URL still works later.
 
 ---

@@ -17,9 +17,7 @@ import type { WorkspaceRecord } from '@/db/types';
 import type { ChatSessionWithAgent } from '@/lib/api/sessions';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverButton } from './takeover/takeover-button';
-import { TailscaleMenuItems } from './tailscale-menu-items';
 import { ResyncMenuItem } from './resync-menu-item';
-import { useTailscaleUrl } from '@/hooks/use-tailscale-url';
 import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
 
@@ -307,17 +305,6 @@ export function ExecutionHeader({
 
   const takeoverMenuItem = <TakeoverButton session={session} workspace={workspace} />;
 
-  // Tailscale URL exposed by Portless (Phase 5). Surfaces as a section
-  // in the header's 3-dot popover. `useTailscaleUrl` returns nulls when
-  // not in Portless mode or no route is registered — `TailscaleMenuItems`
-  // renders nothing in that case, so we conditionally render the wrapper
-  // divider only when there's something to show.
-  const tailscale = useTailscaleUrl(session.workspaceId ?? null);
-  const hasTailscaleItems = !!tailscale.url;
-  const tailscaleMenuSection = hasTailscaleItems ? (
-    <TailscaleMenuItems workspaceId={session.workspaceId ?? null} />
-  ) : null;
-
   // Detect Live mode: git workspace whose session points at the
   // workspace's own cwd instead of a per-session worktree. Non-git
   // workspaces also run in cwd by default but that's not "Live mode"
@@ -428,12 +415,6 @@ export function ExecutionHeader({
                   <>
                     <div className="h-px bg-border" />
                     <div className="p-1.5">{worktreeLinks}</div>
-                  </>
-                )}
-                {tailscaleMenuSection && (
-                  <>
-                    <div className="h-px bg-border" />
-                    <div className="p-1">{tailscaleMenuSection}</div>
                   </>
                 )}
                 <div className="h-px bg-border" />
@@ -598,13 +579,6 @@ export function ExecutionHeader({
                 <>
                   <div className="h-px bg-border" />
                   <div className="p-1.5">{worktreeLinks}</div>
-                </>
-              )}
-
-              {tailscaleMenuSection && (
-                <>
-                  <div className="h-px bg-border" />
-                  <div className="p-1">{tailscaleMenuSection}</div>
                 </>
               )}
 

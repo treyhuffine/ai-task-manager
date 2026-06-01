@@ -1,7 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
+
+// Layout effect that no-ops to a passive effect during SSR — the
+// transcript is a client component but still renders once on the server,
+// where useLayoutEffect would warn.
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 import { useSessionEvents, useClientEventStatus } from '@/hooks/use-execution';
 import { hot } from '@/lib/_debug/hot-path';
 import {
@@ -75,8 +80,9 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   }, [events, session.startedAt]);
 
   return (
-    <Conversation className="flex-1 min-h-0">
+    <Conversation className="flex-1 min-h-0" initial="instant">
       <ConversationContent className="gap-3 px-5 pt-4 pb-8 max-w-3xl mx-auto">
+        <InitialScrollSnap sessionId={session.id} ready={!isLoading} />
         <SetupCard session={session} workspace={workspace} />
 
         {isLoading && !hasEvents && (
@@ -113,6 +119,38 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
 }
 
 /**
+ * Snaps to the bottom *instantly* on the initial load of each session —
+ * users expect to open straight at the latest message, not watch a
+ * scroll animation play out.
+ *
+ * Why this exists alongside `initial="instant"`: that prop only governs
+ * the StickToBottom library's very first scroll-on-mount. But
+ * ExecutionView doesn't remount between sessions, and events load async,
+ * so for every session switch (and every first-time open) the first real
+ * content growth is a *resize* — which uses the smooth `resize` animation,
+ * producing the unwanted glide. Here we set `scrollTop` directly in a
+ * layout effect (synchronously, before paint) so no animation is ever
+ * visible. Streaming growth, sends (`ScrollOnSend`), and the scroll-down
+ * arrow keep their smooth behavior — those still go through the library.
+ *
+ * Fires once per session id; the ref reset handles the reused instance
+ * across session switches. `ready` (events settled) ensures `scrollHeight`
+ * reflects the loaded transcript before we jump. Renders nothing.
+ */
+function InitialScrollSnap({ sessionId, ready }: { sessionId: string; ready: boolean }) {
+  const { scrollRef } = useStickToBottomContext();
+  const snappedFor = useRef<string | null>(null);
+  useIsoLayoutEffect(() => {
+    if (!ready || snappedFor.current === sessionId) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    snappedFor.current = sessionId;
+    el.scrollTop = el.scrollHeight;
+  }, [sessionId, ready, scrollRef]);
+  return null;
+}
+
+/**
  * Force-scrolls the conversation to the bottom whenever a new user
  * event lands. The Conversation's stick-to-bottom only auto-scrolls
  * when the user is already pinned to the bottom; without this, sending
@@ -134,6 +172,24 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
 }
 
 /**
+ * Synthetic assistant text Claude Code injects to keep its own
+ * conversation history API-valid when a turn produced no real output —
+ * e.g. a silently-handled rate-limit/model fallback, or a recovered
+ * interrupted turn. agentex forwards it on the stream, so it lands here
+ * as an `agent` row with this exact content.
+ *
+ * The Claude Code TUI never paints it: its `AssistantTextMessage`
+ * renderer does `case NO_RESPONSE_REQUESTED: return null`. We match that
+ * behavior — the row stays in `chat_events` (raw kept for debugging,
+ * same as `result`/`init`), it's just filtered out of the transcript.
+ * Wrapper apps that don't replicate this filter are exactly why the
+ * string leaks into their UI.
+ *
+ * Mirrors `NO_RESPONSE_REQUESTED` in Claude Code's `utils/messages.ts`.
+ */
+const NO_RESPONSE_REQUESTED = 'No response requested.';
+
+/**
  * Drop transcript noise:
  *   - `system` events with subtype `init` — agentex always emits one
  *     at session start; the row is useful for the `externalSessionId`
@@ -142,10 +198,13 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
  *     (cost/usage/stopReason live in `raw`), but the user-visible
  *     "turn complete" signal is the composer re-enabling. Rendering a
  *     pill after every turn just clutters the transcript.
+ *   - `agent` events that are Claude Code's synthetic
+ *     `No response requested.` placeholder — see the constant above.
  */
 function filterRenderable(events: ChatEventRecord[]): ChatEventRecord[] {
   return events.filter((e) => {
     if (e.source === 'result') return false;
+    if (e.source === 'agent' && e.content === NO_RESPONSE_REQUESTED) return false;
     if (e.source !== 'system') return true;
     const raw = (e.raw ?? {}) as { subtype?: string };
     return raw.subtype !== 'init';

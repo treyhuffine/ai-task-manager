@@ -1,71 +1,38 @@
 /**
- * Pick the right URL for the preview iframe — direct embed of the dev
- * server's native URL when the browser can reach it, path-based proxy
- * fallback otherwise.
+ * Reachability picker — two modes, nothing else.
  *
- * Why both: the path proxy (`/preview/<id>/`) works from any browser
- * that can reach Flow, but at a fidelity cost — root-absolute paths
- * (`/fonts/x.otf`), cross-origin manifest URLs, and apps with baked-in
- * absolute origins all break or degrade. Direct embedding fixes all of
- * that, but only works when the browser can resolve and reach the dev
- * server's native URL.
+ * A preview is reached one of two ways:
+ *   - **local**: the viewing browser is on the same machine as Flow (the
+ *     Mini), so the dev server's loopback URL (`http://localhost:<port>`) is
+ *     directly reachable.
+ *   - **remote**: anywhere else (laptop, phone) → the active remote
+ *     provider's URL (beamd / portless / manual).
  *
- * Reachability heuristics, by where the browser is:
- *
- *   - **Same machine as Flow** (`localhost`, `127.0.0.1`, `*.localhost`):
- *     The browser natively resolves `*.localhost` to 127.0.0.1 (RFC 6761),
- *     so a Portless route `https://<name>.localhost` is reachable. A bare
- *     command-mode dev server at `http://localhost:<port>` is reachable.
- *     Pick direct.
- *
- *   - **Same tailnet** (`*.ts.net`): Tailscale's MagicDNS plus the per-
- *     app Tailscale URL (`route.tailscaleUrl`) gives a real reachable
- *     HTTPS origin. If the workspace has a Portless route that was
- *     started with `--tailscale`, pick that.
- *
- *   - **Anything else** (ngrok, LAN IP, custom domain, etc.): we can't
- *     prove the browser can reach the dev server's native URL, so use
- *     the proxy. Degraded but at least loads something for complex apps.
- *
- * Mixed-content guard: if Flow is HTTPS and the candidate direct URL
- * is HTTP, browsers block the iframe. We detect this and fall back to
- * the proxy in that case — better a degraded page than a blank one.
+ * The old path-proxy (`/preview/<id>/`) and its base-tag / Set-Cookie
+ * rewriting are gone: both modes embed a real, different-origin URL, so
+ * there's no fidelity loss and no trust-boundary leak into Flow's origin.
  */
 
-import type { AppPreviewStatusResponse } from '@/lib/api/workspaces';
+import type { PreviewState } from '@/lib/api/preview';
 
-export type IframeSrcMode = 'direct' | 'proxy';
-
-export interface ResolveIframeSrcOptions {
-  workspaceId: string;
-  status: AppPreviewStatusResponse;
-  /**
-   * Path-proxy URL the resolver returns when direct embedding isn't
-   * reachable. Usually `/preview/<id>/?_pt=<token>` (the token is
-   * appended by the caller, not us).
-   */
-  pathProxyUrl: string;
-  /** The window the iframe will be hosted in. Defaults to globalThis.window. */
-  browserLocation?: BrowserLocation | null;
-}
+export type PreviewReachability = 'local' | 'remote';
 
 export interface BrowserLocation {
   hostname: string;
-  protocol: string;  // 'http:' | 'https:'
+  protocol: string; // 'http:' | 'https:'
 }
 
-export interface ResolvedIframeSrc {
-  url: string;
-  mode: IframeSrcMode;
-  /** Human-readable reason for the choice, surfaced in dev console / UI tooltips. */
+export interface ResolvedPreviewSrc {
+  /** The URL to embed, or null when nothing is reachable yet. */
+  url: string | null;
+  mode: PreviewReachability;
   reason:
-    | 'no_status'
-    | 'not_running'
-    | 'local_portless'
-    | 'local_command'
-    | 'tailnet_direct'
-    | 'mixed_content'
-    | 'no_reachable_direct';
+    | 'local'              // loopback URL, viewer is on the Mini
+    | 'remote'             // active remote provider URL
+    | 'not_running'        // server isn't up (local) — nothing to embed
+    | 'no_local_url'       // local viewer but no loopback URL yet
+    | 'no_remote_url'      // remote viewer but the provider hasn't resolved a URL
+    | 'remote_error';      // remote provider returned an actionable error
 }
 
 function readBrowserLocation(): BrowserLocation | null {
@@ -73,62 +40,38 @@ function readBrowserLocation(): BrowserLocation | null {
   return { hostname: window.location.hostname, protocol: window.location.protocol };
 }
 
-export function resolveIframeSrc(options: ResolveIframeSrcOptions): ResolvedIframeSrc {
-  const { status, pathProxyUrl } = options;
-  const loc = options.browserLocation === undefined ? readBrowserLocation() : options.browserLocation;
-
-  // 1. Always require status + a port to attempt direct embedding.
-  if (!status) {
-    return { url: pathProxyUrl, mode: 'proxy', reason: 'no_status' };
-  }
-  if (status.status !== 'running' || !status.port) {
-    return { url: pathProxyUrl, mode: 'proxy', reason: 'not_running' };
-  }
-  if (!loc) {
-    // SSR or test environment without a window. Path proxy is the safe
-    // default — it always works through Flow's origin.
-    return { url: pathProxyUrl, mode: 'proxy', reason: 'no_reachable_direct' };
-  }
-
-  const hostname = loc.hostname.toLowerCase();
-  const flowIsHttps = loc.protocol === 'https:';
-
-  // 2. Local browser: prefer the dev server's loopback-resolvable URL.
-  if (isLocalHostname(hostname)) {
-    if (status.mode === 'portless' && status.hostname) {
-      const direct = `https://${status.hostname}.localhost`;
-      return { url: direct, mode: 'direct', reason: 'local_portless' };
-    }
-    if (status.mode === 'command' && status.port) {
-      const direct = `http://localhost:${status.port}`;
-      // HTTPS Flow embedding HTTP iframe → mixed-content blocked.
-      // Unusual locally (Flow is usually HTTP), but possible if the
-      // user fronts Flow with TLS termination.
-      if (flowIsHttps) {
-        return { url: pathProxyUrl, mode: 'proxy', reason: 'mixed_content' };
-      }
-      return { url: direct, mode: 'direct', reason: 'local_command' };
-    }
-  }
-
-  // 3. Tailnet browser: prefer the per-app Tailscale URL if Portless
-  //    registered one. Real cert, real DNS, full app fidelity.
-  if (hostname.endsWith('.ts.net') && status.tailscaleUrl) {
-    const direct = status.tailscaleUrl;
-    // Tailscale URLs are HTTPS by default. If the recorded URL is HTTP
-    // and Flow is HTTPS, fall back to avoid mixed content.
-    if (flowIsHttps && direct.startsWith('http://')) {
-      return { url: pathProxyUrl, mode: 'proxy', reason: 'mixed_content' };
-    }
-    return { url: direct, mode: 'direct', reason: 'tailnet_direct' };
-  }
-
-  // 4. Nothing else is reliably reachable directly. Use the path proxy.
-  return { url: pathProxyUrl, mode: 'proxy', reason: 'no_reachable_direct' };
+/** Is the viewing browser on the same host as Flow? */
+export function isLocalViewer(loc: BrowserLocation | null = readBrowserLocation()): boolean {
+  if (!loc) return false;
+  const h = loc.hostname.toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.localhost');
 }
 
-function isLocalHostname(h: string): boolean {
-  if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
-  if (h.endsWith('.localhost')) return true;
-  return false;
+/** Which mode the current viewer needs. Drives the `remote` flag on start. */
+export function pickReachability(loc?: BrowserLocation | null): PreviewReachability {
+  const location = loc === undefined ? readBrowserLocation() : loc;
+  return isLocalViewer(location) ? 'local' : 'remote';
+}
+
+/**
+ * Pick the URL to embed for the current viewer from a resolved preview
+ * state. Pure — pass `browserLocation` in tests.
+ */
+export function resolvePreviewSrc(
+  state: PreviewState | null,
+  browserLocation?: BrowserLocation | null,
+): ResolvedPreviewSrc {
+  const loc = browserLocation === undefined ? readBrowserLocation() : browserLocation;
+  const mode = pickReachability(loc);
+
+  if (mode === 'local') {
+    if (state?.localUrl) return { url: state.localUrl, mode, reason: 'local' };
+    if (state && state.serverStatus !== 'running') return { url: null, mode, reason: 'not_running' };
+    return { url: null, mode, reason: 'no_local_url' };
+  }
+
+  // remote
+  if (state?.remoteUrl) return { url: state.remoteUrl, mode, reason: 'remote' };
+  if (state?.remoteError) return { url: null, mode, reason: 'remote_error' };
+  return { url: null, mode, reason: 'no_remote_url' };
 }

@@ -565,6 +565,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                   <ViewerArea
                     sessionId={session.id}
                     workspaceId={session.workspaceId ?? null}
+                    executionId={session.executionId ?? null}
                     selectedPath={selectedPath}
                     onCloseFile={() => setSelectedPath(null)}
                     filePickSignal={filePickSignal}

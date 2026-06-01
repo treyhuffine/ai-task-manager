@@ -68,9 +68,13 @@ export function pricingFor(model: string | null | undefined): ModelPricing {
 
 /**
  * Generate fallback lookup keys for a model id: the literal id, the
- * provider-prefixed forms, then those with a trailing `-YYYYMMDD`
- * version suffix stripped. Order is most-specific first so the table
- * can supply a version-pinned price when one exists.
+ * provider-prefixed forms, the same with a trailing `-YYYYMMDD` version
+ * suffix stripped, then a tier fallback that drops a GPT minor version
+ * (`gpt-5.4` → `gpt-5`). Order is most-specific first so the table can
+ * supply a version-pinned price when one exists, but a new minor version
+ * still resolves to its tier price without a per-version row. (Codex
+ * sends `gpt-5.4` / `gpt-5.4-mini` and reports no `costUsd`, so the table
+ * is the *only* cost source for it — this bridge keeps it from $0.)
  */
 function pricingCandidates(model: string): string[] {
   const seen = new Set<string>();
@@ -88,6 +92,12 @@ function pricingCandidates(model: string): string[] {
   const stripped = model.replace(/-\d{8}$/, '');
   if (stripped !== model) {
     for (const id of prefixed(stripped)) add(id);
+  }
+  // GPT tier fallback: `gpt-5.4` → `gpt-5`, `gpt-5.4-mini` → `gpt-5-mini`.
+  // Anchorless so it works pre- or post-prefix; never matches Claude ids.
+  const tier = stripped.replace(/(gpt-?\d+)\.\d+/i, '$1');
+  if (tier !== stripped) {
+    for (const id of prefixed(tier)) add(id);
   }
   return out;
 }

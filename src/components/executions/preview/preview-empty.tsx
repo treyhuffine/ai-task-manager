@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Play, AlertCircle, ExternalLink, Pencil, X, Check, Loader2, Settings as SettingsIcon } from 'lucide-react';
+import { Play, AlertCircle, Pencil, X, Check, Loader2, Settings as SettingsIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PreviewEmptyProps {
@@ -26,6 +26,8 @@ interface PreviewEmptyProps {
   onOpenWorkspaceSettings?: () => void;
   onStart?: () => void;
   isStarting?: boolean;
+  /** Extra content rendered below the status body (e.g. the BYO-URL input). */
+  footer?: React.ReactNode;
 }
 
 export function PreviewEmpty(props: PreviewEmptyProps) {
@@ -33,7 +35,7 @@ export function PreviewEmpty(props: PreviewEmptyProps) {
     <div className="flex h-full w-full items-center justify-center bg-background px-6 py-10">
       <div className="flex w-full max-w-md flex-col items-start gap-4">
         {renderBody(props)}
-        <PortlessHint />
+        {props.footer && <div className="w-full border-t border-border pt-4">{props.footer}</div>}
       </div>
     </div>
   );
@@ -345,16 +347,3 @@ function CommandEditor({
   );
 }
 
-function PortlessHint() {
-  return (
-    <a
-      href="https://portless.sh"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground"
-    >
-      Tip: install Portless for named URLs, free worktree isolation, and Tailscale sharing
-      <ExternalLink size={10} />
-    </a>
-  );
-}

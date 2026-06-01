@@ -1,4 +1,10 @@
 {
+  "anthropic/claude-opus-4-8": {
+    "input": 1500,
+    "cached": 150,
+    "cacheCreation": 1875,
+    "output": 7500
+  },
   "anthropic/claude-opus-4-7": {
     "input": 1500,
     "cached": 150,

@@ -52,6 +52,11 @@ import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import type { Attachment } from '@/db/types';
 import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-node';
+import {
+  draftStorageAction,
+  DRAFT_STORAGE_PREFIX,
+  DRAFT_SAVE_DEBOUNCE_MS,
+} from './draft-storage';
 import { SlashMenuExtension } from './slash-menu/extension';
 import type { SkillCommandDescriptor } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
@@ -193,9 +198,6 @@ interface ChatInputEditorProps {
    */
   draftKey?: string;
 }
-
-const DRAFT_STORAGE_PREFIX = 'flow:chat-draft:';
-const DRAFT_SAVE_DEBOUNCE_MS = 300;
 
 // ─── Tunables ──────────────────────────────────────────────────
 //
@@ -369,44 +371,70 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // synchronously on key change before loading the next.
     const draftKeyRef = useRef(draftKey);
     const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Keys whose stored draft this editor has already loaded (or
+    // confirmed absent). Until a key is in here we must not let a
+    // transient empty `onUpdate` — which fires while the editor is being
+    // populated on mount — delete the draft we're about to restore. See
+    // `draftStorageAction` for the full rationale.
+    const hydratedKeysRef = useRef<Set<string>>(new Set());
 
-    const writeDraftSync = useCallback((key: string) => {
-      const ed = editorRef.current;
-      if (!ed) return;
-      const storageKey = `${DRAFT_STORAGE_PREFIX}${key}`;
-      try {
-        if (ed.isEmpty) {
-          window.localStorage.removeItem(storageKey);
-          return;
+    const editorHasPendingChip = useCallback((ed: Editor): boolean => {
+      // A pending chip serializes as a spinner with no fileName —
+      // restoring it would strand the user with a stuck placeholder.
+      // The next post-upload onUpdate will save the resolved state.
+      let hasPending = false;
+      ed.state.doc.descendants((node) => {
+        if (hasPending) return false;
+        if (node.type.name === FILE_CHIP_NAME && (node.attrs as FileChipAttrs).pending) {
+          hasPending = true;
+          return false;
         }
-        // A pending chip serializes as a spinner with no fileName —
-        // restoring it would strand the user with a stuck placeholder.
-        // The next post-upload onUpdate will save the resolved state.
-        let hasPending = false;
-        ed.state.doc.descendants((node) => {
-          if (hasPending) return false;
-          if (node.type.name === FILE_CHIP_NAME && (node.attrs as FileChipAttrs).pending) {
-            hasPending = true;
-            return false;
-          }
-          return true;
-        });
-        if (hasPending) return;
-        window.localStorage.setItem(storageKey, JSON.stringify(ed.getJSON()));
-      } catch {
-        // Quota exceeded / storage disabled / SSR — drop silently.
-      }
+        return true;
+      });
+      return hasPending;
     }, []);
+
+    const writeDraftSync = useCallback(
+      (key: string) => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const action = draftStorageAction({
+          isEmpty: ed.isEmpty,
+          hasPendingChip: editorHasPendingChip(ed),
+          hydrated: hydratedKeysRef.current.has(key),
+        });
+        if (action === 'skip') return;
+        const storageKey = `${DRAFT_STORAGE_PREFIX}${key}`;
+        try {
+          if (action === 'remove') {
+            window.localStorage.removeItem(storageKey);
+          } else {
+            window.localStorage.setItem(storageKey, JSON.stringify(ed.getJSON()));
+          }
+        } catch {
+          // Quota exceeded / storage disabled / SSR — drop silently.
+        }
+      },
+      [editorHasPendingChip],
+    );
 
     const scheduleDraftSave = useCallback(() => {
       const key = draftKeyRef.current;
       if (!key) return;
       const ed = editorRef.current;
       if (!ed) return;
+      const action = draftStorageAction({
+        isEmpty: ed.isEmpty,
+        hasPendingChip: editorHasPendingChip(ed),
+        hydrated: hydratedKeysRef.current.has(key),
+      });
+      // Pre-hydration empty `onUpdate` (the populate-time race) → leave
+      // storage untouched so the restore effect can still read the draft.
+      if (action === 'skip') return;
       // Empty editor → remove immediately so the post-send clear is
       // visible even if the user navigates away inside the debounce
       // window. Saves are debounced; deletes are not.
-      if (ed.isEmpty) {
+      if (action === 'remove') {
         if (draftSaveTimerRef.current) {
           clearTimeout(draftSaveTimerRef.current);
           draftSaveTimerRef.current = null;
@@ -428,7 +456,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         if (!liveKey) return;
         writeDraftSync(liveKey);
       }, DRAFT_SAVE_DEBOUNCE_MS);
-    }, [writeDraftSync]);
+    }, [writeDraftSync, editorHasPendingChip]);
 
     /**
      * Core upload path. Inserts a pending placeholder chip with a
@@ -581,6 +609,12 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       }
       draftKeyRef.current = draftKey;
       if (!draftKey) return;
+      // Mark this key hydrated *before* reading: from here on an empty
+      // editor genuinely means "user cleared it", so saves/removes are
+      // allowed. The populate-time empty `onUpdate` that fires before
+      // this effect runs already saw the un-hydrated flag and skipped,
+      // so the draft below is still intact.
+      hydratedKeysRef.current.add(draftKey);
       let stored: string | null = null;
       try {
         stored = window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${draftKey}`);

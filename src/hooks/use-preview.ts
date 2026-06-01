@@ -1,148 +1,151 @@
 /**
- * Hooks for the preview pane.
+ * Hooks for the preview pane — keyed by execution (each agent execution has
+ * its own worktree, and previews are per-worktree).
  *
- * The status query refetches every few seconds while the pane is open
- * (status transitions out-of-band when the dev server starts up, the
- * port appears, the process crashes, etc.). The mutations invalidate
- * the status query on success so the UI reacts immediately.
- *
- * Logs are pulled with a cursor: each refetch asks for "everything since
- * seq N" and the hook accumulates the result into a buffer the pane
- * renders.
+ * `usePreviewState` short-polls the cheap status snapshot. `useStartPreview`
+ * brings the preview up for the current viewer's reachability (local
+ * loopback vs the active remote provider). Logs are pulled with a cursor.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  workspacesApi,
-  type AppPreviewStatusResponse,
-  type AppPreviewStartResponse,
-  type AppPreviewLogLine,
-} from '@/lib/api/workspaces';
+  previewApi,
+  type PreviewState,
+  type PreviewLogLine,
+  type PreviewManualUrl,
+  type PreviewSettings,
+} from '@/lib/api/preview';
 
-const PREVIEW_KEY = (id: string) => ['workspace', id, 'preview'] as const;
+const PREVIEW_KEY = (id: string, service: string | null = null) =>
+  ['execution', id, 'preview', service ?? '_default'] as const;
+const PREVIEW_SETTINGS_KEY = ['preview', 'settings'] as const;
 const LOGS_BUFFER_CAP = 1000;
 
-export function usePreviewStatus(
-  workspaceId: string | null,
-  options: { enabled?: boolean; refetchInterval?: number | false } = {},
+export function usePreviewState(
+  executionId: string | null,
+  options: { service?: string | null; enabled?: boolean; refetchInterval?: number | false } = {},
 ) {
+  const service = options.service ?? null;
   return useQuery({
-    queryKey: workspaceId ? PREVIEW_KEY(workspaceId) : ['workspace', '_', 'preview'],
-    queryFn: () => workspacesApi.appPreview.status(workspaceId!),
-    enabled: !!workspaceId && (options.enabled ?? true),
-    // Default to 4s while the pane is open. Caller can pass `false`
-    // when the pane is hidden, or bump to 1.5s when in `starting`
-    // state for snappier UX.
+    queryKey: executionId ? PREVIEW_KEY(executionId, service) : ['execution', '_', 'preview'],
+    queryFn: () => previewApi.status(executionId!, service),
+    enabled: !!executionId && (options.enabled ?? true),
     refetchInterval: options.refetchInterval ?? 4_000,
     refetchOnWindowFocus: true,
   });
 }
 
-export function useStartPreview(workspaceId: string | null) {
+export function useStartPreview(executionId: string | null) {
   const qc = useQueryClient();
-  return useMutation<AppPreviewStartResponse, Error, void>({
-    mutationFn: async () => {
-      if (!workspaceId) throw new Error('no_workspace');
-      return workspacesApi.appPreview.start(workspaceId);
+  return useMutation<PreviewState, Error, { remote: boolean; service?: string | null }>({
+    mutationFn: async ({ remote, service }) => {
+      if (!executionId) throw new Error('no_execution');
+      return previewApi.start(executionId, { remote, service: service ?? null });
     },
     onSuccess: (data) => {
-      if (!workspaceId) return;
-      qc.setQueryData(PREVIEW_KEY(workspaceId), data as AppPreviewStatusResponse);
+      if (!executionId) return;
+      qc.setQueryData(PREVIEW_KEY(executionId, data.service), data);
     },
   });
 }
 
-export function useStopPreview(workspaceId: string | null) {
+export function useStopPreview(executionId: string | null) {
   const qc = useQueryClient();
-  return useMutation<{ ok: true }, Error, void>({
+  return useMutation<PreviewState, Error, void>({
     mutationFn: async () => {
-      if (!workspaceId) throw new Error('no_workspace');
-      return workspacesApi.appPreview.stop(workspaceId);
+      if (!executionId) throw new Error('no_execution');
+      return previewApi.stop(executionId);
+    },
+    onSuccess: (data) => {
+      if (!executionId) return;
+      // Stop tears down every service; invalidate the whole execution's
+      // preview cache so all service views refetch their (stopped) state.
+      qc.invalidateQueries({ queryKey: ['execution', executionId, 'preview'] });
+      qc.setQueryData(PREVIEW_KEY(executionId, data.service), data);
+    },
+  });
+}
+
+export function usePinPreview(executionId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<PreviewState, Error, boolean>({
+    mutationFn: async (pinned) => {
+      if (!executionId) throw new Error('no_execution');
+      return previewApi.pin(executionId, pinned);
+    },
+    onSuccess: (data) => {
+      if (!executionId) return;
+      qc.setQueryData(PREVIEW_KEY(executionId), data);
+    },
+  });
+}
+
+export function useSetPreviewUrls(executionId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<{ urls: PreviewManualUrl[] }, Error, PreviewManualUrl[]>({
+    mutationFn: async (urls) => {
+      if (!executionId) throw new Error('no_execution');
+      return previewApi.setUrls(executionId, urls);
     },
     onSuccess: () => {
-      if (!workspaceId) return;
-      qc.invalidateQueries({ queryKey: PREVIEW_KEY(workspaceId) });
-    },
-  });
-}
-
-export function useRefreshPreviewToken(workspaceId: string | null) {
-  const qc = useQueryClient();
-  return useMutation<{ previewToken: string }, Error, void>({
-    mutationFn: async () => {
-      if (!workspaceId) throw new Error('no_workspace');
-      return workspacesApi.appPreview.refreshToken(workspaceId);
-    },
-    onSuccess: (data) => {
-      if (!workspaceId) return;
-      const prev = qc.getQueryData<AppPreviewStatusResponse>(PREVIEW_KEY(workspaceId));
-      if (prev) {
-        qc.setQueryData(PREVIEW_KEY(workspaceId), {
-          ...prev,
-          previewToken: data.previewToken,
-        });
-      }
+      if (!executionId) return;
+      qc.invalidateQueries({ queryKey: PREVIEW_KEY(executionId) });
     },
   });
 }
 
 /**
- * Tail the supervised process logs. Cursor-based — the hook keeps a
- * monotonically growing buffer capped at LOGS_BUFFER_CAP entries, and
- * polls only when the caller passes `enabled: true`.
+ * Tail the supervised dev-server logs. Cursor-based — keeps a monotonically
+ * growing buffer capped at LOGS_BUFFER_CAP, polling only while enabled.
  */
 export function usePreviewLogs(
-  workspaceId: string | null,
-  options: { enabled?: boolean; pollMs?: number } = {},
+  executionId: string | null,
+  options: { service?: string | null; enabled?: boolean; pollMs?: number } = {},
 ) {
   const enabled = options.enabled ?? true;
   const pollMs = options.pollMs ?? 1_500;
+  const service = options.service ?? null;
 
-  const [lines, setLines] = useState<AppPreviewLogLine[]>([]);
+  const [lines, setLines] = useState<PreviewLogLine[]>([]);
   const cursorRef = useRef(0);
-  const wsRef = useRef<string | null>(null);
+  const idRef = useRef<string | null>(null);
 
-  // Reset state when the workspace id changes.
+  // Reset the buffer when the execution OR the selected service changes.
+  const streamKey = executionId ? `${executionId}:${service ?? ''}` : null;
   useEffect(() => {
-    if (wsRef.current !== workspaceId) {
-      wsRef.current = workspaceId;
+    if (idRef.current !== streamKey) {
+      idRef.current = streamKey;
       cursorRef.current = 0;
       setLines([]);
     }
-  }, [workspaceId]);
+  }, [streamKey]);
 
-  // Polling loop — vanilla setInterval so we get pause-on-hidden via the
-  // `enabled` flag without the TanStack Query intermediary state.
   useEffect(() => {
-    if (!enabled || !workspaceId) return;
+    if (!enabled || !executionId) return;
     let cancelled = false;
     const tick = async () => {
       try {
-        const res = await workspacesApi.appPreview.logs(workspaceId, cursorRef.current);
+        const res = await previewApi.logs(executionId, cursorRef.current, service);
         if (cancelled) return;
         if (res.lines.length > 0) {
           cursorRef.current = res.cursor;
           setLines((prev) => {
             const merged = [...prev, ...res.lines];
-            if (merged.length > LOGS_BUFFER_CAP) {
-              return merged.slice(merged.length - LOGS_BUFFER_CAP);
-            }
-            return merged;
+            return merged.length > LOGS_BUFFER_CAP ? merged.slice(merged.length - LOGS_BUFFER_CAP) : merged;
           });
         }
       } catch {
-        // Transient network failure; next tick will catch up.
+        // Transient — next tick catches up.
       }
     };
-    // Fire once immediately, then on interval.
     tick();
     const t = setInterval(tick, pollMs);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, [enabled, workspaceId, pollMs]);
+  }, [enabled, executionId, service, pollMs]);
 
   const clear = useCallback(() => {
     cursorRef.current = 0;
@@ -150,4 +153,31 @@ export function usePreviewLogs(
   }, []);
 
   return { lines, clear };
+}
+
+// ─── Global preview settings ──────────────────────────────────
+
+export function usePreviewSettings(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: PREVIEW_SETTINGS_KEY,
+    queryFn: () => previewApi.settings.get(),
+    enabled: options.enabled ?? true,
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdatePreviewSettings() {
+  const qc = useQueryClient();
+  return useMutation<PreviewSettings, Error, Parameters<typeof previewApi.settings.update>[0]>({
+    mutationFn: (body) => previewApi.settings.update(body),
+    onSuccess: (data) => {
+      qc.setQueryData(PREVIEW_SETTINGS_KEY, data);
+    },
+  });
+}
+
+export function useTestBeamd() {
+  return useMutation({
+    mutationFn: () => previewApi.settings.test(),
+  });
 }

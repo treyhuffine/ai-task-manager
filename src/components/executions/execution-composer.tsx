@@ -271,15 +271,16 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const prMentionsRef = useRef(prMentions);
     prMentionsRef.current = prMentions;
 
-    // Resolve current model/effort displays. The pinned `model` (when set)
-    // wins over the model id derived from the live system event — once the
-    // user picks a model, that's the truth even if the session hasn't
-    // dispatched yet. The system-event derivation is the fallback for
-    // sessions that haven't been pinned (null model = harness default,
-    // which we only know after the first turn).
+    // Resolve current model/effort displays. The model the CLI reports back
+    // (via the live system event) wins, because we send tier *aliases*
+    // (`opus`/`sonnet`/`haiku`) — only the CLI knows which precise version
+    // that resolved to (e.g. "Opus 4.8"). Before the first turn there's no
+    // system event yet, so we fall back to the picked option's generic
+    // catalog label ("Opus"). Net: the chip reads "Opus" until dispatch,
+    // then upgrades to "Opus 4.8" once the run reports its model.
     const harnessModels = harness ? (MODEL_OPTIONS[harness as keyof typeof MODEL_OPTIONS] ?? []) : [];
     const pinnedModelOption = harness && model ? findModelOption(harness, model) : null;
-    const displayModelLabel = pinnedModelOption?.label ?? sessionMeta.model?.label ?? null;
+    const displayModelLabel = sessionMeta.model?.label ?? pinnedModelOption?.label ?? null;
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOption = effort ? (EFFORT_OPTIONS.find((o) => o.id === effort) ?? null) : null;
 

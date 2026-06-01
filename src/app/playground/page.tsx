@@ -21,7 +21,7 @@ import { McpToolDisplay } from '@/components/playground/mcp-tool-display'
 
 const MODEL_OPTIONS = [
   { id: 'gpt-5.4-mini', label: 'OpenAI · gpt-5.4-mini' },
-  { id: 'gpt-5.4', label: 'OpenAI · gpt-5.4' },
+  { id: 'gpt-5.5', label: 'OpenAI · gpt-5.5' },
   { id: 'claude-sonnet-4-5', label: 'Anthropic · claude-sonnet-4-5' },
 ]
 

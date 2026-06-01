@@ -7,7 +7,7 @@ import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
-  schedules, runs,
+  schedules, runs, previewTargets,
 } from '@/lib/db/schema';
 import { eq, and, desc, asc, sql, gt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -26,6 +26,7 @@ import type {
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus,
   AgentRecord, CreateAgentInput,
   ExecutionRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
+  PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
@@ -37,7 +38,6 @@ import { OUTCOME_SOURCES } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
-import { detectPortless, derivePortlessHostname, findRoute } from '@/lib/preview/portless';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
@@ -769,36 +769,6 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceInput): Worksp
   return row ?? null;
 }
 
-/**
- * Resolve the effective preview mode for a workspace.
- *
- *   1. Explicit `previewMode` wins (user pinned a mode).
- *   2. If unset, prefer 'portless' when the daemon is running AND a route
- *      already exists for the workspace's derived hostname.
- *   3. Otherwise fall back to 'command'.
- *
- * Pure function — does no DB writes. The Portless detection is cached
- * inside the portless module, so calling this on every request is cheap.
- *
- * try/catch wraps the Portless lookups so that if the portless module
- * fails to load for any reason (e.g. permissions on `~/.portless`),
- * we degrade safely to command mode rather than 500ing the proxy.
- */
-export function resolveWorkspacePreviewMode(
-  ws: Pick<WorkspaceRecord, 'previewMode' | 'portlessHostname' | 'slug'>,
-): 'command' | 'portless' {
-  if (ws.previewMode === 'command' || ws.previewMode === 'portless') {
-    return ws.previewMode;
-  }
-  try {
-    if (!detectPortless().proxyRunning) return 'command';
-    const hostname = ws.portlessHostname?.trim() ||
-      derivePortlessHostname({ slug: ws.slug });
-    return findRoute(hostname) ? 'portless' : 'command';
-  } catch {
-    return 'command';
-  }
-}
 
 export function archiveWorkspace(id: string): WorkspaceRecord | null {
   const now = new Date().toISOString();
@@ -1218,6 +1188,118 @@ export function getChatSessionWithExecution(id: string): ChatSessionWithExecutio
     .get();
   if (!row) return null;
   return flattenSessionExecution(row as ChatSessionRecord & { execution: ExecutionRecord | null });
+}
+
+/**
+ * Replace the manual preview URLs on an execution (§6 — BYO tunnel). The
+ * full list is set at once (set-or-clear semantics); pass `[]` to clear.
+ * Returns the updated execution, or null for an unknown id.
+ */
+export function setExecutionPreviewUrls(
+  executionId: string,
+  urls: PreviewUrl[],
+): ExecutionRecord | null {
+  return updateExecution(executionId, { previewUrls: urls });
+}
+
+// ─── Preview Targets ──────────────────────────────────────────
+// The per-worktree desired-state for the preview system. See the table
+// comment in schema.ts and docs/preview-system-spec.md §2. `service` is the
+// optional multi-service discriminator; `null` is the default/only app. The
+// (executionId, service) pair is unique, so reads filter on both.
+
+/** Match on the nullable `service` column — `IS NULL` vs `= value`. */
+function previewTargetServiceClause(service: string | null | undefined): SQL {
+  return service == null
+    ? isNull(previewTargets.service)
+    : eq(previewTargets.service, service);
+}
+
+export function getPreviewTarget(
+  executionId: string,
+  service: string | null = null,
+): PreviewTargetRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(previewTargets)
+    .where(and(eq(previewTargets.executionId, executionId), previewTargetServiceClause(service)))
+    .get();
+}
+
+export function getPreviewTargetById(id: string): PreviewTargetRecord | undefined {
+  const db = getDb();
+  return db.select().from(previewTargets).where(eq(previewTargets.id, id)).get();
+}
+
+export function listPreviewTargetsForExecution(executionId: string): PreviewTargetRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(previewTargets)
+    .where(eq(previewTargets.executionId, executionId))
+    .all();
+}
+
+/** All pinned targets across active executions — the boot/restore-set source. */
+export function listPinnedPreviewTargets(): PreviewTargetRecord[] {
+  const db = getDb();
+  return db.select().from(previewTargets).where(eq(previewTargets.pinned, true)).all();
+}
+
+/** Pinned targets for one workspace (the per-workspace restore-set action). */
+export function listPinnedPreviewTargetsForWorkspace(workspaceId: string): PreviewTargetRecord[] {
+  const db = getDb();
+  return db
+    .select({ ...getTableColumns(previewTargets) })
+    .from(previewTargets)
+    .innerJoin(executions, eq(previewTargets.executionId, executions.id))
+    .where(and(eq(executions.workspaceId, workspaceId), eq(previewTargets.pinned, true)))
+    .all();
+}
+
+export function createPreviewTarget(input: CreatePreviewTargetInput): PreviewTargetRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db
+    .insert(previewTargets)
+    .values({
+      ...input,
+      id: input.id ?? uuidv7(),
+      service: input.service ?? null,
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    })
+    .returning()
+    .get();
+}
+
+export function updatePreviewTarget(
+  id: string,
+  input: UpdatePreviewTargetInput,
+): PreviewTargetRecord | null {
+  const db = getDb();
+  const row = db
+    .update(previewTargets)
+    .set({ ...input, updatedAt: new Date().toISOString() })
+    .where(eq(previewTargets.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+export function deletePreviewTarget(id: string): void {
+  const db = getDb();
+  db.delete(previewTargets).where(eq(previewTargets.id, id)).run();
+}
+
+/** Stamp lastViewedAt — used by idle-evict to decide what to reap. */
+export function touchPreviewTarget(id: string): void {
+  const db = getDb();
+  db.update(previewTargets)
+    .set({ lastViewedAt: new Date().toISOString() })
+    .where(eq(previewTargets.id, id))
+    .run();
 }
 
 // ─── Chat Sessions ────────────────────────────────────────────

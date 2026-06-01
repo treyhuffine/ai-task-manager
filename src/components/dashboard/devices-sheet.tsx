@@ -12,6 +12,7 @@ import {
 import { MonitorSmartphone } from 'lucide-react';
 import { DevicesSection } from '@/components/settings/devices-section';
 import { ClientSettings } from '@/components/settings/client-settings';
+import { PreviewSettingsPanel } from '@/components/settings/preview-settings-panel';
 
 /**
  * Standalone sheet for managing paired devices and the remote base URL.
@@ -55,6 +56,7 @@ export function DevicesSheet({
         </SheetHeader>
         <div className="flex-1 px-6 pb-6 overflow-y-auto pt-0.5 space-y-6">
           <ClientSettings />
+          <PreviewSettingsPanel />
           <DevicesSection />
         </div>
       </SheetContent>

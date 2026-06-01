@@ -34,10 +34,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const [baseBranch, setBaseBranch] = useState('');
   const [worktreeRoot, setWorktreeRoot] = useState('');
   const [filesToCopy, setFilesToCopy] = useState<string[]>([]);
-  const [previewMode, setPreviewMode] = useState<'auto' | 'command' | 'portless'>('auto');
   const [previewCommand, setPreviewCommand] = useState('');
-  const [previewPort, setPreviewPort] = useState('');
-  const [portlessHostname, setPortlessHostname] = useState('');
   const [gh, setGh] = useState<GhStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -50,12 +47,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     setBaseBranch(ws.baseBranch ?? '');
     setWorktreeRoot(ws.worktreeRoot ?? '');
     setFilesToCopy(ws.filesToCopy ?? []);
-    setPreviewMode(
-      ws.previewMode === 'command' || ws.previewMode === 'portless' ? ws.previewMode : 'auto',
-    );
     setPreviewCommand(ws.previewCommand ?? '');
-    setPreviewPort(ws.previewPortOverride != null ? String(ws.previewPortOverride) : '');
-    setPortlessHostname(ws.portlessHostname ?? '');
   }, [ws]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,13 +80,6 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const handleSave = () => {
     if (!ws) return;
     const nextName = name.trim() || ws.name;
-    const portNum = previewPort.trim() === '' ? null : Number(previewPort);
-    const validPort =
-      portNum === null || (Number.isFinite(portNum) && portNum >= 1 && portNum <= 65535);
-    if (!validPort) {
-      toast.error('Preview port must be between 1 and 65535');
-      return;
-    }
     update.mutate(
       {
         id: ws.id,
@@ -105,10 +90,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
         baseBranch: baseBranch || null,
         worktreeRoot: worktreeRoot || null,
         filesToCopy: filesToCopy,
-        previewMode: previewMode === 'auto' ? null : previewMode,
         previewCommand: previewCommand.trim() || null,
-        previewPortOverride: portNum,
-        portlessHostname: portlessHostname.trim() || null,
       },
       {
         onSuccess: () => {
@@ -316,15 +298,8 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                     Preview
                   </h3>
                   <PreviewSettingsSection
-                    ws={ws}
-                    mode={previewMode}
-                    onModeChange={setPreviewMode}
                     previewCommand={previewCommand}
                     onPreviewCommandChange={setPreviewCommand}
-                    previewPort={previewPort}
-                    onPreviewPortChange={setPreviewPort}
-                    portlessHostname={portlessHostname}
-                    onPortlessHostnameChange={setPortlessHostname}
                   />
                 </div>
 

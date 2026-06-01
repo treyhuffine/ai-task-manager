@@ -32,6 +32,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.2.0
         version: 1.2.0(@types/react@19.2.14)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@beamd/cli':
+        specifier: ^0.0.2
+        version: 0.0.2
       '@clack/prompts':
         specifier: ^1.2.0
         version: 1.2.0
@@ -664,6 +667,30 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@beamd/cli-darwin-arm64@0.0.2':
+    resolution: {integrity: sha512-Sj+bRf3Nwu6G3AVlxQxOIPP1ZNliOMJMCPa6pPpRskleT+J+y047zVpl1fxHvSxcIf38ye3+OQCLWyv/j38sUA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@beamd/cli-darwin-x64@0.0.2':
+    resolution: {integrity: sha512-lOFY03LFhVuJrgdzCW+QZic8Gb7UODmELyWTRo67bsMAHVTD6eOTSJAzttCoO/YxcOfhzUyCeek5oSK7sB+2iA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@beamd/cli-linux-arm64@0.0.2':
+    resolution: {integrity: sha512-M3vOYHhn/eXgDVpoPDin1wTmRuVU+LONt/QzIQXIJCeuI7ctxKseaTy21MmJLjHgKZq2IaFptgSP1TeTKoU74g==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@beamd/cli-linux-x64@0.0.2':
+    resolution: {integrity: sha512-Wu/vNM7ikss/oirchaoBDjPQ1HPxkc5MgOn/hIALXvaJO/ye3R199H/h0NHUqRROII5XVLTPvswMJ8JkvdfGMA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@beamd/cli@0.0.2':
+    resolution: {integrity: sha512-m9AHH+dACAENnYlGTqiFqauzh4C2k/1Ijv+MZP6X6zAMdWpHbxWcYtGmFd+cM/AzLVLQFIqHMVfGP/JQ3Hq3Xw==}
+    hasBin: true
 
   '@blazediff/core@1.9.1':
     resolution: {integrity: sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA==}
@@ -8924,6 +8951,25 @@ snapshots:
       use-sync-external-store: 1.6.0(react@19.2.3)
     optionalDependencies:
       '@types/react': 19.2.14
+
+  '@beamd/cli-darwin-arm64@0.0.2':
+    optional: true
+
+  '@beamd/cli-darwin-x64@0.0.2':
+    optional: true
+
+  '@beamd/cli-linux-arm64@0.0.2':
+    optional: true
+
+  '@beamd/cli-linux-x64@0.0.2':
+    optional: true
+
+  '@beamd/cli@0.0.2':
+    optionalDependencies:
+      '@beamd/cli-darwin-arm64': 0.0.2
+      '@beamd/cli-darwin-x64': 0.0.2
+      '@beamd/cli-linux-arm64': 0.0.2
+      '@beamd/cli-linux-x64': 0.0.2
 
   '@blazediff/core@1.9.1':
     optional: true

@@ -23,14 +23,31 @@ export interface ModelOption {
   hint?: string;
 }
 
+/**
+ * Claude models use the CLI's tier *aliases* (`opus`/`sonnet`/`haiku`)
+ * rather than pinned version ids. The alias resolves to whatever the
+ * installed Claude binary currently ships as that tier, so a model
+ * upgrade (Opus 4.7 → 4.8 → …) requires zero changes here — the picker
+ * always means "the best current Opus". The precise version is surfaced
+ * after a turn from the model the CLI reports back (see
+ * `resolveModelInfo` in ./executor/context-window) — the dropdown label
+ * stays generic, the live chip upgrades to "Opus 4.8" once known.
+ *
+ * Codex stays pinned: the codex CLI has no stable tier aliases, and it
+ * never reports a resolved model back (its stream events carry a null
+ * model) — so an alias couldn't be resolved for display anyway. Bump the
+ * `gpt-5.x` id by hand when a new codex model ships.
+ */
 export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
   claude_code: [
-    { id: 'claude-opus-4-7', label: 'Opus 4.7', hint: '1M context · top quality' },
-    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: '1M context · balanced' },
-    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', hint: 'fast + cheap' },
+    { id: 'opus', label: 'Opus', hint: 'latest · top quality' },
+    { id: 'sonnet', label: 'Sonnet', hint: 'latest · balanced' },
+    { id: 'haiku', label: 'Haiku', hint: 'latest · fast + cheap' },
   ],
   codex: [
-    { id: 'gpt-5.4', label: 'GPT-5.4', hint: 'top quality' },
+    // Flagship is at 5.5; the mini/nano tiers top out at 5.4 (no 5.5-mini
+    // exists). Verified against the OpenAI model list 2026-06-01.
+    { id: 'gpt-5.5', label: 'GPT-5.5', hint: 'top quality' },
     { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', hint: 'fast + cheap' },
   ],
 };

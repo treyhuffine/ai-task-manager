@@ -8,9 +8,10 @@
  *
  * Strategy:
  *   1. **At spawn**, before the child actually starts, write a small
- *      JSON file at `<brain>/preview/<workspace-id>.pid` containing
- *      `{ pid, pgid, command, startedAt }`. Persisted before the
- *      process is even running, so we never have a kid we don't know about.
+ *      JSON file at `<brain>/preview/<key>.pid` containing
+ *      `{ pid, pgid, command, startedAt }`. The key is the preview-target
+ *      id (one supervised process per worktree/service). Persisted before
+ *      the process is even running, so we never have a kid we don't know about.
  *   2. **At clean exit / stop**, delete the file.
  *   3. **On Flow boot**, scan the directory for stale entries:
  *      - If the pid is dead, just unlink the file.
@@ -32,7 +33,8 @@ import { getBrainDir } from '@/lib/config/paths';
 const execFileAsync = promisify(execFile);
 
 export interface PidRecord {
-  workspaceId: string;
+  /** Preview-target id — the supervisor's process key. */
+  key: string;
   pid: number;
   pgid: number;
   command: string;
@@ -49,26 +51,26 @@ function ensureDir(): string {
   return dir;
 }
 
-function recordPath(workspaceId: string): string {
-  return path.join(getPreviewDir(), `${sanitize(workspaceId)}.pid`);
+function recordPath(key: string): string {
+  return path.join(getPreviewDir(), `${sanitize(key)}.pid`);
 }
 
-/** Defensive — workspace IDs are UUIDs so this is documentation, not real sanitization. */
+/** Defensive — keys are UUIDs so this is documentation, not real sanitization. */
 function sanitize(id: string): string {
   return id.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
 export function writePid(rec: PidRecord): void {
   const dir = ensureDir();
-  const tmp = path.join(dir, `${sanitize(rec.workspaceId)}.pid.tmp`);
-  const target = recordPath(rec.workspaceId);
+  const tmp = path.join(dir, `${sanitize(rec.key)}.pid.tmp`);
+  const target = recordPath(rec.key);
   fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
   // Atomic move so a partial write never leaves a half-formed file.
   fs.renameSync(tmp, target);
 }
 
-export function deletePid(workspaceId: string): void {
-  const p = recordPath(workspaceId);
+export function deletePid(key: string): void {
+  const p = recordPath(key);
   try {
     fs.unlinkSync(p);
   } catch {
@@ -87,7 +89,7 @@ export function listPidRecords(): PidRecord[] {
       const parsed = JSON.parse(raw) as PidRecord;
       if (
         typeof parsed === 'object' && parsed !== null &&
-        typeof parsed.workspaceId === 'string' &&
+        typeof parsed.key === 'string' &&
         typeof parsed.pid === 'number' &&
         typeof parsed.command === 'string'
       ) {
@@ -141,7 +143,7 @@ export async function sweepOrphans(): Promise<{ checked: number; killed: number;
   for (const rec of records) {
     try {
       if (!isAlive(rec.pid)) {
-        deletePid(rec.workspaceId);
+        deletePid(rec.key);
         continue;
       }
       const match = await commandLineMatches(rec.pid, rec.command);
@@ -174,7 +176,7 @@ export async function sweepOrphans(): Promise<{ checked: number; killed: number;
           try { process.kill(rec.pid, 'SIGKILL'); } catch { /* fine */ }
         }
       }
-      deletePid(rec.workspaceId);
+      deletePid(rec.key);
       killed++;
     } catch {
       skipped++;

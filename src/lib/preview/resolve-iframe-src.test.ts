@@ -1,251 +1,84 @@
 import { describe, it, expect } from 'vitest';
-import { resolveIframeSrc, type BrowserLocation } from './resolve-iframe-src';
-import type { AppPreviewStatusResponse } from '@/lib/api/workspaces';
+import { resolvePreviewSrc, pickReachability, isLocalViewer, type BrowserLocation } from './resolve-iframe-src';
+import type { PreviewState } from '@/lib/api/preview';
 
-const WS = '019df8ea-15f8-7a5a-9c3e-91d4f8242745';
-const PROXY = `/preview/${WS}/?_pt=tok`;
+const LOCAL: BrowserLocation = { hostname: 'localhost', protocol: 'http:' };
+const LOCAL_SUB: BrowserLocation = { hostname: 'flow-a3f9.localhost', protocol: 'http:' };
+const REMOTE: BrowserLocation = { hostname: 'flow.example.com', protocol: 'https:' };
 
-function status(overrides: Partial<AppPreviewStatusResponse>): AppPreviewStatusResponse {
+function state(partial: Partial<PreviewState>): PreviewState {
   return {
-    mode: 'command',
-    status: 'running',
+    executionId: 'ex1',
+    service: null,
+    availableServices: [],
+    previewName: 'flow-a3f9',
+    assignedPort: 3000,
+    serverStatus: 'running',
     port: 3000,
-    previewToken: 'tok',
-    ...overrides,
+    message: null,
+    localUrl: 'http://localhost:3000',
+    pinned: false,
+    activeRemoteProviderId: 'beamd',
+    activeRemoteProviderLabel: 'Beam',
+    remoteUrl: null,
+    remoteError: null,
+    manualUrls: [],
+    ...partial,
   };
 }
 
-function browser(host: string, scheme: 'http' | 'https' = 'http'): BrowserLocation {
-  return { hostname: host, protocol: `${scheme}:` };
-}
-
-describe('resolveIframeSrc', () => {
-  describe('not-running short-circuit', () => {
-    it('returns proxy when status is null', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        // @ts-expect-error testing null
-        status: null,
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost'),
-      });
-      expect(r).toEqual({ url: PROXY, mode: 'proxy', reason: 'no_status' });
-    });
-
-    it('returns proxy when status.status !== "running"', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ status: 'idle', port: null }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost'),
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('not_running');
-    });
-
-    it('returns proxy when port is null even if status is running', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ status: 'running', port: null }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost'),
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('not_running');
-    });
-
-    it('returns proxy when no browser location (SSR)', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({}),
-        pathProxyUrl: PROXY,
-        browserLocation: null,
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('no_reachable_direct');
-    });
+describe('isLocalViewer / pickReachability', () => {
+  it('treats loopback + *.localhost as local', () => {
+    expect(isLocalViewer(LOCAL)).toBe(true);
+    expect(isLocalViewer({ hostname: '127.0.0.1', protocol: 'http:' })).toBe(true);
+    expect(isLocalViewer(LOCAL_SUB)).toBe(true);
   });
-
-  describe('local browser', () => {
-    it('direct-embeds Portless hostname when browser is on localhost', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'portless', hostname: 'myapp' }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost'),
-      });
-      expect(r).toEqual({
-        url: 'https://myapp.localhost',
-        mode: 'direct',
-        reason: 'local_portless',
-      });
-    });
-
-    it('handles 127.0.0.1 as local', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'portless', hostname: 'myapp' }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('127.0.0.1'),
-      });
-      expect(r.mode).toBe('direct');
-    });
-
-    it('handles a *.localhost browser host (e.g. Portless-served Flow itself)', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'portless', hostname: 'myapp' }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('flow.localhost'),
-      });
-      expect(r.mode).toBe('direct');
-    });
-
-    it('direct-embeds command-mode loopback port locally', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'command', port: 5173 }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost'),
-      });
-      expect(r).toEqual({
-        url: 'http://localhost:5173',
-        mode: 'direct',
-        reason: 'local_command',
-      });
-    });
-
-    it('falls back to proxy if Flow is HTTPS but the candidate is HTTP (mixed content)', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'command', port: 5173 }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost', 'https'),
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('mixed_content');
-    });
-
-    it('HTTPS Flow + HTTPS Portless candidate is fine', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'portless', hostname: 'myapp' }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost', 'https'),
-      });
-      expect(r.mode).toBe('direct');
-    });
-
-    it('falls back to proxy if portless mode has no hostname', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'portless', hostname: null, port: 4070 }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost'),
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('no_reachable_direct');
-    });
+  it('treats everything else as remote', () => {
+    expect(isLocalViewer(REMOTE)).toBe(false);
+    expect(isLocalViewer({ hostname: '100.74.1.2', protocol: 'https:' })).toBe(false);
   });
-
-  describe('tailnet browser', () => {
-    it('direct-embeds the tailscaleUrl when browser is on the tailnet', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({
-          mode: 'portless',
-          hostname: 'myapp',
-          tailscaleUrl: 'https://myapp.devbox.tailnet.ts.net',
-        }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('devbox.tailnet.ts.net', 'https'),
-      });
-      expect(r).toEqual({
-        url: 'https://myapp.devbox.tailnet.ts.net',
-        mode: 'direct',
-        reason: 'tailnet_direct',
-      });
-    });
-
-    it('falls back to proxy on tailnet when no tailscaleUrl is registered', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({
-          mode: 'portless',
-          hostname: 'myapp',
-          tailscaleUrl: null,
-        }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('devbox.tailnet.ts.net', 'https'),
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('no_reachable_direct');
-    });
-
-    it('does NOT direct-embed tailscaleUrl when browser is on localhost (prefers local .localhost)', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({
-          mode: 'portless',
-          hostname: 'myapp',
-          tailscaleUrl: 'https://myapp.devbox.tailnet.ts.net',
-        }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('localhost'),
-      });
-      expect(r.url).toBe('https://myapp.localhost');
-    });
-
-    it('mixed-content guard on tailnet too', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({
-          mode: 'portless',
-          hostname: 'myapp',
-          tailscaleUrl: 'http://myapp.devbox.tailnet.ts.net',  // weirdly http
-        }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('devbox.tailnet.ts.net', 'https'),
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('mixed_content');
-    });
+  it('maps to a reachability mode', () => {
+    expect(pickReachability(LOCAL)).toBe('local');
+    expect(pickReachability(REMOTE)).toBe('remote');
   });
+});
 
-  describe('remote, non-tailnet browser', () => {
-    it('falls back to proxy on ngrok', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({
-          mode: 'portless',
-          hostname: 'myapp',
-          tailscaleUrl: 'https://myapp.devbox.tailnet.ts.net',
-        }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('xxx.ngrok.io', 'https'),
-      });
-      expect(r.mode).toBe('proxy');
-      expect(r.reason).toBe('no_reachable_direct');
-    });
-
-    it('falls back to proxy on LAN IP', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'portless', hostname: 'myapp' }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('192.168.1.42'),
-      });
-      expect(r.mode).toBe('proxy');
-    });
-
-    it('falls back to proxy on custom domains we cannot reason about', () => {
-      const r = resolveIframeSrc({
-        workspaceId: WS,
-        status: status({ mode: 'portless', hostname: 'myapp' }),
-        pathProxyUrl: PROXY,
-        browserLocation: browser('flow.mycompany.com', 'https'),
-      });
-      expect(r.mode).toBe('proxy');
-    });
+describe('resolvePreviewSrc — local viewer', () => {
+  it('uses the loopback URL when running', () => {
+    const r = resolvePreviewSrc(state({}), LOCAL);
+    expect(r).toEqual({ url: 'http://localhost:3000', mode: 'local', reason: 'local' });
   });
+  it('reports not_running when the server is down', () => {
+    const r = resolvePreviewSrc(state({ serverStatus: 'stopped', localUrl: null, port: null }), LOCAL);
+    expect(r.url).toBeNull();
+    expect(r.reason).toBe('not_running');
+  });
+  it('reports no_local_url when running but no port yet', () => {
+    const r = resolvePreviewSrc(state({ serverStatus: 'running', localUrl: null, port: null }), LOCAL);
+    expect(r.reason).toBe('no_local_url');
+  });
+});
+
+describe('resolvePreviewSrc — remote viewer', () => {
+  it('uses the remote provider URL once resolved', () => {
+    const r = resolvePreviewSrc(state({ remoteUrl: 'https://flow-a3f9.beam.example' }), REMOTE);
+    expect(r).toEqual({ url: 'https://flow-a3f9.beam.example', mode: 'remote', reason: 'remote' });
+  });
+  it('surfaces a remote error', () => {
+    const r = resolvePreviewSrc(
+      state({ remoteUrl: null, remoteError: { code: 'beamd_not_configured', message: 'x' } }),
+      REMOTE,
+    );
+    expect(r.url).toBeNull();
+    expect(r.reason).toBe('remote_error');
+  });
+  it('reports no_remote_url before the provider resolves', () => {
+    const r = resolvePreviewSrc(state({ remoteUrl: null, remoteError: null }), REMOTE);
+    expect(r.reason).toBe('no_remote_url');
+  });
+});
+
+it('handles a null state (initial load)', () => {
+  expect(resolvePreviewSrc(null, LOCAL).url).toBeNull();
+  expect(resolvePreviewSrc(null, REMOTE).url).toBeNull();
 });

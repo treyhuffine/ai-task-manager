@@ -162,6 +162,20 @@
       "when": 1780231421275,
       "tag": "0022_overjoyed_firestar",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1780315823119,
+      "tag": "0023_supreme_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1780324830241,
+      "tag": "0024_tan_champions",
+      "breakpoints": true
     }
   ]
 }

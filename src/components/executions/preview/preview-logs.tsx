@@ -2,10 +2,10 @@
 
 import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import type { AppPreviewLogLine } from '@/lib/api/workspaces';
+import type { PreviewLogLine } from '@/lib/api/preview';
 
 interface PreviewLogsProps {
-  lines: ReadonlyArray<AppPreviewLogLine>;
+  lines: ReadonlyArray<PreviewLogLine>;
   /** When true, auto-scroll to the bottom on new lines. */
   autoScroll?: boolean;
 }

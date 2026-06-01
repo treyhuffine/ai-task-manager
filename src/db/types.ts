@@ -5,10 +5,10 @@ import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
-  schedules, runs,
+  schedules, runs, previewTargets,
   Attachment,
 } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative, Attachment, StoredAttachment, RunArtifactRef } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl } from '@/lib/db/schema';
 
 /**
  * Override the `attachments` column type on a record. Drizzle infers the
@@ -114,6 +114,12 @@ export type ExecutionRecord = InferSelectModel<typeof executions>;
 export type CreateExecutionInput = Omit<InferInsertModel<typeof executions>, 'id'> & { id?: string };
 export type UpdateExecutionInput = Partial<Omit<CreateExecutionInput, 'createdAt'>>;
 export type ExecutionStatus = ExecutionRecord['status'];
+
+// ─── Preview Targets ──────────────────────────────────────────
+
+export type PreviewTargetRecord = InferSelectModel<typeof previewTargets>;
+export type CreatePreviewTargetInput = Omit<InferInsertModel<typeof previewTargets>, 'id'> & { id?: string };
+export type UpdatePreviewTargetInput = Partial<Omit<CreatePreviewTargetInput, 'createdAt' | 'executionId'>>;
 
 // ─── Chat Sessions ────────────────────────────────────────────
 

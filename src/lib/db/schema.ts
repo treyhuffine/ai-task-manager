@@ -240,18 +240,12 @@ export const workspaces = sqliteTable('workspaces', {
   // time. Picomatch dialect, dot-aware. `.env*` is the default so secrets
   // travel with the worktree without symlinking back to source.
   filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
-  // Preview pane wiring. Nullable across the board so legacy workspaces
-  // resolve to "auto-detect command mode" without a backfill.
-  //
-  // `preview_mode` pins the mode: 'command' = Flow spawns the user's
-  // preview_command and supervises it; 'portless' = Flow reads the
-  // hostname's route from ~/.portless/routes.json and proxies to its
-  // ephemeral port. Null means auto: prefer portless when both the
-  // daemon is up and a matching route exists, else command.
-  previewMode: text({ enum: ['command', 'portless'] }),
+  // Default dev command for previews. Flow runs it in each execution's
+  // worktree, auto-assigns a stable port (injected as `PORT`), and confirms
+  // it's listening. How a preview is *reached* (localhost vs a remote
+  // provider) is a global setting, not a per-workspace mode — see
+  // `preview_targets` + docs/preview-system-spec.md.
   previewCommand: text(),
-  previewPortOverride: integer(),
-  portlessHostname: text(),
   areaId: text().references(() => areas.id, { onDelete: 'set null' }),
   position: integer().notNull().default(0),
   collapsed: integer({ mode: 'boolean' }).notNull().default(false),
@@ -351,6 +345,14 @@ export const executions = sqliteTable('executions', {
   takeoverTokenExpiresAt: text(),
   takeoverChatSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
 
+  // Manually-pasted preview URLs (BYO tunnel — ngrok/cloudflared/whatever).
+  // The user runs their own tunnel and pastes the URL; Flow stores it and
+  // the ManualProvider serves it for the preview. A small list so a
+  // multi-service worktree can carry one URL per service (`service: null`
+  // is the default/only service). See docs/preview-system-spec.md §6 and
+  // the `PreviewUrl` shape below.
+  previewUrls: text({ mode: 'json' }).$type<PreviewUrl[]>().notNull().default([]),
+
   status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
 
   createdAt: text().notNull().default(sql`(datetime('now'))`),
@@ -361,6 +363,76 @@ export const executions = sqliteTable('executions', {
   uniqueIndex('uniq_executions_takeover_token')
     .on(table.takeoverToken)
     .where(sql`${table.takeoverToken} IS NOT NULL`),
+]);
+
+/**
+ * One manually-pasted preview URL on an execution. `service` scopes it to a
+ * named service in a multi-service worktree (`null` = the default/only app).
+ * `label` is optional human text for the picker ("staging", "ngrok").
+ */
+export interface PreviewUrl {
+  service: string | null;
+  url: string;
+  label: string | null;
+}
+
+// ─── Preview Targets ──────────────────────────────────────────
+// The per-worktree (per-execution, optionally per-service) *desired-state*
+// record for the preview system: how to (re)start the dev server, the
+// stable port it should listen on, and the DNS label its tunnel is named
+// after. This is the source of truth for "what should be running" — only
+// Flow knows the start command, and a tunnel to a dead port is a useless
+// URL, so Flow owns desired state and beamd stays stateless about it.
+//
+//   - `startCommand` makes lazy revival possible: you can't restart a dev
+//     server you don't know how to launch. Null falls back to the
+//     workspace's `previewCommand`.
+//   - `port` is stable: a restart reuses it, so the URL stays stable. Null
+//     until first allocation.
+//   - `previewName` is the single DNS label (`<worktree>[-<service>]`) the
+//     beamd/portless tunnel is named after (see src/lib/preview/preview-name).
+//   - `pinned` opts a target into eager bring-up on host boot (the
+//     restore-set). Default false — never bring up everything or you melt
+//     the host.
+//   - `lastViewedAt` drives idle-evict: stop the server + close the tunnel
+//     after N idle minutes; the name/URL stays reserved so it cold-starts
+//     again on next view.
+//
+// See docs/preview-system-spec.md §2.
+
+export const previewTargets = sqliteTable('preview_targets', {
+  id: text().primaryKey(),
+
+  // The worktree this preview is for. CASCADE: deleting the execution
+  // (e.g. via workspace deletion) drops its preview targets.
+  executionId: text()
+    .notNull()
+    .references(() => executions.id, { onDelete: 'cascade' }),
+
+  // Named service within a multi-service worktree. Null = the default/only
+  // app. The (executionId, service) pair is unique — enforced by two
+  // partial indexes because SQLite treats NULLs as distinct in a plain
+  // unique index (so UNIQUE(executionId, service) would allow duplicate
+  // default rows).
+  service: text(),
+
+  previewName: text().notNull(),
+  port: integer(),
+  startCommand: text(),
+  pinned: integer({ mode: 'boolean' }).notNull().default(false),
+
+  lastViewedAt: text(),
+
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_preview_targets_execution').on(table.executionId),
+  uniqueIndex('uniq_preview_targets_exec_default')
+    .on(table.executionId)
+    .where(sql`${table.service} IS NULL`),
+  uniqueIndex('uniq_preview_targets_exec_service')
+    .on(table.executionId, table.service)
+    .where(sql`${table.service} IS NOT NULL`),
 ]);
 
 // ─── Chat Sessions ────────────────────────────────────────────

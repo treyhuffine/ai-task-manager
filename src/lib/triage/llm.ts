@@ -9,7 +9,7 @@ const TIMEOUT_SECONDS = 600;
 
 const PROVIDER_MODELS: Record<string, string> = {
   claude: 'claude-sonnet-4-20250514',
-  codex: 'gpt-5.4',
+  codex: 'gpt-5.5',
 };
 
 export type Tier = 'high' | 'medium' | 'low';

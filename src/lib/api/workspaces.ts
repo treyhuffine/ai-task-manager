@@ -81,69 +81,10 @@ export const workspacesApi = {
     });
   },
 
-  // ── App preview pane (the iframe / proxy feature) ───────────
-  // Distinct from `previewFilesToCopy` above, which is unrelated to
-  // the preview pane and only previews which files would be copied
-  // into a new worktree at session creation time.
-  appPreview: {
-    status(id: string): Promise<AppPreviewStatusResponse> {
-      return api.get<AppPreviewStatusResponse>(`/workspaces/${id}/preview/status`);
-    },
-    start(id: string): Promise<AppPreviewStartResponse> {
-      return api.post<AppPreviewStartResponse>(`/workspaces/${id}/preview/start`);
-    },
-    stop(id: string): Promise<{ ok: true }> {
-      return api.post<{ ok: true }>(`/workspaces/${id}/preview/stop`);
-    },
-    logs(id: string, cursor = 0): Promise<AppPreviewLogsResponse> {
-      return api.get<AppPreviewLogsResponse>(`/workspaces/${id}/preview/logs`, {
-        query: { cursor },
-      });
-    },
-    refreshToken(id: string): Promise<{ previewToken: string }> {
-      return api.post<{ previewToken: string }>(`/workspaces/${id}/preview/refresh-token`);
-    },
-  },
+  // NOTE: the app preview pane (iframe) is per-execution now — see
+  // `src/lib/api/preview.ts` (`previewApi`). This `workspacesApi` only keeps
+  // the unrelated `previewFilesToCopy` (worktree seed-file preview).
 };
-
-export type AppPreviewMode = 'command' | 'portless';
-export type AppPreviewStatus = 'idle' | 'starting' | 'running' | 'crashed' | 'stopped';
-
-export interface AppPreviewStatusResponse {
-  mode: AppPreviewMode;
-  status: AppPreviewStatus;
-  port: number | null;
-  /** Present for both modes. Iframe attaches it as `?_pt=` on first load. */
-  previewToken: string | null;
-  /** Portless only — the hostname Flow expects the route under. */
-  hostname?: string | null;
-  /** Portless only — Tailscale URL surfaced into the execution header. */
-  tailscaleUrl?: string | null;
-  /** Tailscale funnel public URL (Portless only, if enabled). */
-  tailscaleFunnelUrl?: string | null;
-  /** Command mode only. */
-  startedAt?: string | null;
-  exitedAt?: string | null;
-  exitCode?: number | null;
-  /** When the supervisor / portless route is unhealthy, an explanation. */
-  message?: string | null;
-}
-
-export interface AppPreviewStartResponse extends AppPreviewStatusResponse {
-  previewToken: string;
-}
-
-export interface AppPreviewLogLine {
-  seq: number;
-  at: string;
-  stream: 'stdout' | 'stderr';
-  line: string;
-}
-
-export interface AppPreviewLogsResponse {
-  cursor: number;
-  lines: AppPreviewLogLine[];
-}
 
 export interface PreviewFilesToCopyResponse {
   files: string[];

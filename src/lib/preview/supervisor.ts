@@ -1,34 +1,34 @@
 /**
- * Preview supervisor — process map + ring buffer + port detection,
- * scoped to a single Flow server process.
+ * Preview supervisor — process lifecycle for the dev servers behind
+ * previews, scoped to a single Flow server process.
  *
- * One subprocess per workspace at most. The user clicks Start in the
- * preview pane; the supervisor spawns the workspace's `previewCommand`
- * (whatever string they configured) under a shell, in the workspace's
- * cwd (or worktree path for git workspaces). Stdout + stderr go through
- * the port detector and into a bounded ring buffer the UI tails.
+ * One supervised process per **preview target** (a worktree, optionally a
+ * named service — see `preview_targets`). The caller hands us a stable
+ * assigned port; we inject it as `PORT`, spawn the dev command in the
+ * worktree, and then **prove the port is actually listening** (TCP
+ * confirm) before reporting `running`. The stdout `PortDetector` stays on
+ * as a *fallback* for apps that ignore `$PORT` and open a different port.
  *
- * The supervisor is intentionally simple. It does not own:
- *   - The proxy route (separate; reads our `getPort` to find the upstream).
- *   - Auth / preview tokens (the supervisor mints them, but doesn't check
- *     headers — the proxy route does that).
- *   - Portless mode (separate module; supervisor is skipped entirely there).
- *   - Persistence of process state across Flow restarts (in-memory only —
- *     orphan reaping is handled by a startup sweep in P4 polish).
+ * What the supervisor does NOT own:
+ *   - Desired state (`preview_targets`: start command, stable port, name).
+ *     That's the DB; the supervisor is in-memory and ephemeral.
+ *   - Tunnels / reachable URLs. Providers do that (`providers/*`).
+ *   - Persistence across Flow restarts (in-memory only — orphan reaping is
+ *     a boot-time sweep via `pid-store.sweepOrphans`).
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import { PortDetector } from './detect-port';
+import { confirmListening } from './net';
 import { writePid, deletePid } from './pid-store';
 
 export type PreviewStatus =
   | 'idle'         // never started
-  | 'starting'     // spawned, no port yet
-  | 'running'      // spawned, port detected (or override pinned)
-  | 'crashed'      // exited with non-zero or signaled while we expected it up
+  | 'starting'     // spawned, confirming the port is up
+  | 'running'      // spawned + a port confirmed listening (or alive-but-no-port)
+  | 'crashed'      // exited unexpectedly while we expected it up
   | 'stopped';     // exited cleanly after a Stop request
 
 export interface PreviewLogLine {
@@ -42,14 +42,18 @@ export interface PreviewLogLine {
 }
 
 export interface PreviewProcessRecord {
-  workspaceId: string;
+  /** Preview-target id — the supervisor's process key. */
+  key: string;
   pid: number;
   command: string;
   cwd: string;
   status: PreviewStatus;
+  /** The stable port we injected as `PORT` and expect the app on. */
+  assignedPort: number;
+  /** Effective port confirmed listening. May differ from `assignedPort`
+   *  if the app ignored `$PORT` and the stdout detector found another.
+   *  Null while starting, or when the process is up but no port confirmed. */
   port: number | null;
-  /** A short-lived token the client embeds in the iframe `?_pt=` query. */
-  previewToken: string;
   /** ISO timestamp of last status transition. */
   startedAt: string;
   /** Set when status is `crashed` or `stopped`. */
@@ -58,6 +62,8 @@ export interface PreviewProcessRecord {
   exitCode: number | null;
   /** Signal name if the process was killed by a signal, else null. */
   signal: string | null;
+  /** Human-readable note (e.g. "no port detected within 30s"). */
+  message: string | null;
 }
 
 interface InternalRecord extends PreviewProcessRecord {
@@ -71,205 +77,217 @@ interface InternalRecord extends PreviewProcessRecord {
   pending: { stdout: string; stderr: string };
   /** Cleared after Stop / explicit kill — distinguishes intentional exits. */
   expectingExit: boolean;
-  /** Optional override port — supervisor pretends the process printed it. */
-  pinnedPort: number | null;
-  /** Timer for the port-detection timeout. */
-  detectTimeout: NodeJS.Timeout | null;
+  /** Aborts the in-flight confirm-listening poll on stop. */
+  confirmAbort: AbortController | null;
+  /** Resolves once the confirm-listening attempt settles (up/no-port/exit). */
+  settled: Promise<void>;
+  resolveSettled: () => void;
 }
 
 const MAX_LOG_LINES = 1000;
-const PORT_DETECT_TIMEOUT_MS = 30_000;
+const CONFIRM_TIMEOUT_MS = 30_000;
 const KILL_GRACE_MS = 5_000;
 
 export interface SupervisorEventMap {
-  status: [{ workspaceId: string; status: PreviewStatus; port: number | null }];
-  log: [{ workspaceId: string; line: PreviewLogLine }];
+  status: [{ key: string; status: PreviewStatus; port: number | null }];
+  log: [{ key: string; line: PreviewLogLine }];
 }
 
 class PreviewSupervisor extends EventEmitter {
   private readonly procs = new Map<string, InternalRecord>();
-  /**
-   * Ports the detector should skip — populated lazily on first use with
-   * the Flow server's listening port so a framework banner re-printing
-   * Flow's own URL never gets mistaken for the app's port.
-   */
   private ignorePorts: Set<number> | null = null;
 
   /**
-   * Start (or return the existing) preview process for a workspace.
+   * Start (or return the existing) supervised process for a preview target.
    *
-   * Idempotent + race-safe:
-   *   - If a process is currently running for this workspace, the
-   *     existing record is returned untouched.
-   *   - If a Stop is in flight (the supervisor sent SIGTERM but the
-   *     child hasn't exited yet), we wait for the exit BEFORE spawning
-   *     a fresh one. Without this, a quick Stop → Start sequence would
-   *     return a record pointing at a dying port, and the iframe would
-   *     load against a process about to disappear.
+   * Idempotent + race-safe: a running/starting target returns its existing
+   * record untouched; a Stop-in-flight is awaited before a fresh spawn so a
+   * quick Stop→Start can't return a record pointing at a dying port.
    */
   async start(input: {
-    workspaceId: string;
+    key: string;
     command: string;
     cwd: string;
-    /** Pin a fixed port; skip stdout scraping. */
-    portOverride?: number | null;
-    /** Additional env to layer on top of process.env (e.g., PORT preferences). */
+    /** Stable port to inject as `PORT` and confirm-listen on. */
+    port: number;
+    /** Additional env layered on top of process.env. */
     env?: Record<string, string>;
   }): Promise<PreviewProcessRecord> {
-    const existing = this.procs.get(input.workspaceId);
+    const existing = this.procs.get(input.key);
     if (existing) {
-      // Stop-in-flight: wait it out, then spawn fresh.
       if (existing.expectingExit && existing.child && existing.status !== 'stopped' && existing.status !== 'crashed') {
+        // Stop-in-flight: wait it out, then spawn fresh.
         await new Promise<void>((resolve) => {
-          const onExit = () => resolve();
-          existing.child!.once('exit', onExit);
-          // Belt-and-suspenders: if the exit event already fired and
-          // we hooked late, the supervisor's onExit() has already run
-          // and cleared `child`. The check above guards against that
-          // case (`child` would be null), so we know we're listening
-          // before exit happens. Still, set a hard upper bound so a
-          // process that ignores SIGTERM doesn't deadlock us — the
-          // supervisor's own grace timer will SIGKILL it.
+          existing.child!.once('exit', () => resolve());
           setTimeout(resolve, KILL_GRACE_MS + 1_000);
         });
       } else if (existing.status === 'starting' || existing.status === 'running') {
         return toPublic(existing);
       }
-      // Clean any old record so the slot is free.
-      this.procs.delete(input.workspaceId);
+      this.procs.delete(input.key);
     }
 
     if (!input.command.trim()) {
-      throw new SupervisorError('preview_no_command', 'No preview command set for this workspace.');
+      throw new SupervisorError('preview_no_command', 'No preview command set for this worktree.');
+    }
+    if (!Number.isInteger(input.port) || input.port <= 0) {
+      throw new SupervisorError('preview_no_port', 'No port assigned for this preview.');
     }
 
     const detector = new PortDetector({ ignorePorts: this.getIgnoredPorts() });
-    if (input.portOverride) detector.set(input.portOverride);
 
-    const previewToken = randomBytes(16).toString('base64url');
-
-    // Spawn under a login shell so the user's PATH (nvm, pyenv, cargo,
-    // rbenv, etc.) is honored. `sh -lc` rather than `bash -lc` so Linux
-    // users without bash installed still work.
+    // Spawn under a login shell so the user's PATH (nvm, pyenv, cargo, …) is
+    // honored. `sh -lc` not `bash -lc` so Linux users without bash still work.
+    // The assigned PORT is injected LAST so it always wins — a stray `PORT`
+    // in caller-supplied env (e.g. a multi-service `env` block) can't override
+    // it and break confirm-listening.
     const child = spawn('sh', ['-lc', input.command], {
       cwd: input.cwd,
-      env: sanitizeChildEnv(input.env),
+      env: sanitizeChildEnv({ ...input.env, PORT: String(input.port) }),
       stdio: ['ignore', 'pipe', 'pipe'],
-      // New process group so we can kill the whole tree (sh → npm → next → ...).
-      detached: true,
+      detached: true, // own process group → kill the whole tree (sh → npm → next → …)
     });
 
     if (!child.pid) {
       throw new SupervisorError('preview_spawn_failed', 'Failed to spawn preview process.');
     }
 
-    // Crash-safe PID record so a Flow restart can find and reap orphans.
-    // The child's PID == its PGID because we set `detached: true`.
+    // Crash-safe PID record so a Flow restart can reap orphans. child.pid == pgid (detached).
     try {
       writePid({
-        workspaceId: input.workspaceId,
+        key: input.key,
         pid: child.pid,
         pgid: child.pid,
         command: input.command,
         startedAt: new Date().toISOString(),
       });
     } catch (err) {
-      // PID-file write failures aren't fatal — the process is running,
-      // we just can't sweep it on next boot. Surface in logs but proceed.
       console.warn('[preview] failed to write pid file:', err);
     }
 
+    let resolveSettled!: () => void;
+    const settled = new Promise<void>((resolve) => { resolveSettled = resolve; });
+
     const now = new Date().toISOString();
     const rec: InternalRecord = {
-      workspaceId: input.workspaceId,
+      key: input.key,
       pid: child.pid,
       command: input.command,
       cwd: input.cwd,
       status: 'starting',
-      port: input.portOverride ?? null,
-      previewToken: previewToken,
+      assignedPort: input.port,
+      port: null,
       startedAt: now,
       exitedAt: null,
       exitCode: null,
       signal: null,
+      message: null,
       child,
       detector,
       logSeq: 0,
       logs: [],
       pending: { stdout: '', stderr: '' },
       expectingExit: false,
-      pinnedPort: input.portOverride ?? null,
-      detectTimeout: null,
+      confirmAbort: new AbortController(),
+      settled,
+      resolveSettled,
     };
-
-    if (rec.port !== null) {
-      rec.status = 'running';
-    } else {
-      rec.detectTimeout = setTimeout(() => {
-        // Port didn't appear in time. We still consider the process
-        // running — UI will surface the "no port detected" affordance.
-        if (rec.status === 'starting') {
-          rec.status = 'running';
-          this.emit('status', { workspaceId: rec.workspaceId, status: 'running', port: null });
-        }
-      }, PORT_DETECT_TIMEOUT_MS);
-    }
 
     this.wireStreams(rec, 'stdout');
     this.wireStreams(rec, 'stderr');
 
-    child.on('exit', (code, signal) => {
-      this.onExit(rec, code, signal);
-    });
+    child.on('exit', (code, signal) => this.onExit(rec, code, signal));
     child.on('error', (err) => {
       this.appendLog(rec, 'stderr', `[supervisor] spawn error: ${err.message}`);
       this.onExit(rec, null, null);
     });
 
-    this.procs.set(input.workspaceId, rec);
-    this.emit('status', {
-      workspaceId: rec.workspaceId,
-      status: rec.status,
-      port: rec.port,
-    });
+    this.procs.set(input.key, rec);
+    this.emit('status', { key: rec.key, status: rec.status, port: rec.port });
+
+    // Confirm the port is actually accepting connections before we call it
+    // running. Candidate set is the assigned port plus whatever the stdout
+    // detector turns up (apps that ignore $PORT). Runs in the background;
+    // status flips via events + `awaitListening`.
+    void this.runConfirm(rec);
+
+    return toPublic(rec);
+  }
+
+  private async runConfirm(rec: InternalRecord): Promise<void> {
+    try {
+      const found = await confirmListening(
+        () => {
+          const ports = [rec.assignedPort];
+          const detected = rec.detector.port();
+          if (detected) ports.push(detected);
+          return ports;
+        },
+        { timeoutMs: CONFIRM_TIMEOUT_MS, signal: rec.confirmAbort?.signal },
+      );
+      if (rec.status === 'stopped' || rec.status === 'crashed') return; // exited while confirming
+      if (found !== null) {
+        rec.port = found;
+        rec.status = 'running';
+        rec.message = found !== rec.assignedPort
+          ? `App ignored PORT=${rec.assignedPort}; detected on ${found}.`
+          : null;
+        this.emit('status', { key: rec.key, status: 'running', port: found });
+      } else if (rec.status === 'starting') {
+        // Process is (probably) still alive but never opened a reachable
+        // port. Surface a clear no-port state instead of hanging in
+        // "starting" forever. The UI renders the running-no-port affordance;
+        // providers that need a port surface an actionable error.
+        rec.status = 'running';
+        rec.port = null;
+        rec.message = `No reachable port within ${Math.round(CONFIRM_TIMEOUT_MS / 1000)}s. Check the dev command or set a port.`;
+        this.emit('status', { key: rec.key, status: 'running', port: null });
+      }
+    } finally {
+      rec.resolveSettled();
+    }
+  }
+
+  /**
+   * Await the confirm-listening attempt, bounded by `timeoutMs`. Resolves
+   * with the current record once a port is confirmed (or the no-port /
+   * crashed terminal is reached), or when the bound elapses. The service
+   * layer uses this so `resolve()` can return a confirmed port.
+   */
+  async awaitListening(key: string, timeoutMs = CONFIRM_TIMEOUT_MS + 2_000): Promise<PreviewProcessRecord | null> {
+    const rec = this.procs.get(key);
+    if (!rec) return null;
+    if (rec.status === 'running' || rec.status === 'crashed' || rec.status === 'stopped') {
+      return toPublic(rec);
+    }
+    await Promise.race([rec.settled, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
     return toPublic(rec);
   }
 
   /**
-   * Stop a workspace's preview process. SIGTERM first, then SIGKILL after
-   * `KILL_GRACE_MS` if it's still alive. Returns the final record
-   * (status=`stopped`). No-op if there's no process running.
+   * Stop a supervised process. SIGTERM, then SIGKILL after KILL_GRACE_MS.
+   * Returns the final record (status=`stopped`). No-op if nothing's running.
    */
-  async stop(workspaceId: string): Promise<PreviewProcessRecord | null> {
-    const rec = this.procs.get(workspaceId);
+  async stop(key: string): Promise<PreviewProcessRecord | null> {
+    const rec = this.procs.get(key);
     if (!rec) return null;
     if (rec.status === 'stopped' || rec.status === 'crashed') return toPublic(rec);
 
     rec.expectingExit = true;
-    if (rec.detectTimeout) {
-      clearTimeout(rec.detectTimeout);
-      rec.detectTimeout = null;
-    }
+    rec.confirmAbort?.abort();
 
     const child = rec.child;
     if (!child) {
       rec.status = 'stopped';
       rec.exitedAt = new Date().toISOString();
-      this.emit('status', { workspaceId: rec.workspaceId, status: 'stopped', port: null });
+      this.emit('status', { key: rec.key, status: 'stopped', port: null });
       return toPublic(rec);
     }
 
     try {
-      // Kill the entire process group. The `-pid` form sends the
-      // signal to the group leader (which `detached: true` made us).
       process.kill(-child.pid!, 'SIGTERM');
     } catch {
-      // Group might already be gone — try the bare PID as a fallback.
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // ignore — process already dead
-      }
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
     }
 
     await new Promise<void>((resolve) => {
@@ -281,7 +299,6 @@ class PreviewSupervisor extends EventEmitter {
         }
         resolve();
       }, KILL_GRACE_MS);
-
       child.once('exit', () => {
         clearTimeout(t);
         resolve();
@@ -293,47 +310,42 @@ class PreviewSupervisor extends EventEmitter {
 
   /** Stop every running process. Used at server shutdown. */
   async stopAll(): Promise<void> {
-    const ids = Array.from(this.procs.keys());
-    await Promise.all(ids.map((id) => this.stop(id)));
+    const keys = Array.from(this.procs.keys());
+    await Promise.all(keys.map((k) => this.stop(k)));
   }
 
-  status(workspaceId: string): PreviewProcessRecord | null {
-    const rec = this.procs.get(workspaceId);
+  status(key: string): PreviewProcessRecord | null {
+    const rec = this.procs.get(key);
     return rec ? toPublic(rec) : null;
   }
 
-  /** Live port lookup used by the proxy route on every request. */
-  getPort(workspaceId: string): number | null {
-    const rec = this.procs.get(workspaceId);
+  /** Effective port if the target is up, else null. */
+  getPort(key: string): number | null {
+    const rec = this.procs.get(key);
     if (!rec) return null;
     if (rec.status !== 'starting' && rec.status !== 'running') return null;
     return rec.port;
   }
 
-  /** Validate a `_pt` token for a workspace. */
-  isTokenValid(workspaceId: string, token: string): boolean {
-    const rec = this.procs.get(workspaceId);
-    if (!rec) return false;
-    return rec.previewToken === token;
+  /** Is this target currently up (running with a confirmed port)? */
+  isListening(key: string): boolean {
+    const rec = this.procs.get(key);
+    return !!rec && rec.status === 'running' && rec.port !== null;
   }
 
-  /** Rotate the preview token (used by /refresh-token). */
-  rotateToken(workspaceId: string): string | null {
-    const rec = this.procs.get(workspaceId);
-    if (!rec) return null;
-    rec.previewToken = randomBytes(16).toString('base64url');
-    return rec.previewToken;
+  /** Keys with a live (running/starting) process — the idle-evict candidates. */
+  liveKeys(): string[] {
+    const out: string[] = [];
+    for (const [key, rec] of this.procs) {
+      if (rec.status === 'running' || rec.status === 'starting') out.push(key);
+    }
+    return out;
   }
 
-  /**
-   * Return all log lines with seq > cursor. Suitable for incremental
-   * polling by the UI's logs strip.
-   */
-  logsSince(workspaceId: string, cursor: number): PreviewLogLine[] {
-    const rec = this.procs.get(workspaceId);
+  logsSince(key: string, cursor: number): PreviewLogLine[] {
+    const rec = this.procs.get(key);
     if (!rec) return [];
     if (cursor <= 0) return rec.logs.slice();
-    // Linear scan is fine — ring buffer is bounded at MAX_LOG_LINES.
     return rec.logs.filter((l) => l.seq > cursor);
   }
 
@@ -345,8 +357,6 @@ class PreviewSupervisor extends EventEmitter {
 
   private getIgnoredPorts(): Set<number> {
     if (this.ignorePorts) return this.ignorePorts;
-    // Lazy default — the Flow port at minimum. Avoids pulling in app
-    // constants from a module that may load early.
     const flowPort = Number(process.env.PORT ?? '4224');
     const set = new Set<number>();
     if (Number.isFinite(flowPort)) set.add(flowPort);
@@ -360,20 +370,9 @@ class PreviewSupervisor extends EventEmitter {
 
     handle.setEncoding('utf8');
     handle.on('data', (chunk: string) => {
-      // Port detection (only while we haven't pinned a port).
-      if (rec.pinnedPort === null && rec.port === null) {
-        const found = rec.detector.feedAndCheck(chunk);
-        if (found !== null) {
-          rec.port = found;
-          if (rec.detectTimeout) {
-            clearTimeout(rec.detectTimeout);
-            rec.detectTimeout = null;
-          }
-          if (rec.status === 'starting') {
-            rec.status = 'running';
-            this.emit('status', { workspaceId: rec.workspaceId, status: 'running', port: found });
-          }
-        }
+      // Feed the detector (fallback port discovery for apps that ignore $PORT).
+      if (rec.port === null) {
+        rec.detector.feedAndCheck(chunk);
       }
 
       // Line-oriented logging. Hold partial lines until the next chunk.
@@ -400,14 +399,11 @@ class PreviewSupervisor extends EventEmitter {
     if (rec.logs.length > MAX_LOG_LINES) {
       rec.logs.splice(0, rec.logs.length - MAX_LOG_LINES);
     }
-    this.emit('log', { workspaceId: rec.workspaceId, line: entry });
+    this.emit('log', { key: rec.key, line: entry });
   }
 
   private onExit(rec: InternalRecord, code: number | null, signal: NodeJS.Signals | null): void {
-    if (rec.detectTimeout) {
-      clearTimeout(rec.detectTimeout);
-      rec.detectTimeout = null;
-    }
+    rec.confirmAbort?.abort();
     // Drain any final pending line that didn't get a newline.
     for (const stream of ['stdout', 'stderr'] as const) {
       const tail = rec.pending[stream];
@@ -419,20 +415,12 @@ class PreviewSupervisor extends EventEmitter {
     rec.exitCode = code;
     rec.signal = signal;
     rec.exitedAt = new Date().toISOString();
-    if (rec.expectingExit) {
-      rec.status = 'stopped';
-    } else {
-      rec.status = 'crashed';
-    }
+    rec.status = rec.expectingExit ? 'stopped' : 'crashed';
     rec.port = null;
     rec.child = null;
-    // Clean up the PID file — the process is gone, no orphan to sweep.
-    try { deletePid(rec.workspaceId); } catch { /* ignore */ }
-    this.emit('status', {
-      workspaceId: rec.workspaceId,
-      status: rec.status,
-      port: null,
-    });
+    rec.resolveSettled();
+    try { deletePid(rec.key); } catch { /* ignore */ }
+    this.emit('status', { key: rec.key, status: rec.status, port: null });
   }
 }
 
@@ -446,7 +434,11 @@ export class SupervisorError extends Error {
 }
 
 function toPublic(rec: InternalRecord): PreviewProcessRecord {
-  const { child: _c, detector: _d, logSeq: _ls, logs: _l, pending: _p, expectingExit: _e, pinnedPort: _pp, detectTimeout: _dt, ...pub } = rec;
+  const {
+    child: _c, detector: _d, logSeq: _ls, logs: _l, pending: _p,
+    expectingExit: _e, confirmAbort: _ca, settled: _s, resolveSettled: _rs,
+    ...pub
+  } = rec;
   return pub;
 }
 

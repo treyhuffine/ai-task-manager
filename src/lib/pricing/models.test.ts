@@ -21,6 +21,22 @@ describe('pricingFor', () => {
     expect(dated.input).toBeGreaterThan(0);
   });
 
+  it('resolves a GPT minor version to its tier price (codex sends gpt-5.4)', () => {
+    // codex reports no costUsd, so the table is the only source — a bare
+    // `gpt-5.4` must bridge to the `openai/gpt-5` tier or cost records $0.
+    const minor = pricingFor('gpt-5.4');
+    const tier = pricingFor('openai/gpt-5');
+    expect(minor).toEqual(tier);
+    expect(minor.input).toBeGreaterThan(0);
+  });
+
+  it('resolves a GPT mini minor version to its tier price', () => {
+    const minor = pricingFor('gpt-5.4-mini');
+    const tier = pricingFor('openai/gpt-5-mini');
+    expect(minor).toEqual(tier);
+    expect(minor.input).toBeGreaterThan(0);
+  });
+
   it('returns zero pricing for an unknown model and warns once', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(pricingFor('nonexistent-model-9')).toEqual({

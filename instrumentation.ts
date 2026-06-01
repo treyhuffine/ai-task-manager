@@ -131,6 +131,20 @@ export async function register() {
     console.warn('[preview] orphan sweep init failed', err);
   }
 
+  // Register built-in preview providers (localhost / beamd / portless /
+  // manual) and start the idle-evict loop: after N idle minutes, stop the
+  // server and close its tunnel, keeping the name/URL reserved so the next
+  // view cold-starts the same URL. Keeps an overnight queue of finished
+  // tasks from melting the host. No eager bring-up on boot — bring-up is
+  // lazy on first resolve (see docs/preview-system-spec.md §2/§4).
+  try {
+    await import('@/lib/preview/providers'); // side-effect: register built-ins
+    const { startIdleEvictLoop } = await import('@/lib/preview/service');
+    startIdleEvictLoop();
+  } catch (err) {
+    console.warn('[preview] provider/idle-evict init failed', err);
+  }
+
   // Best-effort: stop every supervised preview when Flow is asked to
   // exit cleanly. SIGTERM/SIGINT only — Node can't intercept SIGKILL.
   // Lives in a dynamically-imported module because Next.js's Edge

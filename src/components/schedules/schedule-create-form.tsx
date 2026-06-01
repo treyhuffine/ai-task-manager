@@ -35,6 +35,7 @@ import {
   type Weekday,
 } from '@/lib/scheduler/frequency';
 import type { EffortLevel, ScheduleRecord } from '@/db/types';
+import { MODEL_OPTIONS } from '@/lib/agent-options';
 import { cn } from '@/lib/utils';
 
 const FREQUENCY_OPTIONS: { value: FrequencyKind; label: string }[] = [
@@ -497,13 +498,13 @@ function ModelPill({
   onChange: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const label = value || 'Default model';
+  // Single source of truth: the same Claude tier aliases the composer
+  // offers (opus/sonnet/haiku → always-latest). Empty id = harness default.
   const presets = [
     { id: '', label: 'Default model' },
-    { id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    ...MODEL_OPTIONS.claude_code.map((m) => ({ id: m.id, label: m.label })),
   ];
+  const label = presets.find((p) => p.id === value)?.label ?? value ?? 'Default model';
   return (
     <div className="relative">
       <button

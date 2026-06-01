@@ -3,14 +3,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { FileText, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePreviewStatus } from '@/hooks/use-preview';
-import type { AppPreviewStatus } from '@/lib/api/workspaces';
+import { usePreviewState } from '@/hooks/use-preview';
+import type { PreviewServerStatus } from '@/lib/api/preview';
 import { FileViewer } from './viewer/file-viewer';
 import { PreviewPane } from './preview/preview-pane';
 
 interface ViewerAreaProps {
   sessionId: string;
   workspaceId: string | null;
+  /** The execution whose worktree we preview (previews are per-worktree). */
+  executionId: string | null;
   selectedPath: string | null;
   onCloseFile: () => void;
   onOpenWorkspaceSettings?: () => void;
@@ -53,7 +55,7 @@ const TAB_STORAGE_KEY_PREFIX = 'flow.viewer.tab.';
  * trip.
  */
 export function ViewerArea({
-  sessionId, workspaceId, selectedPath, onCloseFile, onOpenWorkspaceSettings, active,
+  sessionId, workspaceId, executionId, selectedPath, onCloseFile, onOpenWorkspaceSettings, active,
   filePickSignal, onReferenceInChat,
 }: ViewerAreaProps) {
   const [tab, setTab] = useState<Tab>(() => readPersistedTab(sessionId));
@@ -95,11 +97,11 @@ export function ViewerArea({
   // server when the user has the terminal expanded to full height. We
   // ignore "tab" in the gate so the indicator stays accurate even on
   // the Files tab (the whole point is to alert the user *to* preview).
-  const statusQuery = usePreviewStatus(workspaceId, {
-    enabled: !!workspaceId && active,
+  const statusQuery = usePreviewState(executionId, {
+    enabled: !!executionId && active,
     refetchInterval: active ? 4_000 : false,
   });
-  const previewState: AppPreviewStatus | undefined = statusQuery.data?.status;
+  const previewState: PreviewServerStatus | undefined = statusQuery.data?.serverStatus;
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -129,6 +131,7 @@ export function ViewerArea({
           />
         ) : (
           <PreviewPane
+            executionId={executionId}
             workspaceId={workspaceId}
             active={active && tab === 'preview'}
             onOpenWorkspaceSettings={onOpenWorkspaceSettings}
@@ -146,7 +149,7 @@ function TabButton({
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
-  indicator?: AppPreviewStatus;
+  indicator?: PreviewServerStatus;
 }) {
   const dot = renderStatusDot(indicator);
   return (
@@ -168,7 +171,7 @@ function TabButton({
   );
 }
 
-function renderStatusDot(state: AppPreviewStatus | undefined): { node: React.ReactNode; title: string } | null {
+function renderStatusDot(state: PreviewServerStatus | undefined): { node: React.ReactNode; title: string } | null {
   switch (state) {
     case 'running':
       return {
