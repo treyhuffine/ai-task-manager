@@ -7,11 +7,16 @@
 import { registerPreviewProvider, listProviderIds } from './registry';
 import { localhostProvider } from './localhost';
 import { beamdProvider } from './beamd';
-import { portlessProvider } from './portless';
 import { manualProvider } from './manual';
 
+// Portless isn't a built-in provider: running `portless` is a project-level
+// dev-server choice (a package.json script), not a Flow reachability mode —
+// it surfaced as a confusing local-only option. The read-only adapter
+// (`../portless`) and a `portlessProvider` wrapper still exist for anyone who
+// wants to register it via the plugin seam, but it's off the picker by default.
+
 /** Built-in provider ids, in picker order. */
-export const BUILTIN_PROVIDER_IDS = ['localhost', 'beamd', 'portless', 'manual'] as const;
+export const BUILTIN_PROVIDER_IDS = ['localhost', 'beamd', 'manual'] as const;
 
 let registered = false;
 
@@ -20,7 +25,6 @@ export function ensureBuiltinProviders(): void {
   if (registered) return;
   registerPreviewProvider(localhostProvider);
   registerPreviewProvider(beamdProvider);
-  registerPreviewProvider(portlessProvider);
   registerPreviewProvider(manualProvider);
   registered = true;
 }

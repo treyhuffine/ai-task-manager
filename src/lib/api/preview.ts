@@ -23,8 +23,6 @@ export interface PreviewRemoteError {
 export interface PreviewState {
   executionId: string;
   service: string | null;
-  /** Service names for a multi-service worktree (empty for single-service). */
-  availableServices: string[];
   previewName: string;
   assignedPort: number | null;
   serverStatus: PreviewServerStatus;
@@ -60,17 +58,10 @@ export interface PreviewProviderInfo {
 export interface PreviewSettings {
   activeProvider: string;
   manualTemplate: string | null;
-  beamdBinPath: string | null;
-  beamd: { server: string | null; configured: boolean; insecure: boolean };
+  /** beamd connection state — driven by the machine's `~/.beamd/` account,
+   *  not a Flow-stored credential. */
+  beamd: { connected: boolean; server: string | null };
   providers: PreviewProviderInfo[];
-}
-
-export interface BeamdStatus {
-  profile: string;
-  agentRunning: boolean;
-  server: string;
-  slug: string;
-  healthy: boolean;
 }
 
 function serviceQuery(service?: string | null): Record<string, string> | undefined {
@@ -120,10 +111,10 @@ export const previewApi = {
     update(body: {
       activeProvider?: string;
       manualTemplate?: string | null;
-      beamdBinPath?: string | null;
-      beamdServer?: string | null;
-      beamdToken?: string | null;
-      beamdInsecure?: boolean;
+      /** Connect this machine to beamd (drives `beamd login`). */
+      connect?: { server: string; token: string; insecure?: boolean };
+      /** Disconnect this machine (drives `beamd logout`). */
+      disconnect?: boolean;
     }): Promise<PreviewSettings> {
       return api.put<PreviewSettings>('/preview/settings', body);
     },

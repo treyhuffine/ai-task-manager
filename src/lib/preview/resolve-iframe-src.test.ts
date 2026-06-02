@@ -10,7 +10,6 @@ function state(partial: Partial<PreviewState>): PreviewState {
   return {
     executionId: 'ex1',
     service: null,
-    availableServices: [],
     previewName: 'flow-a3f9',
     assignedPort: 3000,
     serverStatus: 'running',

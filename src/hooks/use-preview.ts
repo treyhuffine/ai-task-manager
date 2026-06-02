@@ -17,19 +17,17 @@ import {
   type PreviewSettings,
 } from '@/lib/api/preview';
 
-const PREVIEW_KEY = (id: string, service: string | null = null) =>
-  ['execution', id, 'preview', service ?? '_default'] as const;
+const PREVIEW_KEY = (id: string) => ['execution', id, 'preview'] as const;
 const PREVIEW_SETTINGS_KEY = ['preview', 'settings'] as const;
 const LOGS_BUFFER_CAP = 1000;
 
 export function usePreviewState(
   executionId: string | null,
-  options: { service?: string | null; enabled?: boolean; refetchInterval?: number | false } = {},
+  options: { enabled?: boolean; refetchInterval?: number | false } = {},
 ) {
-  const service = options.service ?? null;
   return useQuery({
-    queryKey: executionId ? PREVIEW_KEY(executionId, service) : ['execution', '_', 'preview'],
-    queryFn: () => previewApi.status(executionId!, service),
+    queryKey: executionId ? PREVIEW_KEY(executionId) : ['execution', '_', 'preview'],
+    queryFn: () => previewApi.status(executionId!),
     enabled: !!executionId && (options.enabled ?? true),
     refetchInterval: options.refetchInterval ?? 4_000,
     refetchOnWindowFocus: true,
@@ -38,14 +36,14 @@ export function usePreviewState(
 
 export function useStartPreview(executionId: string | null) {
   const qc = useQueryClient();
-  return useMutation<PreviewState, Error, { remote: boolean; service?: string | null }>({
-    mutationFn: async ({ remote, service }) => {
+  return useMutation<PreviewState, Error, { remote: boolean }>({
+    mutationFn: async ({ remote }) => {
       if (!executionId) throw new Error('no_execution');
-      return previewApi.start(executionId, { remote, service: service ?? null });
+      return previewApi.start(executionId, { remote });
     },
     onSuccess: (data) => {
       if (!executionId) return;
-      qc.setQueryData(PREVIEW_KEY(executionId, data.service), data);
+      qc.setQueryData(PREVIEW_KEY(executionId), data);
     },
   });
 }
@@ -59,10 +57,7 @@ export function useStopPreview(executionId: string | null) {
     },
     onSuccess: (data) => {
       if (!executionId) return;
-      // Stop tears down every service; invalidate the whole execution's
-      // preview cache so all service views refetch their (stopped) state.
-      qc.invalidateQueries({ queryKey: ['execution', executionId, 'preview'] });
-      qc.setQueryData(PREVIEW_KEY(executionId, data.service), data);
+      qc.setQueryData(PREVIEW_KEY(executionId), data);
     },
   });
 }
@@ -101,32 +96,30 @@ export function useSetPreviewUrls(executionId: string | null) {
  */
 export function usePreviewLogs(
   executionId: string | null,
-  options: { service?: string | null; enabled?: boolean; pollMs?: number } = {},
+  options: { enabled?: boolean; pollMs?: number } = {},
 ) {
   const enabled = options.enabled ?? true;
   const pollMs = options.pollMs ?? 1_500;
-  const service = options.service ?? null;
 
   const [lines, setLines] = useState<PreviewLogLine[]>([]);
   const cursorRef = useRef(0);
   const idRef = useRef<string | null>(null);
 
-  // Reset the buffer when the execution OR the selected service changes.
-  const streamKey = executionId ? `${executionId}:${service ?? ''}` : null;
+  // Reset the buffer when the execution changes.
   useEffect(() => {
-    if (idRef.current !== streamKey) {
-      idRef.current = streamKey;
+    if (idRef.current !== executionId) {
+      idRef.current = executionId;
       cursorRef.current = 0;
       setLines([]);
     }
-  }, [streamKey]);
+  }, [executionId]);
 
   useEffect(() => {
     if (!enabled || !executionId) return;
     let cancelled = false;
     const tick = async () => {
       try {
-        const res = await previewApi.logs(executionId, cursorRef.current, service);
+        const res = await previewApi.logs(executionId, cursorRef.current);
         if (cancelled) return;
         if (res.lines.length > 0) {
           cursorRef.current = res.cursor;
@@ -145,7 +138,7 @@ export function usePreviewLogs(
       cancelled = true;
       clearInterval(t);
     };
-  }, [enabled, executionId, service, pollMs]);
+  }, [enabled, executionId, pollMs]);
 
   const clear = useCallback(() => {
     cursorRef.current = 0;

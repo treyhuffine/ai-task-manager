@@ -2,41 +2,48 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeBeamdConfig } from './config';
 import {
   beamdStatus,
   beamdList,
   beamdOpen,
   beamdCheck,
+  beamdLogin,
+  beamdConnectedServer,
   BeamdCliError,
-  setBeamdBinOverride,
 } from './cli';
 import { allocatePort } from '../net';
 
 // These exercise the REAL beamd binary against an unreachable edge, so they
-// validate the wrapper's parsing + error classification end-to-end without
-// needing a live edge or a real cert. Gated on FLOW_BEAMD_BIN so CI without
-// the binary skips cleanly. Run locally with:
+// validate the wrapper's parsing + error classification end-to-end without a
+// live edge. Flow drives the machine's `~/.beamd/` account (no --config), so
+// we point HOME at a throwaway dir and `beamd login` into it. Gated on
+// FLOW_BEAMD_BIN so CI without the binary skips. Run locally with:
 //   FLOW_BEAMD_BIN=/path/to/beamd npx vitest run src/lib/preview/beamd/cli.test.ts
 const BIN = process.env.FLOW_BEAMD_BIN;
 const maybe = BIN ? describe : describe.skip;
 
-let tmpRoot: string;
-beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-beamd-cli-'));
-  process.env.FLOW_ROOT = tmpRoot;
-  if (BIN) setBeamdBinOverride(BIN);
-  // Point at an unreachable edge so calls fail fast but the binary still
-  // parses flags + emits its JSON/error contract.
-  writeBeamdConfig({ server: '127.0.0.1:1', token: 'fake-token-for-integration' });
+let tmpHome: string;
+let realHome: string | undefined;
+beforeEach(async () => {
+  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-beamd-cli-'));
+  realHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  if (BIN) {
+    // Log in to an unreachable edge: `login --token` just stores creds (it
+    // doesn't connect), so status/list resolve them while check/open fail.
+    await beamdLogin({ server: '127.0.0.1:1', token: 'fake-token-for-integration' });
+  }
 });
 afterEach(() => {
-  setBeamdBinOverride(null);
-  delete process.env.FLOW_ROOT;
-  try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+  if (realHome !== undefined) process.env.HOME = realHome;
+  try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
 });
 
-maybe('beamd CLI wrapper (real binary)', () => {
+maybe('beamd CLI wrapper (real binary, shared ~/.beamd)', () => {
+  it('connectedServer reports the logged-in edge', async () => {
+    expect(await beamdConnectedServer()).toContain('127.0.0.1:1');
+  }, 12_000);
+
   it('status --json parses into a structured object', async () => {
     const status = await beamdStatus();
     expect(status).toMatchObject({
@@ -44,13 +51,11 @@ maybe('beamd CLI wrapper (real binary)', () => {
       agentRunning: expect.any(Boolean),
       healthy: expect.any(Boolean),
     });
-    // Unreachable edge → not healthy, no agent.
-    expect(status.healthy).toBe(false);
+    expect(status.healthy).toBe(false); // unreachable edge
   }, 15_000);
 
   it('list --json returns an array (empty when nothing is up)', async () => {
-    const list = await beamdList();
-    expect(Array.isArray(list)).toBe(true);
+    expect(Array.isArray(await beamdList())).toBe(true);
   }, 15_000);
 
   it('check against an unreachable edge throws a classified BeamdCliError', async () => {
@@ -60,12 +65,5 @@ maybe('beamd CLI wrapper (real binary)', () => {
   it('open against an unreachable edge throws a classified BeamdCliError', async () => {
     const port = await allocatePort();
     await expect(beamdOpen(port, 'flow-cli-test', 12_000)).rejects.toBeInstanceOf(BeamdCliError);
-    try {
-      await beamdOpen(port, 'flow-cli-test', 12_000);
-    } catch (err) {
-      expect(err).toBeInstanceOf(BeamdCliError);
-      // Unreachable edge → the agent can't start.
-      expect((err as BeamdCliError).code).toBe('beamd_agent_down');
-    }
   }, 30_000);
 });

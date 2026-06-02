@@ -1,32 +1,23 @@
 /**
- * Thin wrapper over the bundled `beamd` binary. Every call goes through
- * `--config <beamd.yaml>` (the automation path) and `--json`.
+ * Thin wrapper over the bundled `beamd` binary.
+ *
+ * Flow is **just another beamd client on the machine** — it does NOT manage
+ * credentials or pass `--config`. Every call resolves the machine's beamd
+ * account from `~/.beamd/` (set up once via `beamd login`), exactly like the
+ * human at a terminal and the agent in a worktree. One credential, one path.
  *
  * Binary resolution, in order:
- *   1. An explicit override set via `setBeamdBinOverride()` (from settings).
- *   2. `FLOW_BEAMD_BIN` env (used for local dev against an unpublished build).
- *   3. `require.resolve('@beamd/cli/bin/beamd.cjs')` — the published package's
- *      Node shim, run via the current `node`.
+ *   1. `FLOW_BEAMD_BIN` env (local dev against an unpublished build).
+ *   2. the native per-platform binary from `@beamd/cli` (the normal path).
+ *   3. `@beamd/cli/bin/beamd.cjs` shim via `node`.
  *   4. `beamd` on `PATH`.
- *
- * `open -d` (detached) is the only path Flow uses to bring a tunnel up: it
- * hands the tunnel to a background agent and returns immediately. The agent
- * survives this process exiting; later `close`/`list`/`status` reconnect to
- * it via the isolated `agent_socket` pinned in the config.
  */
 
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { getBeamdConfigPath } from './config';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-
-let binOverride: string | null = null;
-
-/** Point the wrapper at a specific `beamd` binary (from preview settings). */
-export function setBeamdBinOverride(binPath: string | null): void {
-  binOverride = binPath && binPath.trim() ? binPath.trim() : null;
-}
 
 interface ResolvedBin {
   command: string;
@@ -34,15 +25,35 @@ interface ResolvedBin {
   prefixArgs: string[];
 }
 
+/** An explicit path: a `.js`/`.cjs`/`.mjs` runs under node; anything else is
+ *  a native binary we exec directly. Guards against a misconfigured path
+ *  turning into `node <bogus>` (which surfaces as a cryptic MODULE_NOT_FOUND). */
+function fromExplicitPath(p: string): ResolvedBin {
+  if (/\.(c|m)?js$/i.test(p)) return { command: process.execPath, prefixArgs: [p] };
+  return { command: p, prefixArgs: [] };
+}
+
 function resolveBeamdBin(): ResolvedBin {
-  if (binOverride) return { command: binOverride, prefixArgs: [] };
   const envBin = process.env.FLOW_BEAMD_BIN?.trim();
-  if (envBin) return { command: envBin, prefixArgs: [] };
+  if (envBin) return fromExplicitPath(envBin);
+
+  // Prefer the native per-platform binary, resolved relative to @beamd/cli.
+  // Exec it directly — no `node`, no JS shim — which is both faster and
+  // avoids the whole "node was handed a bad entry script" failure class.
+  try {
+    const base = require.resolve('@beamd/cli/package.json');
+    const platformPkg = `@beamd/cli-${process.platform}-${process.arch}`;
+    const nativeBin = require.resolve(`${platformPkg}/bin/beamd`, { paths: [path.dirname(base)] });
+    return { command: nativeBin, prefixArgs: [] };
+  } catch {
+    // Fall through to the JS shim (run under node) if the native package
+    // isn't resolvable (unusual — e.g. a partial install).
+  }
   try {
     const shim = require.resolve('@beamd/cli/bin/beamd.cjs');
     return { command: process.execPath, prefixArgs: [shim] };
   } catch {
-    return { command: 'beamd', prefixArgs: [] };
+    return { command: 'beamd', prefixArgs: [] }; // last resort: PATH
   }
 }
 
@@ -67,14 +78,21 @@ interface RunResult {
 
 function run(args: string[], timeoutMs: number): Promise<RunResult> {
   const { command, prefixArgs } = resolveBeamdBin();
-  const fullArgs = [...prefixArgs, ...args, '--config', getBeamdConfigPath()];
+  const fullArgs = [...prefixArgs, ...args];
   return new Promise((resolve) => {
     execFile(command, fullArgs, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const exitCode = err && typeof (err as { code?: unknown }).code === 'number'
-        ? (err as { code: number }).code
-        : err ? null : 0;
-      if (err && (err as { code?: unknown }).code === 'ENOENT') {
-        resolve({ stdout: '', stderr: `beamd binary not found (${command})`, exitCode: null });
+      const errCode = (err as { code?: unknown } | null)?.code;
+      const exitCode = typeof errCode === 'number' ? errCode : err ? null : 0;
+      // The binary couldn't be launched at all (missing/not executable, or a
+      // misconfigured path node choked on). Normalize to a clean "not
+      // installed" signal instead of leaking a raw node stack to the client.
+      const launchFailed =
+        errCode === 'ENOENT' ||
+        (err && typeof (err as { message?: unknown }).message === 'string' &&
+          /cannot find module|not found|no such file|spawn/i.test((err as { message: string }).message));
+      if (launchFailed) {
+        console.error(`[beamd] launch failed for "${command}":`, (err as Error)?.message);
+        resolve({ stdout: '', stderr: `beamd binary could not be launched (${command})`, exitCode: null });
         return;
       }
       resolve({ stdout: stdout ?? '', stderr: stderr ?? '', exitCode });
@@ -87,15 +105,18 @@ function classifyError(res: RunResult): BeamdCliError {
   const text = `${res.stdout}\n${res.stderr}`.toLowerCase();
   let code = 'beamd_error';
   let message = (res.stderr || res.stdout || 'beamd command failed').trim();
-  if (text.includes('binary not found')) {
+  if (text.includes('could not be launched') || text.includes('binary not found') || text.includes('cannot find module')) {
     code = 'beamd_not_installed';
-    message = 'The beamd binary was not found. Install @beamd/cli or set FLOW_BEAMD_BIN.';
+    message = 'The beamd binary could not be launched. Reinstall @beamd/cli.';
+  } else if (text.includes('not logged in') || text.includes('no account') || text.includes('no profile') || text.includes('run `beamd login`') || text.includes('run beamd login')) {
+    code = 'beamd_not_connected';
+    message = 'This machine isn’t connected to beamd. Connect it to enable remote previews.';
   } else if (text.includes('agent not available') || text.includes('agent did not start')) {
     code = 'beamd_agent_down';
-    message = 'Could not reach the beamd edge (the tunnel agent failed to start). Check the server and token in preview settings.';
+    message = 'Could not reach the beamd edge (the tunnel agent failed to start). Check that this machine is connected to beamd.';
   } else if (text.includes('unauthorized') || text.includes('invalid token') || text.includes('forbidden') || text.includes('401') || text.includes('403')) {
     code = 'beamd_unauthorized';
-    message = 'beamd rejected the token. Re-enter the server and token in preview settings.';
+    message = 'beamd rejected the credentials. Reconnect this machine to beamd.';
   } else if (text.includes('max_tunnels') || text.includes('tunnel cap') || text.includes('too many tunnels')) {
     code = 'beamd_tunnel_cap';
     message = 'The beamd tunnel cap was hit. Close some previews and try again.';
@@ -187,24 +208,49 @@ export async function beamdCheck(timeoutMs = 12_000): Promise<BeamdCheckResult> 
   return result as BeamdCheckResult;
 }
 
-/**
- * Stop + respawn the background agent so a changed server/token takes effect
- * (a long-lived agent caches creds for its lifetime). Best-effort; call after
- * rewriting the config on a credential change. beamd 0.0.2+.
- */
-export async function beamdReload(timeoutMs = 10_000): Promise<void> {
-  const res = await run(['reload'], timeoutMs);
-  if (res.exitCode !== 0) throw classifyError(res);
-}
-
 export async function beamdStatus(timeoutMs = 8_000): Promise<BeamdStatusResult> {
   const res = await run(['status', '--json'], timeoutMs);
   // status prints a JSON object even when unhealthy (exit 0). Validate the
   // shape so a non-zero exit with partial/garbage JSON can't be mistaken for
-  // a healthy reading (the "Test connection" path is where users debug).
+  // a healthy reading.
   const result = parseJson<Partial<BeamdStatusResult>>(res);
   if (typeof result.healthy !== 'boolean' || typeof result.agentRunning !== 'boolean') {
     throw classifyError(res);
   }
   return result as BeamdStatusResult;
+}
+
+/**
+ * Connect this machine to a beamd edge — writes `~/.beamd/` via `beamd login`
+ * (the same store the human + agent use). `token` is the copy-paste flow
+ * (an API key or OSS token); omit it for the interactive device-code flow
+ * (not usable headlessly — Flow always passes a token).
+ */
+export async function beamdLogin(
+  opts: { server: string; token: string; insecure?: boolean },
+  timeoutMs = 15_000,
+): Promise<void> {
+  const args = ['login', '--server', opts.server, '--token', opts.token];
+  if (opts.insecure) args.push('--insecure');
+  const res = await run(args, timeoutMs);
+  if (res.exitCode !== 0) throw classifyError(res);
+}
+
+/** Disconnect this machine — drops the beamd account from `~/.beamd/`. */
+export async function beamdLogout(timeoutMs = 8_000): Promise<void> {
+  await run(['logout'], timeoutMs); // idempotent; ignore exit (nothing to drop is fine)
+}
+
+/**
+ * The edge this machine is connected to, or null if not connected. Cheap —
+ * `status` reads local state without authenticating. The basis for the
+ * "connected?" signal in settings + the BeamdProvider's readiness check.
+ */
+export async function beamdConnectedServer(): Promise<string | null> {
+  try {
+    const status = await beamdStatus();
+    return status.server?.trim() ? status.server : null;
+  } catch {
+    return null;
+  }
 }

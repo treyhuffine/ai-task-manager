@@ -1,13 +1,14 @@
 /**
- * End-to-end beamd verification (Phase 0 "confirm beamd").
+ * End-to-end beamd verification.
  *
  * Brings a real tunnel up against a live edge and proves the URL serves the
- * local app over HTTPS with a real cert, then tears it down. Uses an
- * isolated temp data dir so it never touches your real config.
+ * local app over HTTPS, then tears it down. Flow drives the machine's shared
+ * `~/.beamd/` account (no `--config`), so this logs into a throwaway HOME and
+ * uses it — never touching your real `~/.beamd`.
  *
  * Usage:
- *   BEAMD_SERVER=tunnel.example.com:443 \
- *   BEAMD_TOKEN=<token> \
+ *   BEAMD_SERVER=beamd.ai \
+ *   BEAMD_TOKEN=<workspace api key or oss token> \
  *   FLOW_BEAMD_BIN=/path/to/beamd \    # optional; else @beamd/cli / PATH
  *   pnpm tsx scripts/verify-beamd.ts
  */
@@ -25,24 +26,18 @@ async function main() {
     process.exit(2);
   }
 
-  // Isolate the data dir so we write a throwaway beamd.yaml.
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-beamd-verify-'));
-  process.env.FLOW_ROOT = root;
+  // Isolate ~/.beamd to a throwaway HOME so we don't touch the real account.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-beamd-verify-'));
+  process.env.HOME = home;
 
-  const { writeBeamdConfig, getBeamdConfigPath } = await import('@/lib/preview/beamd/config');
-  const { beamdStatus, beamdOpen, beamdClose, setBeamdBinOverride } = await import('@/lib/preview/beamd/cli');
+  const { beamdLogin, beamdStatus, beamdOpen, beamdClose, beamdConnectedServer } =
+    await import('@/lib/preview/beamd/cli');
   const { allocatePort, isPortListening } = await import('@/lib/preview/net');
 
-  if (process.env.FLOW_BEAMD_BIN) setBeamdBinOverride(process.env.FLOW_BEAMD_BIN);
-  writeBeamdConfig({ server, token });
-  console.log(`• wrote ${getBeamdConfigPath()}`);
+  await beamdLogin({ server, token });
+  console.log('• connected to', await beamdConnectedServer());
+  console.log('• status:', JSON.stringify(await beamdStatus()));
 
-  // 1) status — informational. `healthy` means "has a live session", so it's
-  // false until a tunnel is up; the real proof is open + fetch below.
-  const status = await beamdStatus();
-  console.log('• status:', JSON.stringify(status));
-
-  // 2) a tiny local app
   const port = await allocatePort();
   const marker = `flow-beamd-ok-${port}`;
   const app = http.createServer((_q, s) => s.end(marker));
@@ -53,12 +48,10 @@ async function main() {
   const name = `flow-verify-${port}`;
   let url: string | null = null;
   try {
-    // 3) open tunnel
     const opened = await beamdOpen(port, name);
     url = opened.url;
     console.log('• opened tunnel:', JSON.stringify(opened));
 
-    // 4) fetch the public URL (real cert)
     const res = await fetch(url, { redirect: 'follow' });
     const body = await res.text();
     const ok = res.ok && body.includes(marker);
@@ -74,7 +67,7 @@ async function main() {
       console.log('• closed tunnel:', JSON.stringify(closed));
     }
     app.close();
-    try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 }
 

@@ -152,40 +152,6 @@ describe('preview service (local flow)', () => {
     expect(getPreviewState(exec.id).manualUrls[0].url).toBe('https://abc.ngrok.app');
   });
 
-  it('§10 multi-service: injects the sibling API URL into the web service env', async () => {
-    // web echoes whatever API_URL it was started with; api is a plain server.
-    const webCmd =
-      'node -e "const u=process.env.API_URL||\'NONE\'; require(\'http\').createServer((q,s)=>s.end(\'API=\'+u)).listen(process.env.PORT)"';
-    const apiCmd = 'node -e "require(\'http\').createServer((q,s)=>s.end(\'api\')).listen(process.env.PORT)"';
-    const { exec } = makeExecution(null); // command comes from flow.preview.json, not the workspace
-    fs.writeFileSync(
-      path.join(workCwd, 'flow.preview.json'),
-      JSON.stringify({
-        services: [
-          { name: 'web', command: webCmd, primary: true, env: { API_URL: '{api}' } },
-          { name: 'api', command: apiCmd },
-        ],
-      }),
-    );
-
-    const state = await resolvePreview(exec.id, { remote: false });
-    expect(state.service).toBe('web');
-    expect(state.availableServices).toEqual(['web', 'api']);
-    expect(state.serverStatus).toBe('running');
-    expect(state.previewName).toBe('demo-app-web');
-
-    // The web server should have been handed the api's loopback URL.
-    const apiTarget = getPreviewTarget(exec.id, 'api')!;
-    const res = await fetch(state.localUrl!);
-    const body = await res.text();
-    expect(body).toBe(`API=http://localhost:${apiTarget.port}`);
-
-    // Stop tears down BOTH services (web shown + api sibling).
-    await stopPreview(exec.id);
-    expect(getPreviewState(exec.id).serverStatus).toBe('stopped');
-    expect(getSupervisor().isListening(apiTarget.id)).toBe(false);
-  }, 20_000);
-
   it('a pasted manual URL takes precedence for remote, reverting when cleared', async () => {
     const { exec } = makeExecution(PORT_SERVER);
     setPreviewUrls(exec.id, [{ service: null, url: 'https://abc.ngrok.app', label: null }]);

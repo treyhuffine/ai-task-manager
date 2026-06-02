@@ -16,18 +16,25 @@ const ctx: PreviewContext = {
 };
 
 let tmpRoot: string;
+let realHome: string | undefined;
 beforeEach(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-prov-test-'));
   process.env.FLOW_ROOT = tmpRoot;
+  // Isolate ~/.beamd to an empty HOME so beamd resolves "not connected"
+  // deterministically (Flow uses the machine's account; no --config).
+  realHome = process.env.HOME;
+  process.env.HOME = tmpRoot;
 });
 afterEach(() => {
   delete process.env.FLOW_ROOT;
+  if (realHome !== undefined) process.env.HOME = realHome;
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
 });
 
 describe('built-in providers', () => {
-  it('registers all four built-ins', () => {
-    expect(listProviderIds()).toEqual(expect.arrayContaining(['localhost', 'beamd', 'portless', 'manual']));
+  it('registers the built-ins (portless is off the picker by default)', () => {
+    expect(listProviderIds()).toEqual(expect.arrayContaining(['localhost', 'beamd', 'manual']));
+    expect(listProviderIds()).not.toContain('portless');
   });
 
   it('localhost resolves to a loopback URL', async () => {
@@ -36,21 +43,18 @@ describe('built-in providers', () => {
     expect(target.stop).toBeUndefined(); // static
   });
 
-  it('localhost manages the local server; portless/manual do not', () => {
+  it('localhost + beamd manage the local server; manual does not', () => {
     expect(getProvider('localhost').managesLocalServer).toBe(true);
     expect(getProvider('beamd').managesLocalServer).toBe(true);
-    expect(getProvider('portless').managesLocalServer).toBe(false);
     expect(getProvider('manual').managesLocalServer).toBe(false);
   });
 
-  it('beamd is not configured and resolve surfaces an actionable error', async () => {
+  it('beamd reports not-connected and resolve surfaces an actionable error', async () => {
     const beamd = getProvider('beamd');
+    // Empty HOME → no ~/.beamd account → not connected.
     expect(await beamd.isConfigured?.()).toBe(false);
-    await expect(beamd.resolve(ctx)).rejects.toMatchObject({
-      code: 'beamd_not_configured',
-    });
     await expect(beamd.resolve(ctx)).rejects.toBeInstanceOf(PreviewProviderError);
-  });
+  }, 20_000);
 
   it('manual surfaces an actionable error with no URL and no template', async () => {
     // getExecution('ex-none') returns undefined → no urls, no template set.

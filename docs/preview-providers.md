@@ -98,33 +98,6 @@ and won't resolve. `ctx.previewName` already follows this.
 - **Fail loud, fail useful.** Throw `PreviewProviderError` with a stable
   `code` and a human `message` (+ optional `hint`). The pane renders it.
 
-## Multi-service worktrees
-
-A worktree that runs more than one service (a web app + its API, say)
-declares them in **`flow.preview.json`** at the worktree root:
-
-```json
-{
-  "services": [
-    { "name": "web", "command": "pnpm dev:web", "primary": true,
-      "env": { "NEXT_PUBLIC_API_URL": "{api}" } },
-    { "name": "api", "command": "pnpm dev:api" }
-  ]
-}
-```
-
-- Each service gets its own preview: a stable port and the DNS name
-  `<worktree>-<service>` (e.g. `flow-a3f9-web`, `flow-a3f9-api`).
-- `env` injects **sibling** preview URLs into a service's child process:
-  `{api}` is replaced with the `api` service's resolved URL **for the
-  current reachability mode**. So a web app opened from a phone gets
-  `NEXT_PUBLIC_API_URL=https://flow-a3f9-api.<base>` (the API's public URL),
-  not `localhost` — the two services talk to each other off-machine.
-- `primary` is the service the preview pane shows by default (a tab strip
-  lets you switch). Defaults to the first service.
-- When `flow.preview.json` is absent, the worktree is single-service and
-  uses the workspace's default dev command (the common case).
-
 ## Registering
 
 Call `registerPreviewProvider(provider)` once at import time. To make Flow

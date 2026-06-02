@@ -34,14 +34,7 @@ import { allocatePort, isPortListening } from './net';
 import { previewName as buildPreviewName } from './preview-name';
 import { readPreviewSettings } from './settings';
 import { getProvider, tryGetProvider, listProviders, PreviewProviderError } from './providers';
-import { beamdClose, setBeamdBinOverride } from './beamd/cli';
-import { beamdConfigExists } from './beamd/config';
-import {
-  readWorktreeServices,
-  primaryService,
-  injectSiblingEnv,
-  type WorktreeServiceConfig,
-} from './services-config';
+import { beamdClose } from './beamd/cli';
 
 export class PreviewServiceError extends Error {
   readonly code: string;
@@ -59,8 +52,6 @@ export class PreviewServiceError extends Error {
 export interface PreviewState {
   executionId: string;
   service: string | null;
-  /** Service names for a multi-service worktree (empty for single-service). */
-  availableServices: string[];
   previewName: string;
   /** The stable port we assign + inject as PORT. */
   assignedPort: number | null;
@@ -116,18 +107,13 @@ function loadContext(executionId: string): WorktreeContext {
 async function getOrCreateTarget(
   ctx: WorktreeContext,
   service: string | null,
-  opts: { startCommand?: string | null } = {},
 ): Promise<PreviewTargetRecord> {
   let target = getPreviewTarget(ctx.execution.id, service);
   if (target) {
-    const patch: Record<string, unknown> = {};
     // Backfill a port for legacy/partial rows.
-    if (target.port == null) patch.port = await allocatePort();
-    // Keep the per-service command in sync with the worktree config.
-    if (opts.startCommand !== undefined && opts.startCommand !== target.startCommand) {
-      patch.startCommand = opts.startCommand;
+    if (target.port == null) {
+      target = updatePreviewTarget(target.id, { port: await allocatePort() }) ?? target;
     }
-    if (Object.keys(patch).length > 0) target = updatePreviewTarget(target.id, patch) ?? target;
   } else {
     const port = await allocatePort();
     try {
@@ -136,8 +122,8 @@ async function getOrCreateTarget(
         service,
         previewName: buildPreviewName(ctx.worktreeName, service),
         port,
-        // null → fall back to workspace.previewCommand at start time (single-service).
-        startCommand: opts.startCommand ?? null,
+        // null → fall back to workspace.previewCommand at start time.
+        startCommand: null,
         pinned: false,
       });
     } catch (err) {
@@ -147,9 +133,6 @@ async function getOrCreateTarget(
       if (!isUniqueConstraintError(err)) throw err;
       target = getPreviewTarget(ctx.execution.id, service);
       if (!target) throw err;
-      if (opts.startCommand !== undefined && opts.startCommand !== target.startCommand) {
-        target = updatePreviewTarget(target.id, { startCommand: opts.startCommand }) ?? target;
-      }
     }
   }
   return ensureFreeStablePort(target);
@@ -198,7 +181,6 @@ function resolveStartCommand(target: PreviewTargetRecord, ws: WorkspaceRecord): 
 async function ensureServerListening(
   ctx: WorktreeContext,
   target: PreviewTargetRecord,
-  extraEnv?: Record<string, string>,
 ): Promise<PreviewProcessRecord> {
   const sup = getSupervisor();
   const current = sup.status(target.id);
@@ -222,7 +204,7 @@ async function ensureServerListening(
     throw new PreviewServiceError('no_port', 'No port assigned for this preview.', 500);
   }
 
-  await sup.start({ key: target.id, command, cwd: ctx.cwd, port: target.port, env: extraEnv });
+  await sup.start({ key: target.id, command, cwd: ctx.cwd, port: target.port });
   const settled = await sup.awaitListening(target.id);
   return settled ?? sup.status(target.id)!;
 }
@@ -238,12 +220,7 @@ function activeRemoteProvider() {
 /** Cheap snapshot — no bring-up, no side effects beyond reading. */
 export function getPreviewState(executionId: string, service: string | null = null): PreviewState {
   const ctx = loadContext(executionId);
-  // For a multi-service worktree, a null request resolves to the primary.
-  const services = readWorktreeServices(ctx.cwd);
-  const availableServices = services?.map((s) => s.name) ?? [];
-  const effectiveService = service ?? (services ? primaryService(services).name : null);
-
-  const target = getPreviewTarget(executionId, effectiveService) ?? null;
+  const target = getPreviewTarget(executionId, service) ?? null;
   const remote = activeRemoteProvider();
   const sup = getSupervisor();
   const rec = target ? sup.status(target.id) : null;
@@ -260,9 +237,8 @@ export function getPreviewState(executionId: string, service: string | null = nu
   const port = rec?.port ?? null;
   return {
     executionId,
-    service: effectiveService,
-    availableServices,
-    previewName: target?.previewName ?? buildPreviewName(ctx.worktreeName, effectiveService),
+    service,
+    previewName: target?.previewName ?? buildPreviewName(ctx.worktreeName, service),
     assignedPort: target?.port ?? null,
     serverStatus,
     port,
@@ -292,13 +268,6 @@ export async function resolvePreview(
 ): Promise<PreviewState> {
   const remote = opts.remote ?? false;
   const ctx = loadContext(executionId);
-
-  // Multi-service worktree (§10): resolve all services, inject sibling URLs,
-  // and return the requested (or primary) service's state.
-  const services = readWorktreeServices(ctx.cwd);
-  if (services) {
-    return resolveMultiService(ctx, services, opts.service ?? null, remote);
-  }
 
   const service = opts.service ?? null;
   const target = await getOrCreateTarget(ctx, service);
@@ -350,9 +319,6 @@ export async function resolvePreview(
     previewName: target.previewName,
   };
 
-  // For beamd, honor a configured binary path before we shell out.
-  if (provider!.id === 'beamd') setBeamdBinOverride(readPreviewSettings().beamdBinPath);
-
   try {
     const resolved = await provider!.resolve(providerCtx);
     const url = resolved.url;
@@ -376,107 +342,6 @@ export async function resolvePreview(
   }
 }
 
-/**
- * Multi-service resolve (§10). Resolves every service's URL for the current
- * mode first, then starts each child with its sibling URLs injected as env —
- * so a web app opened from a phone talks to the API's public URL, not
- * `localhost`. Returns the requested (or primary) service's state.
- */
-async function resolveMultiService(
-  ctx: WorktreeContext,
-  services: WorktreeServiceConfig[],
-  requestedName: string | null,
-  remote: boolean,
-): Promise<PreviewState> {
-  const remoteInfo = activeRemoteProvider();
-  const requested = requestedName
-    ? (services.find((s) => s.name === requestedName) ?? primaryService(services))
-    : primaryService(services);
-  const canServe = !remote || !!remoteInfo.provider;
-
-  // 1. Ensure a target per service (stable port + DNS name + command).
-  //    Sequential — each does a quick `allocatePort`, and running them in
-  //    parallel risks two services grabbing the same `:0` port.
-  const targets = new Map<string, PreviewTargetRecord>();
-  for (const svc of services) {
-    targets.set(svc.name, await getOrCreateTarget(ctx, svc.name, { startCommand: svc.command }));
-  }
-  touchPreviewTarget(targets.get(requested.name)!.id);
-
-  // 2. Resolve each service's URL for this mode (in parallel). Local uses the
-  //    assigned port directly; remote opens the tunnel (verified to tolerate a
-  //    not-yet-live port). Collected for sibling injection + the response.
-  const urls = new Map<string, string>();
-  const errors = new Map<string, { code: string; message: string; hint?: string }>();
-  if (remote && remoteInfo.id === 'beamd') setBeamdBinOverride(readPreviewSettings().beamdBinPath);
-  await Promise.all(services.map(async (svc) => {
-    const t = targets.get(svc.name)!;
-    if (!remote) {
-      urls.set(svc.name, `http://localhost:${t.port}`);
-      return;
-    }
-    if (!remoteInfo.provider) {
-      errors.set(svc.name, {
-        code: 'no_remote_provider',
-        message: 'No remote provider is configured.',
-        hint: 'Choose a remote provider (e.g. Beam) in preview settings.',
-      });
-      return;
-    }
-    try {
-      const resolved = await remoteInfo.provider.resolve({
-        worktreeName: ctx.worktreeName,
-        service: svc.name,
-        port: t.port ?? 0,
-        workspaceId: ctx.workspace.id,
-        executionId: ctx.execution.id,
-        previewName: t.previewName,
-      });
-      urls.set(svc.name, resolved.url);
-    } catch (err) {
-      if (err instanceof PreviewProviderError) {
-        errors.set(svc.name, { code: err.code, message: err.message, hint: err.hint });
-      } else {
-        throw err;
-      }
-    }
-  }));
-
-  // 3. Start each service with its sibling URLs injected as env, then confirm
-  //    it's listening — in parallel, so total latency is the slowest single
-  //    service, not the sum. Skipped entirely when there's no way to reach a
-  //    remote viewer (no provider). A sibling that fails to start is recorded
-  //    as null rather than killing the requested service's view.
-  const records = new Map<string, PreviewProcessRecord | null>();
-  if (canServe) {
-    await Promise.all(services.map(async (svc) => {
-      const t = targets.get(svc.name)!;
-      try {
-        records.set(svc.name, await ensureServerListening(ctx, t, injectSiblingEnv(svc.env, urls)));
-      } catch (err) {
-        if (err instanceof PreviewServiceError && svc.name !== requested.name) {
-          records.set(svc.name, null);
-        } else {
-          throw err;
-        }
-      }
-    }));
-  }
-
-  // 4. Build the requested service's state.
-  const t = targets.get(requested.name)!;
-  const rec = records.get(requested.name) ?? null;
-  return {
-    ...snapshotFromRecord(
-      ctx, t, rec, remoteInfo,
-      remote ? (urls.get(requested.name) ?? null) : null,
-      remote ? (errors.get(requested.name) ?? null) : null,
-    ),
-    service: requested.name,
-    availableServices: services.map((s) => s.name),
-  };
-}
-
 function snapshotFromRecord(
   ctx: WorktreeContext,
   target: PreviewTargetRecord,
@@ -494,7 +359,6 @@ function snapshotFromRecord(
   return {
     executionId: ctx.execution.id,
     service: target.service,
-    availableServices: [],
     previewName: target.previewName,
     assignedPort: target.port,
     serverStatus,
@@ -528,15 +392,13 @@ export async function stopPreview(executionId: string, service: string | null = 
 }
 
 /**
- * Close a dynamic remote tunnel by name (beamd). Best-effort + idempotent.
- * Attempts the close whenever beamd is configured — not just when it's the
- * *active* provider — so a tunnel opened under beamd is still torn down if
- * the user switched the active provider away before hitting Stop (L6).
+ * Close a dynamic remote tunnel by name (beamd). Best-effort + idempotent —
+ * `beamd close` is a no-op if the machine isn't connected or the tunnel
+ * doesn't exist, so we always just try (covers the case where the user
+ * switched the active provider away before hitting Stop).
  */
 async function closeRemoteTunnel(previewName: string): Promise<void> {
-  if (!beamdConfigExists()) return;
   try {
-    setBeamdBinOverride(readPreviewSettings().beamdBinPath);
     await beamdClose(previewName);
   } catch {
     // Idempotent — a dangling tunnel self-expires.

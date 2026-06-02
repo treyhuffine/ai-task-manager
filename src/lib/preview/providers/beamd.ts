@@ -15,27 +15,15 @@
 
 import type { PreviewProvider } from './types';
 import { PreviewProviderError } from './types';
-import { beamdOpen, beamdClose, beamdList, BeamdCliError, setBeamdBinOverride } from '../beamd/cli';
-import { beamdConfigExists } from '../beamd/config';
-import { readPreviewSettings } from '../settings';
+import { beamdOpen, beamdClose, beamdList, beamdConnectedServer, BeamdCliError } from '../beamd/cli';
 
 export const beamdProvider: PreviewProvider = {
   id: 'beamd',
-  label: 'Beam (self-hosted tunnel)',
+  label: 'Beamd',
   kind: 'dynamic',
   managesLocalServer: true,
 
   async resolve(ctx) {
-    if (!beamdConfigExists()) {
-      throw new PreviewProviderError(
-        'beamd_not_configured',
-        'Beam is selected but not configured.',
-        'Add your beamd server and token in preview settings.',
-      );
-    }
-    // Honor a configured binary path (local/unpublished builds).
-    setBeamdBinOverride(readPreviewSettings().beamdBinPath);
-
     const name = ctx.previewName;
     try {
       // Reuse a live tunnel if one already exists for this name (idempotent
@@ -48,14 +36,18 @@ export const beamdProvider: PreviewProvider = {
       return { url: opened.url, stop: () => closeQuietly(name) };
     } catch (err) {
       if (err instanceof BeamdCliError) {
-        throw new PreviewProviderError(err.code, err.message);
+        // Not-connected is the common first-run case — surface the connect CTA.
+        const code = err.code === 'beamd_not_connected' || err.code === 'beamd_unauthorized'
+          ? 'beamd_not_configured'
+          : err.code;
+        throw new PreviewProviderError(code, err.message);
       }
       throw err;
     }
   },
 
-  isConfigured() {
-    return beamdConfigExists();
+  async isConfigured() {
+    return (await beamdConnectedServer()) !== null;
   },
 };
 

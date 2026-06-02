@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Settings as SettingsIcon, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { AlertCircle, Globe, Loader2 } from 'lucide-react';
+import { openRemotePreviewSettings } from '@/components/dashboard/devices-sheet';
 import { useWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import {
   usePreviewState,
@@ -53,13 +53,9 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   // browser is, not on render state).
   const mode = useMemo(() => pickReachability(), []);
 
-  // Which service the pane is showing (null → the worktree's primary).
-  const [selectedService, setSelectedService] = useState<string | null>(null);
-
   const [pollFastUntil, setPollFastUntil] = useState(0);
   const fastWindow = Date.now() < pollFastUntil;
   const stateQuery = usePreviewState(executionId, {
-    service: selectedService,
     enabled: !!executionId && active,
     refetchInterval: !active ? false : fastWindow ? 1_500 : 4_000,
   });
@@ -73,15 +69,12 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   // polled status — the cheap status endpoint never brings a tunnel up.
   const [remoteResolved, setRemoteResolved] = useState<{ url: string | null; error: PreviewRemoteError | null } | null>(null);
 
-  // Reset remote resolution + service when switching executions; reset just
-  // the remote resolution when switching services within a worktree.
-  useEffect(() => { setRemoteResolved(null); setSelectedService(null); }, [executionId]);
-  useEffect(() => { setRemoteResolved(null); }, [selectedService]);
+  // Reset remote resolution when switching executions.
+  useEffect(() => { setRemoteResolved(null); }, [executionId]);
 
   const wantLogs =
     !!executionId && active && (state?.serverStatus === 'starting' || state?.serverStatus === 'running');
   const { lines: logLines } = usePreviewLogs(executionId, {
-    service: selectedService,
     enabled: wantLogs,
     pollMs: 1_500,
   });
@@ -112,7 +105,7 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
     setLogsManuallyToggled(null);
     setIframeKey((k) => k + 1);
     startMut.mutate(
-      { remote: mode === 'remote', service: selectedService },
+      { remote: mode === 'remote' },
       {
         onSuccess: (data) => {
           if (mode === 'remote') setRemoteResolved({ url: data.remoteUrl, error: data.remoteError });
@@ -134,27 +127,24 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
 
   // Lazy start on first view (§11): when the preview tab becomes visible and
   // the server is down, cold-start it (server + tunnel for remote). Fires
-  // once per execution+service view — the ref guard means a manual Stop
-  // won't immediately bounce back, while reopening a (cold/idle-evicted)
-  // preview spins it up. Pairs with the idle-evict sweep.
+  // once per execution view — the ref guard means a manual Stop won't
+  // immediately bounce back, while reopening a (cold/idle-evicted) preview
+  // spins it up. Pairs with the idle-evict sweep.
   const autoStartedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!active || !executionId || !state) return;
-    const viewKey = `${executionId}:${selectedService ?? ''}`;
-    if (autoStartedRef.current === viewKey) return;
+    if (autoStartedRef.current === executionId) return;
     const startable = state.serverStatus === 'idle' || state.serverStatus === 'stopped';
-    const hasCommand = !!command || state.availableServices.length > 0;
-    if (startable && hasCommand && !startMut.isPending) {
-      autoStartedRef.current = viewKey;
+    if (startable && !!command && !startMut.isPending) {
+      autoStartedRef.current = executionId;
       handleStart();
     } else if (!startable) {
       // Already running/starting/crashed — mark engaged so we don't auto-start later.
-      autoStartedRef.current = viewKey;
+      autoStartedRef.current = executionId;
     }
-    // handleStart is a stable-enough closure over current mode/service; the
-    // ref guard prevents re-fires. Intentionally minimal deps.
+    // handleStart is a stable-enough closure; the ref guard prevents re-fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, executionId, selectedService, state?.serverStatus, command]);
+  }, [active, executionId, state?.serverStatus, command]);
 
   const isRunning = state?.serverStatus === 'running';
   const isStarting = state?.serverStatus === 'starting' || startMut.isPending;
@@ -196,14 +186,6 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
         onRefresh={handleRefresh}
         onToggleLogs={() => setLogsManuallyToggled((v) => !(v ?? logsAutoOpen))}
       />
-
-      {state && state.availableServices.length > 1 && (
-        <ServiceSwitcher
-          services={state.availableServices}
-          selected={state.service}
-          onSelect={setSelectedService}
-        />
-      )}
 
       <div className="relative flex-1 overflow-hidden">
         {resolved.url ? (
@@ -296,11 +278,11 @@ function PreviewBody(props: PreviewBodyProps) {
           {remoteError!.code === 'beamd_not_configured' || remoteError!.code === 'no_remote_provider' ? (
             <button
               type="button"
-              onClick={props.onOpenWorkspaceSettings}
-              className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] font-medium text-foreground hover:bg-muted"
+              onClick={openRemotePreviewSettings}
+              className="flex items-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:bg-foreground/90"
             >
-              <SettingsIcon size={13} />
-              Open preview settings
+              <Globe size={13} />
+              Connect Beamd
             </button>
           ) : null}
           <PreviewManualUrlInput urls={state?.manualUrls ?? []} onSave={props.onSaveUrls} isSaving={props.isSavingUrls} />
@@ -330,35 +312,6 @@ function PreviewBody(props: PreviewBodyProps) {
         ) : undefined
       }
     />
-  );
-}
-
-/** Tab strip for a multi-service worktree — pick which service to view. */
-function ServiceSwitcher({
-  services, selected, onSelect,
-}: {
-  services: string[];
-  selected: string | null;
-  onSelect: (service: string) => void;
-}) {
-  return (
-    <div className="flex h-7 shrink-0 items-center gap-0.5 border-b border-border bg-background px-1.5">
-      {services.map((svc) => (
-        <button
-          key={svc}
-          type="button"
-          onClick={() => onSelect(svc)}
-          className={cn(
-            'flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors',
-            selected === svc
-              ? 'bg-muted text-foreground'
-              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-          )}
-        >
-          {svc}
-        </button>
-      ))}
-    </div>
   );
 }
 
