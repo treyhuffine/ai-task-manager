@@ -359,8 +359,16 @@ export const sessionsApi = {
     return api.post<{ ok: true }>(`/sessions/${id}/pending-input/${requestId}`, body);
   },
 
-  events(id: string): Promise<ChatEventRecord[]> {
-    return api.get<ChatEventRecord[]>(`/sessions/${id}/events`);
+  events(
+    id: string,
+    opts?: { limit?: number; before?: string },
+  ): Promise<ChatEventRecord[]> {
+    // `before` (an event id) requests the page of events strictly older
+    // than that anchor — the transcript's scroll-up pager. Omitting it
+    // returns the most-recent `limit` events.
+    return api.get<ChatEventRecord[]>(`/sessions/${id}/events`, {
+      query: { limit: opts?.limit, before: opts?.before },
+    });
   },
 
   status(id: string): Promise<WorktreeStatus | null> {

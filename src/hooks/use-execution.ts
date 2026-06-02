@@ -9,8 +9,22 @@ import {
 } from '@/lib/api/sessions';
 import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
+import { CHAT_PAGE_SIZE } from '@/constants/chat';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
+
+/**
+ * Canonical transcript ordering: `(createdAt ASC, id ASC)` — the same
+ * order `listChatEvents` returns and `useSessionStream` inserts under.
+ * Shared by the snapshot merge and the scroll-up prepend so every writer
+ * keeps the cached list sorted identically.
+ */
+function byCreatedThenId(a: ChatEventRecord, b: ChatEventRecord): number {
+  if (a.createdAt !== b.createdAt) {
+    return a.createdAt < b.createdAt ? -1 : 1;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
 
 export function useSession(id: string | null) {
   return useQuery({
@@ -26,30 +40,108 @@ export function useSessionEvents(id: string | null) {
   return useQuery({
     queryKey,
     queryFn: async () => {
-      const fresh = await sessionsApi.events(id!);
-      // Merge with any events `useSessionStream` already pushed into
-      // the cache before this snapshot resolved. Without this, the
-      // mount-time race (stream delivers an event between snapshot
-      // SELECT and snapshot arrival) silently drops that event from
-      // the cache until the next refetch. Same merge handles
-      // focus-refetch overlap.
+      // Snapshot fetches only the most-recent page; older history is
+      // paged in lazily by `useLoadOlderEvents` as the user scrolls up.
+      const fresh = await sessionsApi.events(id!, { limit: CHAT_PAGE_SIZE });
+      // Merge with anything already in the cache the fresh tail doesn't
+      // contain: (a) events `useSessionStream` pushed before this
+      // snapshot resolved — the mount-time race that would otherwise
+      // drop a row until the next refetch; (b) older pages a previous
+      // scroll-up already loaded — re-fetching the tail must not discard
+      // them. Same merge also covers focus-refetch overlap.
       const cached = qc.getQueryData<ChatEventRecord[]>(queryKey);
       if (!cached?.length) return fresh;
       const seen = new Set(fresh.map((e) => e.id));
       const extra = cached.filter((e) => !seen.has(e.id));
       if (extra.length === 0) return fresh;
-      return [...fresh, ...extra].sort((a, b) => {
-        if (a.createdAt !== b.createdAt) {
-          return a.createdAt < b.createdAt ? -1 : 1;
-        }
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-      });
+      return [...fresh, ...extra].sort(byCreatedThenId);
     },
     enabled: !!id,
     // No polling — `useSessionStream` pushes new rows into this same
     // cache as they're written. Snapshot still fires on mount + window
     // focus as a fallback if the stream is unavailable.
   });
+}
+
+/** Sentinel tracking whether the start of history has been reached. */
+interface ChatPaginationMeta {
+  exhausted: boolean;
+}
+
+/**
+ * Backward (scroll-up) pagination for the transcript. Pages older
+ * `chat_events` into the SAME `['session', id, 'events']` cache that
+ * `useSessionEvents` / `useSessionStream` / optimistic sends write to —
+ * the transcript stays a single flat, sorted list, so no consumer needs
+ * to know paging exists.
+ *
+ * `hasOlder` gates the scroll-up trigger: false once we've paged to the
+ * start (`exhausted`) or whenever the whole history already fits in the
+ * first page (raw count < one page → nothing older can exist). Counts
+ * the RAW events (not the filtered/rendered subset) because filtering
+ * drops result/init rows and would undercount against the page size.
+ *
+ * Returns the number of rows actually prepended so the caller can anchor
+ * scroll position (and skip the no-op when a page came back empty). The
+ * pagination meta query is co-observed with the events query by the same
+ * component, so the two GC in tandem — `exhausted` can't go stale across
+ * a remount.
+ */
+export function useLoadOlderEvents(
+  sessionId: string | null,
+  rawEvents: ChatEventRecord[] | undefined,
+) {
+  const qc = useQueryClient();
+  const eventsKey = useMemo(() => ['session', sessionId, 'events'] as const, [sessionId]);
+  const metaKey = useMemo(() => ['session', sessionId, 'events-pagination'] as const, [sessionId]);
+
+  const { data: meta } = useQuery({
+    queryKey: metaKey,
+    queryFn: () =>
+      qc.getQueryData<ChatPaginationMeta>(metaKey) ?? { exhausted: false },
+    enabled: !!sessionId,
+    initialData: () =>
+      qc.getQueryData<ChatPaginationMeta>(metaKey) ?? { exhausted: false },
+    // Only mutated via `setQueryData` below — never auto-refetched.
+    staleTime: Infinity,
+  });
+
+  const mutation = useMutation<number, Error, void>({
+    mutationFn: async () => {
+      if (!sessionId) return 0;
+      // Read the live cache (not `rawEvents`) so the cursor is the true
+      // current oldest even if a concurrent SSE/optimistic write landed.
+      const list = qc.getQueryData<ChatEventRecord[]>(eventsKey) ?? [];
+      const oldest = list[0];
+      if (!oldest) return 0;
+      const older = await sessionsApi.events(sessionId, {
+        before: oldest.id,
+        limit: CHAT_PAGE_SIZE,
+      });
+      // A short page means we've hit the start of history.
+      qc.setQueryData<ChatPaginationMeta>(metaKey, {
+        exhausted: older.length < CHAT_PAGE_SIZE,
+      });
+      if (older.length === 0) return 0;
+      let added = 0;
+      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+        const cur = prev ?? [];
+        const seen = new Set(cur.map((e) => e.id));
+        const incoming = older.filter((e) => !seen.has(e.id));
+        added = incoming.length;
+        if (incoming.length === 0) return cur;
+        return [...incoming, ...cur].sort(byCreatedThenId);
+      });
+      return added;
+    },
+  });
+
+  const rawCount = rawEvents?.length ?? 0;
+  const hasOlder = !(meta?.exhausted ?? false) && rawCount >= CHAT_PAGE_SIZE;
+
+  const loadOlder = mutation.mutateAsync;
+
+  return { loadOlder, isLoadingOlder: mutation.isPending, hasOlder };
 }
 
 export function useSessionStatus(id: string | null) {

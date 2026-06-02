@@ -7,7 +7,8 @@ import { useStickToBottomContext } from 'use-stick-to-bottom';
 // transcript is a client component but still renders once on the server,
 // where useLayoutEffect would warn.
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
-import { useSessionEvents, useClientEventStatus } from '@/hooks/use-execution';
+import { Loader2 } from 'lucide-react';
+import { useSessionEvents, useClientEventStatus, useLoadOlderEvents } from '@/hooks/use-execution';
 import { hot } from '@/lib/_debug/hot-path';
 import {
   Conversation,
@@ -55,9 +56,15 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   hot('render ExecutionTranscript');
   const { data: rawEvents, isLoading } = useSessionEvents(session.id);
   const clientStatus = useClientEventStatus(session.id);
+  const { loadOlder, isLoadingOlder, hasOlder } = useLoadOlderEvents(session.id, rawEvents);
 
   const events = useMemo(() => filterRenderable(rawEvents ?? []), [rawEvents]);
   const hasEvents = events.length > 0;
+
+  // Cursor for scroll-up paging + the layout-effect key that fires the
+  // re-anchor: the RAW oldest event (unfiltered — that's what the pager
+  // sends as `before` and what changes when an older page lands).
+  const oldestEventId = rawEvents && rawEvents.length > 0 ? rawEvents[0].id : null;
 
   // Latest user-event id — when this changes, the user just hit send
   // and the view should snap to the bottom regardless of where they
@@ -83,6 +90,13 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
     <Conversation className="flex-1 min-h-0" initial="instant">
       <ConversationContent className="gap-3 px-5 pt-4 pb-8 max-w-3xl mx-auto">
         <InitialScrollSnap sessionId={session.id} ready={!isLoading} />
+        <ScrollUpPager
+          ready={!isLoading}
+          hasOlder={hasOlder}
+          isLoadingOlder={isLoadingOlder}
+          loadOlder={loadOlder}
+          oldestEventId={oldestEventId}
+        />
         <SetupCard session={session} workspace={workspace} />
 
         {isLoading && !hasEvents && (
@@ -113,6 +127,14 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
         {isRunning && <ThinkingState since={thinkingSince} />}
         <ScrollOnSend trigger={latestUserEventId} />
       </ConversationContent>
+      {isLoadingOlder && (
+        <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+          <span className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+            <Loader2 className="size-3 animate-spin" />
+            Loading earlier messages…
+          </span>
+        </div>
+      )}
       <ConversationScrollButton />
     </Conversation>
   );
@@ -147,6 +169,80 @@ function InitialScrollSnap({ sessionId, ready }: { sessionId: string; ready: boo
     snappedFor.current = sessionId;
     el.scrollTop = el.scrollHeight;
   }, [sessionId, ready, scrollRef]);
+  return null;
+}
+
+/** Start a fetch of the previous page once the user scrolls within this
+ *  many pixels of the top — preload before they hit the very top so the
+ *  older messages are usually already there. */
+const SCROLL_UP_THRESHOLD_PX = 400;
+
+/**
+ * Infinite scroll-up. The transcript snapshot only loads the most recent
+ * page (`CHAT_PAGE_SIZE`); this watches the scroll position and pages
+ * older history in as the user nears the top, prepending it to the same
+ * events cache.
+ *
+ * The hard part is keeping the viewport still while content grows ABOVE
+ * it. `use-stick-to-bottom` only ever sticks to the *bottom* — on a
+ * positive resize while scrolled up it calls a `scrollToBottom` that
+ * immediately bails (we're not at the bottom), so it neither helps nor
+ * fights us. We capture `scrollHeight/scrollTop` at trigger time and, in
+ * a layout effect that runs the moment the older page commits (keyed on
+ * the oldest event id), set `scrollTop = newHeight - prevHeight + prevTop`
+ * — re-anchoring the exact message the user was reading. The layout
+ * effect runs before the library's ResizeObserver fires, and our
+ * programmatic scroll lands inside its resize window so it's correctly
+ * ignored (no `isAtBottom` flip). Renders nothing.
+ */
+function ScrollUpPager({
+  ready,
+  hasOlder,
+  isLoadingOlder,
+  loadOlder,
+  oldestEventId,
+}: {
+  ready: boolean;
+  hasOlder: boolean;
+  isLoadingOlder: boolean;
+  loadOlder: () => Promise<number>;
+  oldestEventId: string | null;
+}) {
+  const { scrollRef } = useStickToBottomContext();
+  // Scroll metrics captured at trigger time; consumed by the layout
+  // effect once the older page renders. Non-null = a load is in flight
+  // and its prepend hasn't been anchored yet.
+  const pending = useRef<{ prevHeight: number; prevTop: number } | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (!ready || !hasOlder || isLoadingOlder || pending.current) return;
+      if (el.scrollTop > SCROLL_UP_THRESHOLD_PX) return;
+      pending.current = { prevHeight: el.scrollHeight, prevTop: el.scrollTop };
+      loadOlder()
+        .then((added) => {
+          // Empty page → no commit will change `oldestEventId`, so the
+          // anchor effect won't run to clear this. Release it here.
+          if (!added) pending.current = null;
+        })
+        .catch(() => {
+          pending.current = null;
+        });
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [scrollRef, ready, hasOlder, isLoadingOlder, loadOlder]);
+
+  useIsoLayoutEffect(() => {
+    const el = scrollRef.current;
+    const p = pending.current;
+    if (!el || !p) return;
+    el.scrollTop = el.scrollHeight - p.prevHeight + p.prevTop;
+    pending.current = null;
+  }, [oldestEventId, scrollRef]);
+
   return null;
 }
 

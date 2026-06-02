@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { listChatEvents } from '@/lib/db/queries';
+import { CHAT_PAGE_SIZE } from '@/constants/chat';
 
 /**
  * Returns chat_events rows. Attachments live on each row natively as
@@ -14,9 +15,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const limit = Number(request.nextUrl.searchParams.get('limit') ?? '10000');
+    const limit = Number(request.nextUrl.searchParams.get('limit') ?? String(CHAT_PAGE_SIZE));
     const offset = Number(request.nextUrl.searchParams.get('offset') ?? '0');
-    const rows = listChatEvents(id, { limit, offset });
+    // Backward-paging cursor: when present, return the page of events
+    // strictly older than this id (drives transcript scroll-up).
+    const before = request.nextUrl.searchParams.get('before') ?? undefined;
+    const rows = listChatEvents(id, { limit, offset, before });
     return Response.json(rows);
   } catch (err) {
     console.error('[GET /api/sessions/:id/events]', err);

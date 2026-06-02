@@ -9,7 +9,7 @@ import {
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
   schedules, runs, previewTargets,
 } from '@/lib/db/schema';
-import { eq, and, desc, asc, sql, gt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
@@ -34,6 +34,7 @@ import type {
   RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, ScheduleWithLastRun,
 } from '@/db/types';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
+import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
@@ -1755,15 +1756,55 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
 /**
  * Returns chat events in chronological order. When a session has more
  * events than `limit`, the OLDEST get cut off, not the newest — older
- * history can be re-fetched on demand later via paging, but losing
- * the latest content makes the chat look broken (the transcript on
- * disk and chat_events stay in sync; only the GET response is
- * truncated). The internal fetch goes DESC + limit to grab the tail,
- * then reverses the page so the wire shape stays ASC for callers.
+ * history is re-fetched on demand via the `before` cursor as the user
+ * scrolls up, but losing the latest content makes the chat look broken
+ * (the transcript on disk and chat_events stay in sync; only the GET
+ * response is truncated). The internal fetch goes DESC + limit to grab
+ * the tail, then reverses the page so the wire shape stays ASC for
+ * callers.
+ *
+ * Backward paging (`before` = an event id): returns the page of events
+ * strictly OLDER than that anchor, again ASC. The cursor is the
+ * composite `(createdAt, id)` of the anchor row so it stays stable when
+ * fresh events land at the tail mid-scroll — offset paging would shift
+ * its window under live appends and produce gaps/dupes. A short page
+ * (fewer than `limit` rows) tells the client it has reached the start.
  */
-export function listChatEvents(sessionId: string, opts: { limit?: number; offset?: number } = {}): ChatEventRecord[] {
+export function listChatEvents(
+  sessionId: string,
+  opts: { limit?: number; offset?: number; before?: string } = {},
+): ChatEventRecord[] {
   const db = getDb();
-  const limit = opts.limit ?? 10_000;
+  const limit = opts.limit ?? CHAT_PAGE_SIZE;
+
+  if (opts.before) {
+    const anchor = db
+      .select({ createdAt: chatEvents.createdAt, id: chatEvents.id })
+      .from(chatEvents)
+      .where(eq(chatEvents.id, opts.before))
+      .limit(1)
+      .get();
+    // Unknown cursor (e.g. an optimistic row that never persisted) — no
+    // older page to return rather than scanning the whole table.
+    if (!anchor) return [];
+    const older = db
+      .select()
+      .from(chatEvents)
+      .where(
+        and(
+          eq(chatEvents.sessionId, sessionId),
+          or(
+            lt(chatEvents.createdAt, anchor.createdAt),
+            and(eq(chatEvents.createdAt, anchor.createdAt), lt(chatEvents.id, anchor.id)),
+          ),
+        ),
+      )
+      .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
+      .limit(limit)
+      .all();
+    return older.reverse().map((r) => hydrateRow(r));
+  }
+
   const offset = opts.offset ?? 0;
   const tail = db
     .select()
