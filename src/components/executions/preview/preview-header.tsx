@@ -19,6 +19,8 @@ interface PreviewHeaderProps {
   isStarted: boolean;
   /** Whether the logs strip is visible. */
   logsOpen: boolean;
+  /** "Open on another device" control — rendered when a preview is live. */
+  shareControl?: React.ReactNode;
   onStart: () => void;
   onStop: () => void;
   onRefresh: () => void;
@@ -33,6 +35,7 @@ export function PreviewHeader({
   isStarting,
   isStarted,
   logsOpen,
+  shareControl,
   onStart,
   onStop,
   onRefresh,
@@ -135,6 +138,8 @@ export function PreviewHeader({
       >
         <ExternalLink size={13} />
       </a>
+
+      {shareControl}
 
       <button
         type="button"

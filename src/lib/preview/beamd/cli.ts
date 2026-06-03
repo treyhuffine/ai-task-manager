@@ -15,9 +15,19 @@
 
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
 import path from 'node:path';
 
-const require = createRequire(import.meta.url);
+// `@beamd/cli` ships as a dependency of Flow, so the per-platform native binary
+// installs automatically — no global install, no npx. We locate it from a
+// *literal* specifier (`@beamd/cli/package.json`, externalized via
+// serverExternalPackages so the bundler leaves it alone) and then find the
+// binary beside it with `fs`. We deliberately do NOT do a dynamic
+// `require.resolve('@beamd/cli-<os>-<arch>')`: bundlers (webpack + Turbopack)
+// statically analyze require/resolve specifiers and fail to resolve the
+// optional platform package at build time, even though Node resolves it fine
+// at runtime. fs-by-path sidesteps that entirely.
+const nodeRequire = createRequire(import.meta.url);
 
 interface ResolvedBin {
   command: string;
@@ -33,28 +43,44 @@ function fromExplicitPath(p: string): ResolvedBin {
   return { command: p, prefixArgs: [] };
 }
 
+function existsSyncSafe(p: string): boolean {
+  try {
+    return fs.existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
 function resolveBeamdBin(): ResolvedBin {
   const envBin = process.env.FLOW_BEAMD_BIN?.trim();
   if (envBin) return fromExplicitPath(envBin);
 
-  // Prefer the native per-platform binary, resolved relative to @beamd/cli.
-  // Exec it directly — no `node`, no JS shim — which is both faster and
-  // avoids the whole "node was handed a bad entry script" failure class.
+  let cliDir: string | null = null;
   try {
-    const base = require.resolve('@beamd/cli/package.json');
+    cliDir = path.dirname(nodeRequire.resolve('@beamd/cli/package.json'));
+  } catch {
+    cliDir = null;
+  }
+
+  if (cliDir) {
     const platformPkg = `@beamd/cli-${process.platform}-${process.arch}`;
-    const nativeBin = require.resolve(`${platformPkg}/bin/beamd`, { paths: [path.dirname(base)] });
-    return { command: nativeBin, prefixArgs: [] };
-  } catch {
-    // Fall through to the JS shim (run under node) if the native package
-    // isn't resolvable (unusual — e.g. a partial install).
+    // Prefer the native per-platform binary, exec'd directly — no `node`, no
+    // JS shim — which is faster and avoids the "node handed a bad entry
+    // script" failure class. Check the layouts pnpm and npm produce.
+    const nativeCandidates = [
+      path.join(cliDir, '..', platformPkg, 'bin', 'beamd'),                       // sibling (pnpm .pnpm / npm hoisted)
+      path.join(cliDir, 'node_modules', '@beamd', platformPkg, 'bin', 'beamd'),   // nested under cli's own deps
+    ];
+    for (const candidate of nativeCandidates) {
+      if (existsSyncSafe(candidate)) return { command: candidate, prefixArgs: [] };
+    }
+    // Fall back to the JS shim (run under node) — it locates the binary
+    // itself, so it works even on a partial / unexpected layout.
+    const shim = path.join(cliDir, 'bin', 'beamd.cjs');
+    if (existsSyncSafe(shim)) return { command: process.execPath, prefixArgs: [shim] };
   }
-  try {
-    const shim = require.resolve('@beamd/cli/bin/beamd.cjs');
-    return { command: process.execPath, prefixArgs: [shim] };
-  } catch {
-    return { command: 'beamd', prefixArgs: [] }; // last resort: PATH
-  }
+
+  return { command: 'beamd', prefixArgs: [] }; // last resort: PATH
 }
 
 export class BeamdCliError extends Error {

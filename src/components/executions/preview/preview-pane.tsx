@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Globe, Loader2 } from 'lucide-react';
-import { openRemotePreviewSettings } from '@/components/dashboard/devices-sheet';
+import { AlertCircle, Globe, Loader2, Smartphone, X } from 'lucide-react';
+import { openBeamdSheet } from '@/components/dashboard/beamd-sheet';
+import { OpenOnDevice } from './open-on-device';
 import { useWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import {
   usePreviewState,
@@ -10,7 +11,9 @@ import {
   useStopPreview,
   usePreviewLogs,
   useSetPreviewUrls,
+  usePreviewSettings,
 } from '@/hooks/use-preview';
+import { RemotePreviewPromo } from './remote-preview-promo';
 import type { PreviewState, PreviewRemoteError, PreviewManualUrl } from '@/lib/api/preview';
 import { resolvePreviewSrc, pickReachability } from '@/lib/preview/resolve-iframe-src';
 import { PreviewHeader } from './preview-header';
@@ -87,6 +90,7 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   const logsOpen = logsManuallyToggled ?? logsAutoOpen;
 
   const [iframeKey, setIframeKey] = useState(0);
+  const [shareOpen, setShareOpen] = useState(false);
 
   // Compose the state the picker sees: local URL comes from the poll, remote
   // URL/error from the last Start (held above).
@@ -147,6 +151,9 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   }, [active, executionId, state?.serverStatus, command]);
 
   const isRunning = state?.serverStatus === 'running';
+  // Sharing is meaningful once the dev server is actually serving content —
+  // that's when a tunnel will have something to forward.
+  const canShare = isRunning && !!executionId;
   const isStarting = state?.serverStatus === 'starting' || startMut.isPending;
   const isStarted =
     !!state && state.serverStatus !== 'idle' && state.serverStatus !== 'stopped' && state.serverStatus !== 'crashed';
@@ -181,11 +188,18 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
         isStarting={isStarting}
         isStarted={isStarted}
         logsOpen={logsOpen}
+        shareControl={
+          canShare ? (
+            <OpenOnDevice executionId={executionId} open={shareOpen} onOpenChange={setShareOpen} />
+          ) : undefined
+        }
         onStart={handleStart}
         onStop={handleStop}
         onRefresh={handleRefresh}
         onToggleLogs={() => setLogsManuallyToggled((v) => !(v ?? logsAutoOpen))}
       />
+
+      {canShare && <OpenOnDeviceNudge onShow={() => setShareOpen(true)} />}
 
       <div className="relative flex-1 overflow-hidden">
         {resolved.url ? (
@@ -248,6 +262,13 @@ function PreviewBody(props: PreviewBodyProps) {
   const serverStatus = state?.serverStatus;
   const needsServer = providerNeedsServer(state);
 
+  // Remote preview is "set up" once beamd is the connected, active provider —
+  // until then we surface it as an option in the empty states (prominently
+  // when nothing's configured yet, subtly otherwise). Once set up, the header
+  // "Phone" button is the always-present, subtle entry point.
+  const { data: previewSettings } = usePreviewSettings();
+  const remoteSetUp = !!previewSettings && previewSettings.beamd.connected && previewSettings.activeProvider === 'beamd';
+
   // A remote-provider error (beamd not configured, no manual URL, …) that
   // isn't just "the server isn't up yet" gets its own actionable surface.
   const showRemoteError =
@@ -278,11 +299,11 @@ function PreviewBody(props: PreviewBodyProps) {
           {remoteError!.code === 'beamd_not_configured' || remoteError!.code === 'no_remote_provider' ? (
             <button
               type="button"
-              onClick={openRemotePreviewSettings}
+              onClick={openBeamdSheet}
               className="flex items-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:bg-foreground/90"
             >
               <Globe size={13} />
-              Connect Beamd
+              Set up remote preview
             </button>
           ) : null}
           <PreviewManualUrlInput urls={state?.manualUrls ?? []} onSave={props.onSaveUrls} isSaving={props.isSavingUrls} />
@@ -296,6 +317,25 @@ function PreviewBody(props: PreviewBodyProps) {
   // remote mode or when the manual provider is active.
   const variant = resolveEmptyVariant(serverStatus, command, state?.port ?? null);
   const showManual = mode === 'remote' || state?.activeRemoteProviderId === 'manual';
+  // Offer remote preview as an option every time there's no live preview on
+  // screen (this body only renders when there's no iframe) — big in the
+  // "nothing set up yet" state, subtle in every other (idle, stopped, crashed,
+  // starting…). Hidden only once remote is actually set up, where the header
+  // "Phone" button takes over.
+  const showPromo = !remoteSetUp;
+
+  const footerNodes: React.ReactNode[] = [];
+  if (showPromo) footerNodes.push(<RemotePreviewPromo key="promo" prominent={variant === 'no-command'} />);
+  if (showManual)
+    footerNodes.push(
+      <PreviewManualUrlInput
+        key="manual"
+        urls={state?.manualUrls ?? []}
+        onSave={props.onSaveUrls}
+        isSaving={props.isSavingUrls}
+      />,
+    );
+
   return (
     <PreviewEmpty
       variant={variant}
@@ -306,12 +346,62 @@ function PreviewBody(props: PreviewBodyProps) {
       onOpenWorkspaceSettings={props.onOpenWorkspaceSettings}
       onStart={props.onStart}
       isStarting={props.isStarting}
-      footer={
-        showManual ? (
-          <PreviewManualUrlInput urls={state?.manualUrls ?? []} onSave={props.onSaveUrls} isSaving={props.isSavingUrls} />
-        ) : undefined
-      }
+      footer={footerNodes.length ? <div className="w-full space-y-4">{footerNodes}</div> : undefined}
     />
+  );
+}
+
+const NUDGE_DISMISSED_KEY = 'flow.preview.openOnDevice.nudged';
+
+/**
+ * One-time discovery hint for "Open on another device". Icons alone don't
+ * teach the feature, so the first time a preview goes live we surface a thin,
+ * dismissible strip pointing at it. Dismissal is permanent (localStorage).
+ */
+function OpenOnDeviceNudge({ onShow }: { onShow: () => void }) {
+  // Start hidden to avoid a flash before localStorage is read.
+  const [dismissed, setDismissed] = useState(true);
+  useEffect(() => {
+    try {
+      setDismissed(localStorage.getItem(NUDGE_DISMISSED_KEY) === '1');
+    } catch {
+      setDismissed(false);
+    }
+  }, []);
+
+  const close = () => {
+    try {
+      localStorage.setItem(NUDGE_DISMISSED_KEY, '1');
+    } catch {
+      /* private mode — best-effort */
+    }
+    setDismissed(true);
+  };
+
+  if (dismissed) return null;
+  return (
+    <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-3 py-1.5 text-[11px]">
+      <Smartphone size={12} className="shrink-0 text-primary" />
+      <span className="flex-1 text-muted-foreground">See this on your real phone — one scan, no deploy.</span>
+      <button
+        type="button"
+        onClick={() => {
+          onShow();
+          close();
+        }}
+        className="rounded border border-border bg-background px-2 py-0.5 font-medium text-foreground hover:bg-muted"
+      >
+        Show me
+      </button>
+      <button
+        type="button"
+        onClick={close}
+        aria-label="Dismiss"
+        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <X size={12} />
+      </button>
+    </div>
   );
 }
 

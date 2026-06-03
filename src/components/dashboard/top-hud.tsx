@@ -9,6 +9,7 @@ import { InboxComingSoonSheet } from '@/components/shared/inbox-coming-soon-shee
 import { CreateMenu } from './create-menu';
 import { UserProfileSheet } from './user-profile-sheet';
 import { DevicesSheet } from './devices-sheet';
+import { BeamdSheet } from './beamd-sheet';
 import { RailStatusPills } from './rail-status-pills';
 import { BudgetWarningPill } from './budget-warning-pill';
 
@@ -79,6 +80,7 @@ export function TopHud() {
           <Search size={14} />
         </button>
         <DevicesSheet />
+        <BeamdSheet />
         <UserProfileSheet />
         <button
           onClick={() => setQuickCaptureOpen(true)}

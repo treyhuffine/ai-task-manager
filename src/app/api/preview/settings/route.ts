@@ -12,7 +12,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { readPreviewSettings, writePreviewSettings } from '@/lib/preview/settings';
-import { beamdLogin, beamdLogout, beamdConnectedServer, BeamdCliError } from '@/lib/preview/beamd/cli';
+import { beamdLogin, beamdLogout, beamdCheck, beamdConnectedServer, BeamdCliError } from '@/lib/preview/beamd/cli';
 import { listPreviewProviders } from '@/lib/preview/service';
 
 export const runtime = 'nodejs';
@@ -72,6 +72,15 @@ export async function PUT(request: NextRequest) {
         token: body.connect.token,
         insecure: body.connect.insecure ?? false,
       });
+      // `login` only *stores* the credential — it never proves it works. Verify
+      // it against the edge so "connected" always means "verified", and roll the
+      // bad login back so a rejected key doesn't linger and 401 every preview.
+      try {
+        await beamdCheck();
+      } catch (err) {
+        await beamdLogout().catch(() => {});
+        throw err;
+      }
     }
 
     return Response.json(await snapshot());

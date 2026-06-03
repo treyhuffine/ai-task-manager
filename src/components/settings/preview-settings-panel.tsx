@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Globe, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Globe, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePreviewSettings, useUpdatePreviewSettings, useTestBeamd } from '@/hooks/use-preview';
+import { usePreviewSettings, useUpdatePreviewSettings } from '@/hooks/use-preview';
+import { BeamdConnect } from './beamd-connect';
 
 /**
  * Global preview-reachability settings: choose the active remote provider
@@ -14,13 +15,8 @@ import { usePreviewSettings, useUpdatePreviewSettings, useTestBeamd } from '@/ho
 export function PreviewSettingsPanel() {
   const { data: settings, isLoading } = usePreviewSettings();
   const update = useUpdatePreviewSettings();
-  const test = useTestBeamd();
 
-  const [beamServer, setBeamServer] = useState('');
-  const [beamToken, setBeamToken] = useState('');
-  const [beamInsecure, setBeamInsecure] = useState(false);
   const [manualTemplate, setManualTemplate] = useState('');
-  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Hydrate local fields from server settings once loaded.
   useEffect(() => {
@@ -33,41 +29,15 @@ export function PreviewSettingsPanel() {
   }
 
   const active = settings.activeProvider;
-  const connected = settings.beamd.connected;
 
   const selectProvider = (id: string) => {
     update.mutate({ activeProvider: id });
   };
 
-  const connect = async () => {
-    setTestResult(null);
-    if (!beamServer.trim() || !beamToken.trim()) return;
-    try {
-      await update.mutateAsync({
-        connect: { server: beamServer.trim(), token: beamToken.trim(), insecure: beamInsecure },
-      });
-      setBeamToken('');
-    } catch (err) {
-      setTestResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
-    }
-  };
-
-  const disconnect = async () => {
-    setTestResult(null);
-    await update.mutateAsync({ disconnect: true });
-  };
-
-  const runTest = async () => {
-    setTestResult(null);
-    try {
-      const res = await test.mutateAsync();
-      setTestResult({
-        ok: true,
-        text: `Reached ${res.server}${res.slug ? ` (workspace: ${res.slug})` : ''}.`,
-      });
-    } catch (err) {
-      setTestResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
-    }
+  // Connecting beamd implies you want to use it — if the picker is still on
+  // localhost-only, switch it over so remote previews actually resolve.
+  const handleBeamdConnected = () => {
+    if (settings.activeProvider === 'localhost') update.mutate({ activeProvider: 'beamd' });
   };
 
   return (
@@ -91,100 +61,15 @@ export function PreviewSettingsPanel() {
           ))}
         </div>
 
-        {/* Beamd connection — this machine's shared `~/.beamd` account. */}
-        {active === 'beamd' && (
-          <div className="rounded-md border border-border bg-card/40 p-3 space-y-2.5">
-            {connected ? (
-              <>
-                <div className="flex items-center gap-1.5 text-[12px] text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={13} className="shrink-0" />
-                  <span>This machine is connected to <span className="font-mono">{settings.beamd.server}</span>.</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  beamd is logged in on this machine — Flow, your terminal, and agents all share it.
-                </p>
-                <div className="flex items-center gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={runTest}
-                    disabled={test.isPending}
-                    className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
-                    title="Authenticate against the edge (beamd check)"
-                  >
-                    {test.isPending && <Loader2 size={12} className="animate-spin" />}
-                    Test connection
-                  </button>
-                  <button
-                    type="button"
-                    onClick={disconnect}
-                    disabled={update.isPending}
-                    className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-                  >
-                    {update.isPending && <Loader2 size={12} className="animate-spin" />}
-                    Disconnect
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-[11px] text-muted-foreground">
-                  Connect this machine to beamd. The login is stored by beamd (in <span className="font-mono">~/.beamd</span>),
-                  not by Flow — your terminal and agents use the same one.
-                </p>
-                <Field label="Server">
-                  <input
-                    value={beamServer}
-                    onChange={(e) => setBeamServer(e.target.value)}
-                    placeholder="beamd.ai  ·  or your self-hosted edge"
-                    spellCheck={false}
-                    className="w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-[12px] focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </Field>
-                <Field label="Workspace API key">
-                  <input
-                    type="password"
-                    value={beamToken}
-                    onChange={(e) => setBeamToken(e.target.value)}
-                    placeholder="from your beamd dashboard, or an OSS edge token"
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-[12px] focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </Field>
-                <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={beamInsecure}
-                    onChange={(e) => setBeamInsecure(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    Skip TLS verification
-                    <span className="block text-muted-foreground/70">
-                      Only for a self-hosted edge with a self-signed cert.
-                    </span>
-                  </span>
-                </label>
-                <button
-                  type="button"
-                  onClick={connect}
-                  disabled={update.isPending || !beamServer.trim() || !beamToken.trim()}
-                  className="flex items-center gap-1.5 rounded border border-border bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
-                >
-                  {update.isPending && <Loader2 size={12} className="animate-spin" />}
-                  Connect Beamd
-                </button>
-              </>
-            )}
-
-            {testResult && (
-              <div className={cn('flex items-start gap-1.5 text-[12px]', testResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}>
-                {testResult.ok ? <CheckCircle2 size={13} className="mt-0.5 shrink-0" /> : <XCircle size={13} className="mt-0.5 shrink-0" />}
-                <span>{testResult.text}</span>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Beamd account — machine-level (the shared `~/.beamd` login), shown
+            always so you can connect or fix it here no matter which provider is
+            active. */}
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+            Beamd · this machine
+          </h4>
+          <BeamdConnect onConnected={handleBeamdConnected} />
+        </div>
 
         {/* Manual template */}
         {active === 'manual' && (
