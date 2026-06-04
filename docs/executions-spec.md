@@ -462,7 +462,7 @@ V1 rule: **at most one workspace run per execution may be in `running` status at
   - `coalesce_if_active` → append a follow-up message to the active run's chat (or the schedule's intended chat — open question, decide at build time)
   - `allow_concurrent` → in V1, treat as `skip_if_running` for workspace targets and log a warning that the policy isn't honored at the execution level. Genuine parallelism per execution is a v2 feature when we know what semantics we want.
 
-Manual dispatches into the same execution from the chat UI also respect this mutex — if a scheduled run is in flight against the execution, the manual send waits or is rejected (TBD at UI build time; the safer default is "wait, then drain").
+Manual sends from the chat UI are **not** gated by this mutex. Concurrent sends are a first-class feature: a follow-up reuses the chat's cached AgentSession (the same subprocess) and rides the provider's native queue (Claude drains it as a `<system-reminder>` on the next tool result; Codex merges it into the active turn). Gating them on a `running` run rejected the user's own in-flight `trigger='manual'` turn — and the rejection text misattributed it to a scheduled run, since the check never inspected the blocker's trigger. The mutex above is scoped to *scheduled* dispatch (schedule-vs-schedule worktree contention), which always spawns its own fresh chat/subprocess. Cross-process contention between a scheduled run and a concurrent manual send against the same worktree is a known, accepted gap in V1 (rare in practice; a narrower different-chat guard or coalesce is the V2 option if it bites).
 
 The mutex check is a cheap indexed query; `runs(execution_id, status)` index makes it constant-time.
 
@@ -566,7 +566,7 @@ The build order grows by one task at the beginning, and three existing tasks cha
 
 **Task #12 (instrument manual dispatch to create runs row)** — affected:
 - For workspace chats (`execution_id IS NOT NULL`), populate `runs.execution_id` on insert
-- Respect the execution-level run mutex (§5) — manual sends against an execution with a running run **reject** with a clear error in V1 (wait-then-drain is V2; see async-agents-v1 open question #7)
+- Manual sends are **not** gated by the execution-level run mutex (§5) — concurrent sends ride the provider's native queue (see §5 note). The mutex applies to scheduled dispatch only.
 - For orchestrator/content chats (`execution_id IS NULL`), no execution_id population, no mutex
 
 All other tasks (#10, #13–#20, #22–#25) are unaffected by the executions lift specifically.

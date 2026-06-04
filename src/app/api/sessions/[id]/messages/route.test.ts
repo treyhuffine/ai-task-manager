@@ -2,26 +2,30 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 /**
- * Verifies the messages route's pre-flight gating on retry.
+ * Verifies the messages route's pre-flight behavior.
  *
- * Bug fix #1 (retry race): clients re-POST the same `body.id` after a
- * transient failure. Before the fix, my new execution-mutex / budget
- * pre-flight returned 409 on the retry if a scheduled run had started
- * in the meantime — even though the original send was already in
- * flight. The user saw an error while the agent was still working.
+ * Concurrent send: manual sends are NEVER gated on a run already in
+ * flight against the execution. A follow-up reuses this chat's cached
+ * AgentSession and the provider's native queue absorbs it. The route
+ * used to run an execution-level mutex pre-flight that rejected a
+ * user's own in-flight `trigger='manual'` turn with a misleading "a
+ * scheduled run is in flight" 409; that gate is gone.
  *
- * The route now peeks `getChatEventById(body.id)` first; when the row
- * exists, it skips the pre-flight and falls through to the existing
- * orphan-healing path. This test covers both branches:
+ * Budget pre-flight remains, with one carve-out for retries: clients
+ * re-POST the same `body.id` after a transient failure. Rejecting the
+ * retry would surface an error while the original send is still in
+ * flight, so the route peeks `getChatEventById(body.id)` first and
+ * skips the budget gate when the row already exists, falling through to
+ * the orphan-healing path. This test covers:
  *
- *  1. Fresh send + execution blocker → 409 (pre-flight DOES gate)
- *  2. Retry (same body.id existed) + execution blocker → 201 (skipped)
- *  3. Fresh send + no blocker → 201 (happy path, pre-flight passes)
+ *  1. Fresh send while a run is in flight → 201 (concurrent send allowed)
+ *  2. Retry (same body.id existed) → 201, dispatch delegated to health
+ *  3. Fresh send → 201 (happy path)
+ *  4. Fresh send + budget block → 402; retry + budget block → 201
  */
 
 const getChatEventById = vi.fn();
 const getChatSessionWithExecution = vi.fn();
-const findActiveRunForExecution = vi.fn();
 const insertChatEvent = vi.fn();
 const materializeEventRefs = vi.fn();
 const getAgent = vi.fn();
@@ -39,8 +43,6 @@ vi.mock('@/lib/db/queries', () => ({
   getChatEventById: (id: string) => (getChatEventById as unknown as (id: string) => unknown)(id),
   getChatSessionWithExecution: (id: string) =>
     (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),
-  findActiveRunForExecution: (id: string) =>
-    (findActiveRunForExecution as unknown as (id: string) => unknown)(id),
   insertChatEvent: (input: unknown) =>
     (insertChatEvent as unknown as (input: unknown) => unknown)(input),
   materializeEventRefs: (a: string, b: string, c: string) =>
@@ -98,7 +100,6 @@ function makeParams() {
 beforeEach(() => {
   getChatEventById.mockReset();
   getChatSessionWithExecution.mockReset();
-  findActiveRunForExecution.mockReset();
   insertChatEvent.mockReset();
   materializeEventRefs.mockReset();
   getAgent.mockReset();
@@ -121,29 +122,37 @@ beforeEach(() => {
   getAgent.mockReturnValue({ id: 'agent-1', harness: 'claude_code' });
 });
 
-describe('POST /api/sessions/[id]/messages — pre-flight retry handling', () => {
-  it('fresh send + execution blocker → 409 (pre-flight rejects)', async () => {
-    // No prior chat_event for this body.id.
+describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
+  it('fresh send while a run is in flight → 201 (concurrent send allowed)', async () => {
+    // No prior chat_event for this body.id. A previous turn for this
+    // chat is still running — the user's own in-flight `manual` run.
+    // This must NOT be rejected: concurrent sends ride the provider's
+    // native queue. (Regression guard for the misleading "a scheduled
+    // run is in flight" 409 the execution-mutex pre-flight used to
+    // throw against a user's own turn.)
     getChatEventById.mockReturnValue(undefined);
-    // Scheduled run already in flight against this execution.
-    findActiveRunForExecution.mockReturnValue({ id: 'run-x', status: 'running' });
+    insertChatEvent.mockReturnValue({
+      id: CLIENT_ID,
+      sessionId: SESSION_ID,
+      role: 'user',
+      source: 'user',
+      content: 'hello',
+    });
 
     const res = await POST(
       makeRequest({ content: 'hello', id: CLIENT_ID }),
       makeParams(),
     );
-    expect(res.status).toBe(409);
-    const json = await (res as Response).json();
-    expect(json.error).toBe('execution_busy');
-    // The route should NOT have proceeded to persist on a 409.
-    expect(insertChatEvent).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(insertChatEvent).toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello');
   });
 
-  it('retry of an existing send + execution blocker → 201 (pre-flight bypassed)', async () => {
+  it('retry of an existing send → 201 (budget pre-flight bypassed, health redispatches)', async () => {
     // body.id matches a previously-persisted chat_event row — this is
-    // a retry. Pre-flight should be skipped even though a scheduled
-    // run is now in flight; the original send is already running and
-    // the orphan-healing path takes over.
+    // a retry. The original send is already in flight; the route skips
+    // the budget pre-flight and delegates the redispatch decision to
+    // the orphan-healing path.
     getChatEventById.mockReturnValue({
       id: CLIENT_ID,
       sessionId: SESSION_ID,
@@ -151,7 +160,6 @@ describe('POST /api/sessions/[id]/messages — pre-flight retry handling', () =>
       source: 'user',
       content: 'hello',
     });
-    findActiveRunForExecution.mockReturnValue({ id: 'run-x', status: 'running' });
     // PK conflict → insertChatEvent returns null (existing row).
     insertChatEvent.mockReturnValue(null);
 
@@ -168,9 +176,8 @@ describe('POST /api/sessions/[id]/messages — pre-flight retry handling', () =>
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('fresh send + no blocker → 201 (happy path)', async () => {
+  it('fresh send → 201 (happy path)', async () => {
     getChatEventById.mockReturnValue(undefined);
-    findActiveRunForExecution.mockReturnValue(undefined);
     insertChatEvent.mockReturnValue({
       id: CLIENT_ID,
       sessionId: SESSION_ID,
@@ -190,7 +197,6 @@ describe('POST /api/sessions/[id]/messages — pre-flight retry handling', () =>
 
   it('fresh send + budget block → 402', async () => {
     getChatEventById.mockReturnValue(undefined);
-    findActiveRunForExecution.mockReturnValue(undefined);
     budgetGate.mockReturnValue('block');
 
     const res = await POST(

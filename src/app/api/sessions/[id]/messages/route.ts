@@ -1,6 +1,5 @@
 import type { NextRequest } from 'next/server';
 import {
-  findActiveRunForExecution,
   getAgent,
   getChatEventById,
   getChatSessionWithExecution,
@@ -99,26 +98,24 @@ export async function POST(
     // decision. `getChatEventById` is a cheap PK lookup.
     const isExistingRetry = !!(body.id && getChatEventById(body.id));
 
-    // Pre-flight the gates the executor would also enforce, BEFORE we
-    // persist the user event. The executor's `dispatch` is fire-and-
-    // forget below, so a throw there only lands as a server-side log;
-    // the client gets 201 and shows a "sent" message that the agent
-    // never actually saw. Surfacing these failures at request time
-    // keeps the UI honest. Skipped on retry — see above.
+    // We deliberately do NOT gate manual sends on a run already in
+    // flight against this execution. Concurrent sends are a first-class
+    // feature — the composer accepts them mid-turn and the provider's
+    // native queue absorbs them (Claude drains them as `<system-reminder>`
+    // attachments on the next tool result; Codex merges them into the
+    // active turn). The earlier execution-level mutex pre-flight rejected
+    // a user's own in-flight turn with a misleading "a scheduled run is in
+    // flight" 409 — it couldn't tell the user's own `trigger='manual'` run
+    // apart from a real peer/scheduled one. Schedule-vs-schedule worktree
+    // contention is still governed separately by each schedule's
+    // `concurrencyPolicy` in `runs/dispatch.ts`; that path is untouched.
+    //
+    // Budget is the one pre-flight that remains. The executor's `dispatch`
+    // is fire-and-forget below, so a throw there only lands as a server-
+    // side log while the client gets a (false) 201 and shows a "sent"
+    // message the agent never saw. Surfacing the budget block at request
+    // time keeps the UI honest. Skipped on retry — see above.
     if (!isExistingRetry) {
-      if (session.executionId) {
-        const blocker = findActiveRunForExecution(session.executionId);
-        if (blocker) {
-          return Response.json(
-            {
-              error: 'execution_busy',
-              message:
-                'A scheduled run is in flight against this execution. Try again in a few seconds.',
-            },
-            { status: 409 },
-          );
-        }
-      }
       if (budgetGate() === 'block') {
         return Response.json(
           {

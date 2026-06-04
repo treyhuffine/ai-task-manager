@@ -71,7 +71,6 @@ import {
   markRunStarted as markRunStartedRow,
   markRunCompleted as markRunCompletedRow,
   markRunFailed as markRunFailedRow,
-  findActiveRunForExecution,
   bumpSessionOutcome,
 } from '@/lib/db/queries';
 import { budgetGate } from '@/lib/runs/budget';
@@ -414,21 +413,17 @@ export async function dispatch(
     }
   }
 
-  // Execution-level run mutex (docs/executions-spec.md §5). When this
-  // chat belongs to an execution and a scheduled (or peer) run is
-  // already mutating the worktree, reject — V1 default per
-  // async-agents-v1.md open question #7. The scheduled wrapper has
-  // already claimed the active run for this execution before calling
-  // us, so we skip the check on its behalf.
-  if (session.executionId && !options.internalCall) {
-    const blocker = findActiveRunForExecution(session.executionId);
-    if (blocker) {
-      throw new ExecutorError(
-        'already_running',
-        'A scheduled run is in flight against this execution. Try again in a few seconds.',
-      );
-    }
-  }
+  // No execution-level run mutex here. Concurrent sends are a
+  // first-class feature: a user's follow-up reuses this chat's cached
+  // AgentSession (same subprocess) and the provider's native queue
+  // absorbs it — Claude drains it as a `<system-reminder>` on the next
+  // tool result, Codex merges it into the active turn. The earlier
+  // `findActiveRunForExecution` mutex rejected a user's own in-flight
+  // `trigger='manual'` turn as if it were a scheduled run. Genuine
+  // schedule-vs-schedule worktree contention is governed separately by
+  // each schedule's `concurrencyPolicy` in `runs/dispatch.ts`; that
+  // path dispatches with `internalCall: true` and never reached this
+  // check anyway.
 
   // Provider capability gate. Both currently-shipped providers
   // (claude, codex) set `concurrentSend: true`, so this branch is
