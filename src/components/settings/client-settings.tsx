@@ -6,8 +6,9 @@ import { useClientLocation, isHostnameClaimed, setHostnameClaim } from '@/hooks/
 import { useHostInfo } from '@/hooks/use-host-info';
 import {
   useEditorPreference,
-  EDITOR_LABELS,
-  type EditorPreference,
+  EDITOR_CHOICE_LABELS,
+  EDITOR_CHOICES,
+  type EditorChoice,
 } from '@/lib/client/editor-preference';
 import { cn } from '@/lib/utils';
 
@@ -25,7 +26,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 export function ClientSettings() {
   const location = useClientLocation();
   const hostInfo = useHostInfo();
-  const { editor, setEditor } = useEditorPreference();
+  const { choice, customCommand, setChoice, setCustomCommand } = useEditorPreference();
 
   const hostname = location.hostname;
   const isLoopback = LOOPBACK_HOSTS.has(hostname);
@@ -101,19 +102,35 @@ export function ClientSettings() {
       <div className="rounded-md border border-border bg-card/40 p-3 space-y-2">
         <Row label="Editor">
           <select
-            value={editor}
-            onChange={(e) => setEditor(e.target.value as EditorPreference)}
+            value={choice}
+            onChange={(e) => setChoice(e.target.value as EditorChoice)}
             className="bg-background border border-border rounded px-1.5 py-0.5 text-[12px]"
           >
-            {(Object.keys(EDITOR_LABELS) as EditorPreference[]).map((key) => (
+            {EDITOR_CHOICES.map((key) => (
               <option key={key} value={key}>
-                {EDITOR_LABELS[key]}
+                {EDITOR_CHOICE_LABELS[key]}
               </option>
             ))}
           </select>
         </Row>
+        {choice === 'custom' && (
+          <Row label="Command">
+            <input
+              type="text"
+              value={customCommand}
+              onChange={(e) => setCustomCommand(e.target.value)}
+              placeholder="nvim {file}"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="w-full bg-background border border-border rounded px-1.5 py-0.5 text-[12px] font-mono"
+            />
+          </Row>
+        )}
         <p className="text-[11px] text-muted-foreground/85">
-          Editor used when you click &ldquo;Open in editor&rdquo; on a file or worktree.
+          {choice === 'custom'
+            ? 'Runs on the host machine. Placeholders: {file}, {line}, {column}, {dir}.'
+            : 'Editor used when you click “Open in editor” on a file or worktree.'}
         </p>
       </div>
     </section>

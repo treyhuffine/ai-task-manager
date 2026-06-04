@@ -1,5 +1,23 @@
 import { api, ApiError } from './client';
+import { isHostnameClaimed } from '@/hooks/use-client-location';
 import type { Attachment } from '@/db/types';
+
+/** Loopback hostnames that imply the browser is on the host machine. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+/**
+ * Whether this browser is the app's host machine — loopback, or a hostname
+ * the user explicitly claimed (Tailscale/LAN) in settings. Mirrors
+ * `useClientLocation().kind === 'host'`, which is the same condition the UI
+ * uses to show the open/reveal affordances. We send this to `/api/fs/open`
+ * so the server's locality gate agrees with the client instead of rejecting
+ * a legitimately-claimed host.
+ */
+function clientIsHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return LOOPBACK_HOSTS.has(h) || isHostnameClaimed(h);
+}
 
 export interface FsBrowseEntry {
   name: string;
@@ -46,6 +64,17 @@ export type OpenInResult =
   | { ok: true }
   | { ok: false; reason: 'not_installed' | 'unsupported' | 'failed'; message?: string };
 
+export interface OpenInClientOptions {
+  /** 1-based line to jump to (editors that support it). */
+  line?: number;
+  /** 1-based column (used with `line`). */
+  column?: number;
+  /** Reveal/select the path in the file manager instead of opening it. */
+  reveal?: boolean;
+  /** Project root to open alongside the file so the editor's tree loads. */
+  projectDir?: string;
+}
+
 export interface InstalledApp {
   target: OpenTarget;
   label: string;
@@ -58,6 +87,31 @@ export interface InstalledApp {
 export interface InstalledAppsResponse {
   platform: NodeJS.Platform;
   apps: InstalledApp[];
+}
+
+/**
+ * POST to `/fs/open`, mapping the structured 422 "couldn't open" body
+ * (`{ reason, message }`) into an `OpenInResult` instead of throwing. Any
+ * other failure (403 remote-forbidden, 404, 500) still throws.
+ */
+async function postOpen(body: Record<string, unknown>): Promise<OpenInResult> {
+  try {
+    await api.post<{ ok: true }>(
+      '/fs/open',
+      body,
+      clientIsHost() ? { headers: { 'x-flow-host': '1' } } : undefined,
+    );
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 422) {
+      const b = err.body as { reason?: string; message?: string } | null;
+      const reason = b?.reason;
+      if (reason === 'not_installed' || reason === 'unsupported' || reason === 'failed') {
+        return { ok: false, reason, message: b?.message };
+      }
+    }
+    throw err;
+  }
 }
 
 export const fsApi = {
@@ -124,19 +178,20 @@ export const fsApi = {
    * back as a structured `{ ok: false, reason: 'not_installed' }`
    * rather than throwing — caller can show a friendly toast.
    */
-  async openIn(folderPath: string, target: OpenTarget): Promise<OpenInResult> {
-    try {
-      await api.post<{ ok: true }>('/fs/open', { path: folderPath, target });
-      return { ok: true };
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 422) {
-        const body = err.body as { reason?: string; message?: string } | null;
-        const reason = body?.reason;
-        if (reason === 'not_installed' || reason === 'unsupported' || reason === 'failed') {
-          return { ok: false, reason, message: body?.message };
-        }
-      }
-      throw err;
-    }
+  openIn(folderPath: string, target: OpenTarget, opts?: OpenInClientOptions): Promise<OpenInResult> {
+    return postOpen({ path: folderPath, target, ...opts });
+  },
+
+  /**
+   * Open a path with the user's custom editor command (vim/nvim/emacs/…).
+   * The server substitutes `{file}`/`{line}`/`{column}`/`{dir}` and spawns
+   * it (args array, no shell). Same locality + home confinement as `openIn`.
+   */
+  openWithCommand(
+    folderPath: string,
+    command: string,
+    opts?: OpenInClientOptions,
+  ): Promise<OpenInResult> {
+    return postOpen({ path: folderPath, target: 'custom', command, ...opts });
   },
 };

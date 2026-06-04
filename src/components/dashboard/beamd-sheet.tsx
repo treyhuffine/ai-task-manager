@@ -33,7 +33,7 @@ export function openBeamdSheet(): void {
  */
 export function BeamdSheet() {
   const [open, setOpen] = useState(false);
-  const { data: settings } = usePreviewSettings();
+  const { data: settings, refetch: refetchSettings } = usePreviewSettings();
   const update = useUpdatePreviewSettings();
 
   useEffect(() => {
@@ -41,6 +41,13 @@ export function BeamdSheet() {
     window.addEventListener(OPEN_BEAMD_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_BEAMD_EVENT, onOpen);
   }, []);
+
+  // Re-check the machine's beamd login every time the sheet opens, so a
+  // `beamd login` run in a terminal (or by an agent) shows as connected right
+  // away instead of waiting out the query's stale window.
+  useEffect(() => {
+    if (open) refetchSettings();
+  }, [open, refetchSettings]);
 
   // Connecting implies intent to use it — flip the picker over from localhost.
   const handleConnected = () => {

@@ -20,6 +20,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { fsApi, type OpenTarget, type InstalledApp } from '@/lib/api/fs';
+import { useEditorPreference } from '@/lib/client/editor-preference';
+import { useClientLocation } from '@/hooks/use-client-location';
+import { isEditorTarget } from '@/lib/fs/known-apps';
 import { cn } from '@/lib/utils';
 
 interface OpenWorktreeButtonProps {
@@ -29,27 +32,6 @@ interface OpenWorktreeButtonProps {
 
 /** localStorage key for the user's last-used target — drives the main button. */
 const LAST_TARGET_KEY = 'flow.openWorktree.lastTarget';
-
-/** Loopback hostnames that imply same-machine browser → server. */
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
-
-/**
- * True when the browser is connecting from a non-loopback hostname —
- * i.e. it's almost certainly running on a different machine than the
- * server. We can detect direct remote access (LAN IP, public hostname),
- * but SSH-tunneled access still presents as `localhost` and is a known
- * blind spot. The penalty for false negatives is low: the spawn just
- * runs on the wrong machine and the user notices nothing happened.
- */
-function useIsRemoteHost(): boolean {
-  const [remote, setRemote] = useState(false);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const host = window.location.hostname;
-    setRemote(!LOOPBACK_HOSTS.has(host));
-  }, []);
-  return remote;
-}
 
 /**
  * Lucide fallback icon for a given target. Used when the server can't
@@ -136,7 +118,15 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [primaryTarget, setPrimaryTarget] = useState<OpenTarget>('finder');
-  const isRemote = useIsRemoteHost();
+  // Use the same host detection as every other open surface (file viewer,
+  // header) so a claimed LAN/Tailscale hostname is treated consistently —
+  // not the old loopback-only check that left this button stuck in "Copy
+  // path" mode after the user claimed their host in Settings.
+  const isRemote = useClientLocation().kind !== 'host';
+  // Shared editor preference (settings + file-viewer use the same). The
+  // split-button seeds its primary from it and writes it back when the user
+  // opens with an editor, so the two surfaces never disagree.
+  const { choice, setChoice } = useEditorPreference();
 
   const { data: installedData } = useQuery({
     queryKey: ['fs', 'installed-apps'],
@@ -152,8 +142,16 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
   useEffect(() => {
     if (!installed.length) return;
     const last = readLastTarget(installed);
-    if (last) setPrimaryTarget(last);
-  }, [installed]);
+    if (last) {
+      setPrimaryTarget(last);
+      return;
+    }
+    // No prior choice yet — seed from the shared editor preference when that
+    // editor is installed, so Settings and this button agree out of the box.
+    if (choice !== 'custom' && installed.some((a) => a.target === choice)) {
+      setPrimaryTarget(choice);
+    }
+  }, [installed, choice]);
 
   const open = useCallback(
     async (target: OpenTarget, opts: { remember?: boolean } = { remember: true }) => {
@@ -176,6 +174,9 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
         if (opts.remember !== false) {
           writeLastTarget(target);
           setPrimaryTarget(target);
+          // Sync the shared editor preference when opening with an editor
+          // (Finder/Terminal stay button-local via writeLastTarget).
+          if (isEditorTarget(target)) setChoice(target);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -184,7 +185,7 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
         setBusy(null);
       }
     },
-    [path],
+    [path, setChoice],
   );
 
   const copyPath = useCallback(() => {

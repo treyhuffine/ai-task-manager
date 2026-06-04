@@ -54,7 +54,7 @@ export function OpenOnDevice({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data: settings } = usePreviewSettings();
+  const { data: settings, refetch: refetchSettings } = usePreviewSettings();
   const updateSettings = useUpdatePreviewSettings();
   const [state, setState] = useState<PreviewState | null>(null);
   const [copied, setCopied] = useState(false);
@@ -65,7 +65,10 @@ export function OpenOnDevice({
   });
 
   // Re-resolve from scratch on (re)open and whenever the execution changes.
+  // Also re-check the beamd login so a terminal `beamd login` flips the
+  // connect-vs-switch branch correctly without waiting out the stale window.
   useEffect(() => {
+    if (open) refetchSettings();
     if (open && !state && !resolve.isPending) resolve.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);

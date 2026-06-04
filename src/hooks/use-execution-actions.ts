@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sessionsApi, type MergeRequestBody } from '@/lib/api/sessions';
+import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody } from '@/lib/api/sessions';
 import {
   useCommit,
   usePush,
@@ -94,6 +94,20 @@ export function useMergePr(id: string) {
       qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
       qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
       qc.invalidateQueries({ queryKey: ['session', id] });
+    },
+  });
+}
+
+/**
+ * Enable/disable GitHub auto-merge ("merge when ready") for the session's
+ * PR. Invalidates the PR query so the action bar reflects the new state.
+ */
+export function useSetAutoMerge(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AutoMergeRequestBody) => sessionsApi.setAutoMerge(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
     },
   });
 }

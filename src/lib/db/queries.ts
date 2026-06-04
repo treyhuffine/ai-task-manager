@@ -1307,12 +1307,14 @@ export function touchPreviewTarget(id: string): void {
 
 export function listChatSessions(filter: {
   workspaceId?: string;
+  executionId?: string;
   status?: 'active' | 'archived';
   type?: 'orchestration' | 'content' | 'execution';
 } = {}): ChatSessionWithExecution[] {
   const db = getDb();
   const conditions: SQL[] = [];
   if (filter.workspaceId) conditions.push(eq(chatSessions.workspaceId, filter.workspaceId));
+  if (filter.executionId) conditions.push(eq(chatSessions.executionId, filter.executionId));
   if (filter.status) conditions.push(eq(chatSessions.status, filter.status));
   if (filter.type) conditions.push(eq(chatSessions.type, filter.type));
   // LEFT JOIN + flatten so consumers (workspace session rows, the

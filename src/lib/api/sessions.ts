@@ -3,6 +3,7 @@ import type {
   ChatSessionRecord, ChatSessionWithExecution, ChatEventRecord,
   PermissionMode, EffortLevel, Attachment,
 } from '@/db/types';
+import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 
 // ─── Pending-input wire types ─────────────────────────────────
 //
@@ -143,6 +144,12 @@ export interface PrInfo {
   updatedAt: string;
   /** Populated only for OPEN PRs; closed/merged carry `null`. */
   mergeable: PrMergeable | null;
+  /** Rolled-up CI check state for an OPEN PR; `null` when none / closed / merged. */
+  checks: PrChecks | null;
+  /** GitHub review decision for an OPEN PR; `null` when none / closed / merged. */
+  reviewDecision: PrReviewDecision | null;
+  /** Whether auto-merge ("merge when ready") is enabled on the PR. */
+  autoMergeEnabled: boolean;
 }
 
 export interface PrResponse {
@@ -158,6 +165,19 @@ export interface MergeRequestBody {
 
 export interface MergeResponse {
   ok: true;
+  prNumber: number;
+  url: string;
+}
+
+export interface AutoMergeRequestBody {
+  /** `true` enables "merge when ready"; `false` disables it. */
+  enable: boolean;
+  method?: 'merge' | 'squash' | 'rebase';
+}
+
+export interface AutoMergeResponse {
+  ok: true;
+  enabled: boolean;
   prNumber: number;
   url: string;
 }
@@ -483,6 +503,10 @@ export const sessionsApi = {
 
   mergePr(id: string, body?: MergeRequestBody): Promise<MergeResponse> {
     return api.post<MergeResponse>(`/sessions/${id}/merge`, body ?? {});
+  },
+
+  setAutoMerge(id: string, body: AutoMergeRequestBody): Promise<AutoMergeResponse> {
+    return api.post<AutoMergeResponse>(`/sessions/${id}/auto-merge`, body);
   },
 
   needsReview(): Promise<ChatSessionWithExecution[]> {

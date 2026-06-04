@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Send, ArrowDownToLine, ArrowUpRight, CheckCircle2, AlertCircle, Archive } from 'lucide-react';
-import { useExecutionActions, useHelpWithError, type ActionState } from '@/hooks/use-execution-actions';
+import { Send, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive } from 'lucide-react';
+import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState } from '@/hooks/use-execution-actions';
+import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import { useArchiveSession } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { ApiError } from '@/lib/api/client';
@@ -366,7 +367,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
     case 'prOpenInSync':
       return (
         <>
-          <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
           <MergeButton
             sessionId={sessionId}
             prNumber={state.prNumber}
@@ -380,7 +381,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
     case 'prOpenAhead':
       return (
         <>
-          <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
           <ActionButton
             icon={<Send size={11} />}
             label="Push"
@@ -403,7 +404,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
     case 'prOpenBehindBase':
       return (
         <>
-          <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
           <ActionButton
             icon={<ArrowDownToLine size={11} />}
             label="Pull"
@@ -426,7 +427,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
     case 'prConflictingWithBase':
       return (
         <>
-          <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
           <ActionButton
             icon={<AlertCircle size={11} />}
             label="Resolve conflicts"
@@ -460,7 +461,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
     case 'prMergeable':
       return (
         <>
-          <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
           <MergeButton
             sessionId={sessionId}
             prNumber={state.prNumber}
@@ -498,7 +499,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
 
     case 'prClosed':
       return (
-        <PrChip prNumber={state.prNumber} prUrl={state.prUrl} closed />
+        <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} closed />
       );
 
     default:
@@ -507,27 +508,98 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
 }
 
 interface PrChipProps {
+  sessionId: string;
   prNumber: number;
   prUrl: string;
   closed?: boolean;
 }
 
-function PrChip({ prNumber, prUrl, closed }: PrChipProps) {
+function PrChip({ sessionId, prNumber, prUrl, closed }: PrChipProps) {
   return (
-    <a
-      href={prUrl}
-      target="_blank"
-      rel="noreferrer"
-      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-        closed
-          ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/15'
-          : 'border-border bg-muted/30 text-foreground/80 hover:bg-muted/50'
-      }`}
-      title={closed ? `Closed PR #${prNumber}` : `Open PR #${prNumber}`}
+    <span className="inline-flex items-center gap-1.5 min-w-0">
+      <a
+        href={prUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+          closed
+            ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/15'
+            : 'border-border bg-muted/30 text-foreground/80 hover:bg-muted/50'
+        }`}
+        title={closed ? `Closed PR #${prNumber}` : `Open PR #${prNumber}`}
+      >
+        <span>PR #{prNumber}</span>
+        <ArrowUpRight size={11} className="opacity-70" />
+      </a>
+      {!closed && <PrStatusBadges sessionId={sessionId} />}
+    </span>
+  );
+}
+
+/**
+ * CI + review badges shown next to an open PR chip. Reads the same cached
+ * PR query the state machine uses (React Query dedupes the key), so it adds
+ * no fetch. Renders nothing until the PR resolves to OPEN with real signal.
+ */
+function PrStatusBadges({ sessionId }: { sessionId: string }) {
+  const { data } = useSessionPr(sessionId);
+  const pr = data?.pr;
+  if (!pr || pr.state !== 'OPEN') return null;
+  return (
+    <>
+      {pr.checks && <ChecksBadge checks={pr.checks} />}
+      {pr.reviewDecision && <ReviewBadge decision={pr.reviewDecision} />}
+    </>
+  );
+}
+
+function ChecksBadge({ checks }: { checks: PrChecks }) {
+  const cfg = {
+    passing: {
+      icon: <CheckCircle2 size={12} />,
+      cls: 'text-emerald-600 dark:text-emerald-400',
+      label: `CI: ${checks.passed}/${checks.total} checks passed`,
+    },
+    failing: {
+      icon: <XCircle size={12} />,
+      cls: 'text-rose-600 dark:text-rose-400',
+      label: `CI: ${checks.failed} of ${checks.total} checks failing`,
+    },
+    pending: {
+      icon: <Clock size={12} />,
+      cls: 'text-amber-600 dark:text-amber-400',
+      label: `CI: ${checks.pending} of ${checks.total} checks running`,
+    },
+  }[checks.state];
+  return (
+    <span className={`inline-flex items-center ${cfg.cls}`} title={cfg.label} aria-label={cfg.label}>
+      {cfg.icon}
+    </span>
+  );
+}
+
+function ReviewBadge({ decision }: { decision: PrReviewDecision }) {
+  const cfg = {
+    approved: {
+      cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+      label: 'Approved',
+    },
+    changes_requested: {
+      cls: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+      label: 'Changes requested',
+    },
+    review_required: {
+      cls: 'border-border bg-muted/40 text-muted-foreground',
+      label: 'Review required',
+    },
+  }[decision];
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1 py-0.5 text-[10px] font-medium leading-none ${cfg.cls}`}
+      title={`Review: ${cfg.label}`}
     >
-      <span>PR #{prNumber}</span>
-      <ArrowUpRight size={11} className="opacity-70" />
-    </a>
+      {cfg.label}
+    </span>
   );
 }
 
@@ -673,7 +745,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
         <>
           <NarrativeLeft>
             {state.pr && (
-              <PrChip prNumber={state.pr.prNumber} prUrl={state.pr.prUrl} />
+              <PrChip sessionId={sessionId} prNumber={state.pr.prNumber} prUrl={state.pr.prUrl} />
             )}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">
@@ -733,7 +805,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
-            <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
             <NarrativeText themed={theme.text}>Ready to merge</NarrativeText>
           </NarrativeLeft>
           <MergeButton
@@ -750,7 +822,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
-            <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.ahead}</span> unpushed
             </NarrativeText>
@@ -770,7 +842,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
-            <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.behind}</span> behind base
             </NarrativeText>
@@ -790,7 +862,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
-            <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <AlertCircle size={11} />
               Conflicts with base
@@ -831,7 +903,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
-            <PrChip prNumber={state.prNumber} prUrl={state.prUrl} />
+            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <CheckCircle2 size={11} />
               Merged
@@ -851,7 +923,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
     case 'prClosed':
       return (
         <NarrativeLeft>
-          <PrChip prNumber={state.prNumber} prUrl={state.prUrl} closed />
+          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} closed />
           <NarrativeText themed={theme.text}>Closed</NarrativeText>
         </NarrativeLeft>
       );

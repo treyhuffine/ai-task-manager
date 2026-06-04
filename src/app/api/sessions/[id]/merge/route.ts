@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import { resolveSessionPr } from '@/lib/github/session-pr';
 
 /**
  * Merge the PR for this session via `@agentex/github`. The caller has
@@ -38,12 +39,13 @@ export async function POST(
       await import('@agentex/github');
     const repo = github.repo(ws.cwd);
 
-    // Resolve the PR number from the session's branch.
-    const all = await repo.listPRs({ state: 'open' });
-    const pr = all.find((p) => p.headRefName === session.branchName);
-    if (!pr) {
+    // Resolve the same PR the action bar shows — linked prNumber wins, then
+    // branch/suffix match — so Merge never acts on a different PR than the one
+    // the user is looking at (linked/fork/renamed/duplicate-branch sessions).
+    const pr = await resolveSessionPr(repo, session);
+    if (!pr || pr.state !== 'OPEN') {
       return Response.json(
-        { error: 'no_open_pr', message: 'No open PR for this session\'s branch.' },
+        { error: 'no_open_pr', message: 'No open PR for this session.' },
         { status: 404 },
       );
     }

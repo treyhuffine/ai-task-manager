@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2 } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -9,8 +9,9 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useArchiveSession } from '@/hooks/use-workspaces';
 import { useUpdateSession } from '@/hooks/use-execution';
 import { useClientLocation } from '@/hooks/use-client-location';
-import { useEditorPreference, EDITOR_LABELS } from '@/lib/client/editor-preference';
-import { revealInFinderHref, openInEditorHref, revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
+import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
+import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
+import { fsApi } from '@/lib/api/fs';
 import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import type { WorkspaceRecord } from '@/db/types';
@@ -683,27 +684,66 @@ function LiveBadge({ branch }: { branch: string | null }) {
  */
 function WorktreeDeepLinks({ worktreePath }: { worktreePath: string }) {
   const location = useClientLocation();
-  const { editor } = useEditorPreference();
+  const { label, openInEditor } = useOpenInPreferredEditor();
+  const [revealing, setRevealing] = useState(false);
+  const [opening, setOpening] = useState(false);
+
+  const handleReveal = useCallback(async () => {
+    if (revealing) return;
+    setRevealing(true);
+    try {
+      const res = await fsApi.openIn(worktreePath, 'finder');
+      if (!res.ok) toast.error(res.message ?? "Couldn't open the folder");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to open the folder');
+    } finally {
+      setRevealing(false);
+    }
+  }, [worktreePath, revealing]);
+
+  const handleOpenInEditor = useCallback(async () => {
+    if (opening) return;
+    setOpening(true);
+    try {
+      const res = await openInEditor(worktreePath);
+      if (!res.ok) {
+        toast.error(
+          res.reason === 'not_installed'
+            ? `${label} isn't installed or its CLI isn't on PATH`
+            : (res.message ?? `Couldn't open in ${label}`),
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to open in ${label}`);
+    } finally {
+      setOpening(false);
+    }
+  }, [worktreePath, opening, openInEditor, label]);
+
   if (location.kind !== 'host') return null;
 
   const platform = detectClientPlatform();
 
   return (
     <div className="space-y-0.5">
-      <a
-        href={revealInFinderHref(worktreePath)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+      <button
+        type="button"
+        onClick={handleReveal}
+        disabled={revealing}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
       >
-        <FolderOpen size={12} />
+        {revealing ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
         {revealLabel(platform)}
-      </a>
-      <a
-        href={openInEditorHref(worktreePath, editor)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+      </button>
+      <button
+        type="button"
+        onClick={handleOpenInEditor}
+        disabled={opening}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
       >
-        <SquareArrowOutUpRight size={12} />
-        Open in {EDITOR_LABELS[editor]}
-      </a>
+        {opening ? <Loader2 size={12} className="animate-spin" /> : <SquareArrowOutUpRight size={12} />}
+        Open in {label}
+      </button>
     </div>
   );
 }

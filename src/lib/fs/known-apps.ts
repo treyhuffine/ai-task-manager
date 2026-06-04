@@ -60,3 +60,27 @@ export const KNOWN_APPS: KnownApp[] = [
   { target: 'sublime',     label: 'Open in Sublime Text',     macAppName: 'Sublime Text',       cliCommand: 'subl' },
   { target: 'webstorm',    label: 'Open in WebStorm',         macAppName: 'WebStorm',           cliCommand: 'webstorm' },
 ];
+
+/**
+ * Editor targets only — excludes the file-manager / terminal pseudo-targets
+ * (finder, terminal, iterm). This is the single source of truth for any UI
+ * that lets the user pick an editor (settings picker, CLI, file-viewer
+ * "Open in editor"), so the list never drifts across surfaces.
+ */
+export const EDITOR_TARGETS = [
+  'vscode',
+  'cursor',
+  'antigravity',
+  'zed',
+  'sublime',
+  'webstorm',
+] as const satisfies readonly OpenTarget[];
+
+export type EditorTarget = (typeof EDITOR_TARGETS)[number];
+
+export function isEditorTarget(target: OpenTarget): target is EditorTarget {
+  return (EDITOR_TARGETS as readonly OpenTarget[]).includes(target);
+}
+
+/** The KnownApp entries for editors, in menu order. */
+export const EDITOR_APPS: KnownApp[] = KNOWN_APPS.filter((a) => isEditorTarget(a.target));

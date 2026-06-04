@@ -14,15 +14,12 @@
  * menu has stable item order.
  */
 
-import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { KNOWN_APPS, type KnownApp } from './known-apps';
 import type { OpenTarget } from './open-target';
-
-const execFileP = promisify(execFile);
 
 export interface DetectedApp {
   target: OpenTarget;
@@ -55,23 +52,26 @@ async function findMacBundle(macAppName: string): Promise<string | null> {
 }
 
 /**
- * Cross-platform `which`. Uses `where` on Windows (returns the first
- * match on success), `command -v` on POSIX (works in any sh-derivative,
- * doesn't rely on the `which` external binary being installed).
+ * In-process `which`: walk `$PATH` and return the first matching binary.
+ * Faster and more reliable than shelling out to `command -v` / `where` (no
+ * subprocess, no login-shell env quirks). On Windows we try each `PATHEXT`
+ * extension. Synchronous `existsSync` over a couple dozen dirs is cheap.
  */
-async function findCliBinary(cli: string): Promise<string | null> {
-  try {
-    if (process.platform === 'win32') {
-      const { stdout } = await execFileP('where', [cli]);
-      const first = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
-      return first ?? null;
+export function resolveOnPath(cli: string): string | null {
+  const envPath = process.env.PATH;
+  if (!envPath) return null;
+  const dirs = envPath.split(path.delimiter).filter(Boolean);
+  const exts =
+    process.platform === 'win32'
+      ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').map((e) => e.trim()).filter(Boolean)
+      : [''];
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const full = path.join(dir, cli + ext);
+      if (existsSync(full)) return full;
     }
-    const { stdout } = await execFileP('sh', ['-lc', `command -v ${cli}`]);
-    const resolved = stdout.trim();
-    return resolved || null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 async function detectOne(app: KnownApp, platform: NodeJS.Platform): Promise<DetectedApp | null> {
@@ -91,9 +91,11 @@ async function detectOne(app: KnownApp, platform: NodeJS.Platform): Promise<Dete
     if (bundle) return { target: app.target, label: app.label, source: bundle };
   }
 
-  // 3) Cross-platform: PATH binary.
+  // 3) Cross-platform: PATH binary. On macOS this is also the path for
+  //    editors installed only via their "Install CLI command in PATH"
+  //    action without an .app under /Applications.
   if (app.cliCommand) {
-    const bin = await findCliBinary(app.cliCommand);
+    const bin = resolveOnPath(app.cliCommand);
     if (bin) return { target: app.target, label: app.label, source: bin };
   }
 

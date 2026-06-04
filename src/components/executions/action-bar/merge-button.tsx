@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { GitMerge, AlertTriangle } from 'lucide-react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { ActionButton } from './action-button';
-import { useMergePr } from '@/hooks/use-execution-actions';
+import { useMergePr, useSessionPr, useSetAutoMerge } from '@/hooks/use-execution-actions';
 import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +43,35 @@ export function MergeButton({
   const [method, setMethod] = useState<'squash' | 'merge' | 'rebase'>('squash');
   const [error, setError] = useState<string | null>(null);
   const merge = useMergePr(sessionId);
+
+  // CI gate: warn (never block — the user can always override) when the PR
+  // has failing or still-running checks. Reads the same cached PR query the
+  // action bar already drives, so no extra fetch.
+  const { data: prData } = useSessionPr(sessionId);
+  const checks = prData?.pr?.checks ?? null;
+  const ciWarn = checks && (checks.state === 'failing' || checks.state === 'pending') ? checks : null;
+
+  const autoMerge = useSetAutoMerge(sessionId);
+  const autoMergeEnabled = prData?.pr?.autoMergeEnabled ?? false;
+
+  const handleAutoMerge = () => {
+    setError(null);
+    autoMerge.mutate(autoMergeEnabled ? { enable: false } : { enable: true, method }, {
+      // Enabling is "set it and walk away" — close the dialog. Disabling
+      // keeps it open so the user can still merge now.
+      onSuccess: () => {
+        if (!autoMergeEnabled) setOpen(false);
+      },
+      onError: (err) => {
+        if (err instanceof ApiError) {
+          const body = err.body as { message?: string; error?: string } | null;
+          setError(body?.message ?? body?.error ?? `Auto-merge failed (${err.status})`);
+        } else {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      },
+    });
+  };
 
   const handleMerge = () => {
     setError(null);
@@ -108,6 +137,24 @@ export function MergeButton({
                   </div>
                 )}
 
+                {ciWarn && (
+                  <div
+                    className={cn(
+                      'flex items-start gap-2 rounded-md border px-3 py-2 text-[11px]',
+                      ciWarn.state === 'failing'
+                        ? 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                        : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+                    )}
+                  >
+                    <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+                    <span>
+                      {ciWarn.state === 'failing'
+                        ? `${ciWarn.failed} of ${ciWarn.total} CI ${ciWarn.failed === 1 ? 'check is' : 'checks are'} failing. Merge anyway?`
+                        : `${ciWarn.pending} of ${ciWarn.total} CI ${ciWarn.pending === 1 ? 'check is' : 'checks are'} still running. Merge anyway?`}
+                    </span>
+                  </div>
+                )}
+
                 <fieldset className="space-y-1.5">
                   <legend className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground mb-1">
                     Merge method
@@ -139,6 +186,22 @@ export function MergeButton({
                     {error}
                   </div>
                 )}
+
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+                  <span className="text-[11px] text-muted-foreground">
+                    {autoMergeEnabled
+                      ? 'Auto-merge is on — GitHub merges when checks pass.'
+                      : 'Or let GitHub merge automatically once checks pass.'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAutoMerge}
+                    disabled={autoMerge.isPending}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-medium border border-border hover:bg-muted/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                  >
+                    {autoMerge.isPending ? '…' : autoMergeEnabled ? 'Disable auto-merge' : 'Enable auto-merge'}
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/20">

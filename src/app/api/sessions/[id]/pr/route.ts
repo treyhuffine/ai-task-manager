@@ -3,7 +3,8 @@ import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/li
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { buildOpenPrPrompt } from '@/lib/executor/prompts/open-pr';
 import * as executor from '@/lib/executor/adapter';
-import { getPrMergeable, type PrMergeable } from '@/lib/github/pr-mergeable';
+import { getPrStatus, type PrMergeable, type PrStatus } from '@/lib/github/pr-mergeable';
+import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 
 /**
  * PR surface for the execution view's action bar.
@@ -33,6 +34,43 @@ export interface PrInfo {
    * Only populated for OPEN PRs; closed/merged PRs carry `null`.
    */
   mergeable: PrMergeable | null;
+  /**
+   * Rolled-up CI check state for an OPEN PR. `null` when the PR has no
+   * checks, when it's closed/merged, or when the gh side-call failed.
+   */
+  checks: PrChecks | null;
+  /**
+   * GitHub's review decision for an OPEN PR (`approved` /
+   * `changes_requested` / `review_required`). `null` when there's no
+   * decision, when it's closed/merged, or when the gh side-call failed.
+   */
+  reviewDecision: PrReviewDecision | null;
+  /** Whether auto-merge ("merge when ready") is enabled on the PR. */
+  autoMergeEnabled: boolean;
+}
+
+/** Fields shared by `@agentex/github`'s PRSummary and PRDetail that we expose. */
+type PrLike = Pick<
+  PrInfo,
+  'number' | 'url' | 'state' | 'isDraft' | 'headRefName' | 'baseRefName' | 'title' | 'updatedAt'
+>;
+
+/** Flatten a gh PR + its (open-only) status side-call into the wire shape. */
+function toPrInfo(pr: PrLike, status: PrStatus | null): PrInfo {
+  return {
+    number: pr.number,
+    url: pr.url,
+    state: pr.state,
+    isDraft: pr.isDraft,
+    headRefName: pr.headRefName,
+    baseRefName: pr.baseRefName,
+    title: pr.title,
+    updatedAt: pr.updatedAt,
+    mergeable: status?.mergeable ?? null,
+    checks: status?.checks ?? null,
+    reviewDecision: status?.reviewDecision ?? null,
+    autoMergeEnabled: status?.autoMergeEnabled ?? false,
+  };
 }
 
 export async function GET(
@@ -62,19 +100,8 @@ export async function GET(
       if (session.prNumber != null) {
         try {
           const pr = await repo.getPR(session.prNumber);
-          const mergeable = pr.state === 'OPEN' ? await getPrMergeable(ws.cwd, pr.number) : null;
-          const info: PrInfo = {
-            number: pr.number,
-            url: pr.url,
-            state: pr.state,
-            isDraft: pr.isDraft,
-            headRefName: pr.headRefName,
-            baseRefName: pr.baseRefName,
-            title: pr.title,
-            updatedAt: pr.updatedAt,
-            mergeable,
-          };
-          return Response.json({ pr: info });
+          const status = pr.state === 'OPEN' ? await getPrStatus(ws.cwd, pr.number) : null;
+          return Response.json({ pr: toPrInfo(pr, status) });
         } catch (err) {
           console.warn(
             `[GET /api/sessions/${id}/pr] linked prNumber=${session.prNumber} lookup failed:`,
@@ -111,19 +138,8 @@ export async function GET(
         }
         return Response.json({ pr: null });
       }
-      const mergeable = pr.state === 'OPEN' ? await getPrMergeable(ws.cwd, pr.number) : null;
-      const info: PrInfo = {
-        number: pr.number,
-        url: pr.url,
-        state: pr.state,
-        isDraft: pr.isDraft,
-        headRefName: pr.headRefName,
-        baseRefName: pr.baseRefName,
-        title: pr.title,
-        updatedAt: pr.updatedAt,
-        mergeable,
-      };
-      return Response.json({ pr: info });
+      const status = pr.state === 'OPEN' ? await getPrStatus(ws.cwd, pr.number) : null;
+      return Response.json({ pr: toPrInfo(pr, status) });
     } catch (err) {
       if (err instanceof NotInstalledError) {
         return Response.json({ pr: null, ghStatus: 'not_installed' });

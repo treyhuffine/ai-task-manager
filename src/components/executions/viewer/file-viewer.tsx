@@ -17,8 +17,8 @@ import {
 import { toast } from 'sonner';
 import { useSession, useSessionTree, useWriteFile } from '@/hooks/use-execution';
 import { useClientLocation } from '@/hooks/use-client-location';
-import { useEditorPreference, EDITOR_LABELS } from '@/lib/client/editor-preference';
-import { openInEditorHref, revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
+import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
+import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { fsApi } from '@/lib/api/fs';
 import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
@@ -424,31 +424,50 @@ interface RevealButtonProps {
  */
 function RevealButton({ sessionId, path }: RevealButtonProps) {
   const location = useClientLocation();
-  const { editor } = useEditorPreference();
+  const { label, openInEditor } = useOpenInPreferredEditor();
   const { data: session } = useSession(sessionId);
   const worktreePath = session?.worktreePath ?? null;
   const absolutePath = worktreePath ? `${worktreePath}/${path}` : null;
   const [revealing, setRevealing] = useState(false);
+  const [opening, setOpening] = useState(false);
 
   const handleReveal = useCallback(async () => {
     if (!absolutePath || revealing) return;
-    // Browsers block `file://` navigation from `http(s)://` origins, so
-    // we route through the local fs API instead — same backend the
-    // worktree open-button uses. Open the parent dir; on macOS this
-    // brings Finder to the folder containing the file.
-    const parent = absolutePath.replace(/[^/]*$/, '') || '/';
+    // Browsers block `file://` navigation from `http(s)://` origins, so we
+    // route through the local fs API. `reveal` selects the file in its
+    // folder (open -R / explorer /select,) rather than launching it.
     setRevealing(true);
     try {
-      const res = await fsApi.openIn(parent, 'finder');
+      const res = await fsApi.openIn(absolutePath, 'finder', { reveal: true });
       if (!res.ok) {
-        toast.error(res.message ?? "Couldn't open in Finder");
+        toast.error(res.message ?? "Couldn't reveal the file");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to open in Finder');
+      toast.error(err instanceof Error ? err.message : 'Failed to reveal the file');
     } finally {
       setRevealing(false);
     }
   }, [absolutePath, revealing]);
+
+  const handleOpenInEditor = useCallback(async () => {
+    if (!absolutePath || opening) return;
+    setOpening(true);
+    try {
+      // Pass the worktree root so the editor loads the project tree.
+      const res = await openInEditor(absolutePath, { projectDir: worktreePath ?? undefined });
+      if (!res.ok) {
+        toast.error(
+          res.reason === 'not_installed'
+            ? `${label} isn't installed or its CLI isn't on PATH`
+            : (res.message ?? `Couldn't open in ${label}`),
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to open in ${label}`);
+    } finally {
+      setOpening(false);
+    }
+  }, [absolutePath, opening, openInEditor, worktreePath, label]);
 
   if (!absolutePath) return null;
   if (location.kind !== 'host') return null;
@@ -466,13 +485,19 @@ function RevealButton({ sessionId, path }: RevealButtonProps) {
       >
         {revealing ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
       </button>
-      <a
-        href={openInEditorHref(absolutePath, editor)}
-        title={`Open in ${EDITOR_LABELS[editor]}`}
-        className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+      <button
+        type="button"
+        onClick={handleOpenInEditor}
+        disabled={opening}
+        title={`Open in ${label}`}
+        className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0 disabled:opacity-50"
       >
-        <SquareArrowOutUpRight size={12} />
-      </a>
+        {opening ? (
+          <Loader2 size={12} className="animate-spin" />
+        ) : (
+          <SquareArrowOutUpRight size={12} />
+        )}
+      </button>
     </>
   );
 }
