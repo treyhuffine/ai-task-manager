@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { resetDb } from '@/lib/db';
-import { createWorkspace, createExecution, getPreviewTarget } from '@/lib/db/queries';
+import { createWorkspace, createExecution, getPreviewTarget, setExecutionSetupScript } from '@/lib/db/queries';
 import {
   resolvePreview,
   getPreviewState,
@@ -75,6 +75,38 @@ describe('preview service (local flow)', () => {
     const { exec } = makeExecution(null);
     await expect(resolvePreview(exec.id, { remote: false })).rejects.toMatchObject({ code: 'no_command' });
   });
+
+  it('holds the dev server while the setup script is still installing deps', async () => {
+    const { exec } = makeExecution(PORT_SERVER);
+    // Setup script in flight → starting the dev server now would race the
+    // install and crash on missing node_modules. The gate must hold.
+    setExecutionSetupScript(exec.id, 'running');
+
+    const gated = await resolvePreview(exec.id, { remote: false });
+    expect(gated.setupStatus).toBe('running');
+    expect(gated.serverStatus).toBe('idle');
+    expect(gated.localUrl).toBeNull();
+    // No supervised process was spawned.
+    expect(getSupervisor().status(getPreviewTarget(exec.id, null)!.id)).toBeNull();
+
+    // Setup finishes → the gate releases and the server cold-starts normally.
+    setExecutionSetupScript(exec.id, 'done');
+    const started = await resolvePreview(exec.id, { remote: false });
+    expect(started.setupStatus).toBeNull();
+    expect(started.serverStatus).toBe('running');
+    expect(started.localUrl).toBe(`http://localhost:${started.port}`);
+  }, 15_000);
+
+  it('surfaces a failed setup but still allows the server to start', async () => {
+    const { exec } = makeExecution(PORT_SERVER);
+    // A failed setup may be unrelated to the dev server (Flow is strategy-
+    // agnostic about setup), so it is surfaced as a warning, not a hard gate.
+    setExecutionSetupScript(exec.id, 'failed', 'boom');
+    const state = await resolvePreview(exec.id, { remote: false });
+    expect(state.setupStatus).toBe('failed');
+    expect(state.setupError).toBe('boom');
+    expect(state.serverStatus).toBe('running');
+  }, 15_000);
 
   it('reports crashed when the dev command exits', async () => {
     const { exec } = makeExecution('node -e "process.exit(2)"');

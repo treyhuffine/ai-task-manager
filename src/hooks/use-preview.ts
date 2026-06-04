@@ -76,6 +76,28 @@ export function usePinPreview(executionId: string | null) {
   });
 }
 
+/**
+ * Re-run the workspace setup script (deps install) for this execution, then
+ * invalidate the preview state so the gate updates. Used by the preview pane's
+ * "Re-run setup" recovery when the dev server can't start because dependencies
+ * are missing. Also nudges the session/rail queries so the SetupCard's
+ * "Running setup script…" row reflects the new run.
+ */
+export function useRetryPreviewSetup(executionId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true } | { error: string }, Error, void>({
+    mutationFn: async () => {
+      if (!executionId) throw new Error('no_execution');
+      return previewApi.retrySetupScript(executionId);
+    },
+    onSuccess: () => {
+      if (!executionId) return;
+      qc.invalidateQueries({ queryKey: PREVIEW_KEY(executionId) });
+      qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
+    },
+  });
+}
+
 export function useSetPreviewUrls(executionId: string | null) {
   const qc = useQueryClient();
   return useMutation<{ urls: PreviewManualUrl[] }, Error, PreviewManualUrl[]>({

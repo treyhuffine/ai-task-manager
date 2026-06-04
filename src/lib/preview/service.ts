@@ -74,6 +74,26 @@ export interface PreviewState {
   remoteError: { code: string; message: string; hint?: string } | null;
   /** Manual URLs pasted on the execution (BYO tunnel). */
   manualUrls: PreviewUrl[];
+  /** Workspace setup-script state for this execution. `running` = deps are
+   *  still installing and the dev-server cold-start is held back; `failed` =
+   *  setup errored, so the preview may be missing dependencies. `done`/unset
+   *  collapse to null (no gate). */
+  setupStatus: 'running' | 'failed' | null;
+  /** Tail of the setup script's output when `setupStatus === 'failed'`. */
+  setupError: string | null;
+}
+
+/**
+ * Surface the execution's setup-script state to the preview pane. Only the
+ * actionable values are propagated — `running` (deps installing) and `failed`
+ * (setup errored); `done`/null collapse to null. `running` additionally blocks
+ * the dev-server cold-start in `resolvePreview`: starting `next dev` (etc.)
+ * against a half-installed `node_modules` just crash-loops on MODULE_NOT_FOUND.
+ */
+function setupGate(execution: ExecutionRecord): { status: 'running' | 'failed' | null; error: string | null } {
+  const s = execution.setupScriptStatus;
+  if (s === 'running' || s === 'failed') return { status: s, error: execution.setupScriptError ?? null };
+  return { status: null, error: null };
 }
 
 interface WorktreeContext {
@@ -233,6 +253,7 @@ export function getPreviewState(executionId: string, service: string | null = nu
 
   const serverStatus: PreviewStatus = rec?.status ?? 'idle';
   const port = rec?.port ?? null;
+  const gate = setupGate(ctx.execution);
   return {
     executionId,
     service,
@@ -248,6 +269,8 @@ export function getPreviewState(executionId: string, service: string | null = nu
     remoteUrl: null,
     remoteError: null,
     manualUrls: ctx.execution.previewUrls ?? [],
+    setupStatus: gate.status,
+    setupError: gate.error,
   };
 }
 
@@ -296,6 +319,19 @@ export async function resolvePreview(
   }
 
   const needsServer = provider!.managesLocalServer ?? true;
+
+  // Hold the dev-server cold-start while the workspace setup script is still
+  // installing dependencies. Starting `next dev` (etc.) against a half-built
+  // `node_modules` just crash-loops on MODULE_NOT_FOUND — the exact failure
+  // users hit when Start raced an in-flight `yarn install`. The pane shows
+  // "Installing dependencies…" off the polled `setupStatus` and re-resolves
+  // once setup lands. Only `running` blocks (transient); a `failed` setup is
+  // surfaced as a warning but still allowed to start, since the failure may be
+  // unrelated to the dev server (Flow stays strategy-agnostic about setup).
+  if (needsServer && ctx.execution.setupScriptStatus === 'running') {
+    return snapshotFromRecord(ctx, target, getSupervisor().status(target.id), remoteInfo, null, null);
+  }
+
   let serverRec: PreviewProcessRecord | null = null;
   if (needsServer) {
     serverRec = await ensureServerListening(ctx, target);
@@ -354,6 +390,7 @@ function snapshotFromRecord(
   const localUrl = localUrlOverride !== undefined
     ? localUrlOverride
     : (serverStatus === 'running' && port ? `http://localhost:${port}` : null);
+  const gate = setupGate(ctx.execution);
   return {
     executionId: ctx.execution.id,
     service: target.service,
@@ -369,6 +406,8 @@ function snapshotFromRecord(
     remoteUrl,
     remoteError,
     manualUrls: ctx.execution.previewUrls ?? [],
+    setupStatus: gate.status,
+    setupError: gate.error,
   };
 }
 

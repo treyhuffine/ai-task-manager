@@ -35,6 +35,10 @@ export interface PreviewState {
   remoteUrl: string | null;
   remoteError: PreviewRemoteError | null;
   manualUrls: PreviewManualUrl[];
+  /** Workspace setup-script state. `running` = deps installing (server held
+   *  back); `failed` = setup errored (preview may be missing deps). */
+  setupStatus: 'running' | 'failed' | null;
+  setupError: string | null;
 }
 
 export interface PreviewLogLine {
@@ -98,6 +102,14 @@ export const previewApi = {
 
   pin(executionId: string, pinned: boolean, service?: string | null): Promise<PreviewState> {
     return api.post<PreviewState>(`/executions/${executionId}/preview/pin`, { pinned, service: service ?? null });
+  },
+
+  /** Re-run the workspace setup script (deps install) for this execution.
+   *  Used by the preview pane's "Re-run setup" recovery when the dev server
+   *  can't start because dependencies are missing. Fires in the background;
+   *  `setupStatus` flips to 'running' and the gate holds Start until it lands. */
+  retrySetupScript(executionId: string): Promise<{ ok: true } | { error: string }> {
+    return api.post(`/executions/${executionId}/retry-setup-script`);
   },
 
   restoreSet(workspaceId: string): Promise<{ results: Array<{ executionId: string; service: string | null; ok: boolean; error?: string }> }> {

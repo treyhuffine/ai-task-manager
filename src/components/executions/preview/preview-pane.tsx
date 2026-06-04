@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Globe, Loader2, Smartphone, X } from 'lucide-react';
+import { AlertCircle, Globe, Loader2, RotateCw, Smartphone, X } from 'lucide-react';
 import { openBeamdSheet } from '@/components/dashboard/beamd-sheet';
 import { OpenOnDevice } from './open-on-device';
 import { useWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
@@ -12,6 +12,7 @@ import {
   usePreviewLogs,
   useSetPreviewUrls,
   usePreviewSettings,
+  useRetryPreviewSetup,
 } from '@/hooks/use-preview';
 import { RemotePreviewPromo } from './remote-preview-promo';
 import type { PreviewState, PreviewRemoteError, PreviewManualUrl } from '@/lib/api/preview';
@@ -45,6 +46,7 @@ interface PreviewPaneProps {
 export function PreviewPane({ executionId, workspaceId, active = true, onOpenWorkspaceSettings }: PreviewPaneProps) {
   const { data: ws } = useWorkspace(workspaceId);
   const command = ws?.startCommand ?? null;
+  const hasSetupCommand = !!ws?.setupCommand?.trim();
 
   const updateWorkspace = useUpdateWorkspace();
   const handleSaveCommand = async (next: string) => {
@@ -67,6 +69,7 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   const startMut = useStartPreview(executionId);
   const stopMut = useStopPreview(executionId);
   const setUrlsMut = useSetPreviewUrls(executionId);
+  const retrySetupMut = useRetryPreviewSetup(executionId);
 
   // Remote resolution (URL or actionable error) is held here, not in the
   // polled status — the cheap status endpoint never brings a tunnel up.
@@ -128,6 +131,12 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
     stopMut.mutate();
   };
   const handleRefresh = () => setIframeKey((k) => k + 1);
+  const handleRetrySetup = () => {
+    // Fast-poll so the gate flips to "Installing dependencies…" promptly, then
+    // auto-starts once setup lands.
+    setPollFastUntil(Date.now() + 30_000);
+    retrySetupMut.mutate();
+  };
   const handleSaveUrls = async (urls: PreviewManualUrl[]) => {
     await setUrlsMut.mutateAsync(urls);
     // Re-resolve remote with the freshly-saved URL if we're in remote mode.
@@ -143,6 +152,11 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   useEffect(() => {
     if (!active || !executionId || !state) return;
     if (autoStartedRef.current === executionId) return;
+    // Hold auto-start while the setup script is installing deps (or failed):
+    // starting against a half-built node_modules just crash-loops. Don't mark
+    // engaged — when setup clears (retry finishes / status → done), this effect
+    // re-runs on the setupStatus change and starts then.
+    if (state.setupStatus === 'running' || state.setupStatus === 'failed') return;
     const startable = state.serverStatus === 'idle' || state.serverStatus === 'stopped';
     if (startable && !!command && !startMut.isPending) {
       autoStartedRef.current = executionId;
@@ -153,7 +167,7 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
     }
     // handleStart is a stable-enough closure; the ref guard prevents re-fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, executionId, state?.serverStatus, command]);
+  }, [active, executionId, state?.serverStatus, state?.setupStatus, command]);
 
   const isRunning = state?.serverStatus === 'running';
   // Sharing is meaningful once the dev server is actually serving content —
@@ -233,6 +247,9 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
             isStarting={startMut.isPending}
             onSaveUrls={handleSaveUrls}
             isSavingUrls={setUrlsMut.isPending}
+            hasSetupCommand={hasSetupCommand}
+            onRetrySetup={handleRetrySetup}
+            isRetryingSetup={retrySetupMut.isPending}
           />
         )}
       </div>
@@ -259,20 +276,41 @@ interface PreviewBodyProps {
   isStarting: boolean;
   onSaveUrls: (urls: PreviewManualUrl[]) => Promise<void> | void;
   isSavingUrls: boolean;
+  /** Whether the workspace has a setup command — gates the "Re-run setup" recovery. */
+  hasSetupCommand: boolean;
+  onRetrySetup: () => void;
+  isRetryingSetup: boolean;
 }
 
 /** What to show when there's no iframe yet — status, errors, and the BYO-URL input. */
 function PreviewBody(props: PreviewBodyProps) {
-  const { mode, state, command, remoteError } = props;
+  const { mode, state, command, remoteError, hasSetupCommand, onRetrySetup, isRetryingSetup } = props;
   const serverStatus = state?.serverStatus;
   const needsServer = providerNeedsServer(state);
+  const setupStatus = state?.setupStatus ?? null;
 
   // Remote preview is "set up" once beamd is the connected, active provider —
   // until then we surface it as an option in the empty states (prominently
   // when nothing's configured yet, subtly otherwise). Once set up, the header
-  // "Phone" button is the always-present, subtle entry point.
+  // "Phone" button is the always-present, subtle entry point. Read this hook
+  // up front — it must run on every render, before any early return below.
   const { data: previewSettings } = usePreviewSettings();
   const remoteSetUp = !!previewSettings && previewSettings.beamd.connected && previewSettings.activeProvider === 'beamd';
+
+  // Setup script is still installing deps → the dev server is intentionally
+  // held back (starting now would crash on missing node_modules). Show a
+  // spinner; the pane re-resolves and auto-starts the moment setup finishes.
+  if (setupStatus === 'running') {
+    return (
+      <Centered>
+        <Loader2 size={16} className="animate-spin text-muted-foreground" />
+        <span className="text-[13px] text-muted-foreground">Installing dependencies…</span>
+        <span className="max-w-xs text-center text-[11px] text-muted-foreground/60">
+          Running the workspace setup script. The preview starts automatically when it finishes.
+        </span>
+      </Centered>
+    );
+  }
 
   // A remote-provider error (beamd not configured, no manual URL, …) that
   // isn't just "the server isn't up yet" gets its own actionable surface.
@@ -329,7 +367,35 @@ function PreviewBody(props: PreviewBodyProps) {
   // "Phone" button takes over.
   const showPromo = !remoteSetUp;
 
+  // Setup recovery: surface the right path when the dev server likely can't
+  // come up because dependencies are missing.
+  //   - failed setup → prominent "Re-run setup" (deps install errored).
+  //   - crashed + a setup command → quieter "Re-run setup" hint (covers a
+  //     stale/partial install, e.g. a prior production-only `yarn install`).
+  //   - crashed + NO setup command → "configure" nudge: the most common first
+  //     run failure is simply forgetting to set an install step, so point the
+  //     user straight at workspace settings rather than at raw crash logs.
+  const setupRecovery: { tone: 'error' | 'hint' | 'configure'; error: string | null } | null =
+    setupStatus === 'failed'
+      ? { tone: 'error', error: state?.setupError ?? null }
+      : serverStatus === 'crashed'
+        ? hasSetupCommand
+          ? { tone: 'hint', error: null }
+          : { tone: 'configure', error: null }
+        : null;
+
   const footerNodes: React.ReactNode[] = [];
+  if (setupRecovery)
+    footerNodes.push(
+      <SetupRecovery
+        key="setup"
+        tone={setupRecovery.tone}
+        error={setupRecovery.error}
+        onRetry={onRetrySetup}
+        isRetrying={isRetryingSetup}
+        onOpenSettings={props.onOpenWorkspaceSettings}
+      />,
+    );
   if (showPromo) footerNodes.push(<RemotePreviewPromo key="promo" prominent={variant === 'no-command'} />);
   if (showManual)
     footerNodes.push(
@@ -353,6 +419,80 @@ function PreviewBody(props: PreviewBodyProps) {
       isStarting={props.isStarting}
       footer={footerNodes.length ? <div className="w-full space-y-4">{footerNodes}</div> : undefined}
     />
+  );
+}
+
+/**
+ * Setup recovery shown under the empty/crashed preview state. Three tones:
+ *   - `error`     — a failed setup script (surfaces its output + "Re-run setup").
+ *   - `hint`      — server crashed despite a configured setup command; deps may
+ *                   be stale/partial. Softer "Re-run setup" nudge.
+ *   - `configure` — server crashed and NO setup command is set; the likely fix
+ *                   is adding an install step. Points at workspace settings.
+ * The re-run action triggers the workspace setup command, which the preview
+ * gate then waits on before starting the dev server.
+ */
+function SetupRecovery({
+  tone,
+  error,
+  onRetry,
+  isRetrying,
+  onOpenSettings,
+}: {
+  tone: 'error' | 'hint' | 'configure';
+  error: string | null;
+  onRetry: () => void;
+  isRetrying: boolean;
+  onOpenSettings?: () => void;
+}) {
+  const isError = tone === 'error';
+  const isConfigure = tone === 'configure';
+  const title = isError
+    ? 'Setup script failed'
+    : isConfigure
+      ? 'No setup command configured'
+      : 'Dependencies may be missing';
+  const body = isError
+    ? 'The workspace setup script errored, so the preview may be missing dependencies.'
+    : isConfigure
+      ? 'The dev server couldn’t start. If your app needs a dependency install (e.g. yarn install / pnpm install), add it as the workspace setup command — it runs once per worktree before the preview starts.'
+      : 'The dev server couldn’t start. If dependencies aren’t installed, re-run the workspace setup script.';
+  return (
+    <div className="w-full rounded-md border border-border bg-card/40 p-3">
+      <div className="flex items-start gap-2">
+        <AlertCircle size={13} className={isError ? 'mt-0.5 shrink-0 text-amber-500' : 'mt-0.5 shrink-0 text-muted-foreground'} />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="text-[13px] font-medium text-foreground">{title}</div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">{body}</p>
+          {error && (
+            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/60 px-2 py-1.5 font-mono text-[10.5px] text-muted-foreground/90">
+              {error}
+            </pre>
+          )}
+          {isConfigure ? (
+            onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:bg-foreground/90"
+              >
+                Set a setup command
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={isRetrying}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
+            >
+              {isRetrying ? <Loader2 size={12} className="animate-spin" /> : <RotateCw size={12} />}
+              Re-run setup
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
