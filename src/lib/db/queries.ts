@@ -969,6 +969,27 @@ export function setExecutionSetupScript(
 }
 
 /**
+ * Boot recovery: any execution still marked `setupScriptStatus='running'` at
+ * startup is orphaned — its background runner died with the previous server
+ * process and can never resolve, so the UI spins on "Running setup script…"
+ * forever. Flip those to `failed` with a retryable message. Returns the count.
+ */
+export function resetOrphanedSetupScripts(): number {
+  const db = getDb();
+  const rows = db
+    .update(executions)
+    .set({
+      setupScriptStatus: 'failed',
+      setupScriptError: 'Setup was interrupted (Flow restarted). Retry to re-run it.',
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(executions.setupScriptStatus, 'running'))
+    .returning({ id: executions.id })
+    .all();
+  return rows.length;
+}
+
+/**
  * Reset worktree-identity fields on an execution so a fresh `provisionWorktreeForSession`
  * call repopulates them. Used by the "Continue" flow when reopening an archived
  * execution whose worktree was torn down — the row's `worktreePath` still

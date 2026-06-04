@@ -109,6 +109,18 @@ export async function register() {
     console.warn('[health] background sweep init failed', err);
   }
 
+  // Reset orphaned background setup scripts. A `setupScriptStatus='running'`
+  // at boot means the runner died with the previous server process (restart /
+  // crash mid-install), so it can never resolve — the UI would spin on
+  // "Running setup script…" forever. Flip to failed-with-retry instead.
+  try {
+    const { resetOrphanedSetupScripts } = await import('@/lib/db/queries');
+    const n = resetOrphanedSetupScripts();
+    if (n > 0) console.log(`[setup] reset ${n} orphaned 'running' setup script(s) from a prior run`);
+  } catch (err) {
+    console.warn('[setup] orphaned-setup reset failed', err);
+  }
+
   // Reap orphaned preview processes from a prior Flow run that crashed
   // or restarted without a clean stop. The PID files we wrote at spawn
   // time tell us what to look for; we kill the process group only when

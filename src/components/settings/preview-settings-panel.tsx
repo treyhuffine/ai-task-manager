@@ -34,10 +34,10 @@ export function PreviewSettingsPanel() {
     update.mutate({ activeProvider: id });
   };
 
-  // Connecting beamd implies you want to use it — if the picker is still on
-  // localhost-only, switch it over so remote previews actually resolve.
+  // Connecting beamd implies you want to use it — make it the active provider
+  // (from localhost, manual, or anything else) so remote previews resolve.
   const handleBeamdConnected = () => {
-    if (settings.activeProvider === 'localhost') update.mutate({ activeProvider: 'beamd' });
+    if (settings.activeProvider !== 'beamd') update.mutate({ activeProvider: 'beamd' });
   };
 
   return (

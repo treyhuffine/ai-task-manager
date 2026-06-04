@@ -49,9 +49,10 @@ export function BeamdSheet() {
     if (open) refetchSettings();
   }, [open, refetchSettings]);
 
-  // Connecting implies intent to use it — flip the picker over from localhost.
+  // Connecting implies intent to use it — make beamd the active provider
+  // (from localhost, manual, or anything else; only skip if already beamd).
   const handleConnected = () => {
-    if (settings?.activeProvider === 'localhost') update.mutate({ activeProvider: 'beamd' });
+    if (settings && settings.activeProvider !== 'beamd') update.mutate({ activeProvider: 'beamd' });
   };
 
   return (

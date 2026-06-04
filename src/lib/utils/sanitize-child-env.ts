@@ -24,6 +24,14 @@
  */
 
 const STATIC_DROP = new Set<string>([
+  // Flow's own run mode must not cross into the user's app processes. If Flow
+  // runs as a production server (NODE_ENV=production), a child `yarn install`
+  // would SKIP devDependencies (breaking dev servers that need them, e.g. a
+  // next.config that requires a dev-only module), and `next dev` would warn /
+  // misbehave on a non-standard value. Dropped → each tool defaults its own
+  // (`next dev`→development, `next build`→production, installs→full).
+  'NODE_ENV',
+
   // Network / binding — would force the child onto Flow's port.
   'PORT',
   'HOST',

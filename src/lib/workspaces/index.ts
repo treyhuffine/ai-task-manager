@@ -16,6 +16,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import slugify from '@sindresorhus/slugify';
 import { getAppRoot } from '@/lib/config/paths';
+import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import type { WorkspaceRecord } from '@/db/types';
 
 const execFileAsync = promisify(execFile);
@@ -60,12 +61,16 @@ export async function runWorktreeScript(opts: {
   /** Generous default — installs can be slow. */
   timeoutMs?: number;
 }): Promise<WorktreeScriptResult> {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  // Sanitize like supervised dev servers do — drop Flow's Next worker plumbing
+  // (TURBOPACK, PORT, …) and NODE_ENV so the setup command (e.g. `yarn install`)
+  // runs in a clean, dev-appropriate env instead of inheriting Flow's server
+  // env. The FLOW_* context vars are re-added explicitly (sanitize strips the
+  // FLOW_ prefix, then applies these).
+  const env = sanitizeChildEnv({
     FLOW_SOURCE_CHECKOUT_PATH: opts.sourceCheckoutPath,
     FLOW_WORKTREE_PATH: opts.worktreePath,
     ...(opts.branch ? { FLOW_BRANCH_NAME: opts.branch } : {}),
-  };
+  });
   try {
     const { stdout, stderr } = await execFileAsync('sh', ['-lc', opts.command], {
       cwd: opts.worktreePath,
