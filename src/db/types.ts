@@ -143,6 +143,8 @@ export type ChatSessionWithExecution = ChatSessionRecord & {
   prNumber: number | null;
   setupError: string | null;
   setupStartedAt: string | null;
+  setupScriptStatus: 'running' | 'done' | 'failed' | null;
+  setupScriptError: string | null;
   takeoverStartedAt: string | null;
   takeoverBaseSha: string | null;
   takeoverBranch: string | null;

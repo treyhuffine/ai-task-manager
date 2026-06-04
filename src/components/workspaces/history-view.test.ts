@@ -26,6 +26,8 @@ function s(id: string, iso: string): RailSession {
     prNumber: null,
     setupError: null,
     setupStartedAt: null,
+    setupScriptStatus: null,
+    setupScriptError: null,
     lastOutcomeEventAt: iso,
     lastViewedAt: null,
     unreadMarkerAt: null,

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2 } from 'lucide-react';
-import { useRetrySetup } from '@/hooks/use-execution';
+import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2, RotateCw } from 'lucide-react';
+import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ThinkingDots } from './thinking-dots';
 
@@ -119,6 +119,43 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
           prNumber={session.prNumber ?? null}
         />
       )}
+
+      {/* Background setup script — runs after the worktree is ready, so the
+          session is already chattable. Non-blocking; just a status row. */}
+      {session.worktreePath && session.setupScriptStatus === 'running' && (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <ThinkingDots />
+          <span>Running setup script…</span>
+        </div>
+      )}
+      {session.setupScriptStatus === 'failed' && (
+        <SetupScriptErrorRow
+          sessionId={session.id}
+          error={session.setupScriptError ?? 'Setup script failed'}
+        />
+      )}
+    </div>
+  );
+}
+
+function SetupScriptErrorRow({ sessionId, error }: { sessionId: string; error: string }) {
+  const retry = useRetrySetupScript(sessionId);
+  return (
+    <div className="flex items-start gap-2 text-[11px]">
+      <AlertCircle size={11} className="text-amber-500 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="text-amber-600 dark:text-amber-400 font-medium">Setup script failed</div>
+        <div className="text-muted-foreground/80 font-mono text-[10.5px] break-all whitespace-pre-wrap">{error}</div>
+        <button
+          type="button"
+          onClick={() => retry.mutate()}
+          disabled={retry.isPending}
+          className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/15 disabled:opacity-50 transition-colors"
+        >
+          {retry.isPending ? <Loader2 size={11} className="animate-spin" /> : <RotateCw size={11} />}
+          Retry setup
+        </button>
+      </div>
     </div>
   );
 }

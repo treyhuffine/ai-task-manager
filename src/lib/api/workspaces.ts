@@ -81,6 +81,11 @@ export const workspacesApi = {
     });
   },
 
+  /** Suggest setup/start commands from the files in a checkout (placeholders only). */
+  detectStack(cwd: string): Promise<StackSuggestion> {
+    return api.post<StackSuggestion>('/workspaces/detect-stack', { cwd });
+  },
+
   // NOTE: the app preview pane (iframe) is per-execution now — see
   // `src/lib/api/preview.ts` (`previewApi`). This `workspacesApi` only keeps
   // the unrelated `previewFilesToCopy` (worktree seed-file preview).
@@ -90,6 +95,11 @@ export interface PreviewFilesToCopyResponse {
   files: string[];
   truncated: boolean;
   root: string;
+}
+
+export interface StackSuggestion {
+  setup: string;
+  start: string;
 }
 
 /** Subset of @agentex/github's PRSummary — kept inline so the client

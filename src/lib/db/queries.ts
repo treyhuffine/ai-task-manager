@@ -954,6 +954,21 @@ export function clearExecutionSetupError(executionId: string): ExecutionRecord |
 }
 
 /**
+ * Set the background setup-script state for an execution. `status` null clears
+ * it; passing `error` overwrites the stored failure tail (omit to leave it).
+ */
+export function setExecutionSetupScript(
+  executionId: string,
+  status: 'running' | 'done' | 'failed' | null,
+  error?: string | null,
+): ExecutionRecord | null {
+  return updateExecution(executionId, {
+    setupScriptStatus: status,
+    ...(error !== undefined ? { setupScriptError: error } : {}),
+  });
+}
+
+/**
  * Reset worktree-identity fields on an execution so a fresh `provisionWorktreeForSession`
  * call repopulates them. Used by the "Continue" flow when reopening an archived
  * execution whose worktree was torn down — the row's `worktreePath` still
@@ -1161,6 +1176,8 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
     prNumber: e?.prNumber ?? null,
     setupError: e?.setupError ?? null,
     setupStartedAt: e?.setupStartedAt ?? null,
+    setupScriptStatus: e?.setupScriptStatus ?? null,
+    setupScriptError: e?.setupScriptError ?? null,
     takeoverStartedAt: e?.takeoverStartedAt ?? null,
     takeoverBaseSha: e?.takeoverBaseSha ?? null,
     takeoverBranch: e?.takeoverBranch ?? null,

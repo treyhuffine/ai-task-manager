@@ -38,6 +38,10 @@ export async function POST(request: NextRequest) {
       baseBranch: baseBranch,
       remoteName: isGit ? body.remoteName ?? 'origin' : null,
       worktreeRoot: isGit ? body.worktreeRoot ?? defaultWorktreeRoot(body.slug ?? body.name) : null,
+      ...(body.filesToCopy !== undefined ? { filesToCopy: body.filesToCopy } : {}),
+      setupCommand: body.setupCommand ?? null,
+      startCommand: body.startCommand ?? null,
+      teardownCommand: body.teardownCommand ?? null,
       areaId: body.areaId ?? null,
       status: body.status ?? 'active',
     });

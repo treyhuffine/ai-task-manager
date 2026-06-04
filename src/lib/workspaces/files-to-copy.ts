@@ -25,8 +25,29 @@ export function expandFilesToCopyPatterns(patterns: readonly string[]): string[]
   return Array.from(expanded);
 }
 
-/** Mirrors `@agentex/workspace`'s walker: skips `.git/` at every depth. */
-const ALWAYS_SKIP = new Set(['.git']);
+/**
+ * Dirs the copy walk skips at every depth. `.git` (never copyable) plus the
+ * heavyweight build/dependency dirs — critically `node_modules`, which for a
+ * pattern like `**​/.env*` would otherwise force a multi-second walk of the
+ * whole dependency tree (and copy junk `.env.example` files out of packages).
+ * The files people actually want to copy (root/app `.env`, local configs) are
+ * never inside these.
+ */
+const ALWAYS_SKIP = new Set([
+  '.git',
+  'node_modules',
+  '.next',
+  'dist',
+  'build',
+  '.cache',
+  '.turbo',
+  'coverage',
+  'target',
+  'vendor',
+  '.venv',
+  'venv',
+  '__pycache__',
+]);
 
 const DEFAULT_MAX_FILES = 1000;
 
@@ -47,6 +68,36 @@ async function* walkFiles(root: string, relPrefix: string): AsyncGenerator<strin
       yield rel;
     }
   }
+}
+
+/**
+ * Copy every file in `sourceCwd` matching `patterns` (after expansion) into
+ * `destDir`, preserving relative paths. Skips the heavy dirs above, so it's
+ * fast and never drags `node_modules/*​/.env.example` junk along. Best-effort
+ * per file; returns how many were copied. Runs in the BACKGROUND after the
+ * worktree is ready — these files appear lazily, like the setup script's.
+ */
+export async function copyFilesToWorktree(
+  sourceCwd: string,
+  destDir: string,
+  patterns: readonly string[],
+): Promise<number> {
+  const expanded = expandFilesToCopyPatterns(patterns);
+  if (expanded.length === 0) return 0;
+  const matchers = expanded.map((p) => picomatch(p, { dot: true }));
+  let copied = 0;
+  for await (const rel of walkFiles(sourceCwd, '')) {
+    if (!matchers.some((m) => m(rel))) continue;
+    try {
+      const to = path.join(destDir, rel);
+      await fs.mkdir(path.dirname(to), { recursive: true });
+      await fs.copyFile(path.join(sourceCwd, rel), to);
+      copied++;
+    } catch {
+      /* best-effort — a missing/locked file shouldn't abort the rest */
+    }
+  }
+  return copied;
 }
 
 export interface PreviewFilesToCopyResult {

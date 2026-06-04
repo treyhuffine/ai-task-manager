@@ -10,7 +10,7 @@ import {
   collectDirPaths,
   type TreeRenderNode,
 } from './build-tree';
-import { TreeDirRow, TreeFileRow } from './tree-entry-row';
+import { TreeDirRow, TreeFileRow, CollapsedDirRow } from './tree-entry-row';
 import { TreeInputRow } from './tree-input-row';
 
 export interface PendingCreate {
@@ -249,6 +249,8 @@ export function TreeList({
                   onSubmit={onSubmitCreate}
                   onCancel={onCancelCreate}
                 />
+              ) : node.kind === 'dir' && node.collapsed ? (
+                <CollapsedDirRow name={node.name} depth={node.depth} />
               ) : node.kind === 'dir' ? (
                 renamingPath === node.path ? (
                   <TreeInputRow

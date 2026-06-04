@@ -367,6 +367,17 @@ export function useRetrySetup(id: string) {
   });
 }
 
+/** Re-run the workspace setup script after a background-setup failure. */
+export function useRetrySetupScript(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.retrySetupScript(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+    },
+  });
+}
+
 /**
  * Conductor-style "Continue" — unarchive an archived execution AND
  * re-provision a fresh worktree off the workspace base. Returns

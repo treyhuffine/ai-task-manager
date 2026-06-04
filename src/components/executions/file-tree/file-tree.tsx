@@ -116,7 +116,7 @@ export function FileTree({
   worktreePath,
   onReferenceInChat,
 }: FileTreeProps) {
-  const { data: tree, isLoading } = useSessionTree(sessionId);
+  const { data: tree, isFetching } = useSessionTree(sessionId);
   const entries = useMemo(() => tree?.entries ?? [], [tree?.entries]);
 
   const [mode, setModeState] = useState<TreeViewMode>(() => readPersistedMode(sessionId));
@@ -470,7 +470,9 @@ export function FileTree({
 
       {/* Body */}
       <div className="flex-1 min-h-0">
-        {isLoading && entries.length === 0 ? (
+        {entries.length === 0 && (isFetching || !worktreePath) ? (
+          // Worktree still provisioning, or a (re)fetch in flight with nothing
+          // cached yet → show the spinner, never a misleading "No files".
           <div className="flex h-full items-center justify-center">
             <Loader2 size={14} className="animate-spin text-muted-foreground" />
           </div>

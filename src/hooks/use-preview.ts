@@ -155,7 +155,11 @@ export function usePreviewSettings(options: { enabled?: boolean } = {}) {
     queryKey: PREVIEW_SETTINGS_KEY,
     queryFn: () => previewApi.settings.get(),
     enabled: options.enabled ?? true,
-    staleTime: 30_000,
+    // A valid login rarely changes, so cache it for a while to avoid
+    // re-spawning `beamd status`. While disconnected, keep it short so a
+    // terminal `beamd login` is detected quickly. The surfaces that matter
+    // (Beamd sheet, "Phone" popover) also force a refetch on open.
+    staleTime: (query) => (query.state.data?.beamd.connected ? 5 * 60_000 : 15_000),
   });
 }
 

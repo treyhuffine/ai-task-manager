@@ -10,7 +10,7 @@ import { api } from '@/lib/api/client';
 import { EmojiPicker } from '@/components/shared/emoji-picker';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { FilesToCopySection } from './files-to-copy-section';
-import { PreviewSettingsSection } from './preview-settings-section';
+import { WorktreeScriptsSection } from './worktree-scripts-section';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -34,7 +34,9 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const [baseBranch, setBaseBranch] = useState('');
   const [worktreeRoot, setWorktreeRoot] = useState('');
   const [filesToCopy, setFilesToCopy] = useState<string[]>([]);
-  const [previewCommand, setPreviewCommand] = useState('');
+  const [setupCommand, setSetupCommand] = useState('');
+  const [startCommand, setStartCommand] = useState('');
+  const [teardownCommand, setTeardownCommand] = useState('');
   const [gh, setGh] = useState<GhStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,7 +49,9 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     setBaseBranch(ws.baseBranch ?? '');
     setWorktreeRoot(ws.worktreeRoot ?? '');
     setFilesToCopy(ws.filesToCopy ?? []);
-    setPreviewCommand(ws.previewCommand ?? '');
+    setSetupCommand(ws.setupCommand ?? '');
+    setStartCommand(ws.startCommand ?? '');
+    setTeardownCommand(ws.teardownCommand ?? '');
   }, [ws]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,7 +94,9 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
         baseBranch: baseBranch || null,
         worktreeRoot: worktreeRoot || null,
         filesToCopy: filesToCopy,
-        previewCommand: previewCommand.trim() || null,
+        setupCommand: setupCommand.trim() || null,
+        startCommand: startCommand.trim() || null,
+        teardownCommand: teardownCommand.trim() || null,
       },
       {
         onSuccess: () => {
@@ -295,11 +301,16 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
 
                 <div>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                    Preview
+                    Worktree scripts
                   </h3>
-                  <PreviewSettingsSection
-                    previewCommand={previewCommand}
-                    onPreviewCommandChange={setPreviewCommand}
+                  <WorktreeScriptsSection
+                    setupCommand={setupCommand}
+                    startCommand={startCommand}
+                    teardownCommand={teardownCommand}
+                    onSetupChange={setSetupCommand}
+                    onStartChange={setStartCommand}
+                    onTeardownChange={setTeardownCommand}
+                    cwd={ws.cwd}
                   />
                 </div>
 

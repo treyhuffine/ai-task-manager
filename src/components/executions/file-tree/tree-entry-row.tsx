@@ -93,6 +93,27 @@ export function TreeDirRow({
   );
 }
 
+/**
+ * A directory we show but don't let the user expand — its contents are
+ * intentionally not listed (e.g. `node_modules`: present, but too big to browse
+ * here). Muted, no chevron, with a hint to open it in an editor instead.
+ */
+export function CollapsedDirRow({ name, depth }: { name: string; depth: number }) {
+  return (
+    <div
+      className="flex w-full items-center gap-1 py-1 pr-2 text-left text-[12px] text-muted-foreground/55"
+      style={{ paddingLeft: 6 + depth * INDENT_PX }}
+      title={`${name} is present but not browsable here — open it in your editor`}
+    >
+      {/* keep the name aligned with expandable siblings (which have a chevron) */}
+      <span className="w-3 shrink-0" />
+      <FolderIcon name={name} opened={false} />
+      <span className="truncate font-medium">{name}</span>
+      <span className="ml-1.5 shrink-0 text-[10px] text-muted-foreground/40">open in editor</span>
+    </div>
+  );
+}
+
 export function TreeFileRow({
   entry,
   label,

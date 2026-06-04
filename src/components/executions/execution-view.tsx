@@ -117,14 +117,19 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const isSettingUp =
     !!session && !!workspace && workspace.isGit === true && !session.worktreePath;
 
+  // The setup script runs in the background AFTER the worktree is ready, so
+  // keep polling through it too — otherwise the "Running setup script…" row
+  // never clears (and a failure never surfaces) without a manual refresh.
+  const isSetupScriptRunning = session?.setupScriptStatus === 'running';
+
   useEffect(() => {
     hot('effect ExecutionView.isSettingUp-poll');
-    if (!isSettingUp || !sessionId) return;
+    if ((!isSettingUp && !isSetupScriptRunning) || !sessionId) return;
     const id = setInterval(() => {
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
     }, 1500);
     return () => clearInterval(id);
-  }, [isSettingUp, sessionId, qc]);
+  }, [isSettingUp, isSetupScriptRunning, sessionId, qc]);
 
   // Mirror server runtime state into the dashboard's streamingSessionIds
   // so the rail's "● working" badge and other consumers stay in sync.
@@ -151,6 +156,26 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     }
     prevRunningRef.current = isRunning;
   }, [isRunning, sessionId, qc]);
+
+  // Worktree just landed (provisioning finished) → pull the file tree + diff
+  // immediately. The tree was fetched empty while `worktreePath` was null, and
+  // nothing else refetches it on this transition — so without this it sits on
+  // "No files" until the 30s tree poll, which reads as slow-and-empty.
+  const prevWorktreeRef = useRef(!!session?.worktreePath);
+  useEffect(() => {
+    hot('effect ExecutionView.worktree-edge');
+    const has = !!session?.worktreePath;
+    const justLanded = !prevWorktreeRef.current && has && !!sessionId;
+    prevWorktreeRef.current = has;
+    if (!justLanded) return;
+    qc.invalidateQueries({ queryKey: ['session', sessionId, 'tree'] });
+    qc.invalidateQueries({ queryKey: ['session', sessionId, 'diff'] });
+    // The background copy (.env etc.) lands a beat after the worktree itself —
+    // pull the tree again so those files appear without waiting out the 30s
+    // poll. (The setup-script poll covers slower, longer-running output.)
+    const t = setTimeout(() => qc.invalidateQueries({ queryKey: ['session', sessionId, 'tree'] }), 2500);
+    return () => clearTimeout(t);
+  }, [session?.worktreePath, sessionId, qc]);
 
   // Voice-sent event ids tracked in client memory for this open session.
   // Lost on reload by design — same model the orchestrator uses. The

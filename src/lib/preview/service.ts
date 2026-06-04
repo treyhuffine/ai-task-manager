@@ -122,8 +122,6 @@ async function getOrCreateTarget(
         service,
         previewName: buildPreviewName(ctx.worktreeName, service),
         port,
-        // null → fall back to workspace.previewCommand at start time.
-        startCommand: null,
         pinned: false,
       });
     } catch (err) {
@@ -167,9 +165,9 @@ function executionHasManualUrl(execution: ExecutionRecord, service: string | nul
   return urls.some((u) => (u.service ?? null) === service && !!u.url?.trim());
 }
 
-/** The dev command for a target — its override, else the workspace default. */
-function resolveStartCommand(target: PreviewTargetRecord, ws: WorkspaceRecord): string | null {
-  const cmd = (target.startCommand ?? ws.previewCommand ?? '').trim();
+/** The dev command for a worktree — the workspace's start command. */
+function resolveStartCommand(ws: WorkspaceRecord): string | null {
+  const cmd = (ws.startCommand ?? '').trim();
   return cmd || null;
 }
 
@@ -191,13 +189,13 @@ async function ensureServerListening(
     return current;
   }
 
-  const command = resolveStartCommand(target, ctx.workspace);
+  const command = resolveStartCommand(ctx.workspace);
   if (!command) {
     throw new PreviewServiceError(
       'no_command',
-      'No preview command set for this worktree.',
+      'No start command set for this worktree.',
       400,
-      'Set a preview command in workspace settings.',
+      'Set a start command in workspace settings.',
     );
   }
   if (target.port == null) {

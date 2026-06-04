@@ -24,6 +24,7 @@ import { promisify } from 'node:util';
 import { uuidv7 } from 'uuidv7';
 import {
   getWorkspace,
+  getExecution,
   archiveChatSession,
   getChatSessionWithExecution,
   listChatSessions,
@@ -31,6 +32,7 @@ import {
   markExecutionSetupStarted,
   markExecutionSetupComplete,
   recordExecutionSetupError,
+  setExecutionSetupScript,
   resetExecutionForReprovision,
   archiveExecution,
   unarchiveExecution,
@@ -40,8 +42,11 @@ import {
   createWorktreeForSession,
   resumeWorktreeForSession,
   archiveSessionWorktree,
+  runWorktreeScript,
+  tailLines,
   fetchPrHead,
 } from '@/lib/workspaces';
+import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForSession } from '@/lib/terminal/pty-manager';
 import { invalidateAgentSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
@@ -302,11 +307,74 @@ export async function provisionWorktreeForSession(args: ProvisionArgs): Promise<
       branchName: worktree.branch,
       baseSha: worktree.baseSha,
     });
+
+    // Worktree is ready → chat + file tree are usable NOW. Copy the ignored
+    // files (.env etc.) and run the setup script (deps install) in the
+    // BACKGROUND so neither blocks — they appear lazily as they land. Only for
+    // real worktrees; live-mode runs in the source cwd and must not be mutated.
+    if (worktree.path !== ws.cwd) {
+      void runBackgroundProvisioning(executionId, ws, worktree.path, worktree.branch);
+    }
   } catch (err) {
     const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error(`[dispatch] worktree provisioning failed for execution ${executionId}:`, msg);
     recordExecutionSetupError(executionId, msg);
   }
+}
+
+/**
+ * Background worktree provisioning, run after the worktree is already usable:
+ *   1. Copy the workspace's ignored files (.env etc.) — fast, best-effort.
+ *   2. Run the setup script (deps install) — slow, status-tracked so the UI
+ *      can show "Running setup script…".
+ * Both stream in lazily; neither blocks chat or the file tree. Never throws —
+ * a setup failure surfaces as `setupScriptStatus = 'failed'`, not a dead session.
+ */
+async function runBackgroundProvisioning(
+  executionId: string,
+  ws: WorkspaceRecord,
+  worktreePath: string,
+  branch: string,
+): Promise<void> {
+  // 1. Ignored files — copy first so a setup script can rely on them (.env).
+  try {
+    await copyFilesToWorktree(ws.cwd, worktreePath, ws.filesToCopy ?? []);
+  } catch (err) {
+    console.warn(`[dispatch] file copy failed for execution ${executionId}:`, err);
+  }
+
+  // 2. Setup script.
+  if (!ws.setupCommand?.trim()) return;
+  setExecutionSetupScript(executionId, 'running', null);
+  try {
+    const res = await runWorktreeScript({
+      command: ws.setupCommand,
+      worktreePath,
+      sourceCheckoutPath: ws.cwd,
+      branch,
+    });
+    setExecutionSetupScript(
+      executionId,
+      res.ok ? 'done' : 'failed',
+      res.ok ? null : tailLines(res.output),
+    );
+  } catch (err) {
+    setExecutionSetupScript(executionId, 'failed', err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Re-run a workspace's setup script for an execution (retry after failure).
+ * Fires in the background and returns immediately — the status flips to
+ * 'running' synchronously, so the UI reflects it on the next refetch.
+ */
+export function retrySetupScript(executionId: string): boolean {
+  const exec = getExecution(executionId);
+  if (!exec?.worktreePath || !exec.workspaceId) return false;
+  const ws = getWorkspace(exec.workspaceId);
+  if (!ws?.setupCommand?.trim() || exec.worktreePath === ws.cwd) return false;
+  void runBackgroundProvisioning(executionId, ws, exec.worktreePath, exec.branchName ?? '');
+  return true;
 }
 
 function normalizePrNumber(raw: number | null | undefined): number | null {
@@ -350,7 +418,12 @@ export async function archiveExecutionSession(
     const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
     const isLive = !!ws && session.worktreePath === ws.cwd;
     if (!isLive) {
-      await archiveSessionWorktree({ session, force: args.force ?? false });
+      await archiveSessionWorktree({
+        session,
+        teardownCommand: ws?.teardownCommand ?? null,
+        sourceCheckoutPath: ws?.cwd,
+        force: args.force ?? false,
+      });
     }
   }
 

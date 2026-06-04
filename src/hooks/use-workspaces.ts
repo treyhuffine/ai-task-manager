@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { workspacesApi } from '@/lib/api/workspaces';
+import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import { sessionsApi, type RailResponse } from '@/lib/api/sessions';
 import type {
   ChatSessionRecord,
@@ -9,6 +9,17 @@ import type {
 } from '@/db/types';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
+
+/** Detected setup/start command suggestions for a checkout (placeholders only). */
+export function useStackDetection(cwd: string | null) {
+  return useQuery<StackSuggestion>({
+    queryKey: ['stack-detect', cwd],
+    queryFn: () => workspacesApi.detectStack(cwd!),
+    enabled: !!cwd && cwd.trim().length > 0,
+    staleTime: 60_000,
+  });
+}
+
 const NEEDS_REVIEW_KEY = ['sessions', 'needs-review'] as const;
 const RAIL_KEY = ['sessions', 'rail'] as const;
 const HISTORY_KEY = ['sessions', 'history'] as const;

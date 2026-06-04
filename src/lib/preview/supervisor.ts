@@ -128,7 +128,7 @@ class PreviewSupervisor extends EventEmitter {
     }
 
     if (!input.command.trim()) {
-      throw new SupervisorError('preview_no_command', 'No preview command set for this worktree.');
+      throw new SupervisorError('preview_no_command', 'No start command set for this worktree.');
     }
     if (!Number.isInteger(input.port) || input.port <= 0) {
       throw new SupervisorError('preview_no_port', 'No port assigned for this preview.');
@@ -416,6 +416,13 @@ class PreviewSupervisor extends EventEmitter {
     rec.signal = signal;
     rec.exitedAt = new Date().toISOString();
     rec.status = rec.expectingExit ? 'stopped' : 'crashed';
+    // Give the crash a concrete reason — the exit code is otherwise dropped by
+    // the API snapshot, leaving only a generic "crashed on startup".
+    if (rec.status === 'crashed') {
+      rec.message = signal
+        ? `Dev server was killed by ${signal}.`
+        : `Dev server exited with code ${code ?? 'unknown'}. Check the logs for the error.`;
+    }
     rec.port = null;
     rec.child = null;
     rec.resolveSettled();

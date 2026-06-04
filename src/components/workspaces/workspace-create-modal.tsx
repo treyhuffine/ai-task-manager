@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import type { Attachment } from '@/db/types';
 import { FolderPicker } from './folder-picker';
 import { FilesToCopySection } from './files-to-copy-section';
+import { WorktreeScriptsSection } from './worktree-scripts-section';
 
 const DEFAULT_FILES_TO_COPY = ['.env*'];
 
@@ -36,6 +37,9 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
   const [emoji, setEmoji] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [filesToCopy, setFilesToCopy] = useState<string[]>(DEFAULT_FILES_TO_COPY);
+  const [setupCommand, setSetupCommand] = useState('');
+  const [startCommand, setStartCommand] = useState('');
+  const [teardownCommand, setTeardownCommand] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,6 +62,9 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
     setEmoji(null);
     setAttachment(null);
     setFilesToCopy(DEFAULT_FILES_TO_COPY);
+    setSetupCommand('');
+    setStartCommand('');
+    setTeardownCommand('');
     setError(null);
     nameUserEditedRef.current = false;
     coverUserEditedRef.current = false;
@@ -164,6 +171,9 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         emoji: emoji ?? null,
         attachments: attachment ? [attachment] : [],
         filesToCopy: filesToCopy,
+        setupCommand: setupCommand.trim() || null,
+        startCommand: startCommand.trim() || null,
+        teardownCommand: teardownCommand.trim() || null,
       },
       {
         onSuccess: () => {
@@ -180,7 +190,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         },
       },
     );
-  }, [name, cwd, areaId, emoji, attachment, filesToCopy, createWs, reset, onOpenChange]);
+  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, createWs, reset, onOpenChange]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -361,6 +371,21 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                     onChange={setFilesToCopy}
                     cwd={cwd}
                   />
+
+                  <div>
+                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                      Worktree scripts (optional)
+                    </label>
+                    <WorktreeScriptsSection
+                      setupCommand={setupCommand}
+                      startCommand={startCommand}
+                      teardownCommand={teardownCommand}
+                      onSetupChange={setSetupCommand}
+                      onStartChange={setStartCommand}
+                      onTeardownChange={setTeardownCommand}
+                      cwd={cwd}
+                    />
+                  </div>
                 </>
               )}
 

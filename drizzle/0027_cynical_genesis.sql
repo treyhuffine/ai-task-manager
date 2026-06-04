@@ -1,0 +1,1 @@
+ALTER TABLE `preview_targets` DROP COLUMN `start_command`;

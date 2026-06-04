@@ -16,7 +16,6 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import slugify from '@sindresorhus/slugify';
 import { getAppRoot } from '@/lib/config/paths';
-import { expandFilesToCopyPatterns } from '@/lib/workspaces/files-to-copy';
 import type { WorkspaceRecord } from '@/db/types';
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +28,57 @@ const execFileAsync = promisify(execFile);
  */
 export interface WorktreePointer {
   worktreePath: string | null;
+}
+
+/** Last N lines of a script's output — enough to surface the real error. */
+export function tailLines(text: string, n = 20): string {
+  const lines = text.replace(/\s+$/, '').split('\n');
+  return lines.slice(Math.max(0, lines.length - n)).join('\n');
+}
+
+export interface WorktreeScriptResult {
+  ok: boolean;
+  exitCode: number | null;
+  output: string;
+}
+
+/**
+ * Run a worktree lifecycle script (setup / teardown) as `sh -lc` in the
+ * worktree. Flow stays strategy-agnostic — the project's command decides what
+ * happens (install deps, clone caches, migrate, codegen, …). The source
+ * checkout and worktree context are exported so scripts can reach the original
+ * repo (e.g. `cp -c "$FLOW_SOURCE_CHECKOUT_PATH/node_modules" node_modules`).
+ *
+ * Returns the result rather than throwing — callers decide whether a failure
+ * is fatal (setup) or best-effort (teardown).
+ */
+export async function runWorktreeScript(opts: {
+  command: string;
+  worktreePath: string;
+  sourceCheckoutPath: string;
+  branch?: string;
+  /** Generous default — installs can be slow. */
+  timeoutMs?: number;
+}): Promise<WorktreeScriptResult> {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    FLOW_SOURCE_CHECKOUT_PATH: opts.sourceCheckoutPath,
+    FLOW_WORKTREE_PATH: opts.worktreePath,
+    ...(opts.branch ? { FLOW_BRANCH_NAME: opts.branch } : {}),
+  };
+  try {
+    const { stdout, stderr } = await execFileAsync('sh', ['-lc', opts.command], {
+      cwd: opts.worktreePath,
+      env,
+      timeout: opts.timeoutMs ?? 15 * 60_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return { ok: true, exitCode: 0, output: `${stdout}${stderr}` };
+  } catch (err) {
+    const e = err as { code?: unknown; stdout?: string; stderr?: string; message?: string };
+    const output = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message || 'script failed';
+    return { ok: false, exitCode: typeof e.code === 'number' ? e.code : null, output };
+  }
 }
 
 // Cached lazy-loaded module. The library has no side effects on import,
@@ -263,17 +313,10 @@ export async function createWorktreeForSession(args: {
       // so secrets / local configs travel with the session. Failures here
       // shouldn't kill the worktree — log and continue; the user can re-
       // run a copy from settings later.
-      const expanded = expandFilesToCopyPatterns(ws.filesToCopy ?? []);
-      if (expanded.length > 0) {
-        try {
-          await handle.copyFromSource(expanded);
-        } catch (copyErr) {
-          console.error(
-            `[workspaces] copyFromSource failed for session ${sessionId}:`,
-            copyErr,
-          );
-        }
-      }
+      // The worktree is "ready" the instant its tracked files are checked out.
+      // `filesToCopy` (.env etc.) AND the `setupCommand` (deps) both run in the
+      // BACKGROUND afterwards (see `provisionWorktreeForSession`) so chat + the
+      // file tree come up immediately; those files appear lazily as they land.
       return {
         path: handle.path,
         branch: handle.git.branch,
@@ -340,17 +383,10 @@ export async function resumeWorktreeForSession(args: {
     });
     if (handle.kind !== 'git') return null;
 
-    const expanded = expandFilesToCopyPatterns(ws.filesToCopy ?? []);
-    if (expanded.length > 0) {
-      try {
-        await handle.copyFromSource(expanded);
-      } catch (copyErr) {
-        console.error(
-          `[resumeWorktreeForSession] copyFromSource failed for session ${sessionId}:`,
-          copyErr,
-        );
-      }
-    }
+    // filesToCopy (.env etc.) + the setupCommand both run in the background
+    // after the worktree is marked ready (see `provisionWorktreeForSession`) —
+    // a recreated worktree is just as fresh as a brand-new one, and we don't
+    // block on either.
 
     return {
       path: handle.path,
@@ -417,12 +453,31 @@ export async function openWorktreeHandle(
  */
 export async function archiveSessionWorktree(args: {
   session: WorktreePointer;
+  /** Workspace teardown script, run in the worktree before removal (optional). */
+  teardownCommand?: string | null;
+  /** Source checkout path, exported to the teardown script as $FLOW_SOURCE_CHECKOUT_PATH. */
+  sourceCheckoutPath?: string;
   force?: boolean;
 }): Promise<void> {
   if (!args.session.worktreePath) return;
+  const worktreePath = args.session.worktreePath;
+
+  // Teardown runs while the worktree still exists, and is best-effort: a failing
+  // teardown must not block archive (you should always be able to clean up).
+  if (args.teardownCommand?.trim()) {
+    const res = await runWorktreeScript({
+      command: args.teardownCommand,
+      worktreePath,
+      sourceCheckoutPath: args.sourceCheckoutPath ?? worktreePath,
+    });
+    if (!res.ok) {
+      console.warn(`[workspaces] teardown failed (exit ${res.exitCode ?? 'unknown'}):\n${tailLines(res.output)}`);
+    }
+  }
+
   const lib = await loadLib();
   try {
-    await lib.workspace.archive(args.session.worktreePath, { force: args.force ?? false });
+    await lib.workspace.archive(worktreePath, { force: args.force ?? false });
   } catch (err) {
     if (err instanceof lib.WorkspaceNotFoundError) return;
     throw err;

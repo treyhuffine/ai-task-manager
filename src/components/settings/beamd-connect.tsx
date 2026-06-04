@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, CheckCircle2, XCircle, ChevronRight } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, ChevronRight, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePreviewSettings, useUpdatePreviewSettings, useTestBeamd } from '@/hooks/use-preview';
 
@@ -16,7 +16,7 @@ import { usePreviewSettings, useUpdatePreviewSettings, useTestBeamd } from '@/ho
  * through settings.
  */
 export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
-  const { data: settings } = usePreviewSettings();
+  const { data: settings, refetch, isFetching } = usePreviewSettings();
   const update = useUpdatePreviewSettings();
   const test = useTestBeamd();
 
@@ -155,15 +155,27 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
               <span className="block text-muted-foreground/70">Only for a self-hosted edge with a self-signed cert.</span>
             </span>
           </label>
-          <button
-            type="button"
-            onClick={connect}
-            disabled={update.isPending || !server.trim() || !token.trim()}
-            className="flex items-center gap-1.5 rounded border border-border bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
-          >
-            {update.isPending && <Loader2 size={12} className="animate-spin" />}
-            {update.isPending ? 'Verifying…' : 'Connect Beamd'}
-          </button>
+          <div className="flex items-center gap-3 pt-0.5">
+            <button
+              type="button"
+              onClick={connect}
+              disabled={update.isPending || !server.trim() || !token.trim()}
+              className="flex items-center gap-1.5 rounded border border-border bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
+            >
+              {update.isPending && <Loader2 size={12} className="animate-spin" />}
+              {update.isPending ? 'Verifying…' : 'Log in to Beamd'}
+            </button>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              title="Check whether this machine already has a beamd login (e.g. from `beamd login` in a terminal)"
+              className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw size={11} className={cn(isFetching && 'animate-spin')} />
+              Already logged in? Re-check
+            </button>
+          </div>
         </>
       )}
 

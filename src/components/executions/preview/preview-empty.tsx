@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 interface PreviewEmptyProps {
   variant:
-    | 'no-command'        // workspace.previewCommand is empty
+    | 'no-command'        // workspace.startCommand is empty
     | 'idle'              // command set, never started
     | 'starting'          // process spawning
     | 'running-no-port'   // process up but no port detected
@@ -47,7 +47,7 @@ function renderBody(props: PreviewEmptyProps) {
   if (variant === 'no-command') {
     return (
       <>
-        <Heading>No preview command set</Heading>
+        <Heading>No start command set</Heading>
         <Subtle>
           Configure a command to start your dev server. Anything that prints a
           {' '}<code className="rounded bg-muted px-1.5 py-0.5 text-[12px]">localhost:PORT</code>{' '}

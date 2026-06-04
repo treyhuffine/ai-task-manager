@@ -241,12 +241,22 @@ export const workspaces = sqliteTable('workspaces', {
   // travel with the worktree without symlinking back to source. (Beamd's
   // gitignored `.beamd.local` is also copied — see `ALWAYS_COPY_TO_WORKTREE`.)
   filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
-  // Default dev command for previews. Flow runs it in each execution's
-  // worktree, auto-assigns a stable port (injected as `PORT`), and confirms
-  // it's listening. How a preview is *reached* (localhost vs a remote
+  // Worktree lifecycle scripts (all optional). Flow runs each as `sh -lc` in
+  // the execution's worktree, with $FLOW_SOURCE_CHECKOUT_PATH /
+  // $FLOW_WORKTREE_PATH / $FLOW_BRANCH_NAME exported. Flow stays
+  // strategy-agnostic — the project decides what these do (install deps, copy
+  // caches, run migrations, codegen, …).
+  //   setupCommand    — runs once after the worktree is created (post file-copy).
+  //   teardownCommand — runs on archive, before the worktree is removed.
+  setupCommand: text(),
+  teardownCommand: text(),
+  // The dev command that *starts* the worktree's server for previews. Flow runs
+  // it in the worktree, auto-assigns a stable port (injected as `PORT`), and
+  // confirms it's listening. How a preview is *reached* (localhost vs a remote
   // provider) is a global setting, not a per-workspace mode — see
-  // `preview_targets` + docs/preview-system-spec.md.
-  previewCommand: text(),
+  // `preview_targets` + docs/preview-system-spec.md. (Renamed from
+  // `previewCommand`; matches `preview_targets.startCommand`.)
+  startCommand: text(),
   areaId: text().references(() => areas.id, { onDelete: 'set null' }),
   position: integer().notNull().default(0),
   collapsed: integer({ mode: 'boolean' }).notNull().default(false),
@@ -326,6 +336,14 @@ export const executions = sqliteTable('executions', {
   setupError: text(),
   setupStartedAt: text(),
 
+  // Setup *script* state (the workspace's `setupCommand`). Runs in the
+  // BACKGROUND once the worktree is ready, so chat is available immediately —
+  // distinct from the (faster) worktree provisioning above. `setupScriptStatus`
+  // drives the "Running setup script…" indicator; `setupScriptError` holds the
+  // last failure's output tail. Null status = no script / not started.
+  setupScriptStatus: text({ enum: ['running', 'done', 'failed'] }),
+  setupScriptError: text(),
+
   // "Take over locally" lifecycle — lifted from chat_sessions. In takeover
   // iff `takeover_started_at IS NOT NULL`; all six clear together on
   // resume/cancel. The token authenticates the local CLI without the bearer
@@ -385,9 +403,8 @@ export interface PreviewUrl {
 // Flow knows the start command, and a tunnel to a dead port is a useless
 // URL, so Flow owns desired state and beamd stays stateless about it.
 //
-//   - `startCommand` makes lazy revival possible: you can't restart a dev
-//     server you don't know how to launch. Null falls back to the
-//     workspace's `previewCommand`.
+//   - The start command comes from the workspace (`workspaces.startCommand`):
+//     one source of truth, so lazy revival can always (re)launch the server.
 //   - `port` is stable: a restart reuses it, so the URL stays stable. Null
 //     until first allocation.
 //   - `previewName` is the single DNS label (`<worktree>[-<service>]`) the
@@ -419,7 +436,6 @@ export const previewTargets = sqliteTable('preview_targets', {
 
   previewName: text().notNull(),
   port: integer(),
-  startCommand: text(),
   pinned: integer({ mode: 'boolean' }).notNull().default(false),
 
   lastViewedAt: text(),

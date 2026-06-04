@@ -39,8 +39,8 @@ afterEach(async () => {
   }
 });
 
-function makeExecution(previewCommand: string | null) {
-  const ws = createWorkspace({ name: 'Demo App', cwd: workCwd, isGit: false, previewCommand });
+function makeExecution(startCommand: string | null) {
+  const ws = createWorkspace({ name: 'Demo App', cwd: workCwd, isGit: false, startCommand });
   const exec = createExecution({ workspaceId: ws.id });
   return { ws, exec };
 }

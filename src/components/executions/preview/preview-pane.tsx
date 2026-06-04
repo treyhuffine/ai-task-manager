@@ -44,12 +44,12 @@ interface PreviewPaneProps {
  */
 export function PreviewPane({ executionId, workspaceId, active = true, onOpenWorkspaceSettings }: PreviewPaneProps) {
   const { data: ws } = useWorkspace(workspaceId);
-  const command = ws?.previewCommand ?? null;
+  const command = ws?.startCommand ?? null;
 
   const updateWorkspace = useUpdateWorkspace();
   const handleSaveCommand = async (next: string) => {
     if (!workspaceId) return;
-    await updateWorkspace.mutateAsync({ id: workspaceId, previewCommand: next || null });
+    await updateWorkspace.mutateAsync({ id: workspaceId, startCommand: next || null });
   };
 
   // The viewer's reachability is fixed for this mount (depends on where the
@@ -75,8 +75,13 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   // Reset remote resolution when switching executions.
   useEffect(() => { setRemoteResolved(null); }, [executionId]);
 
+  // Keep fetching through 'crashed' too: a fast crash exits before the first
+  // poll, so without this the captured stderr (the actual error) never reaches
+  // the client and the panel sits on "Waiting for output…".
   const wantLogs =
-    !!executionId && active && (state?.serverStatus === 'starting' || state?.serverStatus === 'running');
+    !!executionId &&
+    active &&
+    (state?.serverStatus === 'starting' || state?.serverStatus === 'running' || state?.serverStatus === 'crashed');
   const { lines: logLines } = usePreviewLogs(executionId, {
     enabled: wantLogs,
     pollMs: 1_500,

@@ -17,6 +17,8 @@ export interface TreeDirNode {
   name: string;
   depth: number;
   children: TreeRenderNode[];
+  /** Shown but not expandable (e.g. node_modules) — contents aren't listed. */
+  collapsed?: boolean;
 }
 
 export interface TreeFileNode {
@@ -35,6 +37,7 @@ interface MutableDir {
   name: string;
   depth: number;
   childMap: Map<string, MutableDir | TreeFileNode>;
+  collapsed?: boolean;
 }
 
 export function buildTree(entries: readonly TreeEntry[]): TreeDirNode {
@@ -47,7 +50,6 @@ export function buildTree(entries: readonly TreeEntry[]): TreeDirNode {
   };
 
   for (const entry of entries) {
-    if (entry.kind !== 'file') continue;
     const parts = entry.path.split('/');
     let current: MutableDir = root;
     for (let i = 0; i < parts.length - 1; i++) {
@@ -69,6 +71,23 @@ export function buildTree(entries: readonly TreeEntry[]): TreeDirNode {
       }
     }
     const leafName = parts[parts.length - 1];
+    if (entry.kind === 'dir') {
+      // A collapsed dir (e.g. node_modules): shown as a folder, but we don't
+      // list its contents, so it renders non-expandable. Don't clobber a real
+      // dir that already has children.
+      const existing = current.childMap.get(leafName);
+      if (!existing) {
+        current.childMap.set(leafName, {
+          kind: 'dir',
+          path: entry.path,
+          name: leafName,
+          depth: parts.length - 1,
+          childMap: new Map(),
+          collapsed: entry.collapsed,
+        });
+      }
+      continue;
+    }
     current.childMap.set(leafName, {
       kind: 'file',
       path: entry.path,
@@ -97,6 +116,7 @@ function finalizeDir(dir: MutableDir): TreeDirNode {
     name: dir.name,
     depth: dir.depth,
     children,
+    collapsed: dir.collapsed,
   };
 }
 

@@ -34,7 +34,9 @@ export async function GET(
     const handle = await openWorktreeHandle(session, ws.cwd);
     if (!handle) return Response.json({ entries: [] satisfies TreeEntry[] });
 
-    const entries = await listTree(handle);
+    // Surface the workspace's copied-in ignored files (e.g. `.env*`) alongside
+    // the tracked tree — they're hidden by `.gitignore` but put there on purpose.
+    const entries = await listTree(handle, ws.filesToCopy ?? []);
     return Response.json({ entries });
   } catch (err) {
     console.error('[GET /api/sessions/:id/tree]', err);

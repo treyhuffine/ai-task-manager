@@ -98,6 +98,9 @@ export interface TreeEntry {
   size?: number;
   status?: TreeEntryStatus;
   mtime?: string;
+  /** A `dir` shown but not expandable — its contents are intentionally not
+   *  listed (e.g. `node_modules`: present, but too big to browse here). */
+  collapsed?: boolean;
 }
 
 export interface TreeResponse {
@@ -595,6 +598,10 @@ export const sessionsApi = {
 
   retrySetup(id: string): Promise<ChatSessionWithExecution> {
     return api.post<ChatSessionWithExecution>(`/sessions/${id}/retry-setup`);
+  },
+
+  retrySetupScript(id: string): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/retry-setup-script`);
   },
 
   sendMessage(
