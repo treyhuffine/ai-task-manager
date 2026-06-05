@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Globe, Loader2, RotateCw, Smartphone, X } from 'lucide-react';
 import { openBeamdSheet } from '@/components/dashboard/beamd-sheet';
 import { OpenOnDevice } from './open-on-device';
@@ -143,31 +143,17 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
     if (mode === 'remote') handleStart();
   };
 
-  // Lazy start on first view (§11): when the preview tab becomes visible and
-  // the server is down, cold-start it (server + tunnel for remote). Fires
-  // once per execution view — the ref guard means a manual Stop won't
-  // immediately bounce back, while reopening a (cold/idle-evicted) preview
-  // spins it up. Pairs with the idle-evict sweep.
-  const autoStartedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!active || !executionId || !state) return;
-    if (autoStartedRef.current === executionId) return;
-    // Hold auto-start while the setup script is installing deps (or failed):
-    // starting against a half-built node_modules just crash-loops. Don't mark
-    // engaged — when setup clears (retry finishes / status → done), this effect
-    // re-runs on the setupStatus change and starts then.
-    if (state.setupStatus === 'running' || state.setupStatus === 'failed') return;
-    const startable = state.serverStatus === 'idle' || state.serverStatus === 'stopped';
-    if (startable && !!command && !startMut.isPending) {
-      autoStartedRef.current = executionId;
-      handleStart();
-    } else if (!startable) {
-      // Already running/starting/crashed — mark engaged so we don't auto-start later.
-      autoStartedRef.current = executionId;
-    }
-    // handleStart is a stable-enough closure; the ref guard prevents re-fires.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, executionId, state?.serverStatus, state?.setupStatus, command]);
+  // No auto-start: the dev server is brought up only when the user presses
+  // Start (header / empty-state button). Opening the Preview tab just shows
+  // the current state — Ready/idle with a Start button, "Installing
+  // dependencies…" while setup runs, or the live iframe if already up.
+
+  // Block Start entirely while the setup script is still installing deps —
+  // starting against a half-built node_modules just crash-loops. The server
+  // gate in resolvePreview is the backstop; this disables the button so the
+  // intent is clear. (A failed setup is NOT blocked — the user can Start or
+  // Re-run setup.)
+  const setupRunning = state?.setupStatus === 'running';
 
   const isRunning = state?.serverStatus === 'running';
   // Sharing is meaningful once the dev server is actually serving content —
@@ -206,6 +192,8 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
         isLive={!!resolved.url}
         isStarting={isStarting}
         isStarted={isStarted}
+        disableStart={setupRunning}
+        disableStartReason={setupRunning ? 'Installing dependencies…' : undefined}
         logsOpen={logsOpen}
         shareControl={
           canShare ? (

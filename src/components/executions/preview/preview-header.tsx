@@ -17,6 +17,10 @@ interface PreviewHeaderProps {
   isStarting: boolean;
   /** True when the server is up / coming up (so Start flips to Stop). */
   isStarted: boolean;
+  /** Disable the Start button (e.g. setup script still installing deps). */
+  disableStart?: boolean;
+  /** Tooltip explaining why Start is disabled. */
+  disableStartReason?: string;
   /** Whether the logs strip is visible. */
   logsOpen: boolean;
   /** "Open on another device" control — rendered when a preview is live. */
@@ -34,6 +38,8 @@ export function PreviewHeader({
   isLive,
   isStarting,
   isStarted,
+  disableStart,
+  disableStartReason,
   logsOpen,
   shareControl,
   onStart,
@@ -71,9 +77,9 @@ export function PreviewHeader({
         <button
           type="button"
           onClick={onStart}
-          disabled={isStarting}
+          disabled={isStarting || disableStart}
           className="flex h-7 items-center gap-1.5 rounded px-2 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
-          title="Start preview"
+          title={disableStart ? disableStartReason ?? 'Start unavailable' : 'Start preview'}
         >
           <Play size={12} className="fill-current" />
           Start
