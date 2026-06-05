@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2 } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, StretchHorizontal } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -10,6 +10,7 @@ import { useArchiveSession } from '@/hooks/use-workspaces';
 import { useUpdateSession } from '@/hooks/use-execution';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
+import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { fsApi } from '@/lib/api/fs';
 import { ApiError } from '@/lib/api/client';
@@ -351,6 +352,7 @@ export function ExecutionHeader({
 
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {liveBadge}
+          <DensityToggle />
 
           {/* Consolidated session menu — details on top, archive below
               the divider. Same shape as desktop. */}
@@ -620,6 +622,7 @@ export function ExecutionHeader({
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {liveBadge}
+          <DensityToggle />
           {onToggleReferences && (
             <ReferencesButton open={referencesOpen} onClick={onToggleReferences} />
           )}
@@ -632,6 +635,33 @@ export function ExecutionHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Quick toggle for transcript density (condensed ↔ full feed). Persists
+ * via the shared `useTranscriptDensity` preference, so it stays in sync
+ * with the Settings control and across tabs.
+ */
+function DensityToggle() {
+  const { density, toggle } = useTranscriptDensity();
+  const condensed = density === 'condensed';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={condensed ? 'Switch to full feed' : 'Switch to condensed'}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0"
+        >
+          {condensed ? <Rows3 size={14} /> : <StretchHorizontal size={14} />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={4}>
+        {condensed ? 'Condensed — tap for full feed' : 'Full feed — tap to condense'}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

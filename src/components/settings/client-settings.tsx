@@ -10,6 +10,7 @@ import {
   EDITOR_CHOICES,
   type EditorChoice,
 } from '@/lib/client/editor-preference';
+import { useTranscriptDensity, type TranscriptDensity } from '@/lib/client/transcript-density';
 import { cn } from '@/lib/utils';
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -27,6 +28,7 @@ export function ClientSettings() {
   const location = useClientLocation();
   const hostInfo = useHostInfo();
   const { choice, customCommand, setChoice, setCustomCommand } = useEditorPreference();
+  const { density, setDensity } = useTranscriptDensity();
 
   const hostname = location.hostname;
   const isLoopback = LOOPBACK_HOSTS.has(hostname);
@@ -131,6 +133,24 @@ export function ClientSettings() {
           {choice === 'custom'
             ? 'Runs on the host machine. Placeholders: {file}, {line}, {column}, {dir}.'
             : 'Editor used when you click “Open in editor” on a file or worktree.'}
+        </p>
+      </div>
+
+      <div className="rounded-md border border-border bg-card/40 p-3 space-y-2">
+        <Row label="Chat density">
+          <select
+            value={density}
+            onChange={(e) => setDensity(e.target.value as TranscriptDensity)}
+            className="bg-background border border-border rounded px-1.5 py-0.5 text-[12px]"
+          >
+            <option value="condensed">Condensed</option>
+            <option value="full">Full feed</option>
+          </select>
+        </Row>
+        <p className="text-[11px] text-muted-foreground/85">
+          {density === 'condensed'
+            ? 'Completed turns collapse their thinking, tool calls, and intermediate messages into a summary. The live turn and final reply stay visible.'
+            : 'Every event renders as its own row.'}
         </p>
       </div>
     </section>

@@ -2,9 +2,12 @@
 
 import { useState } from 'react';
 import {
-  ChevronRight, AlertTriangle, CheckCircle2, Wrench, RefreshCw, Sparkles,
+  ChevronRight, AlertTriangle, RefreshCw, Sparkles,
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
+  FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
+  ClipboardList, SquareTerminal,
 } from 'lucide-react';
+import { describeToolCall, describeToolResult, type ToolGlyph } from '@/lib/executions/tool-display';
 import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
 import { useSessionEvents, useRetrySend } from '@/hooks/use-execution';
 import type { ClientEventStatus } from '@/hooks/use-execution';
@@ -49,6 +52,14 @@ interface ExecutionEventProps {
    * user knows their send didn't reach the DB.
    */
   clientStatus?: ClientEventStatus;
+  /**
+   * Paired `tool_result` rows keyed by `externalToolCallId`. In condensed
+   * mode the transcript suppresses standalone result rows and merges the
+   * result's summary ("150 lines", "exit 1") onto the matching tool_call
+   * row — Conductor-style. Absent in full mode (results render on their
+   * own).
+   */
+  resultByCallId?: Map<string, ChatEventRecord>;
 }
 
 /**
@@ -61,7 +72,7 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
 
@@ -135,19 +146,24 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       );
 
     case 'thinking': {
-      const content = event.content ?? '';
+      const content = (event.content ?? '').trim();
+      // Empty thinking rows (Claude Code withholds prose on current
+      // versions — see docs/agentex-thinking-capture-spec.md) carry no
+      // signal; don't render a click-to-see-nothing accordion. The
+      // transcript also filters these, this is a belt-and-suspenders guard.
+      if (!content) return null;
       return (
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="w-full text-left text-[11px] text-muted-foreground/80 italic"
+          className="group/row w-full text-left text-[11px] text-muted-foreground/70 italic"
         >
           <div className="flex items-center gap-1.5">
-            <ChevronRight size={11} className={cn('transition-transform', expanded && 'rotate-90')} />
-            <Sparkles size={11} className="opacity-60" />
-            <span>{expanded ? 'Thinking' : `Thinking — ${truncate(content, 80) || '…'}`}</span>
+            <ChevronRight size={11} className={cn('flex-shrink-0 transition-transform text-muted-foreground/40', expanded && 'rotate-90')} />
+            <Sparkles size={11} className="flex-shrink-0 opacity-50" />
+            <span className="truncate">{expanded ? 'Thinking' : truncate(content, 88)}</span>
           </div>
           {expanded && (
-            <div className="mt-1.5 ml-5 pl-3 border-l border-border/60 whitespace-pre-wrap break-words">
+            <div className="mt-1.5 ml-5 pl-3 border-l border-border/50 whitespace-pre-wrap break-words not-italic text-muted-foreground/80">
               {content}
             </div>
           )}
@@ -156,54 +172,78 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     }
 
     case 'tool_call': {
-      const name = event.toolName ?? 'tool';
-      const summary = summarizeToolInput(event.toolInput);
+      const d = describeToolCall(event.toolName, event.toolInput);
+      // Merged result summary ("150 lines", "exit 1") from the paired
+      // tool_result, when the transcript handed us the pairing map.
+      const paired = event.externalToolCallId
+        ? resultByCallId?.get(event.externalToolCallId)
+        : undefined;
+      const resultSummary = paired
+        ? describeToolResult(event.toolName, paired.content, paired.toolExitCode)
+        : null;
+      const pairedError = paired?.toolIsError === true;
+      const resultText = paired?.content ?? '';
       return (
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="w-full text-left rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5 hover:bg-muted/50 transition-colors"
+          className="w-full text-left text-[11px]"
         >
-          <div className="flex items-center gap-1.5 text-[11px]">
-            <ChevronRight size={11} className={cn('transition-transform text-muted-foreground/60', expanded && 'rotate-90')} />
-            <Wrench size={11} className="text-muted-foreground/70" />
-            <span className="font-mono font-medium text-foreground">{name}</span>
-            {summary && <span className="text-muted-foreground/70 truncate">{summary}</span>}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <ChevronRight size={11} className={cn('flex-shrink-0 transition-transform text-muted-foreground/40', expanded && 'rotate-90')} />
+            <ToolGlyphIcon glyph={d.glyph} />
+            <span className={cn('flex-shrink-0', d.mono ? 'font-mono text-foreground/90' : 'font-medium text-foreground/90')}>
+              {d.verb}
+            </span>
+            {d.target && (
+              <span className="flex-shrink-0 truncate max-w-[40%] rounded bg-muted/60 px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
+                {d.target}
+              </span>
+            )}
+            {d.detail && d.detail !== d.target && (
+              <span className="flex-1 truncate font-mono text-[10.5px] text-muted-foreground/55">{d.detail}</span>
+            )}
+            {(resultSummary || pairedError) && (
+              <span className="flex-shrink-0 ml-auto pl-1.5 tabular-nums text-[10.5px] text-muted-foreground/55">
+                {pairedError && !resultSummary ? 'error' : resultSummary}
+              </span>
+            )}
           </div>
-          {expanded && event.toolInput != null && (
-            <pre className="mt-2 ml-5 text-[10.5px] text-muted-foreground bg-background/60 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
-              {JSON.stringify(event.toolInput, null, 2)}
-            </pre>
+          {expanded && (
+            <div className="mt-2 ml-5 space-y-2">
+              {event.toolInput != null && (
+                <pre className="text-[10.5px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
+                  {typeof event.toolInput === 'string' ? event.toolInput : JSON.stringify(event.toolInput, null, 2)}
+                </pre>
+              )}
+              {paired && resultText && (
+                <pre className="text-[10.5px] text-muted-foreground whitespace-pre-wrap wrap-anywhere font-mono border-l border-border/40 pl-2">
+                  {resultText.length > 4000 ? resultText.slice(0, 4000) + '…' : resultText}
+                </pre>
+              )}
+            </div>
           )}
         </button>
       );
     }
 
     case 'tool_result': {
+      // Tool errors are NOT styled red — a failed grep / missing file is
+      // usually noise the agent handles itself, not something the user
+      // needs alerted to. Same neutral treatment as a normal result; the
+      // word "error" + the expandable body is enough for anyone digging in.
       const isError = event.toolIsError === true;
       const text = event.content ?? '';
       return (
         <button
           onClick={() => setExpanded((v) => !v)}
-          className={cn(
-            'w-full text-left rounded-md px-2.5 py-1.5 transition-colors',
-            isError
-              ? 'border border-destructive/30 bg-destructive/5 hover:bg-destructive/10'
-              : 'border border-border/40 bg-background hover:bg-muted/30',
-          )}
+          className="w-full text-left text-[11px]"
         >
-          <div className="flex items-center gap-1.5 text-[11px]">
-            <ChevronRight size={11} className={cn('transition-transform text-muted-foreground/60', expanded && 'rotate-90')} />
-            {isError ? (
-              <AlertTriangle size={11} className="text-destructive" />
-            ) : (
-              <CheckCircle2 size={11} className="text-muted-foreground/70" />
+          <div className="flex items-center gap-1.5 min-w-0 text-muted-foreground/70">
+            <ChevronRight size={11} className={cn('flex-shrink-0 transition-transform text-muted-foreground/40', expanded && 'rotate-90')} />
+            <span className="flex-shrink-0">{isError ? 'Error' : 'Result'}</span>
+            {!expanded && text && (
+              <span className="truncate text-muted-foreground/55">{truncate(text, 88)}</span>
             )}
-            <span className={cn(isError ? 'text-destructive' : 'text-muted-foreground/80')}>
-              {isError ? 'Tool error' : 'Tool result'}
-              {!expanded && text && (
-                <span className="text-muted-foreground/60 ml-1.5 font-normal">— {truncate(text, 80)}</span>
-              )}
-            </span>
           </div>
           {expanded && text && (
             <pre className="mt-2 ml-5 text-[10.5px] text-muted-foreground whitespace-pre-wrap wrap-anywhere font-mono">
@@ -604,6 +644,27 @@ function formatProviderLabel(providerType: string | null | undefined): string {
     default:
       return providerType.charAt(0).toUpperCase() + providerType.slice(1);
   }
+}
+
+const TOOL_GLYPH_ICONS: Record<ToolGlyph, typeof Wrench> = {
+  read: FileText,
+  edit: Pencil,
+  write: FilePlus,
+  bash: Terminal,
+  search: Search,
+  web: Globe,
+  task: Boxes,
+  plan: ClipboardList,
+  todo: ListTodo,
+  question: HelpCircle,
+  terminal: SquareTerminal,
+  tool: Wrench,
+};
+
+/** Small monochrome icon for a humanized tool call. */
+function ToolGlyphIcon({ glyph }: { glyph: ToolGlyph }) {
+  const Icon = TOOL_GLYPH_ICONS[glyph] ?? Wrench;
+  return <Icon size={11} className="flex-shrink-0 text-muted-foreground/60" />;
 }
 
 function truncate(str: string, max: number): string {

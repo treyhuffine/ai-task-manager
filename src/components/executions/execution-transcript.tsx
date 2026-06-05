@@ -17,6 +17,10 @@ import {
 } from '@/components/ai-elements/conversation';
 import type { ChatEventRecord, ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionEvent } from './execution-event';
+import { ActivityGroup } from './activity-group';
+import { buildTranscriptNodes } from './transcript-grouping';
+import { useTranscriptDensity } from '@/lib/client/transcript-density';
+import { isPlumbingTool } from '@/lib/executions/tool-display';
 import { SetupCard } from './setup-card';
 import { ThinkingState } from './thinking-state';
 
@@ -57,9 +61,59 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   const { data: rawEvents, isLoading } = useSessionEvents(session.id);
   const clientStatus = useClientEventStatus(session.id);
   const { loadOlder, isLoadingOlder, hasOlder } = useLoadOlderEvents(session.id, rawEvents);
+  const { density } = useTranscriptDensity();
 
   const events = useMemo(() => filterRenderable(rawEvents ?? []), [rawEvents]);
   const hasEvents = events.length > 0;
+
+  // Pair each `tool_result` to its `tool_call` (via externalToolCallId) so
+  // a call row can render the result's summary inline ("150 lines"). Built
+  // from the full event list before any suppression.
+  const resultByCallId = useMemo(() => {
+    const m = new Map<string, ChatEventRecord>();
+    for (const e of events) {
+      if (e.source === 'tool_result' && e.externalToolCallId) m.set(e.externalToolCallId, e);
+    }
+    return m;
+  }, [events]);
+
+  // In condensed mode, drop the rows we merge/fold away so they neither
+  // render standalone nor inflate counts:
+  //   - tool_result rows whose tool_call is present (merged onto the call)
+  //   - PTY plumbing calls (Codex write_stdin/read_thread_terminal)
+  const renderEvents = useMemo(() => {
+    if (density !== 'condensed') return events;
+    const callIds = new Set<string>();
+    for (const e of events) {
+      if (e.source === 'tool_call' && e.externalToolCallId) callIds.add(e.externalToolCallId);
+    }
+    return events.filter((e) => {
+      if (e.source === 'tool_result' && e.externalToolCallId && callIds.has(e.externalToolCallId)) {
+        return false;
+      }
+      if (e.source === 'tool_call' && isPlumbingTool(e.toolName)) return false;
+      return true;
+    });
+  }, [events, density]);
+
+  // Condensed (default) folds each completed turn's intermediate activity
+  // into a collapsible summary; `full` renders every event. Recomputes
+  // when the live turn finishes (isRunning) so it collapses on completion.
+  const nodes = useMemo(
+    () => buildTranscriptNodes(renderEvents, { isRunning, density }),
+    [renderEvents, isRunning, density],
+  );
+
+  // Index lookups for per-event flags (auth banner actionability, last row).
+  const eventIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    renderEvents.forEach((e, i) => m.set(e.id, i));
+    return m;
+  }, [renderEvents]);
+  const lastUserIdx = useMemo(() => {
+    for (let i = renderEvents.length - 1; i >= 0; i--) if (renderEvents[i].source === 'user') return i;
+    return -1;
+  }, [renderEvents]);
 
   // Cursor for scroll-up paging + the layout-effect key that fires the
   // re-anchor: the RAW oldest event (unfiltered — that's what the pager
@@ -103,26 +157,39 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
           <p className="text-[11px] text-muted-foreground/60 italic">Loading transcript…</p>
         )}
 
-        {events.map((event, i) => (
-          <ExecutionEvent
-            key={event.id}
-            event={event}
-            sessionId={session.id}
-            isLast={i === events.length - 1}
-            // For `auth_required`: the trailing `result` event from the
-            // same failed turn means `isLast` is false even though no
-            // new user message has been sent. Treat the banner as still
-            // actionable until the user actually moves past it with a
-            // fresh message — that's the user-perceived "did I deal
-            // with this yet" boundary, not the literal last-row index.
-            isLatestUnresolved={
-              event.source === 'auth_required' &&
-              !events.slice(i + 1).some((e) => e.source === 'user')
-            }
-            voiceSent={voiceSentIds?.has(event.id) ?? false}
-            clientStatus={clientStatus[event.id]}
-          />
-        ))}
+        {nodes.map((node) => {
+          if (node.kind === 'group') {
+            return (
+              <ActivityGroup
+                key={node.id}
+                node={node}
+                sessionId={session.id}
+                resultByCallId={resultByCallId}
+              />
+            );
+          }
+          const event = node.event;
+          const idx = eventIndex.get(event.id) ?? -1;
+          return (
+            <ExecutionEvent
+              key={event.id}
+              event={event}
+              sessionId={session.id}
+              // Merge result summaries onto call rows only in condensed
+              // mode; in full mode the standalone result row owns it.
+              resultByCallId={density === 'condensed' ? resultByCallId : undefined}
+              isLast={idx === renderEvents.length - 1}
+              // For `auth_required`: the trailing `result` event from the
+              // same failed turn means `isLast` is false even though no
+              // new user message has been sent. Treat the banner as still
+              // actionable until the user actually moves past it with a
+              // fresh message — i.e. no user event sent after it.
+              isLatestUnresolved={event.source === 'auth_required' && idx > lastUserIdx}
+              voiceSent={voiceSentIds?.has(event.id) ?? false}
+              clientStatus={clientStatus[event.id]}
+            />
+          );
+        })}
 
         {isRunning && <ThinkingState since={thinkingSince} />}
         <ScrollOnSend trigger={latestUserEventId} />
@@ -301,6 +368,11 @@ function filterRenderable(events: ChatEventRecord[]): ChatEventRecord[] {
   return events.filter((e) => {
     if (e.source === 'result') return false;
     if (e.source === 'agent' && e.content === NO_RESPONSE_REQUESTED) return false;
+    // Empty `thinking` rows carry no prose (Claude Code withholds it on
+    // current versions — see docs/agentex-thinking-capture-spec.md). An
+    // accordion that expands to nothing is pure noise, so drop them; the
+    // renderer auto-shows thinking again the moment prose is present.
+    if (e.source === 'thinking' && !(e.content ?? '').trim()) return false;
     if (e.source !== 'system') return true;
     const raw = (e.raw ?? {}) as { subtype?: string };
     return raw.subtype !== 'init';
