@@ -18,6 +18,7 @@ import {
 import type { ChatEventRecord, ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionEvent } from './execution-event';
 import { ActivityGroup } from './activity-group';
+import { TurnFilesFooter } from './file-chip';
 import { buildTranscriptNodes } from './transcript-grouping';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { isPlumbingTool } from '@/lib/executions/tool-display';
@@ -167,6 +168,9 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
                 resultByCallId={resultByCallId}
               />
             );
+          }
+          if (node.kind === 'files') {
+            return <TurnFilesFooter key={node.id} files={node.files} />;
           }
           const event = node.event;
           const idx = eventIndex.get(event.id) ?? -1;
@@ -353,6 +357,20 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
 const NO_RESPONSE_REQUESTED = 'No response requested.';
 
 /**
+ * `system`-source events are `type:"system"` telemetry/lifecycle markers
+ * the adapter stores as `--- subtype ---` dividers (`init`, `mode`,
+ * `thinking_tokens`, `task_started`/`task_notification`, `commands_changed`,
+ * …). The set is open-ended — Claude Code / agentex add new subtypes freely
+ * — so a denylist is endless whack-a-mole. We allowlist instead: render only
+ * subtypes that carry genuine user value (currently none). Anything not
+ * listed is dropped from the transcript but kept in `chat_events` (raw) for
+ * debugging. If we later want to surface, say, a compaction boundary, it
+ * should get a purpose-built styled affordance — not a raw divider — so add
+ * it here only alongside that.
+ */
+const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([]);
+
+/**
  * Drop transcript noise:
  *   - `system` events with subtype `init` — agentex always emits one
  *     at session start; the row is useful for the `externalSessionId`
@@ -374,7 +392,12 @@ function filterRenderable(events: ChatEventRecord[]): ChatEventRecord[] {
     // renderer auto-shows thinking again the moment prose is present.
     if (e.source === 'thinking' && !(e.content ?? '').trim()) return false;
     if (e.source !== 'system') return true;
+    // Allowlist: render a system divider only for subtypes we've opted into
+    // (none today). The subtype lives in `content` (the adapter stores
+    // `event.subtype` there); `raw.subtype` is unreliable (`'unknown'` for
+    // forward-compat events), so prefer `content`.
     const raw = (e.raw ?? {}) as { subtype?: string };
-    return raw.subtype !== 'init';
+    const subtype = e.content ?? raw.subtype ?? '';
+    return RENDERABLE_SYSTEM_SUBTYPES.has(subtype);
   });
 }

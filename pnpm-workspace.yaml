@@ -1,2 +1,7 @@
+# Root-only workspace. Without an explicit `packages` field, pnpm 10
+# auto-discovers nested package.json files — including untracked clones
+# under /examples (gitignored reference material), whose git deps then
+# break `pnpm install` for everyone. Empty list = root project only.
+packages: []
 allowBuilds:
   better-sqlite3: true

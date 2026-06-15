@@ -250,6 +250,21 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
     );
   }
 
+  // Images render as an actual preview rather than dead-ending at the
+  // binary card. The file API already hands us base64 (raster, sniffed as
+  // binary) or utf-8 text (svg) plus the mime, so no extra route needed.
+  if (typeof data.mime === 'string' && data.mime.startsWith('image/') && data.content != null) {
+    const src = data.isBinary
+      ? `data:${data.mime};base64,${data.content}`
+      : `data:${data.mime};charset=utf-8,${encodeURIComponent(data.content)}`;
+    return (
+      <div className="flex h-full items-center justify-center overflow-auto p-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={path} className="max-h-full max-w-full object-contain" />
+      </div>
+    );
+  }
+
   if (data.isBinary) {
     return (
       <EmptyState

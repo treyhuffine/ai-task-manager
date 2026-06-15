@@ -7,6 +7,7 @@ import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
+import { DiffStatsPair } from './diff-stats';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 
@@ -107,12 +108,7 @@ export function HistoryRow({
               <span className="truncate">{branch}</span>
             </span>
           )}
-          {diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) && (
-            <span className="flex items-center gap-1 font-mono ml-auto flex-shrink-0">
-              <span className="text-emerald-500/80">+{diffStats.additions}</span>
-              <span className="text-rose-500/80">-{diffStats.deletions}</span>
-            </span>
-          )}
+          <DiffStatsPair stats={diffStats} className="ml-auto flex-shrink-0" />
         </div>
       </div>
 

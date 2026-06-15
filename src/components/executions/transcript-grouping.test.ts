@@ -15,7 +15,7 @@ function ev(source: string, extra: Partial<ChatEventRecord> = {}): ChatEventReco
   } as ChatEventRecord;
 }
 
-const kinds = (nodes: TranscriptNode[]) => nodes.map((n) => (n.kind === 'group' ? 'group' : n.event.source));
+const kinds = (nodes: TranscriptNode[]) => nodes.map((n) => (n.kind === 'event' ? n.event.source : n.kind));
 
 describe('buildTranscriptNodes', () => {
   it('full density returns one node per event', () => {

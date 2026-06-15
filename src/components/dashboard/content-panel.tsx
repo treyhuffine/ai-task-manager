@@ -5,7 +5,7 @@ import {
   Users, Gavel, Calendar, ArrowUp,
   Mic, Square, MessageSquare, Loader2, Pencil, X,
   Zap, Radar, Shuffle, Clock, AlertCircle, Battery, Trophy, TrendingDown, MoreHorizontal,
-  Wrench, Check, XCircle, AudioLines,
+  Wrench, Check, XCircle, AudioLines, Plus, History,
 } from 'lucide-react';
 import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
@@ -44,6 +44,15 @@ import { HOTKEYS } from '@/constants/commands';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { LiveWaveform } from '@/components/ui/live-waveform';
+import { HarnessChat } from '@/components/chat/harness-chat';
+import {
+  useNewOrchestratorChat,
+  useOrchestratorChat,
+  useOrchestratorChatHistory,
+  useResumeOrchestratorChat,
+  type OrchestratorMode,
+} from '@/hooks/use-orchestrator-chat';
+import { formatCompactRelative } from '@/lib/utils/relative-time';
 
 // ─── Chat transport (adds auth header) ─────────────────────────
 
@@ -197,7 +206,202 @@ function VoiceSentBadge({ voiceAutoSend, onToggleAutoSend }: { voiceAutoSend: bo
   );
 }
 
-function ChatContent({ panelId }: { panelId: PanelId }) {
+// ─── Chat mode switcher ────────────────────────────────────────
+//
+// Three orchestrator brains behind one tab (user_state.orchestratorMode):
+//   classic — the hand-rolled streamText agent (ephemeral, in-process)
+//   skills  — harness session in the data root, actions via CLI/skills
+//   mcp     — harness session with the orchestrator MCP attached
+// Switching into a harness mode starts a fresh session: the mode's CLI
+// flags (MCP attachment, write guards) are read at process spawn.
+
+const CHAT_MODES: { id: OrchestratorMode; label: string; title: string }[] = [
+  { id: 'legacy', label: 'Classic', title: 'Built-in chat agent (no harness)' },
+  { id: 'harness_skills', label: 'Skills', title: 'Harness session — actions via CLI + skills' },
+  { id: 'harness_mcp', label: 'MCP', title: 'Harness session — actions via MCP tools' },
+];
+
+/**
+ * History popover for harness chats. Self-contained: reads the list +
+ * current session from the orchestrator-chat hooks (cache shared with
+ * HarnessChat — no duplicate fetches) and resumes on click. Labels come
+ * from the same haiku-via-harness derivation executions use; a chat that
+ * hasn't had its first send yet shows as "New chat".
+ */
+function ChatHistoryMenu() {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { data: current } = useOrchestratorChat();
+  const { data: history, isLoading } = useOrchestratorChatHistory(open);
+  const resume = useResumeOrchestratorChat();
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const currentId = current?.session.id ?? null;
+  const sessions = history?.sessions ?? [];
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Chat history"
+        className={cn(
+          'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] transition-all',
+          open
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+        )}
+      >
+        <History size={10} />
+        History
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-xl z-50 py-1">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 size={12} className="animate-spin text-muted-foreground" />
+            </div>
+          ) : sessions.length === 0 ? (
+            <p className="px-3 py-3 text-[10.5px] text-muted-foreground/70 text-center">
+              No chats yet
+            </p>
+          ) : (
+            sessions.map((s) => {
+              const isCurrent = s.id === currentId;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    if (!isCurrent) resume.mutate(s.id);
+                    setOpen(false);
+                  }}
+                  disabled={resume.isPending}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all disabled:opacity-50',
+                    isCurrent ? 'bg-primary/5' : 'hover:bg-muted/50',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full shrink-0',
+                      isCurrent ? 'bg-primary' : 'bg-transparent',
+                    )}
+                  />
+                  {/* Label chain: retrospective summary (archived) → last
+                      user message snippet (live) → placeholder (no sends yet). */}
+                  <span
+                    className={cn(
+                      'flex-1 truncate text-[11px]',
+                      isCurrent ? 'text-foreground font-medium' : 'text-muted-foreground',
+                      !s.label && !s.snippet && 'italic',
+                    )}
+                  >
+                    {s.label ?? s.snippet ?? 'New chat'}
+                  </span>
+                  <span className="shrink-0 text-[9.5px] text-muted-foreground/60 font-mono">
+                    {formatCompactRelative(s.lastOutcomeEventAt ?? s.startedAt)}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatModeBar({
+  mode,
+  onSwitch,
+  onNewChat,
+  newChatPending,
+}: {
+  mode: OrchestratorMode;
+  onSwitch: (mode: OrchestratorMode) => void;
+  onNewChat: () => void;
+  newChatPending: boolean;
+}) {
+  return (
+    <div className="shrink-0 flex items-center justify-end gap-1.5 px-2 py-1 border-b border-border/50">
+      <div className="flex items-center rounded-md border border-border overflow-hidden">
+        {CHAT_MODES.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => onSwitch(m.id)}
+            title={m.title}
+            className={cn(
+              'px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] transition-all',
+              mode === m.id
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      {mode !== 'legacy' && (
+        <>
+          <ChatHistoryMenu />
+          <button
+            onClick={onNewChat}
+            disabled={newChatPending}
+            title="Start a new chat (archives the current one)"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
+          >
+            {newChatPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+            New
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChatContent({ panelId, isMobile }: { panelId: PanelId; isMobile: boolean }) {
+  const { data: userState } = useUserState();
+  const updateUserState = useUpdateUserState();
+  const newChat = useNewOrchestratorChat();
+  const mode: OrchestratorMode = userState?.orchestratorMode ?? 'legacy';
+
+  const handleSwitch = (next: OrchestratorMode) => {
+    if (next === mode) return;
+    updateUserState.mutate({ orchestratorMode: next });
+    // Harness flags are spawn-time — entering a harness mode always cuts
+    // over to a fresh session so the new mode's surface applies cleanly.
+    if (next !== 'legacy') newChat.mutate();
+  };
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <ChatModeBar
+        mode={mode}
+        onSwitch={handleSwitch}
+        onNewChat={() => newChat.mutate()}
+        newChatPending={newChat.isPending}
+      />
+      {mode === 'legacy' ? (
+        <LegacyChatContent panelId={panelId} />
+      ) : (
+        // Key on mode so a switch fully remounts against the new session.
+        <HarnessChat key={mode} isMobile={isMobile} />
+      )}
+    </div>
+  );
+}
+
+function LegacyChatContent({ panelId }: { panelId: PanelId }) {
   const { theme, voiceChatPanelTarget, clearVoiceChatTrigger } = useDashboard();
   const isDark = theme === 'dark';
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
@@ -838,7 +1042,7 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === 'deck' && <DeckContainer />}
-        {activeTab === 'chat' && <ChatContent panelId={panelId} />}
+        {activeTab === 'chat' && <ChatContent panelId={panelId} isMobile={!!mobileTab} />}
         {activeTab === 'tasks' && <TaskList />}
         {activeTab === 'stream' && <StreamList />}
         {activeTab === 'notes' && <NoteList />}

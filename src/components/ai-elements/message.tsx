@@ -55,7 +55,11 @@ export const MessageContent = ({
   <div
     className={cn(
       "is-user:dark flex min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-      "group-[.is-user]:w-fit group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
+      // User bubble — inverted vs. the page via the `--user-bubble` token
+      // (dark-zinc surface + white text on light; white + near-black on
+      // dark). The token resolves per mode, so no `dark:` override needed.
+      "group-[.is-user]:w-fit group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:px-4 group-[.is-user]:py-3",
+      "group-[.is-user]:bg-user-bubble group-[.is-user]:text-user-bubble-foreground",
       "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       className
     )}

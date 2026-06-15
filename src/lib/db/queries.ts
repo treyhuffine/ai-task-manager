@@ -384,6 +384,30 @@ export function deleteNote(id: string): boolean {
 
 // ─── Stream ───────────────────────────────────────────────────
 
+export function listStream(
+  filter: {
+    status?: 'pending' | 'promoted' | 'dismissed';
+    limit?: number;
+    offset?: number;
+  } = {},
+): StreamRecord[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(stream)
+    .where(filter.status ? eq(stream.status, filter.status) : undefined)
+    .orderBy(desc(stream.createdAt))
+    .limit(filter.limit ?? 100)
+    .offset(filter.offset ?? 0)
+    .all();
+  return rows.map((r) => hydrateRow(r));
+}
+
+export function getStream(id: string): StreamRecord | undefined {
+  const db = getDb();
+  return hydrateRow(db.select().from(stream).where(eq(stream.id, id)).get());
+}
+
 /** Lookup an existing stream item by upstream id (e.g. Pocket recording.id).
  *  Used to dedupe at-least-once webhook redeliveries. */
 export function findStreamByExternalId(
@@ -461,8 +485,8 @@ export function updateStream(id: string, input: UpdateStreamInput): StreamRecord
   return row;
 }
 
-export function dismissStream(id: string): StreamRecord | null {
-  return updateStream(id, { status: 'dismissed', dismissedBy: 'user' });
+export function dismissStream(id: string, dismissedBy = 'user'): StreamRecord | null {
+  return updateStream(id, { status: 'dismissed', dismissedBy });
 }
 
 // ─── Areas ────────────────────────────────────────────────────
@@ -1598,6 +1622,13 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
     .where(
       and(
         eq(chatSessions.status, 'active'),
+        // The interactive orchestrator chat (orchestration + no creating
+        // run) is "the assistant in the Chat tab" — its replies are the
+        // conversation itself, not output owed review, so it never belongs
+        // in the unread queue. Scheduled orchestrator chats
+        // (created_by_run_id set) stay eligible: surfacing their results
+        // here is how scheduled-fire output reaches the user.
+        sql`NOT (${chatSessions.type} = 'orchestration' AND ${chatSessions.createdByRunId} IS NULL)`,
         sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
         sql`COALESCE(
           MAX(
@@ -1855,6 +1886,26 @@ export function listChatEvents(
     .offset(offset)
     .all();
   return tail.reverse().map((r) => hydrateRow(r));
+}
+
+/**
+ * Most recent event of a given source for a session. Backs the
+ * orchestrator-chat history's snippet (last user message) — a cheap
+ * single-row probe instead of paging the whole tail.
+ */
+export function getLastChatEventBySource(
+  sessionId: string,
+  source: string,
+): ChatEventRecord | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, sessionId), eq(chatEvents.source, source)))
+    .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
+    .limit(1)
+    .get();
+  return row ? hydrateRow(row) : null;
 }
 
 /**

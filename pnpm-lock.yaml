@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@agentex/agent':
-        specifier: ^0.0.17
-        version: 0.0.17
+        specifier: ^0.0.20
+        version: 0.0.20(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -391,8 +391,13 @@ packages:
     resolution: {integrity: sha512-VTDuRS5V0ATbJ/LkaQlisMnTAeYKXAK6scMguVBstf+KIBQ7HIuKhiXLv+G/hvejkV+THoXzoNifInAkU81P1g==}
     engines: {node: '>=18'}
 
-  '@agentex/agent@0.0.17':
-    resolution: {integrity: sha512-V3NtElwVTybE8VfAZYMGDngIsDQ/pbOTxAXXxoWF6gP2u2t3uOlCxY+5+PcxnLOFrK6cAfw0fIcnjw4qkDWYxg==}
+  '@agentclientprotocol/sdk@0.24.0':
+    resolution: {integrity: sha512-vvu9appvGvfYstBj19C6NCepV6SvUhY5VRv60KUZ4XzhTah/olOYul5Zo4C+x2enyshMSvgB2mm/OEmrsHaSmA==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+
+  '@agentex/agent@0.0.20':
+    resolution: {integrity: sha512-voH5UV3Re1lLsachDdiJGBxO/g7Kk0CIWhcsJVzCloxMz30lsWRq5wNC1zJWf+yxDlQCqcG4iZHKlfjQYSnv3A==}
     engines: {node: '>=18.0.0'}
 
   '@agentex/github@0.0.1':
@@ -8601,9 +8606,16 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@agentex/agent@0.0.17':
+  '@agentclientprotocol/sdk@0.24.0(zod@3.25.76)':
     dependencies:
+      zod: 3.25.76
+
+  '@agentex/agent@0.0.20(zod@3.25.76)':
+    dependencies:
+      '@agentclientprotocol/sdk': 0.24.0(zod@3.25.76)
       uuid: 13.0.0
+    transitivePeerDependencies:
+      - zod
 
   '@agentex/github@0.0.1': {}
 

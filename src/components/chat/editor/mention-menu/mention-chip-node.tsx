@@ -19,6 +19,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FileIcon, FolderIcon } from '@/components/file-icon'
 import { handleChipBackspace } from '../suggestion/chip-backspace'
+import { dispatchOpenFile } from '@/lib/entity-refs/open-file-event'
 import type { FileMentionItem } from './types'
 
 export const MENTION_CHIP_NAME = 'mentionChip'
@@ -122,7 +123,33 @@ function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
       ) : (
         <FileIcon name={attrs.name} size={11} />
       )}
-      <span className="font-mono text-[11px] truncate max-w-[180px]">{attrs.name}</span>
+      <span
+        className={cn(
+          'font-mono text-[11px] truncate max-w-[180px]',
+          attrs.kind === 'file' && 'cursor-pointer hover:underline',
+        )}
+        // Click a file mention to open it in the tree + viewer. mousedown
+        // preventDefault keeps editor focus/selection from shifting first.
+        onMouseDown={
+          attrs.kind === 'file'
+            ? (e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }
+            : undefined
+        }
+        onClick={
+          attrs.kind === 'file'
+            ? (e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (attrs.path) dispatchOpenFile(attrs.path)
+              }
+            : undefined
+        }
+      >
+        {attrs.name}
+      </span>
       <button
         type="button"
         onMouseDown={handleRemove}

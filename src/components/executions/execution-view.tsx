@@ -30,6 +30,7 @@ import { WipHandoffBanner } from './wip-handoff-banner';
 import { FileTree } from './file-tree/file-tree';
 import { ViewerArea } from './viewer-area';
 import { useInitialSelectedFile } from './viewer/use-initial-selected-file';
+import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverBanner } from './takeover/takeover-banner';
 import { SetupPlaceholder } from './setup-placeholder';
@@ -209,6 +210,21 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     setSelectedPath(path);
     if (path) setFilePickSignal((n) => n + 1);
   };
+
+  // Transcript file chips fire `flow:open-file` (a window event) when
+  // clicked; route it to the same tree/viewer selection the file tree
+  // uses, normalizing absolute tool-input paths to worktree-relative.
+  useOpenFileListener(
+    useCallback(
+      (detail) => {
+        const rel = toWorktreeRelative(detail.path, session?.worktreePath ?? null);
+        if (!rel) return;
+        setSelectedPath(rel);
+        setFilePickSignal((n) => n + 1);
+      },
+      [session?.worktreePath],
+    ),
+  );
 
   // Lets the file tree drop an `@<path>` token into the composer when
   // the user picks "Reference in chat" from a row's kebab. The composer

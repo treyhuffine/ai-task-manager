@@ -79,9 +79,15 @@ export async function readWorkspaceFile(
   const isBinary = sniffBinary(buffer.subarray(0, BINARY_SNIFF_BYTES));
 
   if (isBinary) {
+    // Images get their bytes base64-encoded so the viewer can render an
+    // actual preview (capped at MAX_PREVIEW_BYTES like everything else).
+    // Other binaries (archives, db dumps) stay content-less — there's
+    // nothing useful to show, and we avoid shipping the bytes for a
+    // "can't preview" card.
+    const isImage = mime.startsWith('image/');
     return {
       path: safe,
-      content: null,
+      content: isImage ? buffer.toString('base64') : null,
       encoding: 'base64',
       mime,
       size,

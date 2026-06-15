@@ -1,28 +1,15 @@
 import { NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
-import { stream } from '@/lib/db/schema';
-import { eq, desc } from 'drizzle-orm';
 import type { CreateStreamInput } from '@/db/types';
-import { createStream } from '@/lib/db/queries';
+import { createStream, listStream } from '@/lib/db/queries';
 
 export async function GET(request: NextRequest) {
   try {
-    const db = getDb();
     const params = request.nextUrl.searchParams;
-
-    const status = params.get('status');
-    const limit = params.get('limit') ? parseInt(params.get('limit')!, 10) : 100;
-    const offset = params.get('offset') ? parseInt(params.get('offset')!, 10) : 0;
-
-    const rows = db
-      .select()
-      .from(stream)
-      .where(status ? eq(stream.status, status as 'pending' | 'promoted' | 'dismissed') : undefined)
-      .orderBy(desc(stream.createdAt))
-      .limit(limit)
-      .offset(offset)
-      .all();
-
+    const rows = listStream({
+      status: (params.get('status') as 'pending' | 'promoted' | 'dismissed' | null) ?? undefined,
+      limit: params.get('limit') ? parseInt(params.get('limit')!, 10) : undefined,
+      offset: params.get('offset') ? parseInt(params.get('offset')!, 10) : undefined,
+    });
     return Response.json(rows);
   } catch (err) {
     console.error('[GET /api/stream]', err);

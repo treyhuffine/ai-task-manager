@@ -64,3 +64,4 @@ next-env.d.ts
 
 # Vendored from miguelsolorio/vscode-symbols via scripts/fetch-symbols-icons.mjs
 /public/symbols-icons/
+.gstack/

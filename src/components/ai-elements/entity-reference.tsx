@@ -4,15 +4,16 @@ import { type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useDashboard } from '@/contexts/dashboard-context'
 import { cn } from '@/lib/utils'
-import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList } from 'lucide-react'
+import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList, SquareTerminal } from 'lucide-react'
 import { NoteIcon } from '@/components/shared/note-icon'
-import type { TaskRecord, NoteRecord, AreaRecord } from '@/db/types'
+import type { TaskRecord, NoteRecord, AreaRecord, ChatSessionWithExecution, WorkspaceRecord } from '@/db/types'
 import { api } from '@/lib/api/client'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
+import { isSessionUnread } from '@/lib/utils/session-sort'
 
 // ─── Types ──────────────────────────────────────────────────
 
-type EntityType = 'task' | 'note' | 'area' | 'deck'
+type EntityType = 'task' | 'note' | 'area' | 'deck' | 'execution'
 
 interface EntitySegment {
   type: 'text' | 'entity'
@@ -23,7 +24,7 @@ interface EntitySegment {
 
 // ─── Parser ─────────────────────────────────────────────────
 
-const ENTITY_PATTERN = /\[\[(task|note|area|deck):([^\]]+)\]\]/g
+const ENTITY_PATTERN = /\[\[(task|note|area|deck|execution):([^\]]+)\]\]/g
 
 export function parseEntityReferences(text: string): EntitySegment[] {
   const segments: EntitySegment[] = []
@@ -86,6 +87,15 @@ const ENTITY_CONFIG: Record<EntityType, {
     borderColor: 'border-l-foreground',
     iconColor: 'text-foreground',
     fetchUrl: (id) => `/deck/${id}`,
+  },
+  execution: {
+    icon: SquareTerminal,
+    label: 'Execution',
+    borderColor: 'border-l-violet-500',
+    iconColor: 'text-violet-500',
+    // The marker id is the chat session id — the same handle the
+    // orchestrator's oversight actions deal in.
+    fetchUrl: (id) => `/sessions/${id}`,
   },
 }
 
@@ -273,6 +283,73 @@ function DeckCard({ data, onClick }: { data: { id: string; framing?: string | nu
   )
 }
 
+// ─── Execution Card ──────────────────────────────────────────
+
+/**
+ * Card for `[[execution:<sessionId>]]` references. Four data points, no
+ * more: glyph, label, workspace, one status line. The card is a handle —
+ * branch/PR/cost live one click away in the execution view. Actions on
+ * executions are sentences to the orchestrator, not chip menus, so click
+ * = open, nothing else.
+ */
+function ExecutionCard({ data, onClick }: { data: ChatSessionWithExecution; onClick: () => void }) {
+  const { streamingSessionIds, pendingInputSessionIds } = useDashboard()
+
+  // Workspace name for context ("which repo is this?"). Shared cache key
+  // across every execution card on screen — one fetch, many chips.
+  const { data: workspaces } = useQuery({
+    queryKey: ['workspaces', 'entity-chip'],
+    queryFn: () => api.get<WorkspaceRecord[]>('/workspaces'),
+    enabled: !!data.workspaceId,
+    staleTime: 60_000,
+  })
+  const workspaceName = workspaces?.find((w) => w.id === data.workspaceId)?.name ?? null
+
+  // Same status priority as the rail: blocked beats running beats unread.
+  // Live sets come from dashboard context (seeded by the rail poll + SSE),
+  // so the chip agrees with the rail and with list_executions.
+  const running = streamingSessionIds.has(data.id)
+  const awaitingInput = pendingInputSessionIds.has(data.id)
+  const unread = !running && isSessionUnread(data)
+  const status = awaitingInput
+    ? { text: 'Needs input', className: 'text-amber-500' }
+    : running
+      ? { text: 'Working', className: 'text-primary', pulse: true }
+      : unread
+        ? { text: 'Unread', className: 'text-primary' }
+        : data.status === 'archived'
+          ? { text: 'Archived', className: 'text-muted-foreground/70' }
+          : { text: 'Idle', className: 'text-muted-foreground/70' }
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-start gap-2.5 w-full rounded-lg border border-border border-l-2 bg-card px-3 py-2.5 text-left transition-colors hover:bg-accent/50',
+        ENTITY_CONFIG.execution.borderColor,
+      )}
+    >
+      <SquareTerminal size={14} className={cn('flex-shrink-0 mt-0.5', ENTITY_CONFIG.execution.iconColor)} />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium text-foreground truncate">
+          {data.label ?? 'Untitled execution'}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className={cn('flex items-center gap-1 text-[10px] font-medium', status.className)}>
+            {status.pulse && (
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            )}
+            {status.text}
+          </span>
+          {workspaceName && (
+            <span className="text-[10px] text-muted-foreground truncate">{workspaceName}</span>
+          )}
+        </div>
+      </div>
+    </button>
+  )
+}
+
 // ─── EntityChip (orchestrator) ──────────────────────────────
 
 // Cheap sanity gate so LLM hallucinations like `[[area:null]]` don't hit the
@@ -283,7 +360,7 @@ function isPlausibleEntityId(id: string): boolean {
 }
 
 function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
-  const { openTask, openNote, openDeck } = useDashboard()
+  const { openTask, openNote, openDeck, setActiveView } = useDashboard()
   const config = ENTITY_CONFIG[entityType]
   const validId = isPlausibleEntityId(entityId)
 
@@ -353,6 +430,19 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
     return (
       <div className="my-1">
         <DeckCard data={data as Parameters<typeof DeckCard>[0]['data']} onClick={() => openDeck(entityId)} />
+      </div>
+    )
+  }
+
+  if (entityType === 'execution') {
+    return (
+      <div className="my-1">
+        <ExecutionCard
+          data={data as ChatSessionWithExecution}
+          // Same navigation as clicking the rail row. Archived executions
+          // auto-resume on open — that's the execution view's own behavior.
+          onClick={() => setActiveView(entityId)}
+        />
       </div>
     )
   }

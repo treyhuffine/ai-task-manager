@@ -26,7 +26,7 @@
 
 import { getProvider } from '@agentex/agent';
 import { CHEAPEST_MODEL, mapHarnessToProvider } from '@/lib/executor/harness';
-import { updateChatSession } from '@/lib/db/queries';
+import { updateChatSession, listChatEvents, getChatSession, getAgent } from '@/lib/db/queries';
 
 const MAX_LABEL_LENGTH = 60;
 
@@ -35,6 +35,14 @@ const TITLE_PROMPT = (content: string) =>
 
 Message:
 ${content}
+
+Title:`;
+
+const RETROSPECTIVE_PROMPT = (transcript: string) =>
+  `Below are excerpts from a conversation between a user and their personal productivity assistant, in order. Summarize what the conversation was about overall as a short retrospective title (3-6 words). If it covered several topics, name the dominant one or two. Output the title only — no quotes, no period, no prefix.
+
+Excerpts:
+${transcript}
 
 Title:`;
 
@@ -109,5 +117,87 @@ export async function deriveAndSetSessionLabel(
     updateChatSession(sessionId, { label });
   } catch (err) {
     console.error(`[derive-label] failed to persist label for ${sessionId}:`, err);
+  }
+}
+
+// ─── Retrospective titling (long-running threads) ─────────────
+
+/** How many trailing events to sample, and how much of each. */
+const RETRO_TAIL_EVENTS = 60;
+const RETRO_EXCERPT_MAX = 240;
+const RETRO_MAX_EXCERPTS = 10;
+
+/**
+ * Build a compact sample of a conversation: the opening user message plus
+ * the last few user/agent exchanges. Enough signal to name the arc without
+ * shipping a whole transcript to the titling model.
+ */
+export function buildRetrospectiveSample(sessionId: string): string | null {
+  const tail = listChatEvents(sessionId, { limit: RETRO_TAIL_EVENTS });
+  const prose = tail.filter(
+    (e) => (e.source === 'user' || e.source === 'agent') && e.content?.trim(),
+  );
+  if (prose.length === 0) return null;
+
+  const excerpt = (e: (typeof prose)[number]) => {
+    const text = e.content!.trim().replace(/\s+/g, ' ');
+    const clipped =
+      text.length <= RETRO_EXCERPT_MAX ? text : text.slice(0, RETRO_EXCERPT_MAX - 1).trimEnd() + '…';
+    return `${e.source === 'user' ? 'User' : 'Assistant'}: ${clipped}`;
+  };
+
+  const opening = prose[0];
+  const recent = prose.slice(-(RETRO_MAX_EXCERPTS - 1)).filter((e) => e !== opening);
+  return [excerpt(opening), ...recent.map(excerpt)].join('\n');
+}
+
+/**
+ * Title a thread retrospectively — called when an orchestration chat is
+ * archived, the one moment its whole arc is known. Relationship-shaped
+ * threads are deliberately NOT titled from their first message (see the
+ * `type !== 'orchestration'` gate in the messages route); while live they
+ * render as time + last-message snippet, and this upgrades the archived
+ * row to a real summary.
+ *
+ * On any failure the label stays as-is (usually null) — the history UI's
+ * snippet fallback covers it. No truncation fallback here: a wrong/stale
+ * title is worse than the snippet. Re-archiving a resumed thread re-runs
+ * this and overwrites (the arc changed); labels never change outside
+ * archive transitions.
+ */
+export async function deriveRetrospectiveLabel(sessionId: string): Promise<void> {
+  try {
+    const sample = buildRetrospectiveSample(sessionId);
+    if (!sample) return;
+    const session = getChatSession(sessionId);
+    if (!session) return;
+    const harness = getAgent(session.agentId)?.harness ?? 'claude_code';
+
+    const providerType = mapHarnessToProvider(harness);
+    const model = CHEAPEST_MODEL[providerType];
+    if (!model) return;
+
+    const provider = getProvider(providerType);
+    const result = await provider.execute({
+      prompt: RETROSPECTIVE_PROMPT(sample),
+      model,
+      config: { timeoutSec: 30, maxTurns: 1, skipPermissions: true },
+    });
+    if (result.status !== 'completed' || !result.summary) return;
+
+    const cleaned = result.summary
+      .trim()
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .replace(/[.,;:!?]+$/, '')
+      .trim();
+    if (!cleaned) return;
+
+    updateChatSession(sessionId, {
+      label: cleaned.length > MAX_LABEL_LENGTH
+        ? cleaned.slice(0, MAX_LABEL_LENGTH - 1).trimEnd() + '…'
+        : cleaned,
+    });
+  } catch (err) {
+    console.error(`[derive-label] retrospective titling failed for ${sessionId}:`, err);
   }
 }

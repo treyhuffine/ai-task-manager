@@ -6,7 +6,6 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
-import { getRawDb } from '@/lib/db';
 import {
   listTasks, getTask, createTask, updateTask, deleteTask, completeTask,
   listNotes, getNote, createNote, updateNote, deleteNote,
@@ -14,8 +13,7 @@ import {
   getLatestDeck, updateDeck,
   getUserState, updateUserState,
 } from '@/lib/db/queries';
-import { hybridSearch } from '@/lib/embeddings/search';
-import { readAuthConfig } from '@/lib/auth/config-file';
+import { hybridSearchWithEntities } from '@/lib/embeddings/search';
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -437,25 +435,11 @@ const deckTools = {
     }),
     execute: async (params) => {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || `http://localhost:${process.env.PORT || 4224}`;
-        console.log('[tool:regenerateDeck] calling', `${baseUrl}/api/deck/generate`);
-        const localToken = readAuthConfig()?.localToken;
-        const res = await fetch(`${baseUrl}/api/deck/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(localToken ? { Authorization: `Bearer ${localToken}` } : {}),
-          },
-          body: JSON.stringify(params),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Deck generation failed' }));
-          console.error('[tool:regenerateDeck] failed:', res.status, err);
-          return { error: err.error || 'Deck generation failed' };
-        }
-
-        const deck = await res.json();
+        // Direct pipeline call — same process, no HTTP hop. Lazy import:
+        // generate-deck pulls in the OpenAI SDK, which the tool registry
+        // shouldn't load until a regeneration actually fires.
+        const { generateDeck } = await import('@/lib/ai/generate-deck');
+        const deck = await generateDeck(params);
         return {
           id: deck.id,
           framing: deck.framing,
@@ -481,40 +465,7 @@ const searchTools = {
     }),
     execute: async ({ query, limit }) => {
       try {
-        const hits = await hybridSearch(query, { limit });
-        const rawDb = getRawDb();
-
-        return hits
-          .map((hit) => {
-            let entity: Record<string, unknown> | undefined;
-
-            if (hit.entityType === 'task') {
-              entity = rawDb
-                .prepare('SELECT id, title, description, status, area_id AS areaId, hard_deadline AS hardDeadline, user_context AS userContext, body FROM tasks WHERE id = ?')
-                .get(hit.entityId) as Record<string, unknown> | undefined;
-              if (entity?.body && typeof entity.body === 'string' && entity.body.length > 500) {
-                entity.body = entity.body.slice(0, 500) + '...';
-              }
-            } else if (hit.entityType === 'note') {
-              entity = rawDb
-                .prepare('SELECT id, title, body, area_id AS areaId, task_id AS taskId FROM notes WHERE id = ?')
-                .get(hit.entityId) as Record<string, unknown> | undefined;
-              if (entity?.body && typeof entity.body === 'string' && entity.body.length > 500) {
-                entity.body = entity.body.slice(0, 500) + '...';
-              }
-            } else if (hit.entityType === 'stream') {
-              entity = rawDb
-                .prepare('SELECT id, raw_text AS rawText, created_at AS createdAt, source FROM stream WHERE id = ?')
-                .get(hit.entityId) as Record<string, unknown> | undefined;
-              if (entity?.rawText && typeof entity.rawText === 'string' && entity.rawText.length > 500) {
-                entity.rawText = entity.rawText.slice(0, 500) + '...';
-              }
-            }
-
-            if (!entity) return null;
-            return { type: hit.entityType, score: hit.score, ...entity };
-          })
-          .filter(Boolean);
+        return await hybridSearchWithEntities(query, { limit });
       } catch (err) {
         console.error('[tool:searchKnowledgeBase]', err);
         return [];

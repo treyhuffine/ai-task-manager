@@ -43,7 +43,7 @@ export function ActivityGroup({
       </button>
 
       {expanded && (
-        <div className="mt-1.5 ml-3 flex flex-col gap-2 border-l border-border/40 pl-3">
+        <div className="mt-2 flex flex-col gap-2">
           {node.events.map((event) => (
             <ExecutionEvent
               key={event.id}

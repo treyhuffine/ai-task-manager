@@ -45,9 +45,15 @@ import {
   getChatSessionWithExecution,
   getAgent,
   getWorkspace,
+  getUserState,
   updateChatSession,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
+import {
+  installOrchestratorSurface,
+  orchestratorSessionConfig,
+  type OrchestratorMode,
+} from '@/lib/orchestrator/harness-surface';
 import type {
   ChatEventSource,
   CreateChatEventInput,
@@ -470,6 +476,7 @@ export async function dispatch(
       chatSessionId,
       harness: agent.harness,
       cwd,
+      sessionType: session.type,
       existingExternalSessionId: session.externalSessionId,
       permissionMode: session.permissionMode,
       model: session.model,
@@ -562,11 +569,25 @@ interface EnsureArgs {
   chatSessionId: string;
   harness: string;
   cwd: string;
+  /** chat_sessions.type — orchestration sessions get the data-root surface. */
+  sessionType: 'orchestration' | 'content' | 'execution';
   existingExternalSessionId: string | null;
   permissionMode: PermissionMode;
   model: string | null;
   effort: EffortLevel | null;
   writer: EventWriter;
+}
+
+/**
+ * Which orchestrator surface an orchestration-type session gets. The
+ * dashboard toggle (`user_state.orchestratorMode`) wins when it names a
+ * harness mode; `legacy` (the hand-rolled chat agent) still needs scheduled
+ * orchestrator fires to work, and those are harness sessions by
+ * construction — they default to the MCP surface, the most robust path.
+ */
+function resolveOrchestratorMode(): Exclude<OrchestratorMode, 'legacy'> {
+  const mode = getUserState()?.orchestratorMode;
+  return mode === 'harness_skills' || mode === 'harness_mcp' ? mode : 'harness_mcp';
 }
 
 async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
@@ -594,10 +615,39 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // session with all-null overrides produces no extra CLI flags.
   const claudeMode = claudePermissionFlag(args.permissionMode);
   const config: Record<string, unknown> = {};
-  if (claudeMode) config.extraArgs = ['--permission-mode', claudeMode];
+  const extraArgs: string[] = [];
+  if (claudeMode) extraArgs.push('--permission-mode', claudeMode);
   if (args.model) config.model = args.model;
   // Codex provider ignores `config.effort`; passing it is harmless.
   if (args.effort) config.effort = args.effort;
+
+  // Orchestration sessions run in the app data root and act through the
+  // typed action surface. Install/refresh the on-disk brief (CLAUDE.md /
+  // AGENTS.md) before spawn — this also `ensureAppRoot()`s the cwd — and
+  // merge the mode's typed ProviderConfig slice (disallowedTools /
+  // strictMcpConfig / mcpServers, agentex ≥0.0.20). Providers without
+  // tool-filtering or MCP wiring ignore the fields (Codex today), so the
+  // config is safe to pass everywhere — but warn, because the write guard
+  // genuinely doesn't hold there yet.
+  if (args.sessionType === 'orchestration') {
+    const orchestratorMode = resolveOrchestratorMode();
+    try {
+      installOrchestratorSurface(orchestratorMode);
+      Object.assign(config, orchestratorSessionConfig(orchestratorMode));
+      if (providerType !== 'claude') {
+        console.warn(
+          `[executor] orchestrator session on provider "${providerType}": surface installed, ` +
+            'but tool filtering / MCP attachment are ignored by this provider (no write guard).',
+        );
+      }
+    } catch (err) {
+      // A failed surface install shouldn't kill the turn — the session
+      // still runs against whatever brief is already on disk.
+      console.error('[executor] orchestrator surface install failed:', err);
+    }
+  }
+
+  if (extraArgs.length > 0) config.extraArgs = extraArgs;
 
   // Bundled skills live at <app-root>/.claude/skills/ and <app-root>/.agents/skills/
   // (installed via `<cli> skills install`, which runs on `start`). The session
@@ -1160,7 +1210,15 @@ function mapUnknownEvent(
  */
 export function resolveCwd(session: { worktreePath: string | null; workspaceId: string | null }): string | null {
   if (session.worktreePath && existsSync(session.worktreePath)) return session.worktreePath;
-  if (!session.workspaceId) return null;
+  if (!session.workspaceId) {
+    // No workspace → the session runs in the app data root. This is the
+    // orchestrator/content path: interactive orchestrator chats and
+    // scheduled `targetKind='orchestrator'` fires both land here (the
+    // latter previously dead-ended with "no resolvable cwd"). The
+    // orchestrator branch in `ensureAgentSession` runs `ensureAppRoot()`
+    // via the surface installer before the process spawns.
+    return getAppRoot();
+  }
   const workspace = getWorkspace(session.workspaceId);
   return workspace?.cwd ?? null;
 }

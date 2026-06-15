@@ -1,6 +1,14 @@
 import type { ChatEventRecord } from '@/db/types';
-import { isSubagentTool, isPlumbingTool } from '@/lib/executions/tool-display';
+import { isSubagentTool, isPlumbingTool, fileTargetPath } from '@/lib/executions/tool-display';
+import { computeEditDiff } from '@/lib/executions/edit-diff';
 import type { TranscriptDensity } from '@/lib/client/transcript-density';
+
+/** A file written/edited during a turn, with cumulative +/− across the turn. */
+export interface TurnFileEdit {
+  path: string;
+  additions: number;
+  deletions: number;
+}
 
 /**
  * Condensed transcript model (Conductor-style). A *completed* agent turn
@@ -31,7 +39,25 @@ export type TranscriptNode =
       counts: GroupCounts;
       startedAt: string;
       endedAt: string;
-    };
+    }
+  | { kind: 'files'; id: string; files: TurnFileEdit[] };
+
+/** Aggregate the files written/edited in a turn (reads excluded), by path. */
+function aggregateTurnFiles(turn: ChatEventRecord[]): TurnFileEdit[] {
+  const byPath = new Map<string, TurnFileEdit>();
+  for (const e of turn) {
+    if (e.source !== 'tool_call') continue;
+    const path = fileTargetPath(e.toolName, e.toolInput);
+    if (!path) continue;
+    const diff = computeEditDiff(e.toolName, e.toolInput);
+    if (!diff) continue; // reads/other → no edit, skip
+    const cur = byPath.get(path) ?? { path, additions: 0, deletions: 0 };
+    cur.additions += diff.additions;
+    cur.deletions += diff.deletions;
+    byPath.set(path, cur);
+  }
+  return [...byPath.values()];
+}
 
 /** Rows that belong inside a collapsed activity group (when not the turn's final reply). */
 function isCollapsibleSource(source: string): boolean {
@@ -119,6 +145,12 @@ export function buildTranscriptNodes(
 }
 
 function appendCollapsedTurn(nodes: TranscriptNode[], turn: ChatEventRecord[]): void {
+  // Files written/edited this turn — rendered as a footer after the reply.
+  const files = aggregateTurnFiles(turn);
+  const appendFilesFooter = () => {
+    if (files.length) nodes.push({ kind: 'files', id: `files:${turn[0]?.id ?? ''}`, files });
+  };
+
   // The final assistant text message stays visible below the group.
   let finalAgentIdx = -1;
   for (let k = turn.length - 1; k >= 0; k--) {
@@ -133,6 +165,7 @@ function appendCollapsedTurn(nodes: TranscriptNode[], turn: ChatEventRecord[]): 
   // Nothing worth folding — render the turn as-is.
   if (groupEvents.length === 0) {
     for (const ev of turn) nodes.push({ kind: 'event', event: ev });
+    appendFilesFooter();
     return;
   }
 
@@ -157,6 +190,7 @@ function appendCollapsedTurn(nodes: TranscriptNode[], turn: ChatEventRecord[]): 
     }
     nodes.push({ kind: 'event', event: ev });
   }
+  appendFilesFooter();
 }
 
 /** Compact elapsed label for a group span, e.g. "7.4s", "2m 14s". */

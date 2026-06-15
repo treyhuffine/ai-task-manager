@@ -44,6 +44,15 @@ export const userState = sqliteTable('user_state', {
   voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
   defaultAgentHarness: text({ enum: ['claude', 'codex'] }),
   defaultAgentModel: text(),
+  // Which brain powers the dashboard orchestrator chat:
+  //   legacy         — hand-rolled streamText agent (src/lib/ai/chat-tools.ts)
+  //   harness_skills — harness session (cwd = data root), actions via CLI/skills
+  //   harness_mcp    — harness session with the orchestrator MCP attached
+  // Harness sessions read this at spawn; switching modes starts a new chat.
+  // See docs/orchestrator-harness.md.
+  orchestratorMode: text({ enum: ['legacy', 'harness_skills', 'harness_mcp'] })
+    .notNull()
+    .default('legacy'),
   // Monthly spend ceiling in USD for scheduled + manual runs combined.
   // Null means no budget enforced. When `currentMonthSpend()` crosses
   // thresholds, dispatch behavior changes: <75% no-op, 75–99% warn in

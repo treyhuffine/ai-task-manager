@@ -1,19 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ChevronRight, AlertTriangle, RefreshCw, Sparkles,
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
   FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
-  ClipboardList, SquareTerminal,
+  ClipboardList, SquareTerminal, ArrowUpRight,
 } from 'lucide-react';
-import { describeToolCall, describeToolResult, type ToolGlyph } from '@/lib/executions/tool-display';
+import { describeToolCall, describeToolResult, fileTargetPath, type ToolGlyph } from '@/lib/executions/tool-display';
+import { computeEditDiff } from '@/lib/executions/edit-diff';
+import { extractPullRequestUrl } from '@/lib/executions/pr-link';
+import { FileChip, DiffLines } from './file-chip';
 import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
 import { useSessionEvents, useRetrySend } from '@/hooks/use-execution';
 import type { ClientEventStatus } from '@/hooks/use-execution';
 import { useMutation } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api/sessions';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { EntityAwareText } from '@/components/ai-elements/entity-reference';
 import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import { MessageFileChip } from '@/components/chat/message-file-chip';
@@ -129,9 +133,22 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
         <div className="group flex flex-col">
           <Message from="assistant">
             <MessageContent className="text-[12.5px] leading-relaxed">
-              <MessageResponse className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]">
-                {event.content ?? ''}
-              </MessageResponse>
+              {/* EntityAwareText lifts [[task:id]] / [[note:id]] / [[area:id]] /
+                  [[deck:id]] markers out of the prose and renders them as
+                  interactive chips — the contract the orchestrator brief
+                  teaches harness sessions. Plain markdown flows through
+                  MessageResponse unchanged. */}
+              <EntityAwareText
+                text={event.content ?? ''}
+                renderMarkdown={(text, key) => (
+                  <MessageResponse
+                    key={key}
+                    className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]"
+                  >
+                    {text}
+                  </MessageResponse>
+                )}
+              />
             </MessageContent>
           </Message>
           {event.content && (
@@ -158,8 +175,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
           className="group/row w-full text-left text-[11px] text-muted-foreground/70 italic"
         >
           <div className="flex items-center gap-1.5">
-            <ChevronRight size={11} className={cn('flex-shrink-0 transition-transform text-muted-foreground/40', expanded && 'rotate-90')} />
-            <Sparkles size={11} className="flex-shrink-0 opacity-50" />
+            <RowDisclosure expanded={expanded}>
+              <Sparkles size={11} className="opacity-50" />
+            </RowDisclosure>
             <span className="truncate">{expanded ? 'Thinking' : truncate(content, 88)}</span>
           </div>
           {expanded && (
@@ -173,6 +191,11 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
 
     case 'tool_call': {
       const d = describeToolCall(event.toolName, event.toolInput);
+      // File tools render an interactive FileChip (icon + name + diff
+      // counts, hover→diff, click→open in viewer) instead of the plain
+      // target text. Reads have no diff; edits/writes/patches do.
+      const filePath = fileTargetPath(event.toolName, event.toolInput);
+      const editDiff = filePath ? computeEditDiff(event.toolName, event.toolInput) : null;
       // Merged result summary ("150 lines", "exit 1") from the paired
       // tool_result, when the transcript handed us the pairing map.
       const paired = event.externalToolCallId
@@ -183,37 +206,61 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
         : null;
       const pairedError = paired?.toolIsError === true;
       const resultText = paired?.content ?? '';
+      const pr =
+        extractPullRequestUrl(paired?.content) ??
+        extractPullRequestUrl(typeof event.toolInput === 'string' ? event.toolInput : null);
       return (
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="w-full text-left text-[11px]"
-        >
+        <div className="group/row w-full text-[11px]">
           <div className="flex items-center gap-1.5 min-w-0">
-            <ChevronRight size={11} className={cn('flex-shrink-0 transition-transform text-muted-foreground/40', expanded && 'rotate-90')} />
-            <ToolGlyphIcon glyph={d.glyph} />
-            <span className={cn('flex-shrink-0', d.mono ? 'font-mono text-foreground/90' : 'font-medium text-foreground/90')}>
-              {d.verb}
-            </span>
-            {d.target && (
-              <span className="flex-shrink-0 truncate max-w-[40%] rounded bg-muted/60 px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
-                {d.target}
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="flex flex-shrink-0 items-center gap-1.5"
+            >
+              <RowDisclosure expanded={expanded}>
+                <ToolGlyphIcon glyph={d.glyph} />
+              </RowDisclosure>
+              <span className={cn(d.mono ? 'font-mono text-foreground/90' : 'font-medium text-foreground/90')}>
+                {d.verb}
               </span>
+            </button>
+            {filePath ? (
+              <FileChip path={filePath} diff={editDiff} />
+            ) : (
+              <>
+                {d.target && (
+                  <span className="flex-shrink-0 truncate max-w-[40%] rounded bg-muted/60 px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
+                    {d.target}
+                  </span>
+                )}
+                {d.detail && d.detail !== d.target && (
+                  <button onClick={() => setExpanded((v) => !v)} className="flex-1 truncate text-left font-mono text-[10.5px] text-muted-foreground/55">
+                    {d.detail}
+                  </button>
+                )}
+              </>
             )}
-            {d.detail && d.detail !== d.target && (
-              <span className="flex-1 truncate font-mono text-[10.5px] text-muted-foreground/55">{d.detail}</span>
-            )}
-            {(resultSummary || pairedError) && (
-              <span className="flex-shrink-0 ml-auto pl-1.5 tabular-nums text-[10.5px] text-muted-foreground/55">
-                {pairedError && !resultSummary ? 'error' : resultSummary}
-              </span>
-            )}
+            <div className="ml-auto flex flex-shrink-0 items-center gap-2 pl-1.5">
+              {pr && <PrLink url={pr.url} number={pr.number} />}
+              {(resultSummary || pairedError) && (
+                <span className="tabular-nums text-[10.5px] text-muted-foreground/55">
+                  {pairedError && !resultSummary ? 'error' : resultSummary}
+                </span>
+              )}
+            </div>
           </div>
           {expanded && (
             <div className="mt-2 ml-5 space-y-2">
-              {event.toolInput != null && (
-                <pre className="text-[10.5px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
-                  {typeof event.toolInput === 'string' ? event.toolInput : JSON.stringify(event.toolInput, null, 2)}
-                </pre>
+              {filePath && (
+                <div className="font-mono text-[10.5px] text-muted-foreground/60 break-all">{filePath}</div>
+              )}
+              {editDiff && editDiff.lines.length > 0 ? (
+                <DiffLines lines={editDiff.lines} className="border-l border-border/40" />
+              ) : (
+                event.toolInput != null && (
+                  <pre className="text-[10.5px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
+                    {typeof event.toolInput === 'string' ? event.toolInput : JSON.stringify(event.toolInput, null, 2)}
+                  </pre>
+                )
               )}
               {paired && resultText && (
                 <pre className="text-[10.5px] text-muted-foreground whitespace-pre-wrap wrap-anywhere font-mono border-l border-border/40 pl-2">
@@ -222,7 +269,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
               )}
             </div>
           )}
-        </button>
+        </div>
       );
     }
 
@@ -368,14 +415,12 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       return (
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="w-full text-left rounded-md border border-foreground/15 bg-foreground/5 px-2.5 py-1.5"
+          className="group/row w-full text-left rounded-md border border-foreground/15 bg-foreground/5 px-2.5 py-1.5"
         >
           <div className="flex items-center gap-1.5 text-[11px]">
-            <ChevronRight
-              size={11}
-              className={cn('transition-transform text-muted-foreground/60', expanded && 'rotate-90')}
-            />
-            <HelpCircle size={11} className="text-foreground/80" />
+            <RowDisclosure expanded={expanded}>
+              <HelpCircle size={11} className="text-foreground/80" />
+            </RowDisclosure>
             <span className="text-foreground/90">Your answer</span>
             {!expanded && text && (
               <span className="text-muted-foreground/70 truncate">— {truncate(text, 80)}</span>
@@ -665,6 +710,50 @@ const TOOL_GLYPH_ICONS: Record<ToolGlyph, typeof Wrench> = {
 function ToolGlyphIcon({ glyph }: { glyph: ToolGlyph }) {
   const Icon = TOOL_GLYPH_ICONS[glyph] ?? Wrench;
   return <Icon size={11} className="flex-shrink-0 text-muted-foreground/60" />;
+}
+
+/**
+ * Disclosure affordance for an expandable row. Shows the row's own glyph
+ * by default; on row-hover (the parent carries `group/row`) or while
+ * expanded, swaps to a chevron — so a row isn't cluttered with both a
+ * chevron and an icon side by side.
+ */
+function RowDisclosure({ children, expanded }: { children: ReactNode; expanded: boolean }) {
+  return (
+    <span className="relative inline-flex h-3 w-3 flex-shrink-0 items-center justify-center">
+      <span
+        className={cn(
+          'flex items-center justify-center transition-opacity',
+          expanded ? 'opacity-0' : 'opacity-100 group-hover/row:opacity-0',
+        )}
+      >
+        {children}
+      </span>
+      <ChevronRight
+        size={11}
+        className={cn(
+          'absolute inset-0 m-auto text-muted-foreground/50 transition-all',
+          expanded ? 'opacity-100 rotate-90' : 'opacity-0 group-hover/row:opacity-100',
+        )}
+      />
+    </span>
+  );
+}
+
+/** "PR #N ↗" external link — opens the pull request in a new tab. */
+function PrLink({ url, number }: { url: string; number: number }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex flex-shrink-0 items-center gap-0.5 rounded border border-border bg-background px-1.5 py-px text-[10.5px] font-medium text-foreground/90 hover:bg-muted/50 transition-colors"
+    >
+      PR #{number}
+      <ArrowUpRight size={10} className="text-muted-foreground/70" />
+    </a>
+  );
 }
 
 function truncate(str: string, max: number): string {

@@ -228,6 +228,30 @@ export function describeToolCall(toolName: string | null | undefined, input: unk
   }
 }
 
+/**
+ * The single file a tool reads or edits, as a chip-able path (absolute or
+ * relative), or null for non-file tools (and directory tools like LS).
+ */
+export function fileTargetPath(toolName: string | null | undefined, input: unknown): string | null {
+  const name = (toolName ?? '').trim();
+  const o = asRecord(input);
+  switch (name) {
+    case 'Read':
+    case 'read_file':
+    case 'Write':
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit':
+      return str(o.file_path) ?? str(o.notebook_path) ?? str(o.path) ?? null;
+    case 'apply_patch': {
+      const files = patchFiles(input);
+      return files[0] ?? null;
+    }
+    default:
+      return null;
+  }
+}
+
 /** True for tools that spawn a subagent — used for the grouped-turn count. */
 export function isSubagentTool(toolName: string | null | undefined): boolean {
   return toolName === 'Task';

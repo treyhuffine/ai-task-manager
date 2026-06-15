@@ -177,7 +177,12 @@ export async function POST(
     // second — they expand to absolute paths or `<attachment>` text.
     const entityExpanded = expandEntityMarkers(content, id);
     const expanded = await expandMarkers(entityExpanded, attachments);
-    if (!session.label && !isRetry) {
+    // First-message titling is for task-shaped threads (executions, content):
+    // their first message IS the intent. Orchestration chats are
+    // relationship-shaped — intent drifts, so they stay unlabeled while live
+    // and get a retrospective summary at archive time instead
+    // (`deriveRetrospectiveLabel`). See docs/orchestrator-harness.md.
+    if (!session.label && !isRetry && session.type !== 'orchestration') {
       const agent = getAgent(session.agentId);
       void deriveAndSetSessionLabel(id, expanded, agent?.harness ?? 'claude_code');
     }

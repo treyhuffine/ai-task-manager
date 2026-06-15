@@ -129,9 +129,13 @@ export async function startCommand(opts: StartOptions) {
 
   // Short-circuit: our server is already up. Probe the public URL — under
   // portless that's `https://<name>.localhost`; otherwise it's the local port.
-  if (await isOurServerRunning(getLocalBaseUrl())) {
+  // An explicit `--port` overrides the remembered URL: probing the remembered
+  // port would false-positive on a *different* instance (e.g. the main dev
+  // server on 4224 while a smoke run asks for 4231) and skip the boot.
+  const probeUrl = opts.port ? `http://localhost:${preferredPort}` : getLocalBaseUrl();
+  if (await isOurServerRunning(probeUrl)) {
     const url = info.pairingUrl;
-    log.success(`Already running at ${getLocalBaseUrl()}`);
+    log.success(`Already running at ${probeUrl}`);
     if (opts.open) await openBrowser(url);
     outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
     return;

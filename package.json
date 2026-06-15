@@ -33,6 +33,7 @@
     "cli:build": "tsup",
     "smoke": "tsx scripts/smoke-orchestrator.ts",
     "smoke:agent": "tsx scripts/smoke-orchestrator-agent.ts",
+    "smoke:harness": "tsx scripts/smoke-orchestrator-harness.ts",
     "dev:reset": "tsx scripts/seed-dev/reset.ts",
     "dev:seed": "tsx scripts/seed-dev/seed.ts",
     "dev:reseed": "tsx scripts/seed-dev/reseed.ts",
@@ -47,7 +48,7 @@
     "skills"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.17",
+    "@agentex/agent": "^0.0.20",
     "@agentex/github": "^0.0.1",
     "@agentex/workspace": "^0.0.4",
     "@ai-sdk/anthropic": "^3.0.63",

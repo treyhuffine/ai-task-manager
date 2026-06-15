@@ -6,6 +6,7 @@ import { useDiffStats } from '@/hooks/use-workspaces';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution } from '@/db/types';
+import { DiffStatsPair } from './diff-stats';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 
@@ -32,13 +33,21 @@ interface SessionRowProps {
 }
 
 /**
- * One session under a workspace. Left slot is the at-a-glance status
- * pip — colored when the session is active (working / pending /
- * unread), GitBranch when idle. Right slot is the relative timestamp,
- * with the kebab menu replacing it on hover.
+ * One session under a workspace. Two-line anatomy:
+ *
+ *   Line 1 — identity: the label, full width.
+ *   Line 2 — metadata: timestamp, then (needs-review only) the
+ *            workspace tag, then diff stats when non-zero.
+ *
+ * Line 2 always exists (the timestamp anchors it) so the async diff
+ * stats can never change row height — they append after the static
+ * tokens into empty space. Rows used to grow a second line when stats
+ * landed, shifting every row below mid-click. Static content first,
+ * async content last; nothing on screen ever moves.
  *
  * Pip-on-the-left makes the rail scannable: your eye runs the left
- * edge, picks out the colored rows, ignores the rest.
+ * edge, picks out the colored rows, ignores the rest. The kebab fades
+ * into the vacant right half on hover without displacing anything.
  */
 export function SessionRow({
   session,
@@ -101,7 +110,7 @@ export function SessionRow({
         }
       }}
       className={cn(
-        'relative w-full group flex items-center gap-2 pl-5 pr-1.5 py-1.5 rounded-md transition-colors text-left cursor-pointer',
+        'relative w-full group flex items-start gap-2 pl-5 pr-1.5 py-1 rounded-md transition-colors text-left cursor-pointer',
         isActive
           ? variant === 'needs-review'
             // Needs-review variant defers the background fill to the
@@ -122,53 +131,60 @@ export function SessionRow({
         <span
           aria-hidden
           className={cn(
-            'absolute left-1 top-1.5 bottom-1.5 w-[2px] rounded-full transition-colors',
+            'absolute left-1 top-1 bottom-1 w-[2px] rounded-full transition-colors',
             isActive ? 'bg-foreground' : 'bg-transparent',
           )}
         />
       )}
-      <StatusPip
-        isStreaming={isStreaming}
-        isPending={isPending}
-        isUnread={isUnread}
-      />
+      {/* Pip centers against line 1 (the title), not the whole row —
+          it reads with the label, and the metadata line below stays
+          visually subordinate. */}
+      <span className="flex h-4 items-center flex-shrink-0">
+        <StatusPip
+          isStreaming={isStreaming}
+          isPending={isPending}
+          isUnread={isUnread}
+        />
+      </span>
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-1.5">
-          <span className={cn(
-            'text-[11px] truncate',
+        <span
+          title={label}
+          className={cn(
+            'block text-[11px] truncate',
             labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
             isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-          )}>{label}</span>
-          {showWorkspaceLabel && (
-            <span className="text-[9px] text-muted-foreground/60 truncate">· {showWorkspaceLabel}</span>
           )}
-        </div>
-        {diffStats && (
-          <div className="flex items-center gap-1.5 text-[9px] font-mono leading-none mt-0.5">
-            <span className="text-emerald-500/80">+{diffStats.additions}</span>
-            <span className="text-rose-500/80">-{diffStats.deletions}</span>
-          </div>
-        )}
-      </div>
-      <div className="relative flex items-center gap-1 flex-shrink-0 text-[9px] min-h-[1.25rem]">
-        {/* Timestamp stays put while idle; on hover the kebab fades in
-            over it. The status pip on the left handles the at-a-glance
-            "is this row hot" question without flashing. */}
-        <span className="text-muted-foreground/60 transition-opacity group-hover:opacity-0 group-has-data-[state=open]:opacity-0">
-          {formatCompactRelative(timestamp)}
+        >
+          {label}
         </span>
-        <SessionRowMenu
-          sessionId={session.id}
-          workspaceId={session.workspaceId ?? null}
-          workspaceIsGit={workspaceIsGit ?? false}
-          isUnread={isUnread || isPending}
-          label={label}
-          onOpenWorkspaceSettings={onOpenWorkspaceSettings}
-          onCreateExecution={onCreateExecution}
-          onOpenCreateFrom={onOpenCreateFrom}
-          className="absolute right-0 top-1/2 -translate-y-1/2"
-        />
+        {/* Metadata line, ordered static → async left to right: the
+            timestamp anchors it, the workspace tag (needs-review only)
+            is known at render, and the diff stats append last so their
+            arrival lands in empty space and displaces nothing. */}
+        <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
+          <span className="text-muted-foreground/60 flex-shrink-0">
+            {formatCompactRelative(timestamp)}
+          </span>
+          {showWorkspaceLabel && (
+            <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
+          )}
+          <DiffStatsPair stats={diffStats} className="flex-shrink-0" />
+        </div>
       </div>
+      {/* The metadata cluster is left-anchored, so the row's right
+          half is dead space — the kebab fades in there without hiding
+          or displacing anything. */}
+      <SessionRowMenu
+        sessionId={session.id}
+        workspaceId={session.workspaceId ?? null}
+        workspaceIsGit={workspaceIsGit ?? false}
+        isUnread={isUnread || isPending}
+        label={label}
+        onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+        onCreateExecution={onCreateExecution}
+        onOpenCreateFrom={onOpenCreateFrom}
+        className="absolute right-1 top-1/2 -translate-y-1/2"
+      />
     </div>
   );
 }

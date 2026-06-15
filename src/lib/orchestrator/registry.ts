@@ -22,11 +22,29 @@ import {
   listNotes,
   getNote,
   createNote,
+  updateNote,
+  listStream,
+  getStream,
+  createStream,
+  updateStream,
+  dismissStream,
+  listAreas,
+  getArea,
+  createArea,
+  updateArea,
+  getLatestDeck,
+  getDeck,
+  updateDeck,
+  getUserState,
+  updateUserState,
   listWorkspaces,
   getWorkspace,
   createWorkspace,
   archiveWorkspace,
   listChatSessions,
+  listRailSessions,
+  getChatSession,
+  listChatEvents,
   listSchedulesWithLastRun,
   getSchedule,
   findScheduleByName,
@@ -51,6 +69,9 @@ import { generateWebhookCredentials } from '@/lib/scheduler/webhook';
 // dev CLI boot under tsx and matches the actual call graph: `run_schedule`
 // and `cancel_run` are the only paths that touch the executor.
 import { inventorySkills } from '@/lib/executor/skills';
+import { fetchLiveSignals, serverFetch } from './server-client';
+import { condenseEvents, derivePendingFromEvents } from './session-oversight';
+import { isSessionUnread } from '@/lib/utils/session-sort';
 import path from 'node:path';
 import {
   getAppRoot,
@@ -244,6 +265,351 @@ const create_note_action = defineAction({
   handler: (_ctx, input) => createNote(input),
 });
 
+const update_note_action = defineAction({
+  name: 'update_note',
+  description:
+    'Update a note by id. All fields optional; unspecified fields keep their value. ' +
+    'Set status=archived instead of deleting — there is no delete action by design.',
+  params: {
+    id: z.string().min(1),
+    ...Object.fromEntries(
+      Object.entries(noteCreateShape).map(([k, v]) => [k, (v as z.ZodTypeAny).optional()]),
+    ),
+  } as typeof noteCreateShape & { id: z.ZodString },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, input) => {
+    const { id, ...rest } = input as { id: string } & Partial<z.infer<z.ZodObject<typeof noteCreateShape>>>;
+    const row = updateNote(id, rest);
+    if (!row) throw new ActionError('not_found', `Note not found: ${id}`);
+    return row;
+  },
+});
+
+// ── Stream ────────────────────────────────────────────────────
+//
+// The quick-capture inbox: brain dumps that get triaged into tasks/notes
+// or dismissed. Promotion is the one compound action here — it creates the
+// target entity AND stamps the stream row's promotion links in one call,
+// so the agent can't leave a half-promoted item behind (the UI does the
+// same two steps client-side; see stream-list.tsx).
+
+const streamStatus = z.enum(['pending', 'promoted', 'dismissed']);
+
+const list_stream_action = defineAction({
+  name: 'list_stream',
+  description:
+    'List stream items (quick-capture inbox). Defaults to status=pending — the untriaged queue.',
+  params: {
+    status: streamStatus.optional(),
+    limit: z.number().int().positive().max(500).optional(),
+    offset: z.number().int().nonnegative().optional(),
+  },
+  handler: (_ctx, input) => listStream({ status: input.status ?? 'pending', ...input }),
+});
+
+const get_stream_item_action = defineAction({
+  name: 'get_stream_item',
+  description: 'Fetch a single stream item by id.',
+  params: { id: z.string().min(1) },
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const row = getStream(id);
+    if (!row) throw new ActionError('not_found', `Stream item not found: ${id}`);
+    return row;
+  },
+});
+
+const create_stream_item_action = defineAction({
+  name: 'create_stream_item',
+  description:
+    'Capture text into the stream inbox. Use when something should be kept but is not clearly a ' +
+    'task or a note yet — the triage pass (human or agent) decides later.',
+  params: {
+    rawText: z.string().min(1),
+  },
+  mutating: true,
+  handler: (_ctx, { rawText }) => createStream({ rawText, source: 'chat' }),
+});
+
+const promote_stream_action = defineAction({
+  name: 'promote_stream',
+  description:
+    'Promote a pending stream item into a task or a note. Creates the entity and stamps the stream ' +
+    "row's promotion links in one step. Shape the title yourself (imperative for tasks); the item's " +
+    'raw text and attachments carry over as the body unless overridden.',
+  params: {
+    id: z.string().min(1),
+    to: z.enum(['task', 'note']),
+    /** Shaped title. Tasks: imperative ("Ship the manifest"). Optional for notes. */
+    title: z.string().optional(),
+    /** Override body; defaults to the item's raw text. */
+    body: z.string().optional(),
+    areaId: z.string().nullable().optional(),
+    /** Task promotion only: create as a subtask of this task. */
+    parentId: z.string().nullable().optional(),
+    /** Note promotion only: link the note to this task. */
+    taskId: z.string().nullable().optional(),
+    energy: taskEnergy.nullable().optional(),
+    effort: taskEffort.nullable().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, input) => {
+    const item = getStream(input.id);
+    if (!item) throw new ActionError('not_found', `Stream item not found: ${input.id}`);
+    if (item.status !== 'pending') {
+      throw new ActionError(
+        'conflict',
+        `Stream item is already ${item.status}${item.promotedToType ? ` (→ ${item.promotedToType} ${item.promotedToId})` : ''}.`,
+      );
+    }
+
+    const body = input.body ?? item.rawText;
+    let promotedToType: 'task' | 'note';
+    let created: Record<string, unknown> & { id: string };
+
+    if (input.to === 'task') {
+      promotedToType = 'task';
+      created = createTask({
+        rawInput: item.rawText,
+        title: input.title ?? truncateForTitle(item.rawText),
+        body,
+        areaId: input.areaId ?? null,
+        parentId: input.parentId ?? null,
+        energy: input.energy ?? null,
+        effort: input.effort ?? null,
+        attachments: item.attachments ?? [],
+      });
+    } else {
+      promotedToType = 'note';
+      created = createNote({
+        title: input.title,
+        body,
+        areaId: input.areaId ?? null,
+        taskId: input.taskId ?? null,
+        attachments: item.attachments ?? [],
+      });
+    }
+
+    const streamRow = updateStream(item.id, {
+      status: 'promoted',
+      promotedToType,
+      promotedToId: created.id,
+      promotedAt: new Date().toISOString(),
+    });
+
+    return { stream: streamRow, [promotedToType]: created };
+  },
+});
+
+const dismiss_stream_action = defineAction({
+  name: 'dismiss_stream',
+  description:
+    'Dismiss a pending stream item (noise, duplicates, no-longer-relevant). Dismissed items keep ' +
+    'their text and stay searchable — this is triage, not deletion.',
+  params: { id: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const item = getStream(id);
+    if (!item) throw new ActionError('not_found', `Stream item not found: ${id}`);
+    if (item.status !== 'pending') {
+      throw new ActionError('conflict', `Stream item is already ${item.status}.`);
+    }
+    return dismissStream(id, 'agent');
+  },
+});
+
+/** First line of raw capture text, clipped to a title-sized length. */
+function truncateForTitle(rawText: string): string {
+  const firstLine = rawText.trim().split('\n')[0] ?? '';
+  return firstLine.length <= 200 ? firstLine : firstLine.slice(0, 199).trimEnd() + '…';
+}
+
+// ── Areas ─────────────────────────────────────────────────────
+
+const areaStatus = z.enum(['active', 'inactive', 'archived']);
+
+const areaShape = {
+  name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  emoji: z.string().nullable().optional(),
+  userContext: z.string().nullable().optional(),
+  status: areaStatus.optional(),
+  sortOrder: z.number().int().optional(),
+};
+
+const list_areas_action = defineAction({
+  name: 'list_areas',
+  description:
+    'List areas (life/work domains like "Work", "Health"). Areas organize tasks and notes — ' +
+    'look up area ids here before filtering or linking.',
+  params: {
+    status: z.enum(['active', 'inactive', 'archived', 'all']).optional(),
+  },
+  handler: (_ctx, { status }) => listAreas({ status }),
+});
+
+const get_area_action = defineAction({
+  name: 'get_area',
+  description: 'Fetch a single area by id.',
+  params: { id: z.string().min(1) },
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    const area = getArea(id);
+    if (!area) throw new ActionError('not_found', `Area not found: ${id}`);
+    return area;
+  },
+});
+
+const create_area_action = defineAction({
+  name: 'create_area',
+  description: 'Create an area (life/work domain) for organizing tasks and notes.',
+  params: areaShape,
+  mutating: true,
+  handler: (_ctx, input) => createArea(input),
+});
+
+const update_area_action = defineAction({
+  name: 'update_area',
+  description:
+    'Update an area by id. All fields optional. Archive via status=archived — there is no delete.',
+  params: {
+    id: z.string().min(1),
+    ...Object.fromEntries(
+      Object.entries(areaShape).map(([k, v]) => [k, (v as z.ZodTypeAny).optional()]),
+    ),
+  } as typeof areaShape & { id: z.ZodString },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, input) => {
+    const { id, ...rest } = input as { id: string } & Partial<z.infer<z.ZodObject<typeof areaShape>>>;
+    const row = updateArea(id, rest);
+    if (!row) throw new ActionError('not_found', `Area not found: ${id}`);
+    return row;
+  },
+});
+
+// ── Deck ──────────────────────────────────────────────────────
+
+const deckItemShape = z.object({
+  taskId: z.string(),
+  rationale: z.string(),
+  continuityContext: z.string().nullable(),
+  source: z.enum(['ai', 'user']),
+});
+
+const deckAlternativeShape = z.object({
+  taskId: z.string(),
+  reason: z.string(),
+});
+
+const get_deck_action = defineAction({
+  name: 'get_deck',
+  description:
+    "Get the deck — the day's ranked priority stack of tasks plus alternatives. " +
+    'Returns the latest deck unless an id is given.',
+  params: { id: z.string().min(1).optional() },
+  handler: (_ctx, { id }) => {
+    const deck = id ? getDeck(id) : getLatestDeck();
+    if (!deck) {
+      throw new ActionError('not_found', id ? `Deck not found: ${id}` : 'No deck generated yet');
+    }
+    return deck;
+  },
+});
+
+const update_deck_action = defineAction({
+  name: 'update_deck',
+  description:
+    'Update a deck by id — reorder or swap items, edit alternatives, or change the framing. ' +
+    'Items carry source=user when the user (or an agent acting for them) placed them.',
+  params: {
+    id: z.string().min(1),
+    items: z.array(deckItemShape).optional(),
+    alternatives: z.array(deckAlternativeShape).optional(),
+    framing: z.string().nullable().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id, ...rest }) => {
+    const updates = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+    const deck = updateDeck(id, updates);
+    if (!deck) throw new ActionError('not_found', `Deck not found: ${id}`);
+    return deck;
+  },
+});
+
+const regenerate_deck_action = defineAction({
+  name: 'regenerate_deck',
+  description:
+    'Run the full AI prioritization pipeline and persist a fresh deck. Slow (two model calls) ' +
+    'and requires OPENAI_API_KEY. Optional context shapes the ranking (e.g. "low energy, 2 hours").',
+  params: {
+    context: z.string().optional(),
+    contextTags: z.array(z.string()).optional(),
+  },
+  mutating: true,
+  handler: async (_ctx, input) => {
+    // Lazy: the deck pipeline pulls in the AI SDKs, which the CLI
+    // shouldn't load until a regeneration actually fires (same pattern
+    // as the executor imports above).
+    const { generateDeck } = await import('@/lib/ai/generate-deck');
+    return generateDeck(input);
+  },
+});
+
+// ── Search ────────────────────────────────────────────────────
+
+const search_action = defineAction({
+  name: 'search',
+  description:
+    'Hybrid semantic + keyword search across tasks, notes, and stream entries. Returns hydrated ' +
+    'entities with relevance scores. Use to find context before creating or answering.',
+  params: {
+    query: z.string().min(1),
+    limit: z.number().int().positive().max(50).optional(),
+  },
+  cli: { positional: ['query'] },
+  handler: async (_ctx, { query, limit }) => {
+    // Lazy: embedding generation pulls in the AI SDKs (vector half of the
+    // hybrid). FTS-only fallback still applies when no OPENAI_API_KEY.
+    const { hybridSearchWithEntities } = await import('@/lib/embeddings/search');
+    return hybridSearchWithEntities(query, { limit });
+  },
+});
+
+// ── User state ────────────────────────────────────────────────
+
+const get_user_state_action = defineAction({
+  name: 'get_user_state',
+  description:
+    "Get the user's current state: active area, active parent task, energy, available minutes, " +
+    'and free-text focus description.',
+  params: {},
+  handler: () => getUserState() ?? null,
+});
+
+const update_user_state_action = defineAction({
+  name: 'update_user_state',
+  description:
+    "Update the user's current state (energy, available time, active area/task, focus text). " +
+    'Only these focus fields are exposed — app settings are not writable from the agent surface.',
+  params: {
+    activeAreaId: z.string().nullable().optional(),
+    activeParentTaskId: z.string().nullable().optional(),
+    activeEnergy: z.enum(['deep', 'light']).nullable().optional(),
+    availableMinutes: z.number().int().nullable().optional(),
+    description: z.string().optional(),
+  },
+  mutating: true,
+  handler: (_ctx, input) => {
+    const updates = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
+    return updateUserState(updates) ?? null;
+  },
+});
+
 // ── Workspaces ────────────────────────────────────────────────
 
 const workspaceStatus = z.enum(['active', 'archived']);
@@ -326,6 +692,181 @@ const list_workspace_sessions_action = defineAction({
   cli: { positional: ['workspaceId'] },
   handler: (_ctx, { workspaceId, status }) =>
     listChatSessions({ workspaceId, status: status ?? 'active' }),
+});
+
+// ── Execution oversight ───────────────────────────────────────
+//
+// The orchestrator watching + steering the executing agents. Live state
+// (running turns, pending prompts, the harness subprocess cache) is owned
+// by the app server's process, so these actions split by concern:
+// transcript reads hit the DB directly (work from any process), live
+// flags and message delivery go through the server's HTTP API (see
+// `server-client.ts` for the full process-ownership story).
+
+const list_executions_action = defineAction({
+  name: 'list_executions',
+  description:
+    'List active execution sessions across all workspaces with status flags: running (turn in ' +
+    'flight), awaitingInput (blocked on a prompt), unread (output the user has not viewed — what ' +
+    'the rail\'s Unread section shows, minus currently-running sessions). The returned sessionId ' +
+    'is the handle for get_session_messages and send_session_message.',
+  params: {},
+  handler: async () => {
+    const rows = listRailSessions();
+    const live = await fetchLiveSignals();
+    return {
+      /** False ⇒ the app server was unreachable: running/awaitingInput are unknown-but-idle. */
+      live: live !== null,
+      executions: rows.map((r) => {
+        const running = live?.runningSessionIds.includes(r.id) ?? false;
+        return {
+          sessionId: r.id,
+          executionId: r.executionId,
+          label: r.label,
+          workspace: { id: r.workspaceId, name: r.workspaceName },
+          branch: r.execution?.branchName ?? null,
+          prNumber: r.execution?.prNumber ?? null,
+          startedAt: r.startedAt,
+          lastActivityAt: r.lastOutcomeEventAt ?? r.startedAt,
+          running,
+          awaitingInput: live?.pendingSessionIds.includes(r.id) ?? false,
+          // Same derivation as the UI (isSessionUnread), same streaming
+          // overlay as the rail's Unread section: a mid-turn session is
+          // about to produce a fresh outcome, so it doesn't count as
+          // unread yet. Keeps the agent's answer to "what's unread?"
+          // identical to what the user sees in the rail.
+          unread: !running && isSessionUnread(r),
+        };
+      }),
+    };
+  },
+});
+
+const get_session_messages_action = defineAction({
+  name: 'get_session_messages',
+  description:
+    'Read the latest messages of a session (execution or orchestrator chat) as a condensed transcript ' +
+    'tail — user/agent text, one-line tool calls, errors — plus whether the session is running or ' +
+    'blocked on a permission/question prompt. Read this before nudging a session.',
+  params: {
+    sessionId: z.string().min(1),
+    limit: z.number().int().positive().max(200).optional(),
+  },
+  cli: { positional: ['sessionId'] },
+  handler: async (_ctx, { sessionId, limit }) => {
+    const session = getChatSession(sessionId);
+    if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
+
+    const events = listChatEvents(sessionId, { limit: limit ?? 40 });
+    const pending = derivePendingFromEvents(events);
+    const live = await fetchLiveSignals();
+
+    return {
+      session: {
+        id: session.id,
+        label: session.label,
+        type: session.type,
+        status: session.status,
+        workspaceId: session.workspaceId,
+      },
+      /** Null ⇒ server unreachable (live state unknown; nothing can be running while it is down). */
+      running: live ? live.runningSessionIds.includes(sessionId) : null,
+      awaitingInput: live ? live.pendingSessionIds.includes(sessionId) : pending !== null,
+      /** What the session is blocked on, when derivable from the transcript. */
+      pendingDetail: pending,
+      messages: condenseEvents(events),
+    };
+  },
+});
+
+const get_pending_input_action = defineAction({
+  name: 'get_pending_input',
+  description:
+    'List the permission/question prompts a session is blocked on right now (live server state). ' +
+    'Each entry carries a requestId for answer_pending_input. A blocked turn does NOT see queued ' +
+    'messages until its prompt is resolved — answering is the only way to unblock it.',
+  params: { sessionId: z.string().min(1) },
+  cli: { positional: ['sessionId'] },
+  handler: async (_ctx, { sessionId }) => {
+    const session = getChatSession(sessionId);
+    if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
+    return serverFetch<unknown[]>(`/sessions/${sessionId}/pending-input`);
+  },
+});
+
+const answer_pending_input_action = defineAction({
+  name: 'answer_pending_input',
+  description:
+    'Resolve a pending permission or question prompt on a session. Permissions: allow=true/false ' +
+    '(message = deny reason). Questions: allow=true with answers keyed by the question text ' +
+    '(allow=false declines). Only answer on the user\'s clear intent — when in doubt, surface the ' +
+    'prompt to the user instead.',
+  params: {
+    sessionId: z.string().min(1),
+    requestId: z.string().min(1),
+    allow: z.boolean(),
+    /** Reason shown to the blocked agent when denying. */
+    message: z.string().optional(),
+    /** AskUserQuestion answers keyed by question text. Ignored for permissions. */
+    answers: z.record(z.string()).optional(),
+  },
+  mutating: true,
+  cli: { positional: ['sessionId', 'requestId'] },
+  handler: async (_ctx, { sessionId, requestId, allow, message, answers }) => {
+    const session = getChatSession(sessionId);
+    if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
+    await serverFetch(`/sessions/${sessionId}/pending-input/${requestId}`, {
+      method: 'POST',
+      body: JSON.stringify({ allow, message, answers }),
+    });
+    return {
+      resolved: true,
+      sessionId,
+      requestId,
+      note: 'The blocked turn resumes now — check get_session_messages for what it does next.',
+    };
+  },
+});
+
+const send_session_message_action = defineAction({
+  name: 'send_session_message',
+  description:
+    'Send a message into a session — nudge a stalled execution, answer a question in prose, or steer ' +
+    'direction. Delivered through the app server: it lands in the agent\'s queue mid-turn or starts a ' +
+    'new turn. Fire-and-forget — poll get_session_messages for the response. Never send to your own session.',
+  params: {
+    sessionId: z.string().min(1),
+    content: z.string().min(1),
+  },
+  mutating: true,
+  cli: { positional: ['sessionId'] },
+  handler: async (_ctx, { sessionId, content }) => {
+    const session = getChatSession(sessionId);
+    if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
+    if (session.status === 'archived') {
+      throw new ActionError(
+        'conflict',
+        'Session is archived — resume it from the app before messaging it.',
+      );
+    }
+
+    // Through the server, never executor.dispatch from here: the messages
+    // route owns marker expansion, label derivation, health checks, and
+    // run-row accounting — and the server process owns the harness
+    // subprocess. Dispatching from a CLI-invoked handler would spawn a
+    // duplicate harness process against the same session.
+    const event = await serverFetch<{ id: string }>(`/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+
+    return {
+      delivered: true,
+      sessionId,
+      eventId: event?.id ?? null,
+      note: 'Dispatched. The session processes asynchronously — check get_session_messages shortly.',
+    };
+  },
 });
 
 // ── Schedules + Runs ─────────────────────────────────────────
@@ -713,11 +1254,32 @@ export const actions = [
   list_notes_action,
   get_note_action,
   create_note_action,
+  update_note_action,
+  list_stream_action,
+  get_stream_item_action,
+  create_stream_item_action,
+  promote_stream_action,
+  dismiss_stream_action,
+  list_areas_action,
+  get_area_action,
+  create_area_action,
+  update_area_action,
+  get_deck_action,
+  update_deck_action,
+  regenerate_deck_action,
+  search_action,
+  get_user_state_action,
+  update_user_state_action,
   list_workspaces_action,
   get_workspace_action,
   create_workspace_action,
   archive_workspace_action,
   list_workspace_sessions_action,
+  list_executions_action,
+  get_session_messages_action,
+  get_pending_input_action,
+  answer_pending_input_action,
+  send_session_message_action,
   list_schedules_action,
   get_schedule_action,
   create_schedule_action,

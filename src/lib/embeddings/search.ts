@@ -140,9 +140,17 @@ export async function hybridSearch(
 ): Promise<SearchHit[]> {
   const bm25Weight = 1 - vectorWeight;
 
-  // Run both searches in parallel
+  // Run both searches in parallel. The vector half needs OPENAI_API_KEY to
+  // embed the query — degrade to FTS-only instead of failing the whole
+  // search when it's unavailable (matches upsertEmbedding's silent skip).
   const [vecResults, ftsResults] = await Promise.all([
-    vectorSearch(query, limit * 2),
+    vectorSearch(query, limit * 2).catch((err) => {
+      if (process.env.OPENAI_API_KEY) {
+        // A real failure, not the expected keyless path — keep it visible.
+        console.warn('[search] vector search failed, falling back to FTS:', err);
+      }
+      return [] as SearchHit[];
+    }),
     Promise.resolve(ftsSearch(query, limit * 2)),
   ]);
 
@@ -175,4 +183,66 @@ export async function hybridSearch(
   return Array.from(merged.values())
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+}
+
+// ─── Entity hydration ────────────────────────────────────────────
+
+/** A SearchHit hydrated with the entity's display fields. */
+export interface SearchHitWithEntity extends Record<string, unknown> {
+  type: SearchHit['entityType'];
+  score: number;
+  id: string;
+}
+
+const SNIPPET_MAX = 500;
+
+function truncate(value: unknown): unknown {
+  return typeof value === 'string' && value.length > SNIPPET_MAX
+    ? value.slice(0, SNIPPET_MAX) + '...'
+    : value;
+}
+
+/**
+ * Hybrid search + entity hydration. The single implementation behind the
+ * chat agent's `searchKnowledgeBase` tool, the orchestrator `search`
+ * action, and deck generation's context-gathering tool — keeps the
+ * per-entity column selection and snippet truncation in one place.
+ *
+ * Hits whose row has since been deleted are dropped (embeddings can lag
+ * a hard delete).
+ */
+export async function hybridSearchWithEntities(
+  query: string,
+  { limit = 10, vectorWeight }: { limit?: number; vectorWeight?: number } = {},
+): Promise<SearchHitWithEntity[]> {
+  const hits = await hybridSearch(query, { limit, ...(vectorWeight !== undefined ? { vectorWeight } : {}) });
+  const db = getRawDb();
+
+  return hits
+    .map((hit) => {
+      let entity: Record<string, unknown> | undefined;
+
+      if (hit.entityType === 'task') {
+        entity = db
+          .prepare(
+            'SELECT id, title, description, status, area_id AS areaId, hard_deadline AS hardDeadline, user_context AS userContext, body FROM tasks WHERE id = ?',
+          )
+          .get(hit.entityId) as Record<string, unknown> | undefined;
+        if (entity) entity.body = truncate(entity.body);
+      } else if (hit.entityType === 'note') {
+        entity = db
+          .prepare('SELECT id, title, body, area_id AS areaId, task_id AS taskId FROM notes WHERE id = ?')
+          .get(hit.entityId) as Record<string, unknown> | undefined;
+        if (entity) entity.body = truncate(entity.body);
+      } else if (hit.entityType === 'stream') {
+        entity = db
+          .prepare('SELECT id, raw_text AS rawText, created_at AS createdAt, source FROM stream WHERE id = ?')
+          .get(hit.entityId) as Record<string, unknown> | undefined;
+        if (entity) entity.rawText = truncate(entity.rawText);
+      }
+
+      if (!entity) return null;
+      return { type: hit.entityType, score: hit.score, ...entity } as SearchHitWithEntity;
+    })
+    .filter((e): e is SearchHitWithEntity => e !== null);
 }

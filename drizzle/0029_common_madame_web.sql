@@ -1,0 +1,1 @@
+ALTER TABLE `user_state` ADD `orchestrator_mode` text DEFAULT 'legacy' NOT NULL;
