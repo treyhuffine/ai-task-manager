@@ -23,7 +23,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
-import { getBrainDir } from '@/lib/config/paths';
+import { getWorkDir } from '@/lib/config/paths';
 
 const execFileP = promisify(execFile);
 
@@ -85,7 +85,7 @@ async function resolveIcnsPath(appPath: string): Promise<string | null> {
 }
 
 function iconCacheDir(): string {
-  return path.join(getBrainDir(), 'icons');
+  return path.join(getWorkDir(), 'icons');
 }
 
 async function ensureCacheDir(): Promise<string> {

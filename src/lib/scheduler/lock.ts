@@ -17,7 +17,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getBrainDir, ensureBrainDir } from '@/lib/config/paths';
+import { getWorkDir, ensureWorkDir } from '@/lib/config/paths';
 
 export interface SchedulerLock {
   /** Absolute path of the lock file. Useful for diagnostics. */
@@ -64,7 +64,8 @@ const LOCK_FILE_NAME = '.scheduler.lock';
 const STALE_LOCK_MAX_AGE_MS = 5 * 60_000;
 
 function lockPath(): string {
-  return path.join(getBrainDir(), LOCK_FILE_NAME);
+  // Runtime state → .work (not the synced home; a stale lock shouldn't sync).
+  return path.join(getWorkDir(), LOCK_FILE_NAME);
 }
 
 /**
@@ -74,7 +75,7 @@ function lockPath(): string {
  * one of N simultaneous attempts succeeds. The loser does not retry.
  */
 export function acquireSchedulerLock(): SchedulerLock | null {
-  ensureBrainDir();
+  ensureWorkDir();
   const filePath = lockPath();
   // Stale-lock sweep: if the file is older than STALE_LOCK_MAX_AGE_MS,
   // its writer almost certainly crashed (or got killed) without

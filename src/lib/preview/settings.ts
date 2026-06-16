@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensureAppRoot, getAppRoot } from '@/lib/config/paths';
+import { ensureConfigDir, getConfigDir } from '@/lib/config/paths';
 
 export interface PreviewSettings {
   version: 1;
@@ -30,7 +30,7 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
 };
 
 function getPreviewSettingsPath(): string {
-  return path.join(getAppRoot(), 'preview.json');
+  return path.join(getConfigDir(), 'preview.json');
 }
 
 export function readPreviewSettings(): PreviewSettings {
@@ -48,7 +48,7 @@ export function readPreviewSettings(): PreviewSettings {
 }
 
 export function writePreviewSettings(patch: Partial<PreviewSettings>): PreviewSettings {
-  ensureAppRoot();
+  ensureConfigDir();
   const existing = readPreviewSettings();
   const next: PreviewSettings = {
     version: 1,

@@ -167,7 +167,7 @@ actions.
   MCP there yet. Codex wiring (config overrides, `--skip-git-repo-check`,
   AGENTS.md-only steering) is next.
 - **Attachments**: the brief teaches the session to `Read`
-  `brain/attachments/<name>` when a message carries `[[file:…]]` markers —
+  `attachments/<name>` (in the home dir) when a message carries `[[file:…]]` markers —
   works for text/images the harness can read natively; no extract-text
   pipeline (docx etc.) on this path yet.
 - **Quick actions** ("What's next?" etc.) render in Classic mode only.

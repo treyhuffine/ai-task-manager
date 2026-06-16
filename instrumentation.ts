@@ -6,13 +6,9 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
-  // Run before any db / config access so the first read finds data in the
-  // new location. No-op on fresh installs or when path overrides are set.
-  const { migrateLegacyLayoutToBrain } = await import('@/lib/config/paths');
-  const migration = migrateLegacyLayoutToBrain();
-  if (migration.migrated) {
-    console.log(`[paths] migrated legacy layout → brain/ (${migration.moved.join(', ')})`);
-  }
+  // Layout migration is NOT automatic — run `pnpm migrate:layout` once on an
+  // existing install to move into the home + .config + .work shape. Fresh
+  // installs need nothing (ensure* helpers create dirs on demand).
 
   const { ensureLocalToken, buildPairingUrl, getLocalBaseUrl } = await import('@/lib/auth/bootstrap');
 

@@ -28,7 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getBrainDir } from '@/lib/config/paths';
+import { getWorkDir } from '@/lib/config/paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,7 +42,7 @@ export interface PidRecord {
 }
 
 function getPreviewDir(): string {
-  return path.join(getBrainDir(), 'preview');
+  return path.join(getWorkDir(), 'preview');
 }
 
 function ensureDir(): string {

@@ -48,7 +48,7 @@ describe('sweepAttachments', () => {
     expect(stats.archived).toBe(0);
     expect(stats.onDisk).toBe(1);
 
-    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    const attachmentsDir = path.join(tmpDir, 'attachments');
     expect(fs.existsSync(path.join(attachmentsDir, orphan.fileName))).toBe(true);
   });
 
@@ -78,8 +78,8 @@ describe('sweepAttachments', () => {
     expect(stats.referenced).toBe(1);
     expect(stats.archived).toBe(1);
 
-    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
-    const archiveDir = path.join(tmpDir, 'brain', '.archive', 'attachments');
+    const attachmentsDir = path.join(tmpDir, 'attachments');
+    const archiveDir = path.join(tmpDir, '.archive', 'attachments');
     expect(fs.existsSync(path.join(attachmentsDir, kept.fileName))).toBe(true);
     expect(fs.existsSync(path.join(attachmentsDir, orphan.fileName))).toBe(false);
     expect(fs.existsSync(path.join(archiveDir, orphan.fileName))).toBe(true);
@@ -108,7 +108,7 @@ describe('sweepAttachments', () => {
     expect(stats.archived).toBe(0);
     expect(stats.referenced).toBe(1);
 
-    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    const attachmentsDir = path.join(tmpDir, 'attachments');
     expect(fs.existsSync(path.join(attachmentsDir, photo.fileName))).toBe(true);
   });
 
@@ -149,7 +149,7 @@ describe('sweepAttachments', () => {
     expect(stats.archived).toBe(0);
     expect(stats.referenced).toBe(1);
 
-    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    const attachmentsDir = path.join(tmpDir, 'attachments');
     expect(fs.existsSync(path.join(attachmentsDir, file.fileName))).toBe(true);
   });
 
@@ -166,8 +166,8 @@ describe('sweepAttachments', () => {
 
     // Simulate a prior bad sweep: file got moved to archive while the DB
     // reference is still live. The next sweep must heal this.
-    const attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
-    const archiveDir = path.join(tmpDir, 'brain', '.archive', 'attachments');
+    const attachmentsDir = path.join(tmpDir, 'attachments');
+    const archiveDir = path.join(tmpDir, '.archive', 'attachments');
     fs.mkdirSync(archiveDir, { recursive: true });
     fs.renameSync(
       path.join(attachmentsDir, file.fileName),

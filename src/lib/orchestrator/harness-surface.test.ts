@@ -3,13 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
-import { MANAGED_START, MANAGED_END, renderAppRootClaudeMd } from '@/lib/config/claude-md-template';
+import { renderAppRootClaudeMd } from '@/lib/config/claude-md-template';
 import {
   installOrchestratorSurface,
   orchestratorMcpServer,
   orchestratorSessionConfig,
   renderOrchestratorBrief,
 } from './harness-surface';
+
+// agentex tags the managed region `<!-- flow:managed:start hash=… -->` /
+// `<!-- flow:managed:end -->`. The start marker carries a content hash, so
+// match the stable prefix substring rather than a fixed string.
+const MANAGED_START = 'flow:managed:start';
+const MANAGED_END = 'flow:managed:end';
 
 let root: string;
 let prevRoot: string | undefined;
@@ -27,18 +33,20 @@ afterEach(() => {
 });
 
 function seedToken() {
+  const configDir = path.join(root, '.config');
+  fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'config.json'),
+    path.join(configDir, 'config.json'),
     JSON.stringify({ version: 1, localToken: 'tok_test_123', lastPort: 5151 }),
     { mode: 0o600 },
   );
 }
 
 describe('installOrchestratorSurface', () => {
-  it('writes CLAUDE.md and AGENTS.md with managed markers and mode content', () => {
+  it('writes CLAUDE.md and AGENTS.md with managed markers and mode content', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    const result = installOrchestratorSurface('harness_mcp');
+    const result = await installOrchestratorSurface('harness_mcp');
 
     for (const p of [result.claudeMdPath, result.agentsMdPath]) {
       const body = fs.readFileSync(p, 'utf8');
@@ -47,18 +55,38 @@ describe('installOrchestratorSurface', () => {
       expect(body).toContain('Your tools (MCP)');
       expect(body).toContain('[[task:UUID]]');
       expect(body).toContain('Never edit files here directly');
+      // Personalization: @imports the user-owned files (at the home root) + names MEMORY.md.
+      expect(body).toContain('@USER.md');
+      expect(body).toContain('@SOUL.md');
+      expect(body).toContain('MEMORY.md');
     }
   });
 
-  it('preserves user content outside the managed block across mode switches', () => {
+  it('seeds user-owned USER.md/SOUL.md stubs (write-once) the brief references', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    const first = installOrchestratorSurface('harness_skills');
+    await installOrchestratorSurface('harness_mcp');
+
+    const userPath = path.join(root, 'USER.md');
+    const soulPath = path.join(root, 'SOUL.md');
+    expect(fs.existsSync(userPath)).toBe(true);
+    expect(fs.existsSync(soulPath)).toBe(true);
+
+    // User edits survive a re-install (never overwritten).
+    fs.writeFileSync(userPath, '# me\nI speak only in haiku.\n');
+    await installOrchestratorSurface('harness_skills');
+    expect(fs.readFileSync(userPath, 'utf8')).toContain('I speak only in haiku.');
+  });
+
+  it('preserves user content outside the managed block across mode switches', async () => {
+    fs.mkdirSync(root, { recursive: true });
+    seedToken();
+    const first = await installOrchestratorSurface('harness_skills');
 
     // User appends their own notes below the managed block.
     fs.appendFileSync(first.claudeMdPath, '\n## My own rules\n\nAlways speak pirate.\n');
 
-    const second = installOrchestratorSurface('harness_mcp');
+    const second = await installOrchestratorSurface('harness_mcp');
     const body = fs.readFileSync(second.claudeMdPath, 'utf8');
 
     expect(body).toContain('Your tools (MCP)'); // managed block swapped to the new mode
@@ -68,30 +96,36 @@ describe('installOrchestratorSurface', () => {
     expect(body.split(MANAGED_START).length).toBe(2);
   });
 
-  it('replaces the pristine v1 write-once template instead of stacking above it', () => {
+  it('migrates a pre-0.0.21 hand-rolled managed block in place (no second block)', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    const claudeMd = path.join(root, 'CLAUDE.md');
-    // Simulate a pre-marker install: the old template, no markers.
+    const agentsMd = path.join(root, 'AGENTS.md');
+    // The exact pre-0.0.21 marker format (em-dash comment, no hash) plus
+    // user content below — agentex's marker regex must absorb the old
+    // comment text and replace the region rather than prepend a new one.
     fs.writeFileSync(
-      claudeMd,
-      '# Orchestrator session\n\nold body\n\n## This is an orchestrator session, not a dev session\n\nold tail\n',
+      agentsMd,
+      '<!-- flow:managed:start — app-generated; edits inside this block are overwritten -->\n' +
+        'OLD BRIEF CONTENT\n' +
+        '<!-- flow:managed:end -->\n\n## My own rules\nkeep me\n',
     );
 
-    installOrchestratorSurface('harness_skills');
-    const body = fs.readFileSync(claudeMd, 'utf8');
-    expect(body).toContain(MANAGED_START);
-    expect(body).toContain('Your tools (CLI)');
-    expect(body).not.toContain('old tail');
+    await installOrchestratorSurface('harness_skills');
+    const body = fs.readFileSync(agentsMd, 'utf8');
+
+    expect(body.split(MANAGED_START).length).toBe(2); // still exactly one block
+    expect(body).toContain('Your tools (CLI)'); // new content swapped in
+    expect(body).not.toContain('OLD BRIEF CONTENT'); // old managed content gone
+    expect(body).toContain('keep me'); // user content below preserved
   });
 
-  it('removes the pre-0.0.20 staged MCP config (it carries a bearer token)', () => {
+  it('removes the pre-0.0.20 staged MCP config (it carries a bearer token)', async () => {
     fs.mkdirSync(path.join(root, 'tmp'), { recursive: true });
     seedToken();
     const stale = path.join(root, 'tmp', 'orchestrator-mcp.json');
     fs.writeFileSync(stale, '{"mcpServers":{}}');
 
-    installOrchestratorSurface('harness_mcp');
+    await installOrchestratorSurface('harness_mcp');
     expect(fs.existsSync(stale)).toBe(false);
   });
 

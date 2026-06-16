@@ -33,13 +33,13 @@ afterEach(() => {
 });
 
 describe('path helpers', () => {
-  it('getAuthConfigDir derives from HOME + APP_SHORT_ID', () => {
-    expect(getAuthConfigDir()).toBe(path.join(tmpHome, APP_SHORT_ID));
+  it('getAuthConfigDir is the .config dir under HOME + APP_SHORT_ID', () => {
+    expect(getAuthConfigDir()).toBe(path.join(tmpHome, APP_SHORT_ID, '.config'));
   });
 
-  it('getAuthConfigPath is config.json in the auth dir', () => {
+  it('getAuthConfigPath is config.json in the .config dir', () => {
     expect(getAuthConfigPath()).toBe(
-      path.join(tmpHome, APP_SHORT_ID, 'config.json'),
+      path.join(tmpHome, APP_SHORT_ID, '.config', 'config.json'),
     );
   });
 });

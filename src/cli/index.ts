@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
-import { migrateLegacyLayoutToBrain } from '@/lib/config/paths';
 import { startCommand } from './commands/start';
 import { stopCommand } from './commands/stop';
 import { pairCommand } from './commands/pair';
@@ -16,13 +15,11 @@ import { registerSkillsCommand } from './commands/skills';
 import { registerScheduleCommands } from './commands/schedule';
 import { registerTakeoverCommand } from './commands/takeover';
 import { registerResumeCommand } from './commands/resume';
+import { registerMigrateCommand } from './commands/migrate';
 
-// One-shot migration: if we find the pre-brain/ flat layout, move it into
-// brain/ before any command opens the db or reads from the old paths.
-const migration = migrateLegacyLayoutToBrain();
-if (migration.migrated) {
-  console.log(`[paths] migrated legacy layout → brain/ (${migration.moved.join(', ')})`);
-}
+// Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
+// (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
+// Fresh installs need nothing (the ensure* helpers create dirs on demand).
 
 const program = new Command();
 
@@ -90,6 +87,7 @@ registerSkillsCommand(program);
 registerScheduleCommands(program);
 registerTakeoverCommand(program);
 registerResumeCommand(program);
+registerMigrateCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);

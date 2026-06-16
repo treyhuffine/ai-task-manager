@@ -1,10 +1,12 @@
 /**
  * Git commit the brain dir — free markdown version history.
  *
- * Ensures a `.git` repo exists inside `<brain>/`, writes a `.gitignore` that
- * excludes the DB and attachments, then `git add . && git commit` with a
- * timestamped message. Idempotent: if there are no changes since the last
- * commit, it's a no-op.
+ * Ensures a `.git` repo exists at the home root, then `git add . && git
+ * commit` with a timestamped message. Tracks everything the home ships,
+ * including `data.db` + `attachments/` — git is a full restorable backup.
+ * The machine-local `.config/`/`.work/` + DB sidecars are excluded by the
+ * home's shipped `.gitignore` (paths.ts `GITIGNORE_BODY`), which is the
+ * single source of truth. Idempotent: no changes since last commit ⇒ no-op.
  *
  * Intended for use alongside the live mirror: markdown files get overwritten
  * in place as entities change, but each `commitBrain()` freezes a diffable
@@ -21,14 +23,6 @@ import { execFileSync } from 'node:child_process';
 import { ensureBrainDir, getBrainDir } from '@/lib/config/paths';
 import { APP_SHORT_ID } from '@/constants/app';
 
-const GITIGNORE_ENTRIES = [
-  '# Managed by ' + APP_SHORT_ID + '. Database and binary files are not tracked.',
-  'data.db',
-  'data.db-wal',
-  'data.db-shm',
-  'attachments/',
-];
-
 export interface CommitBrainResult {
   /** Absolute path to the brain dir. */
   dir: string;
@@ -41,9 +35,11 @@ export interface CommitBrainResult {
 }
 
 /**
- * Initialize git in brain/ if needed, sync `.gitignore`, then commit any
- * changes with a timestamped message. Caller is responsible for flushing
- * the mirror first if they want the commit to reflect the latest state.
+ * Initialize git at the home root if needed, then commit any changes with a
+ * timestamped message. The home's shipped `.gitignore` (written by
+ * `ensureAppRoot`, which `ensureBrainDir` calls) is the single source of
+ * truth for what's excluded — we don't maintain a second list here. Caller
+ * flushes the mirror first if they want the commit to reflect the latest DB.
  */
 export function commitBrain(): CommitBrainResult {
   const dir = ensureBrainDir();
@@ -52,9 +48,7 @@ export function commitBrain(): CommitBrainResult {
     run('git', ['init', '--quiet', '--initial-branch=main'], dir);
   }
 
-  ensureGitignore(dir);
-
-  // Stage everything under brain/ (respects .gitignore).
+  // Stage everything under the home (respects the shipped .gitignore).
   run('git', ['add', '.'], dir);
 
   // Check whether there's anything to commit. `git diff --cached --quiet`
@@ -69,26 +63,6 @@ export function commitBrain(): CommitBrainResult {
   const sha = run('git', ['rev-parse', '--short', 'HEAD'], dir).trim();
 
   return { dir, committed: true, sha, message };
-}
-
-function ensureGitignore(dir: string): void {
-  const file = path.join(dir, '.gitignore');
-  const expected = GITIGNORE_ENTRIES.join('\n') + '\n';
-
-  if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, expected, 'utf8');
-    return;
-  }
-
-  // Merge: preserve anything the user added, but make sure our entries are
-  // all present.
-  const existing = fs.readFileSync(file, 'utf8');
-  const lines = new Set(existing.split('\n').map((l) => l.trim()));
-  const missing = GITIGNORE_ENTRIES.filter((e) => !e.startsWith('#') && !lines.has(e));
-  if (missing.length > 0) {
-    const appended = existing.replace(/\n*$/, '\n') + missing.join('\n') + '\n';
-    fs.writeFileSync(file, appended, 'utf8');
-  }
 }
 
 function hasStagedChanges(dir: string): boolean {

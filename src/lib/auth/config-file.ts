@@ -5,7 +5,7 @@
  */
 
 import fs from 'node:fs';
-import { ensureAppRoot, getConfigPath, getAppRoot } from '@/lib/config/paths';
+import { ensureConfigDir, getConfigPath, getConfigDir } from '@/lib/config/paths';
 
 export interface AuthConfig {
   version: 1;
@@ -23,7 +23,7 @@ export interface AuthConfig {
 }
 
 export function getAuthConfigDir(): string {
-  return getAppRoot();
+  return getConfigDir();
 }
 
 export function getAuthConfigPath(): string {
@@ -52,7 +52,7 @@ export function readAuthConfig(): AuthConfig | null {
 }
 
 export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
-  ensureAppRoot();
+  ensureConfigDir();
 
   const existing = readAuthConfig();
 

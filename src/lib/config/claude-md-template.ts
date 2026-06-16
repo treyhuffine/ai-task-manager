@@ -1,61 +1,30 @@
 /**
  * CLAUDE.md template dropped into the app root on first init.
  *
- * Written by `ensureAppRoot()` when the file is missing. The content sits
- * inside managed markers so the app can regenerate it later (the
- * orchestrator harness surface swaps the managed block per mode — see
- * `src/lib/orchestrator/harness-surface.ts`) while anything the user adds
+ * Written by `ensureAppRoot()` when the file is missing — orientation for a
+ * walk-up agent session opened in the data root before any orchestrator
+ * chat exists. The content sits inside a managed region (agentex's
+ * `upsertManagedBlock`, tag `flow`) so the orchestrator harness surface can
+ * later swap the managed block per mode (see
+ * `src/lib/orchestrator/harness-surface.ts`, which calls
+ * `installInstructions` with the same tag) while anything the user adds
  * outside the markers survives every rewrite.
  *
- * The file's job: orient an agent opening a session in the app data root. It
- * states the role (orchestrator, not developer), names the surfaces (MCP +
- * CLI), and warns off direct file edits. Everything deeper — conventions,
- * writing rules, error shapes — lives in the installed `orchestrator` skill.
+ * The managed-region merge + per-runtime filename knowledge now live in
+ * `@agentex/agent` (`installInstructions` / `upsertManagedBlock`). This file
+ * is just the base-brief content + the shared tag.
  */
 
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 
 /**
- * Managed-section markers. Everything between them is app-owned and
- * regenerated; everything outside is user-owned and preserved.
+ * Managed-region marker tag. Shared between the first-init write here and
+ * the per-session `installInstructions` calls in harness-surface, so both
+ * target the same `<!-- flow:managed:* -->` region. Also matches the
+ * pre-0.0.21 hand-rolled markers, so existing installs migrate cleanly on
+ * the next write (agentex's marker regex absorbs the old comment text).
  */
-export const MANAGED_START = `<!-- ${APP_SHORT_ID}:managed:start — app-generated; edits inside this block are overwritten -->`;
-export const MANAGED_END = `<!-- ${APP_SHORT_ID}:managed:end -->`;
-
-/** Wrap managed content in the marker pair. */
-export function wrapManaged(content: string): string {
-  return `${MANAGED_START}\n${content.trim()}\n${MANAGED_END}\n`;
-}
-
-/**
- * Replace the managed block in an existing file body, or prepend one if the
- * file has no markers yet. Returns the new full file content.
- *
- * Pre-marker files (the original write-once template, or a user's own file)
- * keep their content below the managed block — nothing is dropped.
- */
-export function upsertManagedBlock(existing: string | null, managedContent: string): string {
-  const block = wrapManaged(managedContent);
-  if (existing === null || existing.trim() === '') return block;
-
-  const startIdx = existing.indexOf(MANAGED_START);
-  const endIdx = existing.indexOf(MANAGED_END);
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + MANAGED_END.length);
-    return `${before}${block.trimEnd()}${after.startsWith('\n') ? '' : '\n'}${after}`;
-  }
-
-  // Pristine v1 write-once template → replace outright (its content is
-  // subsumed by the managed brief). Identified by its two distinctive
-  // headings; anything else is treated as user content and preserved.
-  const isPristineV1 =
-    existing.includes('# Orchestrator session') &&
-    existing.includes('## This is an orchestrator session, not a dev session');
-  if (isPristineV1) return block;
-
-  return `${block}\n${existing.trimStart()}`;
-}
+export const FLOW_MANAGED_TAG = APP_SHORT_ID;
 
 /** Base orientation brief — the managed content written on first init. */
 export function renderBaseBrief(): string {
@@ -90,6 +59,22 @@ Debugging or extending ${APP_NAME} itself → start a new session in the
 source repo; that's a different role with different conventions.`;
 }
 
+/**
+ * First-init CLAUDE.md content: the base brief inside the `flow` managed
+ * region. This is the create-from-nothing case, so it's a trivial local
+ * wrap — we deliberately do NOT import agentex's `upsertManagedBlock` here.
+ * `ensureAppRoot` (paths.ts) pulls this module into the CLI's *static*
+ * import graph, and `@agentex/agent` is ESM-only with no CJS condition, so
+ * a static agentex import crashes the tsx-run CLI at boot
+ * (`ERR_PACKAGE_PATH_NOT_EXPORTED`). Same reason the registry + skills.ts
+ * lazy-import agentex.
+ *
+ * The markers are hashless but regex-compatible with agentex's
+ * `installInstructions`; the first orchestrator session spawn replaces this
+ * region in place (and upgrades it to the hash format). Stays synchronous,
+ * so `ensureAppRoot` does too.
+ */
 export function renderAppRootClaudeMd(): string {
-  return wrapManaged(renderBaseBrief());
+  const body = renderBaseBrief().trim();
+  return `<!-- ${FLOW_MANAGED_TAG}:managed:start -->\n${body}\n<!-- ${FLOW_MANAGED_TAG}:managed:end -->\n`;
 }

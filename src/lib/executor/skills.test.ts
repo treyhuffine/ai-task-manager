@@ -6,17 +6,22 @@ import os from 'node:os';
 import { inventorySkills, resolveSkillDirsForSession } from './skills';
 
 const TMP_ROOT = path.join(os.tmpdir(), `flow-skills-test-${process.pid}`);
-const BRAIN_DIR = path.join(TMP_ROOT, 'brain');
+// Global skills resolve at <home>/skills, and the home is the app root now.
+const BRAIN_DIR = TMP_ROOT;
 const WORKSPACE_DIR = path.join(TMP_ROOT, 'ws');
+let prevRoot: string | undefined;
 
 beforeEach(() => {
   fs.rmSync(TMP_ROOT, { recursive: true, force: true });
   fs.mkdirSync(BRAIN_DIR, { recursive: true });
   fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
-  process.env.FLOW_BRAIN_PATH = BRAIN_DIR;
+  prevRoot = process.env.FLOW_ROOT;
+  process.env.FLOW_ROOT = TMP_ROOT;
 });
 
 afterAll(() => {
+  if (prevRoot === undefined) delete process.env.FLOW_ROOT;
+  else process.env.FLOW_ROOT = prevRoot;
   fs.rmSync(TMP_ROOT, { recursive: true, force: true });
 });
 

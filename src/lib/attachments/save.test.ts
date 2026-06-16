@@ -22,7 +22,7 @@ describe('saveAttachment', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('writes the file under <brain>/attachments and returns full metadata', async () => {
+  it('writes the file under attachments/ and returns full metadata', async () => {
     const { saveAttachment } = await import('./save');
     const bytes = Buffer.from('hello, world');
     const result = await saveAttachment({
@@ -37,7 +37,7 @@ describe('saveAttachment', () => {
     expect(result.size).toBe(bytes.byteLength);
     expect(result.uploadedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
-    const written = fs.readFileSync(path.join(tmpDir, 'brain', 'attachments', result.fileName));
+    const written = fs.readFileSync(path.join(tmpDir, 'attachments', result.fileName));
     expect(written.toString()).toBe('hello, world');
   });
 

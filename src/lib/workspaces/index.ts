@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import slugify from '@sindresorhus/slugify';
-import { getAppRoot } from '@/lib/config/paths';
+import { getWorkDir } from '@/lib/config/paths';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import type { WorkspaceRecord } from '@/db/types';
 
@@ -97,12 +97,15 @@ async function loadLib(): Promise<AgentexWorkspace> {
 }
 
 /**
- * Default worktree-root layout: `<app-root>/worktrees/<slug>/`. Stored on
- * the workspace row so the user can override per workspace, but every
- * workspace defaults here so the tree is predictable.
+ * Default worktree-root layout: `<work-dir>/worktrees/<slug>/`. Worktrees are
+ * machine-local git working copies (disposable scratch), so they live in
+ * `.work` alongside their sibling `clones`. Stored on the workspace row so the
+ * user can override per workspace, but every workspace defaults here so the
+ * tree is predictable. Existing worktrees at the legacy `<app-root>/worktrees`
+ * stay put (DB references them by absolute path); only new ones land here.
  */
 export function defaultWorktreeRoot(slug: string): string {
-  return path.join(getAppRoot(), 'worktrees', slug);
+  return path.join(getWorkDir(), 'worktrees', slug);
 }
 
 export async function detectIsGit(absolutePath: string): Promise<boolean> {

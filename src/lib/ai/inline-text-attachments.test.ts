@@ -34,11 +34,11 @@ describe('inlineTextAttachments', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-inline-'));
-    attachmentsDir = path.join(tmpDir, 'brain', 'attachments');
+    attachmentsDir = path.join(tmpDir, 'attachments');
     fs.mkdirSync(attachmentsDir, { recursive: true });
     for (const k of [appRootEnv, dbPathEnv, mirrorDisabledEnv]) saveEnv[k] = process.env[k];
     process.env[appRootEnv] = tmpDir;
-    process.env[dbPathEnv] = path.join(tmpDir, 'brain', 'data.db');
+    process.env[dbPathEnv] = path.join(tmpDir, 'data.db');
     process.env[mirrorDisabledEnv] = '1';
     vi.resetModules();
   });

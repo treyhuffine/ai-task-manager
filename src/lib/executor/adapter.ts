@@ -632,7 +632,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   if (args.sessionType === 'orchestration') {
     const orchestratorMode = resolveOrchestratorMode();
     try {
-      installOrchestratorSurface(orchestratorMode);
+      await installOrchestratorSurface(orchestratorMode);
       Object.assign(config, orchestratorSessionConfig(orchestratorMode));
       if (providerType !== 'claude') {
         console.warn(

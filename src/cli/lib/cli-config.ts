@@ -6,13 +6,13 @@
  *    instance the user connects to).
  *  - The CLI preference is per-machine (which editor on THIS laptop).
  *
- * Persisted as a tiny JSON file under the app root so it survives
- * shell restarts. The CLI is the only writer, the only reader.
+ * Persisted as a tiny JSON file in `.config` (machine-local, never synced)
+ * so it survives shell restarts. The CLI is the only writer, the only reader.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensureAppRoot, getAppRoot } from '@/lib/config/paths';
+import { ensureConfigDir, getConfigDir } from '@/lib/config/paths';
 
 export type CliEditor = 'cursor' | 'vscode' | 'jetbrains';
 
@@ -23,7 +23,7 @@ export interface CliConfig {
 const DEFAULT_CONFIG: CliConfig = { editor: 'cursor' };
 
 function getConfigPath(): string {
-  return path.join(getAppRoot(), 'cli-config.json');
+  return path.join(getConfigDir(), 'cli-config.json');
 }
 
 export function readCliConfig(): CliConfig {
@@ -42,7 +42,7 @@ export function readCliConfig(): CliConfig {
 }
 
 export function writeCliConfig(input: Partial<CliConfig>): CliConfig {
-  ensureAppRoot();
+  ensureConfigDir();
   const current = readCliConfig();
   const next: CliConfig = { ...current, ...input };
   fs.writeFileSync(getConfigPath(), JSON.stringify(next, null, 2), { mode: 0o600 });

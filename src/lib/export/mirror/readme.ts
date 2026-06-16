@@ -6,7 +6,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
-import { getBrainDir, BRAIN_PATH_ENV } from '@/lib/config/paths';
+import { getBrainDir, APP_ROOT_ENV } from '@/lib/config/paths';
 import { MIRROR_DISABLED_ENV, ATTACHMENT_GC_ENABLED_ENV } from './config';
 
 const README_FILENAME = 'README.md';
@@ -62,7 +62,7 @@ UUID. The ID is always the part after the last \`--\`.
 
 ## Configuration
 
-- \`${BRAIN_PATH_ENV}\` — point the brain directory somewhere else
+- \`${APP_ROOT_ENV}\` — point the data home (this folder) somewhere else
 - \`${MIRROR_DISABLED_ENV}=1\` — turn the markdown mirror off (db only)
 - \`${ATTACHMENT_GC_ENABLED_ENV}=1\` — opt in to attachment garbage collection
   (off by default; orphan files are hidden UUID-named blobs that cost nothing

@@ -5,9 +5,10 @@
  *
  * Three pieces, all idempotent and safe to re-run at session spawn:
  *
- *   1. CLAUDE.md + AGENTS.md at the app root — the role brief. Content
- *      lives inside managed markers (`upsertManagedBlock`) so app upgrades
- *      regenerate it while user additions outside the block survive.
+ *   1. CLAUDE.md + AGENTS.md at the app root — the role brief. Written via
+ *      agentex's `installInstructions` (managed-region merge, tag `flow`)
+ *      so app upgrades regenerate the block while user additions outside it
+ *      survive.
  *   2. Per-session ProviderConfig fields (`orchestratorSessionConfig`) —
  *      typed agentex ≥0.0.20 config, no raw argv:
  *        - `mcpServers` points the harness at this server's orchestrator
@@ -31,17 +32,19 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+// agentex is ESM-only (no CJS condition); a static value import crashes the
+// tsx-run CLI's static graph at boot. Type-only import is erased at compile,
+// so it's safe; the value (`installInstructions`) is loaded via dynamic
+// import inside the async installer below. Matches the lazy-load convention
+// in registry.ts / skills.ts.
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
-import {
-  renderBaseBrief,
-  upsertManagedBlock,
-} from '@/lib/config/claude-md-template';
+import { renderBaseBrief, FLOW_MANAGED_TAG } from '@/lib/config/claude-md-template';
 import {
   APP_ROOT_ENV,
-  BRAIN_PATH_ENV,
   DB_PATH_ENV,
   ensureAppRoot,
+  ensureBrainDir,
   getAppRoot,
   getBrainDir,
 } from '@/lib/config/paths';
@@ -80,13 +83,11 @@ function shellQuote(value: string): string {
  * harness's Bash tool starts a fresh shell from the user's profile, so the
  * server's `<APP>_ROOT` does NOT reach CLI subprocesses on its own.
  * (Caught by the level-4 smoke — a skills-mode run wrote its task into the
- * default/prod brain instead of the active root.) Brain/db overrides ride
- * along when the server itself runs with them set.
+ * default/prod home instead of the active one.) A db override rides along
+ * when the server itself runs with it set.
  */
 function cliEnvPrefix(): string {
   const parts = [`${APP_ROOT_ENV}=${shellQuote(getAppRoot())}`];
-  const brainOverride = process.env[BRAIN_PATH_ENV];
-  if (brainOverride) parts.push(`${BRAIN_PATH_ENV}=${shellQuote(brainOverride)}`);
   const dbOverride = process.env[DB_PATH_ENV];
   if (dbOverride) parts.push(`${DB_PATH_ENV}=${shellQuote(dbOverride)}`);
   return parts.join(' ');
@@ -111,7 +112,22 @@ export function resolveCliCommand(): string {
 
 // ─── Role brief ───────────────────────────────────────────────────
 
-const DOMAIN_BRIEF = `## Domain model
+const DOMAIN_BRIEF = `## Personalization & memory
+
+Two user-owned files shape who you're working with and how you show up.
+Treat them as authoritative; **never edit them** — they belong to the user.
+On Claude they're imported automatically below; on other harnesses, read
+them at the start of a session.
+
+@USER.md
+@SOUL.md
+
+Your durable cross-session memory is \`MEMORY.md\` — the record of what
+you've learned and decided across conversations. Consult it for past context
+and keep it current through your tools. It can grow large, so read it when
+relevant rather than assuming it's already in context.
+
+## Domain model
 
 - **Tasks** — action items: title, description, body (markdown), outcome
   (definition of done), status (\`active | done | archived\`), energy
@@ -235,8 +251,8 @@ Formatting rules — these are load-bearing for the UI:
 - Prefer a reference over restating an entity's title in prose.
 
 User messages may reference uploaded files as \`[[file:<name>]]\` — the file
-lives at \`brain/attachments/<name>\` relative to the brain dir; Read it when
-you need the content.
+lives at \`attachments/<name>\` under your home dir; Read it when you need the
+content.
 
 ## Output style
 
@@ -260,7 +276,7 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`answer_pending_input\`; plus workspace/schedule/run management and
 \`describe_paths\` / \`describe_schema\` / \`list_skills\`.
 
-Use these MCP tools for every read and write. Reading files under \`brain/\`
+Use these MCP tools for every read and write. Reading files in your home dir
 for ambient context is fine; writing through anything but the tools is not.`;
     case 'harness_skills':
       return `## Your tools (CLI)
@@ -279,7 +295,7 @@ Run actions through the CLI via Bash. The command is:
 
 - \`${cliCommand} agent --help\` lists every action; \`<action> --help\` shows params.
 
-Use the CLI for every read and write. Reading files under \`brain/\` for
+Use the CLI for every read and write. Reading files in your home dir for
 ambient context is fine; writing through anything but the CLI is not.`;
     case 'legacy':
       return '';
@@ -298,8 +314,8 @@ export function renderOrchestratorBrief(mode: OrchestratorMode, cliCommand = res
 
 You are ${APP_NAME}'s orchestrator — a productivity agent operating on the
 user's behalf inside their task + note + deck system. This directory is the
-app's data root: the SQLite database, markdown mirror, and attachments live
-under \`brain/\`.
+app's home: the SQLite database, markdown mirror, and attachments live
+right here.
 
 **Never edit files here directly.** The markdown mirror is a one-way export —
 the app overwrites external edits — and direct writes bypass embeddings,
@@ -364,27 +380,39 @@ export interface InstalledSurface {
   agentsMdPath: string;
 }
 
-function upsertBriefFile(filePath: string, brief: string): void {
-  const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
-  const next = upsertManagedBlock(existing, brief);
-  if (next !== existing) fs.writeFileSync(filePath, next, { mode: 0o600 });
-}
-
 /**
  * Materialize the surface for a mode at the app data root. Idempotent —
  * called on every orchestrator session ensure and on mode switches.
+ *
+ * The CLAUDE.md + AGENTS.md merge is delegated to agentex's
+ * `installInstructions`: it owns the per-runtime filename mapping
+ * (claude → CLAUDE.md, codex → AGENTS.md) and the managed-region merge that
+ * preserves user content outside the markers. `managedTag: FLOW_MANAGED_TAG`
+ * ('flow') targets the same region our first-init write uses AND the
+ * pre-0.0.21 hand-rolled markers, so existing installs migrate on the next
+ * write rather than gaining a second block.
  */
-export function installOrchestratorSurface(mode: OrchestratorMode): InstalledSurface {
+export async function installOrchestratorSurface(mode: OrchestratorMode): Promise<InstalledSurface> {
   const root = ensureAppRoot();
+  // Seed MEMORY/USER/SOUL.md at the home root (write-once) before writing a brief that
+  // references/@imports them — guarantees the import targets exist, including
+  // on installs that predate these files. Never clobbers user edits.
+  ensureBrainDir();
   const brief = renderOrchestratorBrief(mode);
 
-  const claudeMdPath = path.join(root, 'CLAUDE.md');
-  const agentsMdPath = path.join(root, 'AGENTS.md');
-  upsertBriefFile(claudeMdPath, brief);
-  upsertBriefFile(agentsMdPath, brief);
+  const { installInstructions } = await import('@agentex/agent');
+  await installInstructions(brief, {
+    location: 'workspace',
+    cwd: root,
+    runtimes: ['claude', 'codex'],
+    managedTag: FLOW_MANAGED_TAG,
+  });
   removeStaleMcpConfig(root);
 
-  return { claudeMdPath, agentsMdPath };
+  return {
+    claudeMdPath: path.join(root, 'CLAUDE.md'),
+    agentsMdPath: path.join(root, 'AGENTS.md'),
+  };
 }
 
 // ─── Per-session provider config ──────────────────────────────────

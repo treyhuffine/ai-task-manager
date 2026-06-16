@@ -1,15 +1,17 @@
 /**
  * `<app> commit`
  *
- * Git-commits the current state of the markdown mirror (`<brain>/`). Creates
- * the git repo and `.gitignore` on first run if needed, excluding `data.db*`
- * and `attachments/` so only markdown ends up in history.
+ * Flushes the mirror, then git-commits the data home. Inits the repo on first
+ * run if needed. Tracks everything the home ships — `data.db` + `attachments/`
+ * included — so the commit is a full restorable point; the home's shipped
+ * `.gitignore` (machine-local `.config/`/`.work/`, db sidecars, snapshots) is
+ * the single source of truth for exclusions.
  *
  * Does not push. Configure a remote manually with:
- *   git -C <brain> remote add origin <url>
+ *   git -C <home> remote add origin <url>
  *
- * Useful in a cron: pair with `scripts/backup.ts` for free markdown version
- * control alongside cloud backups.
+ * Useful in a cron: pair with `scripts/backup.ts` for versioned local history
+ * alongside cloud backups.
  */
 
 import pc from 'picocolors';
