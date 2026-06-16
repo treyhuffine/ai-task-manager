@@ -15,7 +15,6 @@ import { registerSkillsCommand } from './commands/skills';
 import { registerScheduleCommands } from './commands/schedule';
 import { registerTakeoverCommand } from './commands/takeover';
 import { registerResumeCommand } from './commands/resume';
-import { registerMigrateCommand } from './commands/migrate';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -87,7 +86,6 @@ registerSkillsCommand(program);
 registerScheduleCommands(program);
 registerTakeoverCommand(program);
 registerResumeCommand(program);
-registerMigrateCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
