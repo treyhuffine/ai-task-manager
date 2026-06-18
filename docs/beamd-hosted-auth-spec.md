@@ -204,29 +204,34 @@ machine is already logged in. The only correctness fixes folded in now:
 
 ## What Flow builds vs what beamd/hosted must provide
 
-**beamd (CLI + hosted edge) must provide** — see the device-code contract for
-wire detail:
+**beamd (CLI + hosted edge) already provides** what's needed for device-code —
+the *interactive* `beamd login` (no `--token`) prints a verification URL + code
+and blocks on confirmation, even with piped stdio, and the hosted edge serves the
+approval page (`staging.beamd.ai/device`). Remaining beamd-side **nice-to-haves**
+(not blockers):
 
-- [ ] `beamd login --server <host> --device --json` (NDJSON: `pending` →
-      `connected`|`error`; `device_code_unsupported` to trigger fallback).
-- [ ] The hosted edge advertises device-code in auth discovery and hosts the
-      approval page.
-- [ ] Approved device-code exchange mints a **durable** workspace credential into
-      `~/.beamd/` (not a session token).
-- [ ] (Edge discovery) a hosted edge default or a discoverable `baseDomain` so
-      Flow needn't ask for a server.
+- [ ] A headless `beamd login --device --json` NDJSON mode (see the device-code
+      contract) — a *robustness upgrade* over scraping human stdout, and gives a
+      one-click `verification_uri_complete`.
+- [ ] Approved device-code mints a **durable** workspace credential, not a
+      `kind: session` token (so unattended hosts don't silently expire).
+- [ ] (Edge discovery) a hosted edge default / discoverable `baseDomain` so Flow
+      needn't ask for a server.
 
-**Flow builds** (no rework of the credential model) — **the Flow side is built**;
-the fallback is live-tested and the happy path lights up the moment beamd ships
-`--device --json`:
+**Flow builds** (no rework of the credential model) — **built and wired**;
+device-code runs today by driving the interactive `beamd login`:
 
 - [x] `POST /api/preview/settings/connect-device` — spawns `beamdLoginDevice`,
-      relays the NDJSON stream (`pending`/`connected`/`unsupported`/`error`),
-      verifies-on-connect (`beamd check`, rollback on failure), falls back to
-      token paste on `device_code_unsupported`. Streams `application/x-ndjson`.
+      relays an NDJSON stream (`pending`/`connected`/`unsupported`/`error`),
+      verifies-on-connect (`beamd check` for the authoritative server/slug,
+      rollback on failure), falls back to the API-key form on `unsupported`.
+      Streams `application/x-ndjson`.
 - [x] `beamdLoginDevice` CLI wrapper (`src/lib/preview/beamd/cli.ts`) — drives
-      `beamd login --device --json`, classifies an unknown `--device` / missing
-      terminal event as `beamd_device_unsupported`, honors an `AbortSignal`.
+      the **real interactive `beamd login`** (no `--token`); scrapes the URL +
+      `XXXX-YYYY` code (printed to stderr) → `pending`, and keys completion on
+      the **exit code** (0 = connected; pre-challenge failure = `unsupported` →
+      API-key fallback; post-challenge = `expired`). `AbortSignal` → SIGTERM
+      kills the login. Swaps to NDJSON cleanly if/when beamd ships it.
 - [x] `BeamdConnect` device-code UI — "Connect with beamd" primary + pending
       card (code + approve link + waiting/cancel); API-key inputs demoted to a
       fallback that auto-reveals on `unsupported`. `useConnectDevice` hook reads
@@ -240,13 +245,16 @@ the fallback is live-tested and the happy path lights up the moment beamd ships
       the skew banner. A hard version-pin for device-code can't be set until
       beamd's `--device` ships and we know its minimum version.
 
-> Status as of 2026-06-17: built + typechecked; the `unsupported → API-key`
-> fallback verified end-to-end against beamd **0.0.5** (still no headless
-> `--device --json` — `login --help` lists none, `-device` is an unknown flag).
-> The `pending`/`connected` branches are contract-ready but unexercised until
-> beamd ships the headless device-code mode. (0.0.5 did land the project-config
-> rename `.beamd`→`beamd.yaml` and a `beamd link` command — both transparent to
-> Flow, which is filename-agnostic.)
+> Status as of 2026-06-18: **device-code is wired and live** against beamd 0.0.5
+> by driving the interactive `beamd login`. Verified end-to-end: the wrapper and
+> the `POST /connect-device` route both stream a real `pending` (URL +
+> `XXXX-YYYY` code from `staging.beamd.ai/device`); abort/cancel works (SIGTERM).
+> The final leg — human approves in browser → login exits 0 → `beamd check` →
+> `connected` — is by-construction (keyed on exit code) and the only step not
+> exercised headlessly. The API-key path remains the fallback for OSS/static
+> edges (surfaced as `unsupported`). beamd's headless `--device --json` stays a
+> future robustness upgrade, not a blocker. (0.0.5 also landed the project-config
+> rename `.beamd`→`beamd.yaml` + a `beamd link` command — transparent to Flow.)
 
 ## Acceptance criteria
 

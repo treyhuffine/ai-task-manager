@@ -21,7 +21,6 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import readline from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -340,10 +339,10 @@ export async function beamdStatus(timeoutMs = 8_000): Promise<BeamdStatusResult>
 }
 
 /**
- * Connect this machine to a beamd edge — writes `~/.beamd/` via `beamd login`
- * (the same store the human + agent use). `token` is the copy-paste flow
- * (an API key or OSS token); omit it for the interactive device-code flow
- * (not usable headlessly — Flow always passes a token).
+ * Connect this machine to a beamd edge with a token — writes `~/.beamd/` via
+ * `beamd login` (the same store the human + agent use). `token` is the
+ * copy-paste flow (an API key or OSS token). For the browser-approve flow
+ * (no token), see {@link beamdLoginDevice}.
  */
 export async function beamdLogin(
   opts: { server: string; token: string; insecure?: boolean },
@@ -364,35 +363,39 @@ export interface BeamdDevicePending {
   interval: number;
 }
 
-/** The account a device-code login landed on. */
-export interface BeamdDeviceConnected {
-  server: string;
-  slug: string;
-}
-
 /**
- * Headless device-code (browser-approve) login — the hosted on-ramp, per
- * `docs/beamd-device-code-contract.md`. Spawns `beamd login --device --json`,
- * which streams NDJSON: a `pending` challenge (relayed via `onPending` so the
- * UI can show the code + an approval link), then a single terminal `connected`
- * | `error`. Resolves with the connected account.
+ * Device-code (browser-approve) login — the hosted on-ramp.
  *
- * Throws `BeamdCliError('beamd_device_unsupported')` when this beamd or the
- * target edge doesn't offer device-code (an older CLI that rejects `--device`,
- * or an OSS static-token edge) so callers fall back to token paste. `server`
+ * Drives the *interactive* `beamd login` (omit `--token`): even with piped
+ * stdio (no TTY) it prints a verification URL + user code and blocks on
+ * "Waiting for confirmation…", then exits 0 once approved (credential written
+ * to `~/.beamd/`) or non-zero on expiry/denial. We scrape the URL + code out of
+ * its output and relay them via `onPending` so the UI can show them; the
+ * terminal signal is the process **exit code** (not a parsed success string —
+ * robust to copy changes). Resolves when the login completes (exit 0).
+ *
+ * Failure *before* a challenge is shown → `beamd_device_unsupported` (an
+ * OSS/static-token edge that doesn't offer device-code, or an unreachable
+ * edge), so the caller falls back to the API-key form. Failure *after* →
+ * `beamd_device_expired`. Abort via `signal` → `beamd_device_aborted`. `server`
  * is optional — omitted, beamd targets its hosted default edge. Nothing is
- * persisted unless the flow reaches `connected` (the CLI writes `~/.beamd/`).
+ * persisted unless the flow reaches exit 0.
+ *
+ * (When beamd ships a headless `login --device --json` NDJSON mode — see
+ * docs/beamd-device-code-contract.md — this can swap to parsing that for
+ * robustness; the caller contract is unchanged.)
  */
 export async function beamdLoginDevice(
   opts: { server?: string; insecure?: boolean; signal?: AbortSignal },
   onPending: (p: BeamdDevicePending) => void,
-): Promise<BeamdDeviceConnected> {
+): Promise<void> {
   const { command, prefixArgs } = resolveBeamdBin();
-  const args = [...prefixArgs, 'login', '--device', '--json'];
+  // Interactive device-code login = `beamd login` with NO `--token`.
+  const args = [...prefixArgs, 'login'];
   if (opts.server?.trim()) args.push('--server', opts.server.trim());
   if (opts.insecure) args.push('--insecure');
 
-  return await new Promise<BeamdDeviceConnected>((resolve, reject) => {
+  return await new Promise<void>((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
       child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -402,11 +405,16 @@ export async function beamdLoginDevice(
     }
 
     let settled = false;
-    let sawEvent = false;
-    let stderr = '';
+    let pendingSent = false;
+    let url: string | null = null;
+    let code: string | null = null;
+    let buf = '';
+    let backstop: ReturnType<typeof setTimeout> | undefined;
+
     const finish = (fn: (v: never) => void, val: unknown) => {
       if (settled) return;
       settled = true;
+      if (backstop) clearTimeout(backstop);
       if (opts.signal) opts.signal.removeEventListener('abort', onAbort);
       fn(val as never);
     };
@@ -426,71 +434,61 @@ export async function beamdLoginDevice(
       opts.signal.addEventListener('abort', onAbort, { once: true });
     }
 
-    child.stderr?.on('data', (d) => {
-      stderr += d;
-    });
-
-    const rl = readline.createInterface({ input: child.stdout! });
-    rl.on('line', (line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      let evt: Record<string, unknown>;
-      try {
-        evt = JSON.parse(trimmed);
-      } catch {
-        return; // ignore non-JSON noise (banners, logs)
-      }
-      sawEvent = true;
-      if (evt.error === 'device_code_unsupported' || evt.event === 'unsupported') {
+    // Device codes expire (~15 min) and beamd exits on its own; backstop-kill
+    // well past that so a wedged process can't hold the stream open forever.
+    backstop = setTimeout(
+      () => {
         try {
           child.kill();
         } catch {
-          /* noop */
+          /* gone */
         }
-        finish(
-          reject,
-          new BeamdCliError('beamd_device_unsupported', String(evt.detail || 'This edge does not offer browser approval.'), stderr, null),
-        );
-      } else if (evt.event === 'pending') {
-        onPending({
-          verificationUri: String(evt.verification_uri ?? ''),
-          verificationUriComplete: String(evt.verification_uri_complete ?? evt.verification_uri ?? ''),
-          userCode: String(evt.user_code ?? ''),
-          expiresIn: Number(evt.expires_in ?? 0),
-          interval: Number(evt.interval ?? 5),
-        });
-      } else if (evt.event === 'connected') {
-        finish(resolve, { server: String(evt.server ?? ''), slug: String(evt.slug ?? '') });
-      } else if (evt.event === 'error') {
-        const code =
-          evt.code === 'denied'
-            ? 'beamd_device_denied'
-            : evt.code === 'expired' || evt.code === 'timeout'
-              ? 'beamd_device_expired'
-              : 'beamd_error';
-        finish(reject, new BeamdCliError(code, `Browser approval ${String(evt.code ?? 'failed')}.`, stderr, null));
+        finish(reject, new BeamdCliError('beamd_device_expired', 'Browser approval timed out.', buf, null));
+      },
+      20 * 60_000,
+    );
+
+    // The challenge prints to stderr (a URL + a `XXXX-YYYY` code). Read both
+    // streams and emit `pending` once we have the pair.
+    const ingest = (chunk: Buffer | string) => {
+      buf += String(chunk);
+      if (pendingSent) return;
+      if (!url) {
+        const m = buf.match(/https?:\/\/[^\s'"]+/);
+        if (m) url = m[0].replace(/[.,;]+$/, '');
       }
-    });
+      if (!code) {
+        const m = buf.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/);
+        if (m) code = m[0];
+      }
+      if (url && code) {
+        pendingSent = true;
+        onPending({ verificationUri: url, verificationUriComplete: url, userCode: code, expiresIn: 0, interval: 5 });
+      }
+    };
+    child.stdout?.on('data', ingest);
+    child.stderr?.on('data', ingest);
 
     child.on('error', (e) => {
       finish(reject, new BeamdCliError('beamd_device_unsupported', 'Could not start browser approval.', String(e), null));
     });
     child.on('exit', (exitCode) => {
       if (settled) return;
-      // Exited before any terminal event. If it never emitted a JSON event (an
-      // older CLI that rejects `--device`, or an edge that doesn't advertise
-      // device-code), treat it as unsupported so the caller falls back to the
-      // token-paste flow. Otherwise it's a genuine error.
-      const looksUnsupported =
-        !sawEvent || /not defined|unknown (flag|command)|unsupported|--token/i.test(stderr);
+      if (exitCode === 0) {
+        finish(resolve, undefined);
+        return;
+      }
+      // Failed before we ever showed a challenge → the edge can't do
+      // device-code (OSS/static-token) or was unreachable: fall back to the
+      // API-key form. Failed after → the approval expired or was denied.
       finish(
         reject,
         new BeamdCliError(
-          looksUnsupported ? 'beamd_device_unsupported' : 'beamd_error',
-          looksUnsupported
-            ? "This beamd doesn't support browser approval yet — connect with an API key instead."
-            : stderr.trim() || 'Browser approval failed.',
-          stderr,
+          pendingSent ? 'beamd_device_expired' : 'beamd_device_unsupported',
+          pendingSent
+            ? 'Browser approval didn’t complete (expired or denied). Try again.'
+            : 'This edge doesn’t offer browser approval — connect with an API key instead.',
+          buf,
           exitCode ?? null,
         ),
       );

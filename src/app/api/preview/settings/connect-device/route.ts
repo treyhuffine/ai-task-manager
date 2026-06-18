@@ -10,11 +10,11 @@
  *   { phase: 'error', code, message }
  *
  * Like the token path, "connected" means *verified*: we run `beamd check` after
- * the CLI reports success and roll the login back on failure. beamd owns the
- * credential in `~/.beamd/`; Flow stores nothing. When beamd has no headless
- * device-code mode (today — `--device` is unknown), the CLI exits without a
- * terminal event and this surfaces `unsupported`, so the UI degrades to the
- * existing API-key form with no user-visible breakage.
+ * the login exits 0 (and use its server/slug), rolling the login back on
+ * failure. beamd owns the credential in `~/.beamd/`; Flow stores nothing.
+ * `beamdLoginDevice` drives the real interactive `beamd login` (no `--token`)
+ * and scrapes its URL + code; an edge that can't do browser approval surfaces
+ * `unsupported`, so the UI degrades to the API-key form with no breakage.
  */
 
 import type { NextRequest } from 'next/server';
@@ -42,22 +42,24 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const connected = await beamdLoginDevice(
+        await beamdLoginDevice(
           { server, insecure, signal: request.signal },
           (pending) => send({ phase: 'pending', pending }),
         );
 
         // Verified-on-connect parity with the token path: prove the new
-        // credential works against the edge, and roll it back if it doesn't so
-        // a half-written login can't linger and 401 every preview.
+        // credential works against the edge (and get the authoritative
+        // server/slug), rolling it back if it doesn't so a half-written login
+        // can't linger and 401 every preview.
+        let checked;
         try {
-          await beamdCheck();
+          checked = await beamdCheck();
         } catch (err) {
           await beamdLogout().catch(() => {});
           throw err;
         }
 
-        send({ phase: 'connected', server: connected.server, slug: connected.slug });
+        send({ phase: 'connected', server: checked.server, slug: checked.slug });
       } catch (err) {
         if (err instanceof BeamdCliError) {
           send({
