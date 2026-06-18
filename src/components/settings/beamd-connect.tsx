@@ -28,11 +28,12 @@ function BinLine({ bin }: { bin: BeamdBinInfo }) {
  * and the per-preview "Open on another device" flow. Drives the machine's
  * shared `~/.beamd/` account (Flow stores no credential).
  *
- * Two ways in, matched to what the edge supports (the user never picks):
- *  - **Approve in browser** (device-code) — the hosted on-ramp, no secret to
- *    paste. Primary. Falls back automatically when the edge/CLI can't do it.
- *  - **API key** — paste server + token. Always available; the only path for an
- *    OSS/self-hosted edge, and the fallback until beamd ships browser-approve.
+ * Hosted-first: one **"Connect with Beamd"** button does browser-approve
+ * (device login) against hosted beamd — no inputs. A collapsed **"Self-hosted
+ * edge or API key"** section below holds the edge address + API-key (token)
+ * path for OSS/self-hosted; it auto-opens when an edge can't do browser
+ * approval. The edge field (when set) also points the approve button at a
+ * non-default edge (e.g. staging).
  *
  * `onConnected` fires after a verified connect (either path) — the share popover
  * uses it to flip the active provider to beamd and re-resolve a URL.
@@ -46,8 +47,7 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
   const [server, setServer] = useState('');
   const [token, setToken] = useState('');
   const [insecure, setInsecure] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  const [showTokenForm, setShowTokenForm] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const connected = settings?.beamd.connected ?? false;
@@ -61,8 +61,9 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
         ? { code: 'beamd_cli_outdated', message: `Flow is using beamd ${bin.version} — older than the ${bin.minVersion}+ it needs.` }
         : null;
 
-  // The edge couldn't do browser-approve → reveal the API-key fallback.
-  const tokenFormVisible = showTokenForm || device.status === 'unsupported';
+  // Self-hosted / API-key section. Auto-opens when the edge can't do browser
+  // approval, so the user can drop in an edge + key.
+  const advancedVisible = showAdvanced || device.status === 'unsupported';
 
   // A verified device-code connect lands here — propagate like the token path.
   const handledConnect = useRef(false);
@@ -77,7 +78,6 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
 
   const startApprove = () => {
     setResult(null);
-    setShowTokenForm(false);
     device.start({ server: server.trim() || undefined, insecure });
   };
 
@@ -188,40 +188,20 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
       ) : (
         <>
           <p className="text-[11px] text-muted-foreground">
-            Connect this machine to beamd. The login is stored by beamd (in <span className="font-mono">~/.beamd</span>),
-            not by Flow — your terminal and agents use the same one.
+            Connect this machine to beamd to share previews to your phone or another device. The login is stored by
+            beamd (in <span className="font-mono">~/.beamd</span>), not by Flow — your terminal and agents share it.
           </p>
-          <Field label="Server (edge)">
-            <input
-              value={server}
-              onChange={(e) => setServer(e.target.value)}
-              placeholder="leave blank for hosted beamd  ·  or your self-hosted edge"
-              spellCheck={false}
-              className="w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-[12px] focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          </Field>
 
-          {/* Approve-first: the hosted on-ramp, no secret to paste. */}
-          <div className="flex items-center gap-3 pt-0.5">
-            <button
-              type="button"
-              onClick={startApprove}
-              disabled={device.status === 'starting'}
-              className="flex items-center gap-1.5 rounded border border-border bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
-            >
-              {device.status === 'starting' && <Loader2 size={12} className="animate-spin" />}
-              Connect with beamd
-            </button>
-            {!tokenFormVisible && (
-              <button
-                type="button"
-                onClick={() => setShowTokenForm(true)}
-                className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Use an API key instead
-              </button>
-            )}
-          </div>
+          {/* Primary path: browser approval against hosted beamd — no inputs. */}
+          <button
+            type="button"
+            onClick={startApprove}
+            disabled={device.status === 'starting'}
+            className="flex w-full items-center justify-center gap-1.5 rounded border border-border bg-foreground px-2.5 py-2 text-[12px] font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
+          >
+            {device.status === 'starting' ? <Loader2 size={13} className="animate-spin" /> : <ExternalLink size={13} />}
+            Connect with Beamd
+          </button>
           {device.status === 'error' && device.error && (
             <p className="flex items-start gap-1.5 text-[12px] text-amber-600 dark:text-amber-400">
               <XCircle size={13} className="mt-0.5 shrink-0" />
@@ -229,78 +209,74 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
             </p>
           )}
 
-          <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={insecure}
-              onChange={(e) => setInsecure(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span>
-              Skip TLS verification
-              <span className="block text-muted-foreground/70">Only for a self-hosted edge with a self-signed cert.</span>
-            </span>
-          </label>
+          {/* Advanced: self-hosted edge / API key. Auto-opens when an edge
+              can't do browser approval. */}
+          <div className="border-t border-border/60 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              <ChevronRight size={11} className={cn('transition-transform', advancedVisible && 'rotate-90')} />
+              Self-hosted edge or API key
+            </button>
 
-          {/* API-key fallback — the OSS path, and the bridge until browser-approve ships. */}
-          {tokenFormVisible && (
-            <div className="space-y-2.5 border-t border-border/60 pt-2.5">
-              {device.status === 'unsupported' && (
-                <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
-                  {device.error || "This edge can't do browser approval — connect with an API key instead."}
+            {advancedVisible && (
+              <div className="mt-2 space-y-2.5">
+                {device.status === 'unsupported' && (
+                  <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                    {device.error || 'That edge can’t do browser approval — enter it below with an API key.'}
+                  </p>
+                )}
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Running your own beamd edge, or pointing at a non-default one? Enter it, then either approve in your
+                  browser with <span className="font-medium text-foreground">Connect with Beamd</span> above, or paste an
+                  API key.
                 </p>
-              )}
-              <Field label="Workspace API key">
-                <input
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="from your beamd dashboard, or an OSS edge token"
-                  spellCheck={false}
-                  autoComplete="off"
-                  className="w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-[12px] focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </Field>
-
-              <button
-                type="button"
-                onClick={() => setShowHelp((v) => !v)}
-                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-              >
-                <ChevronRight size={11} className={cn('transition-transform', showHelp && 'rotate-90')} />
-                Where do I get a key?
-              </button>
-              {showHelp && (
-                <div className="rounded border border-border/60 bg-background/60 p-2 text-[11px] leading-relaxed text-muted-foreground space-y-1.5">
-                  <p>
-                    <span className="font-medium text-foreground">Hosted beamd:</span> sign in to your beamd dashboard,
-                    create a workspace API key, and set <span className="font-mono">Server</span> to the{' '}
-                    <span className="font-medium text-foreground">edge host</span> it shows you — the dashboard domain and
-                    the tunnel edge can differ (e.g. the key page lives on one domain, tunnels serve from another).
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">Self-hosted (free):</span> run your own beamd edge and
-                    use its token. Point <span className="font-mono">Server</span> at that edge; tick “Skip TLS
-                    verification” only if it serves a self-signed cert.
-                  </p>
-                  <p className="text-muted-foreground/70">
-                    Already ran <span className="font-mono">beamd login</span> in a terminal? You don’t need this — Flow
-                    uses that same login automatically.
-                  </p>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={connect}
-                disabled={update.isPending || !server.trim() || !token.trim()}
-                className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
-              >
-                {update.isPending && <Loader2 size={12} className="animate-spin" />}
-                {update.isPending ? 'Verifying…' : 'Log in with API key'}
-              </button>
-            </div>
-          )}
+                <Field label="Edge address">
+                  <input
+                    value={server}
+                    onChange={(e) => setServer(e.target.value)}
+                    placeholder="your-beamd-edge.com  ·  blank = hosted beamd"
+                    spellCheck={false}
+                    className="w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-[12px] focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </Field>
+                <Field label="API key">
+                  <input
+                    type="password"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="your edge token, or a dashboard API key"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-[12px] focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </Field>
+                <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={insecure}
+                    onChange={(e) => setInsecure(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Skip TLS verification
+                    <span className="block text-muted-foreground/70">Only for a self-hosted edge with a self-signed cert.</span>
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  onClick={connect}
+                  disabled={update.isPending || !server.trim() || !token.trim()}
+                  className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                >
+                  {update.isPending && <Loader2 size={12} className="animate-spin" />}
+                  {update.isPending ? 'Verifying…' : 'Log in with API key'}
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
