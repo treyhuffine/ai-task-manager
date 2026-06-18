@@ -23,6 +23,10 @@ export interface PreviewTarget {
 }
 
 export interface PreviewContext {
+  /** Absolute path to the worktree dir the dev server runs in. Providers that
+   *  shell a tool (e.g. beamd) run it with this `cwd` so project-local config
+   *  — beamd's `beamd.yaml` (edge + scope) — is resolved from the right place. */
+  cwd: string;
   /** The worktree directory leaf, e.g. `flow-a3f9`. */
   worktreeName: string;
   /** Named service in a multi-service worktree (`web` | `api`), or null. */

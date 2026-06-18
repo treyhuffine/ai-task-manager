@@ -15,6 +15,7 @@
  * Flow owns "what should be running" and beamd stays stateless about it.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   getExecution,
@@ -345,6 +346,7 @@ export async function resolvePreview(
 
   const effectivePort = serverRec?.port ?? target.port ?? 0;
   const providerCtx = {
+    cwd: ctx.cwd,
     worktreeName: ctx.worktreeName,
     service,
     port: effectivePort,
@@ -422,9 +424,24 @@ export async function stopPreview(executionId: string, service: string | null = 
   const targets = service === null
     ? listPreviewTargetsForExecution(executionId)
     : [getPreviewTarget(executionId, service)].filter((t): t is PreviewTargetRecord => !!t);
+  const cwd = safeWorktreeCwd(executionId);
   for (const t of targets) {
     await sup.stop(t.id);
-    await closeRemoteTunnel(t.previewName);
+    await closeRemoteTunnel(t.previewName, cwd);
+  }
+}
+
+/**
+ * Best-effort worktree dir for beamd's `beamd.yaml` (scope) resolution on teardown.
+ * Returns undefined if the execution/worktree is gone — `close` then falls back
+ * to the account default (best-effort anyway; a dangling tunnel self-expires).
+ */
+function safeWorktreeCwd(executionId: string): string | undefined {
+  try {
+    const { cwd } = loadContext(executionId);
+    return cwd && fs.existsSync(cwd) ? cwd : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -434,9 +451,9 @@ export async function stopPreview(executionId: string, service: string | null = 
  * doesn't exist, so we always just try (covers the case where the user
  * switched the active provider away before hitting Stop).
  */
-async function closeRemoteTunnel(previewName: string): Promise<void> {
+async function closeRemoteTunnel(previewName: string, cwd?: string): Promise<void> {
   try {
-    await beamdClose(previewName);
+    await beamdClose(previewName, { cwd });
   } catch {
     // Idempotent — a dangling tunnel self-expires.
   }
@@ -515,7 +532,7 @@ export async function idleEvictSweep(idleMinutes = DEFAULT_IDLE_MINUTES): Promis
     const lastViewed = target.lastViewedAt ? Date.parse(target.lastViewedAt) : Date.parse(target.updatedAt);
     if (Number.isFinite(lastViewed) && lastViewed < cutoff) {
       await sup.stop(key);
-      await closeRemoteTunnel(target.previewName);
+      await closeRemoteTunnel(target.previewName, safeWorktreeCwd(target.executionId));
       evicted++;
     }
   }

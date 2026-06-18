@@ -59,12 +59,44 @@ export interface PreviewProviderInfo {
   kind: 'dynamic' | 'static';
 }
 
+/** The browser-approval challenge streamed during a device-code connect. */
+export interface DevicePending {
+  verificationUri: string;
+  verificationUriComplete: string;
+  userCode: string;
+  expiresIn: number;
+  interval: number;
+}
+
+/** One NDJSON line from the device-code connect stream. */
+export type DeviceConnectEvent =
+  | { phase: 'pending'; pending: DevicePending }
+  | { phase: 'connected'; server: string; slug: string }
+  | { phase: 'unsupported'; code: string; message: string }
+  | { phase: 'error'; code: string; message: string };
+
+/** Which beamd binary Flow resolves to + its version — for skew legibility. */
+export interface BeamdBinInfo {
+  path: string;
+  source: 'env' | 'path' | 'bundled-native' | 'bundled-shim' | 'fallback';
+  version: string | null;
+  outdated: boolean;
+  minVersion: string;
+}
+
 export interface PreviewSettings {
   activeProvider: string;
   manualTemplate: string | null;
   /** beamd connection state — driven by the machine's `~/.beamd/` account,
-   *  not a Flow-stored credential. */
-  beamd: { connected: boolean; server: string | null };
+   *  not a Flow-stored credential. `error` carries the reason when not
+   *  connected (e.g. a version-skew `beamd_cli_outdated`); `bin` reports which
+   *  beamd binary Flow is using. */
+  beamd: {
+    connected: boolean;
+    server: string | null;
+    error: { code: string; message: string } | null;
+    bin: BeamdBinInfo | null;
+  };
   providers: PreviewProviderInfo[];
 }
 
@@ -130,8 +162,20 @@ export const previewApi = {
     }): Promise<PreviewSettings> {
       return api.put<PreviewSettings>('/preview/settings', body);
     },
-    test(): Promise<{ ok: true; server: string; slug: string; baseDomain: string }> {
-      return api.post<{ ok: true; server: string; slug: string; baseDomain: string }>('/preview/settings/test');
+    test(): Promise<{ ok: true; server: string; slug: string; baseDomain: string; bin: BeamdBinInfo | null }> {
+      return api.post<{ ok: true; server: string; slug: string; baseDomain: string; bin: BeamdBinInfo | null }>(
+        '/preview/settings/test',
+      );
+    },
+    /** Device-code (browser-approve) connect. Returns the raw NDJSON stream
+     *  ({@link DeviceConnectEvent} per line); auth + 401 handling applied. */
+    connectDevice(body: { server?: string; insecure?: boolean }, signal?: AbortSignal): Promise<Response> {
+      return api.raw('/preview/settings/connect-device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      });
     },
   },
 };

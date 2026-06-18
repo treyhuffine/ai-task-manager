@@ -5,14 +5,15 @@
  * account everything else uses; Flow passes no `--config`.
  */
 
-import { beamdCheck, BeamdCliError } from '@/lib/preview/beamd/cli';
+import { beamdCheck, beamdBinInfo, BeamdCliError } from '@/lib/preview/beamd/cli';
 
 export const runtime = 'nodejs';
 
 export async function POST() {
   try {
     const check = await beamdCheck();
-    return Response.json({ ok: true, server: check.server, slug: check.slug, baseDomain: check.baseDomain });
+    const bin = await beamdBinInfo().catch(() => null);
+    return Response.json({ ok: true, server: check.server, slug: check.slug, baseDomain: check.baseDomain, bin });
   } catch (err) {
     if (err instanceof BeamdCliError) {
       return Response.json({ error: err.code, message: err.message }, { status: 400 });

@@ -67,6 +67,7 @@ Everything `resolve()` is handed:
 
 ```ts
 interface PreviewContext {
+  cwd: string;                // abs path to the worktree the dev server runs in
   worktreeName: string;       // "flow-a3f9"
   service?: string | null;    // "web" | "api" | null (the only/default service)
   port: number;               // local port the app listens on (confirmed up if managesLocalServer)
@@ -79,6 +80,12 @@ interface PreviewContext {
 `previewName` is already sanitized to a single RFC-1123 label (≤63 chars,
 lowercase `[a-z0-9-]`). Use it verbatim as your subdomain/route name — don't
 re-derive one, and don't add dots (a tunnel name must be one label deep).
+
+`cwd` is the worktree directory. If your provider shells a CLI that reads
+**project-local config** (beamd's `beamd.yaml`, ngrok configs, etc.), run it with
+`{ cwd: ctx.cwd }` so per-project settings (e.g. which edge/org a tunnel lands
+in) resolve from the project, not Flow's process directory. The built-in beamd
+provider passes `cwd` to `open`/`list`/`close` for exactly this.
 
 ## Naming rule
 

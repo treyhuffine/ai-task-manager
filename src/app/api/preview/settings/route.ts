@@ -12,18 +12,43 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { readPreviewSettings, writePreviewSettings } from '@/lib/preview/settings';
-import { beamdLogin, beamdLogout, beamdCheck, beamdConnectedServer, BeamdCliError } from '@/lib/preview/beamd/cli';
+import { beamdLogin, beamdLogout, beamdCheck, beamdStatus, beamdBinInfo, BeamdCliError } from '@/lib/preview/beamd/cli';
 import { listPreviewProviders } from '@/lib/preview/service';
 
 export const runtime = 'nodejs';
 
 async function snapshot() {
   const settings = readPreviewSettings();
-  const server = await beamdConnectedServer();
+
+  // Read the connection AND any reason it failed, so the UI can show a real
+  // cause (e.g. a version-skew "beamd is outdated") instead of a bare
+  // "not connected". `status` reads local state without authenticating.
+  let server: string | null = null;
+  let error: { code: string; message: string } | null = null;
+  try {
+    const status = await beamdStatus();
+    server = status.server?.trim() ? status.server : null;
+    // Skew signature, no network needed: a current profile that isn't a simple
+    // name (it's a `host:port` written by a newer beamd) but no resolved server
+    // → the beamd Flow resolves to is too old to read this account.
+    if (!server && status.profile && /[.:]/.test(status.profile)) {
+      error = {
+        code: 'beamd_cli_outdated',
+        message:
+          "Flow's beamd is older than the beamd that set up this machine, so it can't read the account. " +
+          'Update Flow (or install a current beamd — Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.',
+      };
+    }
+  } catch (err) {
+    if (err instanceof BeamdCliError) error = { code: err.code, message: err.message };
+  }
+
+  const bin = await beamdBinInfo().catch(() => null);
+
   return {
     activeProvider: settings.activeProvider,
     manualTemplate: settings.manualTemplate,
-    beamd: { connected: server !== null, server },
+    beamd: { connected: server !== null, server, error, bin },
     providers: listPreviewProviders(),
   };
 }

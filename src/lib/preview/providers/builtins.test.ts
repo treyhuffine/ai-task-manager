@@ -7,6 +7,7 @@ import type { PreviewContext } from './types';
 import { renderManualTemplate } from '../settings';
 
 const ctx: PreviewContext = {
+  cwd: '/tmp/flow-a3f9',
   worktreeName: 'flow-a3f9',
   service: null,
   port: 4567,

@@ -27,7 +27,14 @@ async function main() {
   }
 
   // Isolate ~/.beamd to a throwaway HOME so we don't touch the real account.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-beamd-verify-'));
+  // Use a SHORT base, NOT os.tmpdir(): beamd's per-server agent socket lives at
+  // `<HOME>/.beamd/agents/<server>.sock`, and macOS's long `/var/folders/...`
+  // tmpdir overflows the ~104-char AF_UNIX path limit → the tunnel agent can't
+  // bind ("agent failed to start"). (Surfaced at beamd 0.0.5, whose socket name
+  // grew from `default.sock` to `<server>_<port>.sock`.) `/tmp` keeps it short;
+  // Windows uses named pipes, not path-bound sockets, so the limit is moot.
+  const tmpBase = process.platform === 'win32' ? os.tmpdir() : '/tmp';
+  const home = fs.mkdtempSync(path.join(tmpBase, 'bd-verify-'));
   process.env.HOME = home;
 
   const { beamdLogin, beamdStatus, beamdOpen, beamdClose, beamdConnectedServer } =

@@ -64,6 +64,6 @@ maybe('beamd CLI wrapper (real binary, shared ~/.beamd)', () => {
 
   it('open against an unreachable edge throws a classified BeamdCliError', async () => {
     const port = await allocatePort();
-    await expect(beamdOpen(port, 'flow-cli-test', 12_000)).rejects.toBeInstanceOf(BeamdCliError);
+    await expect(beamdOpen(port, 'flow-cli-test', { timeoutMs: 12_000 })).rejects.toBeInstanceOf(BeamdCliError);
   }, 30_000);
 });

@@ -247,8 +247,10 @@ export const workspaces = sqliteTable('workspaces', {
   worktreeRoot: text(),
   // Globs to copy from `cwd` into each new session's worktree at creation
   // time. Picomatch dialect, dot-aware. `.env*` is the default so secrets
-  // travel with the worktree without symlinking back to source. (Beamd's
-  // gitignored `.beamd.local` is also copied — see `ALWAYS_COPY_TO_WORKTREE`.)
+  // travel with the worktree without symlinking back to source. The committed
+  // beamd project config (`beamd.yaml`) is tracked, so git already puts it in
+  // the worktree; add the gitignored local override (`beamd.local.yaml`) to
+  // this list if you want that to travel too.
   filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
   // Worktree lifecycle scripts (all optional). Flow runs each as `sh -lc` in
   // the execution's worktree, with $FLOW_SOURCE_CHECKOUT_PATH /

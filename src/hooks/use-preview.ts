@@ -15,6 +15,8 @@ import {
   type PreviewLogLine,
   type PreviewManualUrl,
   type PreviewSettings,
+  type DevicePending,
+  type DeviceConnectEvent,
 } from '@/lib/api/preview';
 
 const PREVIEW_KEY = (id: string) => ['execution', id, 'preview'] as const;
@@ -199,4 +201,95 @@ export function useTestBeamd() {
   return useMutation({
     mutationFn: () => previewApi.settings.test(),
   });
+}
+
+export interface DeviceConnectState {
+  status: 'idle' | 'starting' | 'pending' | 'connected' | 'unsupported' | 'error';
+  pending: DevicePending | null;
+  error: string | null;
+  connectedServer: string | null;
+}
+
+const IDLE_DEVICE_STATE: DeviceConnectState = {
+  status: 'idle',
+  pending: null,
+  error: null,
+  connectedServer: null,
+};
+
+/**
+ * Drive a device-code (browser-approve) connect. Opens the NDJSON stream,
+ * surfaces the `pending` challenge so the UI can show the code + approval link,
+ * and resolves to `connected` | `unsupported` | `error`. `unsupported` is the
+ * signal to fall back to the API-key form. `cancel()` aborts the stream (kills
+ * the underlying `beamd` process server-side).
+ */
+export function useConnectDevice() {
+  const qc = useQueryClient();
+  const [state, setState] = useState<DeviceConnectState>(IDLE_DEVICE_STATE);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setState((s) => (s.status === 'pending' || s.status === 'starting' ? IDLE_DEVICE_STATE : s));
+  }, []);
+
+  const reset = useCallback(() => setState(IDLE_DEVICE_STATE), []);
+
+  const start = useCallback(
+    async (opts: { server?: string; insecure?: boolean } = {}) => {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      setState({ ...IDLE_DEVICE_STATE, status: 'starting' });
+      try {
+        const res = await previewApi.settings.connectDevice(opts, ac.signal);
+        if (!res.body) throw new Error('No response stream.');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line) continue;
+            let evt: DeviceConnectEvent;
+            try {
+              evt = JSON.parse(line) as DeviceConnectEvent;
+            } catch {
+              continue;
+            }
+            if (evt.phase === 'pending') {
+              setState({ status: 'pending', pending: evt.pending, error: null, connectedServer: null });
+            } else if (evt.phase === 'connected') {
+              setState({ status: 'connected', pending: null, error: null, connectedServer: evt.server });
+              qc.invalidateQueries({ queryKey: PREVIEW_SETTINGS_KEY });
+            } else if (evt.phase === 'unsupported') {
+              setState({ status: 'unsupported', pending: null, error: evt.message, connectedServer: null });
+            } else {
+              setState({ status: 'error', pending: null, error: evt.message, connectedServer: null });
+            }
+          }
+        }
+      } catch (err) {
+        if (ac.signal.aborted) return; // user cancelled — cancel() already reset
+        setState({
+          status: 'error',
+          pending: null,
+          error: err instanceof Error ? err.message : String(err),
+          connectedServer: null,
+        });
+      } finally {
+        if (abortRef.current === ac) abortRef.current = null;
+      }
+    },
+    [qc],
+  );
+
+  return { ...state, start, cancel, reset };
 }

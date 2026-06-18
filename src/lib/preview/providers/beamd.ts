@@ -25,15 +25,19 @@ export const beamdProvider: PreviewProvider = {
 
   async resolve(ctx) {
     const name = ctx.previewName;
+    // Run beamd from the worktree so it resolves the project's `beamd.yaml`
+    // (edge + scope) — the tunnel lands where the project wants. list/close
+    // use the same cwd so reuse + teardown hit that same scope.
+    const cwd = ctx.cwd;
     try {
       // Reuse a live tunnel if one already exists for this name (idempotent
       // bring-up across resolves and network blips).
-      const existing = (await beamdList()).find((t) => t.name === name);
+      const existing = (await beamdList({ cwd })).find((t) => t.name === name);
       if (existing?.url) {
-        return { url: existing.url, stop: () => closeQuietly(name) };
+        return { url: existing.url, stop: () => closeQuietly(name, cwd) };
       }
-      const opened = await beamdOpen(ctx.port, name);
-      return { url: opened.url, stop: () => closeQuietly(name) };
+      const opened = await beamdOpen(ctx.port, name, { cwd });
+      return { url: opened.url, stop: () => closeQuietly(name, cwd) };
     } catch (err) {
       if (err instanceof BeamdCliError) {
         // Not-connected is the common first-run case — surface the connect CTA.
@@ -51,9 +55,9 @@ export const beamdProvider: PreviewProvider = {
   },
 };
 
-async function closeQuietly(name: string): Promise<void> {
+async function closeQuietly(name: string, cwd?: string): Promise<void> {
   try {
-    await beamdClose(name);
+    await beamdClose(name, { cwd });
   } catch {
     // Tear-down is best-effort; a dangling tunnel self-expires and `close`
     // is idempotent on the next attempt.

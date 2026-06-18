@@ -10,6 +10,7 @@ import {
 import type { PreviewProvider, PreviewContext } from './types';
 
 const ctx: PreviewContext = {
+  cwd: '/tmp/flow-a3f9',
   worktreeName: 'flow-a3f9',
   service: null,
   port: 3000,
