@@ -35,7 +35,7 @@ The non-destructive half of this spec is **implemented and verified** (typecheck
 
 **Implementation notes / deviations from the prose above:**
 - The bridge and migration are **synchronous** (this codebase's better-sqlite3 + Drizzle layer is sync); the `async`/`await` in §3.1 and §3.3 below is illustrative.
-- Migration backups land in `getAppRoot()/backups` (respects `FLOW_ROOT`), not a hardcoded `~/flow/backups`.
+- Migration backups land in `getAppRoot()/backups` (respects `FLOW_ROOT`), not a hardcoded `~/flow/.work/backups`.
 - `chat_sessions.workspace_id` ↔ `executions.workspace_id` consistency (§2.2, §10) is guaranteed **by construction** in `createExecutionWithChat` (both set from one param) rather than a runtime assert.
 - **Worktree provisioning timing:** the manual workspace path (`dispatchExecutionSession`, used by the "new session" button) provisions the worktree **eagerly** at chat creation — preserved existing behavior, so the git UI goes straight to "setting up." The "not started → setting up" split in §5 is a target model; the data model (and the bare `createExecutionSession` path) support it, but the manual button stays eager. Truly-lazy manual provisioning is a deferred UX change, not part of this lift.
 - **No half-migrated runtime fallback.** Single-user, no backward-compat: the migration runs with the app stopped, so the app only ever boots against a fully-migrated DB. The bridge treats the execution as the sole source of truth (no fallback to the still-present legacy columns).
@@ -289,16 +289,16 @@ async function migrate() {
 # 1. Stop the app (Ctrl-C any running `pnpm dev` / `flow start`)
 
 # 2. Backup before schema migration
-mkdir -p ~/flow/backups
-sqlite3 ~/flow/brain/data.db \
-  ".backup ~/flow/backups/data.db.pre-executions-schema-$(date +%Y%m%d-%H%M%S)"
+mkdir -p ~/flow/.work/backups
+sqlite3 ~/flow/data.db \
+  ".backup ~/flow/.work/backups/data.db.pre-executions-schema-$(date +%Y%m%d-%H%M%S)"
 
 # 3. Apply schema migration (add executions table + chat_sessions.execution_id)
 pnpm db:migrate
 
 # 4. Backup before running the data script
-sqlite3 ~/flow/brain/data.db \
-  ".backup ~/flow/backups/data.db.pre-executions-script-$(date +%Y%m%d-%H%M%S)"
+sqlite3 ~/flow/data.db \
+  ".backup ~/flow/.work/backups/data.db.pre-executions-script-$(date +%Y%m%d-%H%M%S)"
 
 # 5. Run the migration script
 pnpm tsx scripts/migrate-executions.ts
@@ -306,8 +306,8 @@ pnpm tsx scripts/migrate-executions.ts
 # 6. Start the app, dogfood for a few days
 
 # 7. Backup before destructive migration (column drops)
-sqlite3 ~/flow/brain/data.db \
-  ".backup ~/flow/backups/data.db.pre-executions-drop-$(date +%Y%m%d-%H%M%S)"
+sqlite3 ~/flow/data.db \
+  ".backup ~/flow/.work/backups/data.db.pre-executions-drop-$(date +%Y%m%d-%H%M%S)"
 
 # 8. Pre-check
 pnpm tsx scripts/check-executions-migration-complete.ts
@@ -316,9 +316,9 @@ pnpm tsx scripts/check-executions-migration-complete.ts
 pnpm db:migrate
 ```
 
-Backups land in `~/flow/backups/` (not in `brain/`, which is user-content territory). Use `sqlite3 .backup` (not raw `cp`) because better-sqlite3 runs in WAL mode and naive cp can miss un-checkpointed writes in the `-wal` sidecar.
+Backups land in `~/flow/.work/backups/` (machine-local scratch — never synced, safe to delete). Use `sqlite3 .backup` (not raw `cp`) because better-sqlite3 runs in WAL mode and naive cp can miss un-checkpointed writes in the `-wal` sidecar.
 
-Recovery for any step: `cp ~/flow/backups/data.db.<tag> ~/flow/brain/data.db && rm ~/flow/brain/data.db-{wal,shm}`.
+Recovery for any step: `cp ~/flow/.work/backups/data.db.<tag> ~/flow/data.db && rm ~/flow/data.db-{wal,shm}`.
 
 ### 3.3 Query-layer bridge — reads AND writes
 

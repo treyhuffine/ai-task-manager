@@ -56,7 +56,7 @@ Type folders live **directly** in the root — no `mirror/` wrapper — so the
 path is as short and flat as possible:
 
 ```
-<user-data-dir>/                      # default; override via *_MIRROR_PATH
+<home>/                               # the data home; override via FLOW_ROOT
 ├── README.md                         # explains the mirror + which files are internal
 ├── notes/
 │   ├── meeting-prep-thursday--<uuid>.md
@@ -75,11 +75,15 @@ path is as short and flat as possible:
 │   ├── tasks/<uuid>.md
 │   └── attachments/<file_name>       # files no entity references anymore
 │
-# Alongside the mirror (internal, not user-facing):
-├── data.db                           # SQLite, source of truth
-├── config.json                       # local auth + settings
-└── snapshots/                        # one-shot snapshots from `snapshot` command
-                                      # (self-contained: copies referenced
+# Alongside the mirror (machine-local, never synced):
+├── data.db                           # SQLite, source of truth (git-tracked for now)
+├── .config/                          # precious-local: auth token + settings
+│   ├── config.json
+│   └── preview.json
+├── .work/                            # regenerable scratch, safe to delete:
+│                                     # worktrees, clones, tmp, backups, preview, icons
+└── snapshots/                        # one-shot `snapshot` artifacts (gitignored;
+                                      # self-contained: copies referenced
                                       # attachments into <snapshot>/attachments/)
 ```
 

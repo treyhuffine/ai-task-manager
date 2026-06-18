@@ -33,14 +33,14 @@ Local-first with SQLite (via better-sqlite3 + Drizzle ORM) and vector search (sq
 - **Installable UI components** (shadcn, Vercel AI elements, ElevenLabs, etc.) must be added via their CLI tool — do not manually write or copy component source files
 - **Types** are derived from the Drizzle schema in `src/db/types.ts` — do not duplicate type definitions
 - **API routes** use shared query functions from `src/lib/db/queries.ts` — do not write raw SQL in route handlers
-- **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getBrainDir`, `getDbPath`, `getAttachmentsDir`) — never hardcode the `<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_BRAIN_PATH`, `<APP>_DB_PATH` env overrides.
+- **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getDbPath`, `getAttachmentsDir`, `getConfigDir`, `getWorkDir`) — never hardcode the `<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_DB_PATH`, `<APP>_CONFIG_DIR`, `<APP>_WORK_DIR` env overrides. (`getBrainDir` is a deprecated alias for `getAppRoot` — content lives at the home root now; there is no `brain/` subfolder, and `<APP>_BRAIN_PATH` is ignored.)
 - **Hotkeys** are defined in `src/constants/commands.ts` and must be used by components. Use `matchesHotkey(e, HOTKEYS.focusChatInput)` etc. rather than ad-hoc checks.
 
 ## Attachments
 
 One generic attachment system across the whole app:
 
-- Files live on disk under `<brain>/attachments/<file_name>` (UUIDv7-named).
+- Files live on disk under `<app-root>/attachments/<file_name>` (UUIDv7-named).
 - Metadata is an `Attachment` JSON record: `{ file_name, original_name, mime_type, size, uploaded_at }` — stored as an `Attachment[]` JSON column on every entity that can carry files (`tasks`, `notes`, `areas`, `stream`, `chat_events`).
 - Upload: `POST /api/attachments` (multipart, 50 MiB cap, mime allowlist). Serve: `GET /api/attachments/:file_name` (auth-protected).
 - Client helpers in `src/lib/attachments/client.ts` (`uploadAttachment`) and `src/lib/attachments/view.ts` (`attachmentUrl`).
@@ -64,7 +64,7 @@ Handler rules:
 
 Data roots (precedence: explicit `FLOW_ROOT` > `--dev` auto-set > prod default):
 
-- `~/<app-short-id>/` — prod, real brain
+- `~/<app-short-id>/` — prod, real data home
 - `~/<app-short-id>-dev/` — dev (`pnpm dev`, `flow start --dev`)
 - `~/<app-short-id>-test/` — test (`pnpm smoke`, `pnpm smoke:agent`) — wiped on every run
 

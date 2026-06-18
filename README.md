@@ -103,7 +103,9 @@ pnpm smoke               → ~/flow-test    (wiped on every run)
 FLOW_ROOT=~/x flow start → ~/x             (explicit wins)
 ```
 
-Each brain is a directory with `config.json` at the root and a `brain/` subdirectory containing `data.db`, the markdown mirror, and `attachments/`. Resolve paths through `src/lib/config/paths.ts` — never hardcode the data root path.
+Each home is a single directory. Content lives at the **root** — `data.db`, the markdown mirror (`tasks/`, `notes/`, `areas/`, `streams/`), and `attachments/` — so the whole home is the unit you sync (git recommended). Machine-local plumbing is tucked into two hidden subdirs: `.config/` (auth token + settings — precious, never synced) and `.work/` (regenerable scratch: worktrees, clones, tmp, backups — disposable, never synced). Resolve paths through `src/lib/config/paths.ts` — never hardcode the data root path.
+
+Installs predating this layout (content under a `brain/` subfolder) convert with `pnpm migrate:layout`: stop the server, run it, restart.
 
 ## Architecture overview
 
