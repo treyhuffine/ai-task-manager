@@ -11,17 +11,19 @@ import { DeckTaskBrowser } from './deck-task-browser';
 import { DeckDayBar } from './deck-day-bar';
 import { DeckQuickAddCard } from './deck-quick-add';
 import { CheckInIntake } from './check-in-intake';
+import { DeckChangeBrief, type DeckVersionSummary } from './deck-change-brief';
+import { DeckInterruptBanner } from './deck-interrupt-banner';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import type {
   DeckPlan,
   DeckItem,
   AlternativeItem,
+  DeckChangeView,
   RoutineItem,
   WorkMode,
 } from '@/types/dashboard';
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
-import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem } from '@/db/types';
+import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem, DeckChange } from '@/db/types';
 import { api, ApiError } from '@/lib/api/client';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -62,71 +64,6 @@ const MOCK_ROUTINES: RoutineItem[] = [
 ];
 
 
-// ─── Previous deck preview ──────────────────────────────────────
-
-function PreviousDeckPreview({
-  deck,
-  tasks,
-  areaMap,
-  onResume,
-}: {
-  deck: DeckRecord;
-  tasks: TaskRecord[];
-  areaMap: Map<string, string>;
-  onResume: () => void;
-}) {
-  const taskById = new Map<string, TaskRecord>();
-  tasks.forEach(t => taskById.set(t.id, t));
-
-  const items = (deck.items as DbDeckItem[])
-    .map(item => {
-      const task = taskById.get(item.taskId);
-      if (!task) return null;
-      return {
-        title: task.title,
-        areaName: task.areaId ? areaMap.get(task.areaId) : undefined,
-        done: task.status === 'done',
-      };
-    })
-    .filter(Boolean) as { title: string; areaName?: string; done: boolean }[];
-
-  const hasIncomplete = items.some(item => !item.done);
-
-  // Hide if all tasks are completed or no items remain
-  if (items.length === 0 || !hasIncomplete) return null;
-
-  return (
-    <div className="px-4 py-4">
-      <div className="flex items-center justify-between mb-2.5">
-        <p className="text-[11px] text-muted-foreground font-medium">Previous deck</p>
-        <button
-          onClick={onResume}
-          className="text-[10px] text-primary hover:text-primary/80 font-medium transition-colors"
-        >
-          Resume this deck
-        </button>
-      </div>
-      <div className="space-y-1">
-        {items.map((item, i) => (
-          <div key={i} className="flex items-center gap-2 py-0.5">
-            <span className={cn(
-              'text-xs truncate flex-1',
-              item.done ? 'text-muted-foreground/40 line-through' : 'text-muted-foreground',
-            )}>
-              {item.title}
-            </span>
-            {item.areaName && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground/60 shrink-0">
-                {item.areaName}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Hydrate a persisted DeckRecord into a client DeckPlan ──────
 
 function hydrateDeckRecord(
@@ -146,6 +83,9 @@ function hydrateDeckRecord(
     item.rationale = dbItem.rationale;
     if (dbItem.continuityContext) item.continuityContext = dbItem.continuityContext;
     if (dbItem.source === 'user') item.manuallyAdded = true;
+    if (dbItem.slotStart) item.slotStart = dbItem.slotStart;
+    if (dbItem.slotEnd) item.slotEnd = dbItem.slotEnd;
+    if (dbItem.slotReason) item.slotReason = dbItem.slotReason;
 
     const childTasks = tasks.filter(t => t.parentId === task.id);
     if (childTasks.length > 0) {
@@ -159,10 +99,34 @@ function hydrateDeckRecord(
     items.push(item);
   }
 
+  // Resolve the change log. Title is denormalized on the change record, so
+  // these render even for tasks that have since been completed or deleted
+  // (and so aren't in the active task list).
+  const changes: DeckChangeView[] = [];
+  for (const ch of ((record.changes ?? []) as DeckChange[])) {
+    const task = taskById.get(ch.taskId);
+    changes.push({
+      kind: ch.kind,
+      taskId: ch.taskId,
+      title: ch.title ?? task?.title ?? 'Task',
+      areaName: task?.areaId ? areaMap.get(task.areaId) : undefined,
+      reason: ch.reason,
+      channel: ch.channel,
+      source: ch.source,
+    });
+  }
+  const bumpedIds = new Set(
+    changes
+      .filter(c => c.kind === 'deferred' || c.kind === 'dropped' || c.kind === 'bumped')
+      .map(c => c.taskId),
+  );
+
   const alternatives: AlternativeItem[] = [];
   for (const dbAlt of (record.alternatives as { taskId: string; reason: string }[])) {
     const task = taskById.get(dbAlt.taskId);
     if (!task) continue;
+    // Don't double-list: a bumped item already shows in its own lane.
+    if (bumpedIds.has(dbAlt.taskId)) continue;
     alternatives.push({
       id: task.id,
       title: task.title,
@@ -178,9 +142,11 @@ function hydrateDeckRecord(
 
   return {
     deckId: record.id,
+    forDate: record.forDate ?? undefined,
     framing: record.framing ?? undefined,
     items,
     alternatives,
+    changes,
     radarItems: [],
     generatedAt: record.createdAt,
   };
@@ -247,37 +213,50 @@ export function DeckContainer() {
   const [taskBrowserOpen, setTaskBrowserOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
-  // ─── Load latest deck on mount ────────────────────────────────
+  // ─── Proactive load on mount ──────────────────────────────────
 
   const [initialLoadDone, setInitialLoadDone] = useState(false);
-  const [previousDeck, setPreviousDeck] = useState<DeckRecord | null>(null);
   const [activeDeckRecord, setActiveDeckRecord] = useState<DeckRecord | null>(null);
+  const [briefDismissed, setBriefDismissed] = useState(false);
+  const [interruptDismissed, setInterruptDismissed] = useState(false);
+  const [versions, setVersions] = useState<DeckVersionSummary[]>([]);
 
+  // Fetch the day's version history (drives the revert control).
+  const loadVersions = useCallback((forDate?: string) => {
+    api.get<DeckRecord[]>('/deck/versions', { query: forDate ? { date: forDate } : undefined })
+      .then((rows) => {
+        setVersions(
+          rows.map((r) => ({
+            id: r.id,
+            createdAt: r.createdAt,
+            origin: r.origin ?? 'manual',
+            isActive: r.supersededAt == null,
+          })),
+        );
+      })
+      .catch((err) => console.error('Failed to load deck versions:', err));
+  }, []);
+
+  // The deck is proactive: the server ensures today's deck on this GET, so we
+  // render whatever it returns directly — no intake gate. Intake only appears
+  // as a fallback when there's no deck at all (e.g. generation unavailable).
   useEffect(() => {
     if (!tasks || initialLoadDone) return;
-
-    // Dev helper: add ?forcePreviousDeck=true to URL to test "resume previous deck" flow
-    const forceAsPrevious = new URLSearchParams(window.location.search).has('forcePreviousDeck');
 
     api.get<DeckRecord | null>('/deck')
       .then((record) => {
         if (record) {
-          const recordDate = record.createdAt.slice(0, 10);
-          const todayStr = new Date().toISOString().slice(0, 10);
-          if (recordDate === todayStr && !forceAsPrevious) {
-            const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
-            setPlan(hydrated);
-            setActiveDeckRecord(record);
-            setPhase('deck');
-          } else {
-            // Stash it so the intake can offer "resume previous deck"
-            setPreviousDeck(record);
-          }
+          const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
+          setPlan(hydrated);
+          setActiveDeckRecord(record);
+          setBriefDismissed(false);
+          setPhase('deck');
+          loadVersions(record.forDate ?? undefined);
         }
       })
-      .catch(err => console.error('Failed to load latest deck:', err))
+      .catch(err => console.error('Failed to load deck:', err))
       .finally(() => setInitialLoadDone(true));
-  }, [tasks, areaMap, parentMap, initialLoadDone]);
+  }, [tasks, areaMap, parentMap, initialLoadDone, loadVersions]);
 
   // ─── Load specific deck when navigated from chat ────────────
 
@@ -295,12 +274,14 @@ export function DeckContainer() {
         const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
         setPlan(hydrated);
         setActiveDeckRecord(record);
+        setBriefDismissed(false);
         setPhase('deck');
         setInitialLoadDone(true);
+        loadVersions(record.forDate ?? undefined);
       })
       .catch(err => console.error('Failed to load deck:', err))
       .finally(() => clearActiveDeckId());
-  }, [activeDeckId, tasks, areaMap, parentMap, activeDeckRecord, clearActiveDeckId]);
+  }, [activeDeckId, tasks, areaMap, parentMap, activeDeckRecord, clearActiveDeckId, loadVersions]);
 
   // ─── Filtered items ─────────────────────────────────────────
 
@@ -348,7 +329,9 @@ export function DeckContainer() {
       const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
       setPlan(hydrated);
       setActiveDeckRecord(record);
+      setBriefDismissed(false);
       setPhase('deck');
+      loadVersions(record.forDate ?? undefined);
     } catch (err) {
       if (err instanceof ApiError) {
         console.error('Deck generation failed:', err.body ?? err.message);
@@ -359,7 +342,7 @@ export function DeckContainer() {
     } finally {
       setGenerating(false);
     }
-  }, [tasks, areaMap, parentMap]);
+  }, [tasks, areaMap, parentMap, loadVersions]);
 
   // Fallback: simple client-side deck (no AI)
   const generateDeckFallback = useCallback(() => {
@@ -401,15 +384,41 @@ export function DeckContainer() {
     generateDeck();
   }, [generateDeck]);
 
-  const handleResumePrevious = useCallback(() => {
-    if (!previousDeck || !tasks) return;
-    const hydrated = hydrateDeckRecord(previousDeck, tasks, areaMap, parentMap);
-    setPlan(hydrated);
-    setActiveDeckRecord(previousDeck);
-    setPreviousDeck(null);
-    setMoreOptionsCollapsed(true);
-    setPhase('deck');
-  }, [previousDeck, tasks, areaMap, parentMap]);
+  // Revert to an earlier version of today's deck (the escape hatch).
+  const handleRevert = useCallback(async (deckId: string) => {
+    if (!tasks) return;
+    try {
+      const record = await api.post<DeckRecord>(`/deck/${deckId}/revert`);
+      const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
+      setPlan(hydrated);
+      setActiveDeckRecord(record);
+      setBriefDismissed(false);
+      loadVersions(record.forDate ?? undefined);
+    } catch (err) {
+      console.error('Failed to revert deck:', err);
+    }
+  }, [tasks, areaMap, parentMap, loadVersions]);
+
+  // Restore a bumped (deferred/dropped) task back onto today's deck.
+  const handleRestore = useCallback((taskId: string) => {
+    if (!tasks) return;
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const item = taskToDeckItem(task, areaMap, parentMap);
+    item.manuallyAdded = true;
+    setPlan(prev => {
+      if (!prev) return null;
+      if (prev.items.some(i => i.taskId === taskId)) return prev; // already there
+      const updated: DeckPlan = {
+        ...prev,
+        items: [...prev.items, item],
+        // Drop it from the bumped lane (the persisted change log stays as history).
+        changes: prev.changes?.filter(c => c.taskId !== taskId),
+      };
+      if (prev.deckId) persistDeck(prev.deckId, updated);
+      return updated;
+    });
+  }, [tasks, areaMap, parentMap]);
 
   // ─── Deck interaction handlers ──────────────────────────────
 
@@ -563,14 +572,11 @@ export function DeckContainer() {
     ));
   }, []);
 
-  // ─── Re-plan (restart flow) ─────────────────────────────────
+  // ─── Re-plan (optional manual steer) ────────────────────────
+  // The proactive deck is the default; this opens the check-in so the user
+  // can intentionally re-deal with context (energy, time, focus).
 
   const handleReplan = useCallback(() => {
-    if (activeDeckRecord) {
-      setPreviousDeck(activeDeckRecord);
-      setActiveDeckRecord(null);
-    }
-    setPlan(null);
     setCompletedItems([]);
     setAreaFilter(null);
     setWorkMode(null);
@@ -578,7 +584,7 @@ export function DeckContainer() {
     setMoreOptionsCollapsed(false);
     setTaskBrowserOpen(false);
     setPhase('intake');
-  }, [activeDeckRecord]);
+  }, []);
 
   const handleViewAllTasks = useCallback(() => {
     setTaskBrowserOpen(true);
@@ -621,6 +627,21 @@ export function DeckContainer() {
     if (!plan) return new Set<string>();
     return new Set(plan.items.map(i => i.taskId));
   }, [plan]);
+
+  // Items moved off today's deck (reconcile or calendar) — own lane, restorable.
+  const bumpedItems = useMemo<DeckChangeView[]>(() => {
+    if (!plan?.changes) return [];
+    return plan.changes.filter(c => c.kind === 'deferred' || c.kind === 'dropped' || c.kind === 'bumped');
+  }, [plan]);
+
+  // Changes the router escalated to a priority banner (rare).
+  const interruptChanges = useMemo<DeckChangeView[]>(() => {
+    if (!plan?.changes) return [];
+    return plan.changes.filter(c => c.channel === 'interrupt');
+  }, [plan]);
+
+  // Re-show the interrupt banner whenever a new deck version loads.
+  useEffect(() => { setInterruptDismissed(false); }, [plan?.deckId]);
 
   // ─── Render ─────────────────────────────────────────────────
 
@@ -670,30 +691,14 @@ export function DeckContainer() {
           </div>
         )}
 
-        {/* ─── Intake: optional context before generation ─── */}
+        {/* ─── Intake: optional manual steer (or no-deck fallback) ─── */}
         {phase === 'intake' && initialLoadDone && !generating && (
-          <>
-            <CheckInIntake
-              onSubmit={handleIntakeSubmit}
-              onSkip={handleIntakeSkip}
-              hasPreviousDeck={!!previousDeck && (previousDeck.items as DbDeckItem[]).some(item => {
-                const task = tasks?.find(t => t.id === item.taskId);
-                return task && task.status !== 'done';
-              })}
-              collapsed={false}
-              onExpand={() => {}}
-            />
-
-            {/* Previous deck preview */}
-            {previousDeck && tasks && (
-              <PreviousDeckPreview
-                deck={previousDeck}
-                tasks={tasks}
-                areaMap={areaMap}
-                onResume={handleResumePrevious}
-              />
-            )}
-          </>
+          <CheckInIntake
+            onSubmit={handleIntakeSubmit}
+            onSkip={handleIntakeSkip}
+            collapsed={false}
+            onExpand={() => {}}
+          />
         )}
 
         {/* ─── Generating state ─── */}
@@ -707,6 +712,22 @@ export function DeckContainer() {
         {/* ─── The deck ─── */}
         {phase === 'deck' && plan && (
           <div className="px-4 py-3">
+            {!interruptDismissed && (
+              <DeckInterruptBanner
+                interrupts={interruptChanges}
+                onRestore={handleRestore}
+                onDismiss={() => setInterruptDismissed(true)}
+              />
+            )}
+            {!briefDismissed && (
+              <DeckChangeBrief
+                changes={plan.changes ?? []}
+                versions={versions}
+                currentDeckId={plan.deckId}
+                onRevert={handleRevert}
+                onDismiss={() => setBriefDismissed(true)}
+              />
+            )}
             {plan.framing && (
               <p className="text-xs text-muted-foreground italic mb-3 leading-relaxed">
                 {plan.framing}
@@ -744,6 +765,8 @@ export function DeckContainer() {
         ) : (
           <DeckMoreOptions
             alternatives={filteredAlternatives}
+            bumped={bumpedItems}
+            onRestore={handleRestore}
             radarItems={plan.radarItems}
             onPromote={handlePromote}
             onViewAllTasks={handleViewAllTasks}

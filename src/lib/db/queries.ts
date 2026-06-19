@@ -19,7 +19,7 @@ import type {
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
   AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
   StreamRecord, CreateStreamInput, UpdateStreamInput,
-  DeckRecord, UpdateDeckInput,
+  DeckRecord, CreateDeckInput, UpdateDeckInput,
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   Attachment,
@@ -585,11 +585,124 @@ export function updateDeck(id: string, input: UpdateDeckInput): DeckRecord | nul
   return deck ?? null;
 }
 
+// ─── Proactive deck: day boundary, versions, revert ──────────────
+
+/** The active deck for a given local day (YYYY-MM-DD), or null. */
+export function getActiveDeckForDate(date: string): DeckRecord | null {
+  const db = getDb();
+  return db
+    .select()
+    .from(decks)
+    .where(and(eq(decks.forDate, date), isNull(decks.supersededAt)))
+    .orderBy(desc(decks.createdAt))
+    .limit(1)
+    .all()[0] ?? null;
+}
+
+/** Every version produced for a day, oldest → newest (drives the revert UI). */
+export function getDeckVersions(date: string): DeckRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(decks)
+    .where(eq(decks.forDate, date))
+    .orderBy(asc(decks.createdAt))
+    .all();
+}
+
+/** Content fields for a new deck version — id/lineage/supersede are managed. */
+export type SupersedeDeckInput = Omit<
+  CreateDeckInput,
+  'supersededAt' | 'replacesDeckId' | 'createdAt' | 'updatedAt'
+> & { forDate: string };
+
+/**
+ * The core proactive-deck write. Atomically supersedes the current active
+ * deck for `input.forDate` and inserts a new active version, chaining
+ * `replacesDeckId`. Every prior version survives (for revert). Returns the
+ * new active deck.
+ */
+export function supersedeAndInsertDeck(input: SupersedeDeckInput): DeckRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db.transaction((tx) => {
+    const prior = tx
+      .select()
+      .from(decks)
+      .where(and(eq(decks.forDate, input.forDate), isNull(decks.supersededAt)))
+      .orderBy(desc(decks.createdAt))
+      .all();
+    for (const p of prior) {
+      tx.update(decks)
+        .set({ supersededAt: now, updatedAt: now })
+        .where(eq(decks.id, p.id))
+        .run();
+    }
+    return tx
+      .insert(decks)
+      .values({
+        ...input,
+        id: uuidv7(),
+        replacesDeckId: prior[0]?.id ?? null,
+        supersededAt: null,
+      })
+      .returning()
+      .get();
+  });
+}
+
+/**
+ * Make a prior deck version active again. Supersedes whatever is currently
+ * active for that day and clears the target's `supersededAt`. Idempotent if
+ * the target is already active. Returns the reverted deck, or null if absent.
+ */
+export function revertDeckTo(deckId: string): DeckRecord | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db.transaction((tx) => {
+    const target = tx.select().from(decks).where(eq(decks.id, deckId)).get();
+    if (!target) return null;
+
+    if (target.forDate) {
+      const active = tx
+        .select()
+        .from(decks)
+        .where(and(eq(decks.forDate, target.forDate), isNull(decks.supersededAt)))
+        .all();
+      for (const a of active) {
+        if (a.id === deckId) continue;
+        tx.update(decks)
+          .set({ supersededAt: now, updatedAt: now })
+          .where(eq(decks.id, a.id))
+          .run();
+      }
+    }
+
+    return (
+      tx
+        .update(decks)
+        .set({ supersededAt: null, updatedAt: now })
+        .where(eq(decks.id, deckId))
+        .returning()
+        .get() ?? null
+    );
+  });
+}
+
 // ─── User State ───────────────────────────────────────────────
 
 export function getUserState() {
   const db = getDb();
   return db.select().from(userState).where(eq(userState.id, 1)).get();
+}
+
+/** The user's working-hours window (local HH:MM), with 9–6 defaults. */
+export function getWorkdayBounds(): { workdayStart: string; workdayEnd: string } {
+  const us = getUserState();
+  return {
+    workdayStart: us?.workdayStart ?? '09:00',
+    workdayEnd: us?.workdayEnd ?? '18:00',
+  };
 }
 
 export function updateUserState(input: UpdateUserStateInput) {

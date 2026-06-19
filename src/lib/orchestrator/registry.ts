@@ -560,6 +560,23 @@ const regenerate_deck_action = defineAction({
   },
 });
 
+const reconcile_deck_action = defineAction({
+  name: 'reconcile_deck',
+  description:
+    "Re-check today's deck against the live calendar and adapt it to external changes " +
+    '(e.g. a new meeting shrinks the day → bump the lowest-priority item, narrated and ' +
+    'reversible). Deterministic — no model call, safe to run on a cadence. No-op until a ' +
+    'calendar connector is registered.',
+  params: {
+    in_focus: z.boolean().optional(),
+  },
+  mutating: true,
+  handler: async (_ctx, input) => {
+    const { reconcileDeckWithExternalChanges } = await import('@/lib/deck/reconcile-external');
+    return reconcileDeckWithExternalChanges({ inFocus: input.in_focus });
+  },
+});
+
 // ── Search ────────────────────────────────────────────────────
 
 const search_action = defineAction({
@@ -1267,6 +1284,7 @@ export const actions = [
   get_deck_action,
   update_deck_action,
   regenerate_deck_action,
+  reconcile_deck_action,
   search_action,
   get_user_state_action,
   update_user_state_action,

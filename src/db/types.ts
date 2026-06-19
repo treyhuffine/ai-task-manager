@@ -8,7 +8,7 @@ import type {
   schedules, runs, previewTargets,
   Attachment,
 } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl } from '@/lib/db/schema';
 
 /**
  * Override the `attachments` column type on a record. Drizzle infers the

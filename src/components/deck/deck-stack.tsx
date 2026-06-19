@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, Fragment } from 'react';
-import { GripVertical, Check, SkipForward, ChevronDown, ChevronRight, Crosshair, EyeOff, Eye } from 'lucide-react';
+import { GripVertical, Check, SkipForward, ChevronDown, ChevronRight, Crosshair, EyeOff, Eye, Clock } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -309,6 +309,15 @@ function SortableDeckItemCard({
 
         {/* Pills */}
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          {item.slotStart && item.slotEnd && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary font-medium"
+              title={item.slotReason}
+            >
+              <Clock className="w-2.5 h-2.5" />
+              {item.slotStart}–{item.slotEnd}
+            </span>
+          )}
           {item.manuallyAdded && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
               You added

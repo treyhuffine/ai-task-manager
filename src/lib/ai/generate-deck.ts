@@ -19,12 +19,19 @@
 import { Output, generateText, tool, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
-import { tasks, areas, taskCompletions, decks } from '@/lib/db/schema';
-import type { DeckItem } from '@/lib/db/schema';
+import { tasks, areas, taskCompletions } from '@/lib/db/schema';
+import type { DeckItem, DeckChange, DeckOrigin } from '@/lib/db/schema';
 import type { DeckRecord } from '@/db/types';
-import { eq, and, desc, sql, isNull, isNotNull, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull, isNotNull, gte, lte, inArray } from 'drizzle-orm';
+import { getLatestDeck, supersedeAndInsertDeck, getUserState } from '@/lib/db/queries';
+import { todayLocalDate } from '@/lib/deck/date';
+import {
+  getCalendarEventsForDay,
+  computeFreeGaps,
+  availableMinutes,
+  formatGap,
+} from '@/lib/deck/calendar';
 import { hybridSearchWithEntities } from '@/lib/embeddings/search';
 import {
   DECK_GENERATION_TASK_LIMIT,
@@ -101,7 +108,10 @@ function collectSearchResults(
 
 // ─── Pipeline ───────────────────────────────────────────────────
 
-export async function generateDeck(generationContext: DeckGenerationContext): Promise<DeckRecord> {
+export async function generateDeck(
+  generationContext: DeckGenerationContext,
+  opts: { origin?: DeckOrigin } = {},
+): Promise<DeckRecord> {
   const db = getDb();
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -207,6 +217,35 @@ export async function generateDeck(generationContext: DeckGenerationContext): Pr
     .limit(20)
     .all();
 
+  // ─── Previous deck — for reconciliation (carry / defer / drop) ───
+  // The most recent deck is "what the user was last looking at": yesterday's
+  // on the first generation of the day, or today's current version on a
+  // same-day regen (which we then supersede). Resolve each prior item's
+  // current status so the model can decide carry/defer/drop.
+  const previousDeck = getLatestDeck();
+  let previousDeckItems: { taskId: string; title: string; status: 'done' | 'active' | 'gone' }[] =
+    [];
+  if (previousDeck) {
+    const prevIds = (previousDeck.items as DeckItem[]).map((i) => i.taskId);
+    if (prevIds.length > 0) {
+      const rows = db
+        .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+        .from(tasks)
+        .where(inArray(tasks.id, prevIds))
+        .all();
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      previousDeckItems = (previousDeck.items as DeckItem[]).map((it) => {
+        const t = byId.get(it.taskId);
+        const status: 'done' | 'active' | 'gone' = !t
+          ? 'gone'
+          : t.status === 'done'
+            ? 'done'
+            : 'active';
+        return { taskId: it.taskId, title: t?.title ?? '(removed task)', status };
+      });
+    }
+  }
+
   // TODO: Read from user_profile table or USER.md file when implemented
   const userProfile: string | undefined = undefined;
 
@@ -245,10 +284,32 @@ export async function generateDeck(generationContext: DeckGenerationContext): Pr
     areaName: c.areaId ? areaMap.get(c.areaId) : undefined,
   }));
 
+  // ─── Today's time — sizing + slotting context ───
+  // Calendar is empty until a connector registers a provider; until then this
+  // degrades to "a full workday", and an explicit time budget (context or
+  // user_state) still drives sizing.
+  const forDate = todayLocalDate();
+  const us = getUserState();
+  const workdayStart = us?.workdayStart ?? '09:00';
+  const workdayEnd = us?.workdayEnd ?? '18:00';
+  const calendarBlocks = await getCalendarEventsForDay(forDate);
+  const gaps = computeFreeGaps(calendarBlocks, { workdayStart, workdayEnd, date: forDate });
+  const calendarMinutes = availableMinutes(gaps);
+  const effectiveMinutes = generationContext.availableMinutes ?? us?.availableMinutes ?? calendarMinutes;
+  const timeContext = {
+    availableMinutes: effectiveMinutes,
+    workdayStart,
+    workdayEnd,
+    hasCalendar: calendarBlocks.length > 0,
+    gaps: gaps.map((g) => ({ label: formatGap(g), minutes: g.minutes })),
+  };
+
   const basePrompt = buildDeckPrompt({
     tasks: promptTasks,
     areas: promptAreas,
     recentCompletions: promptCompletions,
+    previousDeckItems,
+    timeContext,
     generationContext,
     userProfile,
   });
@@ -292,26 +353,86 @@ export async function generateDeck(generationContext: DeckGenerationContext): Pr
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // Persist deck
+  // Build the change log (carried / deferred / dropped / added)
   // ═══════════════════════════════════════════════════════════════
 
   const deckItems: DeckItem[] = aiResponse.items.map((item) => ({
-    ...item,
+    taskId: item.taskId,
+    rationale: item.rationale,
+    continuityContext: item.continuityContext,
     source: 'ai' as const,
+    slotStart: item.slot?.start ?? null,
+    slotEnd: item.slot?.end ?? null,
+    slotReason: item.slot?.reason ?? null,
   }));
 
-  return db
-    .insert(decks)
-    .values({
-      id: uuidv7(),
-      context: generationContext.context ?? null,
-      contextTags: generationContext.contextTags ?? [],
-      framing: aiResponse.framing ?? null,
-      items: deckItems,
-      alternatives: aiResponse.alternatives,
-      searchContext: searchContext || null,
-      model,
-    })
-    .returning()
-    .get();
+  const prevIdSet = new Set(previousDeckItems.map((p) => p.taskId));
+  const newItemIds = new Set(deckItems.map((i) => i.taskId));
+  const changes: DeckChange[] = [];
+
+  // Title resolver — denormalize the task title into each change so the UI
+  // renders even after a task is completed or deleted.
+  const titleById = new Map<string, string>();
+  for (const p of previousDeckItems) titleById.set(p.taskId, p.title);
+  for (const t of allTasks) titleById.set(t.id, t.title);
+
+  // Reconciliation decisions on the previous deck's items. Trust the deck
+  // `items` array as ground truth: don't claim "carried" for something the
+  // model left off, or "deferred/dropped" for something it actually kept.
+  for (const r of aiResponse.reconciliation ?? []) {
+    if (!prevIdSet.has(r.taskId)) continue;
+    if (r.decision === 'carry') {
+      if (!newItemIds.has(r.taskId)) continue;
+      changes.push({
+        kind: 'carried',
+        taskId: r.taskId,
+        title: titleById.get(r.taskId),
+        reason: r.reason,
+        source: 'reconcile',
+      });
+    } else {
+      if (newItemIds.has(r.taskId)) continue;
+      changes.push({
+        kind: r.decision === 'defer' ? 'deferred' : 'dropped',
+        taskId: r.taskId,
+        title: titleById.get(r.taskId),
+        reason: r.reason,
+        source: 'reconcile',
+      });
+    }
+  }
+
+  // Anything new on today's deck that wasn't on the previous one. Only
+  // meaningful when there *was* a previous deck (else everything is "new").
+  if (previousDeck) {
+    for (const item of deckItems) {
+      if (!prevIdSet.has(item.taskId)) {
+        changes.push({
+          kind: 'added',
+          taskId: item.taskId,
+          title: titleById.get(item.taskId),
+          reason: item.rationale,
+          source: 'reconcile',
+        });
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Persist as a new active version for today (supersedes the prior one)
+  // ═══════════════════════════════════════════════════════════════
+
+  return supersedeAndInsertDeck({
+    forDate,
+    context: generationContext.context ?? null,
+    contextTags: generationContext.contextTags ?? [],
+    framing: aiResponse.framing ?? null,
+    items: deckItems,
+    alternatives: aiResponse.alternatives,
+    searchContext: searchContext || null,
+    model,
+    origin: opts.origin ?? 'manual',
+    changes,
+    calendarSnapshot: calendarBlocks,
+  });
 }

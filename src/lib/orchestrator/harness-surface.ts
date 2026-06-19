@@ -270,7 +270,7 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`complete_task\`, \`list_notes\`, \`get_note\`, \`create_note\`, \`update_note\`,
 \`list_stream\`, \`get_stream_item\`, \`create_stream_item\`, \`promote_stream\`,
 \`dismiss_stream\`, \`list_areas\`, \`get_area\`, \`create_area\`, \`update_area\`, \`get_deck\`,
-\`update_deck\`, \`regenerate_deck\`, \`search\`, \`get_user_state\`,
+\`update_deck\`, \`regenerate_deck\`, \`reconcile_deck\`, \`search\`, \`get_user_state\`,
 \`update_user_state\`; execution oversight via \`list_executions\`,
 \`get_session_messages\`, \`send_session_message\`, \`get_pending_input\`,
 \`answer_pending_input\`; plus workspace/schedule/run management and

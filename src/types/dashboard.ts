@@ -94,6 +94,9 @@ export interface DeckItem {
   subtasks?: SubtaskItem[];
   continuityContext?: string; // "Last session: got OAuth working"
   manuallyAdded?: boolean;    // True when user added via quick-add
+  slotStart?: string;         // Time-of-day label, e.g. "9:00 AM" (calendar slotting)
+  slotEnd?: string;           // e.g. "10:30 AM"
+  slotReason?: string;        // Why this slot
 }
 
 /** An item the AI surfaced on radar */
@@ -167,12 +170,32 @@ export interface DeckMeta {
   workingSetSize: number;
 }
 
+/**
+ * A resolved entry from a deck version's change log — what happened to a task
+ * when the deck was (re)dealt. Drives the "what changed" brief and the bumped
+ * lane. `deferred`/`dropped` items show in the bumped lane (restorable);
+ * `carried`/`added` summarize in the brief.
+ */
+export interface DeckChangeView {
+  kind: 'carried' | 'deferred' | 'dropped' | 'added' | 'reordered' | 'bumped';
+  taskId: string;
+  title: string;
+  areaName?: string;
+  reason: string;
+  /** How the change-router surfaced it: absent/digest = brief, interrupt = banner. */
+  channel?: 'absorb' | 'digest' | 'interrupt';
+  /** Where the change came from — 'calendar' changes are mid-day adaptations. */
+  source?: 'reconcile' | 'calendar' | 'user';
+}
+
 /** The full deck output from the AI */
 export interface DeckPlan {
   deckId?: string;              // Persisted deck ID (for PATCH updates)
+  forDate?: string;             // Local day this deck is for (YYYY-MM-DD)
   framing?: string;             // One-line day framing. Absent if nothing notable.
   items: DeckItem[];            // Ranked priority stack — THE deck
   alternatives: AlternativeItem[]; // Tasks AI considered but ranked lower
+  changes?: DeckChangeView[];   // What changed when this version was dealt
   radarItems?: RadarItem[];     // Radar items to surface in "more options"
   generatedAt: string;          // ISO timestamp
 

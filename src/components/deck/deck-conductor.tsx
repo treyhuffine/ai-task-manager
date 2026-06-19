@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { ChevronDown, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { ChevronDown, RefreshCw, Clock, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAreas } from '@/hooks/use-areas';
+import { api } from '@/lib/api/client';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -71,6 +72,21 @@ export function DeckConductor({
     }, 60_000);
     return () => clearInterval(interval);
   }, [generatedAt]);
+
+  // Morning auto-refresh (cron) config — opt-in.
+  const [morning, setMorning] = useState<{ enabled: boolean; time: string } | null>(null);
+  useEffect(() => {
+    api.get<{ enabled: boolean; time: string }>('/deck/schedule')
+      .then((c) => setMorning({ enabled: c.enabled, time: c.time }))
+      .catch(() => {});
+  }, []);
+  const toggleMorning = useCallback(() => {
+    setMorning((prev) => {
+      const next = { enabled: !(prev?.enabled ?? false), time: prev?.time ?? '04:00' };
+      api.put('/deck/schedule', { enabled: next.enabled }).catch(() => {});
+      return next;
+    });
+  }, []);
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border">
@@ -159,18 +175,48 @@ export function DeckConductor({
         </TooltipProvider>
       </div>
 
-      {onReplan && (
-        <button
-          onClick={onReplan}
-          className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold rounded-md transition-colors',
-            URGENCY_STYLES[urgency],
-          )}
-        >
-          <RefreshCw size={10} />
-          Generate New Deck
-        </button>
-      )}
+      <div className="flex items-center gap-1.5">
+        {/* Morning auto-refresh toggle (opt-in cron) */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              title="Morning auto-refresh"
+              className={cn(
+                'flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
+                morning?.enabled
+                  ? 'text-primary bg-primary/5 border-primary/20'
+                  : 'text-muted-foreground border-border hover:border-muted-foreground',
+              )}
+            >
+              <Clock size={12} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={toggleMorning} className="text-xs gap-2">
+              <span className="flex-1">Auto-refresh each morning</span>
+              {morning?.enabled && <Check size={12} className="text-primary" />}
+            </DropdownMenuItem>
+            <div className="px-2 py-1.5 text-[10px] text-muted-foreground/70 leading-snug">
+              {morning?.enabled
+                ? `Reconciles yesterday into today around ${morning.time} (while the app is running).`
+                : 'Off — the deck still deals itself the first time you open it each day.'}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {onReplan && (
+          <button
+            onClick={onReplan}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold rounded-md transition-colors',
+              URGENCY_STYLES[urgency],
+            )}
+          >
+            <RefreshCw size={10} />
+            Generate New Deck
+          </button>
+        )}
+      </div>
     </div>
   );
 }

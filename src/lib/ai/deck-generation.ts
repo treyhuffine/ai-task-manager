@@ -18,6 +18,9 @@ const ALT_MIN_ITEMS = 3;
 export const deckGenerationContextSchema = z.object({
   context: z.string().optional(),
   contextTags: z.array(z.string()).optional(),
+  /** Explicit time budget for today (minutes). Overrides calendar/workday
+   *  derivation when set — e.g. the "I only have 2 hours" steer. */
+  availableMinutes: z.number().int().positive().optional(),
 });
 
 export type DeckGenerationContext = z.infer<typeof deckGenerationContextSchema>;
@@ -37,6 +40,16 @@ export const deckResponseSchema = z.object({
           .nullable()
           .describe(
             'If the task has recent progress or subtask completion, a brief note like "Last session: got OAuth working, error handling next". Null if not applicable.',
+          ),
+        slot: z
+          .object({
+            start: z.string().describe('Start time label, e.g. "9:00 AM"'),
+            end: z.string().describe('End time label, e.g. "10:30 AM"'),
+            reason: z.string().describe('Why here, e.g. "your only 90-min open block"'),
+          })
+          .nullable()
+          .describe(
+            'Where this task sits in the real day. ONLY set when the calendar has meaningful open gaps to place work into; null otherwise (including when there is no calendar).',
           ),
       }),
     )
@@ -62,6 +75,21 @@ export const deckResponseSchema = z.object({
     .nullable()
     .describe(
       "One-line summary of the recommended shape of the user's day. Only include if the user context or task landscape meaningfully shapes the day. Null if nothing notable.",
+    ),
+  reconciliation: z
+    .array(
+      z.object({
+        taskId: z.string().describe('A task ID that was on the PREVIOUS deck'),
+        decision: z
+          .enum(['carry', 'defer', 'drop'])
+          .describe(
+            "carry = keep it on today's deck; defer = still matters but not today; drop = no longer worth doing",
+          ),
+        reason: z.string().describe('One sentence explaining the carry/defer/drop call'),
+      }),
+    )
+    .describe(
+      'One entry for EACH task that was on the previous deck (see the [Previous Deck] section). Empty array if no previous deck was provided.',
     ),
 });
 
@@ -97,7 +125,24 @@ FOR EACH DECK ITEM: Write a rationale — one sentence explaining why this task 
 
 FOR ALTERNATIVES: Explain why they didn't make the cut. "Lower priority than today's deadlines" is better than "not as important."
 
-framing: If the user's context or the task landscape shapes the day (time constraints, heavy deadlines, energy signals), write one line. Otherwise omit entirely.`;
+framing: If the user's context or the task landscape shapes the day (time constraints, heavy deadlines, energy signals), write one line. Otherwise omit entirely.
+
+RECONCILING YESTERDAY → TODAY:
+- If a [Previous Deck] is provided, you MUST return a "reconciliation" entry for EVERY task that was on it.
+  - carry: still the right thing to work today — also include it in the deck (with a continuityContext note about where it left off when you can).
+  - defer: still matters but not today (lower priority than today's load, or no room) — do NOT put it in the deck. It moves to the user's "bumped" lane with your reason.
+  - drop: genuinely no longer worth doing — do NOT put it in the deck.
+- Completed items need no special handling beyond a reconciliation entry (carry only if there's a follow-up). Prefer carrying momentum; "old" is not a reason to drop.
+
+WHEN SOMETHING HAS TO GIVE (light guidance — use judgment, not a rigid rule):
+- A realistic day can't hold everything. When you must choose what to defer, prefer deferring lower-priority, lighter, or softer-deadline work.
+- Treat a hard deadline, or an item the user explicitly prioritized, as expensive to defer — only defer it if truly forced, and say so plainly in the reason.
+- Every defer/drop is visible and one-tap reversible to the user, so make the honest call rather than hedging by keeping too much on the deck.
+
+SIZING & SLOTTING (when [Today's Time] is provided):
+- Size the deck to the available minutes. Don't pile on more estimated work than fits the day — a deck the user can actually finish beats an aspirational pile.
+- If the calendar shows open gaps, place each item with a "slot" (start/end label + reason): deep/heavy work in the largest gaps, light/quick tasks in short ones. Leave slot null if there's no calendar or no clean fit.
+- Honest deadlines: if a hard-deadline task's remaining days are mostly consumed by meetings/commitments, treat it as effectively more urgent and rank it up — say so in the rationale.`;
 
 // ─── Prompt builder ─────────────────────────────────────────────
 
@@ -131,6 +176,20 @@ interface PromptData {
     completedAt: string;
     areaName?: string;
   }[];
+  /** The previous deck's items + their current status, for reconciliation. */
+  previousDeckItems?: {
+    taskId: string;
+    title: string;
+    status: 'done' | 'active' | 'gone';
+  }[];
+  /** The shape of today's real time — drives sizing and slotting. */
+  timeContext?: {
+    availableMinutes: number;
+    workdayStart: string;
+    workdayEnd: string;
+    hasCalendar: boolean;
+    gaps: { label: string; minutes: number }[];
+  };
   generationContext: DeckGenerationContext;
   userProfile?: string;
 }
@@ -186,6 +245,34 @@ export function buildDeckPrompt(data: PromptData): string {
       return `- "${c.taskTitle}"${area} — completed ${c.completedAt}`;
     });
     sections.push(`[Recent Completions — last 5 days]\n${compLines.join('\n')}`);
+  }
+
+  // Previous deck — drives reconciliation (carry / defer / drop)
+  if (data.previousDeckItems && data.previousDeckItems.length > 0) {
+    const prevLines = data.previousDeckItems.map((p) => {
+      const status =
+        p.status === 'done' ? 'DONE ✓' : p.status === 'gone' ? 'no longer exists' : 'still open';
+      return `- [${p.taskId}] "${p.title}" — ${status}`;
+    });
+    sections.push(
+      `[Previous Deck — what you surfaced last time, with current status]\n${prevLines.join('\n')}\n\nReturn a reconciliation decision (carry / defer / drop) for every item above. Carry momentum; don't silently lose anything.`,
+    );
+  }
+
+  // Today's time — available minutes + (when known) the real open gaps
+  if (data.timeContext) {
+    const tc = data.timeContext;
+    const lines = [
+      `Workday: ${tc.workdayStart}–${tc.workdayEnd}. Roughly ${tc.availableMinutes} minutes of task time available today.`,
+    ];
+    if (tc.hasCalendar && tc.gaps.length > 0) {
+      lines.push('Open gaps between meetings:');
+      for (const g of tc.gaps) lines.push(`  - ${g.label}`);
+      lines.push('Slot deep work into the largest gaps; fit light/quick tasks into short ones.');
+    } else {
+      lines.push('No calendar connected — size the deck to the available minutes; leave slots null.');
+    }
+    sections.push(`[Today's Time]\n${lines.join('\n')}`);
   }
 
   // User context for today

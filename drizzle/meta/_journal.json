@@ -211,6 +211,20 @@
       "when": 1780679475431,
       "tag": "0029_common_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1781818380539,
+      "tag": "0030_little_kulan_gath",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1781820778830,
+      "tag": "0031_petite_cobalt_man",
+      "breakpoints": true
     }
   ]
 }

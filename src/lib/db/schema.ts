@@ -39,6 +39,10 @@ export const userState = sqliteTable('user_state', {
   activeParentTaskId: text(),
   activeEnergy: text({ enum: ['deep', 'light'] }),
   availableMinutes: integer(),
+  // Working-hours window (local HH:MM) the deck sizes/slots tasks within.
+  // Defaults to a 9–6 day until the user sets it or a calendar refines it.
+  workdayStart: text().notNull().default('09:00'),
+  workdayEnd: text().notNull().default('18:00'),
   description: text().notNull().default(''),
   voiceAutoSend: integer({ mode: 'boolean' }).notNull().default(true),
   voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
@@ -186,20 +190,97 @@ export const decks = sqliteTable('decks', {
   alternatives: text({ mode: 'json' }).$type<DeckAlternative[]>().notNull().default([]),
   searchContext: text(),
   model: text(),
+
+  // ─── Proactive deck: day boundary, version lineage, change log ───
+  // `forDate` is the local day this deck is *for* (YYYY-MM-DD), distinct
+  // from createdAt (when it was generated — could be the prior night).
+  // Defines "today's deck."
+  forDate: text(),
+  // Version chain: exactly one row per (forDate) has supersededAt = NULL —
+  // that's the active deck for that day. A regen or mid-day reshape stamps
+  // the prior active row's supersededAt and inserts a new active row, so
+  // every earlier version survives for one-tap revert.
+  supersededAt: text(),
+  replacesDeckId: text(),
+  // What produced this version. `manual` is the honest default for legacy
+  // rows (all pre-proactive decks were user-triggered).
+  origin: text({ enum: ['morning', 'first_open', 'midday', 'manual'] })
+    .notNull()
+    .default('manual'),
+  // The deltas that produced this version — drives the "what changed" brief
+  // and the bumped lane without diffing. See `DeckChange`.
+  changes: text({ mode: 'json' }).$type<DeckChange[]>().notNull().default([]),
+  // The calendar busy-blocks this deck was sized/slotted against. Lets the
+  // mid-day reconcile (Phase 3) diff live calendar vs. what the deck assumed
+  // and adapt only to genuine external changes. Empty until a calendar
+  // connector registers a provider.
+  calendarSnapshot: text({ mode: 'json' }).$type<CalendarBlock[]>().notNull().default([]),
+
   createdAt: text().notNull().default(sql`(datetime('now'))`),
   updatedAt: text().notNull().default(sql`(datetime('now'))`),
-});
+}, (table) => [
+  // Hot path: "the active deck for day X" (forDate = ? AND supersededAt IS NULL).
+  index('idx_decks_for_date_active').on(table.forDate, table.supersededAt),
+]);
+
+export type DeckOrigin = NonNullable<typeof decks.$inferSelect.origin>;
 
 export interface DeckItem {
   taskId: string;
   rationale: string;
   continuityContext: string | null;
   source: 'ai' | 'user';
+  // ─── Phase 2 (calendar) slotting — optional, unpopulated in Phase 1 ───
+  /** Where this task sits in the real day, once calendar slotting lands. */
+  slotStart?: string | null;
+  slotEnd?: string | null;
+  slotReason?: string | null;
 }
 
 export interface DeckAlternative {
   taskId: string;
   reason: string;
+}
+
+/**
+ * One entry in a deck version's change log. Drives the "what changed since
+ * yesterday" brief and the bumped lane. Source-agnostic so mid-day calendar
+ * reshapes (Phase 3) and manual edits reuse the same record shape.
+ *
+ * - carried   — was on the previous deck, kept on today's deck
+ * - deferred  — was on the previous deck, pushed to later (→ bumped lane)
+ * - dropped   — was on the previous deck, no longer relevant (→ bumped lane)
+ * - added     — new to today's deck, not on the previous one
+ * - reordered — same membership, moved position
+ * - bumped    — knocked off by an external change (Phase 3, e.g. a meeting)
+ */
+export interface DeckChange {
+  kind: 'carried' | 'deferred' | 'dropped' | 'added' | 'reordered' | 'bumped';
+  taskId: string;
+  /** Task title at the time of the change — denormalized so the "what changed"
+   *  brief and bumped lane render even after the task is completed or deleted. */
+  title?: string;
+  reason: string;
+  source: 'reconcile' | 'calendar' | 'user';
+  /** How the change-router decided to surface this change. Absent = treat as
+   *  digest (the morning-reconcile default). `interrupt` raises a banner. */
+  channel?: 'absorb' | 'digest' | 'interrupt';
+}
+
+/**
+ * A busy block on the user's calendar for a given day. The deck is sized and
+ * slotted against these (Phase 2) and the mid-day reconcile diffs against them
+ * (Phase 3). Provided by a calendar connector via the provider seam in
+ * `src/lib/deck/calendar.ts`; empty until one is registered.
+ */
+export interface CalendarBlock {
+  /** ISO datetime (start of the busy block). */
+  start: string;
+  /** ISO datetime (end of the busy block). */
+  end: string;
+  title: string;
+  /** Provider id the block came from, e.g. 'google', 'stub'. */
+  source: string;
 }
 
 // ─── API Keys ─────────────────────────────────────────────────

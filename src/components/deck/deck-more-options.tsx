@@ -1,11 +1,13 @@
 "use client";
 
-import { ChevronUp, ChevronDown, Plus, Radar } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import type { AlternativeItem, RadarItem } from '@/types/dashboard';
+import { ChevronUp, ChevronDown, Plus, RotateCcw } from 'lucide-react';
+import type { AlternativeItem, RadarItem, DeckChangeView } from '@/types/dashboard';
 
 interface DeckMoreOptionsProps {
   alternatives: AlternativeItem[];
+  /** Items the AI moved off today's deck (deferred/dropped) — restorable. */
+  bumped?: DeckChangeView[];
+  onRestore?: (taskId: string) => void;
   radarItems?: RadarItem[];
   onPromote: (id: string, type: 'alternative' | 'radar') => void;
   onViewAllTasks?: () => void;
@@ -15,13 +17,15 @@ interface DeckMoreOptionsProps {
 
 export function DeckMoreOptions({
   alternatives,
+  bumped = [],
+  onRestore,
   radarItems = [],
   onPromote,
   onViewAllTasks,
   collapsed,
   onToggleCollapse,
 }: DeckMoreOptionsProps) {
-  const totalCount = alternatives.length + radarItems.length;
+  const totalCount = bumped.length + alternatives.length + radarItems.length;
   if (totalCount === 0) return null;
 
   return (
@@ -46,6 +50,46 @@ export function DeckMoreOptions({
       {/* Expanded content */}
       {!collapsed && (
         <div className="px-4 pb-3 max-h-64 overflow-y-auto space-y-0.5">
+          {/* ─── Bumped today — moved off the deck, nothing lost ─── */}
+          {bumped.length > 0 && (
+            <>
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 pt-1 pb-0.5">
+                Bumped today
+              </p>
+              {bumped.map(item => (
+                <button
+                  key={`bumped-${item.taskId}`}
+                  onClick={() => onRestore?.(item.taskId)}
+                  className="group/bump w-full flex items-start gap-2 py-1.5 pl-1 rounded-md hover:bg-muted/50 active:bg-muted/70 transition-colors text-left"
+                  title="Restore to today's deck"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-muted-foreground md:opacity-0 md:group-hover/bump:opacity-100 group-hover/bump:text-foreground mt-0.5 transition-opacity flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground truncate">
+                        {item.title}
+                      </span>
+                      <span className="text-[8px] px-1 py-0.5 rounded bg-muted/80 text-muted-foreground/50 font-medium shrink-0">
+                        {item.kind === 'dropped' ? 'dropped' : 'later'}
+                      </span>
+                      {item.areaName && (
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-muted/80 text-muted-foreground/70 shrink-0">
+                          {item.areaName}
+                        </span>
+                      )}
+                    </div>
+                    {item.reason && (
+                      <p className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-2">
+                        {item.reason}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))}
+              {alternatives.length > 0 && <div className="h-1.5" />}
+            </>
+          )}
+
           {/* Alternative items */}
           {alternatives.map(item => (
             <button
