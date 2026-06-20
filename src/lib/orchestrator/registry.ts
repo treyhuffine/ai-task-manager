@@ -208,7 +208,9 @@ const update_task_action = defineAction({
   cli: { positional: ['id'] },
   handler: (_ctx, input) => {
     const { id, ...rest } = input as { id: string } & Partial<z.infer<z.ZodObject<typeof taskCreateShape>>>;
-    const row = updateTask(id, rest);
+    // Edits through the agent surface (CLI/MCP) are attributed to the agent
+    // so the in-document chat can surface a reviewable diff + one-tap undo.
+    const row = updateTask(id, rest, { source: 'ai' });
     if (!row) throw new ActionError('not_found', `Task not found: ${id}`);
     return row;
   },
@@ -280,7 +282,8 @@ const update_note_action = defineAction({
   cli: { positional: ['id'] },
   handler: (_ctx, input) => {
     const { id, ...rest } = input as { id: string } & Partial<z.infer<z.ZodObject<typeof noteCreateShape>>>;
-    const row = updateNote(id, rest);
+    // Agent-surface edits are attributed to the agent (see update_task).
+    const row = updateNote(id, rest, { source: 'ai' });
     if (!row) throw new ActionError('not_found', `Note not found: ${id}`);
     return row;
   },

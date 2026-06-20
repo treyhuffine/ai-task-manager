@@ -27,6 +27,7 @@ import {
   getExecution,
   archiveChatSession,
   getChatSessionWithExecution,
+  getUserState,
   listChatSessions,
   createExecutionWithChat,
   markExecutionSetupStarted,
@@ -156,6 +157,9 @@ export async function dispatchExecutionSession(
     workspaceId: args.workspaceId,
     agentId: agent.id,
     chatSessionId: sessionId,
+    // Seed the user's default model (Settings → AI agent); overridable
+    // per-session from the composer. null = harness default.
+    model: getUserState()?.defaultAgentModel ?? null,
     label,
     worktreePath: liveMode ? ws.cwd : null,
     branchName: liveBranch,

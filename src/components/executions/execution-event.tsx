@@ -11,6 +11,7 @@ import { describeToolCall, describeToolResult, fileTargetPath, type ToolGlyph } 
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { extractPullRequestUrl } from '@/lib/executions/pr-link';
 import { FileChip, DiffLines } from './file-chip';
+import { EntityEditChip, parseEntityEditTool } from '@/components/entities/entity-edit-chip';
 import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
 import { useSessionEvents, useRetrySend } from '@/hooks/use-execution';
 import type { ClientEventStatus } from '@/hooks/use-execution';
@@ -196,6 +197,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       // target text. Reads have no diff; edits/writes/patches do.
       const filePath = fileTargetPath(event.toolName, event.toolInput);
       const editDiff = filePath ? computeEditDiff(event.toolName, event.toolInput) : null;
+      // Agent edits to the focused note/task (in-document chat) render a
+      // "view changes" chip → diff modal + undo, instead of raw params.
+      const entityEdit = parseEntityEditTool(event.toolName, event.toolInput);
       // Merged result summary ("150 lines", "exit 1") from the paired
       // tool_result, when the transcript handed us the pairing map.
       const paired = event.externalToolCallId
@@ -223,7 +227,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
                 {d.verb}
               </span>
             </button>
-            {filePath ? (
+            {entityEdit ? (
+              <EntityEditChip entityType={entityEdit.entityType} entityId={entityEdit.entityId} />
+            ) : filePath ? (
               <FileChip path={filePath} diff={editDiff} />
             ) : (
               <>

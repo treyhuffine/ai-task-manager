@@ -87,3 +87,65 @@ export function findModelOption(harness: string, modelId: string | null): ModelO
 export function harnessSupportsEffort(harness: string): boolean {
   return harness === 'claude_code';
 }
+
+// ─── Providers ────────────────────────────────────────────────
+// The selectable agent providers, in the `user_state.defaultAgentHarness`
+// vocabulary ('claude' | 'codex'). Distinct from the internal
+// `agents.harness` / MODEL_OPTIONS vocabulary ('claude_code' | 'codex') —
+// `providerHarnessKey` bridges the two. Single source of truth for the
+// onboarding step, the settings selector, and the connection check.
+
+/** Persistable provider id — matches `user_state.defaultAgentHarness`. */
+export type ProviderId = 'claude' | 'codex';
+
+export interface ProviderOption {
+  id: ProviderId;
+  /** Key into MODEL_OPTIONS / agents.harness. */
+  harnessKey: AgentHarness;
+  name: string;
+  blurb: string;
+  /** CLI login command shown when the provider isn't connected. */
+  loginCmd: string;
+  /** Env var that, if set, bills the API directly (metered). */
+  apiKeyVar: string;
+  installHint: string;
+}
+
+export const PROVIDERS: ProviderOption[] = [
+  {
+    id: 'claude',
+    harnessKey: 'claude_code',
+    name: 'Claude',
+    blurb: 'Anthropic — runs on the Claude Code agent',
+    loginCmd: 'claude login',
+    apiKeyVar: 'ANTHROPIC_API_KEY',
+    installHint: 'npm install -g @anthropic-ai/claude-code',
+  },
+  {
+    id: 'codex',
+    harnessKey: 'codex',
+    name: 'OpenAI Codex',
+    blurb: 'OpenAI — runs on the Codex agent',
+    loginCmd: 'codex login',
+    apiKeyVar: 'OPENAI_API_KEY',
+    installHint: 'npm install -g @openai/codex',
+  },
+];
+
+/** `defaultAgentHarness` vocab → MODEL_OPTIONS / harness vocab. */
+export function providerHarnessKey(id: ProviderId): AgentHarness {
+  return id === 'codex' ? 'codex' : 'claude_code';
+}
+
+export function findProvider(id: string | null | undefined): ProviderOption | null {
+  return PROVIDERS.find((p) => p.id === id) ?? null;
+}
+
+export function modelsForProvider(id: ProviderId): ModelOption[] {
+  return MODEL_OPTIONS[providerHarnessKey(id)] ?? [];
+}
+
+/** The provider's flagship (first listed) model id — the sensible default pick. */
+export function defaultModelFor(id: ProviderId): string {
+  return modelsForProvider(id)[0]?.id ?? '';
+}

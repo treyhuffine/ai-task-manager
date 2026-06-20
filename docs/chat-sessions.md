@@ -7,7 +7,7 @@ Decision doc for how chat works in this app. Written for future-me and anyone wo
 **There are three distinct kinds of chat, not one model with variants.** Each serves a different purpose and gets the UX that purpose deserves:
 
 1. **Orchestration** — your main thread with the orchestrator. Always-on, in-app, ongoing relationship. One session, chronologically whole. Discover by going to the main surface; never listed.
-2. **Content chat** — scoped to a task or note. "Talk to the AI about this piece of content." In-app, API-level interactions with the content. Sessions exist as loose conversations attached to the content they're about.
+2. **Content chat** — scoped to a task or note. "Talk to the AI about this piece of content." A *focused harness session* (the user's Claude/Codex subscription) pinned to one entity, acting through the same orchestrator tool surface. Sessions exist as loose conversations attached to the content they're about. Its edits are snapshotted so the human can diff + undo what the agent changed. See [In-document content chat (implementation)](#in-document-content-chat-implementation).
 3. **Execution** — CLI-backed work sessions (Claude Code, Codex, other agentex providers). Discrete jobs with their own scope. Run interactively, autonomously, or on cron. Pull in tasks/notes as context via refs. Report back via notifications. These are the "isolated execution channels" — each one its own context-hungry Claude Code-style thread.
 
 Other principles that hold across all three:
@@ -656,6 +656,55 @@ App-spawned sessions go through the same triggers as externally-spawned — they
 - **When a task or note chat is first opened, the pane is empty.** That's fine. The agent still knows you — retrieval spans all transcripts. First message starts the content chat.
 - **Full transcripts. No collapsed exchanges. No summarized past.** Orientation markers are OK. Collapsed tool-call detail is OK. Hidden messages are not.
 - **CLI rollovers are visible.** When an execution's CLI session rotates (died, expired, machine changed, user hit `+`), the transcript shows a divider and the handoff message. Never a silent continuation claiming state the agent doesn't have.
+
+## In-document content chat (implementation)
+
+The content chat is realized as a **focused harness session**, not a bespoke per-page
+agent. It reuses the orchestrator's surface end to end:
+
+- **Session.** A `chat_sessions` row with `type='content'`, scoped to the entity via
+  `surface_kind` (`'task' | 'note'`) + `surface_ref` (the entity id). `GET
+  /api/document-chat?entityType=&entityId=` ensures one (persistent per entity — reopening
+  the doc resumes the same thread); `POST` archives it and starts fresh (the "New chat"
+  affordance). Messages send + stream through the shared `/api/sessions/[id]/messages` and
+  `/api/sessions/[id]/stream` transport — identical to executions and orchestration — and
+  the slideout renders the same `HarnessChatSession` surface (transcript + composer).
+- **Agent surface.** `ensureAgentSession` treats `content` like `orchestration`: it
+  installs the orchestrator brief + tool set at the app data root (MCP in `harness_mcp`,
+  CLI in `harness_skills`). **No new tools** — the agent edits the focused entity with the
+  existing `get_/update_task|note` actions. A per-session **focus directive**
+  (`renderContentFocusPrompt`, delivered via Claude's `--append-system-prompt` so it never
+  shows in the transcript) pins it to the one entity and tells it to act decisively, since
+  the human reviews via diff/undo rather than approving each edit. Content sessions default
+  to `permissionMode='bypass'`.
+- **Provider-agnostic, subscription-only.** Runs on whatever harness the user has
+  configured (Claude or Codex subscription today; future local/free agents are just more
+  providers). The old direct-to-OpenAI copilot path is gone — there's no API-key fallback,
+  and because edits now flow through the orchestrator MCP they go through `queries.ts`
+  (embeddings, mirror, attachment derivation, versioning) instead of bypassing it.
+
+### Change versioning, diff & undo
+
+Every content change to a task/note is snapshotted into `entity_versions` — an append-only
+history (`entity_type`, `entity_id`, `snapshot` JSON, `source` `human|ai|system`,
+`actor_session_id`, `created_at`). Capture lives inside `updateTask`/`updateNote` so all
+three write paths (UI, agent MCP, CLI) are tracked through one place. It's lazy (the first
+edit seeds a baseline from the pre-edit state so the first diff has a "before") and skips
+no-op bumps (sortKey, lastViewedAt) via a structural snapshot comparison. UI edits are
+`human`; agent edits via the orchestrator actions are tagged `ai`.
+
+That backs a reviewable, reversible loop for "the AI changed it — assume it's right, but
+let me check":
+
+- The agent's `update_task`/`update_note` tool calls render an **"Edited · view changes"**
+  chip in the transcript (`EntityEditChip`, detected by `parseEntityEditTool` in
+  `execution-event.tsx`).
+- The chip opens `EntityDiffModal` — a unified diff of the change against the prior version
+  (reusing `lineDiff` / `DiffLines` from the execution transcript) plus changed-property
+  rows, with prev/next navigation through the history.
+- **Undo** (`POST /api/entity-versions/[id]/revert` → `revertEntityTo`) restores the prior
+  snapshot through the normal update path, so the revert is itself recorded as a new
+  `system` version and is undoable in turn. Same model as the proactive deck's revert.
 
 ## What we explicitly did not build
 

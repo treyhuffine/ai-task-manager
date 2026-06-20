@@ -39,6 +39,9 @@ function createInteractiveSession() {
   return createChatSession({
     type: 'orchestration',
     agentId: agent.id,
+    // Seed the user's default model (Settings → AI agent); null lets the
+    // harness pick. Still overridable per-session from the composer.
+    model: getUserState()?.defaultAgentModel ?? null,
     // Label stays null until the first send — the messages route's
     // `deriveAndSetSessionLabel` (haiku-via-harness, same pipeline that
     // names executions) only fires on unlabeled sessions. A hardcoded

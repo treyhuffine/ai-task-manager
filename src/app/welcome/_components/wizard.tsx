@@ -21,6 +21,7 @@ const INITIAL_STATE: WizardState = {
     { name: 'Personal', emoji: '🏡', attachments: [] },
   ],
   agentHarness: 'claude',
+  agentModel: null,
   agentAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
   importSkipped: true,
 };
@@ -112,7 +113,7 @@ export function Wizard() {
           name: state.name.trim(),
           description: state.description.trim(),
           defaultAgentHarness: state.agentHarness,
-          defaultAgentModel: null,
+          defaultAgentModel: state.agentModel,
           onboardedAt: new Date().toISOString(),
         });
       } catch {

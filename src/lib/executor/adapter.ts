@@ -52,6 +52,7 @@ import { getAppRoot } from '@/lib/config/paths';
 import {
   installOrchestratorSurface,
   orchestratorSessionConfig,
+  renderContentFocusPrompt,
   type OrchestratorMode,
 } from '@/lib/orchestrator/harness-surface';
 import type {
@@ -477,6 +478,8 @@ export async function dispatch(
       harness: agent.harness,
       cwd,
       sessionType: session.type,
+      surfaceKind: session.surfaceKind,
+      surfaceRef: session.surfaceRef,
       existingExternalSessionId: session.externalSessionId,
       permissionMode: session.permissionMode,
       model: session.model,
@@ -571,6 +574,13 @@ interface EnsureArgs {
   cwd: string;
   /** chat_sessions.type — orchestration sessions get the data-root surface. */
   sessionType: 'orchestration' | 'content' | 'execution';
+  /**
+   * For `content` sessions: the entity the in-document chat is focused on
+   * (`surfaceKind` = 'task' | 'note', `surfaceRef` = its id). Null for other
+   * session types. Drives the per-session focus directive.
+   */
+  surfaceKind: string | null;
+  surfaceRef: string | null;
   existingExternalSessionId: string | null;
   permissionMode: PermissionMode;
   model: string | null;
@@ -629,14 +639,31 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // tool-filtering or MCP wiring ignore the fields (Codex today), so the
   // config is safe to pass everywhere — but warn, because the write guard
   // genuinely doesn't hold there yet.
-  if (args.sessionType === 'orchestration') {
+  if (args.sessionType === 'orchestration' || args.sessionType === 'content') {
     const orchestratorMode = resolveOrchestratorMode();
     try {
       await installOrchestratorSurface(orchestratorMode);
       Object.assign(config, orchestratorSessionConfig(orchestratorMode));
+      // A `content` session is a *focused* orchestrator session: same
+      // installed surface + tool set, narrowed to the one task/note the user
+      // is viewing in the editor. The focus rides Claude's
+      // --append-system-prompt so it never shows in the transcript; other
+      // providers run the un-focused surface (the brief + the user's own
+      // messages still keep them on-task — no write guard either way there).
+      if (
+        args.sessionType === 'content' &&
+        providerType === 'claude' &&
+        (args.surfaceKind === 'task' || args.surfaceKind === 'note') &&
+        args.surfaceRef
+      ) {
+        extraArgs.push(
+          '--append-system-prompt',
+          renderContentFocusPrompt({ entityType: args.surfaceKind, entityId: args.surfaceRef }),
+        );
+      }
       if (providerType !== 'claude') {
         console.warn(
-          `[executor] orchestrator session on provider "${providerType}": surface installed, ` +
+          `[executor] ${args.sessionType} session on provider "${providerType}": surface installed, ` +
             'but tool filtering / MCP attachment are ignored by this provider (no write guard).',
         );
       }

@@ -72,7 +72,14 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
   return <HarnessChatSession sessionId={sessionId} isMobile={isMobile} />;
 }
 
-function HarnessChatSession({ sessionId, isMobile }: { sessionId: string; isMobile: boolean }) {
+/**
+ * The harness chat surface for a single session id — transcript +
+ * pending-input + composer, no workspace chrome. Reused by both the
+ * dashboard orchestrator chat (above) and the in-document (note/task)
+ * `type='content'` chat (see slideout-chat.tsx). Everything it needs is
+ * keyed off the session id, so the same component drives either.
+ */
+export function HarnessChatSession({ sessionId, isMobile = false }: { sessionId: string; isMobile?: boolean }) {
   const { data: session } = useSession(sessionId);
   const { data: runtime } = useRuntimeStatus(sessionId);
   // Live event stream — appends rows into the events cache as the

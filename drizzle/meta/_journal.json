@@ -225,6 +225,13 @@
       "when": 1781820778830,
       "tag": "0031_petite_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1781905657935,
+      "tag": "0032_slimy_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

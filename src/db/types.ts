@@ -5,10 +5,10 @@ import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
-  schedules, runs, previewTargets,
+  schedules, runs, previewTargets, entityVersions,
   Attachment,
 } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot } from '@/lib/db/schema';
 
 /**
  * Override the `attachments` column type on a record. Drizzle infers the
@@ -67,6 +67,13 @@ export type NoteRecord = WithCamelAttachments<InferSelectModel<typeof notes>>;
 export type CreateNoteInput = WithCamelAttachments<Omit<InferInsertModel<typeof notes>, 'id'>>;
 export type UpdateNoteInput = Partial<CreateNoteInput>;
 export type NoteStatus = NonNullable<NoteRecord['status']>;
+
+// ─── Entity Versions ──────────────────────────────────────────
+
+export type EntityVersionRecord = InferSelectModel<typeof entityVersions>;
+export type CreateEntityVersionInput = Omit<InferInsertModel<typeof entityVersions>, 'id' | 'createdAt'>;
+export type EntityVersionSource = NonNullable<EntityVersionRecord['source']>;
+export type EntityVersionEntityType = EntityVersionRecord['entityType'];
 
 // ─── Decks ───────────────────────────────────────────────────
 

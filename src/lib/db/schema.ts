@@ -690,6 +690,81 @@ export const chatEvents = sqliteTable('chat_events', {
   index('idx_chat_events_tool_call_id').on(table.externalToolCallId),
 ]);
 
+// ─── Entity Versions ──────────────────────────────────────────
+// Append-only snapshot history for notes and tasks. Powers the
+// in-document chat's "see what changed" diff + one-tap undo: every
+// sanctioned mutation through queries.ts (create/update) appends one
+// immutable point-in-time snapshot here.
+//
+// Simpler than the deck version chain — there's no supersededAt cursor.
+// Versions are ordered by createdAt; the "current" state is always the
+// live tasks/notes row. A revert is just another update (and thus another
+// version), so history stays linear and auditable, and undo is itself
+// undoable. Polymorphic by (entityType, entityId) with no FK on entityId
+// so a version survives a hard delete of its entity.
+
+export const entityVersions = sqliteTable('entity_versions', {
+  id: text().primaryKey(),
+  entityType: text({ enum: ['task', 'note'] }).notNull(),
+  entityId: text().notNull(),
+
+  // Full point-in-time snapshot of the entity's user-meaningful, mutable
+  // fields as of this version — enough to render a diff against the
+  // adjacent version and to restore the entity on revert. Task-only fields
+  // are absent for notes. See `EntityVersionSnapshot`.
+  snapshot: text({ mode: 'json' }).$type<EntityVersionSnapshot>().notNull(),
+
+  // Who authored the change that produced this snapshot.
+  //   human  — a person edited via the UI / trusted local CLI
+  //   ai     — an agent edited (document chat / orchestrator via MCP)
+  //   system — a revert or other automated process
+  source: text({ enum: ['human', 'ai', 'system'] }).notNull().default('human'),
+
+  // The chat session whose turn produced this version, when known (the
+  // in-document `type='content'` session). Lets the transcript link a
+  // tool-call event to its diff. SET NULL if the session is later deleted —
+  // the version (and its undo) outlive the conversation.
+  actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+
+  // Short human label for the change ("Rewrote the body", "Reverted to an
+  // earlier version"). Optional — the diff is the source of truth.
+  summary: text(),
+
+  // Provenance for `source='system'` reverts: the version whose snapshot
+  // this row restored. Not load-bearing.
+  revertedFromVersionId: text(),
+
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  // Hot path: "history for entity E, newest first".
+  index('idx_entity_versions_entity').on(table.entityType, table.entityId, table.createdAt),
+  index('idx_entity_versions_actor_session').on(table.actorSessionId),
+]);
+
+/**
+ * Point-in-time snapshot of a note/task stored on `entity_versions.snapshot`.
+ * Captures the user-meaningful, mutable fields — what a human would want to
+ * diff and restore. `body`/`title` apply to both; the rest are task-only and
+ * undefined for notes. `url` is note-only.
+ */
+export interface EntityVersionSnapshot {
+  title: string | null;
+  body: string;
+  // Task-only.
+  description?: string | null;
+  status?: string;
+  energy?: string | null;
+  effort?: string | null;
+  hardDeadline?: string | null;
+  resurfaceAfter?: string | null;
+  recurrence?: string | null;
+  blockedOn?: string | null;
+  outcome?: string | null;
+  userContext?: string | null;
+  // Note-only.
+  url?: string | null;
+}
+
 // ─── Notes ────────────────────────────────────────────────────
 
 export const notes = sqliteTable('notes', {

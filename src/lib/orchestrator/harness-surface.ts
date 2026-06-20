@@ -460,3 +460,38 @@ export function orchestratorSessionConfig(
 export function orchestratorDataRoot(): { appRoot: string; brainDir: string } {
   return { appRoot: getAppRoot(), brainDir: getBrainDir() };
 }
+
+// ─── Content (in-document) session focus ──────────────────────
+
+export interface ContentFocus {
+  entityType: 'task' | 'note';
+  entityId: string;
+}
+
+/**
+ * Per-session focus for an in-document (`type='content'`) chat. The content
+ * session shares the orchestrator's installed surface + tool set (it's the
+ * same MCP/CLI action registry — no new tools), so all we layer on is a
+ * focus directive pinning the agent to the single entity the user is
+ * viewing. Delivered via Claude's `--append-system-prompt` at spawn so it
+ * never pollutes the visible transcript.
+ *
+ * Deliberately id-only (no title/body snapshot): the entity is live and the
+ * user may be editing it in the panel at the same time, so the agent reads
+ * the current state through `get_${noun}` rather than trusting a spawn-time
+ * copy. Keeps the focus correct across the session's lifetime.
+ */
+export function renderContentFocusPrompt(focus: ContentFocus): string {
+  const noun = focus.entityType;
+  return `# Focused on one ${noun}
+
+You are embedded in the ${noun} editor's side-panel chat. The user is viewing a single ${noun} and your job is to help with THAT ${noun}.
+
+Focused ${noun}: ${noun}:${focus.entityId}
+
+How to work here:
+- Read it with \`get_${noun}\` (id "${focus.entityId}") before acting — the user may be editing it in the panel right now, so the tools are the truth, not anything you remember.
+- Change it with \`update_${noun}\` using that id. Make the edit directly when asked, then confirm in one line what you changed — the user can review a diff and undo, so act decisively instead of asking permission for routine edits.
+- Stay on this ${noun}. Don't read or modify other tasks/notes/areas unless the user explicitly asks you to look beyond it.
+- Keep replies short and concrete — this is a narrow side panel, not the full orchestrator chat.`;
+}

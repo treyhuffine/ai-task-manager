@@ -12,6 +12,7 @@ import {
   Package,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
+import { modelsForProvider } from '@/lib/agent-options';
 import { api, ApiError } from '@/lib/api/client';
 import type {
   WizardState,
@@ -161,7 +162,8 @@ export function StepAgent({
 
   const selectHarness = (id: AgentHarness) => {
     if (id === state.agentHarness) return;
-    update({ agentHarness: id });
+    // Reset the model — the prior pick belongs to a different catalog.
+    update({ agentHarness: id, agentModel: null });
   };
 
   const acceptApiKey = (checked: boolean) => {
@@ -219,6 +221,56 @@ export function StepAgent({
         onRecheck={() => void runCheck(state.agentHarness, { fresh: true })}
         onAccept={acceptApiKey}
       />
+
+      {state.agentAuth.report?.binary.installed && (
+        <ModelChoice
+          harness={state.agentHarness}
+          selected={state.agentModel}
+          onSelect={(id) => update({ agentModel: id })}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Default-model picker ────────────────────────────────────────────────
+
+function ModelChoice({
+  harness,
+  selected,
+  onSelect,
+}: {
+  harness: AgentHarness;
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const models = modelsForProvider(harness);
+  const options: Array<{ id: string | null; label: string; hint?: string }> = [
+    { id: null, label: 'Default', hint: 'Let the agent pick' },
+    ...models,
+  ];
+  return (
+    <div className="space-y-2">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">Default model</div>
+      <div className="grid grid-cols-2 gap-2">
+        {options.map((opt) => {
+          const active = selected === opt.id;
+          return (
+            <button
+              key={opt.id ?? 'default'}
+              type="button"
+              onClick={() => onSelect(opt.id)}
+              className={`flex flex-col items-start gap-0.5 rounded-lg border p-3 text-left transition-colors ${
+                active ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-muted/50'
+              }`}
+            >
+              <span className="text-sm font-medium">{opt.label}</span>
+              {opt.hint && <span className="text-xs text-muted-foreground">{opt.hint}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">Change this anytime in settings.</p>
     </div>
   );
 }

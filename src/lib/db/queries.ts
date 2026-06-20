@@ -7,7 +7,7 @@ import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
-  schedules, runs, previewTargets,
+  schedules, runs, previewTargets, entityVersions,
 } from '@/lib/db/schema';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -32,6 +32,8 @@ import type {
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
   ScheduleRecord, CreateScheduleInput, UpdateScheduleInput,
   RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, ScheduleWithLastRun,
+  EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
+  TaskStatus, NoteStatus, Energy, Effort,
 } from '@/db/types';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -143,7 +145,7 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
   return row;
 }
 
-export function updateTask(id: string, input: UpdateTaskInput): TaskRecord | null {
+export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVersionMeta): TaskRecord | null {
   const db = getDb();
 
   const existing = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
@@ -180,6 +182,7 @@ export function updateTask(id: string, input: UpdateTaskInput): TaskRecord | nul
 
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
+  captureEntityVersion('task', row.id, taskSnapshot(existing), taskSnapshot(row), meta, existing.updatedAt);
   return row;
 }
 
@@ -189,6 +192,9 @@ export function deleteTask(id: string): boolean {
   if (result.changes === 0) return false;
   deleteEmbedding('task', id);
   void syncDeletion('task', id);
+  db.delete(entityVersions)
+    .where(and(eq(entityVersions.entityType, 'task'), eq(entityVersions.entityId, id)))
+    .run();
   return true;
 }
 
@@ -339,7 +345,7 @@ export function createNote(input: CreateNoteInput): NoteRecord {
   return row;
 }
 
-export function updateNote(id: string, input: UpdateNoteInput): NoteRecord | null {
+export function updateNote(id: string, input: UpdateNoteInput, meta?: EntityVersionMeta): NoteRecord | null {
   const db = getDb();
 
   const existing = hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
@@ -370,6 +376,7 @@ export function updateNote(id: string, input: UpdateNoteInput): NoteRecord | nul
 
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
+  captureEntityVersion('note', row.id, noteSnapshot(existing), noteSnapshot(row), meta, existing.updatedAt);
   return row;
 }
 
@@ -379,7 +386,186 @@ export function deleteNote(id: string): boolean {
   if (result.changes === 0) return false;
   deleteEmbedding('note', id);
   void syncDeletion('note', id);
+  db.delete(entityVersions)
+    .where(and(eq(entityVersions.entityType, 'note'), eq(entityVersions.entityId, id)))
+    .run();
   return true;
+}
+
+// ─── Entity Versions (note/task change history) ───────────────
+// Append-only snapshot history that powers the in-document chat's diff +
+// one-tap undo. Capture is best-effort and folded into updateTask/updateNote
+// so EVERY sanctioned content change is tracked through one path — UI edits
+// land as `human`, agent (MCP) edits as `ai`. Bumps that touch only
+// non-content fields (sortKey, lastViewedAt, embeddings) produce identical
+// snapshots and are skipped, so the history stays signal, not noise.
+
+/** Optional provenance for a version, threaded from the mutation caller. */
+export interface EntityVersionMeta {
+  /** Who authored the change. Defaults to 'human'. */
+  source?: EntityVersionSource;
+  /** The content chat session whose turn made the edit, when known. */
+  actorSessionId?: string | null;
+  /** Short human label for the change. */
+  summary?: string | null;
+  /** For reverts: the version whose snapshot this restored. */
+  revertedFromVersionId?: string | null;
+}
+
+function taskSnapshot(t: TaskRecord): EntityVersionSnapshot {
+  return {
+    title: t.title ?? null,
+    body: t.body ?? '',
+    description: t.description ?? null,
+    status: t.status,
+    energy: t.energy ?? null,
+    effort: t.effort ?? null,
+    hardDeadline: t.hardDeadline ?? null,
+    resurfaceAfter: t.resurfaceAfter ?? null,
+    recurrence: t.recurrence ?? null,
+    blockedOn: t.blockedOn ?? null,
+    outcome: t.outcome ?? null,
+    userContext: t.userContext ?? null,
+  };
+}
+
+function noteSnapshot(n: NoteRecord): EntityVersionSnapshot {
+  return {
+    title: n.title ?? null,
+    body: n.body,
+    url: n.url ?? null,
+    status: n.status,
+  };
+}
+
+/** Stable structural equality for two snapshots built by the same builder. */
+function snapshotsEqual(a: EntityVersionSnapshot, b: EntityVersionSnapshot): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Append a version for a content change, no-op when nothing meaningful moved.
+ * On the first tracked change for an entity we also seed a baseline row from
+ * the pre-change snapshot (back-dated to the entity's prior `updatedAt`) so
+ * the very first diff has a "before" — this covers entities that predate the
+ * feature. Best-effort: a versioning failure must never break the mutation.
+ */
+function captureEntityVersion(
+  entityType: EntityVersionEntityType,
+  entityId: string,
+  before: EntityVersionSnapshot,
+  after: EntityVersionSnapshot,
+  meta: EntityVersionMeta | undefined,
+  baselineCreatedAt: string,
+): void {
+  if (snapshotsEqual(before, after)) return;
+  try {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const existing = db
+      .select({ c: sql<number>`count(*)` })
+      .from(entityVersions)
+      .where(and(eq(entityVersions.entityType, entityType), eq(entityVersions.entityId, entityId)))
+      .get();
+    if ((existing?.c ?? 0) === 0) {
+      db.insert(entityVersions)
+        .values({
+          id: uuidv7(),
+          entityType,
+          entityId,
+          snapshot: before,
+          source: 'human',
+          createdAt: baselineCreatedAt,
+        })
+        .run();
+    }
+    db.insert(entityVersions)
+      .values({
+        id: uuidv7(),
+        entityType,
+        entityId,
+        snapshot: after,
+        source: meta?.source ?? 'human',
+        actorSessionId: meta?.actorSessionId ?? null,
+        summary: meta?.summary ?? null,
+        revertedFromVersionId: meta?.revertedFromVersionId ?? null,
+        createdAt: now,
+      })
+      .run();
+  } catch (err) {
+    console.error(`[queries] failed to capture version for ${entityType} ${entityId}:`, err);
+  }
+}
+
+/** Version history for an entity, newest first. */
+export function listEntityVersions(
+  entityType: EntityVersionEntityType,
+  entityId: string,
+  opts: { limit?: number } = {},
+): EntityVersionRecord[] {
+  const db = getDb();
+  const base = db
+    .select()
+    .from(entityVersions)
+    .where(and(eq(entityVersions.entityType, entityType), eq(entityVersions.entityId, entityId)))
+    .orderBy(desc(entityVersions.createdAt), desc(entityVersions.id));
+  return (opts.limit ? base.limit(opts.limit) : base).all();
+}
+
+export function getEntityVersion(id: string): EntityVersionRecord | null {
+  const db = getDb();
+  return db.select().from(entityVersions).where(eq(entityVersions.id, id)).get() ?? null;
+}
+
+function snapshotToTaskInput(snap: EntityVersionSnapshot): UpdateTaskInput {
+  return {
+    ...(snap.title != null ? { title: snap.title } : {}),
+    body: snap.body,
+    description: snap.description ?? null,
+    ...(snap.status ? { status: snap.status as TaskStatus } : {}),
+    energy: (snap.energy ?? null) as Energy | null,
+    effort: (snap.effort ?? null) as Effort | null,
+    hardDeadline: snap.hardDeadline ?? null,
+    resurfaceAfter: snap.resurfaceAfter ?? null,
+    recurrence: snap.recurrence ?? null,
+    blockedOn: snap.blockedOn ?? null,
+    outcome: snap.outcome ?? null,
+    userContext: snap.userContext ?? null,
+  };
+}
+
+function snapshotToNoteInput(snap: EntityVersionSnapshot): UpdateNoteInput {
+  return {
+    title: snap.title,
+    body: snap.body,
+    url: snap.url ?? null,
+    ...(snap.status ? { status: snap.status as NoteStatus } : {}),
+  };
+}
+
+/**
+ * Restore an entity to a prior version's snapshot. Routes through the normal
+ * update path, so the restore is itself recorded as a new (`system`) version —
+ * history stays linear and the undo is itself undoable. Returns the updated
+ * record, or null if the version (or its entity) is gone.
+ */
+export function revertEntityTo(
+  versionId: string,
+): { entityType: EntityVersionEntityType; entityId: string; record: TaskRecord | NoteRecord } | null {
+  const version = getEntityVersion(versionId);
+  if (!version) return null;
+  const snap = version.snapshot;
+  const meta: EntityVersionMeta = {
+    source: 'system',
+    summary: 'Reverted to an earlier version',
+    revertedFromVersionId: versionId,
+  };
+  if (version.entityType === 'task') {
+    const record = updateTask(version.entityId, snapshotToTaskInput(snap), meta);
+    return record ? { entityType: 'task', entityId: version.entityId, record } : null;
+  }
+  const record = updateNote(version.entityId, snapshotToNoteInput(snap), meta);
+  return record ? { entityType: 'note', entityId: version.entityId, record } : null;
 }
 
 // ─── Stream ───────────────────────────────────────────────────

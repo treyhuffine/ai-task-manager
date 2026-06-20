@@ -1,0 +1,45 @@
+'use client';
+
+import { Bot, Loader2 } from 'lucide-react';
+import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
+import { ProviderModelSelector } from './provider-model-selector';
+import type { ProviderId } from '@/lib/agent-options';
+
+/**
+ * Default agent provider + model, editable after onboarding. Writes through
+ * to `user_state.defaultAgentHarness` / `defaultAgentModel`, which seed every
+ * new chat/execution (still overridable per-session from the composer).
+ */
+export function AgentSettingsPanel() {
+  const { data: userState, isLoading } = useUserState();
+  const update = useUpdateUserState();
+
+  const harness = (userState?.defaultAgentHarness ?? 'claude') as ProviderId;
+  const model = userState?.defaultAgentModel ?? null;
+
+  return (
+    <section className="space-y-3 text-[12px]">
+      <header className="flex items-center gap-2 text-foreground">
+        <Bot size={14} className="text-muted-foreground" />
+        <h3 className="text-[13px] font-semibold">AI agent</h3>
+      </header>
+      <p className="text-[11px] text-muted-foreground/85">
+        The default provider + model new chats and executions start with. You can still override the
+        model per session from the composer.
+      </p>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-6">
+          <Loader2 size={15} className="animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <ProviderModelSelector
+          harness={harness}
+          model={model}
+          onChange={(next) =>
+            update.mutate({ defaultAgentHarness: next.harness, defaultAgentModel: next.model })
+          }
+        />
+      )}
+    </section>
+  );
+}

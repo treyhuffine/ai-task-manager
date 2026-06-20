@@ -12,6 +12,7 @@ import {
 import { MonitorSmartphone } from 'lucide-react';
 import { DevicesSection } from '@/components/settings/devices-section';
 import { ClientSettings } from '@/components/settings/client-settings';
+import { AgentSettingsPanel } from '@/components/settings/agent-settings-panel';
 import { PreviewSettingsPanel } from '@/components/settings/preview-settings-panel';
 
 /** Window event that opens the Devices sheet (→ Remote preview). Dispatch
@@ -74,6 +75,7 @@ export function DevicesSheet({
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 px-6 pb-6 overflow-y-auto pt-0.5 space-y-6">
+          <AgentSettingsPanel />
           <ClientSettings />
           <PreviewSettingsPanel />
           <DevicesSection />

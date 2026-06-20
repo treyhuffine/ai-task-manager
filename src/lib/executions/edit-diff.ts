@@ -82,6 +82,62 @@ export function lineDiff(oldText: string, newText: string): DiffLine[] {
   return out;
 }
 
+/** One aligned row of a two-column (side-by-side) diff. */
+export interface SplitRow {
+  left: { lineNo: number | null; text: string | null; kind: 'del' | 'ctx' | 'empty' };
+  right: { lineNo: number | null; text: string | null; kind: 'add' | 'ctx' | 'empty' };
+}
+
+/**
+ * Re-shape the unified `lineDiff` into aligned side-by-side rows. Consecutive
+ * deletions/additions are paired index-by-index (old line ↔ new line on one
+ * row); leftover deletions render left-only, leftover additions right-only,
+ * with a filler cell on the empty side. Context lines occupy both columns.
+ * Reuses `lineDiff`'s LCS so the two views never disagree.
+ */
+export function splitDiff(oldText: string, newText: string): SplitRow[] {
+  const lines = lineDiff(oldText, newText);
+  const rows: SplitRow[] = [];
+  let leftNo = 0;
+  let rightNo = 0;
+  let pendingDel: string[] = [];
+  let pendingAdd: string[] = [];
+
+  const flush = () => {
+    const max = Math.max(pendingDel.length, pendingAdd.length);
+    for (let k = 0; k < max; k++) {
+      const d = k < pendingDel.length ? pendingDel[k] : null;
+      const a = k < pendingAdd.length ? pendingAdd[k] : null;
+      rows.push({
+        left: d !== null
+          ? { lineNo: ++leftNo, text: d, kind: 'del' }
+          : { lineNo: null, text: null, kind: 'empty' },
+        right: a !== null
+          ? { lineNo: ++rightNo, text: a, kind: 'add' }
+          : { lineNo: null, text: null, kind: 'empty' },
+      });
+    }
+    pendingDel = [];
+    pendingAdd = [];
+  };
+
+  for (const l of lines) {
+    if (l.kind === 'del') pendingDel.push(l.text);
+    else if (l.kind === 'add') pendingAdd.push(l.text);
+    else {
+      flush();
+      leftNo++;
+      rightNo++;
+      rows.push({
+        left: { lineNo: leftNo, text: l.text, kind: 'ctx' },
+        right: { lineNo: rightNo, text: l.text, kind: 'ctx' },
+      });
+    }
+  }
+  flush();
+  return rows;
+}
+
 function countAndCap(lines: DiffLine[]): EditDiff['lines'] & { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;
