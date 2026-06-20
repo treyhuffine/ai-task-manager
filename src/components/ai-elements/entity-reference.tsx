@@ -1,8 +1,9 @@
 'use client'
 
 import { type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { useDashboard } from '@/contexts/dashboard-context'
+import { useOptionalDashboard } from '@/contexts/dashboard-context'
 import { cn } from '@/lib/utils'
 import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList, SquareTerminal } from 'lucide-react'
 import { NoteIcon } from '@/components/shared/note-icon'
@@ -293,7 +294,10 @@ function DeckCard({ data, onClick }: { data: { id: string; framing?: string | nu
  * = open, nothing else.
  */
 function ExecutionCard({ data, onClick }: { data: ChatSessionWithExecution; onClick: () => void }) {
-  const { streamingSessionIds, pendingInputSessionIds } = useDashboard()
+  // Optional: this chip also renders in the standalone task/note slideout
+  // chats, which have no DashboardProvider. There the live sets are absent
+  // and we fall back to the persisted `data.status`.
+  const dashboard = useOptionalDashboard()
 
   // Workspace name for context ("which repo is this?"). Shared cache key
   // across every execution card on screen — one fetch, many chips.
@@ -308,8 +312,8 @@ function ExecutionCard({ data, onClick }: { data: ChatSessionWithExecution; onCl
   // Same status priority as the rail: blocked beats running beats unread.
   // Live sets come from dashboard context (seeded by the rail poll + SSE),
   // so the chip agrees with the rail and with list_executions.
-  const running = streamingSessionIds.has(data.id)
-  const awaitingInput = pendingInputSessionIds.has(data.id)
+  const running = dashboard?.streamingSessionIds.has(data.id) ?? false
+  const awaitingInput = dashboard?.pendingInputSessionIds.has(data.id) ?? false
   const unread = !running && isSessionUnread(data)
   const status = awaitingInput
     ? { text: 'Needs input', className: 'text-amber-500' }
@@ -360,7 +364,20 @@ function isPlausibleEntityId(id: string): boolean {
 }
 
 function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
-  const { openTask, openNote, openDeck, setActiveView } = useDashboard()
+  // Inside the dashboard, clicks open a slideout / switch the active view.
+  // On standalone routes (task/note pages) there's no DashboardProvider, so
+  // fall back to router navigation: tasks/notes have their own pages, while
+  // decks/executions live only in the dashboard, so route there.
+  const dashboard = useOptionalDashboard()
+  const router = useRouter()
+  const openTask = dashboard
+    ? dashboard.openTask
+    : (id: string) => router.push(`/task/${id}`)
+  const openNote = dashboard
+    ? dashboard.openNote
+    : (id: string) => router.push(`/note/${id}`)
+  const openDeck = dashboard ? dashboard.openDeck : () => router.push('/')
+  const setActiveView = dashboard ? dashboard.setActiveView : () => router.push('/')
   const config = ENTITY_CONFIG[entityType]
   const validId = isPlausibleEntityId(entityId)
 

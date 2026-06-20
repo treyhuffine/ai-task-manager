@@ -501,3 +501,14 @@ export function useDashboard() {
   }
   return context;
 }
+
+/**
+ * Non-throwing variant for components that render both inside the dashboard
+ * and on standalone routes (e.g. entity chips in the `/task/[id]` and
+ * `/note/[id]` slideout chats, which are NOT wrapped in DashboardProvider).
+ * Returns `null` when there's no provider so callers can degrade gracefully
+ * (typically by navigating via the router instead of opening a slideout).
+ */
+export function useOptionalDashboard() {
+  return useContext(DashboardContext);
+}
