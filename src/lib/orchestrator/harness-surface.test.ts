@@ -7,6 +7,7 @@ import { renderAppRootClaudeMd } from '@/lib/config/claude-md-template';
 import {
   installOrchestratorSurface,
   orchestratorMcpServer,
+  connectorsMcpServer,
   orchestratorSessionConfig,
   renderOrchestratorBrief,
 } from './harness-surface';
@@ -148,7 +149,7 @@ describe('orchestratorSessionConfig', () => {
     });
   });
 
-  it('attaches the orchestrator MCP server in mcp mode', () => {
+  it('attaches the orchestrator + connectors MCP servers in mcp mode', () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
     const config = orchestratorSessionConfig('harness_mcp', { port: 5151 });
@@ -159,6 +160,12 @@ describe('orchestratorSessionConfig', () => {
         name: 'orchestrator',
         type: 'http',
         url: 'http://localhost:5151/api/orchestrator/mcp',
+        headers: { Authorization: 'Bearer tok_test_123' },
+      },
+      {
+        name: 'connectors',
+        type: 'http',
+        url: 'http://localhost:5151/api/connectors/mcp',
         headers: { Authorization: 'Bearer tok_test_123' },
       },
     ]);
@@ -176,6 +183,27 @@ describe('orchestratorMcpServer', () => {
   it('returns null without a local token', () => {
     fs.mkdirSync(root, { recursive: true });
     expect(orchestratorMcpServer(4224)).toBeNull();
+  });
+});
+
+describe('connectorsMcpServer', () => {
+  it('returns null without a local token', () => {
+    fs.mkdirSync(root, { recursive: true });
+    expect(connectorsMcpServer(4224)).toBeNull();
+  });
+
+  it('appends ?ws=<id> for a workspace-scoped endpoint; bare otherwise (spec §6b)', () => {
+    fs.mkdirSync(root, { recursive: true });
+    seedToken();
+    // McpServerConfig is a union (http | stdio); toMatchObject reads `url` without narrowing.
+    expect(connectorsMcpServer(5151)).toMatchObject({
+      type: 'http',
+      url: 'http://localhost:5151/api/connectors/mcp',
+    });
+    expect(connectorsMcpServer(5151, { workspaceId: 'ws-123' })).toMatchObject({
+      type: 'http',
+      url: 'http://localhost:5151/api/connectors/mcp?ws=ws-123',
+    });
   });
 });
 

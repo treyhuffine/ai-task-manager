@@ -42,10 +42,10 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
       <SetupRow
         icon={<Sparkles size={11} className="text-primary/70" />}
         text={
-          session.label ? (
+          (session.execution?.label ?? session.label) ? (
             <>
               Started{' '}
-              <span className="font-mono text-foreground/90">{session.label}</span>
+              <span className="font-mono text-foreground/90">{session.execution?.label ?? session.label}</span>
               <span className="text-muted-foreground/60"> in </span>
               <span className="text-foreground/90">{workspace.name}</span>
             </>

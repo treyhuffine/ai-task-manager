@@ -228,7 +228,7 @@ export default function PairPage() {
               </button>
 
               <p className="text-xs text-muted-foreground/60">
-                You can also open a pair link directly — the token lives in the URL fragment as{' '}
+                You can also open a pair link directly. The token lives in the URL fragment as{' '}
                 <code className="rounded bg-muted px-1 mt-0.5 py-0.5 inline-block font-mono text-[10px] text-foreground/80">#{PAIRING_TOKEN_FRAGMENT_KEY}=&lt;token&gt;</code>
               </p>
             </div>

@@ -159,4 +159,83 @@ describe('orchestrator schedule + run actions', () => {
     };
     expect(result.status).toBe('completed');
   });
+
+  async function seedTelegramChannel() {
+    const queries = await import('@/lib/db/queries');
+    return queries.createNotificationChannel({
+      kind: 'connector', providerId: 'telegram', connectionId: 'conn-1',
+      config: { chatId: '42' }, events: [],
+    });
+  }
+
+  it('list_notification_channels returns the user channels, filterable by provider', async () => {
+    await seed();
+    await seedTelegramChannel();
+    const action = await findAction('list_notification_channels');
+    const all = await action.handler({ remote: false }, {} as never) as {
+      channels: Array<{ providerId: string | null }>;
+    };
+    expect(all.channels).toHaveLength(1);
+    expect(all.channels[0].providerId).toBe('telegram');
+    const none = await action.handler({ remote: false }, { providerId: 'slack' } as never) as {
+      channels: unknown[];
+    };
+    expect(none.channels).toHaveLength(0);
+  });
+
+  it('create_schedule binds + de-dupes a digest channel for orchestrator targets', async () => {
+    await seed();
+    const ch = await seedTelegramChannel();
+    const action = await findAction('create_schedule');
+    const result = await action.handler({ remote: false }, {
+      name: 'email-digest', targetKind: 'orchestrator',
+      prompt: 'Review my email and write a digest',
+      kind: 'cron', cronExpression: '0 8 * * *',
+      deliverResultTo: [ch.id, ch.id], // duplicate proves de-dupe
+    } as never) as { schedule: { deliverResultTo: string[] } };
+    expect(result.schedule.deliverResultTo).toEqual([ch.id]);
+  });
+
+  it('create_schedule rejects a digest binding on a workspace target', async () => {
+    const { wsId } = await seed();
+    const ch = await seedTelegramChannel();
+    const action = await findAction('create_schedule');
+    expect(() => action.handler({ remote: false }, {
+      name: 'ws-digest', targetKind: 'workspace', workspaceId: wsId,
+      prompt: 'X', kind: 'at', runAt: new Date(Date.now() + 60_000).toISOString(),
+      deliverResultTo: [ch.id],
+    } as never)).toThrow(/orchestrator/);
+  });
+
+  it('create_schedule rejects an unknown digest channel id', async () => {
+    await seed();
+    const action = await findAction('create_schedule');
+    expect(() => action.handler({ remote: false }, {
+      name: 'bad-digest', targetKind: 'orchestrator',
+      prompt: 'X', kind: 'cron', cronExpression: '0 8 * * *',
+      deliverResultTo: ['no-such-channel'],
+    } as never)).toThrow(/notification channel not found/);
+  });
+
+  it('update_schedule replaces the digest binding (and [] unbinds)', async () => {
+    await seed();
+    const ch = await seedTelegramChannel();
+    const create = await findAction('create_schedule');
+    const created = await create.handler({ remote: false }, {
+      name: 'digest-edit', targetKind: 'orchestrator',
+      prompt: 'X', kind: 'cron', cronExpression: '0 8 * * *',
+    } as never) as { schedule: { id: string; deliverResultTo: string[] } };
+    expect(created.schedule.deliverResultTo).toEqual([]);
+
+    const update = await findAction('update_schedule');
+    const bound = await update.handler({ remote: false }, {
+      id: created.schedule.id, deliverResultTo: [ch.id],
+    } as never) as { deliverResultTo: string[] };
+    expect(bound.deliverResultTo).toEqual([ch.id]);
+
+    const unbound = await update.handler({ remote: false }, {
+      id: created.schedule.id, deliverResultTo: [],
+    } as never) as { deliverResultTo: string[] };
+    expect(unbound.deliverResultTo).toEqual([]);
+  });
 });

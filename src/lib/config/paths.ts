@@ -190,12 +190,12 @@ export function ensureBackupsDir(): string {
 
 // ─── Home bootstrap ───────────────────────────────────────────────
 
-const GITIGNORE_BODY = `# ${APP_SHORT_ID} — machine-local plumbing, never sync
+const GITIGNORE_BODY = `# ${APP_SHORT_ID}: machine-local plumbing, never sync
 .config/
 .work/
 # Legacy worktree/clone locations (pre-2026-06-16 installs put these at the
-# home root; new ones live in .work/). They're DB-referenced by absolute
-# path + may hold uncommitted work, so the migration leaves them in place —
+# home root. New ones live in .work/). They're DB-referenced by absolute
+# path + may hold uncommitted work, so the migration leaves them in place,
 # just keep them out of sync here.
 worktrees/
 clones/
@@ -203,7 +203,7 @@ clones/
 *.db-wal
 *.db-shm
 # Local dated snapshots (each bundles a full binary data.db dump → would
-# bloat history). The remote backup is the durable copy; these are local.
+# bloat history). The remote backup is the durable copy. These are local.
 snapshots/
 `;
 

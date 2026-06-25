@@ -33,24 +33,24 @@ export function buildResolveConflictsPrompt(input: ResolveConflictsPromptInput):
     lines.push('');
     lines.push('Steps:');
     lines.push('1. `git fetch origin ' + (baseBranch ?? 'main') + '`');
-    lines.push('2. `git merge origin/' + (baseBranch ?? 'main') + '` — this will fail with conflicts.');
+    lines.push('2. `git merge origin/' + (baseBranch ?? 'main') + '`, this will fail with conflicts.');
   } else {
     lines.push(
       'The local branch `' +
         branch +
         '` has diverged from `origin/' +
         branch +
-        '` — your push was rejected because remote has commits not in local. Pull the remote in, resolve any conflicts, and push.',
+        '`. Your push was rejected because remote has commits not in local. Pull the remote in, resolve any conflicts, and push.',
     );
     lines.push('');
     lines.push('Steps:');
     lines.push('1. `git fetch origin ' + branch + '`');
-    lines.push('2. `git merge origin/' + branch + '` — this may merge cleanly or fail with conflicts.');
+    lines.push('2. `git merge origin/' + branch + '`, this may merge cleanly or fail with conflicts.');
   }
 
   lines.push('3. If there are conflicts: `git status` to see which files are unmerged. Read the conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) and decide the resolution from context. Edit each conflicted file, remove all markers, save.');
   lines.push('4. `git add <files>` to mark resolved.');
-  lines.push('5. `git commit` — accept the default merge commit message unless you have a reason to change it.');
+  lines.push('5. `git commit`, accept the default merge commit message unless you have a reason to change it.');
   lines.push('6. `git push -u origin HEAD`.');
   lines.push('7. Report the resulting state.');
   lines.push('');

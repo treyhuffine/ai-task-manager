@@ -50,7 +50,7 @@
     "skills"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.21",
+    "@agentex/agent": "^0.0.22",
     "@agentex/github": "^0.0.1",
     "@agentex/workspace": "^0.0.4",
     "@ai-sdk/anthropic": "^3.0.63",
@@ -70,6 +70,7 @@
     "@codemirror/merge": "^6.12.1",
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.42.1",
+    "@connectors/engine": "workspace:*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -157,6 +158,7 @@
     "unpdf": "^1.6.2",
     "use-stick-to-bottom": "^1.1.3",
     "uuidv7": "^1.1.0",
+    "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.25.76"
   },
@@ -168,10 +170,12 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "simple-icons": "^16.24.0",
     "tailwindcss": "^4",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",

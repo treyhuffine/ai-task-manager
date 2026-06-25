@@ -102,7 +102,7 @@ export async function stopCommand(opts: StopOptions) {
 
   // Graceful shutdown timed out. Escalate (unless we already SIGKILL'd).
   if (signal !== 'SIGKILL') {
-    s.stop(pc.yellow(`SIGTERM timed out after ${timeoutMs}ms — sending SIGKILL`));
+    s.stop(pc.yellow(`SIGTERM timed out after ${timeoutMs}ms, sending SIGKILL`));
     for (const pid of targets) {
       try {
         process.kill(pid, 'SIGKILL');
@@ -118,7 +118,7 @@ export async function stopCommand(opts: StopOptions) {
     }
   }
 
-  log.error(`Port ${port} still in use after kill — check \`lsof -iTCP:${port}\``);
+  log.error(`Port ${port} still in use after kill. Check \`lsof -iTCP:${port}\``);
   outro('Aborted');
   process.exit(1);
 }

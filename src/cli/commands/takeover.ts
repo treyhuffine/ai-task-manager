@@ -70,7 +70,7 @@ async function fetchInfo(host: string, token: string): Promise<TakeoverInfoRespo
   if (!res.ok) {
     if (res.status === 404) {
       throw new Error(
-        'Token not found. The takeover may have been cancelled, or this is a stale URL — ask the browser to start a new takeover.',
+        'Token not found. The takeover may have been cancelled, or this is a stale URL. Ask the browser to start a new takeover.',
       );
     }
     if (res.status === 410) {
@@ -190,7 +190,7 @@ export async function takeoverCommand(urlArg: string | undefined, opts: Takeover
 export function registerTakeoverCommand(program: Command) {
   program
     .command('takeover [url]')
-    .description('Take over an agent session locally — clones the workspace and opens it in your editor')
+    .description('Take over an agent session locally: clones the workspace and opens it in your editor')
     .option('--no-open', "Don't auto-launch the editor after cloning")
     .option('--list', 'List active takeovers on this machine instead of starting a new one')
     .action(takeoverCommand);

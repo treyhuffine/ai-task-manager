@@ -11,7 +11,7 @@ import { tokenDisplay } from '@/lib/auth/tokens';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { QrCode } from '@/components/settings/qr-code';
-import { RemoteBaseUrlSection } from '@/components/settings/remote-base-url';
+import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 
 const DEVICE_TYPES: DeviceType[] = ['computer', 'phone', 'tablet', 'service', 'other'];
 
@@ -100,7 +100,7 @@ export function DevicesSection() {
         id: 'remote',
         label: 'Remote',
         base: baseUrls.tunnel,
-        hint: 'Off-network — anywhere with internet',
+        hint: 'Off-network: anywhere with internet',
       });
     }
 
@@ -149,8 +149,6 @@ export function DevicesSection() {
 
   return (
     <div className="space-y-6">
-      <RemoteBaseUrlSection />
-
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <KeyRound size={14} className="text-muted-foreground" />
@@ -289,9 +287,7 @@ export function DevicesSection() {
       )}
 
       <div className="space-y-2">
-        {isLoading && (
-          <p className="text-[11px] text-muted-foreground/60">Loading devices…</p>
-        )}
+        {isLoading && <SettingsSkeleton rows={2} />}
         {!isLoading && active.length === 0 && (
           <p className="text-[11px] text-muted-foreground/60">No paired devices.</p>
         )}

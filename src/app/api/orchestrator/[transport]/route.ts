@@ -19,7 +19,7 @@ import { APP_NAME } from '@/constants/app';
 import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
 
-const SERVER_INSTRUCTIONS = `${APP_NAME} orchestrator — typed, fine-grained tools for reading and writing the user's productivity brain.
+const SERVER_INSTRUCTIONS = `${APP_NAME} orchestrator: typed, fine-grained tools for reading and writing the user's productivity brain.
 
 Unlike the external MCP (which takes natural language), every tool here has a strict parameter schema and a predictable return shape. Use it when you need deterministic CRUD: listing tasks, creating notes, updating statuses, etc.
 

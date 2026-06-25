@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import path from 'node:path';
 import { listWorkspaces, createWorkspace } from '@/lib/db/queries';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
+import { parseConnectorScopes, validateConnectorScopes } from '@/lib/connectors/scopes';
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 
 export async function GET(request: NextRequest) {
@@ -28,6 +29,17 @@ export async function POST(request: NextRequest) {
     const isGit = body.isGit ?? (await detectIsGit(cwd));
     const baseBranch = isGit ? body.baseBranch ?? (await detectBaseBranch(cwd, body.remoteName ?? 'origin')) : null;
 
+    // Connector scopes are optional at create. Validate identically to the edit path (no stored
+    // scopes to preserve yet, no live sessions to recycle); fail-closed on a bad pin.
+    let connectorScopes: CreateWorkspaceInput['connectorScopes'] | undefined;
+    if (body.connectorScopes !== undefined) {
+      const parsed = parseConnectorScopes(body.connectorScopes);
+      if (!parsed) return Response.json({ error: 'connectorScopes must be an array of { toolkitId, account? }' }, { status: 400 });
+      const result = await validateConnectorScopes(parsed);
+      if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
+      connectorScopes = result.scopes;
+    }
+
     const row = createWorkspace({
       name: body.name,
       slug: body.slug,
@@ -44,6 +56,7 @@ export async function POST(request: NextRequest) {
       teardownCommand: body.teardownCommand ?? null,
       areaId: body.areaId ?? null,
       status: body.status ?? 'active',
+      ...(connectorScopes !== undefined ? { connectorScopes } : {}),
     });
     return Response.json(row, { status: 201 });
   } catch (err) {

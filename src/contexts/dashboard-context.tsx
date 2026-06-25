@@ -30,6 +30,13 @@ const SLIDEOUT_CLOSE_BEHAVIOR: SlideoutCloseBehavior = 'back';
 interface DashboardState {
   theme: Theme;
   activeView: ActiveView;
+  // Execution that the active view's chat belongs to. The workspace tree
+  // shows one row per execution (keyed to its primary chat), so when the
+  // user is on a *sibling* chat, `activeView` (a chat id) won't match any
+  // tree row. This lets the row stay highlighted for any chat of its
+  // execution. Set by ExecutionView from the loaded session; null in the
+  // command view / non-execution chats.
+  activeExecutionId: string | null;
   panelATab: AnyPanelTab;
   panelBTab: AnyPanelTab;
   focusedPanel: PanelId;
@@ -87,6 +94,7 @@ interface DashboardActions {
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
   setActiveView: (view: ActiveView) => void;
+  setActiveExecutionId: (id: string | null) => void;
   setPanelTab: (panel: PanelId, tab: AnyPanelTab) => void;
   setFocusedPanel: (panel: PanelId) => void;
   resetLayout: () => void;
@@ -172,6 +180,7 @@ const DEFAULT_PANEL_B_TAB: AnyPanelTab = 'chat';
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
   const [activeView, setActiveViewState] = useState<ActiveView>('command');
+  const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const [panelATab, setPanelATab] = useState<AnyPanelTab>(DEFAULT_PANEL_A_TAB);
   const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(DEFAULT_PANEL_B_TAB);
   const [focusedPanel, setFocusedPanel] = useState<PanelId>('a');
@@ -417,6 +426,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('flow.execution.lastId', view);
       }
+    } else {
+      // Leaving for the command view: drop the active-execution highlight.
+      // (ExecutionView re-sets it from the loaded session on the way in.)
+      setActiveExecutionId(null);
     }
   }, []);
 
@@ -424,6 +437,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     <DashboardContext.Provider value={{
       theme,
       activeView,
+      activeExecutionId,
       panelATab,
       panelBTab,
       focusedPanel,
@@ -437,6 +451,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setTheme,
       toggleTheme,
       setActiveView,
+      setActiveExecutionId,
       setPanelTab,
       setFocusedPanel,
       resetLayout,

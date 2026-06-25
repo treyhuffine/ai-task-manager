@@ -44,8 +44,8 @@ export function buildOpenPrPrompt(input: OpenPrPromptInput): string {
   lines.push('Steps:');
   lines.push('1. If the worktree has uncommitted changes, commit them first with a focused message.');
   lines.push('2. Push the branch if it hasn\'t been pushed yet (`git push -u origin HEAD`).');
-  lines.push('3. Draft a PR title (≤72 chars, imperative mood — "Add X", not "Added X").');
-  lines.push('4. Draft a PR body with: **Summary**, **What changed**, **Why** sections. Keep it tight; this is for review, not a novel.');
+  lines.push('3. Draft a PR title (≤72 chars, imperative mood: "Add X", not "Added X").');
+  lines.push('4. Draft a PR body with: **Summary**, **What changed**, **Why** sections. Keep it tight. This is for review, not a novel.');
   lines.push('5. Run `gh pr create --base ' + baseBranch + ' --head ' + branch + ' --title "<title>" --body "<body>"`.');
   lines.push('6. Report the resulting PR URL.');
   lines.push('');

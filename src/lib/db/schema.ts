@@ -30,6 +30,30 @@ export interface Attachment {
 /** On-disk shape of an attachment inside a JSON column. */
 export type StoredAttachment = SnakeizeKeys<Attachment>;
 
+/**
+ * Pins a connector scope to one account. The engine's connection natural key is
+ * `(ownerId, providerId, accountId, authConfigId)` — so `accountId` alone is NOT unique when the
+ * same account is connected through two OAuth clients. We carry `authConfigId` too so the pin always
+ * resolves to exactly one connection. `authConfigId` undefined = the provider's default client.
+ */
+export interface WorkspaceConnectorScopeAccount {
+  /** Stable engine accountId — survives disconnect/reconnect of the same account. */
+  accountId: string;
+  /** The AuthConfig (OAuth client) that minted the pinned connection; undefined = default client. */
+  authConfigId?: string;
+}
+
+/**
+ * One entry in a workspace's connector allowlist (docs/connectors-workspace-scoping-spec.md §4).
+ * `toolkitId` is the service grain (e.g. `gmail`, `google_calendar`, `mcp_linear`); `account` is an
+ * optional account pin (omitted = all connected accounts for that toolkit). Stored as a JSON array
+ * on the workspace row; resolved to live connection ids at session-build time.
+ */
+export interface WorkspaceConnectorScope {
+  toolkitId: string;
+  account?: WorkspaceConnectorScopeAccount;
+}
+
 // ─── User State ────────────────────────────────────────────────
 
 export const userState = sqliteTable('user_state', {
@@ -43,6 +67,10 @@ export const userState = sqliteTable('user_state', {
   // Defaults to a 9–6 day until the user sets it or a calendar refines it.
   workdayStart: text().notNull().default('09:00'),
   workdayEnd: text().notNull().default('18:00'),
+  // IANA timezone (e.g. 'America/New_York'). Null → fall back to the
+  // browser's detected zone in the UI; paired with the workday window so the
+  // deck plans the day in the user's actual local time.
+  timezone: text(),
   description: text().notNull().default(''),
   voiceAutoSend: integer({ mode: 'boolean' }).notNull().default(true),
   voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
@@ -333,6 +361,9 @@ export const workspaces = sqliteTable('workspaces', {
   // the worktree; add the gitignored local override (`beamd.local.yaml`) to
   // this list if you want that to travel too.
   filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
+  // Connector allowlist for this workspace's executions (service-grain, optional account pin).
+  // Empty = no connectors for executions. See docs/connectors-workspace-scoping-spec.md.
+  connectorScopes: text({ mode: 'json' }).$type<WorkspaceConnectorScope[]>().notNull().default([]),
   // Worktree lifecycle scripts (all optional). Flow runs each as `sh -lc` in
   // the execution's worktree, with $FLOW_SOURCE_CHECKOUT_PATH /
   // $FLOW_WORKTREE_PATH / $FLOW_BRANCH_NAME exported. Flow stays
@@ -968,6 +999,11 @@ export const schedules = sqliteTable('schedules', {
   // null). Used by the schedule detail view to render context.
   disabledReason: text(),
 
+  // Notifier digest binding (docs/connectors-email-and-notifier-spec.md §2.9):
+  // notification_channel ids that this schedule's result is delivered to when an
+  // orchestrator-target run completes (`schedule.run_completed`, binding routing).
+  deliverResultTo: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+
   createdAt: text().notNull().default(sql`(datetime('now'))`),
   updatedAt: text().notNull().default(sql`(datetime('now'))`),
 }, (table) => [
@@ -1091,3 +1127,92 @@ export interface RunArtifactRef {
   kind: 'task' | 'note' | 'workspace' | 'memory';
   id: string;
 }
+
+// ─── Notifications (the app push layer over connectors) ───────────
+// See docs/connectors-email-and-notifier-spec.md §2. The Notifier lives in
+// the app (src/lib/notifications), depends on connectors one-way, and decides
+// WHEN/WHERE an app event reaches the user. Three concerns, three tables:
+//   - notification_channels   = user preference/config (where + which events)
+//   - web_push_subscriptions  = browser push endpoints
+//   - notification_deliveries = durable send attempts (the outbox, §2.16)
+
+/**
+ * A NotificationEvent as stored in `notification_deliveries.event`. The canonical
+ * runtime type (with the precise `type` union derived from EVENT_CATALOG) lives in
+ * `src/lib/notifications/types.ts`; this is the decoupled storage shape (schema is the
+ * source of truth and must not import the app module). Structurally compatible.
+ */
+export interface StoredNotificationEvent {
+  type: string;
+  userId: string;
+  dedupeKey: string;
+  title: string;
+  body: string;
+  url: string;
+  [key: string]: unknown; // structured extras a richer channel can format from
+}
+
+/** Rendered, channel-ready notification stored on a delivery row. */
+export interface StoredRenderedNotification {
+  title: string;
+  body: string;
+  url: string;
+}
+
+export const notificationChannels = sqliteTable('notification_channels', {
+  id: text().primaryKey(),
+  userId: text().notNull().default('local'),
+  kind: text({ enum: ['connector', 'web_push', 'in_app'] }).notNull(),
+  // Optional human name for the channel ("My phone", "Team room"). UI falls back to a derived label.
+  label: text(),
+  // kind 'connector' — WHICH connector (telegram/slack/…). The actionId
+  // (telegram.send_message) lives in the adapter registry, NOT this row.
+  providerId: text(),
+  // kind 'connector' — the engine connection id. NO Drizzle FK: the connection
+  // lives in the engine's store (.config/connectors), not this DB; the
+  // disconnect cascade is app-level (deleteChannelsForConnection).
+  connectionId: text(),
+  // Structured target per kind: Telegram {chatId}, Slack {channel}, web_push {} (fans to subs).
+  config: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  // The per-channel matrix toggle list — which event types route here.
+  events: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+  enabled: integer({ mode: 'boolean' }).notNull().default(true),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_notification_channels_user_enabled').on(table.userId, table.enabled),
+  index('idx_notification_channels_connection').on(table.connectionId), // disconnect cascade
+]);
+
+export const webPushSubscriptions = sqliteTable('web_push_subscriptions', {
+  id: text().primaryKey(),
+  userId: text().notNull().default('local'),
+  endpoint: text().notNull().unique(), // one row per browser endpoint
+  p256dh: text().notNull(),
+  auth: text().notNull(),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+}, (table) => [index('idx_web_push_subscriptions_user').on(table.userId)]);
+
+export const notificationDeliveries = sqliteTable('notification_deliveries', {
+  id: text().primaryKey(),
+  userId: text().notNull().default('local'),
+  eventType: text().notNull(),
+  dedupeKey: text().notNull(), // from the event; idempotency across re-fires
+  channelId: text().notNull().references(() => notificationChannels.id, { onDelete: 'cascade' }),
+  // No 'sending' in v1: inline single-process → no lease needed. Add it + lease
+  // columns with a future background worker (spec §2.16).
+  status: text({ enum: ['pending', 'sent', 'failed', 'skipped'] }).notNull().default('pending'),
+  attempts: integer().notNull().default(0),
+  event: text({ mode: 'json' }).$type<StoredNotificationEvent>().notNull(), // for re-render / retry / history
+  rendered: text({ mode: 'json' }).$type<StoredRenderedNotification>(),
+  providerMessageId: text(), // e.g. Telegram message_id
+  lastError: text(),
+  nextAttemptAt: text(), // set by a FUTURE retry worker (not v1)
+  sentAt: text(),
+  createdAt: text().notNull().default(sql`(datetime('now'))`),
+  updatedAt: text().notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('uniq_notification_deliveries_dedupe_channel').on(table.dedupeKey, table.channelId), // idempotency
+  index('idx_notification_deliveries_user_status').on(table.userId, table.status),
+  index('idx_notification_deliveries_next_attempt').on(table.status, table.nextAttemptAt), // future worker
+]);

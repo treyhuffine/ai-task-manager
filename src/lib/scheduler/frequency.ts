@@ -185,7 +185,7 @@ export function describeFrequency(row: {
     case 'custom':
       return `cron \`${row.cronExpression}\` (${row.timezone ?? 'UTC'})`;
     default:
-      return row.cronExpression ?? '—';
+      return row.cronExpression ?? '-';
   }
 }
 
@@ -193,7 +193,7 @@ export function describeFrequency(row: {
 
 function parseHHMM(s: string): { hour: number; minute: number } {
   const m = s.trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) throw new Error(`Invalid time "${s}" — expected HH:MM`);
+  if (!m) throw new Error(`Invalid time "${s}", expected HH:MM`);
   const hour = Number(m[1]);
   const minute = Number(m[2]);
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {

@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   // production build doesn't bundle/rewrite that resolution (which breaks the
   // launch in `next start`). Same rationale as the native deps below.
   serverExternalPackages: ["better-sqlite3", "sqlite-vec", "node-pty", "@beamd/cli"],
+  // The connector engine is a workspace package shipped as raw TS (zod-only core);
+  // Next must transpile it (and its subpath exports) to consume it from routes.
+  transpilePackages: ["@connectors/engine"],
   // Honor NEXT_DIST_DIR so the smoke-test server can boot alongside a
   // running `pnpm dev` without fighting for `.next/dev/lock`.
   distDir: process.env.NEXT_DIST_DIR || ".next",

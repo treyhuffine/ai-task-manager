@@ -113,7 +113,7 @@ export function hot(tag: string): void {
     panicLogged.add(tag);
     // eslint-disable-next-line no-console
     console.error(
-      `[hot-path] PANIC ${tag}: ${n} fires since last flush — main thread likely starved`,
+      `[hot-path] PANIC ${tag}: ${n} fires since last flush, main thread likely starved`,
     );
   }
 }

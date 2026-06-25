@@ -52,8 +52,11 @@ export function HistoryRow({
     setActiveView(session.id);
   };
 
-  const label = session.label ?? 'Untitled';
-  const labelIsPlaceholder = !session.label;
+  // History is one-per-chat: prefer the chat's own label so sibling chats on
+  // one execution stay distinguishable, falling back to the execution title
+  // for a brand-new chat whose label hasn't been derived yet.
+  const label = session.label ?? session.execution?.label ?? 'Untitled';
+  const labelIsPlaceholder = !(session.label ?? session.execution?.label);
 
   const wsName = session.workspaceName ?? 'Workspace removed';
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);

@@ -40,7 +40,7 @@ export async function serverFetch<T>(path: string, init: RequestInit = {}): Prom
   if (!token) {
     throw new ActionError(
       'unsupported',
-      'No local auth token found (config.json) — has the app been initialized with `start`?',
+      'No local auth token found (config.json). Has the app been initialized with `start`?',
     );
   }
   const base = serverBaseUrl();
@@ -58,7 +58,7 @@ export async function serverFetch<T>(path: string, init: RequestInit = {}): Prom
   } catch {
     throw new ActionError(
       'conflict',
-      `App server unreachable at ${base} — live session state and sends require the app to be running.`,
+      `App server unreachable at ${base}. Live session state and sends require the app to be running.`,
     );
   }
   if (!res.ok) {

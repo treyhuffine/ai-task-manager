@@ -36,7 +36,7 @@ async function snapshot() {
         code: 'beamd_cli_outdated',
         message:
           "Flow's beamd is older than the beamd that set up this machine, so it can't read the account. " +
-          'Update Flow (or install a current beamd — Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.',
+          'Update Flow (or install a current beamd, Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.',
       };
     }
   } catch (err) {

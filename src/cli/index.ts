@@ -24,7 +24,7 @@ const program = new Command();
 
 program
   .name(APP_SHORT_ID)
-  .description(`${APP_NAME} — productivity for humans and agents`)
+  .description(`${APP_NAME}: productivity for humans and agents`)
   .version('0.0.1');
 
 program

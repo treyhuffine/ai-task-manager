@@ -53,7 +53,7 @@ export async function getCalendarEventsForDay(date: string): Promise<CalendarBlo
   try {
     return await provider(date);
   } catch (err) {
-    console.error('[calendar] provider failed; treating day as open', err);
+    console.error('[calendar] provider failed, treating day as open', err);
     return [];
   }
 }
@@ -151,7 +151,7 @@ export function availableMinutes(gaps: CalendarGap[]): number {
   return gaps.reduce((sum, g) => sum + g.minutes, 0);
 }
 
-/** "9:00 AM – 10:30 AM (1h 30m)" */
+/** "9:00 AM to 10:30 AM (1h 30m)" */
 export function formatGap(gap: CalendarGap): string {
-  return `${minutesToLabel(gap.startMinute)} – ${minutesToLabel(gap.endMinute)} (${formatMinutes(gap.minutes)})`;
+  return `${minutesToLabel(gap.startMinute)} to ${minutesToLabel(gap.endMinute)} (${formatMinutes(gap.minutes)})`;
 }

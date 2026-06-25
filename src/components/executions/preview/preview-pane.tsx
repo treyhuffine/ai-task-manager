@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Globe, Loader2, RotateCw, Smartphone, X } from 'lucide-react';
-import { openBeamdSheet } from '@/components/dashboard/beamd-sheet';
+import { openSettings } from '@/components/settings/settings-store';
 import { OpenOnDevice } from './open-on-device';
 import { useWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import {
@@ -330,7 +330,7 @@ function PreviewBody(props: PreviewBodyProps) {
           {remoteError!.code === 'beamd_not_configured' || remoteError!.code === 'no_remote_provider' ? (
             <button
               type="button"
-              onClick={openBeamdSheet}
+              onClick={() => openSettings('remote-preview')}
               className="flex items-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:bg-foreground/90"
             >
               <Globe size={13} />
@@ -443,7 +443,7 @@ function SetupRecovery({
   const body = isError
     ? 'The workspace setup script errored, so the preview may be missing dependencies.'
     : isConfigure
-      ? 'The dev server couldn’t start. If your app needs a dependency install (e.g. yarn install / pnpm install), add it as the workspace setup command — it runs once per worktree before the preview starts.'
+      ? 'The dev server couldn’t start. If your app needs a dependency install (e.g. yarn install / pnpm install), add it as the workspace setup command. It runs once per worktree before the preview starts.'
       : 'The dev server couldn’t start. If dependencies aren’t installed, re-run the workspace setup script.';
   return (
     <div className="w-full rounded-md border border-border bg-card/40 p-3">
@@ -515,7 +515,7 @@ function OpenOnDeviceNudge({ onShow }: { onShow: () => void }) {
   return (
     <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-3 py-1.5 text-[11px]">
       <Smartphone size={12} className="shrink-0 text-primary" />
-      <span className="flex-1 text-muted-foreground">See this on your real phone — one scan, no deploy.</span>
+      <span className="flex-1 text-muted-foreground">See this on your real phone: one scan, no deploy.</span>
       <button
         type="button"
         onClick={() => {

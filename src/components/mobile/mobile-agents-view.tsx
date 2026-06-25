@@ -22,7 +22,7 @@ import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { useAreas } from '@/hooks/use-areas';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
-import type { ChatSessionRecord, WorkspaceWithCounts } from '@/db/types';
+import type { ChatSessionWithExecution, WorkspaceWithCounts } from '@/db/types';
 
 /**
  * Mobile-tab "Agents" surface. Mirrors the desktop rail's structure
@@ -240,7 +240,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
 // ─── Session row (mobile sized) ───────────────────────────────────
 
 interface MobileSessionRowProps {
-  session: ChatSessionRecord;
+  session: ChatSessionWithExecution;
   /** When set, shown as a small chip after the label (e.g. workspace
    *  name in the Needs Review surface where we cross workspaces). */
   workspaceLabel?: string;
@@ -250,7 +250,7 @@ interface MobileSessionRowProps {
 }
 
 function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSessionRowProps) {
-  const { activeView, setActiveView, streamingSessionIds, pendingInputSessionIds, setMobileTab } =
+  const { activeView, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds, setMobileTab } =
     useDashboard();
   const isPending = pendingInputSessionIds.has(session.id);
   // Pending wins over streaming: when the agent is blocked on user input
@@ -263,10 +263,16 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
       ? true
       : !isStreaming && !isPending && lastOutcome && lastOutcome > (session.lastViewedAt ?? '1970-01-01');
   const timestamp = lastOutcome ?? session.startedAt;
-  const isActive = activeView === session.id;
+  // One row per execution: active when the open view is its primary chat
+  // or any sibling chat of the same execution.
+  const isActive =
+    activeView === session.id ||
+    (!!session.executionId && activeExecutionId === session.executionId);
 
-  const label = session.label ?? 'Untitled';
-  const labelIsPlaceholder = !session.label;
+  // Title by the execution (stable across its chats); fall back to the
+  // primary chat's label for legacy executions that were never named.
+  const label = session.execution?.label ?? session.label ?? 'Untitled';
+  const labelIsPlaceholder = !(session.execution?.label ?? session.label);
 
   const open = () => {
     // Stay on the agents tab — MobileLayout swaps the agents content for

@@ -232,6 +232,34 @@
       "when": 1781905657935,
       "tag": "0032_slimy_shinobi_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1782229130806,
+      "tag": "0033_rare_gunslinger",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1782238235578,
+      "tag": "0034_misty_killmonger",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1782249602987,
+      "tag": "0035_marvelous_master_mold",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1782392944507,
+      "tag": "0036_jittery_sebastian_shaw",
+      "breakpoints": true
     }
   ]
 }

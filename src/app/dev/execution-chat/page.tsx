@@ -251,7 +251,7 @@ function ScenarioCard({
               ? 'text-primary border border-primary/40 hover:bg-primary/10'
               : 'text-muted-foreground/40 border border-border/40 cursor-not-allowed',
           )}
-          title={scenario.inject ? 'Inject synthetic state — no agent call' : 'No inject path for this scenario'}
+          title={scenario.inject ? 'Inject synthetic state, no agent call' : 'No inject path for this scenario'}
         >
           {injectPending ? <Loader2 size={9} className="animate-spin" /> : <Beaker size={9} />}
           Inject

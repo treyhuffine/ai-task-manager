@@ -155,7 +155,7 @@ function TextExpandChip({ url, display, variant, size }: {
               Loading…
             </span>
           ) : error ? (
-            <span className="block px-3 py-2 text-[11px] text-destructive">Failed to load — {error}</span>
+            <span className="block px-3 py-2 text-[11px] text-destructive">Failed to load: {error}</span>
           ) : (
             <pre className="text-[11px] font-mono text-foreground/90 px-3 py-2 whitespace-pre-wrap break-words">
               {content ?? ''}

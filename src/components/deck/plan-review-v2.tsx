@@ -52,7 +52,7 @@ export function PlanReviewV2({ plan, onConfirm, onRemoveDeepWork, onRemoveLightT
     if (item) {
       setAlternatives(prev => [...prev, {
         id: item.id,
-        title: `${item.projectTitle} — ${item.taskTitle}`,
+        title: `${item.projectTitle}: ${item.taskTitle}`,
         areaName: item.areaName,
         energy: item.energy,
         effort: item.effort,
@@ -84,8 +84,8 @@ export function PlanReviewV2({ plan, onConfirm, onRemoveDeepWork, onRemoveLightT
     if (alt.energy === 'deep') {
       setDeepWork(prev => [...prev, {
         id: alt.id,
-        projectTitle: alt.title.split(' — ')[0] || alt.title,
-        taskTitle: alt.title.split(' — ')[1] || alt.title,
+        projectTitle: alt.title.split(': ')[0] || alt.title,
+        taskTitle: alt.title.split(': ')[1] || alt.title,
         areaName: alt.areaName,
         continuityContext: '',
         rationale: '',
@@ -163,7 +163,7 @@ export function PlanReviewV2({ plan, onConfirm, onRemoveDeepWork, onRemoveLightT
           />
         ))}
         {deepWork.length === 0 && (
-          <p className="text-[10px] text-muted-foreground py-2 text-center">No deep work — add from alternatives below</p>
+          <p className="text-[10px] text-muted-foreground py-2 text-center">No deep work. Add from alternatives below</p>
         )}
       </div>
 
@@ -321,7 +321,7 @@ function DeepCard({
         )} />
         <div className="flex-1 min-w-0">
           <h3 className="text-[12px] font-medium text-foreground leading-tight">
-            {item.projectTitle} — {item.taskTitle}
+            {item.projectTitle}: {item.taskTitle}
           </h3>
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
             {item.areaName && (

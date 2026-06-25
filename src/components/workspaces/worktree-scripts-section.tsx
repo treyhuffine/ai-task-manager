@@ -38,8 +38,8 @@ export function WorktreeScriptsSection({
   cwd,
 }: WorktreeScriptsSectionProps) {
   const { data: detected } = useStackDetection(cwd ?? null);
-  const setupPlaceholder = detected?.setup || 'install dependencies — e.g. pnpm install';
-  const startPlaceholder = detected?.start || 'dev server — e.g. pnpm dev';
+  const setupPlaceholder = detected?.setup || 'install dependencies, e.g. pnpm install';
+  const startPlaceholder = detected?.start || 'dev server, e.g. pnpm dev';
 
   return (
     <div className="space-y-4">
@@ -51,7 +51,7 @@ export function WorktreeScriptsSection({
         multiline
         hint={
           <>
-            Runs once after the worktree is created. A fresh worktree has no installed dependencies — install or copy what
+            Runs once after the worktree is created. A fresh worktree has no installed dependencies. Install or copy what
             it needs here. <code className="font-mono">$FLOW_SOURCE_CHECKOUT_PATH</code> points at the original checkout.
           </>
         }
@@ -74,7 +74,7 @@ export function WorktreeScriptsSection({
         onChange={onTeardownChange}
         placeholder="(none)"
         multiline
-        hint={<>Runs on archive, before the worktree is removed. Best-effort — a failure won&apos;t block archiving.</>}
+        hint={<>Runs on archive, before the worktree is removed. Best-effort; a failure won&apos;t block archiving.</>}
       />
     </div>
   );

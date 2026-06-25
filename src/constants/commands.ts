@@ -60,6 +60,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'go-chat', label: 'Go to Chat', keywords: 'navigate chat ai', icon: 'MessagesSquare', group: 'navigate' },
 
   // Settings
+  { id: 'open-settings', label: 'Settings', keywords: 'settings preferences config profile account voice notifications billing devices', icon: 'Settings', group: 'settings' },
   { id: 'toggle-theme', label: 'Toggle theme', keywords: 'theme dark light mode switch', icon: 'Sun', group: 'settings' },
 ];
 

@@ -10,10 +10,11 @@ import { EmojiPicker } from '@/components/shared/emoji-picker';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { fsApi } from '@/lib/api/fs';
 import { cn } from '@/lib/utils';
-import type { Attachment } from '@/db/types';
+import type { Attachment, WorkspaceConnectorScope } from '@/db/types';
 import { FolderPicker } from './folder-picker';
 import { FilesToCopySection } from './files-to-copy-section';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
+import { ConnectorScopePicker } from './connector-scope-picker';
 
 const DEFAULT_FILES_TO_COPY = ['.env*'];
 
@@ -40,6 +41,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
   const [setupCommand, setSetupCommand] = useState('');
   const [startCommand, setStartCommand] = useState('');
   const [teardownCommand, setTeardownCommand] = useState('');
+  const [connectorScopes, setConnectorScopes] = useState<WorkspaceConnectorScope[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,6 +67,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
     setSetupCommand('');
     setStartCommand('');
     setTeardownCommand('');
+    setConnectorScopes([]);
     setError(null);
     nameUserEditedRef.current = false;
     coverUserEditedRef.current = false;
@@ -174,6 +177,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         setupCommand: setupCommand.trim() || null,
         startCommand: startCommand.trim() || null,
         teardownCommand: teardownCommand.trim() || null,
+        connectorScopes,
       },
       {
         onSuccess: () => {
@@ -190,7 +194,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         },
       },
     );
-  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, createWs, reset, onOpenChange]);
+  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, connectorScopes, createWs, reset, onOpenChange]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -204,13 +208,13 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
     <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
           <VisuallyHidden.Root>
             <DialogPrimitive.Title>New Workspace</DialogPrimitive.Title>
             <DialogPrimitive.Description>Create a new workspace</DialogPrimitive.Description>
           </VisuallyHidden.Root>
-          <div className="rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="flex max-h-[88vh] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between px-5 py-3 border-b border-border">
               <span className="text-xs font-semibold tracking-wide text-foreground">
                 New Workspace
               </span>
@@ -221,7 +225,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
               </DialogPrimitive.Close>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
               {/* Folder is the entry point — name + cover + area gate on
                   this. Auto-derived workspace name and best-effort favicon
                   follow whichever folder the user lands on. */}
@@ -242,7 +246,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                   }}
                 />
                 <p className="mt-1 text-[10px] text-muted-foreground/70">
-                  Git is detected automatically. Non-git folders work too — they just don&apos;t get worktree isolation.
+                  Git is detected automatically. Non-git folders work too, they just don&apos;t get worktree isolation.
                 </p>
               </div>
 
@@ -357,7 +361,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                       onChange={(e) => setAreaId(e.target.value)}
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
                     >
-                      <option value="">— None —</option>
+                      <option value="">None</option>
                       {areas?.map((area) => (
                         <option key={area.id} value={area.id}>
                           {area.emoji ? `${area.emoji} ${area.name}` : area.name}
@@ -386,6 +390,17 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                       cwd={cwd}
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                      Connectors (optional)
+                    </label>
+                    <p className="mb-2 text-[10px] text-muted-foreground/70">
+                      Services agents running in this workspace may use. The orchestrator always has every connected
+                      service; this only scopes this workspace&apos;s executions. You can change it later in settings.
+                    </p>
+                    <ConnectorScopePicker scopes={connectorScopes} onChange={setConnectorScopes} disabled={createWs.isPending} />
+                  </div>
                 </>
               )}
 
@@ -396,7 +411,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
+            <div className="flex shrink-0 items-center justify-end gap-2 px-5 py-3 border-t border-border">
               <DialogPrimitive.Close asChild>
                 <button className="px-4 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent transition-colors">
                   Cancel

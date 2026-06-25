@@ -94,7 +94,7 @@ const taskTools = {
   }),
 
   createTask: tool({
-    description: 'Create a new task. Use when the user wants to add a todo, action item, goal, or reminder. IMPORTANT: areaId and parentId must be valid UUIDs — call listAreas or listTasks first to look up the correct ID. Do NOT pass area names as areaId.',
+    description: 'Create a new task. Use when the user wants to add a todo, action item, goal, or reminder. IMPORTANT: areaId and parentId must be valid UUIDs. Call listAreas or listTasks first to look up the correct ID. Do NOT pass area names as areaId.',
     inputSchema: z.object({
       title: z.string().describe('Short title for the task'),
       description: z.string().optional().describe('Brief description of what needs to be done'),
@@ -157,7 +157,7 @@ const taskTools = {
   }),
 
   deleteTask: tool({
-    description: 'Delete a task permanently. Use with caution — prefer archiving (updateTask with status: "archived") unless the user explicitly asks to delete.',
+    description: 'Delete a task permanently. Use with caution. Prefer archiving (updateTask with status: "archived") unless the user explicitly asks to delete.',
     inputSchema: z.object({
       id: z.string().describe('The task ID to delete'),
     }),
@@ -397,7 +397,7 @@ const deckTools = {
   }),
 
   updateDeck: tool({
-    description: 'Update the current deck — swap items, reorder, or modify the priority stack.',
+    description: 'Update the current deck: swap items, reorder, or modify the priority stack.',
     inputSchema: z.object({
       id: z.string().describe('The deck ID to update'),
       items: z.array(z.object({
@@ -460,7 +460,7 @@ const searchTools = {
   searchKnowledgeBase: tool({
     description: 'Search across all tasks, notes, and stream entries using semantic + keyword hybrid search. Use to find relevant information, answer questions about past work, or locate specific items.',
     inputSchema: z.object({
-      query: z.string().describe('Search query — a topic, keyword, or natural language phrase'),
+      query: z.string().describe('Search query: a topic, keyword, or natural language phrase'),
       limit: z.number().optional().default(10).describe('Max results'),
     }),
     execute: async ({ query, limit }) => {

@@ -26,12 +26,19 @@
 
 import { getProvider } from '@agentex/agent';
 import { CHEAPEST_MODEL, mapHarnessToProvider } from '@/lib/executor/harness';
-import { updateChatSession, listChatEvents, getChatSession, getAgent } from '@/lib/db/queries';
+import {
+  updateChatSession,
+  listChatEvents,
+  getChatSession,
+  getChatSessionWithExecution,
+  setExecutionLabel,
+  getAgent,
+} from '@/lib/db/queries';
 
 const MAX_LABEL_LENGTH = 60;
 
 const TITLE_PROMPT = (content: string) =>
-  `Summarize this user request as a short title (3-6 words). Output the title only — no quotes, no period, no prefix.
+  `Summarize this user request as a short title (3-6 words). Output the title only: no quotes, no period, no prefix.
 
 Message:
 ${content}
@@ -39,7 +46,7 @@ ${content}
 Title:`;
 
 const RETROSPECTIVE_PROMPT = (transcript: string) =>
-  `Below are excerpts from a conversation between a user and their personal productivity assistant, in order. Summarize what the conversation was about overall as a short retrospective title (3-6 words). If it covered several topics, name the dominant one or two. Output the title only — no quotes, no period, no prefix.
+  `Below are excerpts from a conversation between a user and their personal productivity assistant, in order. Summarize what the conversation was about overall as a short retrospective title (3-6 words). If it covered several topics, name the dominant one or two. Output the title only: no quotes, no period, no prefix.
 
 Excerpts:
 ${transcript}
@@ -115,6 +122,14 @@ export async function deriveAndSetSessionLabel(
   const label = aiTitle ?? truncateLabel(content);
   try {
     updateChatSession(sessionId, { label });
+    // The first conversation to produce a message also names the execution
+    // itself — its stable header title. Later chats on the same execution
+    // (started via "new chat") derive only their own per-chat label and
+    // leave the execution title in place, so it never gets wiped.
+    const session = getChatSessionWithExecution(sessionId);
+    if (session?.executionId && !session.execution?.label) {
+      setExecutionLabel(session.executionId, label);
+    }
   } catch (err) {
     console.error(`[derive-label] failed to persist label for ${sessionId}:`, err);
   }

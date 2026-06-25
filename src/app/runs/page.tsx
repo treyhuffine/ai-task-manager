@@ -113,10 +113,10 @@ function RunRow({ run }: { run: RunRecord }) {
       <TriggerBadge trigger={run.trigger} />
       <RunActivityBadge runId={run.id} terminalStatus={terminal} />
       <span className="flex-1 truncate text-muted-foreground text-[12px]">
-        {run.summary ?? run.errorMessage ?? '—'}
+        {run.summary ?? run.errorMessage ?? '-'}
       </span>
       <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
-        {run.startedAt ? humanize(run.startedAt) : '—'}
+        {run.startedAt ? humanize(run.startedAt) : '-'}
       </span>
       {run.costUsd != null && run.costUsd > 0 && (
         <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">

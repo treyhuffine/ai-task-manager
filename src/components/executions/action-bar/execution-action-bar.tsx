@@ -82,7 +82,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   };
 
   const handleArchive = () => {
-    if (!confirm(`Archive "${session.label ?? 'this execution'}"?`)) return;
+    if (!confirm(`Archive "${session.execution?.label ?? session.label ?? 'this execution'}"?`)) return;
     archive.mutate(
       { id: session.id, force: false },
       {

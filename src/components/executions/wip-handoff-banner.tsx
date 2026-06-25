@@ -149,7 +149,7 @@ function ConflictNotice({
             Stash applied with conflicts.
           </p>
           <p className="text-muted-foreground mt-0.5">
-            Your WIP is in the worktree with conflict markers; resolve and run{' '}
+            Your WIP is in the worktree with conflict markers. Resolve and run{' '}
             <code className="font-mono text-foreground/80">git stash drop</code> when done.
             {info.stashMessage && (
               <>

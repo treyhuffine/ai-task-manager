@@ -211,7 +211,7 @@ function classifyError(res: RunResult): BeamdCliError {
     code = 'beamd_cli_outdated';
     message =
       "Flow's beamd is older than the beamd that set up this machine, so it can't read the account. " +
-      'Update Flow (or install a current beamd — Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.';
+      'Update Flow (or install a current beamd, Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.';
   } else if (text.includes('not logged in') || text.includes('no account') || text.includes('no profile') || text.includes('run `beamd login`') || text.includes('run beamd login')) {
     code = 'beamd_not_connected';
     message = 'This machine isn’t connected to beamd. Connect it to enable remote previews.';
@@ -487,7 +487,7 @@ export async function beamdLoginDevice(
           pendingSent ? 'beamd_device_expired' : 'beamd_device_unsupported',
           pendingSent
             ? 'Browser approval didn’t complete (expired or denied). Try again.'
-            : 'This edge doesn’t offer browser approval — connect with an API key instead.',
+            : 'This edge doesn’t offer browser approval. Connect with an API key instead.',
           buf,
           exitCode ?? null,
         ),

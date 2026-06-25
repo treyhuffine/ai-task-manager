@@ -42,7 +42,7 @@ function registerScheduleCommand(program: Command) {
     .option('--prompt-file <path>', 'Path to a file containing the prompt text.')
     .option('--description <text>', 'Short description (shown alongside the name).')
     // ── Friendly cadence ──
-    .option('--manual', 'No automatic firing; only fires via `flow schedule run`.')
+    .option('--manual', 'No automatic firing. Only fires via `flow schedule run`.')
     .option('--hourly', 'Fire at the top of every hour.')
     .option('--daily-at <time>', 'Fire daily at HH:MM (e.g. 09:00).')
     .option('--weekly-on <day>', 'Weekday: monday|tuesday|... (use with --at).')
@@ -480,8 +480,8 @@ function printScheduleTable(rows: ScheduleWithLastRun[]) {
     s.kind,
     s.targetKind,
     s.enabled ? 'yes' : 'no',
-    s.nextRunAt ? humanize(s.nextRunAt) : '—',
-    s.lastRunStatus ?? '—',
+    s.nextRunAt ? humanize(s.nextRunAt) : '-',
+    s.lastRunStatus ?? '-',
   ]);
   printTable(header, data);
 }
@@ -496,8 +496,8 @@ function printRunTable(rows: RunRecord[]) {
     r.id.slice(0, 8),
     r.trigger,
     r.status,
-    r.startedAt ? humanize(r.startedAt) : '—',
-    r.costUsd != null ? `$${(r.costUsd ?? 0).toFixed(4)}` : '—',
+    r.startedAt ? humanize(r.startedAt) : '-',
+    r.costUsd != null ? `$${(r.costUsd ?? 0).toFixed(4)}` : '-',
     (r.summary ?? '').slice(0, 50),
   ]);
   printTable(header, data);

@@ -56,7 +56,7 @@ const checks: Check[] = [
       const config = readAuthConfig();
       return {
         ok: !!config?.localToken,
-        detail: config?.localToken ? 'present' : 'missing — run the `pair` command',
+        detail: config?.localToken ? 'present' : 'missing. Run the `pair` command',
       };
     },
   },
@@ -124,7 +124,7 @@ export function printDoctorChecks(
   const toPrint = options.compact ? failures : results;
   for (const result of toPrint) {
     const icon = result.ok ? pc.green('✓') : pc.red('✗');
-    const detail = result.detail ? pc.dim(` — ${result.detail}`) : '';
+    const detail = result.detail ? pc.dim(`: ${result.detail}`) : '';
     console.log(`${icon} ${result.name}${detail}`);
   }
 }

@@ -72,7 +72,7 @@ function DeepWorkCard({
         )} />
         <div className="flex-1 min-w-0">
           <h3 className="text-[13px] font-medium text-foreground leading-tight">
-            {item.projectTitle} — {item.taskTitle}
+            {item.projectTitle}: {item.taskTitle}
           </h3>
           {item.areaName && (
             <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">

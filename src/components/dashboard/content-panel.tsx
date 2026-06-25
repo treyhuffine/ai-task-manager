@@ -217,8 +217,8 @@ function VoiceSentBadge({ voiceAutoSend, onToggleAutoSend }: { voiceAutoSend: bo
 
 const CHAT_MODES: { id: OrchestratorMode; label: string; title: string }[] = [
   { id: 'legacy', label: 'Classic', title: 'Built-in chat agent (no harness)' },
-  { id: 'harness_skills', label: 'Skills', title: 'Harness session — actions via CLI + skills' },
-  { id: 'harness_mcp', label: 'MCP', title: 'Harness session — actions via MCP tools' },
+  { id: 'harness_skills', label: 'Skills', title: 'Harness session: actions via CLI + skills' },
+  { id: 'harness_mcp', label: 'MCP', title: 'Harness session: actions via MCP tools' },
 ];
 
 /**

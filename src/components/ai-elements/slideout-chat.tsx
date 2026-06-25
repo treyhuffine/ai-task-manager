@@ -8,6 +8,7 @@ import { useRuntimeStatus } from '@/hooks/use-execution'
 import { HarnessChatSession } from '@/components/chat/harness-chat'
 import { cn } from '@/lib/utils'
 import type { TaskRecord, NoteRecord, ChatSessionRecord } from '@/db/types'
+import type { ProviderId } from '@/lib/agent-options'
 
 const CHAT_PANEL_MIN_WIDTH = 420
 
@@ -69,8 +70,14 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
   }, [isRunning, qc, documentType, entityId])
 
   const newChat = useMutation({
-    mutationFn: () =>
-      api.post<DocumentChatResponse>('/document-chat', { entityType: documentType, entityId }),
+    // Optional provider/model = the composer's "switch provider" → fresh chat
+    // on the chosen provider. No args (void) = a plain new chat on the default.
+    mutationFn: (opts: { providerId?: ProviderId; model?: string | null } | void) =>
+      api.post<DocumentChatResponse>('/document-chat', {
+        entityType: documentType,
+        entityId,
+        ...(opts ?? {}),
+      }),
     onSuccess: (data) => qc.setQueryData(queryKey, data),
   })
 
@@ -278,7 +285,12 @@ function ChatBody({
   // input, and composer — keyed to this entity's content session.
   return (
     <div className="flex flex-1 min-h-0 flex-col" aria-label={`Chat about ${contextLabel}`}>
-      <HarnessChatSession sessionId={chat.sessionId} isMobile={isMobile} />
+      <HarnessChatSession
+        sessionId={chat.sessionId}
+        isMobile={isMobile}
+        onSwitchProvider={(next) => chat.newChat.mutate({ providerId: next.harness, model: next.model })}
+        switchingProvider={chat.newChat.isPending}
+      />
     </div>
   )
 }

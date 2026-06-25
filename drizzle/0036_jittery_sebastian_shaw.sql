@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `connector_scopes` text DEFAULT '[]' NOT NULL;

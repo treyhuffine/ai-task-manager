@@ -138,7 +138,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   console.log();
   console.log(
     pc.bold(`${APP_SHORT_ID} pair`) +
-      pc.dim(` — created device "${key.name}" (${key.deviceType})`),
+      pc.dim(`: created device "${key.name}" (${key.deviceType})`),
   );
   console.log();
   console.log(await renderTerminalQr(primaryUrl));
@@ -251,7 +251,7 @@ function hintFor(source: BaseSource, tunnel: string | null): string {
       return `Using saved remote URL. Switch with \`--lan\` / \`--local\`, change with \`--set-url <url>\`, or forget with \`--clear-url\`.`;
     case 'lan':
       if (!tunnel) {
-        return `No remote URL saved — using your LAN address. Set one with \`${APP_SHORT_ID} pair --set-url ${BASE_URL_EXAMPLE}\` to pair off-network devices.`;
+        return `No remote URL saved, using your LAN address. Set one with \`${APP_SHORT_ID} pair --set-url ${BASE_URL_EXAMPLE}\` to pair off-network devices.`;
       }
       return `Using LAN address (overriding saved remote URL). Run without \`--lan\` to use the remote URL.`;
     case 'local':
@@ -270,7 +270,7 @@ function printProbeWarning(
     case 'offline':
       console.log(
         pc.yellow(
-          `! Nothing is responding at ${baseUrl}. URL below assumes that target — start the server or run \`${APP_SHORT_ID} pair\` again afterward.`,
+          `! Nothing is responding at ${baseUrl}. URL below assumes that target. Start the server or run \`${APP_SHORT_ID} pair\` again afterward.`,
         ),
       );
       return;

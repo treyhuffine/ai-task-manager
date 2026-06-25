@@ -69,10 +69,10 @@ async function backfill() {
     return !existing || existing.content_hash !== item.hash;
   });
 
-  console.log(`${toEmbed.length} items need embedding (${items.length - toEmbed.length} skipped — unchanged)`);
+  console.log(`${toEmbed.length} items need embedding (${items.length - toEmbed.length} skipped, unchanged)`);
 
   if (toEmbed.length === 0) {
-    console.log('Done — nothing to embed.');
+    console.log('Done. Nothing to embed.');
     return;
   }
 
@@ -123,7 +123,7 @@ async function backfill() {
   }
 
   const count = (rawDb.prepare('SELECT COUNT(*) as n FROM embeddings').get() as { n: number }).n;
-  console.log(`Done — ${count} total embeddings in database.`);
+  console.log(`Done. ${count} total embeddings in database.`);
 }
 
 backfill().catch((err) => {

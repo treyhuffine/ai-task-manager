@@ -19,7 +19,7 @@ export function InboxComingSoonSheet({ open, onOpenChange }: InboxComingSoonShee
           </div>
           <SheetTitle className="text-base font-semibold">Inbox</SheetTitle>
           <SheetDescription className="text-sm text-muted-foreground max-w-xs">
-            Coming soon — a single place for agent updates, mentions, and things that need your attention.
+            Coming soon: a single place for agent updates, mentions, and things that need your attention.
           </SheetDescription>
         </div>
       </SheetContent>

@@ -110,7 +110,7 @@ export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) 
               {showFallback && (
                 <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2 text-[11px]">
                   <div className="text-muted-foreground/85">
-                    Manual path — clone the repo (if needed) and check out the branch yourself, then push
+                    Manual path: clone the repo (if needed) and check out the branch yourself, then push
                     and click <em>Done</em> below.
                   </div>
                   <CommandBlock command={data.fallbackCommand} small />
@@ -133,7 +133,7 @@ export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) 
                   className="inline-flex items-center gap-1.5 px-3 py-1 text-[12px] font-medium bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors disabled:opacity-60"
                 >
                   {resume.isPending && <Loader2 size={11} className="animate-spin" />}
-                  Done — pull my changes
+                  Done, pull my changes
                 </button>
               </div>
 

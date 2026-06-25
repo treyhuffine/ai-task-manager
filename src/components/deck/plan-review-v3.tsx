@@ -59,7 +59,7 @@ export function PlanReviewV3({ plan, onConfirm, onRemoveDeepWork, onRemoveLightT
     if (item) {
       setAlternatives(prev => [...prev, {
         id: item.id,
-        title: `${item.projectTitle} — ${item.taskTitle}`,
+        title: `${item.projectTitle}: ${item.taskTitle}`,
         areaName: item.areaName,
         energy: item.energy,
         effort: item.effort,
@@ -108,8 +108,8 @@ export function PlanReviewV3({ plan, onConfirm, onRemoveDeepWork, onRemoveLightT
     setAlternatives(prev => prev.filter(a => a.id !== alt.id));
     setDeepWork(prev => [...prev, {
       id: alt.id,
-      projectTitle: alt.title.split(' — ')[0] || alt.title,
-      taskTitle: alt.title.split(' — ')[1] || alt.title,
+      projectTitle: alt.title.split(': ')[0] || alt.title,
+      taskTitle: alt.title.split(': ')[1] || alt.title,
       areaName: alt.areaName,
       continuityContext: '',
       rationale: alt.reason,
@@ -367,7 +367,7 @@ function DeepCard({
         />
         <div className="flex-1 min-w-0" onClick={() => setExpanded(!expanded)}>
           <h3 className="text-[12.5px] font-medium text-foreground leading-tight">
-            {item.projectTitle} — {item.taskTitle}
+            {item.projectTitle}: {item.taskTitle}
           </h3>
 
           {/* Metadata pills */}

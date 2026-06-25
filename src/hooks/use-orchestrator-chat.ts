@@ -35,7 +35,10 @@ export function useOrchestratorChat(enabled = true) {
 export function useNewOrchestratorChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<OrchestratorChatResponse>('/orchestrator-chat', {}),
+    // Optional provider/model = the composer's "switch provider" → fresh
+    // orchestrator chat on the chosen provider. No args (void) = plain new chat.
+    mutationFn: (opts: { providerId?: 'claude' | 'codex'; model?: string | null } | void) =>
+      api.post<OrchestratorChatResponse>('/orchestrator-chat', opts ?? {}),
     onSuccess: (data) => {
       qc.setQueryData(ORCHESTRATOR_CHAT_KEY, data);
       qc.invalidateQueries({ queryKey: ORCHESTRATOR_CHAT_HISTORY_KEY });

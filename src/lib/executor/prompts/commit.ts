@@ -39,7 +39,7 @@ export function buildCommitPrompt(input: CommitPromptInput): string {
   lines.push('Steps:');
   lines.push('1. Run `git status` and `git diff` to see what changed (the summary below is a guide).');
   lines.push('2. Stage everything: `git add -A`.');
-  lines.push('3. Draft a focused commit message — single short subject line (≤72 chars, imperative mood: "Add X", not "Added X"). Add a body only if the change needs more than a sentence to explain.');
+  lines.push('3. Draft a focused commit message: single short subject line (≤72 chars, imperative mood: "Add X", not "Added X"). Add a body only if the change needs more than a sentence to explain.');
   lines.push('4. Run `git commit -m "<message>"` (use a heredoc if the message has multiple lines).');
   if (andPush) {
     lines.push('5. Push: `git push -u origin HEAD`.');

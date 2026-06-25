@@ -6,17 +6,14 @@
  * urgent. Below 75% the indicator stays hidden because nothing about
  * spending requires the user's attention.
  *
- * Click opens the user profile sheet (where the budget control + the
- * spending breakdown live) via a custom event the sheet listens for.
- * This avoids hoisting the sheet's open state through the dashboard
- * tree.
+ * Click opens the settings modal on the Models section, where the budget
+ * control + the spending breakdown live (under "Usage & budget").
  */
 
 import { AlertTriangle } from 'lucide-react';
 import { useRunsStats } from '@/hooks/use-runs-stats';
+import { openSettings } from '@/components/settings/settings-store';
 import { cn } from '@/lib/utils';
-
-export const OPEN_USER_PROFILE_EVENT = 'flow:open-user-profile';
 
 export function BudgetWarningPill() {
   const { data } = useRunsStats();
@@ -30,13 +27,13 @@ export function BudgetWarningPill() {
       : 'text-amber-600 border-amber-500/40 bg-amber-500/10 dark:text-amber-400';
   const message =
     data.budgetState === 'block'
-      ? `Budget exceeded — schedules auto-paused`
+      ? `Budget exceeded. Schedules auto-paused`
       : `Budget ${pct}% used`;
 
   return (
     <button
       type="button"
-      onClick={() => window.dispatchEvent(new CustomEvent(OPEN_USER_PROFILE_EVENT))}
+      onClick={() => openSettings('models')}
       title={
         data.budget != null
           ? `${pct}% of $${data.budget.toFixed(2)} monthly budget`

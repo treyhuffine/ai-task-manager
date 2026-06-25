@@ -39,7 +39,7 @@ import { MODEL_OPTIONS } from '@/lib/agent-options';
 import { cn } from '@/lib/utils';
 
 const FREQUENCY_OPTIONS: { value: FrequencyKind; label: string }[] = [
-  { value: 'manual', label: 'Manual — Run now only' },
+  { value: 'manual', label: 'Manual: Run now only' },
   { value: 'hourly', label: 'Hourly' },
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
@@ -365,7 +365,7 @@ export function ScheduleCreateForm({ onCreated, onCancel }: ScheduleCreateFormPr
             />
             <p className="text-[10px] text-muted-foreground mt-1">
               Leave blank to let the run go as long as it needs. A hard
-              cap that fires `interrupt()` on the agent — use only when
+              cap that fires `interrupt()` on the agent. Use only when
               you want to protect against a specific runaway pattern.
               The run page surfaces &ldquo;stalled&rdquo; status on its own.
             </p>
@@ -582,7 +582,7 @@ export function WebhookCredentialsPanel({
     <div className="space-y-4">
       <h2 className="text-base font-semibold">Webhook ready</h2>
       <p className="text-sm text-muted-foreground">
-        Save the secret below — it&apos;s shown once and never displayed
+        Save the secret below. It&apos;s shown once and never displayed
         again. Sign each request body with HMAC-SHA256 using this
         secret and send the hex as <code className="font-mono">X-Signature</code>,
         plus the plaintext as <code className="font-mono">X-Webhook-Secret</code>.
@@ -598,7 +598,7 @@ export function WebhookCredentialsPanel({
         onClick={onContinue}
         className="w-full px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
       >
-        I&apos;ve saved the secret — continue
+        I&apos;ve saved the secret, continue
       </button>
     </div>
   );

@@ -6,7 +6,7 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import {
   Search, Target, FileText, MessageSquare, X, Loader2,
   Plus, Sun, Moon, LayoutDashboard, ListTodo, StickyNote,
-  Radio, MessagesSquare, Mic,
+  Radio, MessagesSquare, Mic, Settings,
   type LucideIcon,
 } from 'lucide-react';
 import { NoteIcon } from '@/components/shared/note-icon';
@@ -20,13 +20,14 @@ import {
   PALETTE_COMMANDS, TYPE_PREFIXES,
   type PaletteCommand, type EntityTypeFilter,
 } from '@/constants/commands';
+import { openSettings } from '@/components/settings/settings-store';
 import type { SearchResult } from '@/lib/api/search';
 import type { AnyPanelTab } from '@/types/dashboard';
 
 // ── Icon lookup for palette commands ─────────────────────────
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic,
+  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings,
 };
 
 function CommandIcon({ name, size = 14 }: { name: string; size?: number }) {
@@ -115,6 +116,10 @@ export function SearchOverlay() {
           { body: ' ' },
           { onSuccess: (note) => openNote(note.id) },
         );
+        break;
+      case 'open-settings':
+        setOpen(false);
+        openSettings();
         break;
       case 'toggle-theme':
         toggleTheme();

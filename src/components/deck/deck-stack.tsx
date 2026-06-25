@@ -315,7 +315,7 @@ function SortableDeckItemCard({
               title={item.slotReason}
             >
               <Clock className="w-2.5 h-2.5" />
-              {item.slotStart}–{item.slotEnd}
+              {item.slotStart}-{item.slotEnd}
             </span>
           )}
           {item.manuallyAdded && (

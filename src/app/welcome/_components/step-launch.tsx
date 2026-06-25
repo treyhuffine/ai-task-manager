@@ -15,7 +15,7 @@ function agentAuthSummary(state: WizardState): string {
   if (hasSubscription) return 'Subscription active';
   if (hasBedrock) return 'Using AWS Bedrock';
   if (hasApiKey && auth.acceptsApiKeyBilling) return 'Using API key (metered)';
-  if (hasApiKey) return 'API key detected — acknowledge metered billing on Agent step';
+  if (hasApiKey) return 'API key detected. Acknowledge metered billing on Agent step';
   return 'Verified via test request';
 }
 
@@ -29,7 +29,7 @@ export function StepLaunch({ state }: { state: WizardState }) {
     {
       icon: Layers,
       label: `${state.areas.length} area${state.areas.length === 1 ? '' : 's'}`,
-      sub: state.areas.map((a) => a.name).join(', ') || '—',
+      sub: state.areas.map((a) => a.name).join(', ') || '-',
     },
     {
       icon: Bot,
@@ -39,7 +39,7 @@ export function StepLaunch({ state }: { state: WizardState }) {
     {
       icon: Upload,
       label: 'Import',
-      sub: 'Skipped — set up later',
+      sub: 'Skipped, set up later',
     },
   ];
 

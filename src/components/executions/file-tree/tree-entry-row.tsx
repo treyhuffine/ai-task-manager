@@ -103,7 +103,7 @@ export function CollapsedDirRow({ name, depth }: { name: string; depth: number }
     <div
       className="flex w-full items-center gap-1 py-1 pr-2 text-left text-[12px] text-muted-foreground/55"
       style={{ paddingLeft: 6 + depth * INDENT_PX }}
-      title={`${name} is present but not browsable here — open it in your editor`}
+      title={`${name} is present but not browsable here. Open it in your editor`}
     >
       {/* keep the name aligned with expandable siblings (which have a chevron) */}
       <span className="w-3 shrink-0" />

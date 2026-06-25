@@ -44,6 +44,8 @@ import {
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { useDragResize } from '@/hooks/use-drag-resize';
 import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button';
+import { EntityHistoryButton } from '@/components/entities/entity-history-button';
+import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
 import { cn } from '@/lib/utils';
 import type { Energy, Effort, Attachment } from '@/db/types';
 
@@ -57,11 +59,11 @@ const ENERGY_OPTIONS: { value: Energy; label: string; icon: typeof Flame; color:
 ];
 
 const EFFORT_OPTIONS: { value: Effort; label: string }[] = [
-  { value: 'trivial', label: 'XS — Trivial' },
-  { value: 'small', label: 'S — Small' },
-  { value: 'medium', label: 'M — Medium' },
-  { value: 'large', label: 'L — Large' },
-  { value: 'epic', label: 'XL — Epic' },
+  { value: 'trivial', label: 'XS: Trivial' },
+  { value: 'small', label: 'S: Small' },
+  { value: 'medium', label: 'M: Medium' },
+  { value: 'large', label: 'L: Large' },
+  { value: 'epic', label: 'XL: Epic' },
 ];
 
 interface TaskSlideoutProps {
@@ -380,6 +382,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               </div>
 
               <div className="flex items-center gap-2">
+                {taskId && <EntityHistoryButton entityType="task" entityId={taskId} />}
                 {taskId && <ReferencingSessionsButton entityType="task" entityId={taskId} />}
                 <a
                   href={taskId ? `/task/${taskId}` : '#'}
@@ -436,6 +439,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               <div className="flex-1 overflow-y-auto min-w-0 relative">
                 {task ? (
                   <div className="space-y-0">
+                    <EntityChangeBanner entityType="task" entityId={task.id} />
                     {/* Type label + area / parent breadcrumb */}
                     <div className="pt-4 px-4 md:px-12">
                       <div className="flex items-center gap-2">

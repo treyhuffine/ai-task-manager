@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
-import { useOrchestratorChat } from '@/hooks/use-orchestrator-chat';
+import { useOrchestratorChat, useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
 import {
   useSession,
   useSendMessage,
@@ -38,6 +38,7 @@ import { ApiError } from '@/lib/api/client';
  */
 export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
   const { data, isLoading, error, refetch } = useOrchestratorChat();
+  const newChat = useNewOrchestratorChat();
   const sessionId = data?.session.id ?? null;
 
   if (isLoading) {
@@ -69,7 +70,14 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
     );
   }
 
-  return <HarnessChatSession sessionId={sessionId} isMobile={isMobile} />;
+  return (
+    <HarnessChatSession
+      sessionId={sessionId}
+      isMobile={isMobile}
+      onSwitchProvider={(next) => newChat.mutate({ providerId: next.harness, model: next.model })}
+      switchingProvider={newChat.isPending}
+    />
+  );
 }
 
 /**
@@ -79,7 +87,19 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
  * `type='content'` chat (see slideout-chat.tsx). Everything it needs is
  * keyed off the session id, so the same component drives either.
  */
-export function HarnessChatSession({ sessionId, isMobile = false }: { sessionId: string; isMobile?: boolean }) {
+export function HarnessChatSession({
+  sessionId,
+  isMobile = false,
+  onSwitchProvider,
+  switchingProvider,
+}: {
+  sessionId: string;
+  isMobile?: boolean;
+  /** Optional: enables the composer's provider switcher (starts a fresh chat
+   *  on the chosen provider). The host owns what "new chat" means. */
+  onSwitchProvider?: (next: { harness: 'claude' | 'codex'; model: string | null }) => void;
+  switchingProvider?: boolean;
+}) {
   const { data: session } = useSession(sessionId);
   const { data: runtime } = useRuntimeStatus(sessionId);
   // Live event stream — appends rows into the events cache as the
@@ -149,6 +169,8 @@ export function HarnessChatSession({ sessionId, isMobile = false }: { sessionId:
           harness={session.agentHarness ?? null}
           submitOnEnter={!isMobile}
           isRunning={isRunning}
+          onSwitchProvider={onSwitchProvider}
+          switchingProvider={switchingProvider}
           onSend={async (content, opts) => {
             const event = await sendMessage.mutateAsync({
               content,

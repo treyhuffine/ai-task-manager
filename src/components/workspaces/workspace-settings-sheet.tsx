@@ -11,6 +11,7 @@ import { EmojiPicker } from '@/components/shared/emoji-picker';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { FilesToCopySection } from './files-to-copy-section';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
+import { WorkspaceConnectorsSection } from './workspace-connectors-section';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -109,7 +110,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
 
   const handleArchive = () => {
     if (!ws) return;
-    if (!confirm(`Archive "${ws.name}"? Sessions stay; the workspace leaves the active list.`)) return;
+    if (!confirm(`Archive "${ws.name}"? Sessions stay. The workspace leaves the active list.`)) return;
     const archivedName = ws.name;
     archive.mutate(ws.id, {
       onSuccess: () => {
@@ -258,7 +259,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                       onChange={(e) => setAreaId(e.target.value)}
                       className="w-full appearance-none pl-3 pr-9 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
                     >
-                      <option value="">— None —</option>
+                      <option value="">None</option>
                       {areas?.map((area) => (
                         <option key={area.id} value={area.id}>
                           {area.emoji ? `${area.emoji} ${area.name}` : area.name}
@@ -314,6 +315,12 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                   />
                 </div>
 
+                {workspaceId && (
+                  <div>
+                    <WorkspaceConnectorsSection workspaceId={workspaceId} />
+                  </div>
+                )}
+
                 <div>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                     Git
@@ -321,7 +328,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                   <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5 text-[11px]">
                     <Row label="Repo" value={ws.isGit ? 'yes' : 'no (non-git workspace)'} />
                     {ws.isGit && (
-                      <Row label="Remote" value={ws.remoteName ?? '—'} mono />
+                      <Row label="Remote" value={ws.remoteName ?? '-'} mono />
                     )}
                     <GhRow gh={gh} />
                   </div>
@@ -408,7 +415,7 @@ function GhRow({ gh }: { gh: GhStatus | null }) {
   return (
     <>
       <Row label="gh" value={gh.version ?? 'installed'} mono />
-      <Row label="user" value={gh.user ?? '—'} mono />
+      <Row label="user" value={gh.user ?? '-'} mono />
     </>
   );
 }

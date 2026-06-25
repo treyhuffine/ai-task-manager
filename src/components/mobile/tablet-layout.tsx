@@ -40,7 +40,7 @@ export function TabletLayout() {
             <button
               key={agent.id}
               onClick={() => setActiveView(agent.id)}
-              title={`${agent.name}${agent.task ? ` — ${agent.task}` : ''}`}
+              title={`${agent.name}${agent.task ? `: ${agent.task}` : ''}`}
               className={cn(
                 'w-10 h-10 rounded-xl flex items-center justify-center text-base relative transition-all',
                 activeView === agent.id

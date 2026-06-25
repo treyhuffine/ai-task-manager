@@ -154,7 +154,7 @@ export function useOpenInPreferredEditor(): {
           return Promise.resolve({
             ok: false,
             reason: 'failed',
-            message: 'No custom editor command set — configure it in Settings.',
+            message: 'No custom editor command set. Configure it in Settings.',
           });
         }
         return fsApi.openWithCommand(absPath, customCommand, opts);

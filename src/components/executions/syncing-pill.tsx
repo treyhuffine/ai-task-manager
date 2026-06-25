@@ -19,7 +19,7 @@ export function SyncingPill() {
         <Loader2 size={11} className="animate-spin text-sky-500/80 flex-shrink-0" />
         <span>
           <span className="font-medium text-foreground/80">Syncing transcript</span>
-          <span className="text-muted-foreground/80"> — catching up on missed events</span>
+          <span className="text-muted-foreground/80">: catching up on missed events</span>
         </span>
       </div>
     </div>

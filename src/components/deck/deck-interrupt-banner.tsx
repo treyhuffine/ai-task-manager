@@ -32,7 +32,7 @@ export function DeckInterruptBanner({ interrupts, onRestore, onDismiss }: DeckIn
                 <div className="flex-1 min-w-0">
                   <span className="text-[11px] text-foreground/90">{c.title}</span>
                   {c.reason && (
-                    <span className="text-[10px] text-muted-foreground"> — {c.reason}</span>
+                    <span className="text-[10px] text-muted-foreground">: {c.reason}</span>
                   )}
                 </div>
                 <button

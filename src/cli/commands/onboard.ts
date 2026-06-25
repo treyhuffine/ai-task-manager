@@ -61,7 +61,7 @@ export async function onboardCommand(opts: OnboardOptions) {
       initialValue: true,
     });
     if (isCancel(startNow) || !startNow) {
-      outro('All set — run the default command anytime to start.');
+      outro('All set. Run the default command anytime to start.');
       return;
     }
 
@@ -156,7 +156,7 @@ export async function runWizard(): Promise<void> {
 
   const voiceMsg = dockerOk
     ? 'Enable voice (local speech-to-text via Docker/Parakeet)?'
-    : 'Enable voice? Docker is not running — voice will stay off until you start it.';
+    : 'Enable voice? Docker is not running, so voice will stay off until you start it.';
 
   const voice = await confirm({
     message: voiceMsg,
@@ -168,7 +168,7 @@ export async function runWizard(): Promise<void> {
   setVoiceEnabled(!!voice);
 
   if (voice && !dockerOk) {
-    log.info('Voice is enabled — start Docker before running the server to activate it.');
+    log.info('Voice is enabled. Start Docker before running the server to activate it.');
   }
 
   // TODO: prompt for ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.

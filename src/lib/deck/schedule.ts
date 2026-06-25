@@ -25,7 +25,7 @@ const DEFAULT_TIME = '04:00';
 const MORNING_PROMPT =
   'A new day has started. Refresh the deck for today: call the regenerate_deck action ' +
   "so it reconciles yesterday's deck into today (carry / defer / drop) and ranks by " +
-  'priorities, hard deadlines, and the calendar, sized to the day. Keep it brief — this ' +
+  'priorities, hard deadlines, and the calendar, sized to the day. Keep it brief. This ' +
   'is an automated morning refresh, no commentary needed.';
 
 function localTimezone(): string {

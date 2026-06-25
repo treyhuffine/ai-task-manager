@@ -80,7 +80,7 @@ export function MobileCreateSheet() {
             <div className="flex-1 text-left">
               <div className="text-sm font-semibold">Quick Capture</div>
               <div className="text-[11px] text-white/80">
-                Type or speak — triage later
+                Type or speak, triage later
               </div>
             </div>
             <ChevronRight size={18} className="text-white/70 flex-shrink-0" />

@@ -400,6 +400,36 @@ export function useContinueSession(id: string) {
   });
 }
 
+/**
+ * Start a fresh chat against the same execution (new conversation on the
+ * existing worktree), optionally switching provider. Returns the new session;
+ * the caller navigates to it (e.g. `setActiveView(session.id)`).
+ */
+export function useNewExecutionChat(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    // `| void` keeps the no-arg "new chat" button working alongside the
+    // composer's `{ providerId, model }` switch.
+    mutationFn: (opts: { providerId?: 'claude' | 'codex'; model?: string | null } | void) =>
+      sessionsApi.newChat(id, opts ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
+      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'history'] });
+    },
+  });
+}
+
+/** Past + current chats for an execution (history dropdown). */
+export function useExecutionChatHistory(id: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['session', id, 'history'],
+    queryFn: () => sessionsApi.chatHistory(id!),
+    enabled: enabled && !!id,
+    staleTime: 10_000,
+  });
+}
+
 export interface SendMessageInput {
   content: string;
   attachments?: Attachment[];
@@ -614,6 +644,7 @@ export function useUpdateSession() {
     mutationFn: ({ id, ...input }: {
       id: string;
       label?: string | null;
+      executionLabel?: string | null;
       permissionMode?: PermissionMode;
       model?: string | null;
       effort?: EffortLevel | null;
@@ -806,6 +837,19 @@ export function useInterruptSession(id: string) {
     // Stream pushes both: the aborted `result` event (publishChatEvent
     // from the executor's onEvent) and the runtime flip (publishRuntime
     // when `dispatch`'s finally block runs setRunning(false)).
+  });
+}
+
+/**
+ * Stop one background task (a backgrounded shell/server or async subagent).
+ * The kill is async: the task's terminal `task_updated`/`task_notification`
+ * arrives on the event stream, which re-derives the background-tasks list — so
+ * no manual cache surgery here. `{ stopped: false }` is a normal outcome
+ * (provider lacks per-task stop, or the task already ended).
+ */
+export function useStopBackgroundTask(id: string) {
+  return useMutation({
+    mutationFn: (taskId: string) => sessionsApi.stopTask(id, taskId),
   });
 }
 

@@ -21,13 +21,13 @@ export const SOUL_MD_FILENAME = 'SOUL.md';
 export function renderUserMdStub(): string {
   return `# About me
 
-This file is yours. ${APP_NAME} reads it but never edits it — tell your
+This file is yours. ${APP_NAME} reads it but never edits it. Tell your
 assistant who you are so it doesn't have to re-learn you each session:
 
 - Your name and how you like to be addressed
 - What you do / the projects that matter right now
-- Working style — deep-work hours, energy patterns, how you like tasks framed
-- How to work with you — terse vs. detailed, when to push back, what's off-limits
+- Working style: deep-work hours, energy patterns, how you like tasks framed
+- How to work with you: terse vs. detailed, when to push back, what's off-limits
 
 Delete this guidance and write in your own words. Leave it empty for none.
 `;
@@ -36,12 +36,12 @@ Delete this guidance and write in your own words. Leave it empty for none.
 export function renderSoulMdStub(): string {
   return `# Your assistant's voice
 
-This file is yours. ${APP_NAME} reads it but never edits it — shape how your
+This file is yours. ${APP_NAME} reads it but never edits it. Shape how your
 assistant shows up:
 
 - What it's called (give it a name, if you like)
-- Tone and voice — warm, terse, dry, formal…
-- Judgment — when to be careful and ask, when to just act
+- Tone and voice: warm, terse, dry, formal…
+- Judgment: when to be careful and ask, when to just act
 - Anything it should never do
 
 Delete this guidance and write in your own words. Leave it empty for the default.

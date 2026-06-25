@@ -58,7 +58,7 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
     settings?.beamd.error?.code === 'beamd_cli_outdated'
       ? settings.beamd.error
       : bin?.outdated
-        ? { code: 'beamd_cli_outdated', message: `Flow is using beamd ${bin.version} — older than the ${bin.minVersion}+ it needs.` }
+        ? { code: 'beamd_cli_outdated', message: `Flow is using beamd ${bin.version}, older than the ${bin.minVersion}+ it needs.` }
         : null;
 
   // Self-hosted / API-key section. Auto-opens when the edge can't do browser
@@ -126,7 +126,7 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
             </span>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            beamd is logged in on this machine — Flow, your terminal, and agents all share it.
+            beamd is logged in on this machine. Flow, your terminal, and agents all share it.
           </p>
           {bin && <BinLine bin={bin} />}
           <div className="flex items-center gap-2 pt-0.5">
@@ -189,7 +189,7 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
         <>
           <p className="text-[11px] text-muted-foreground">
             Connect this machine to beamd to share previews to your phone or another device. The login is stored by
-            beamd (in <span className="font-mono">~/.beamd</span>), not by Flow — your terminal and agents share it.
+            beamd (in <span className="font-mono">~/.beamd</span>), not by Flow. Your terminal and agents share it.
           </p>
 
           {/* Primary path: browser approval against hosted beamd — no inputs. */}
@@ -225,7 +225,7 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
               <div className="mt-2 space-y-2.5">
                 {device.status === 'unsupported' && (
                   <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
-                    {device.error || 'That edge can’t do browser approval — enter it below with an API key.'}
+                    {device.error || 'That edge can’t do browser approval. Enter it below with an API key.'}
                   </p>
                 )}
                 <p className="text-[11px] leading-relaxed text-muted-foreground">

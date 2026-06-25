@@ -87,7 +87,7 @@ async function runTest(rawUrl: string): Promise<TestResult> {
         ? `Request to ${url} timed out.`
         : `Couldn't reach ${url} from this browser.`,
       hints: [
-        `Double-check the URL and port. LAN / Tailscale / direct routes need ":port"; tunnels on 80/443 (ngrok, Cloudflare Tunnel) don't.`,
+        `Double-check the URL and port. LAN / Tailscale / direct routes need ":port". Tunnels on 80/443 (ngrok, Cloudflare Tunnel) don't.`,
         `Make sure the tunnel or reverse proxy is running.`,
         `If this is a Tailscale MagicDNS URL, Tailscale must be active on this device. Other devices may still be able to pair even when yours can't.`,
       ],
@@ -142,8 +142,18 @@ export function RemoteBaseUrlSection() {
         <h3 className="text-sm font-medium text-foreground">Remote base URL</h3>
       </div>
       <p className="text-[11px] text-muted-foreground/70">
-        The URL a remote device would paste in its browser to reach this machine — whatever works, port and all.
+        The URL a remote device would paste in its browser to reach this machine. Anything works, port and all.
       </p>
+
+      {!saved && !isLoading && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
+          <AlertCircle size={12} className="mt-0.5 shrink-0 text-amber-500" />
+          <p className="text-[11px] text-foreground/90">
+            No remote URL set yet. Devices off your network can&apos;t reach this app, and notification deep links
+            won&apos;t open on your phone. Set one below if you use remote access.
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <input
@@ -224,9 +234,9 @@ export function RemoteBaseUrlSection() {
       <div className="pt-1 space-y-0.5">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50">Examples</p>
         <ul className="text-[11px] text-muted-foreground/60 font-mono space-y-0.5">
-          <li>https://{APP_SHORT_ID}.example.com <span className="font-sans text-muted-foreground/50">— tunnel on 443</span></li>
-          <li>http://mac.tail-scale.ts.net:4224 <span className="font-sans text-muted-foreground/50">— Tailscale MagicDNS</span></li>
-          <li>https://{APP_SHORT_ID}.example.com:8443 <span className="font-sans text-muted-foreground/50">— self-hosted custom port</span></li>
+          <li>https://{APP_SHORT_ID}.example.com <span className="font-sans text-muted-foreground/50">(tunnel on 443)</span></li>
+          <li>http://mac.tail-scale.ts.net:4224 <span className="font-sans text-muted-foreground/50">(Tailscale MagicDNS)</span></li>
+          <li>https://{APP_SHORT_ID}.example.com:8443 <span className="font-sans text-muted-foreground/50">(self-hosted custom port)</span></li>
         </ul>
       </div>
 

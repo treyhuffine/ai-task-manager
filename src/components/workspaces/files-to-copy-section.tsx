@@ -113,7 +113,7 @@ export function FilesToCopySection({
       </label>
       <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
         Each new session&apos;s worktree gets a fresh copy of these files
-        from the source folder. One glob per line — bare patterns like{' '}
+        from the source folder. One glob per line. Bare patterns like{' '}
         <code className="font-mono">.env*</code> match at any depth.
       </p>
       <textarea
@@ -131,7 +131,7 @@ export function FilesToCopySection({
         </p>
       ) : globs.length === 0 ? (
         <p className="text-[10px] text-muted-foreground/60">
-          No globs configured — nothing will be copied.
+          No globs configured. Nothing will be copied.
         </p>
       ) : (
         <div className="rounded-md border border-border bg-muted/20 overflow-hidden">

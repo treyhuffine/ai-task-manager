@@ -114,10 +114,10 @@ export async function resumeCommand(opts: ResumeOptions) {
   const chosen = pick(active, opts.workspace);
   if (!chosen) {
     if (active.length > 1 && !opts.workspace) {
-      console.error(pc.red('Multiple active takeovers — disambiguate with --workspace <name-or-id>:'));
+      console.error(pc.red('Multiple active takeovers. Disambiguate with --workspace <name-or-id>:'));
       for (const t of active) {
         console.error(
-          `  ${pc.cyan(t.state.workspaceName)} ${pc.dim(t.state.workspaceId)} — ${t.state.branch}`,
+          `  ${pc.cyan(t.state.workspaceName)} ${pc.dim(t.state.workspaceId)}: ${t.state.branch}`,
         );
       }
     } else {

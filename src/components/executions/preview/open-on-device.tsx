@@ -18,7 +18,7 @@ import { previewApi, type PreviewState } from '@/lib/api/preview';
 import { usePreviewSettings, useUpdatePreviewSettings } from '@/hooks/use-preview';
 import { QrCode } from '@/components/settings/qr-code';
 import { BeamdConnect } from '@/components/settings/beamd-connect';
-import { openRemotePreviewSettings } from '@/components/dashboard/devices-sheet';
+import { openSettings } from '@/components/settings/settings-store';
 import { cn } from '@/lib/utils';
 
 /** Error codes that mean "remote isn't wired up yet" — i.e. the user just
@@ -131,7 +131,7 @@ export function OpenOnDevice({
             Open on your phone
           </h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Scan to load this preview live — your phone, a tablet, or anyone you share the link with.
+            Scan to load this preview live on your phone, a tablet, or anyone you share the link with.
           </p>
         </div>
 
@@ -192,7 +192,7 @@ export function OpenOnDevice({
               <div className="flex items-start gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-[11px] text-emerald-700 dark:text-emerald-300">
                 <Check size={13} className="mt-0.5 shrink-0" />
                 <span>
-                  beamd is already set up on this machine. Turn it on for remote previews — nothing else to configure.
+                  beamd is already set up on this machine. Turn it on for remote previews, nothing else to configure.
                 </span>
               </div>
               <button
@@ -232,7 +232,7 @@ export function OpenOnDevice({
                 </button>
                 <button
                   type="button"
-                  onClick={openRemotePreviewSettings}
+                  onClick={() => openSettings('remote-preview')}
                   className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
                   <Settings2 size={12} />

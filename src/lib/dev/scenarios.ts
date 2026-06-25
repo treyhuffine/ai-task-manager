@@ -197,7 +197,7 @@ export const SCENARIOS: Scenario[] = [
     id: 'q-with-previews',
     category: 'questions',
     title: 'With previews',
-    description: 'Each option carries a preview string. (UI does not render previews yet — surfaces the data shape.)',
+    description: 'Each option carries a preview string. (UI does not render previews yet, surfaces the data shape.)',
     inject: {
       kind: 'pending_question',
       questions: [
@@ -315,7 +315,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'm-accept-edits',
     category: 'modes',
-    title: 'Accept edits — edit allowed, Bash prompts',
+    title: 'Accept edits: edit allowed, Bash prompts',
     description: 'In accept_edits, edits go through but Bash still surfaces a permission card.',
     live: {
       mode: 'accept_edits',
@@ -326,7 +326,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'm-default-prompts',
     category: 'modes',
-    title: 'Default — every mutating tool prompts',
+    title: 'Default: every mutating tool prompts',
     description: 'Single edit + single Bash should produce two permission cards.',
     live: {
       mode: 'default',
@@ -381,7 +381,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 't-error-result',
     category: 'transcript',
-    title: 'Tool result — error',
+    title: 'Tool result: error',
     description: 'toolIsError=true. Should render with the destructive accent.',
     inject: {
       kind: 'fake_event',
@@ -398,7 +398,7 @@ export const SCENARIOS: Scenario[] = [
     inject: {
       kind: 'fake_event',
       source: 'rate_limit',
-      content: 'Rate limit hit — retrying in 30s',
+      content: 'Rate limit hit, retrying in 30s',
     },
   },
   {

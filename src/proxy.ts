@@ -58,6 +58,23 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // `/api/connectors/callback` is the OAuth redirect target. The provider
+  // (Google, etc.) sends the user's browser here with `?code&state`; that
+  // navigation cannot carry the app's Bearer token. The handler's own security
+  // is the single-use, unguessable `state` it validates against the stored
+  // AuthRequest — a strictly weaker, single-purpose credential. Exempted so the
+  // round-trip completes.
+  if (request.nextUrl.pathname === '/api/connectors/callback') {
+    return NextResponse.next();
+  }
+
+  // `/api/connectors/mcp-oauth/<sid>` is the OAuth redirect target for an ingested MCP server.
+  // Same rationale as the connectors callback: the provider redirects the user's browser here
+  // without the app Bearer; the SDK's single-use authorization code + PKCE verifier are the auth.
+  if (request.nextUrl.pathname.startsWith('/api/connectors/mcp-oauth/')) {
+    return NextResponse.next();
+  }
+
   // `/api/triggers/<publicId>` is the webhook intake for schedules. The
   // path's publicId is the identity; HMAC-SHA256 over the raw body
   // (verified inside the route against `schedules.webhookSecretHash`)

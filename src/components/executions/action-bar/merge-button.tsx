@@ -190,7 +190,7 @@ export function MergeButton({
                 <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
                   <span className="text-[11px] text-muted-foreground">
                     {autoMergeEnabled
-                      ? 'Auto-merge is on — GitHub merges when checks pass.'
+                      ? 'Auto-merge is on. GitHub merges when checks pass.'
                       : 'Or let GitHub merge automatically once checks pass.'}
                   </span>
                   <button

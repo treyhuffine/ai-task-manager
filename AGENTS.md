@@ -6,6 +6,8 @@ Our design constraint is to remove the pieces of digital system that were create
 
 Local-first with SQLite (via better-sqlite3 + Drizzle ORM) and vector search (sqlite-vec) for semantic embeddings.
 
+IMPORTANT: When writing any copy or text for the website, never us em or long dashes (—). Use other punctuation or write the text in a different manner. You should also avoid semicolons as well ";"
+
 ## Stack
 
 - **Framework:** Next.js 16 (App Router) with React 19

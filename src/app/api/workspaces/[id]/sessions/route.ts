@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { listChatSessions, getWorkspace } from '@/lib/db/queries';
+import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
 import { dispatchExecutionSession, WorkspaceNotFoundForDispatch } from '@/lib/sessions/dispatch';
 
 export async function GET(
@@ -8,7 +8,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const rows = listChatSessions({ workspaceId: id, status: 'active' });
+    // One row per execution (its primary chat), not per chat — the tree
+    // collapses an execution's sibling chats into a single named row.
+    const rows = listWorkspaceExecutions(id);
     return Response.json(rows);
   } catch (err) {
     console.error('[GET /api/workspaces/:id/sessions]', err);

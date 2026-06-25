@@ -75,7 +75,7 @@ export function CreateMenu() {
             <div className="flex-1 text-left min-w-0">
               <div className="text-[11px] font-semibold text-foreground">Quick Capture</div>
               <div className="text-[10px] text-muted-foreground truncate">
-                Type or speak — sort later
+                Type or speak. Sort later
               </div>
             </div>
             <kbd className="px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/70 font-sans flex-shrink-0">

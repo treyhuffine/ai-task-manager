@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { useTask, useUpdateTask, useDeleteTask, useCompleteTask } from '@/hooks/use-tasks';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
+import { EntityHistoryButton } from '@/components/entities/entity-history-button';
+import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { SubtaskSection } from '@/components/tasks/subtask-section';
 import { AreaSelect } from '@/components/shared/area-select';
@@ -229,6 +231,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
               </button>
 
               <div className="flex items-center gap-2">
+                {task && <EntityHistoryButton entityType="task" entityId={task.id} />}
                 {task && (
                   <button
                     onClick={handleComplete}
@@ -263,6 +266,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
             </div>
             {task ? (
               <div className="space-y-0">
+                <EntityChangeBanner entityType="task" entityId={task.id} />
                 {/* Type label + area / parent breadcrumb */}
                 <div className="pt-6">
                   <div className="flex items-center gap-2">

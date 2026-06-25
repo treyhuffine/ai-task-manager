@@ -101,8 +101,8 @@ export function PreviewHeader({
         <span
           title={
             mode === 'local'
-              ? 'Local — loopback to the dev server on this machine.'
-              : `Remote — reached via ${providerLabel}.`
+              ? 'Local: loopback to the dev server on this machine.'
+              : `Remote: reached via ${providerLabel}.`
           }
           className={cn(
             'flex h-7 items-center gap-1 rounded px-1.5 text-[10px] font-medium uppercase tracking-wide',
@@ -127,7 +127,7 @@ export function PreviewHeader({
           copied && 'text-foreground',
         )}
       >
-        {copied ? 'Copied URL' : url ?? '—'}
+        {copied ? 'Copied URL' : url ?? '-'}
       </button>
 
       <a

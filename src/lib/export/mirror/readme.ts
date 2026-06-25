@@ -15,18 +15,18 @@ function readmeContent(): string {
   return `# ${APP_NAME} Brain
 
 Your ${APP_NAME} data lives in this folder. \`data.db\` is the source of
-truth; the markdown files alongside it are a live, always-current mirror
+truth. The markdown files alongside it are a live, always-current mirror
 written by the app.
 
-## Live mirror (derived — don't hand-edit)
+## Live mirror (derived, don't hand-edit)
 
-- \`tasks/\` — one file per task
-- \`notes/\` — one file per note
-- \`areas/\` — one file per area
-- \`stream/\` — one file per captured stream item
-- \`attachments/\` — uploaded files (images, PDFs, voice memos) referenced by
+- \`tasks/\`: one file per task
+- \`notes/\`: one file per note
+- \`areas/\`: one file per area
+- \`stream/\`: one file per captured stream item
+- \`attachments/\`: uploaded files (images, PDFs, voice memos) referenced by
   the entities above. Markdown bodies link here via \`../attachments/…\`
-- \`.archive/\` — archived or merged-away entities; orphan attachments also
+- \`.archive/\`: archived or merged-away entities. Orphan attachments also
   move to \`.archive/attachments/\` when no entity references them anymore
 
 These files update automatically as you use the app. **Edits here are
@@ -38,7 +38,7 @@ overwritten on the next sync.** To make changes, use:
 
 ## Source of truth
 
-- \`data.db\` — the SQLite database. Everything else in this folder is
+- \`data.db\`: the SQLite database. Everything else in this folder is
   derived from it.
 
 ## Why mirror at all?
@@ -56,16 +56,16 @@ real database.
 
 ## Filename format
 
-\`{slug}--{uuid}.md\` — the slug is cosmetic, the UUID is the stable identity.
+\`{slug}--{uuid}.md\`: the slug is cosmetic, the UUID is the stable identity.
 A double-hyphen separator distinguishes slug hyphens from hyphens inside the
 UUID. The ID is always the part after the last \`--\`.
 
 ## Configuration
 
-- \`${APP_ROOT_ENV}\` — point the data home (this folder) somewhere else
-- \`${MIRROR_DISABLED_ENV}=1\` — turn the markdown mirror off (db only)
-- \`${ATTACHMENT_GC_ENABLED_ENV}=1\` — opt in to attachment garbage collection
-  (off by default; orphan files are hidden UUID-named blobs that cost nothing
+- \`${APP_ROOT_ENV}\`: point the data home (this folder) somewhere else
+- \`${MIRROR_DISABLED_ENV}=1\`: turn the markdown mirror off (db only)
+- \`${ATTACHMENT_GC_ENABLED_ENV}=1\`: opt in to attachment garbage collection
+  (off by default, orphan files are hidden UUID-named blobs that cost nothing
   to leave on disk, and a wrong sweep would visibly break references)
 
 ## Force a sync

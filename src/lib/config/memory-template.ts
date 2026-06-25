@@ -25,14 +25,14 @@ have to re-state at the top of each conversation.
 ## Decisions
 
 When you make a decision of substance during a run, write a note via
-\`create_note\` with a title that starts with \`Decision: \` — for example
+\`create_note\` with a title that starts with \`Decision: \`, for example
 \`Decision: switch transcript storage to JSON Lines\`. The body should
 capture:
 
-- **Context** — what surfaced the decision
-- **Options** — what was considered
-- **Decision** — what was chosen, and why
-- **Consequences** — what changes downstream
+- **Context**: what surfaced the decision
+- **Options**: what was considered
+- **Decision**: what was chosen, and why
+- **Consequences**: what changes downstream
 
 Decisions stay queryable in the notes list (filter chip:
 \`Decisions\`). Six months later, "Why did we decide X?" maps to one

@@ -141,7 +141,7 @@ export async function runTick(now: Date = new Date()): Promise<number> {
     const holder = peekLockHolderPid();
     if (holder !== state.lastReportedLockHolder) {
       console.warn(
-        `[scheduler] tick skipped — lock held by pid ${holder ?? 'unknown'}`,
+        `[scheduler] tick skipped, lock held by pid ${holder ?? 'unknown'}`,
       );
       state.lastReportedLockHolder = holder;
     }

@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
-  Calendar,
+  Clock,
   ExternalLink,
   Pause,
   Play,
@@ -147,7 +147,7 @@ function Header({
 }) {
   const title =
     view === 'list'
-      ? 'Schedules'
+      ? 'Schedules and Triggers'
       : view === 'new'
         ? 'Create scheduled task'
         : 'Webhook ready';
@@ -164,7 +164,7 @@ function Header({
           <ArrowLeft size={16} />
         </button>
       ) : (
-        <Calendar size={16} className="text-primary mx-1.5" />
+        <Clock size={16} className="text-primary mx-1.5" />
       )}
       <h2 className="text-sm font-semibold">{title}</h2>
       <div className="flex-1" />
@@ -253,7 +253,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         <p className="text-sm font-medium text-foreground">No schedules yet</p>
         <p className="text-[12px] text-muted-foreground max-w-xs">
           Save a prompt that runs on a cadence or on demand. Daily
-          briefings, inbox triage, webhook handlers — anything the
+          briefings, inbox triage, webhook handlers, anything the
           agent can do.
         </p>
       </div>

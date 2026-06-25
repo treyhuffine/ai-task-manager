@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSessionWithExecution, getAgent, updateChatSession, setExecutionPR } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getAgent, updateChatSession, setExecutionPR, setExecutionLabel } from '@/lib/db/queries';
 import { PERMISSION_MODES, EFFORT_LEVELS, type PermissionMode, type EffortLevel } from '@/db/types';
 import * as executor from '@/lib/executor/adapter';
 
@@ -24,6 +24,13 @@ export async function GET(
 
 interface PatchBody {
   label?: string | null;
+  /**
+   * The execution's stable title (shown in the header). Lives on the
+   * execution, not the chat — so renaming here survives a "new chat" on
+   * the same execution. `null`/empty clears it. Distinct from `label`,
+   * which is the per-chat title in the history dropdown.
+   */
+  executionLabel?: string | null;
   permissionMode?: PermissionMode;
   /** Provider model id. `null` clears back to the harness default. */
   model?: string | null;
@@ -122,13 +129,27 @@ export async function PATCH(
       }
     }
 
+    // executionLabel is the execution's stable header title — also on the
+    // execution row, so route it there (same pattern as prNumber). The
+    // chat's own `label` above is untouched, keeping the two titles
+    // independent.
+    let executionChanged = false;
+    if ('executionLabel' in body && existing.executionId) {
+      const trimmed = typeof body.executionLabel === 'string' ? body.executionLabel.trim() : null;
+      const next = trimmed || null;
+      if (next !== (existing.execution?.label ?? null)) {
+        setExecutionLabel(existing.executionId, next);
+        executionChanged = true;
+      }
+    }
+
     // No-op when nothing on the chat row changed (e.g. PATCH with
     // permissionMode matching the current value). Drizzle's update()
     // throws "No values to set" with an empty patch, so short-circuit. A
-    // prNumber-only change is applied to the execution above, so reload
-    // the flattened row to reflect it.
+    // prNumber/executionLabel-only change is applied to the execution
+    // above, so reload the flattened row to reflect it.
     if (Object.keys(updates).length === 0) {
-      return Response.json(prChanged ? getChatSessionWithExecution(id) : existing);
+      return Response.json(prChanged || executionChanged ? getChatSessionWithExecution(id) : existing);
     }
 
     const row = updateChatSession(id, updates);

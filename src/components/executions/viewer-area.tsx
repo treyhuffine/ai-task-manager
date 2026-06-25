@@ -195,7 +195,7 @@ function renderStatusDot(state: PreviewServerStatus | undefined): { node: React.
       };
     case 'crashed':
       return {
-        title: 'Preview crashed — open to see logs',
+        title: 'Preview crashed, open to see logs',
         node: (
           <span
             aria-label="Preview crashed"

@@ -143,8 +143,10 @@ interface PillSessionRowProps {
 function PillSessionRow({ session, onPick }: PillSessionRowProps) {
   const { activeView, setActiveView } = useDashboard();
   const isActive = activeView === session.id;
-  const label = session.label ?? 'Untitled';
-  const labelIsPlaceholder = !session.label;
+  // Rail rows are one-per-execution, so title by the stable execution label
+  // (survives "new chat"); fall back to the chat label for legacy/orphaned rows.
+  const label = session.execution?.label ?? session.label ?? 'Untitled';
+  const labelIsPlaceholder = !(session.execution?.label ?? session.label);
   const wsName = session.workspaceName ?? 'No workspace';
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);
   const wsEmoji = session.workspaceEmoji;

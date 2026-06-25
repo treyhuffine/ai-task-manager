@@ -199,7 +199,7 @@ export function DeckConductor({
             <div className="px-2 py-1.5 text-[10px] text-muted-foreground/70 leading-snug">
               {morning?.enabled
                 ? `Reconciles yesterday into today around ${morning.time} (while the app is running).`
-                : 'Off — the deck still deals itself the first time you open it each day.'}
+                : 'Off: the deck still deals itself the first time you open it each day.'}
             </div>
           </DropdownMenuContent>
         </DropdownMenu>

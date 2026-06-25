@@ -53,7 +53,7 @@ export function PreviewManualUrl({ urls, onSave, isSaving }: PreviewManualUrlPro
         Manual preview URL
       </label>
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        Running your own tunnel? Paste its URL — Flow will use it for the preview.
+        Running your own tunnel? Paste its URL and Flow will use it for the preview.
       </p>
       <div className="flex w-full items-stretch gap-1.5">
         <input

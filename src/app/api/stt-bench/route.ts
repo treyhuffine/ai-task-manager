@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     // Detect sidecar crash / connection reset
     if (msg.includes('SocketError') || msg.includes('other side closed') || msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
       return Response.json(
-        { error: `Sidecar crashed or connection lost — likely OOM loading model. Check Docker logs.` },
+        { error: `Sidecar crashed or connection lost, likely OOM loading model. Check Docker logs.` },
         { status: 502 },
       );
     }

@@ -81,7 +81,7 @@ export function LiveModeModal({ workspaceId, workspaceName, onClose }: LiveModeM
               </p>
               <ul className="text-muted-foreground/85 space-y-1 pl-4 list-disc">
                 <li>
-                  No isolation — your local edits and the agent&apos;s edits share one working tree.
+                  No isolation: your local edits and the agent&apos;s edits share one working tree.
                 </li>
                 <li>
                   If you&apos;re on <code className="font-mono text-foreground/85">main</code>, you
@@ -92,7 +92,7 @@ export function LiveModeModal({ workspaceId, workspaceName, onClose }: LiveModeM
                   Two Live sessions on the same workspace will race on files. Don&apos;t do that.
                 </li>
                 <li>
-                  Archiving a Live session won&apos;t delete your project — just the session row.
+                  Archiving a Live session won&apos;t delete your project, just the session row.
                 </li>
               </ul>
               <p className="text-foreground/85">

@@ -46,8 +46,10 @@ export function StatusSessionRow({
     closeNow();
     setActiveView(session.id);
   };
-  const label = session.label ?? 'Untitled';
-  const labelIsPlaceholder = !session.label;
+  // Status rows are one-per-execution, so title by the stable execution
+  // label (survives "new chat"); fall back to the chat label otherwise.
+  const label = session.execution?.label ?? session.label ?? 'Untitled';
+  const labelIsPlaceholder = !(session.execution?.label ?? session.label);
 
   const wsName = session.workspaceName ?? 'No workspace';
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);

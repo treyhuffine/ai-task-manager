@@ -40,7 +40,7 @@ export function registerAgentCommand(program: Command) {
       .description(action.description)
       .option(
         '--input <json-or-@file>',
-        'Full input as JSON. "@-" reads stdin; "@path.json" reads a file. Merged on top of flag/positional values.',
+        'Full input as JSON. "@-" reads stdin. "@path.json" reads a file. Merged on top of flag/positional values.',
       );
 
     for (const [paramName, paramSchema] of Object.entries(action.params) as Array<
@@ -133,9 +133,9 @@ function describeParam(schema: z.ZodTypeAny): string {
   const typeName = (def as { _def?: { typeName?: string } })._def?.typeName;
   const hint =
     typeName === 'ZodArray'
-      ? 'array — JSON or comma-separated'
+      ? 'array: JSON or comma-separated'
       : typeName === 'ZodObject'
-        ? 'object — JSON'
+        ? 'object: JSON'
         : typeName === 'ZodNumber'
           ? 'number'
           : typeName === 'ZodBoolean'

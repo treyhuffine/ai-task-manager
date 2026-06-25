@@ -1,8 +1,9 @@
 'use client';
 
-import { Bot, Loader2 } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { ProviderModelSelector } from './provider-model-selector';
+import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import type { ProviderId } from '@/lib/agent-options';
 
 /**
@@ -28,9 +29,7 @@ export function AgentSettingsPanel() {
         model per session from the composer.
       </p>
       {isLoading ? (
-        <div className="flex items-center justify-center py-6">
-          <Loader2 size={15} className="animate-spin text-muted-foreground" />
-        </div>
+        <SettingsSkeleton rows={3} />
       ) : (
         <ProviderModelSelector
           harness={harness}

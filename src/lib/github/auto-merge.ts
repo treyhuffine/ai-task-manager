@@ -113,7 +113,7 @@ export async function getAutoMergeEligibility(
   } else if (!pr?.viewerCanEnableAutoMerge) {
     canEnable = false;
     reason =
-      "Auto-merge can't be enabled — the PR may already be mergeable, blocked by branch protection, or you lack permission.";
+      "Auto-merge can't be enabled. The PR may already be mergeable, blocked by branch protection, or you lack permission.";
   } else if (allowedMethods.length === 0) {
     canEnable = false;
     reason = 'No merge methods are allowed on this repository.';

@@ -20,31 +20,31 @@ const BENCH_MODELS = [
   {
     id: "parakeet-tdt-0.6b-v3",
     label: "V3 INT8",
-    description: "Quantized — fastest inference, multilingual",
+    description: "Quantized: fastest inference, multilingual",
     version: "v3" as const,
   },
   {
     id: "parakeet-tdt-0.6b-v2",
     label: "V2 INT8",
-    description: "Quantized — fastest inference, English-only",
+    description: "Quantized: fastest inference, English-only",
     version: "v2" as const,
   },
   {
     id: "grikdotnet/parakeet-tdt-0.6b-fp16",
     label: "V3 FP16",
-    description: "Half precision — balanced speed/accuracy, multilingual",
+    description: "Half precision: balanced speed/accuracy, multilingual",
     version: "v3" as const,
   },
   {
     id: "istupakov/parakeet-tdt-0.6b-v3-onnx",
     label: "V3 FP32",
-    description: "Full precision — max accuracy, multilingual",
+    description: "Full precision: max accuracy, multilingual",
     version: "v3" as const,
   },
   {
     id: "parakeet-tdt-0.6b-v2-fp32",
     label: "V2 FP32",
-    description: "Full precision — max accuracy, English-only",
+    description: "Full precision: max accuracy, English-only",
     version: "v2" as const,
   },
 ] as const
@@ -275,7 +275,7 @@ export default function SttBenchPage() {
         <div className="grid gap-6 md:grid-cols-2">
           <div>
             <h2 className="text-muted-foreground mb-3 text-xs font-medium uppercase tracking-wider">
-              V3 — Multilingual (25 languages)
+              V3: Multilingual (25 languages)
             </h2>
             <div className="flex flex-col gap-3">
               {BENCH_MODELS.filter((m) => m.version === "v3").map((model) => (
@@ -294,7 +294,7 @@ export default function SttBenchPage() {
 
           <div>
             <h2 className="text-muted-foreground mb-3 text-xs font-medium uppercase tracking-wider">
-              V2 — English optimized
+              V2: English optimized
             </h2>
             <div className="flex flex-col gap-3">
               {BENCH_MODELS.filter((m) => m.version === "v2").map((model) => (

@@ -47,7 +47,7 @@ export function StepYou({
           rows={4}
         />
         <p className="text-xs text-muted-foreground">
-          A starting point — refine it anytime as your focus evolves.
+          A starting point. Refine it anytime as your focus evolves.
         </p>
       </div>
     </div>

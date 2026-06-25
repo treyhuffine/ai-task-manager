@@ -32,7 +32,7 @@ function warnUnknownModelOnce(model: string): void {
   if (warnedUnknownModels.has(model)) return;
   warnedUnknownModels.add(model);
   console.warn(
-    `[pricing] no entry for model "${model}" — cost will fall back to the provider's reported costUsd or zero. Add a row to src/lib/pricing/models.json to enable accurate fallback.`,
+    `[pricing] no entry for model "${model}". Cost will fall back to the provider's reported costUsd or zero. Add a row to src/lib/pricing/models.json to enable accurate fallback.`,
   );
 }
 

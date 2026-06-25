@@ -63,7 +63,7 @@ export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = 
     title: 'Accept edits',
     shortTitle: 'Edits',
     Icon: ChevronsRight,
-    description: 'Auto-allow file edits in cwd; ask for shell + others.',
+    description: 'Auto-allow file edits in cwd. Ask for shell + others.',
     classes: {
       text: 'text-purple-500',
       border: 'border-purple-500/40',
@@ -75,7 +75,7 @@ export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = 
     title: 'Plan mode',
     shortTitle: 'Plan',
     Icon: Pause,
-    description: 'Agent proposes a plan; no edits or commands.',
+    description: 'Agent proposes a plan. No edits or commands.',
     classes: {
       text: 'text-teal-500',
       border: 'border-teal-500/40',

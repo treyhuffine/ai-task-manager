@@ -516,7 +516,7 @@ export function DeckContainer() {
     const item = plan.items.find(i => i.id === id);
     if (item) {
       enterFocusMode({
-        title: item.parentTitle ? `${item.parentTitle} — ${item.title}` : item.title,
+        title: item.parentTitle ? `${item.parentTitle}: ${item.title}` : item.title,
         project: item.areaName ?? item.parentTitle ?? '',
         context: item.continuityContext ?? item.rationale,
         taskId: item.taskId,
@@ -559,7 +559,7 @@ export function DeckContainer() {
     if (item && subtask) {
       enterFocusMode({
         title: subtask.title,
-        project: item.parentTitle ? `${item.parentTitle} — ${item.title}` : item.title,
+        project: item.parentTitle ? `${item.parentTitle}: ${item.title}` : item.title,
         context: item.rationale,
         taskId: item.taskId,
       });

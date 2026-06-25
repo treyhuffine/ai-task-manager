@@ -59,7 +59,7 @@ export function routeChange(change: ProposedChange, ctx: RouterContext): RouterD
 
   // Learned demotion: a muted kind never rises above silent.
   if (ctx.mutedKinds?.has(change.kind)) {
-    return { channel: 'absorb', reason: 'muted — you routinely dismiss this kind' };
+    return { channel: 'absorb', reason: 'muted: you routinely dismiss this kind' };
   }
 
   const wantsInterrupt = !!change.needsDecision && !!change.timeSensitive;
@@ -72,7 +72,7 @@ export function routeChange(change: ProposedChange, ctx: RouterContext): RouterD
     // Focus bodyguard — in a focus block, only a true fire (major) pierces;
     // lesser interrupt-worthy changes wait for the next break.
     if (ctx.inFocus && change.magnitude !== 'major') {
-      return { channel: 'digest', reason: 'held — you’re in a focus block; will surface at your next break' };
+      return { channel: 'digest', reason: 'held: you’re in a focus block, will surface at your next break' };
     }
     return { channel: 'interrupt', reason: 'needs your decision and can’t wait' };
   }
@@ -87,9 +87,9 @@ export function routeChange(change: ProposedChange, ctx: RouterContext): RouterD
     change.kind === 'dropped';
 
   if (notable) {
-    return { channel: 'digest', reason: 'worth knowing — surfaced at a calm moment' };
+    return { channel: 'digest', reason: 'worth knowing, surfaced at a calm moment' };
   }
-  return { channel: 'absorb', reason: 'handled cleanly — discoverable, not pushed' };
+  return { channel: 'absorb', reason: 'handled cleanly, discoverable, not pushed' };
 }
 
 export interface RoutedChange {

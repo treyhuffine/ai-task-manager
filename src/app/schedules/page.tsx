@@ -9,7 +9,7 @@
  */
 
 import { useRouter } from 'next/navigation';
-import { Activity, AlertTriangle, ArrowLeft, ChevronRight, Pause, Play, Plus } from 'lucide-react';
+import { Clock, AlertTriangle, ArrowLeft, ChevronRight, Pause, Play, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useSchedules, useUpdateSchedule } from '@/hooks/use-schedules';
 import { cn } from '@/lib/utils';
@@ -32,8 +32,8 @@ export default function SchedulesPage() {
           <ArrowLeft size={16} />
         </button>
         <div className="flex items-center gap-2">
-          <Activity size={16} className="text-primary" />
-          <h1 className="text-base font-semibold">Schedules</h1>
+          <Clock size={16} className="text-primary" />
+          <h1 className="text-base font-semibold">Schedules and Triggers</h1>
         </div>
         <div className="flex-1" />
         <Link

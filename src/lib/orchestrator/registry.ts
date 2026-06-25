@@ -55,9 +55,12 @@ import {
   getRun,
   markRunFailed,
   resetScheduleFailures,
+  listNotificationChannels,
+  getNotificationChannel,
   getOrCreateDefaultExecutor,
   getOrCreateDefaultOrchestrator,
 } from '@/lib/db/queries';
+import { getNotifierUserId } from '@/lib/notifications/user';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/scheduler/webhook';
@@ -145,7 +148,7 @@ const describe_schema = defineAction({
   name: 'describe_schema',
   description:
     'Return the Drizzle schema source as text. Read-only reference for agents ' +
-    'proposing new actions — lets an agent ground itself in the real column shape ' +
+    'proposing new actions. Lets an agent ground itself in the real column shape ' +
     'without arbitrary SQL access.',
   params: {},
   handler: () => {
@@ -197,7 +200,7 @@ const create_task_action = defineAction({
 
 const update_task_action = defineAction({
   name: 'update_task',
-  description: 'Update a task by id. All fields optional; unspecified fields keep their value.',
+  description: 'Update a task by id. All fields optional. Unspecified fields keep their value.',
   params: {
     id: z.string().min(1),
     ...Object.fromEntries(
@@ -270,8 +273,8 @@ const create_note_action = defineAction({
 const update_note_action = defineAction({
   name: 'update_note',
   description:
-    'Update a note by id. All fields optional; unspecified fields keep their value. ' +
-    'Set status=archived instead of deleting — there is no delete action by design.',
+    'Update a note by id. All fields optional. Unspecified fields keep their value. ' +
+    'Set status=archived instead of deleting. There is no delete action by design.',
   params: {
     id: z.string().min(1),
     ...Object.fromEntries(
@@ -302,7 +305,7 @@ const streamStatus = z.enum(['pending', 'promoted', 'dismissed']);
 const list_stream_action = defineAction({
   name: 'list_stream',
   description:
-    'List stream items (quick-capture inbox). Defaults to status=pending — the untriaged queue.',
+    'List stream items (quick-capture inbox). Defaults to status=pending, the untriaged queue.',
   params: {
     status: streamStatus.optional(),
     limit: z.number().int().positive().max(500).optional(),
@@ -327,7 +330,7 @@ const create_stream_item_action = defineAction({
   name: 'create_stream_item',
   description:
     'Capture text into the stream inbox. Use when something should be kept but is not clearly a ' +
-    'task or a note yet — the triage pass (human or agent) decides later.',
+    'task or a note yet. The triage pass (human or agent) decides later.',
   params: {
     rawText: z.string().min(1),
   },
@@ -339,7 +342,7 @@ const promote_stream_action = defineAction({
   name: 'promote_stream',
   description:
     'Promote a pending stream item into a task or a note. Creates the entity and stamps the stream ' +
-    "row's promotion links in one step. Shape the title yourself (imperative for tasks); the item's " +
+    "row's promotion links in one step. Shape the title yourself (imperative for tasks). The item's " +
     'raw text and attachments carry over as the body unless overridden.',
   params: {
     id: z.string().min(1),
@@ -410,7 +413,7 @@ const dismiss_stream_action = defineAction({
   name: 'dismiss_stream',
   description:
     'Dismiss a pending stream item (noise, duplicates, no-longer-relevant). Dismissed items keep ' +
-    'their text and stay searchable — this is triage, not deletion.',
+    'their text and stay searchable. This is triage, not deletion.',
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
@@ -446,8 +449,8 @@ const areaShape = {
 const list_areas_action = defineAction({
   name: 'list_areas',
   description:
-    'List areas (life/work domains like "Work", "Health"). Areas organize tasks and notes — ' +
-    'look up area ids here before filtering or linking.',
+    'List areas (life/work domains like "Work", "Health"). Areas organize tasks and notes. ' +
+    'Look up area ids here before filtering or linking.',
   params: {
     status: z.enum(['active', 'inactive', 'archived', 'all']).optional(),
   },
@@ -477,7 +480,7 @@ const create_area_action = defineAction({
 const update_area_action = defineAction({
   name: 'update_area',
   description:
-    'Update an area by id. All fields optional. Archive via status=archived — there is no delete.',
+    'Update an area by id. All fields optional. Archive via status=archived. There is no delete.',
   params: {
     id: z.string().min(1),
     ...Object.fromEntries(
@@ -511,7 +514,7 @@ const deckAlternativeShape = z.object({
 const get_deck_action = defineAction({
   name: 'get_deck',
   description:
-    "Get the deck — the day's ranked priority stack of tasks plus alternatives. " +
+    "Get the deck, the day's ranked priority stack of tasks plus alternatives. " +
     'Returns the latest deck unless an id is given.',
   params: { id: z.string().min(1).optional() },
   handler: (_ctx, { id }) => {
@@ -526,7 +529,7 @@ const get_deck_action = defineAction({
 const update_deck_action = defineAction({
   name: 'update_deck',
   description:
-    'Update a deck by id — reorder or swap items, edit alternatives, or change the framing. ' +
+    'Update a deck by id: reorder or swap items, edit alternatives, or change the framing. ' +
     'Items carry source=user when the user (or an agent acting for them) placed them.',
   params: {
     id: z.string().min(1),
@@ -568,7 +571,7 @@ const reconcile_deck_action = defineAction({
   description:
     "Re-check today's deck against the live calendar and adapt it to external changes " +
     '(e.g. a new meeting shrinks the day → bump the lowest-priority item, narrated and ' +
-    'reversible). Deterministic — no model call, safe to run on a cadence. No-op until a ' +
+    'reversible). Deterministic, no model call, safe to run on a cadence. No-op until a ' +
     'calendar connector is registered.',
   params: {
     in_focus: z.boolean().optional(),
@@ -615,7 +618,7 @@ const update_user_state_action = defineAction({
   name: 'update_user_state',
   description:
     "Update the user's current state (energy, available time, active area/task, focus text). " +
-    'Only these focus fields are exposed — app settings are not writable from the agent surface.',
+    'Only these focus fields are exposed. App settings are not writable from the agent surface.',
   params: {
     activeAreaId: z.string().nullable().optional(),
     activeParentTaskId: z.string().nullable().optional(),
@@ -658,7 +661,7 @@ const get_workspace_action = defineAction({
 const create_workspace_action = defineAction({
   name: 'create_workspace',
   description:
-    'Create a workspace tied to a folder on disk. Git is auto-detected; for git repos the base branch is resolved from <remote>/HEAD with main/master fallback.',
+    'Create a workspace tied to a folder on disk. Git is auto-detected. For git repos the base branch is resolved from <remote>/HEAD with main/master fallback.',
   params: {
     name: z.string().min(1),
     cwd: z.string().min(1),
@@ -691,7 +694,7 @@ const create_workspace_action = defineAction({
 
 const archive_workspace_action = defineAction({
   name: 'archive_workspace',
-  description: 'Archive a workspace. Sessions stay queryable; nothing on disk is touched.',
+  description: 'Archive a workspace. Sessions stay queryable. Nothing on disk is touched.',
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
@@ -727,7 +730,7 @@ const list_executions_action = defineAction({
   name: 'list_executions',
   description:
     'List active execution sessions across all workspaces with status flags: running (turn in ' +
-    'flight), awaitingInput (blocked on a prompt), unread (output the user has not viewed — what ' +
+    'flight), awaitingInput (blocked on a prompt), unread (output the user has not viewed, what ' +
     'the rail\'s Unread section shows, minus currently-running sessions). The returned sessionId ' +
     'is the handle for get_session_messages and send_session_message.',
   params: {},
@@ -766,7 +769,7 @@ const get_session_messages_action = defineAction({
   name: 'get_session_messages',
   description:
     'Read the latest messages of a session (execution or orchestrator chat) as a condensed transcript ' +
-    'tail — user/agent text, one-line tool calls, errors — plus whether the session is running or ' +
+    'tail (user/agent text, one-line tool calls, errors), plus whether the session is running or ' +
     'blocked on a permission/question prompt. Read this before nudging a session.',
   params: {
     sessionId: z.string().min(1),
@@ -804,7 +807,7 @@ const get_pending_input_action = defineAction({
   description:
     'List the permission/question prompts a session is blocked on right now (live server state). ' +
     'Each entry carries a requestId for answer_pending_input. A blocked turn does NOT see queued ' +
-    'messages until its prompt is resolved — answering is the only way to unblock it.',
+    'messages until its prompt is resolved. Answering is the only way to unblock it.',
   params: { sessionId: z.string().min(1) },
   cli: { positional: ['sessionId'] },
   handler: async (_ctx, { sessionId }) => {
@@ -819,7 +822,7 @@ const answer_pending_input_action = defineAction({
   description:
     'Resolve a pending permission or question prompt on a session. Permissions: allow=true/false ' +
     '(message = deny reason). Questions: allow=true with answers keyed by the question text ' +
-    '(allow=false declines). Only answer on the user\'s clear intent — when in doubt, surface the ' +
+    '(allow=false declines). Only answer on the user\'s clear intent. When in doubt, surface the ' +
     'prompt to the user instead.',
   params: {
     sessionId: z.string().min(1),
@@ -843,7 +846,7 @@ const answer_pending_input_action = defineAction({
       resolved: true,
       sessionId,
       requestId,
-      note: 'The blocked turn resumes now — check get_session_messages for what it does next.',
+      note: 'The blocked turn resumes now. Check get_session_messages for what it does next.',
     };
   },
 });
@@ -851,9 +854,9 @@ const answer_pending_input_action = defineAction({
 const send_session_message_action = defineAction({
   name: 'send_session_message',
   description:
-    'Send a message into a session — nudge a stalled execution, answer a question in prose, or steer ' +
+    'Send a message into a session: nudge a stalled execution, answer a question in prose, or steer ' +
     'direction. Delivered through the app server: it lands in the agent\'s queue mid-turn or starts a ' +
-    'new turn. Fire-and-forget — poll get_session_messages for the response. Never send to your own session.',
+    'new turn. Fire-and-forget. Poll get_session_messages for the response. Never send to your own session.',
   params: {
     sessionId: z.string().min(1),
     content: z.string().min(1),
@@ -866,7 +869,7 @@ const send_session_message_action = defineAction({
     if (session.status === 'archived') {
       throw new ActionError(
         'conflict',
-        'Session is archived — resume it from the app before messaging it.',
+        'Session is archived. Resume it from the app before messaging it.',
       );
     }
 
@@ -884,7 +887,7 @@ const send_session_message_action = defineAction({
       delivered: true,
       sessionId,
       eventId: event?.id ?? null,
-      note: 'Dispatched. The session processes asynchronously — check get_session_messages shortly.',
+      note: 'Dispatched. The session processes asynchronously. Check get_session_messages shortly.',
     };
   },
 });
@@ -902,6 +905,39 @@ const scheduleCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped']);
 const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
+
+/**
+ * Validate a `deliverResultTo[]` digest binding (notifier channel ids) before
+ * it lands on a schedule. The binding is only honored for orchestrator-target
+ * runs — `notifyRunTerminal` (src/lib/notifications/emit.ts) reads it solely on
+ * the orchestrator branch; workspace runs route via the `execution.finished`
+ * matrix instead. Rejecting a non-empty binding on a workspace target (rather
+ * than silently dropping it) keeps "I set a Telegram digest" honest. Every id
+ * must resolve to a real channel so a typo fails loudly instead of delivering
+ * nowhere. Returns the de-duped list to store.
+ */
+function validateDeliverResultTo(
+  ids: string[],
+  targetKind: z.infer<typeof scheduleTargetKind>,
+): string[] {
+  if (ids.length === 0) return [];
+  if (targetKind !== 'orchestrator') {
+    throw new ActionError(
+      'invalid_params',
+      'deliver_result_to is only honored for target_kind=orchestrator. Workspace runs notify via the execution.finished matrix, not a digest binding',
+    );
+  }
+  const deduped = [...new Set(ids)];
+  for (const id of deduped) {
+    if (!getNotificationChannel(id)) {
+      throw new ActionError(
+        'not_found',
+        `notification channel not found: ${id} (use list_notification_channels to discover ids)`,
+      );
+    }
+  }
+  return deduped;
+}
 
 const list_schedules_action = defineAction({
   name: 'list_schedules',
@@ -963,6 +999,11 @@ const createScheduleShape = {
   model: z.string().nullable().optional(),
   effort: effortLevel.nullable().optional(),
   timeoutSeconds: z.number().int().positive().nullable().optional(),
+  // Notifier digest binding: notification_channel ids the run result is
+  // delivered to when an orchestrator-target run completes
+  // (`schedule.run_completed`). Discover ids via list_notification_channels.
+  // Only honored for target_kind=orchestrator (see validateDeliverResultTo).
+  deliverResultTo: z.array(z.string().min(1)).optional(),
 } as const;
 
 const create_schedule_action = defineAction({
@@ -1000,6 +1041,12 @@ const create_schedule_action = defineAction({
       // which is the wrong execution-isolation story.
       throw new ActionError('invalid_params', 'workspace_id must be null when target_kind=orchestrator');
     }
+
+    // Resolve + verify the digest binding before we persist anything.
+    const deliverResultTo = validateDeliverResultTo(
+      input.deliverResultTo ?? [],
+      input.targetKind,
+    );
 
     // Resolve agentId default. Form-level (not schema-level) so the
     // orchestrator/workspace defaults match the spec without forcing
@@ -1059,6 +1106,7 @@ const create_schedule_action = defineAction({
       // runtime `runWithTimeout` skips the race when seconds is null
       // or <= 0; the run completes whenever the executor returns.
       timeoutSeconds: input.timeoutSeconds ?? null,
+      deliverResultTo,
       nextRunAt,
     });
 
@@ -1097,6 +1145,9 @@ const update_schedule_action = defineAction({
     effort: effortLevel.nullable().optional(),
     timeoutSeconds: z.number().int().positive().optional(),
     disabledReason: z.string().nullable().optional(),
+    // Replace the notifier digest binding (full set, not a delta). Pass []
+    // to unbind. Validated against the schedule's existing target_kind.
+    deliverResultTo: z.array(z.string().min(1)).optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
@@ -1104,6 +1155,11 @@ const update_schedule_action = defineAction({
     const { id, ...rest } = input;
     const current = getSchedule(id);
     if (!current) throw new ActionError('not_found', `Schedule not found: ${id}`);
+
+    // Verify the digest binding against the (immutable) target_kind before write.
+    if (rest.deliverResultTo !== undefined) {
+      rest.deliverResultTo = validateDeliverResultTo(rest.deliverResultTo, current.targetKind);
+    }
 
     // Validate cron if it's changing.
     const cronExpression =
@@ -1141,7 +1197,7 @@ const update_schedule_action = defineAction({
 const delete_schedule_action = defineAction({
   name: 'delete_schedule',
   description:
-    'Delete a schedule. Existing runs survive (schedule_id nulled). Owned execution is preserved — many schedules can share executions, so removing one doesn\'t archive shared work.',
+    'Delete a schedule. Existing runs survive (schedule_id nulled). Owned execution is preserved. Many schedules can share executions, so removing one doesn\'t archive shared work.',
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
@@ -1209,7 +1265,7 @@ const get_run_action = defineAction({
 const cancel_run_action = defineAction({
   name: 'cancel_run',
   description:
-    'Best-effort cancel of an in-flight run. The agent receives SIGTERM via the executor; the run row is marked failed with status_reason=cancelled. Already-terminal runs return their current state unchanged.',
+    'Best-effort cancel of an in-flight run. The agent receives SIGTERM via the executor. The run row is marked failed with status_reason=cancelled. Already-terminal runs return their current state unchanged.',
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
@@ -1250,6 +1306,23 @@ const reset_schedule_failures_action = defineAction({
     const row = resetScheduleFailures(id);
     if (!row) throw new ActionError('not_found', `Schedule not found: ${id}`);
     return row;
+  },
+});
+
+const list_notification_channels_action = defineAction({
+  name: 'list_notification_channels',
+  description:
+    "List the user's notification channels (Telegram connector, web push, in-app). Returns each channel's id, provider, label, target config and enabled state. Use the id to bind a schedule's result digest via create_schedule / update_schedule deliver_result_to. Channels themselves are created in the app UI (Telegram linking needs an OAuth-style claim flow).",
+  params: {
+    kind: z.enum(['connector', 'web_push', 'in_app']).optional(),
+    providerId: z.string().min(1).optional(),
+    enabled: z.boolean().optional(),
+  },
+  handler: (_ctx, { kind, providerId, enabled }) => {
+    let channels = listNotificationChannels({ userId: getNotifierUserId(), enabled });
+    if (kind) channels = channels.filter((c) => c.kind === kind);
+    if (providerId) channels = channels.filter((c) => c.providerId === providerId);
+    return { channels };
   },
 });
 
@@ -1311,5 +1384,6 @@ export const actions = [
   get_run_action,
   cancel_run_action,
   reset_schedule_failures_action,
+  list_notification_channels_action,
   list_skills_action,
 ];

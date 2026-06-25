@@ -75,7 +75,7 @@ export function DeckChangeBrief({
         <div className="flex-1 min-w-0">
           <p className="text-[11px] text-foreground/80 leading-relaxed">
             {summary
-              ? <>{lead} — <span className="text-muted-foreground">{summary}</span>.</>
+              ? <>{lead}: <span className="text-muted-foreground">{summary}</span>.</>
               : 'Earlier versions of today’s deck are available.'}
           </p>
           {hasHistory && (

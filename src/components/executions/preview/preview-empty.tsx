@@ -51,7 +51,7 @@ function renderBody(props: PreviewEmptyProps) {
         <Subtle>
           Configure a command to start your dev server. Anything that prints a
           {' '}<code className="rounded bg-muted px-1.5 py-0.5 text-[12px]">localhost:PORT</code>{' '}
-          to stdout works — pnpm dev, flask run, cargo run, python -m http.server, you name it.
+          to stdout works: pnpm dev, flask run, cargo run, python -m http.server, you name it.
         </Subtle>
         {props.onSaveCommand && (
           <CommandEditor

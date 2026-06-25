@@ -130,7 +130,7 @@ async function startAction() {
 async function stopAction() {
   const ctx = getVoiceContext();
   if (!(await isDockerAvailable())) {
-    console.log(pc.dim('Docker is not running — nothing to stop.'));
+    console.log(pc.dim('Docker is not running, nothing to stop.'));
     return;
   }
   await stopVoiceService(ctx);

@@ -6,6 +6,8 @@ import { ChevronLeft, Trash2, MoreHorizontal, ExternalLink, Archive } from 'luci
 import { NoteEditor } from '@/components/editor/rich-editor';
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
+import { EntityHistoryButton } from '@/components/entities/entity-history-button';
+import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
   DropdownMenu,
@@ -155,6 +157,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
               </button>
 
               <div className="flex items-center gap-3">
+                {note && <EntityHistoryButton entityType="note" entityId={note.id} />}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
@@ -184,6 +187,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
             </div>
             {note ? (
               <>
+                <EntityChangeBanner entityType="note" entityId={note.id} />
                 <div className="pt-6 flex items-center gap-2">
                   <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
                     Note

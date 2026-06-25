@@ -42,6 +42,7 @@ import {
   insertChatEvent,
   resetExecutionForReprovision,
 } from '@/lib/db/queries';
+import { notifyRunTerminal } from '@/lib/notifications/emit';
 import { withApiLease } from '@/lib/scheduler/rate-lease';
 import { dispatch as executorDispatch, abort as executorAbort } from '@/lib/executor/adapter';
 import { provisionWorktreeForSession } from '@/lib/sessions/dispatch';
@@ -517,7 +518,7 @@ async function ensureWorktreeReady(
   // when the previous failure was the missing dir.
   if (execution.worktreePath && !fsExistsSync(execution.worktreePath)) {
     console.warn(
-      `[dispatch] execution ${execution.id} worktreePath ${execution.worktreePath} is missing — reprovisioning`,
+      `[dispatch] execution ${execution.id} worktreePath ${execution.worktreePath} is missing, reprovisioning`,
     );
     resetExecutionForReprovision(execution.id);
   } else if (execution.setupError) {
@@ -629,6 +630,8 @@ function finalizeRunSuccessIfPending(runId: string, scheduleId: string | null): 
   if (completed && completed.status === 'completed' && scheduleId) {
     setScheduleLastRun(scheduleId, runId, 'completed');
   }
+  // Notifier (best-effort): execution.finished / schedule.run_completed (§2.4).
+  void notifyRunTerminal(runId).catch(() => {});
 }
 
 function finalizeRunFailure(runId: string, scheduleId: string | null, err: unknown): void {
@@ -639,4 +642,5 @@ function finalizeRunFailure(runId: string, scheduleId: string | null, err: unkno
     'agent_error';
   markRunFailed(runId, { errorCode, errorMessage: message });
   if (scheduleId) setScheduleLastRun(scheduleId, runId, 'failed');
+  void notifyRunTerminal(runId).catch(() => {});
 }

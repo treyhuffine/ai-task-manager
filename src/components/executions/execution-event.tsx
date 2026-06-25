@@ -363,7 +363,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
           <div className="flex items-center gap-1.5 text-[11px]">
             <ShieldCheck size={11} className="text-blue-500" />
             <span className="text-foreground/90">Permission requested</span>
-            <span className="text-muted-foreground/60 font-mono">— {tool}</span>
+            <span className="text-muted-foreground/60 font-mono">{tool}</span>
             {summary && <span className="text-muted-foreground/70 truncate">{summary}</span>}
           </div>
           {event.content && (
@@ -389,7 +389,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
           {allowed ? <ShieldCheck size={11} /> : <ShieldAlert size={11} />}
           <span>{allowed ? 'Allowed' : 'Denied'}</span>
           {event.content && event.content !== (allowed ? 'allowed' : 'denied') && (
-            <span className="font-normal opacity-80">— {event.content}</span>
+            <span className="font-normal opacity-80">: {event.content}</span>
           )}
         </div>
       );
@@ -429,7 +429,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             </RowDisclosure>
             <span className="text-foreground/90">Your answer</span>
             {!expanded && text && (
-              <span className="text-muted-foreground/70 truncate">— {truncate(text, 80)}</span>
+              <span className="text-muted-foreground/70 truncate">: {truncate(text, 80)}</span>
             )}
           </div>
           {expanded && text && (
@@ -521,7 +521,7 @@ function AuthRequiredBanner({
   })();
 
   const errorMessage = login.error
-    ? (login.error.message || 'Login failed — try again.')
+    ? (login.error.message || 'Login failed. Try again.')
     : null;
 
   // Two distinct visual states for the actionable banner:
@@ -643,7 +643,7 @@ function FailedSendBadge({
     <div className="self-end mt-0.5 flex flex-col items-end gap-0.5">
       <div className="flex items-center gap-1.5 text-[10.5px] text-destructive">
         <AlertTriangle size={11} />
-        <span>{error ? `Send failed — ${error}` : 'Send failed'}</span>
+        <span>{error ? `Send failed: ${error}` : 'Send failed'}</span>
       </div>
       <button
         type="button"

@@ -39,7 +39,7 @@ async function extractPdfText(absolutePath: string): Promise<string | null> {
     const trimmed = text.trim();
     if (!trimmed) return null;
     if (trimmed.length <= MAX_PDF_TEXT_CHARS) return trimmed;
-    return `${trimmed.slice(0, MAX_PDF_TEXT_CHARS)}\n\n[truncated — original PDF text was ${trimmed.length.toLocaleString()} chars]`;
+    return `${trimmed.slice(0, MAX_PDF_TEXT_CHARS)}\n\n[truncated: original PDF text was ${trimmed.length.toLocaleString()} chars]`;
   } catch (err) {
     console.warn('[extract-pdf-for-openai] failed:', err);
     return null;

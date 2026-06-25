@@ -185,7 +185,7 @@ export default function ScheduleDetailPage() {
               POST /api/triggers/{schedule.webhookPublicId}
             </code>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Sign body with HMAC-SHA256 using your stored secret; send
+              Sign body with HMAC-SHA256 using your stored secret. Send
               hex as <code>X-Signature</code> and the plaintext as{' '}
               <code>X-Webhook-Secret</code>.
             </p>
@@ -214,7 +214,7 @@ export default function ScheduleDetailPage() {
           <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full space-y-4">
             <h3 className="text-base font-semibold">Delete schedule?</h3>
             <p className="text-sm text-muted-foreground">
-              Existing runs survive — only the schedule and its future fires
+              Existing runs survive, only the schedule and its future fires
               are removed.
             </p>
             <div className="flex items-center gap-2 justify-end">
@@ -255,10 +255,10 @@ function RunRowSmall({ run }: { run: RunRecord }) {
     >
       <RunActivityBadge runId={run.id} terminalStatus={terminal} />
       <span className="flex-1 truncate text-muted-foreground text-[12px]">
-        {run.summary ?? run.errorMessage ?? '—'}
+        {run.summary ?? run.errorMessage ?? '-'}
       </span>
       <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
-        {run.startedAt ? humanize(run.startedAt) : '—'}
+        {run.startedAt ? humanize(run.startedAt) : '-'}
       </span>
       {run.costUsd != null && run.costUsd > 0 && (
         <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">

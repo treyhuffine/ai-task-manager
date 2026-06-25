@@ -61,7 +61,7 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
           handleOpen();
         }
       }}
-      title={`${session.label ?? 'Untitled'} · ${wsName}`}
+      title={`${session.execution?.label ?? session.label ?? 'Untitled'} · ${wsName}`}
       className={cn(
         'group relative flex items-center justify-center w-7 h-7 mx-auto rounded-md cursor-pointer transition-colors',
         isActive ? 'ring-2 ring-foreground/80' : 'hover:ring-1 hover:ring-foreground/30',

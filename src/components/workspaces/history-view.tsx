@@ -67,6 +67,7 @@ export function HistoryView() {
       if (!q) return true;
       const haystack = [
         s.label ?? '',
+        s.execution?.label ?? '',
         s.workspaceName ?? '',
         s.branchName ?? '',
       ].join(' ').toLowerCase();

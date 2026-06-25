@@ -129,7 +129,7 @@ function EntityChipView({ node, editor, getPos, selected }: NodeViewProps) {
   const label = entityLabel(attrs);
   const tooltip =
     attrs.kind === 'scratchpad'
-      ? 'Session scratchpad — inlined for the agent on send'
+      ? 'Session scratchpad: inlined for the agent on send'
       : `${attrs.kind === 'task' ? 'Task' : 'Note'}: ${label}`;
 
   return (

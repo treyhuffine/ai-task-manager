@@ -385,7 +385,7 @@ export function ScratchpadButton({ open, onClick }: ScratchpadButtonProps) {
           ? 'bg-primary/15 text-primary hover:bg-primary/20'
           : 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
       )}
-      title={open ? 'Close scratchpad' : 'Scratchpad — jot thoughts for this session'}
+      title={open ? 'Close scratchpad' : 'Scratchpad: jot thoughts for this session'}
       aria-label={open ? 'Close scratchpad' : 'Scratchpad'}
     >
       {open ? <X size={12} /> : <NotebookPen size={12} />}

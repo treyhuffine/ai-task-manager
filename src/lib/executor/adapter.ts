@@ -47,11 +47,13 @@ import {
   getWorkspace,
   getUserState,
   updateChatSession,
+  listChatSessions,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
 import {
   installOrchestratorSurface,
   orchestratorSessionConfig,
+  connectorsMcpServer,
   renderContentFocusPrompt,
   type OrchestratorMode,
 } from '@/lib/orchestrator/harness-surface';
@@ -80,6 +82,7 @@ import {
   markRunFailed as markRunFailedRow,
   bumpSessionOutcome,
 } from '@/lib/db/queries';
+import { notifyNeedsInput, notifyRunTerminal } from '@/lib/notifications/emit';
 import { budgetGate } from '@/lib/runs/budget';
 
 // ─── Public errors ────────────────────────────────────────────
@@ -478,6 +481,7 @@ export async function dispatch(
       harness: agent.harness,
       cwd,
       sessionType: session.type,
+      workspaceId: session.workspaceId ?? null,
       surfaceKind: session.surfaceKind,
       surfaceRef: session.surfaceRef,
       existingExternalSessionId: session.externalSessionId,
@@ -490,6 +494,7 @@ export async function dispatch(
     await result;
     if (manualRun?.ownsLifecycle) {
       markRunCompletedRow(manualRun.runId);
+      void notifyRunTerminal(manualRun.runId).catch(() => {});
     }
   } catch (err) {
     if (manualRun?.ownsLifecycle) {
@@ -497,6 +502,7 @@ export async function dispatch(
         errorCode: 'agent_error',
         errorMessage: err instanceof Error ? err.message : String(err),
       });
+      void notifyRunTerminal(manualRun.runId).catch(() => {});
       // Touch the chat's outcome timestamp so a failure before any
       // assistant turn still surfaces in the inbox. Without this, a
       // turn that throws inside `ensureAgentSession` / the first
@@ -523,6 +529,25 @@ export async function abort(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   if (!handle) return;
   await handle.interrupt();
+}
+
+/**
+ * Stop a single background task (a backgrounded shell/server or async subagent)
+ * without disturbing the session or its other tasks. Forwards to the live
+ * `AgentSession.stopTask` (agentex 0.0.22+), which sends the CLI's `stop_task`
+ * control request; the harness owns the process and performs the kill, so the
+ * model isn't involved. Returns `{ stopped: false }` when there's no live
+ * session, the provider lacks per-task stop (`capabilities.stopTask === false`),
+ * or the task is unknown / already ended. The task's next lifecycle event
+ * (`task_updated`/`task_notification`) reflects the kill.
+ */
+export async function stopTask(
+  chatSessionId: string,
+  taskId: string,
+): Promise<{ stopped: boolean }> {
+  const handle = agentSessions.get(chatSessionId);
+  if (!handle) return { stopped: false };
+  return handle.stopTask(taskId);
 }
 
 /**
@@ -553,6 +578,18 @@ export async function close(chatSessionId: string): Promise<void> {
  * the user is mid-stream (the runningSessions check at the route layer
  * already rejects send-while-running).
  */
+/**
+ * Recycle every live agent session for a workspace (spec §6f). Called after a workspace's connector
+ * scopes change so a removed service takes effect immediately rather than next session — the harness
+ * caches its tool list otherwise. A no-op for sessions that aren't currently live.
+ */
+export async function recycleWorkspaceSessions(workspaceId: string): Promise<void> {
+  // Only execution sessions consume the workspace connector scope (the orchestrator + content
+  // sessions stay broad), so only those need recycling — don't disturb live content/focused sessions.
+  const sessions = listChatSessions({ workspaceId, status: 'active', type: 'execution' });
+  await Promise.all(sessions.map((s) => recycleForModeChange(s.id)));
+}
+
 export async function recycleForModeChange(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   if (!handle) return;
@@ -574,6 +611,8 @@ interface EnsureArgs {
   cwd: string;
   /** chat_sessions.type — orchestration sessions get the data-root surface. */
   sessionType: 'orchestration' | 'content' | 'execution';
+  /** The session's workspace (for execution connector scoping); null for workspace-less. */
+  workspaceId: string | null;
   /**
    * For `content` sessions: the entity the in-document chat is focused on
    * (`surfaceKind` = 'task' | 'note', `surfaceRef` = its id). Null for other
@@ -671,6 +710,30 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
       // A failed surface install shouldn't kill the turn — the session
       // still runs against whatever brief is already on disk.
       console.error('[executor] orchestrator surface install failed:', err);
+    }
+  }
+
+  // Execution (workspace coding/agent) sessions: fail closed on MCP, and attach the
+  // workspace-scoped connectors endpoint when the workspace opted in — but ONLY on a harness that
+  // actually enforces strict MCP (Claude Code today; Codex ignores these fields). See spec §3/§6c.
+  if (args.sessionType === 'execution') {
+    if (providerType === 'claude') {
+      config.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
+      const scopes = args.workspaceId ? getWorkspace(args.workspaceId)?.connectorScopes ?? [] : [];
+      if (scopes.length > 0 && args.workspaceId) {
+        const server = connectorsMcpServer(undefined, { workspaceId: args.workspaceId });
+        if (server) config.mcpServers = [server];
+      }
+    } else {
+      const wantsConnectors = args.workspaceId
+        ? (getWorkspace(args.workspaceId)?.connectorScopes.length ?? 0) > 0
+        : false;
+      if (wantsConnectors) {
+        console.warn(
+          `[executor] execution on provider "${providerType}": connectors are unavailable ` +
+            '(this harness does not enforce strict MCP tool-filtering).',
+        );
+      }
     }
   }
 
@@ -775,6 +838,17 @@ async function handleUserInputRequest(
   } catch (err) {
     console.error(`[executor] failed to persist pending event for ${chatSessionId}:`, err);
   }
+
+  // Notifier (best-effort): the agent is blocked on the human — fire off the durable request (§2.4).
+  void notifyNeedsInput({
+    sessionId: chatSessionId,
+    requestId: pending.requestId,
+    title: pending.kind === 'permission' ? `Permission: ${pending.toolName}` : 'Agent has a question',
+    body:
+      pending.kind === 'permission'
+        ? pending.title ?? pending.description ?? 'The agent needs permission to continue.'
+        : 'The agent is waiting for your answer.',
+  }).catch(() => {});
 
   const response = await registerPending(pending);
 

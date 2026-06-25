@@ -22,6 +22,7 @@ import { TakeoverButton } from './takeover/takeover-button';
 import { ResyncMenuItem } from './resync-menu-item';
 import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
+import { ExecutionChatControls } from './execution-chat-controls';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
 
@@ -53,6 +54,10 @@ interface ExecutionHeaderProps {
   referencesOpen?: boolean;
   /** True when the scratchpad pane is currently visible. */
   scratchpadOpen?: boolean;
+  /** Start a fresh chat on this execution's worktree. */
+  onNewChat?: () => void;
+  /** A new-chat / provider-switch is in flight. */
+  newChatPending?: boolean;
 }
 
 /**
@@ -69,6 +74,8 @@ export function ExecutionHeader({
   onToggleScratchpad,
   referencesOpen,
   scratchpadOpen,
+  onNewChat,
+  newChatPending,
 }: ExecutionHeaderProps) {
   const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
   const archive = useArchiveSession();
@@ -106,26 +113,39 @@ export function ExecutionHeader({
     setDraft('');
   }
 
+  // The header title is the EXECUTION's label — stable across chats. Starting
+  // a new chat on the same execution gives that chat its own `session.label`
+  // (the per-conversation title shown in the history dropdown) but leaves this
+  // header title untouched. Fall back to the chat label only for the rare
+  // non-execution case (an orphaned chat whose execution was hard-deleted).
+  const displayLabel = session.execution?.label ?? session.label ?? null;
+
   useEffect(() => {
     if (editing) {
-      setDraft(session.label ?? '');
+      setDraft(displayLabel ?? '');
       requestAnimationFrame(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       });
     }
-  }, [editing, session.label]);
+  }, [editing, displayLabel]);
 
   const commitRename = () => {
     const next = draft.trim();
     setEditing(false);
-    if (next === (session.label ?? '')) return; // no-op
-    updateSession.mutate({ id: session.id, label: next || null });
+    if (next === (displayLabel ?? '')) return; // no-op
+    // Rename the execution (the durable artifact) so the title survives a
+    // "new chat". Orphaned chats with no execution fall back to their own label.
+    if (session.executionId) {
+      updateSession.mutate({ id: session.id, executionLabel: next || null });
+    } else {
+      updateSession.mutate({ id: session.id, label: next || null });
+    }
   };
 
   const cancelRename = () => {
     setEditing(false);
-    setDraft(session.label ?? '');
+    setDraft(displayLabel ?? '');
   };
 
   const isStreaming = streamingSessionIds.has(session.id);
@@ -200,7 +220,7 @@ export function ExecutionHeader({
               : 'bg-zinc-400';
 
   const handleArchive = () => {
-    if (!confirm(`Archive "${session.label ?? 'this execution'}"?`)) return;
+    if (!confirm(`Archive "${displayLabel ?? 'this execution'}"?`)) return;
     archive.mutate(
       { id: session.id, force: false },
       {
@@ -338,12 +358,12 @@ export function ExecutionHeader({
               className={cn(
                 'truncate text-left rounded px-1 -mx-1 py-0.5',
                 'active:bg-muted/40 transition-colors cursor-text',
-                session.label
+                displayLabel
                   ? 'text-foreground font-semibold text-[14px]'
                   : 'text-muted-foreground/70 italic font-normal text-[14px]',
               )}
             >
-              {session.label ?? 'Untitled'}
+              {displayLabel ?? 'Untitled'}
             </button>
           )}
         </div>
@@ -377,7 +397,7 @@ export function ExecutionHeader({
                 <div className="p-3 space-y-2.5 text-[12px]">
                   <DetailRow
                     label="Workspace"
-                    value={workspace?.name ?? '—'}
+                    value={workspace?.name ?? '-'}
                     valueClass="font-medium text-foreground"
                   />
                   {session.branchName && (
@@ -470,17 +490,23 @@ export function ExecutionHeader({
               className={cn(
                 'truncate text-left rounded px-0.5 -mx-0.5 min-w-0',
                 'hover:bg-muted/50 transition-colors cursor-text',
-                session.label
+                displayLabel
                   ? 'text-foreground font-semibold'
                   : 'text-muted-foreground/60 italic font-normal',
               )}
             >
-              {session.label ?? 'Untitled'}
+              {displayLabel ?? 'Untitled'}
             </button>
           )}
         </div>
 
         {statusPill}
+
+        <ExecutionChatControls
+          sessionId={session.id}
+          onNewChat={onNewChat}
+          newChatPending={newChatPending}
+        />
 
         {/* Session menu — sits adjacent to the label so all the
             "passive info + meta actions" live in one spot. Details
@@ -507,7 +533,7 @@ export function ExecutionHeader({
               <div className="p-3 space-y-2.5 text-[12px]">
                 <DetailRow
                   label="Workspace"
-                  value={workspace?.name ?? '—'}
+                  value={workspace?.name ?? '-'}
                   valueClass="font-medium text-foreground"
                 />
                 {workspace?.baseBranch && (
@@ -659,7 +685,7 @@ function DensityToggle() {
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={4}>
-        {condensed ? 'Condensed — tap for full feed' : 'Full feed — tap to condense'}
+        {condensed ? 'Condensed, tap for full feed' : 'Full feed, tap to condense'}
       </TooltipContent>
     </Tooltip>
   );
@@ -698,7 +724,7 @@ function LiveBadge({ branch }: { branch: string | null }) {
             ) : (
               'the current branch'
             )}
-            . No worktree isolation — commits land on that branch.
+            . No worktree isolation, commits land on that branch.
           </div>
         </div>
       </TooltipContent>

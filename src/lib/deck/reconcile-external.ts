@@ -131,7 +131,7 @@ export async function reconcileDeckWithExternalChanges(
     proposals.push({
       kind: 'bumped',
       taskId: victim.taskId,
-      reason: `A new commitment shrank today to ~${nowAvailable}m of task time — moved off to keep the day realistic.`,
+      reason: `A new commitment shrank today to ~${nowAvailable}m of task time. Moved off to keep the day realistic.`,
       source: 'calendar',
       touchesPriority: hasDeadline,
       // A hard-deadline item forced off the deck is a real conflict only the

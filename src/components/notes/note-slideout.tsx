@@ -18,6 +18,8 @@ import {
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat'
 import { useDragResize } from '@/hooks/use-drag-resize'
 import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button'
+import { EntityHistoryButton } from '@/components/entities/entity-history-button'
+import { EntityChangeBanner } from '@/components/entities/entity-change-banner'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/db/types'
 
@@ -242,6 +244,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             </div>
 
             <div className="flex items-center gap-3">
+              {noteId && <EntityHistoryButton entityType="note" entityId={noteId} />}
               {noteId && <ReferencingSessionsButton entityType="note" entityId={noteId} />}
               <a
                 href={noteId ? `/note/${noteId}` : '#'}
@@ -293,6 +296,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             <div className="flex-1 overflow-y-auto min-w-0 relative">
               {note ? (
                 <>
+                  <EntityChangeBanner entityType="note" entityId={note.id} />
                   <div className="px-4 md:px-12 py-0 flex items-center gap-2">
                     <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">Note</span>
                     <span className="text-muted-foreground/30">·</span>

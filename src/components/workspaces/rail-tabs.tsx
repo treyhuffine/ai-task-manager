@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Calendar, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Clock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
 import { cn } from '@/lib/utils';
@@ -125,7 +125,7 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
 
 /**
  * Prominent button at the top of the rail. Two modes:
- *   - expanded: full-width "Schedules" pill with the calendar icon
+ *   - expanded: full-width "Schedules and Triggers" pill with the clock icon
  *   - collapsed (skinny rail): icon-only button centered
  * Both open the SchedulesModal — same surface, same affordance.
  */
@@ -147,13 +147,13 @@ function SchedulesButton({
           onClick={onClick}
           aria-label={
             activeRuns > 0
-              ? `Open schedules — ${activeRuns} run${activeRuns === 1 ? '' : 's'} active`
-              : 'Open schedules'
+              ? `Open schedules and triggers: ${activeRuns} run${activeRuns === 1 ? '' : 's'} active`
+              : 'Open schedules and triggers'
           }
-          title={activeRuns > 0 ? `${activeRuns} active` : 'Schedules'}
+          title={activeRuns > 0 ? `${activeRuns} active` : 'Schedules and Triggers'}
           className="relative p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors"
         >
-          <Calendar size={14} />
+          <Clock size={14} />
           {activeRuns > 0 && (
             <span
               className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500"
@@ -169,13 +169,13 @@ function SchedulesButton({
       <button
         type="button"
         onClick={onClick}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] font-medium text-foreground bg-muted/40 hover:bg-muted/70 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95"
       >
-        <Calendar size={12} className="text-primary" />
-        <span>Schedules</span>
+        <Clock size={12} className="text-primary-foreground" />
+        <span>Schedules and Triggers</span>
         {activeRuns > 0 && (
-          <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[10px] tabular-nums">
-            <span className="size-1.5 rounded-full bg-blue-500" />
+          <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary-foreground/15 text-primary-foreground text-[10px] tabular-nums">
+            <span className="size-1.5 rounded-full bg-primary-foreground" />
             {activeRuns}
           </span>
         )}

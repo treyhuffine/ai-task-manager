@@ -1,7 +1,7 @@
 'use client';
 
 import { Smartphone, Globe } from 'lucide-react';
-import { openBeamdSheet } from '@/components/dashboard/beamd-sheet';
+import { openSettings } from '@/components/settings/settings-store';
 
 /**
  * Discovery affordance for remote preview, shown in the preview tab's empty
@@ -19,7 +19,7 @@ export function RemotePreviewPromo({ prominent }: { prominent: boolean }) {
     return (
       <button
         type="button"
-        onClick={openBeamdSheet}
+        onClick={() => openSettings('remote-preview')}
         className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/40 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <Smartphone size={12} className="text-primary" />
@@ -35,12 +35,12 @@ export function RemotePreviewPromo({ prominent }: { prominent: boolean }) {
         Preview on any device
       </h4>
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        Open your preview on your phone or tablet, or share a live link — no deploy. Running on a server or
+        Open your preview on your phone or tablet, or share a live link, no deploy. Running on a server or
         Mac&nbsp;Mini? Review your apps from your laptop, without shuffling code between machines.
       </p>
       <button
         type="button"
-        onClick={openBeamdSheet}
+        onClick={() => openSettings('remote-preview')}
         className="flex items-center gap-1.5 rounded-md border border-border bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:bg-foreground/90"
       >
         <Globe size={13} />

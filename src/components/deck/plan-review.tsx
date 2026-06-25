@@ -51,7 +51,7 @@ interface ReviewRow {
 function planToRows(plan: DeckPlan): ReviewRow[] {
   const deepRows: ReviewRow[] = (plan.deepWork ?? []).map((d: DeepWorkItem) => ({
     id: d.id,
-    title: `${d.projectTitle} — ${d.taskTitle}`,
+    title: `${d.projectTitle}: ${d.taskTitle}`,
     subtitle: d.continuityContext,
     areaName: d.areaName,
     energy: d.energy,
@@ -166,7 +166,7 @@ export function PlanReview({ plan, onConfirm, onRemoveDeepWork, onRemoveLightTas
             Here&apos;s what I&apos;d suggest for today
           </p>
           <p className="text-[10px] text-muted-foreground mt-0.5">
-            Reorder, tweak, remove — then start executing.
+            Reorder, tweak, remove. Then start executing.
           </p>
         </div>
         <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">

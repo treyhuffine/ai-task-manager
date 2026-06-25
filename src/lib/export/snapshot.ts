@@ -100,8 +100,8 @@ Created: ${new Date().toISOString()}
 
 ## Contents
 
-- \`data.db\` — consistent SQLite dump
-- \`mirror/\` — markdown copy of tasks, notes, areas, stream, .archive
+- \`data.db\`: consistent SQLite dump
+- \`mirror/\`: markdown copy of tasks, notes, areas, stream, .archive
   at the time of this snapshot. Wiki-linked in Obsidian-compatible format.
 
 ## Restore

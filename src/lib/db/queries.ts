@@ -8,6 +8,7 @@ import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
   schedules, runs, previewTargets, entityVersions,
+  notificationChannels, webPushSubscriptions, notificationDeliveries,
 } from '@/lib/db/schema';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -23,7 +24,7 @@ import type {
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   Attachment,
-  WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus,
+  WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   AgentRecord, CreateAgentInput,
   ExecutionRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
@@ -34,6 +35,9 @@ import type {
   RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, ScheduleWithLastRun,
   EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
   TaskStatus, NoteStatus, Energy, Effort,
+  NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput,
+  WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
+  NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
 } from '@/db/types';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -1093,6 +1097,17 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceInput): Worksp
   return row ?? null;
 }
 
+/**
+ * Replace a workspace's connector allowlist (docs/connectors-workspace-scoping-spec.md §6e). The
+ * raw storage primitive only — validation (reject-unknown / preserve-dormant) and active-session
+ * recycling live at the route, which can reach the (async) connector runtime + executor.
+ */
+export function setWorkspaceConnectorScopes(
+  id: string,
+  scopes: WorkspaceConnectorScope[],
+): WorkspaceRecord | null {
+  return updateWorkspace(id, { connectorScopes: scopes });
+}
 
 export function archiveWorkspace(id: string): WorkspaceRecord | null {
   const now = new Date().toISOString();
@@ -1186,10 +1201,15 @@ export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
  */
 export function getOrCreateDefaultOrchestrator(harness = 'claude_code'): AgentRecord {
   const db = getDb();
+  // Scope by harness: an orchestrator agent's harness *is* its provider, so
+  // each provider gets its own default orchestrator (created on demand). A
+  // harness-agnostic lookup returned whichever orchestrator existed first,
+  // which silently pinned codex-default users (and provider switches) to the
+  // claude agent.
   const existing = db
     .select()
     .from(agents)
-    .where(and(eq(agents.kind, 'orchestrator'), eq(agents.status, 'active')))
+    .where(and(eq(agents.kind, 'orchestrator'), eq(agents.status, 'active'), eq(agents.harness, harness)))
     .orderBy(asc(agents.createdAt))
     .limit(1)
     .get();
@@ -1335,6 +1355,19 @@ export function resetExecutionForReprovision(executionId: string): ExecutionReco
 
 export function setExecutionPR(executionId: string, prNumber: number | null): ExecutionRecord | null {
   return updateExecution(executionId, { prNumber: prNumber });
+}
+
+// ── Execution label ───────────────────────────────────────────
+
+/**
+ * Set the execution's label — the stable artifact title shown in the
+ * execution header. Distinct from a chat's own `label` (per-conversation,
+ * auto-derived from its first message). Renaming in the header routes here;
+ * starting a new chat against the same execution leaves this untouched, so
+ * the header title survives across conversations. Empty/whitespace clears it.
+ */
+export function setExecutionLabel(executionId: string, label: string | null): ExecutionRecord | null {
+  return updateExecution(executionId, { label: label?.trim() || null });
 }
 
 // ── Takeover lifecycle (all five columns move together) ───────
@@ -1832,6 +1865,39 @@ export function createExecutionSession(args: {
 }
 
 /**
+ * Start a fresh chat against an EXISTING execution — same worktree/branch/PR,
+ * a new conversation, optionally on a different provider. The counterpart to
+ * `createExecutionWithChat` (which mints a *new* execution): here the artifact
+ * is reused, so the agent picks up the existing code in place. This is the
+ * "new chat" / "switch provider" primitive for the execution view, mirroring
+ * the scheduled-fire pattern (one execution hosts many chats). The caller is
+ * responsible for archiving + tearing down the prior chat. Returns null if the
+ * execution is gone.
+ */
+export function createExecutionChat(args: {
+  executionId: string;
+  /** Executor harness ('claude_code' | 'codex'); picks the agent. */
+  harness?: string;
+  model?: string | null;
+  effort?: ChatSessionRecord['effort'];
+  label?: string | null;
+}): ChatSessionRecord | null {
+  const execution = getExecution(args.executionId);
+  if (!execution) return null;
+  const agent = getOrCreateDefaultExecutor(args.harness ?? 'claude_code');
+  return createChatSession({
+    type: 'execution',
+    executionId: args.executionId,
+    workspaceId: execution.workspaceId,
+    agentId: agent.id,
+    label: args.label ?? null,
+    status: 'active',
+    ...(args.model !== undefined ? { model: args.model } : {}),
+    ...(args.effort !== undefined ? { effort: args.effort } : {}),
+  });
+}
+
+/**
  * Set lastViewedAt = now() and clear unreadMarkerAt. Used to be fired
  * on session open ("opening = read receipt"); now triggered on actual
  * interaction (textarea focus, send, explicit Mark read). Kept as a named
@@ -2018,6 +2084,43 @@ export function listRailSessions(): RailSessionRow[] {
     .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map((r) => hydrateRailRow(r));
+}
+
+/**
+ * Active executions for a single workspace — one row per execution, keyed
+ * to its primary chat (most-recently-active non-archived chat), execution
+ * state flattened on top. This is the workspace tree's source of truth:
+ * an execution with several active chats (e.g. scheduled fires, or sibling
+ * "new chats") collapses to ONE row, named by the execution. Sibling chats
+ * are reached from the in-execution chat-history dropdown, not the tree.
+ *
+ * Mirrors `listRailSessions`'s correlated-subquery dedup, scoped to one
+ * (already-known-active) workspace, so the tree and the by-status rail
+ * agree on cardinality.
+ */
+export function listWorkspaceExecutions(workspaceId: string): ChatSessionWithExecution[] {
+  const db = getDb();
+  const rows = db
+    .select({
+      ...getTableColumns(chatSessions),
+      execution: getTableColumns(executions),
+    })
+    .from(executions)
+    .innerJoin(
+      chatSessions,
+      sql`${chatSessions.id} = (
+        SELECT cs2.id FROM chat_sessions cs2
+        WHERE cs2.execution_id = ${executions.id} AND cs2.status = 'active'
+        ORDER BY COALESCE(cs2.last_outcome_event_at, cs2.started_at) DESC
+        LIMIT 1
+      )`,
+    )
+    .where(and(eq(executions.workspaceId, workspaceId), eq(executions.status, 'active')))
+    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
+    .all();
+  return rows.map((r) =>
+    flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }),
+  );
 }
 
 /**
@@ -2926,4 +3029,177 @@ export function countActiveRuns(): number {
     .where(inArray(runs.status, ['queued', 'running']))
     .get();
   return row?.count ?? 0;
+}
+
+// ─── Notifications (docs/connectors-email-and-notifier-spec.md §2) ──────────────
+// The Notifier's data layer: channels (preference/config), web-push subscriptions
+// (browser endpoints), and deliveries (the durable outbox). No raw SQL elsewhere.
+
+export interface NotificationChannelFilter {
+  userId?: string;
+  enabled?: boolean;
+  connectionId?: string;
+}
+
+export function listNotificationChannels(filter: NotificationChannelFilter = {}): NotificationChannelRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.userId) conditions.push(eq(notificationChannels.userId, filter.userId));
+  if (filter.enabled != null) conditions.push(eq(notificationChannels.enabled, filter.enabled));
+  if (filter.connectionId) conditions.push(eq(notificationChannels.connectionId, filter.connectionId));
+  let query = db.select().from(notificationChannels).$dynamic();
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(desc(notificationChannels.createdAt)).all();
+}
+
+export function getNotificationChannel(id: string): NotificationChannelRecord | undefined {
+  return getDb().select().from(notificationChannels).where(eq(notificationChannels.id, id)).get();
+}
+
+export function createNotificationChannel(input: CreateNotificationChannelInput): NotificationChannelRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db
+    .insert(notificationChannels)
+    .values({ ...input, id: input.id ?? uuidv7(), createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now })
+    .returning()
+    .get();
+}
+
+export function updateNotificationChannel(id: string, input: UpdateNotificationChannelInput): NotificationChannelRecord | null {
+  const db = getDb();
+  const row = db
+    .update(notificationChannels)
+    .set({ ...input, updatedAt: new Date().toISOString() })
+    .where(eq(notificationChannels.id, id))
+    .returning()
+    .get();
+  return row ?? null;
+}
+
+/** Delete a channel and scrub its id from every schedule's deliverResultTo binding (§2.13). */
+export function deleteNotificationChannel(id: string): boolean {
+  const db = getDb();
+  removeChannelFromScheduleBindings(id);
+  const result = db.delete(notificationChannels).where(eq(notificationChannels.id, id)).run();
+  return result.changes > 0; // notification_deliveries FK-cascade automatically
+}
+
+/** Disconnect cascade: drop the channels that deliver through a removed engine connection (§2.13). */
+export function deleteChannelsForConnection(connectionId: string): number {
+  const db = getDb();
+  const affected = listNotificationChannels({ connectionId });
+  for (const c of affected) removeChannelFromScheduleBindings(c.id);
+  const result = db.delete(notificationChannels).where(eq(notificationChannels.connectionId, connectionId)).run();
+  return result.changes;
+}
+
+/** Remove a channel id from every schedule's deliverResultTo[] (channel-delete cascade, §2.13). */
+export function removeChannelFromScheduleBindings(channelId: string): void {
+  const db = getDb();
+  const bound = db.select().from(schedules).all().filter((s) => (s.deliverResultTo ?? []).includes(channelId));
+  for (const s of bound) {
+    db.update(schedules)
+      .set({ deliverResultTo: (s.deliverResultTo ?? []).filter((id) => id !== channelId), updatedAt: new Date().toISOString() })
+      .where(eq(schedules.id, s.id))
+      .run();
+  }
+}
+
+// ── web push subscriptions ──
+export function listWebPushSubscriptions(userId: string): WebPushSubscriptionRecord[] {
+  return getDb().select().from(webPushSubscriptions).where(eq(webPushSubscriptions.userId, userId)).all();
+}
+
+/** Upsert by endpoint (a browser re-subscribing replaces its keys). */
+export function upsertWebPushSubscription(input: CreateWebPushSubscriptionInput): WebPushSubscriptionRecord {
+  const db = getDb();
+  return db
+    .insert(webPushSubscriptions)
+    .values({ ...input, id: input.id ?? uuidv7(), createdAt: input.createdAt ?? new Date().toISOString() })
+    .onConflictDoUpdate({ target: webPushSubscriptions.endpoint, set: { p256dh: input.p256dh, auth: input.auth, userId: input.userId } })
+    .returning()
+    .get();
+}
+
+export function deleteWebPushSubscriptionByEndpoint(endpoint: string): boolean {
+  const result = getDb().delete(webPushSubscriptions).where(eq(webPushSubscriptions.endpoint, endpoint)).run();
+  return result.changes > 0;
+}
+
+// ── deliveries (the outbox) ──
+/** Insert a delivery row, idempotent on (dedupeKey, channelId). Returns true if a NEW row was created. */
+export function upsertDelivery(input: CreateNotificationDeliveryInput): boolean {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const result = db
+    .insert(notificationDeliveries)
+    .values({ ...input, id: input.id ?? uuidv7(), createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now })
+    .onConflictDoNothing({ target: [notificationDeliveries.dedupeKey, notificationDeliveries.channelId] })
+    .run();
+  return result.changes > 0;
+}
+
+/** All still-processable deliveries for an event across the given channels (pending OR failed → self-heals on re-fire). */
+export function listProcessableDeliveries(dedupeKey: string, channelIds: string[]): NotificationDeliveryRecord[] {
+  if (channelIds.length === 0) return [];
+  return getDb()
+    .select()
+    .from(notificationDeliveries)
+    .where(
+      and(
+        eq(notificationDeliveries.dedupeKey, dedupeKey),
+        inArray(notificationDeliveries.channelId, channelIds),
+        inArray(notificationDeliveries.status, ['pending', 'failed']),
+      ),
+    )
+    .all();
+}
+
+export function markDeliverySent(id: string, patch: { providerMessageId?: string; rendered?: StoredRenderedNotification }): void {
+  getDb()
+    .update(notificationDeliveries)
+    .set({
+      status: 'sent',
+      sentAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      attempts: sql`${notificationDeliveries.attempts} + 1`,
+      ...(patch.providerMessageId !== undefined ? { providerMessageId: patch.providerMessageId } : {}),
+      ...(patch.rendered !== undefined ? { rendered: patch.rendered } : {}),
+    })
+    .where(eq(notificationDeliveries.id, id))
+    .run();
+}
+
+export function markDeliveryFailed(id: string, lastError: string): void {
+  getDb()
+    .update(notificationDeliveries)
+    .set({
+      status: 'failed',
+      lastError: lastError.slice(0, 2000),
+      updatedAt: new Date().toISOString(),
+      attempts: sql`${notificationDeliveries.attempts} + 1`,
+    })
+    .where(eq(notificationDeliveries.id, id))
+    .run();
+}
+
+/** A single delivery by its idempotency key — used to report the outcome of a test send. */
+export function getDelivery(dedupeKey: string, channelId: string): NotificationDeliveryRecord | undefined {
+  return getDb()
+    .select()
+    .from(notificationDeliveries)
+    .where(and(eq(notificationDeliveries.dedupeKey, dedupeKey), eq(notificationDeliveries.channelId, channelId)))
+    .get();
+}
+
+/** Delivery history for a user (newest first) — the in-app center reads this later. */
+export function listNotificationDeliveries(userId: string, limit = 100): NotificationDeliveryRecord[] {
+  return getDb()
+    .select()
+    .from(notificationDeliveries)
+    .where(eq(notificationDeliveries.userId, userId))
+    .orderBy(desc(notificationDeliveries.createdAt))
+    .limit(limit)
+    .all();
 }

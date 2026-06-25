@@ -6,9 +6,10 @@ import type {
   userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
   schedules, runs, previewTargets, entityVersions,
+  notificationChannels, webPushSubscriptions, notificationDeliveries,
   Attachment,
 } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification } from '@/lib/db/schema';
 
 /**
  * Override the `attachments` column type on a record. Drizzle infers the
@@ -96,6 +97,7 @@ export type WorkspaceRecord = WithCamelAttachments<InferSelectModel<typeof works
 export type CreateWorkspaceInput = WithCamelAttachments<Omit<InferInsertModel<typeof workspaces>, 'id'>>;
 export type UpdateWorkspaceInput = Partial<Omit<CreateWorkspaceInput, 'createdAt'>>;
 export type WorkspaceStatus = WorkspaceRecord['status'];
+export type { WorkspaceConnectorScope, WorkspaceConnectorScopeAccount } from '@/lib/db/schema';
 
 /**
  * Workspace row + aggregated info from its child sessions. The list view
@@ -274,3 +276,17 @@ export interface StreamFilter {
   limit?: number;
   offset?: number;
 }
+
+// ─── Notifications (docs/connectors-email-and-notifier-spec.md §2) ──
+
+export type NotificationChannelRecord = InferSelectModel<typeof notificationChannels>;
+export type CreateNotificationChannelInput = Omit<InferInsertModel<typeof notificationChannels>, 'id'> & { id?: string };
+export type UpdateNotificationChannelInput = Partial<Omit<CreateNotificationChannelInput, 'createdAt'>>;
+export type NotificationChannelKind = NotificationChannelRecord['kind'];
+
+export type WebPushSubscriptionRecord = InferSelectModel<typeof webPushSubscriptions>;
+export type CreateWebPushSubscriptionInput = Omit<InferInsertModel<typeof webPushSubscriptions>, 'id'> & { id?: string };
+
+export type NotificationDeliveryRecord = InferSelectModel<typeof notificationDeliveries>;
+export type CreateNotificationDeliveryInput = Omit<InferInsertModel<typeof notificationDeliveries>, 'id'> & { id?: string };
+export type NotificationDeliveryStatus = NotificationDeliveryRecord['status'];

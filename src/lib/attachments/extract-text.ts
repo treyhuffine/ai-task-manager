@@ -81,7 +81,7 @@ function maybeTruncate(text: string): { text: string; truncated: boolean } {
   if (text.length <= MAX_EXTRACTED_CHARS) return { text, truncated: false };
   const head = text.slice(0, MAX_EXTRACTED_CHARS);
   return {
-    text: `${head}\n\n[truncated — original was ${text.length.toLocaleString()} chars; first ${MAX_EXTRACTED_CHARS.toLocaleString()} shown]`,
+    text: `${head}\n\n[truncated: original was ${text.length.toLocaleString()} chars, first ${MAX_EXTRACTED_CHARS.toLocaleString()} shown]`,
     truncated: true,
   };
 }

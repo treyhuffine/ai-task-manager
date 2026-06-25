@@ -29,7 +29,10 @@ import {
   EFFORT_OPTIONS,
   findModelOption,
   harnessSupportsEffort,
+  type ProviderId,
 } from '@/lib/agent-options';
+import { mapHarnessToProvider } from '@/lib/executor/harness';
+import { ComposerProviderMenu } from './composer-provider-menu';
 import {
   ChatInputEditor,
   type ChatInputEditorHandle,
@@ -113,6 +116,15 @@ interface ExecutionComposerProps {
   ) => Promise<void> | void;
   /** Required when `isRunning` can be true. Cancels the agent turn. */
   onStop?: () => Promise<void> | void;
+  /**
+   * When provided, the model control becomes a provider + model menu: picking
+   * a *different* provider starts a fresh chat on it via this callback (the
+   * session's own provider can't change mid-stream). Omit for surfaces that
+   * don't support switching provider (executions keep the model-only picker).
+   */
+  onSwitchProvider?: (next: { harness: ProviderId; model: string | null }) => void;
+  /** A provider switch (new chat) is in flight. */
+  switchingProvider?: boolean;
 }
 
 /**
@@ -143,6 +155,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       isRunning,
       onSend,
       onStop,
+      onSwitchProvider,
+      switchingProvider,
     },
     externalRef,
   ) {
@@ -451,13 +465,13 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     // Status line below the composer — voice / error / disabled / helper.
     const statusLine = voice.isRecording
-      ? 'Recording — tap mic to stop'
+      ? 'Recording, tap mic to stop'
       : voice.isTranscribing
         ? 'Transcribing…'
         : voice.error
           ? voice.error
           : voice.unsupportedReason && !voice.isSupported
-            ? `Voice unavailable — ${voice.unsupportedReason}`
+            ? `Voice unavailable: ${voice.unsupportedReason}`
             : disabled && disabledReason
               ? disabledReason
               : !disabled && helperText
@@ -579,16 +593,30 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   <div className="flex-1" />
 
                   {/* ─── Right: model · effort · context ─────── */}
-                  {harnessModels.length > 0 && (
-                    <ModelPicker
+                  {onSwitchProvider ? (
+                    <ComposerProviderMenu
                       open={modelMenuOpen}
                       onOpenChange={setModelMenuOpen}
-                      options={harnessModels}
-                      pinnedId={model}
+                      currentProvider={mapHarnessToProvider(harness ?? 'claude_code') as ProviderId}
+                      model={model}
                       fallbackLabel={displayModelLabel ?? 'Default'}
-                      onSelect={setModel}
+                      onSelectModel={setModel}
+                      onSwitchProvider={onSwitchProvider}
+                      switching={switchingProvider}
                       disabled={updateSession.isPending}
                     />
+                  ) : (
+                    harnessModels.length > 0 && (
+                      <ModelPicker
+                        open={modelMenuOpen}
+                        onOpenChange={setModelMenuOpen}
+                        options={harnessModels}
+                        pinnedId={model}
+                        fallbackLabel={displayModelLabel ?? 'Default'}
+                        onSelect={setModel}
+                        disabled={updateSession.isPending}
+                      />
+                    )
                   )}
 
                   {showEffort && (
@@ -744,7 +772,7 @@ function ModePicker({ open, onOpenChange, current, onSelect, disabled }: ModePic
         <button
           type="button"
           disabled={disabled}
-          title={`${meta.title} — ${meta.description}\nShift+Tab to cycle`}
+          title={`${meta.title}: ${meta.description}\nShift+Tab to cycle`}
           className={cn(
             'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
             meta.classes.text,

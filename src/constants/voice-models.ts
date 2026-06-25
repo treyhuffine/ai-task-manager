@@ -30,7 +30,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'local/parakeet-tdt-0.6b-v3',
     label: 'Parakeet V3',
-    description: 'NVIDIA multilingual model — 25 languages, auto-detect',
+    description: 'NVIDIA multilingual model: 25 languages, auto-detect',
     language: 'multilingual',
     provider: 'local',
     envKey: 'LOCAL_SPEECH_TO_TEXT_URL',
@@ -40,7 +40,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'local/parakeet-tdt-0.6b-v2',
     label: 'Parakeet V2',
-    description: 'NVIDIA English-optimized — slightly better English WER than V3',
+    description: 'NVIDIA English-optimized: slightly better English WER than V3',
     language: 'english',
     provider: 'local',
     envKey: 'LOCAL_SPEECH_TO_TEXT_URL',
@@ -50,7 +50,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'local/parakeet-tdt-0.6b-v3-fp32',
     label: 'Parakeet V3 (FP32)',
-    description: 'Full precision V3 — same accuracy, slower inference',
+    description: 'Full precision V3: same accuracy, slower inference',
     language: 'multilingual',
     provider: 'local',
     envKey: 'LOCAL_SPEECH_TO_TEXT_URL',
@@ -60,7 +60,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'local/parakeet-tdt-0.6b-v2-fp32',
     label: 'Parakeet V2 (FP32)',
-    description: 'Full precision V2 English — same accuracy, slower inference',
+    description: 'Full precision V2 English: same accuracy, slower inference',
     language: 'english',
     provider: 'local',
     envKey: 'LOCAL_SPEECH_TO_TEXT_URL',
@@ -72,7 +72,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'groq/whisper-large-v3-turbo',
     label: 'Whisper Large V3 Turbo (Groq)',
-    description: 'Fast cloud transcription via Groq — multilingual',
+    description: 'Fast cloud transcription via Groq: multilingual',
     language: 'multilingual',
     provider: 'groq',
     envKey: 'GROQ_API_KEY',
@@ -82,7 +82,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'groq/whisper-large-v3',
     label: 'Whisper Large V3 (Groq)',
-    description: 'High-accuracy cloud transcription via Groq — multilingual',
+    description: 'High-accuracy cloud transcription via Groq: multilingual',
     language: 'multilingual',
     provider: 'groq',
     envKey: 'GROQ_API_KEY',
@@ -92,7 +92,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'groq/distil-whisper-large-v3-en',
     label: 'Distil Whisper (Groq)',
-    description: 'Fastest Groq option — English only',
+    description: 'Fastest Groq option: English only',
     language: 'english',
     provider: 'groq',
     envKey: 'GROQ_API_KEY',
@@ -104,7 +104,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'openai/gpt-4o-mini-transcribe',
     label: 'GPT-4o Mini Transcribe (OpenAI)',
-    description: 'OpenAI recommended — 35% lower WER than Whisper, half the cost',
+    description: 'OpenAI recommended: 35% lower WER than Whisper, half the cost',
     language: 'multilingual',
     provider: 'openai',
     envKey: 'OPENAI_API_KEY',
@@ -114,7 +114,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'openai/gpt-4o-transcribe',
     label: 'GPT-4o Transcribe (OpenAI)',
-    description: 'Highest accuracy OpenAI model — multilingual',
+    description: 'Highest accuracy OpenAI model: multilingual',
     language: 'multilingual',
     provider: 'openai',
     envKey: 'OPENAI_API_KEY',
@@ -124,7 +124,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'openai/whisper-1',
     label: 'Whisper (OpenAI)',
-    description: 'Legacy OpenAI Whisper — supports word-level timestamps',
+    description: 'Legacy OpenAI Whisper: supports word-level timestamps',
     language: 'multilingual',
     provider: 'openai',
     envKey: 'OPENAI_API_KEY',
@@ -136,7 +136,7 @@ export const VOICE_MODELS: VoiceModel[] = [
   {
     id: 'web/speech-recognition',
     label: 'Browser Speech API',
-    description: 'Built-in browser speech recognition — no setup required',
+    description: 'Built-in browser speech recognition: no setup required',
     language: 'multilingual',
     provider: 'web',
     envKey: null,

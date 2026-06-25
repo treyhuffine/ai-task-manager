@@ -395,7 +395,7 @@ function ReadyState({
         <div className="mt-3 flex items-start gap-2 text-sm text-amber-400">
           <AlertTriangle className="mt-0.5 size-4" />
           <span>
-            No active subscription. An API key ({apiKeyVar}) is configured — continuing will bill
+            No active subscription. An API key ({apiKeyVar}) is configured. Continuing will bill
             your {harness.name} API account directly (metered).
           </span>
         </div>
@@ -425,7 +425,7 @@ function ReadyState({
         <span>
           {verifyOk
             ? "Didn't detect a known auth path, but a test request succeeded."
-            : "Didn't detect an auth path — running a test request to confirm."}
+            : "Didn't detect an auth path, running a test request to confirm."}
         </span>
       </div>
       <VerifyLine verify={auth.verify} harnessName={harness.name} />
@@ -477,11 +477,11 @@ function VerifyLine({
 }
 
 function subscriptionReadyLine(identity: AgentAuthReport['identity']): string {
-  if (!identity?.email && !identity?.subscriptionType) return 'Subscription active — ready to go';
+  if (!identity?.email && !identity?.subscriptionType) return 'Subscription active, ready to go';
   const parts: string[] = [];
   if (identity?.email) parts.push(`Signed in as ${identity.email}`);
   if (identity?.subscriptionType) parts.push(`${identity.subscriptionType} plan`);
-  return parts.join(' — ');
+  return parts.join(', ');
 }
 
 // When both a subscription and an API key are configured, CLI behavior

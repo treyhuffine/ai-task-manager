@@ -86,7 +86,7 @@ export async function startCommand(opts: StartOptions) {
     log.info(pc.dim(`Data root: ${process.env[APP_ROOT_ENV]}`));
   }
   if (opts.hot) {
-    log.info(pc.dim('Hot-path tracker enabled (NEXT_PUBLIC_HOT=1) — see src/lib/_debug/hot-path.ts'));
+    log.info(pc.dim('Hot-path tracker enabled (NEXT_PUBLIC_HOT=1), see src/lib/_debug/hot-path.ts'));
   }
 
   // Resolve --portless before anything that reads the static URL (auth bootstrap
@@ -178,7 +178,7 @@ export async function startCommand(opts: StartOptions) {
   if (!portless) {
     port = await getPort({ port: preferredPort });
     if (port !== preferredPort) {
-      log.warn(`Port ${preferredPort} in use — using ${port}`);
+      log.warn(`Port ${preferredPort} in use, using ${port}`);
     }
     process.env.PORT = String(port);
     setRunningPort(port);
@@ -246,12 +246,12 @@ async function bringUpVoice(s: ReturnType<typeof spinner>): Promise<boolean> {
 
   // Already warm — reuse it. Don't claim ownership, leave it as we found it.
   if (await isVoiceReady(ctx)) {
-    log.info('Voice already running — reusing existing container');
+    log.info('Voice already running, reusing existing container');
     return false;
   }
 
   if (!(await isDockerAvailable())) {
-    log.warn('Voice enabled, but Docker is not running — continuing without voice');
+    log.warn('Voice enabled, but Docker is not running, continuing without voice');
     return false;
   }
 
@@ -262,7 +262,7 @@ async function bringUpVoice(s: ReturnType<typeof spinner>): Promise<boolean> {
     s.stop(`Voice ready at ${ctx.serviceUrl}`);
     return true;
   } catch (err) {
-    s.stop(pc.yellow('Voice failed to start — continuing without voice'));
+    s.stop(pc.yellow('Voice failed to start, continuing without voice'));
     log.warn(err instanceof Error ? err.message : String(err));
     return false;
   }

@@ -42,6 +42,7 @@
     "node_modules",
     "code-archive",
     "personal",
-    "examples"
+    "examples",
+    "packages"
   ]
 }

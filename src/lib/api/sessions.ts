@@ -352,6 +352,16 @@ export interface ReferencesResponse {
   scope: 'session' | 'workspace' | 'all';
 }
 
+export interface ExecutionChatHistoryEntry {
+  id: string;
+  label: string | null;
+  status: 'active' | 'archived';
+  startedAt: string;
+  lastOutcomeEventAt: string | null;
+  /** The chat currently being viewed. */
+  isCurrent: boolean;
+}
+
 export const sessionsApi = {
   get(id: string): Promise<ChatSessionWithAgent> {
     return api.get<ChatSessionWithAgent>(`/sessions/${id}`);
@@ -361,6 +371,8 @@ export const sessionsApi = {
     id: string,
     input: {
       label?: string | null;
+      /** The execution's stable header title (lives on the execution, not the chat). */
+      executionLabel?: string | null;
       permissionMode?: PermissionMode;
       model?: string | null;
       effort?: EffortLevel | null;
@@ -553,6 +565,23 @@ export const sessionsApi = {
   },
 
   /**
+   * Start a fresh chat against the SAME execution (new conversation on the
+   * existing worktree), optionally switching provider. Archives the current
+   * chat; returns the new active one to navigate to.
+   */
+  newChat(
+    id: string,
+    opts?: { providerId?: 'claude' | 'codex'; model?: string | null },
+  ): Promise<{ session: ChatSessionWithExecution }> {
+    return api.post<{ session: ChatSessionWithExecution }>(`/sessions/${id}/new-chat`, opts ?? {});
+  },
+
+  /** Past + current chats for this execution, newest first. */
+  chatHistory(id: string): Promise<{ sessions: ExecutionChatHistoryEntry[] }> {
+    return api.get<{ sessions: ExecutionChatHistoryEntry[] }>(`/sessions/${id}/history`);
+  },
+
+  /**
    * Resume an archived execution AND re-provision its worktree off the
    * workspace base (or `baseBranch` if specified). Returns the row in its
    * setting-up state; the UI's existing setup spinner waits for the new
@@ -622,6 +651,12 @@ export const sessionsApi = {
 
   interrupt(id: string): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(`/sessions/${id}/interrupt`);
+  },
+
+  stopTask(id: string, taskId: string): Promise<{ stopped: boolean }> {
+    return api.post<{ stopped: boolean }>(
+      `/sessions/${id}/tasks/${encodeURIComponent(taskId)}/stop`,
+    );
   },
 
   reconcile(id: string): Promise<ReconcileResult> {

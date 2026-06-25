@@ -41,11 +41,28 @@ function resolveComposeFile(): string {
   return path.resolve(process.cwd(), 'modules/parakeet-stt/docker-compose.yml');
 }
 
-export async function isDockerAvailable(): Promise<boolean> {
+export async function isDockerAvailable(timeoutMs = 5000): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn('docker', ['info'], { stdio: 'ignore' });
-    child.on('exit', (code) => resolve(code === 0));
-    child.on('error', () => resolve(false)); // docker CLI not installed
+    let settled = false;
+    const done = (val: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(val);
+    };
+    // A wedged Docker daemon makes `docker info` hang indefinitely — the CLI
+    // is installed, so the 'error' event never fires and we'd wait forever
+    // (this blocked `flow start` mid-preflight). Bound it: if the daemon
+    // doesn't answer in time, treat Docker as unavailable and SIGKILL the
+    // stuck probe so we don't leak a zombie `docker info` on every start.
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      done(false);
+    }, timeoutMs);
+    timer.unref();
+    child.on('exit', (code) => done(code === 0));
+    child.on('error', () => done(false)); // docker CLI not installed
   });
 }
 

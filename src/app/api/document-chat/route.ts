@@ -5,7 +5,21 @@ import {
   getOrCreateDefaultOrchestrator,
   getUserState,
 } from '@/lib/db/queries';
+import { providerHarnessKey, type ProviderId } from '@/lib/agent-options';
 import type { ChatSessionWithExecution } from '@/db/types';
+
+/** Optional per-chat provider/model override (the composer's "switch provider"). */
+interface ChatOverride {
+  providerId?: ProviderId;
+  model?: string | null;
+}
+
+function parseOverride(src: { providerId?: unknown; model?: unknown }): ChatOverride {
+  const out: ChatOverride = {};
+  if (src.providerId === 'claude' || src.providerId === 'codex') out.providerId = src.providerId;
+  if (src.model === null || typeof src.model === 'string') out.model = src.model;
+  return out;
+}
 
 /**
  * The in-document (note/task) chat session — a focused `type='content'`
@@ -66,8 +80,13 @@ function defaultHarness(): string {
   return pref === 'codex' ? 'codex' : 'claude_code';
 }
 
-function createFocusedSession(ref: EntityRef) {
-  const agent = getOrCreateDefaultOrchestrator(defaultHarness());
+function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
+  // Provider: the explicit override (composer "switch provider") wins;
+  // otherwise the user's default harness.
+  const harness = override.providerId ? providerHarnessKey(override.providerId) : defaultHarness();
+  const agent = getOrCreateDefaultOrchestrator(harness);
+  // Model: an explicit override (even null) wins; else the user's default.
+  const model = override.model !== undefined ? override.model : getUserState()?.defaultAgentModel ?? null;
   return createChatSession({
     type: 'content',
     agentId: agent.id,
@@ -75,9 +94,7 @@ function createFocusedSession(ref: EntityRef) {
     // renderContentFocusPrompt + the adapter's content branch).
     surfaceKind: ref.entityType,
     surfaceRef: ref.entityId,
-    // Seed the user's default model (Settings → AI agent); null lets the
-    // harness pick. Still overridable per-session from the composer.
-    model: getUserState()?.defaultAgentModel ?? null,
+    model,
     // Label stays null until the first send — the messages route's label
     // derivation only fires on unlabeled sessions.
     label: null,
@@ -110,10 +127,12 @@ export async function POST(req: Request) {
   } catch {
     body = {};
   }
-  const ref = parseEntity((body ?? {}) as { entityType?: unknown; entityId?: unknown });
+  const src = (body ?? {}) as { entityType?: unknown; entityId?: unknown; providerId?: unknown; model?: unknown };
+  const ref = parseEntity(src);
   if (!ref) {
     return Response.json({ error: 'entityType (task|note) and entityId are required' }, { status: 400 });
   }
+  const override = parseOverride(src);
   try {
     const current = findCurrent(ref);
     if (current) {
@@ -126,7 +145,7 @@ export async function POST(req: Request) {
       const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
       void deriveRetrospectiveLabel(current.id);
     }
-    const session = createFocusedSession(ref);
+    const session = createFocusedSession(ref, override);
     return Response.json({ session });
   } catch (err) {
     console.error('[POST /api/document-chat]', err);

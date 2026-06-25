@@ -144,7 +144,7 @@ ${userContext ? `\n## About the User\n${userContext}\n` : ''}
 Classify each task into a **tier** and **energy level**.
 
 ## Tiers
-- **high**: Important, time-sensitive, or directly tied to active projects and revenue. Things that would meaningfully move the needle if done soon. Be selective — roughly 10-15% of tasks.
+- **high**: Important, time-sensitive, or directly tied to active projects and revenue. Things that would meaningfully move the needle if done soon. Be selective, roughly 10-15% of tasks.
 - **medium**: Useful, somewhat important, but not urgent. Would be good to get to. ~30-40%.
 - **low**: Vague ideas, stale items, aspirational, low-value, or "maybe someday." Most imported tasks are low. ~50-60%.
 
@@ -206,8 +206,8 @@ Sort these tasks from **most important** to **least important**. Consider:
 - Deadlines and time sensitivity
 - Revenue impact and business value
 - Alignment with the user's active projects and stated priorities
-- Dependencies — what unblocks other work
-- Freshness — recently created/updated tasks signal active relevance
+- Dependencies: what unblocks other work
+- Freshness: recently created/updated tasks signal active relevance
 - Quick wins that clear mental overhead
 
 ## Tasks

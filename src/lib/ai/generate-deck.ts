@@ -46,9 +46,9 @@ import {
 
 const searchKnowledgeBase = tool({
   description:
-    "Search the user's knowledge base — tasks, notes, and stream-of-consciousness entries — using semantic + keyword hybrid search. Returns matching entities with relevance scores.",
+    "Search the user's knowledge base (tasks, notes, and stream-of-consciousness entries) using semantic + keyword hybrid search. Returns matching entities with relevance scores.",
   inputSchema: z.object({
-    query: z.string().describe('Search query — a topic, keyword, or natural language phrase'),
+    query: z.string().describe('Search query: a topic, keyword, or natural language phrase'),
   }),
   execute: async ({ query }) => {
     try {
@@ -88,11 +88,11 @@ function collectSearchResults(
       const rec = r as Record<string, unknown>;
       const type = rec.type as string;
       if (type === 'task') {
-        return `- Task: "${rec.title}"${rec.description ? ` — ${rec.description}` : ''}${rec.userContext ? ` (note: ${rec.userContext})` : ''}`;
+        return `- Task: "${rec.title}"${rec.description ? `: ${rec.description}` : ''}${rec.userContext ? ` (note: ${rec.userContext})` : ''}`;
       }
       if (type === 'note') {
         const body = rec.body as string | undefined;
-        const snippet = body ? ` — ${body.slice(0, 200)}${body.length > 200 ? '...' : ''}` : '';
+        const snippet = body ? `: ${body.slice(0, 200)}${body.length > 200 ? '...' : ''}` : '';
         return `- Note: "${rec.title}"${snippet}`;
       }
       if (type === 'stream') {

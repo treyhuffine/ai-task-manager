@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession, useContinueSession } from '@/hooks/use-execution';
+import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession, useContinueSession, useNewExecutionChat } from '@/hooks/use-execution';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { useSessionReconcile } from '@/hooks/use-session-reconcile';
 import { useWorkspace, useMarkSessionRead } from '@/hooks/use-workspaces';
@@ -23,6 +23,7 @@ import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionComposer, type ExecutionComposerHandle } from './execution-composer';
+import { BackgroundTasksBar } from './background-tasks-bar';
 import { ExecutionTerminalPanel } from './execution-terminal-panel';
 import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
@@ -54,7 +55,7 @@ interface ExecutionViewProps {
  * surface — opening the session is the read receipt.
  */
 export function ExecutionView({ sessionId }: ExecutionViewProps) {
-  const { setActiveView, setSessionStreaming } = useDashboard();
+  const { setActiveView, setActiveExecutionId, setSessionStreaming } = useDashboard();
   const qc = useQueryClient();
   const { data: session, isLoading, error } = useSession(sessionId);
   const { data: workspace } = useWorkspace(session?.workspaceId ?? null);
@@ -68,10 +69,29 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // actually finds drift and starts a replay (server pushes
   // `reconcile: started` over SSE).
   const { reconciling } = useSessionReconcile(sessionId);
+
+  // Tell the rail which execution is open so its (one-row-per-execution)
+  // workspace-tree row stays highlighted even when the active chat is a
+  // sibling, not the execution's primary chat. Cleared on unmount.
+  useEffect(() => {
+    setActiveExecutionId(session?.executionId ?? null);
+  }, [session?.executionId, setActiveExecutionId]);
+  useEffect(() => () => setActiveExecutionId(null), [setActiveExecutionId]);
   const sendMessage = useSendMessage(sessionId);
   const interruptSession = useInterruptSession(sessionId);
   const continueWork = useContinueSession(sessionId);
+  const newExecutionChat = useNewExecutionChat(sessionId);
   const isRunning = runtime?.running ?? false;
+
+  // Start a fresh chat on this execution's worktree (the "New chat" button and
+  // the composer's provider switcher), then navigate to it. Provider switch
+  // passes { providerId, model }; a plain new chat passes nothing.
+  const startNewChat = (opts?: { providerId?: 'claude' | 'codex'; model?: string | null }) => {
+    newExecutionChat
+      .mutateAsync(opts ?? undefined)
+      .then((r) => setActiveView(r.session.id))
+      .catch(() => {});
+  };
 
   // Conductor-style auto-resume: opening an archived execution is the
   // signal to reopen — fire `continue` once on mount so the row flips to
@@ -455,6 +475,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           null when nothing's pending, in which case the composer is
           the sole child and the wrapper is just a thin border. */}
       <div className="flex-shrink-0 border-t border-border bg-background">
+        <BackgroundTasksBar sessionId={session.id} />
         <PendingInputArea sessionId={session.id} />
         <ExecutionComposer
           ref={composerHandleRef}
@@ -467,6 +488,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           disabledReason={composerDisabledReason}
           submitOnEnter={submitOnEnter}
           isRunning={isRunning}
+          onSwitchProvider={(next) => startNewChat({ providerId: next.harness, model: next.model })}
+          switchingProvider={newExecutionChat.isPending}
           onSend={async (content, opts) => {
             const event = await sendMessage.mutateAsync({
               content,
@@ -500,6 +523,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         onToggleScratchpad={toggleScratchpad}
         referencesOpen={activePane === 'references'}
         scratchpadOpen={activePane === 'scratchpad'}
+        onNewChat={() => startNewChat()}
+        newChatPending={newExecutionChat.isPending}
       />
       <TakeoverBanner session={session} />
       {workspace?.isGit && !!session.worktreePath && (
@@ -530,6 +555,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           onToggleScratchpad={toggleScratchpad}
           referencesOpen={activePane === 'references'}
           scratchpadOpen={activePane === 'scratchpad'}
+          onNewChat={() => startNewChat()}
+          newChatPending={newExecutionChat.isPending}
         />
         <TakeoverBanner session={session} />
         <div className="flex flex-1 min-w-0 min-h-0 relative">
@@ -567,7 +594,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                 animated={!session.setupError}
                 label={
                   session.setupError
-                    ? 'Setup failed — see chat to retry'
+                    ? 'Setup failed, see chat to retry'
                     : 'Preparing environment…'
                 }
               />
@@ -610,7 +637,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                     animated={!session.setupError}
                     label={
                       session.setupError
-                        ? 'Setup failed — see chat to retry'
+                        ? 'Setup failed, see chat to retry'
                         : 'Preparing environment…'
                     }
                   />

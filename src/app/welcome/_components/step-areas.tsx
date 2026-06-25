@@ -94,8 +94,8 @@ export function StepAreas({
         <div>
           <h2 className="text-xl font-semibold">Pick your areas</h2>
           <p className="text-sm text-muted-foreground">
-            Distinct buckets of work — companies, clients, projects, life domains. Less is more to
-            start; add more anytime.
+            Distinct buckets of work: companies, clients, projects, life domains. Less is more to
+            start. Add more anytime.
           </p>
         </div>
       </header>

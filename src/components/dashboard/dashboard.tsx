@@ -15,6 +15,7 @@ import { TaskSlideout } from '@/components/tasks/task-slideout';
 import { AreaSlideout } from '@/components/dashboard/area-slideout';
 import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import { QuickCaptureModal } from '@/components/dashboard/quick-capture-modal';
+import { SettingsModal } from '@/components/settings/settings-modal';
 import { MobileLayout } from '@/components/mobile/mobile-layout';
 import { TabletLayout } from '@/components/mobile/tablet-layout';
 import { AuthRecoveryCard } from '@/components/auth/auth-recovery-card';
@@ -157,6 +158,7 @@ function DashboardShell() {
           onOpenChange={(open) => { if (!open) closeAllSlideouts() }}
         />
         <QuickCaptureModal open={quickCaptureOpen} onOpenChange={setQuickCaptureOpen} />
+        <SettingsModal />
         <AuthRecoveryCard />
       </div>
     </div>

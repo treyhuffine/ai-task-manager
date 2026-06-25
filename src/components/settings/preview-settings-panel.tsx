@@ -5,6 +5,7 @@ import { Globe, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePreviewSettings, useUpdatePreviewSettings } from '@/hooks/use-preview';
 import { BeamdConnect } from './beamd-connect';
+import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 
 /**
  * Global preview-reachability settings: choose the active remote provider
@@ -25,7 +26,7 @@ export function PreviewSettingsPanel() {
   }, [settings]);
 
   if (isLoading || !settings) {
-    return <PanelShell><p className="text-muted-foreground">Loading preview settings…</p></PanelShell>;
+    return <PanelShell><SettingsSkeleton rows={3} /></PanelShell>;
   }
 
   const active = settings.activeProvider;

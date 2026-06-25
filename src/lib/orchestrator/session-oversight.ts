@@ -76,7 +76,7 @@ export function derivePendingFromEvents(events: ChatEventRecord[]): PendingFromE
     if (e.source === 'permission_response' || e.source === 'question_response') return null;
     if (e.source === 'permission_request' || e.source === 'question_request') {
       const detailParts = [e.toolName, e.content].filter(Boolean) as string[];
-      let detail = detailParts.join(' — ');
+      let detail = detailParts.join(': ');
       if (!detail && e.toolInput) {
         try {
           detail = truncate(JSON.stringify(e.toolInput), TOOL_INPUT_MAX);

@@ -58,7 +58,7 @@ export function SessionRow({
   onCreateExecution,
   onOpenCreateFrom,
 }: SessionRowProps) {
-  const { activeView, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { activeView, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(session.worktreePath ? session.id : null);
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
@@ -79,7 +79,16 @@ export function SessionRow({
     && lastActivity > lastViewed;
 
   const timestamp = session.lastOutcomeEventAt ?? session.startedAt;
-  const isActive = activeView === session.id;
+  // This row stands for an execution (its primary chat). It's "active"
+  // when the open view is its primary chat OR — in the tree — any sibling
+  // chat of the same execution (tracked via activeExecutionId), so opening
+  // a different chat from the in-execution history doesn't drop the
+  // highlight onto nothing. needs-review rows stay strict (per-chat).
+  const isActive =
+    activeView === session.id ||
+    (variant === 'tree' &&
+      !!session.executionId &&
+      activeExecutionId === session.executionId);
 
   // Read receipt fires on navigate-away, not click-in (handled in
   // ExecutionView's cleanup). Clicking the row stays cheap and the
@@ -89,11 +98,12 @@ export function SessionRow({
     setActiveView(session.id);
   };
 
-  // Label is null for executions created via the no-modal flow until
-  // the first user message arrives and the server derives one. Show a
-  // muted placeholder until then so the row stays orientable.
-  const label = session.label ?? 'Untitled';
-  const labelIsPlaceholder = !session.label;
+  // Title by the execution (stable across its chats), falling back to the
+  // primary chat's label for legacy executions that were never named.
+  // Null on both until the first user message derives one — show a muted
+  // placeholder until then so the row stays orientable.
+  const label = session.execution?.label ?? session.label ?? 'Untitled';
+  const labelIsPlaceholder = !(session.execution?.label ?? session.label);
 
   return (
     <div

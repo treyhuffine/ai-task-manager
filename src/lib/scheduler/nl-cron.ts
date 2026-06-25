@@ -50,7 +50,7 @@ export function naturalLanguageToCron(input: string, timezone = 'UTC'): CompileR
   if (!expression) {
     return {
       ok: false,
-      error: 'Could not parse — try "every weekday at 9am" or enter cron directly.',
+      error: 'Could not parse. Try "every weekday at 9am" or enter cron directly.',
     };
   }
 

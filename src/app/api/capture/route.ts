@@ -73,11 +73,11 @@ Use your judgment about what the user most likely wants:
 - If it's a scene/object/product, describe it concisely in one or two sentences, noting anything actionable (e.g. "business card for Jane Doe, jane@acme.com, 415-555-0100").
 - If it's a diagram or sketch, describe the content and any text/labels present.
 
-The user may also provide a text field along with the image. That field can be one of two things — decide from context:
-- Additional content they want captured alongside the image (e.g. "reminder to call them back" with a photo of a business card) — include it naturally in your output.
-- An instruction about how to handle the image (e.g. "just the dates", "translate to English", "summarize the whiteboard") — follow the instruction.
+The user may also provide a text field along with the image. That field can be one of two things, decide from context:
+- Additional content they want captured alongside the image (e.g. "reminder to call them back" with a photo of a business card). Include it naturally in your output.
+- An instruction about how to handle the image (e.g. "just the dates", "translate to English", "summarize the whiteboard"). Follow the instruction.
 
-Output the text only — no preamble, no "Here is...", no meta-commentary. The text you produce will be saved verbatim as a stream item the user will read.`;
+Output the text only, no preamble, no "Here is...", no meta-commentary. The text you produce will be saved verbatim as a stream item the user will read.`;
 
 async function extractImageContent(
   imageItems: { bytes: Uint8Array; mime: string }[],
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
 
           const body = extracted
             ? `${extracted}\n\n${imageRefs}`
-            : `[Images — extraction pending]${userText?.trim() ? `\n\n${userText.trim()}` : ''}\n\n${imageRefs}`;
+            : `[Images, extraction pending]${userText?.trim() ? `\n\n${userText.trim()}` : ''}\n\n${imageRefs}`;
 
           const row = createStream({
             rawText: body,
@@ -189,13 +189,13 @@ export async function POST(request: NextRequest) {
           } catch (err) {
             // Transcription failed — save audio so it's not lost
             attachment = await saveVoiceAttachment(file);
-            rawText = `[Voice memo — transcription failed]\n\n[${attachment.originalName}](/api/attachments/${attachment.fileName})`;
+            rawText = `[Voice memo, transcription failed]\n\n[${attachment.originalName}](/api/attachments/${attachment.fileName})`;
             console.warn('[POST /api/capture] Transcription failed, audio saved:', attachment.fileName, err);
           }
         } else {
           // No STT provider at all — save audio for later
           attachment = await saveVoiceAttachment(file);
-          rawText = `[Voice memo — pending transcription]\n\n[${attachment.originalName}](/api/attachments/${attachment.fileName})`;
+          rawText = `[Voice memo, pending transcription]\n\n[${attachment.originalName}](/api/attachments/${attachment.fileName})`;
         }
 
         const row = createStream({

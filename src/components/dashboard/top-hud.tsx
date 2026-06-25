@@ -1,15 +1,13 @@
 "use client";
 
 import { useState } from 'react';
-import { Search, Inbox, Zap, X } from 'lucide-react';
+import { Search, Inbox, Zap, X, Settings } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useLatestExecutionId } from '@/hooks/use-latest-execution';
 import { HOTKEYS } from '@/constants/commands';
 import { InboxComingSoonSheet } from '@/components/shared/inbox-coming-soon-sheet';
+import { openSettings } from '@/components/settings/settings-store';
 import { CreateMenu } from './create-menu';
-import { UserProfileSheet } from './user-profile-sheet';
-import { DevicesSheet } from './devices-sheet';
-import { BeamdSheet } from './beamd-sheet';
 import { RailStatusPills } from './rail-status-pills';
 import { BudgetWarningPill } from './budget-warning-pill';
 
@@ -79,9 +77,14 @@ export function TopHud() {
         >
           <Search size={14} />
         </button>
-        <DevicesSheet />
-        <BeamdSheet />
-        <UserProfileSheet />
+        <button
+          onClick={() => openSettings()}
+          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
+          aria-label="Settings"
+          title="Settings"
+        >
+          <Settings size={14} />
+        </button>
         <button
           onClick={() => setQuickCaptureOpen(true)}
           className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"

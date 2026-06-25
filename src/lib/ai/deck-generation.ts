@@ -49,13 +49,13 @@ export const deckResponseSchema = z.object({
           })
           .nullable()
           .describe(
-            'Where this task sits in the real day. ONLY set when the calendar has meaningful open gaps to place work into; null otherwise (including when there is no calendar).',
+            'Where this task sits in the real day. ONLY set when the calendar has meaningful open gaps to place work into. Null otherwise (including when there is no calendar).',
           ),
       }),
     )
     .min(DECK_MIN_ITEMS)
     .max(DECK_MAX_ITEMS)
-    .describe('The priority stack — ranked list of tasks to focus on today, most important first'),
+    .describe('The priority stack: ranked list of tasks to focus on today, most important first'),
   alternatives: z
     .array(
       z.object({
@@ -68,7 +68,7 @@ export const deckResponseSchema = z.object({
     .min(ALT_MIN_ITEMS)
     .max(ALT_MAX_ITEMS)
     .describe(
-      'Tasks the AI considered but ranked lower — good candidates if the user finishes the deck or wants to swap',
+      'Tasks the AI considered but ranked lower: good candidates if the user finishes the deck or wants to swap',
     ),
   framing: z
     .string()
@@ -83,7 +83,7 @@ export const deckResponseSchema = z.object({
         decision: z
           .enum(['carry', 'defer', 'drop'])
           .describe(
-            "carry = keep it on today's deck; defer = still matters but not today; drop = no longer worth doing",
+            "carry = keep it on today's deck. defer = still matters but not today. drop = no longer worth doing",
           ),
         reason: z.string().describe('One sentence explaining the carry/defer/drop call'),
       }),
@@ -99,7 +99,7 @@ export type DeckResponse = z.infer<typeof deckResponseSchema>;
 
 export const CONTEXT_GATHERING_PROMPT = `You are a context-gathering step in a task prioritization pipeline for Eon, a personal productivity app. You will receive the user's active tasks, areas, and context for the day.
 
-You have a searchKnowledgeBase tool that searches the user's notes, stream-of-consciousness entries, and tasks using semantic + keyword hybrid search. Use it to find context that would help make better prioritization decisions — notes related to a task's topic, recent stream entries about what the user has been thinking about, or connections between areas.
+You have a searchKnowledgeBase tool that searches the user's notes, stream-of-consciousness entries, and tasks using semantic + keyword hybrid search. Use it to find context that would help make better prioritization decisions: notes related to a task's topic, recent stream entries about what the user has been thinking about, or connections between areas.
 
 Search as much or as little as makes sense. If the task list and context are straightforward, you may not need to search at all. If there are ambiguous priorities, rich areas, or user context that hints at deeper threads, search to surface relevant background.`;
 
@@ -109,19 +109,19 @@ export const DECK_SYSTEM_PROMPT = `You are the prioritization engine for Eon, a 
 
 You will receive their active tasks (roughly pre-ordered by current priority), areas of life/work, recent completions, optional context for today, and optionally additional context surfaced from their knowledge base (notes, stream entries, related tasks).
 
-YOUR JOB: Pick ${DECK_MIN_ITEMS}-${DECK_MAX_ITEMS} tasks for the deck (the priority stack) and ${ALT_MIN_ITEMS}-${ALT_MAX_ITEMS} alternatives. Return task IDs from the provided list — never invent tasks.
+YOUR JOB: Pick ${DECK_MIN_ITEMS}-${DECK_MAX_ITEMS} tasks for the deck (the priority stack) and ${ALT_MIN_ITEMS}-${ALT_MAX_ITEMS} alternatives. Return task IDs from the provided list. Never invent tasks.
 
 RANKING PRINCIPLES:
 - Hard deadlines are the strongest signal. Due today/tomorrow = near top. Overdue = top.
-- Tasks with recent progress have momentum — they're easier to pick up. Favor continuation.
+- Tasks with recent progress have momentum. They're easier to pick up. Favor continuation.
 - User context is king. If they indicate low energy, time constraints, or specific focus, that overrides default ordering.
 - The pre-existing sort order reflects the user's general priorities. Respect it unless you have a specific reason to reorder (deadline, momentum, user context today).
 - High timesDeferred means the user doesn't want to do this right now. Don't push it unless it has an approaching deadline.
 - Blocked tasks (blockedOn is set) should NEVER appear in the deck or alternatives.
 - Aim for a realistic day. Don't pack 12 hours of work. 5-7 items with a mix of effort sizes.
-- Context tags from the user (like "Low energy today") should meaningfully shift your selections — e.g., favor lighter tasks, fewer items.
+- Context tags from the user (like "Low energy today") should meaningfully shift your selections, e.g., favor lighter tasks, fewer items.
 
-FOR EACH DECK ITEM: Write a rationale — one sentence explaining why this task and why this position. Reference the user's areas or context when relevant. Be specific, not generic.
+FOR EACH DECK ITEM: Write a rationale, one sentence explaining why this task and why this position. Reference the user's areas or context when relevant. Be specific, not generic.
 
 FOR ALTERNATIVES: Explain why they didn't make the cut. "Lower priority than today's deadlines" is better than "not as important."
 
@@ -129,20 +129,20 @@ framing: If the user's context or the task landscape shapes the day (time constr
 
 RECONCILING YESTERDAY → TODAY:
 - If a [Previous Deck] is provided, you MUST return a "reconciliation" entry for EVERY task that was on it.
-  - carry: still the right thing to work today — also include it in the deck (with a continuityContext note about where it left off when you can).
-  - defer: still matters but not today (lower priority than today's load, or no room) — do NOT put it in the deck. It moves to the user's "bumped" lane with your reason.
-  - drop: genuinely no longer worth doing — do NOT put it in the deck.
-- Completed items need no special handling beyond a reconciliation entry (carry only if there's a follow-up). Prefer carrying momentum; "old" is not a reason to drop.
+  - carry: still the right thing to work today. Also include it in the deck (with a continuityContext note about where it left off when you can).
+  - defer: still matters but not today (lower priority than today's load, or no room). Do NOT put it in the deck. It moves to the user's "bumped" lane with your reason.
+  - drop: genuinely no longer worth doing. Do NOT put it in the deck.
+- Completed items need no special handling beyond a reconciliation entry (carry only if there's a follow-up). Prefer carrying momentum. "old" is not a reason to drop.
 
-WHEN SOMETHING HAS TO GIVE (light guidance — use judgment, not a rigid rule):
+WHEN SOMETHING HAS TO GIVE (light guidance, use judgment, not a rigid rule):
 - A realistic day can't hold everything. When you must choose what to defer, prefer deferring lower-priority, lighter, or softer-deadline work.
-- Treat a hard deadline, or an item the user explicitly prioritized, as expensive to defer — only defer it if truly forced, and say so plainly in the reason.
+- Treat a hard deadline, or an item the user explicitly prioritized, as expensive to defer. Only defer it if truly forced, and say so plainly in the reason.
 - Every defer/drop is visible and one-tap reversible to the user, so make the honest call rather than hedging by keeping too much on the deck.
 
 SIZING & SLOTTING (when [Today's Time] is provided):
-- Size the deck to the available minutes. Don't pile on more estimated work than fits the day — a deck the user can actually finish beats an aspirational pile.
+- Size the deck to the available minutes. Don't pile on more estimated work than fits the day. A deck the user can actually finish beats an aspirational pile.
 - If the calendar shows open gaps, place each item with a "slot" (start/end label + reason): deep/heavy work in the largest gaps, light/quick tasks in short ones. Leave slot null if there's no calendar or no clean fit.
-- Honest deadlines: if a hard-deadline task's remaining days are mostly consumed by meetings/commitments, treat it as effectively more urgent and rank it up — say so in the rationale.`;
+- Honest deadlines: if a hard-deadline task's remaining days are mostly consumed by meetings/commitments, treat it as effectively more urgent and rank it up. Say so in the rationale.`;
 
 // ─── Prompt builder ─────────────────────────────────────────────
 
@@ -205,7 +205,7 @@ export function buildDeckPrompt(data: PromptData): string {
   // Areas
   if (data.areas.length > 0) {
     const areaLines = data.areas.map((a) => {
-      const ctx = a.userContext ? ` — "${a.userContext}"` : '';
+      const ctx = a.userContext ? `: "${a.userContext}"` : '';
       return `- [${a.id}] ${a.name}${ctx} (${a.status})`;
     });
     sections.push(`[Areas]\n${areaLines.join('\n')}`);
@@ -236,15 +236,15 @@ export function buildDeckPrompt(data: PromptData): string {
     }
     return parts.join('\n');
   });
-  sections.push(`[Active Tasks — roughly ordered by current priority]\n${taskLines.join('\n\n')}`);
+  sections.push(`[Active Tasks: roughly ordered by current priority]\n${taskLines.join('\n\n')}`);
 
   // Recent completions
   if (data.recentCompletions.length > 0) {
     const compLines = data.recentCompletions.map((c) => {
       const area = c.areaName ? ` (${c.areaName})` : '';
-      return `- "${c.taskTitle}"${area} — completed ${c.completedAt}`;
+      return `- "${c.taskTitle}"${area}, completed ${c.completedAt}`;
     });
-    sections.push(`[Recent Completions — last 5 days]\n${compLines.join('\n')}`);
+    sections.push(`[Recent Completions: last 5 days]\n${compLines.join('\n')}`);
   }
 
   // Previous deck — drives reconciliation (carry / defer / drop)
@@ -252,10 +252,10 @@ export function buildDeckPrompt(data: PromptData): string {
     const prevLines = data.previousDeckItems.map((p) => {
       const status =
         p.status === 'done' ? 'DONE ✓' : p.status === 'gone' ? 'no longer exists' : 'still open';
-      return `- [${p.taskId}] "${p.title}" — ${status}`;
+      return `- [${p.taskId}] "${p.title}": ${status}`;
     });
     sections.push(
-      `[Previous Deck — what you surfaced last time, with current status]\n${prevLines.join('\n')}\n\nReturn a reconciliation decision (carry / defer / drop) for every item above. Carry momentum; don't silently lose anything.`,
+      `[Previous Deck: what you surfaced last time, with current status]\n${prevLines.join('\n')}\n\nReturn a reconciliation decision (carry / defer / drop) for every item above. Carry momentum. Don't silently lose anything.`,
     );
   }
 
@@ -263,14 +263,14 @@ export function buildDeckPrompt(data: PromptData): string {
   if (data.timeContext) {
     const tc = data.timeContext;
     const lines = [
-      `Workday: ${tc.workdayStart}–${tc.workdayEnd}. Roughly ${tc.availableMinutes} minutes of task time available today.`,
+      `Workday: ${tc.workdayStart} to ${tc.workdayEnd}. Roughly ${tc.availableMinutes} minutes of task time available today.`,
     ];
     if (tc.hasCalendar && tc.gaps.length > 0) {
       lines.push('Open gaps between meetings:');
       for (const g of tc.gaps) lines.push(`  - ${g.label}`);
-      lines.push('Slot deep work into the largest gaps; fit light/quick tasks into short ones.');
+      lines.push('Slot deep work into the largest gaps. Fit light/quick tasks into short ones.');
     } else {
-      lines.push('No calendar connected — size the deck to the available minutes; leave slots null.');
+      lines.push('No calendar connected. Size the deck to the available minutes, leave slots null.');
     }
     sections.push(`[Today's Time]\n${lines.join('\n')}`);
   }
