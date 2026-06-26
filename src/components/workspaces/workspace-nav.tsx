@@ -68,6 +68,22 @@ export function WorkspaceNav() {
     );
   };
 
+  const handleLiveMode = (workspaceId: string) => {
+    const ws = workspaces?.find((w) => w.id === workspaceId);
+    // Workspaces the user has already acknowledged skip the explainer and
+    // start a Live execution directly. Everyone else gets the modal, which
+    // owns the create + the "don't ask again" opt-in.
+    if (ws?.skipLiveConfirm) {
+      if (createExecution.isPending) return;
+      createExecution.mutate(
+        { workspaceId, liveMode: true },
+        { onSuccess: (session) => setActiveView(session.id) },
+      );
+      return;
+    }
+    setLiveModeId(workspaceId);
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -128,7 +144,7 @@ export function WorkspaceNav() {
                   onOpenSettings={setSettingsId}
                   onCreateExecution={handleCreateExecution}
                   onOpenCreateFrom={setCreateFromId}
-                  onOpenLiveMode={setLiveModeId}
+                  onOpenLiveMode={handleLiveMode}
                 />
               ))}
             </SortableContext>

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { X, Zap, Loader2 } from 'lucide-react';
-import { useCreateExecution } from '@/hooks/use-workspaces';
+import { useCreateExecution, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
 
 interface LiveModeModalProps {
@@ -21,12 +21,21 @@ interface LiveModeModalProps {
  */
 export function LiveModeModal({ workspaceId, workspaceName, onClose }: LiveModeModalProps) {
   const create = useCreateExecution();
+  const updateWorkspace = useUpdateWorkspace();
   const { setActiveView } = useDashboard();
   const [error, setError] = useState<string | null>(null);
+  const [dontAsk, setDontAsk] = useState(false);
 
   const handleStart = () => {
     if (!workspaceId || create.isPending) return;
     setError(null);
+    // Persist the per-workspace opt-out at the moment the user actually
+    // starts a Live session — not on cancel. Fire-and-forget: the choice
+    // shouldn't block dropping into the session, and the next Zap click
+    // reads the fresh flag once the workspaces cache invalidates.
+    if (dontAsk) {
+      updateWorkspace.mutate({ id: workspaceId, skipLiveConfirm: true });
+    }
     create.mutate(
       { workspaceId, liveMode: true },
       {
@@ -102,7 +111,17 @@ export function LiveModeModal({ workspaceId, workspaceName, onClose }: LiveModeM
               {error && <div className="text-[11px] text-destructive">{error}</div>}
             </div>
 
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-muted/30">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30">
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={dontAsk}
+                  onChange={(e) => setDontAsk(e.target.checked)}
+                  className="size-3 rounded-sm accent-amber-500 cursor-pointer"
+                />
+                Don&apos;t ask again for this workspace
+              </label>
+              <div className="flex items-center gap-2">
               <DialogPrimitive.Close asChild>
                 <button
                   type="button"
@@ -124,6 +143,7 @@ export function LiveModeModal({ workspaceId, workspaceName, onClose }: LiveModeM
                 )}
                 Start Live session
               </button>
+              </div>
             </div>
           </div>
         </DialogPrimitive.Content>

@@ -12,6 +12,7 @@ import { uploadAttachment } from '@/lib/attachments/client';
 import { FilesToCopySection } from './files-to-copy-section';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
 import { WorkspaceConnectorsSection } from './workspace-connectors-section';
+import { Switch } from '@/components/ui/switch';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const [setupCommand, setSetupCommand] = useState('');
   const [startCommand, setStartCommand] = useState('');
   const [teardownCommand, setTeardownCommand] = useState('');
+  const [skipLiveConfirm, setSkipLiveConfirm] = useState(false);
   const [gh, setGh] = useState<GhStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +55,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     setSetupCommand(ws.setupCommand ?? '');
     setStartCommand(ws.startCommand ?? '');
     setTeardownCommand(ws.teardownCommand ?? '');
+    setSkipLiveConfirm(ws.skipLiveConfirm ?? false);
   }, [ws]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,6 +101,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
         setupCommand: setupCommand.trim() || null,
         startCommand: startCommand.trim() || null,
         teardownCommand: teardownCommand.trim() || null,
+        skipLiveConfirm,
       },
       {
         onSuccess: () => {
@@ -297,6 +301,23 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                       onChange={setFilesToCopy}
                       cwd={ws.cwd}
                     />
+
+                    <FieldGroup label="Live sessions">
+                      <label className="flex items-start justify-between gap-3 cursor-pointer">
+                        <span className="text-[11px] text-muted-foreground/85 leading-relaxed">
+                          Confirm before Live sessions
+                          <span className="block text-muted-foreground/60">
+                            Show the explainer each time you start a Live session here. Turn off to
+                            launch directly with no isolation.
+                          </span>
+                        </span>
+                        <Switch
+                          checked={!skipLiveConfirm}
+                          onCheckedChange={(on) => setSkipLiveConfirm(!on)}
+                          className="mt-0.5"
+                        />
+                      </label>
+                    </FieldGroup>
                   </>
                 )}
 

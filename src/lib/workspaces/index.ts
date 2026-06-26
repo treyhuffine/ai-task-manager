@@ -447,11 +447,64 @@ export async function openWorktreeHandle(
 ): Promise<import('@agentex/workspace').Workspace | null> {
   if (!session.worktreePath) return null;
   const lib = await loadLib();
+  let handle: import('@agentex/workspace').Workspace;
   try {
-    return await lib.workspace.open(session.worktreePath, { source: sourceCwd });
+    handle = await lib.workspace.open(session.worktreePath, { source: sourceCwd });
   } catch (err) {
     if (err instanceof lib.WorkspaceNotFoundError) return null;
     throw err;
+  }
+
+  // Re-anchor the diff base to the LIVE merge-base of HEAD and the base branch,
+  // instead of the `baseSha` frozen in the worktree metadata at create time.
+  //
+  // The frozen value is correct and stable for an isolated feature-branch
+  // worktree — its fork point never moves. But a session that runs in-place on
+  // a shared branch (e.g. `main`, where the "worktree" IS the source checkout)
+  // keeps that same frozen base while HEAD marches forward with every commit
+  // that lands on the branch afterward. `diff("base")` / `shortstat("base")`
+  // then attribute all of that unrelated history to the session — the phantom
+  // "+211k / -8.4k" diff. merge-base(HEAD, base) is the true divergence point:
+  // identical to the frozen value for a feature branch, and self-correcting to
+  // "just this session's own changes" for an in-place branch. Every consumer
+  // (rail stats, in-session diff view, per-file original content) reads
+  // `ws.git.baseSha`, so fixing it here fixes all of them at once.
+  if (handle.kind === 'git') {
+    const liveBase = await resolveLiveBaseSha(session.worktreePath, handle.git.base);
+    if (liveBase && liveBase !== handle.git.baseSha) {
+      try {
+        return await lib.workspace.open(session.worktreePath, {
+          source: sourceCwd,
+          baseSha: liveBase,
+        });
+      } catch {
+        // Re-open failed unexpectedly — fall back to the handle we already hold
+        // (frozen base). Refining the base must never break opening a worktree.
+      }
+    }
+  }
+  return handle;
+}
+
+/**
+ * Live divergence point (merge-base) of the worktree's HEAD and its base
+ * branch. Returns null when it can't be computed (no base branch, unresolvable
+ * ref, detached HEAD) so the caller keeps the frozen base. Best-effort and
+ * read-only — never throws.
+ */
+async function resolveLiveBaseSha(
+  worktreePath: string,
+  base: string,
+): Promise<string | null> {
+  const baseRef = base.trim();
+  if (!baseRef) return null;
+  try {
+    const { stdout } = await execFileAsync('git', ['merge-base', 'HEAD', baseRef], {
+      cwd: worktreePath,
+    });
+    return stdout.trim() || null;
+  } catch {
+    return null;
   }
 }
 

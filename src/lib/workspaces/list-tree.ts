@@ -63,14 +63,66 @@ async function listTreeGit(ws: GitWorkspace, surfaceIgnored: readonly string[]):
     rels.push(ln);
   }
 
-  // Layer status on top.
-  const status = await ws.git.status();
+  // Status is computed against the diff base (`ws.git.baseSha`), NOT the
+  // working-tree index, so the tree's "Changed" set is exactly the file set the
+  // diff view renders — the two can never disagree. In particular, once an
+  // agent commits mid-session, those committed files still show as "changed"
+  // here (a HEAD/index-relative `git status` would drop them the moment they
+  // were committed, leaving the tree empty while the diff showed everything).
+  // Two sources, unioned:
+  //
+  //   1. `git diff --name-status <base>` — every TRACKED change since the base
+  //      (committed + staged + unstaged) in one shot.
+  //   2. `ls-files --others --exclude-standard` — untracked (not-yet-tracked)
+  //      files. The diff view renders these as synthetic "added"; we badge them
+  //      'untracked'. Listing them via ls-files (full per-file paths, honoring
+  //      `.gitignore`) also dodges `git status`'s new-directory collapse, which
+  //      otherwise drops a new file inside a new folder from the tree.
+  const baseSha = ws.git.baseSha;
+  const othersResult = await ws.git.raw([
+    'ls-files',
+    '-z',
+    '--others',
+    '--exclude-standard',
+  ]);
+  const untracked = othersResult.stdout.split('\0').filter(Boolean);
+
+  const nameStatusResult = await ws.git.raw([
+    'diff',
+    '--name-status',
+    '-z',
+    '--find-renames',
+    baseSha,
+  ]);
+  const nsTokens = nameStatusResult.stdout.split('\0').filter(Boolean);
+
   const statusMap = new Map<string, TreeEntryStatus>();
-  // Order matters: staged trumps modified; modified trumps untracked, in
-  // the rare overlap. Keep the strongest signal.
-  for (const p of status.untracked) statusMap.set(p, 'untracked');
-  for (const p of status.modified) statusMap.set(p, 'modified');
-  for (const p of status.staged) statusMap.set(p, 'staged');
+  const deletedPaths: string[] = [];
+  for (const p of untracked) statusMap.set(p, 'untracked');
+  // Walk the `--name-status -z` token stream: [code, path] per change, except
+  // renames/copies which are [code, oldPath, newPath]. Codes: A added, M/T
+  // modified, D deleted, R renamed, C copied.
+  for (let i = 0; i < nsTokens.length; ) {
+    const code = nsTokens[i] ?? '';
+    const letter = code[0];
+    if (letter === 'R' || letter === 'C') {
+      const newPath = nsTokens[i + 2];
+      if (newPath) statusMap.set(newPath, 'modified');
+      i += 3;
+      continue;
+    }
+    const p = nsTokens[i + 1];
+    i += 2;
+    if (!p) continue;
+    if (letter === 'D') {
+      statusMap.set(p, 'deleted');
+      deletedPaths.push(p);
+    } else if (letter === 'A') {
+      statusMap.set(p, 'added');
+    } else {
+      statusMap.set(p, 'modified');
+    }
+  }
 
   const entries: TreeEntry[] = [];
   for (const rel of rels) {
@@ -96,30 +148,18 @@ async function listTreeGit(ws: GitWorkspace, surfaceIgnored: readonly string[]):
     entries.push(entry);
   }
 
-  // Append explicitly-deleted tracked files. These don't show up in
-  // ls-files (the working-tree path is gone), but git surfaces them via
-  // `git diff --name-only --diff-filter=D HEAD`. We still want them in
-  // the tree so the user can see what the agent removed.
-  try {
-    const deletedResult = await ws.git.raw([
-      'diff',
-      '-z',
-      '--name-only',
-      '--diff-filter=D',
-      'HEAD',
-    ]);
-    const deletedLines = deletedResult.stdout.split('\0').filter(Boolean);
-    for (const rel of deletedLines) {
-      if (seen.has(rel)) continue;
-      entries.push({
-        path: rel,
-        name: path.basename(rel),
-        kind: 'file',
-        status: 'deleted',
-      });
-    }
-  } catch {
-    /* ignore — deleted detection is best-effort */
+  // Append files deleted since the base (collected from the `--name-status`
+  // walk above). Their working-tree path is gone, so they never appear in
+  // `ls-files`/`rels` — surface them so the user can see what was removed.
+  for (const rel of deletedPaths) {
+    if (seen.has(rel)) continue;
+    seen.add(rel);
+    entries.push({
+      path: rel,
+      name: path.basename(rel),
+      kind: 'file',
+      status: 'deleted',
+    });
   }
 
   // Surface the ignored files the workspace copies in on purpose (`.env*` etc.)

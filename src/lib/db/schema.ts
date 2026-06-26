@@ -383,6 +383,13 @@ export const workspaces = sqliteTable('workspaces', {
   areaId: text().references(() => areas.id, { onDelete: 'set null' }),
   position: integer().notNull().default(0),
   collapsed: integer({ mode: 'boolean' }).notNull().default(false),
+  // When true, the Live-session explainer modal is skipped for this workspace
+  // and the Zap action starts a Live execution directly. Per-workspace because
+  // the risk it warns about (no isolation, commits land on the checked-out
+  // branch) is a property of the specific repo, not a global preference. Users
+  // opt in via the modal's "Don't ask again" checkbox and can re-arm it from
+  // workspace settings.
+  skipLiveConfirm: integer({ mode: 'boolean' }).notNull().default(false),
   status: text({ enum: ['active', 'archived'] }).notNull().default('active'),
   createdAt: text().notNull().default(sql`(datetime('now'))`),
   updatedAt: text().notNull().default(sql`(datetime('now'))`),
