@@ -201,15 +201,19 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   );
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // Focus the tiptap body editor inside this slideout
-      const editorEl = containerRef.current?.querySelector(
-        '.task-slideout-editor .rich-editor-body',
-      );
-      if (editorEl instanceof HTMLElement) {
-        editorEl.focus();
-      }
+    if (e.key !== 'Enter') return;
+    // Swallow the keystroke so the title never gains a newline.
+    e.preventDefault();
+    // Cmd/Ctrl+Enter is the "open full page" hotkey, handled by a
+    // document-level listener below. Don't jump focus into the body — let the
+    // navigation listener take over.
+    if (e.metaKey || e.ctrlKey) return;
+    // Focus the tiptap body editor inside this slideout
+    const editorEl = containerRef.current?.querySelector(
+      '.task-slideout-editor .rich-editor-body',
+    );
+    if (editorEl instanceof HTMLElement) {
+      editorEl.focus();
     }
   }, []);
 

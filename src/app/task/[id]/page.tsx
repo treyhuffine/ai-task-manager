@@ -110,11 +110,14 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   );
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const editorEl = document.querySelector('.task-page-editor .rich-editor-body');
-      if (editorEl instanceof HTMLElement) editorEl.focus();
-    }
+    if (e.key !== 'Enter') return;
+    // Swallow the keystroke so the title never gains a newline.
+    e.preventDefault();
+    // Cmd/Ctrl+Enter is the app-level "open full page" hotkey — a no-op here
+    // since we're already on the full page. Don't jump focus into the body.
+    if (e.metaKey || e.ctrlKey) return;
+    const editorEl = document.querySelector('.task-page-editor .rich-editor-body');
+    if (editorEl instanceof HTMLElement) editorEl.focus();
   }, []);
 
   const handleBodyChange = useCallback(

@@ -42,11 +42,19 @@ interface Connection {
   scopes: string[];
   status: string;
 }
+interface ActionInfo {
+  id: string;
+  description: string;
+  mutating: boolean;
+  risk: string;
+  scopes: string[];
+}
 interface ToolkitInfo {
   id: string;
   displayName: string;
   providerId: string;
   scopes: string[];
+  actions: ActionInfo[];
 }
 interface AuthConfigSummary {
   id: string;
@@ -116,6 +124,8 @@ export function ConnectorsSection() {
   const [query, setQuery] = useState('');
 
   const [expanded, setExpanded] = useState<string | null>(null); // providerId with its connect panel open
+  const [toolsOpen, setToolsOpen] = useState<string | null>(null); // providerId whose tool list is expanded
+  const [toolFilter, setToolFilter] = useState(''); // search within the open tool list
   const [creds, setCreds] = useState<Record<string, Record<string, string>>>({});
   const [serviceSel, setServiceSel] = useState<Record<string, string[]>>({}); // providerId → selected toolkit ids at connect (§5)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; status: string; error?: string }>>({});
@@ -146,6 +156,14 @@ export function ConnectorsSection() {
     (providerId: string): ToolkitInfo[] => toolkits.filter((t) => t.providerId === providerId),
     [toolkits],
   );
+  const providerActionCount = useCallback(
+    (providerId: string): number => providerToolkits(providerId).reduce((n, t) => n + t.actions.length, 0),
+    [providerToolkits],
+  );
+  const toggleTools = useCallback((providerId: string) => {
+    setToolFilter('');
+    setToolsOpen((cur) => (cur === providerId ? null : providerId));
+  }, []);
   /** Scopes to request at connect — only the user-selected services (default: all of them, §5). */
   const connectScopes = useCallback(
     (p: ProviderStatus): string[] => {
@@ -578,6 +596,23 @@ export function ConnectorsSection() {
                         </div>
 
                         <div className="flex shrink-0 items-center gap-1.5">
+                          {providerActionCount(p.id) > 0 && (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              aria-expanded={toolsOpen === p.id}
+                              onClick={() => toggleTools(p.id)}
+                              disabled={busy}
+                              title="See the tools agents can call with this connector"
+                              className="text-xs"
+                            >
+                              Tools
+                              <ChevronDown
+                                size={12}
+                                className={cn('transition-transform', toolsOpen === p.id && 'rotate-180')}
+                              />
+                            </Button>
+                          )}
                           {isOAuth ? (
                             p.configured ? (
                               <>
@@ -631,6 +666,76 @@ export function ConnectorsSection() {
                           )}
                         </div>
                       </div>
+
+                      {/* Tool list — what agents can call with this connector (read-only preview) */}
+                      {toolsOpen === p.id && (() => {
+                        const tks = providerToolkits(p.id);
+                        const q = toolFilter.trim().toLowerCase();
+                        const match = (a: ActionInfo) =>
+                          !q || a.id.toLowerCase().includes(q) || a.description.toLowerCase().includes(q);
+                        const total = tks.reduce((n, t) => n + t.actions.length, 0);
+                        const shown = tks.reduce((n, t) => n + t.actions.filter(match).length, 0);
+                        return (
+                          <div className="space-y-2 border-t border-border/50 px-3 pb-3 pt-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Tools agents can call ({total})
+                              </span>
+                              <input
+                                value={toolFilter}
+                                onChange={(e) => setToolFilter(e.target.value)}
+                                placeholder="Filter tools…"
+                                className="h-7 w-40 rounded-lg border border-border bg-input/30 px-2 text-[11px] text-foreground"
+                              />
+                            </div>
+                            <p className="text-[10px] leading-normal text-muted-foreground">
+                              Available to the orchestrator and to executions scoped to this service.{' '}
+                              <span className="font-semibold">Read</span> is safe;{' '}
+                              <span className="font-semibold">Write</span> changes data and may require your approval.
+                            </p>
+                            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                              {tks.map((t) => {
+                                const acts = t.actions.filter(match);
+                                if (acts.length === 0) return null;
+                                return (
+                                  <div key={t.id} className="space-y-1">
+                                    {tks.length > 1 && (
+                                      <div className="px-1 text-[10px] font-semibold text-foreground/70">{t.displayName}</div>
+                                    )}
+                                    {acts.map((a) => (
+                                      <div key={a.id} className="flex items-start gap-2 rounded-lg px-1 py-1 hover:bg-muted/30">
+                                        <span
+                                          className={cn(
+                                            'mt-0.5 shrink-0 rounded px-1 py-0.5 text-[8px] font-semibold uppercase',
+                                            a.mutating
+                                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                              : 'bg-muted text-muted-foreground',
+                                          )}
+                                        >
+                                          {a.mutating ? 'Write' : 'Read'}
+                                        </span>
+                                        <div className="min-w-0">
+                                          <div className="truncate font-mono text-[11px] text-foreground" title={a.id}>
+                                            {a.id}
+                                          </div>
+                                          {a.description && (
+                                            <div className="truncate text-[10px] text-muted-foreground" title={a.description}>
+                                              {a.description}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })}
+                              {shown === 0 && (
+                                <p className="px-1 text-[11px] text-muted-foreground">No tools match “{toolFilter}”.</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Expanded connect panel */}
                       {isOpen && (

@@ -170,6 +170,24 @@ export function RichEditor({
         'data-gramm_editor': 'false',
         'data-enable-grammarly': 'false',
       },
+      // Cmd/Ctrl+Enter is reserved as an app-level hotkey ("open full page").
+      // StarterKit's HardBreak binds Mod-Enter to insert a line break, and
+      // ProseMirror runs that keymap before the keydown bubbles up to the
+      // slideout's navigation listener — so the break got inserted right as we
+      // navigated. editorProps.handleKeyDown is checked ahead of the keymap
+      // plugins, so returning true here swallows the break without calling
+      // stopPropagation, letting the event still reach the document listener.
+      // Shift+Enter remains the in-editor hard-break shortcut.
+      handleKeyDown: (_view, event) => {
+        if (
+          event.key === 'Enter' &&
+          (event.metaKey || event.ctrlKey) &&
+          !event.shiftKey
+        ) {
+          return true
+        }
+        return false
+      },
       // Drag-and-drop file uploads. Internal ProseMirror drags (node moves
       // within the doc) have `moved=true` and we ignore those — only external
       // file drops trigger the upload path.
@@ -370,12 +388,16 @@ export function NoteEditor({
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        const editorEl = document.querySelector('.rich-editor-body')
-        if (editorEl instanceof HTMLElement) {
-          editorEl.focus()
-        }
+      if (e.key !== 'Enter') return
+      // Swallow the keystroke so the title never gains a newline.
+      e.preventDefault()
+      // Cmd/Ctrl+Enter is the "open full page" hotkey, handled by a
+      // document-level listener in the slideout. Don't jump focus into the
+      // body — let the navigation listener take over.
+      if (e.metaKey || e.ctrlKey) return
+      const editorEl = document.querySelector('.rich-editor-body')
+      if (editorEl instanceof HTMLElement) {
+        editorEl.focus()
       }
     },
     []
