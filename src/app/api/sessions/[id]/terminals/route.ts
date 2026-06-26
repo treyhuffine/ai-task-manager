@@ -21,11 +21,22 @@ function isExistingDir(p: string | null | undefined): p is string {
 }
 
 /**
- * Pick a usable cwd for the terminal. The worktree path wins when it
- * actually exists on disk; otherwise we fall back to the workspace cwd.
- * This matters because a session row can outlive its worktree (manual
- * cleanup, archived worktrees, dev resets) — without the existence
- * check, node-pty raises `posix_spawnp failed` on a stale path.
+ * Pick a usable cwd for the terminal.
+ *
+ * The worktree path wins when it actually exists on disk — this also
+ * covers live mode, where `worktreePath === ws.cwd`.
+ *
+ * The important rule: a git workspace runs every session inside an
+ * isolated worktree, so when that worktree isn't resolvable we must NOT
+ * silently drop the terminal into the workspace's main checkout. Doing so
+ * is exactly the "terminal opened in the main repo instead of the
+ * worktree" bug — and worse, the spawned PTY's cwd is frozen for the life
+ * of the terminal, so the mistake sticks even after the worktree appears.
+ * We surface a 409 instead so the panel can show "setting up / worktree
+ * missing" rather than handing the user a shell in the wrong tree.
+ *
+ * The workspace-cwd fallback only applies to non-git workspaces, where
+ * there is no worktree and the agent legitimately runs in `ws.cwd`.
  */
 function resolveCwd(sessionId: string): ResolvedCwd {
   const session = getChatSessionWithExecution(sessionId);
@@ -35,22 +46,29 @@ function resolveCwd(sessionId: string): ResolvedCwd {
     return { ok: true, cwd: session.worktreePath };
   }
 
-  if (session.workspaceId) {
-    const ws = getWorkspace(session.workspaceId);
-    if (isExistingDir(ws?.cwd)) {
-      return { ok: true, cwd: ws.cwd };
-    }
-  }
+  const ws = session.workspaceId ? getWorkspace(session.workspaceId) : undefined;
 
-  // Both candidates missing — be specific about which so the user
-  // can fix it. Worktree set but missing is the common case (session
-  // archived or its worktree was pruned).
-  if (session.worktreePath) {
+  // Git workspace: the worktree is the only valid cwd. Be specific about
+  // why it's not usable yet so the client can distinguish "still
+  // provisioning" from "the worktree was pruned/archived".
+  if (ws?.isGit) {
+    if (session.worktreePath) {
+      return {
+        ok: false,
+        error: `Worktree directory does not exist: ${session.worktreePath}`,
+        status: 409,
+      };
+    }
     return {
       ok: false,
-      error: `Worktree directory does not exist: ${session.worktreePath}`,
+      error: 'Worktree is still being set up for this session',
       status: 409,
     };
+  }
+
+  // Non-git workspace: no worktree concept — the agent runs in ws.cwd.
+  if (isExistingDir(ws?.cwd)) {
+    return { ok: true, cwd: ws.cwd };
   }
 
   return {

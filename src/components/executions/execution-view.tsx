@@ -138,6 +138,18 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const isSettingUp =
     !!session && !!workspace && workspace.isGit === true && !session.worktreePath;
 
+  // Gate for the terminal panel's auto-spawn. The terminal's cwd resolves
+  // to the session's worktree, but `workspace` loads from a separate query
+  // than `session` — so there's a window where the session is ready while
+  // `workspace` is still `undefined`. In that window `isSettingUp` is false
+  // (it needs `workspace.isGit === true`), so without this guard the panel
+  // would auto-create a terminal before we know the worktree state and the
+  // server would resolve cwd to the workspace's main checkout. The spawned
+  // PTY's cwd is frozen for its lifetime, so that lands the user in the
+  // main repo for good. Treat "workspace not loaded yet" as not-ready.
+  const terminalNotReady =
+    isSettingUp || (!!session?.workspaceId && workspace === undefined);
+
   // The setup script runs in the background AFTER the worktree is ready, so
   // keep polling through it too — otherwise the "Running setup script…" row
   // never clears (and a failure never surfaces) without a manual refresh.
@@ -672,8 +684,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                 {session.workspaceId && (
                   <ExecutionTerminalPanel
                     sessionId={session.id}
-                    disabled={isSettingUp}
-                    disabledReason={isSettingUp ? 'Setting up worktree…' : undefined}
+                    disabled={terminalNotReady}
+                    disabledReason={terminalNotReady ? 'Setting up worktree…' : undefined}
                     collapsed={terminalCollapsed}
                     onToggleCollapsed={handleToggleTerminal}
                   />
