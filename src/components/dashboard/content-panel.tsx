@@ -442,6 +442,7 @@ function LegacyChatContent({ panelId }: { panelId: PanelId }) {
   const voice = useVoiceInput();
   const editorRef = useRef<ChatInputEditorHandle | null>(null);
   const [editorHasContent, setEditorHasContent] = useState(false);
+  const [hasPendingUploads, setHasPendingUploads] = useState(false);
   const micButtonRef = useRef<HTMLButtonElement>(null);
   const [showUnsupportedHint, setShowUnsupportedHint] = useState(false);
 
@@ -482,6 +483,10 @@ function LegacyChatContent({ panelId }: { panelId: PanelId }) {
     e?.preventDefault();
     const editor = editorRef.current;
     if (!editor) return;
+    // Block while any attached file is still uploading. getUiMessageParts
+    // skips pending chips, so sending now would silently drop the file —
+    // wait for the upload to resolve. Attaching more files stays allowed.
+    if (editor.hasPendingUploads()) return;
     const { parts } = editor.getUiMessageParts();
     if (parts.length === 0) return;
     // sendMessage accepts `parts` directly so chips and text run in
@@ -870,6 +875,7 @@ function LegacyChatContent({ panelId }: { panelId: PanelId }) {
                 ref={editorRef}
                 placeholder="Execute your plan..."
                 onContentChange={setEditorHasContent}
+                onPendingUploadsChange={setHasPendingUploads}
                 onSubmit={() => (isStreaming ? stop() : handleSubmit())}
                 className="pl-1"
               />
@@ -889,10 +895,11 @@ function LegacyChatContent({ panelId }: { panelId: PanelId }) {
               ) : (
                 <button
                   type="submit"
-                  disabled={!editorHasContent}
+                  disabled={!editorHasContent || hasPendingUploads}
+                  title={hasPendingUploads ? 'Waiting for upload to finish…' : undefined}
                   className={cn(
                     'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all',
-                    editorHasContent
+                    editorHasContent && !hasPendingUploads
                       ? 'bg-primary text-primary-foreground active:scale-95'
                       : isDark ? 'bg-secondary text-muted-foreground' : 'bg-muted text-muted-foreground'
                   )}

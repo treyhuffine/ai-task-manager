@@ -52,6 +52,7 @@ import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import type { Attachment } from '@/db/types';
 import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-node';
+import { hasPendingFileChip, type ProseMirrorJSONNode } from './pending-uploads';
 import {
   draftStorageAction,
   DRAFT_STORAGE_PREFIX,
@@ -92,6 +93,13 @@ export interface EditorSnapshot {
 export interface ChatInputEditorHandle {
   /** True when the editor has anything submittable (text or a chip). */
   isEmpty(): boolean;
+  /**
+   * True when at least one attached file is still uploading. The
+   * composer checks this synchronously at send time so an Enter / Cmd+Enter
+   * that races the upload round-trip is blocked even before the button's
+   * disabled state has re-rendered.
+   */
+  hasPendingUploads(): boolean;
   /** Current plain text length (chips don't count). */
   textLength(): number;
   /** Move focus into the editor. */
@@ -150,6 +158,14 @@ interface ChatInputEditorProps {
    * the user could submit?" (text OR chips).
    */
   onContentChange?: (hasContent: boolean) => void;
+  /**
+   * Called whenever the set of in-flight uploads changes. The boolean is
+   * "is at least one attached file still uploading?". Lets the parent
+   * block Send until every chip has resolved — attaching more files
+   * stays allowed, only sending is gated. Fires on insert of a pending
+   * placeholder and again when it resolves (or is removed on failure).
+   */
+  onPendingUploadsChange?: (hasPendingUploads: boolean) => void;
   /** Called when the user hits Enter (without Shift). */
   onSubmit?: () => void;
   /**
@@ -308,6 +324,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       placeholder,
       disabled,
       onContentChange,
+      onPendingUploadsChange,
       onSubmit,
       submitOnEnter = true,
       onBackspaceOnEmpty,
@@ -400,18 +417,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
 
     const editorHasPendingChip = useCallback((ed: Editor): boolean => {
       // A pending chip serializes as a spinner with no fileName —
-      // restoring it would strand the user with a stuck placeholder.
-      // The next post-upload onUpdate will save the resolved state.
-      let hasPending = false;
-      ed.state.doc.descendants((node) => {
-        if (hasPending) return false;
-        if (node.type.name === FILE_CHIP_NAME && (node.attrs as FileChipAttrs).pending) {
-          hasPending = true;
-          return false;
-        }
-        return true;
-      });
-      return hasPending;
+      // restoring it would strand the user with a stuck placeholder, and
+      // sending would silently drop the file. Drafts skip while pending;
+      // the composer disables Send while pending. Shared pure helper so
+      // the same predicate is unit-tested in `pending-uploads.test.ts`.
+      return hasPendingFileChip(ed.getJSON() as ProseMirrorJSONNode, FILE_CHIP_NAME);
     }, []);
 
     const writeDraftSync = useCallback(
@@ -599,6 +609,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onUpdate({ editor }) {
         hot('editor onUpdate ChatInputEditor');
         onContentChange?.(!editor.isEmpty);
+        // Pending-upload state flips here too: inserting a placeholder
+        // chip, resolving it, and removing it on failure all dispatch a
+        // doc-changing transaction that runs onUpdate. The parent uses
+        // this to disable Send while an upload is in flight.
+        onPendingUploadsChange?.(editorHasPendingChip(editor));
         scheduleDraftSave();
       },
       onFocus() {
@@ -700,6 +715,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       ref,
       (): ChatInputEditorHandle => ({
         isEmpty: () => editor?.isEmpty ?? true,
+        hasPendingUploads: () => (editor ? editorHasPendingChip(editor) : false),
         textLength: () => (editor ? editor.state.doc.textContent.length : 0),
         focus: (opts) => {
           if (!editor) return;
@@ -741,7 +757,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         getMarkerOutput: () => buildMarkerOutput(editor),
         getUiMessageParts: () => buildUiMessageParts(editor),
       }),
-      [editor, uploadAndInsert],
+      [editor, uploadAndInsert, editorHasPendingChip],
     );
 
     return (
