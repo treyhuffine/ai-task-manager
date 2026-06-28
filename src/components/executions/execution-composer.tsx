@@ -161,6 +161,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     externalRef,
   ) {
     const [hasContent, setHasContent] = useState(false);
+    const [hasPendingUploads, setHasPendingUploads] = useState(false);
     const [sending, setSending] = useState(false);
     const [stopping, setStopping] = useState(false);
     const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -353,6 +354,12 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         // attachments into the current turn; Codex merges as additional
         // userMessage items in the same turn.
         if (!text || sending || disabled) return;
+        // Block while any attached file is still uploading. The button is
+        // already disabled in this state, but Enter / Cmd+Enter can race
+        // the upload round-trip — read the editor synchronously so we
+        // catch it even before the disabled re-render lands. The voice
+        // override path carries no editor chips, so let it through.
+        if (!override && editor?.hasPendingUploads()) return;
         // Send is an interaction — mark read even if the user pasted and
         // sent without ever focusing the editor (the focus handler would
         // have missed that path).
@@ -447,7 +454,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       }
     }, [onStop, stopping]);
 
-    const canSend = hasContent && !sending && !disabled;
+    const canSend = hasContent && !sending && !disabled && !hasPendingUploads;
     const showVoiceButton = voice.isSupported;
     // Send/Stop button slot:
     //   has text   → Send (even mid-turn; the harness queues internally)
@@ -474,9 +481,11 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
             ? `Voice unavailable: ${voice.unsupportedReason}`
             : disabled && disabledReason
               ? disabledReason
-              : !disabled && helperText
-                ? helperText
-                : null;
+              : hasPendingUploads
+                ? 'Waiting for upload to finish…'
+                : !disabled && helperText
+                  ? helperText
+                  : null;
     const statusIsError = !!voice.error;
 
     return (
@@ -532,6 +541,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   // and defeat the post-send refocus.
                   disabled={disabled}
                   onContentChange={setHasContent}
+                  onPendingUploadsChange={setHasPendingUploads}
                   onSubmit={() => handleSend()}
                   submitOnEnter={submitOnEnter}
                   onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
@@ -722,7 +732,13 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
                   )}
                   aria-label="Send message"
-                  title={submitOnEnter ? 'Send (Enter)' : 'Send'}
+                  title={
+                    hasPendingUploads
+                      ? 'Waiting for upload to finish…'
+                      : submitOnEnter
+                        ? 'Send (Enter)'
+                        : 'Send'
+                  }
                 >
                   {sending ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={13} />}
                 </button>
