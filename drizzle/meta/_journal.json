@@ -267,6 +267,13 @@
       "when": 1782428484220,
       "tag": "0037_flawless_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1782646616090,
+      "tag": "0038_modern_wrecking_crew",
+      "breakpoints": true
     }
   ]
 }

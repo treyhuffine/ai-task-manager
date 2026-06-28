@@ -3,10 +3,12 @@ import {
   getAgent,
   getChatEventById,
   getChatSessionWithExecution,
+  getExecution,
   insertChatEvent,
   materializeEventRefs,
 } from '@/lib/db/queries';
 import { budgetGate } from '@/lib/runs/budget';
+import { ensureWorktreeReady } from '@/lib/runs/dispatch';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
@@ -212,7 +214,26 @@ export async function POST(
     // Skip on retry — the health check already decided whether to
     // redispatch via the orphan path.
     if (!isRetry) {
-      executor.dispatch(id, expanded).catch((err) => {
+      // Self-heal a missing worktree before dispatching. A git execution
+      // can outlive its worktree directory (out-of-band `git worktree
+      // remove`/`prune`, a multi-device home where `.work` wasn't synced,
+      // dev resets). `resolveCwd` now refuses to run the agent in the
+      // workspace's source checkout in that state — so without this the
+      // turn would dead-end with `invalid_state`. Reprovisioning here (the
+      // same guard the scheduled path runs) recreates the worktree so the
+      // message lands in an isolated tree, never the main repo. The
+      // existsSync fast-path inside makes this a no-op on the hot path.
+      void (async () => {
+        const execution = session.executionId ? getExecution(session.executionId) : undefined;
+        const ready = await ensureWorktreeReady(id, execution ?? null);
+        if (!ready.ok) {
+          console.error(
+            `[POST /api/sessions/:id/messages] worktree not ready for ${id}: ${ready.error}`,
+          );
+          return;
+        }
+        await executor.dispatch(id, expanded);
+      })().catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);
       });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
+import { DeckSourcesField } from './deck-sources-field';
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -103,12 +104,15 @@ export function ProfileSection() {
           value={description}
           onChange={(e) => handleDescriptionChange(e.target.value)}
           placeholder="e.g. I'm a founder building a B2B SaaS product. I do my best deep work before noon. I tend to procrastinate on financial tasks..."
-          className="h-64 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+          className="h-48 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <p className="text-[11px] text-muted-foreground/60">
           {updateUserState.isPending ? 'Saving…' : lastSavedAt ? `Last saved ${timeAgo(lastSavedAt)}` : 'Auto-saved'}
         </p>
       </section>
+
+      {/* Deck sources (DECK.md) — which connected services the deck consults. */}
+      <DeckSourcesField />
     </div>
   );
 }

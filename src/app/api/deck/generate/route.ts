@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { deckGenerationContextSchema } from '@/lib/ai/deck-generation';
 import { generateDeck } from '@/lib/ai/generate-deck';
+import { ensureCalendarProvider } from '@/lib/deck/calendar-connector';
 
 export const maxDuration = 60;
 
@@ -11,6 +12,7 @@ export const maxDuration = 60;
  */
 export async function POST(request: NextRequest) {
   try {
+    ensureCalendarProvider();
     const body = await request.json();
     const generationContext = deckGenerationContextSchema.parse(body);
     const deck = await generateDeck(generationContext);

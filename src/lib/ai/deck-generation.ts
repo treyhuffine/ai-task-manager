@@ -97,19 +97,29 @@ export type DeckResponse = z.infer<typeof deckResponseSchema>;
 
 // ─── Context-gathering prompt (Phase 2) ─────────────────────────
 
-export const CONTEXT_GATHERING_PROMPT = `You are a context-gathering step in a task prioritization pipeline for Eon, a personal productivity app. You will receive the user's active tasks, areas, and context for the day.
+export const CONTEXT_GATHERING_PROMPT = `You are the context-gathering step in a task-prioritization pipeline for a personal productivity app. You receive the user's active tasks, areas, and today's context. Your job: gather any LIVE context that helps plan their day well, then write a short brief of it.
 
-You have a searchKnowledgeBase tool that searches the user's notes, stream-of-consciousness entries, and tasks using semantic + keyword hybrid search. Use it to find context that would help make better prioritization decisions: notes related to a task's topic, recent stream entries about what the user has been thinking about, or connections between areas.
+Tools available to you:
+- searchKnowledgeBase: the user's own notes, stream entries, and tasks (semantic + keyword search).
+- get_day_shape: the user's available work time for a date — busy calendar blocks, free gaps, and total free minutes, ALREADY COMPUTED. Use this for anything about how much time they have or when to slot work. NEVER compute free/busy from raw calendar events yourself; call get_day_shape.
+- You may also have READ-ONLY tools for the user's connected services (calendar, issue trackers like Linear, docs, etc.). Only ever read/list/get — never create, send, or modify anything.
 
-Search as much or as little as makes sense. If the task list and context are straightforward, you may not need to search at all. If there are ambiguous priorities, rich areas, or user context that hints at deeper threads, search to surface relevant background.`;
+How much to consult:
+- Default: when the user has connected services, consult the ones relevant to planning today — calendar for available time, issue trackers for work they're responsible for — UNLESS their instructions say otherwise. A simple day may need nothing.
+- If a [Your Source Instructions] section is present, FOLLOW IT exactly. It says which sources to use and how, and overrides the default.
+- If a tool errors or a service isn't connected, just move on. Never block on it.
+
+Then output a concise CONTEXT BRIEF (a few lines) of what you found that's relevant to today: the shape of their time, any external items/issues that should influence priorities, and anything time-sensitive. Clearly mark items that are EXTERNAL (not in their task list) so the planner treats them as context, not as deck entries.`;
 
 // ─── System prompt (Phase 3) ────────────────────────────────────
 
 export const DECK_SYSTEM_PROMPT = `You are the prioritization engine for Eon, a personal productivity app. The user is sitting down to work and needs clarity on what to focus on today.
 
-You will receive their active tasks (roughly pre-ordered by current priority), areas of life/work, recent completions, optional context for today, and optionally additional context surfaced from their knowledge base (notes, stream entries, related tasks).
+You will receive their active tasks (roughly pre-ordered by current priority), areas of life/work, recent completions, optional context for today, and optionally a [Live Context] brief gathered from their knowledge base and connected tools (calendar, issue trackers, etc.).
 
 YOUR JOB: Pick ${DECK_MIN_ITEMS}-${DECK_MAX_ITEMS} tasks for the deck (the priority stack) and ${ALT_MIN_ITEMS}-${ALT_MAX_ITEMS} alternatives. Return task IDs from the provided list. Never invent tasks.
+
+USING [Live Context]: factor it into ranking and framing — calendar/time info constrains how much fits and when; external issues or signals can raise or lower a task's urgency. IMPORTANT: deck items and alternatives must still be task IDs from the provided [Active Tasks] list. An external item (e.g. a Linear issue that isn't in the task list) can inform your decisions but cannot itself be a deck entry.
 
 RANKING PRINCIPLES:
 - Hard deadlines are the strongest signal. Due today/tomorrow = near top. Overdue = top.
@@ -192,6 +202,8 @@ interface PromptData {
   };
   generationContext: DeckGenerationContext;
   userProfile?: string;
+  /** The user's DECK.md instructions on which sources to consult and how. */
+  deckInstructions?: string;
 }
 
 export function buildDeckPrompt(data: PromptData): string {
@@ -200,6 +212,11 @@ export function buildDeckPrompt(data: PromptData): string {
   // User profile
   if (data.userProfile) {
     sections.push(`[User Profile]\n${data.userProfile}`);
+  }
+
+  // User's deck instructions (DECK.md): which sources to consult and how.
+  if (data.deckInstructions) {
+    sections.push(`[Your Source Instructions]\n${data.deckInstructions.trim()}`);
   }
 
   // Areas

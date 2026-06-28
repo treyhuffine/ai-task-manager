@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { reconcileDeckWithExternalChanges } from '@/lib/deck/reconcile-external';
+import { ensureCalendarProvider } from '@/lib/deck/calendar-connector';
 
 /**
  * Re-check today's deck against the live calendar and adapt it to external
@@ -9,6 +10,7 @@ import { reconcileDeckWithExternalChanges } from '@/lib/deck/reconcile-external'
  */
 export async function POST(request: NextRequest) {
   try {
+    ensureCalendarProvider();
     const body = await request.json().catch(() => ({}));
     const result = await reconcileDeckWithExternalChanges({ inFocus: !!body?.inFocus });
     return Response.json(result);

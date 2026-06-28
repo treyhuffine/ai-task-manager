@@ -52,11 +52,15 @@ function createInteractiveSession(override: ChatOverride = {}) {
   // Provider: explicit override (composer "switch provider") wins; else default.
   const harness = override.providerId ? providerHarnessKey(override.providerId) : defaultHarness();
   const agent = getOrCreateDefaultOrchestrator(harness);
+  const userState = getUserState();
   return createChatSession({
     type: 'orchestration',
     agentId: agent.id,
     // Model: explicit override (even null) wins; else the user's default.
-    model: override.model !== undefined ? override.model : getUserState()?.defaultAgentModel ?? null,
+    model: override.model !== undefined ? override.model : userState?.defaultAgentModel ?? null,
+    // Effort: seeded from the user's default (last composer pick). Null =
+    // harness default. No override channel here — set per-session in the composer.
+    effort: userState?.defaultAgentEffort ?? null,
     // Label stays null until the first send — the messages route's
     // `deriveAndSetSessionLabel` (haiku-via-harness, same pipeline that
     // names executions) only fires on unlabeled sessions. A hardcoded

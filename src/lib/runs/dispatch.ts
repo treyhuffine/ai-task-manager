@@ -491,7 +491,7 @@ async function runUnderLease(
  * payoff). Returns `{ ok: false }` with a human-readable error when
  * provisioning has failed in a way the run row should reflect.
  */
-async function ensureWorktreeReady(
+export async function ensureWorktreeReady(
   chatSessionId: string,
   execution: ExecutionRecord | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {

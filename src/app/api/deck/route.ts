@@ -4,6 +4,7 @@ import { decks } from '@/lib/db/schema';
 import { desc } from 'drizzle-orm';
 import { getActiveDeckForDate, getLatestDeck } from '@/lib/db/queries';
 import { ensureTodaysDeck } from '@/lib/deck/ensure-todays-deck';
+import { ensureCalendarProvider } from '@/lib/deck/calendar-connector';
 import { todayLocalDate } from '@/lib/deck/date';
 
 // First-look generation can run the AI pipeline (two model calls).
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
     const ensure = params.get('ensure') !== 'false';
     if (ensure) {
       try {
+        ensureCalendarProvider();
         const deck = await ensureTodaysDeck();
         return Response.json(deck);
       } catch (err) {

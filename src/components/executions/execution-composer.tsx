@@ -324,16 +324,22 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       setPermissionMode(nextPermissionMode(permissionMode));
     }, [permissionMode, setPermissionMode]);
 
+    // A pick saves to this session AND becomes the user's default, so the
+    // next new chat/execution inherits the last selection instead of
+    // snapping back to "Default"/"Effort". (Seeded into new sessions by the
+    // orchestrator-chat / document-chat / dispatch creation paths.)
     const setModel = (id: string | null) => {
       setModelMenuOpen(false);
       if (id === model) return;
       updateSession.mutate({ id: sessionId, model: id });
+      updateUserState.mutate({ defaultAgentModel: id });
     };
 
     const setEffort = (level: EffortLevel | null) => {
       setEffortMenuOpen(false);
       if (level === effort) return;
       updateSession.mutate({ id: sessionId, effort: level });
+      updateUserState.mutate({ defaultAgentEffort: level });
     };
 
     const handleSend = useCallback(

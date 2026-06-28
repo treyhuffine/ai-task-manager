@@ -32,6 +32,8 @@ import {
   availableMinutes,
   formatGap,
 } from '@/lib/deck/calendar';
+import { readDeckInstructions } from '@/lib/deck/instructions';
+import { getReadOnlyConnectorTools } from '@/lib/deck/connector-tools';
 import { hybridSearchWithEntities } from '@/lib/embeddings/search';
 import {
   DECK_GENERATION_TASK_LIMIT,
@@ -304,6 +306,10 @@ export async function generateDeck(
     gaps: gaps.map((g) => ({ label: formatGap(g), minutes: g.minutes })),
   };
 
+  // The user's plain-language source instructions (DECK.md), injected so the
+  // gathering step knows which connected services to consult and how.
+  const deckInstructions = readDeckInstructions() ?? undefined;
+
   const basePrompt = buildDeckPrompt({
     tasks: promptTasks,
     areas: promptAreas,
@@ -312,31 +318,76 @@ export async function generateDeck(
     timeContext,
     generationContext,
     userProfile,
+    deckInstructions,
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // Phase 2: AI context gathering (tool use — search knowledge base)
+  // Phase 2: AI context gathering (agentic — KB + calendar + the user's
+  // connected, read-only tools, steered by their DECK.md instructions)
   // ═══════════════════════════════════════════════════════════════
 
-  const contextModel = process.env.MODEL_MINI || 'gpt-5.4-nano';
-
-  const contextResult = await generateText({
-    model: openai(contextModel),
-    system: CONTEXT_GATHERING_PROMPT,
-    prompt: basePrompt,
-    tools: { searchKnowledgeBase },
-    stopWhen: stepCountIs(5),
+  // Deterministic time tool: the model decides WHETHER to consult the calendar
+  // (per DECK.md / the default policy), but the free/busy math stays exact.
+  // Reuse today's already-fetched blocks; fetch fresh for other dates.
+  const get_day_shape = tool({
+    description:
+      "The user's available work time for a date: busy calendar blocks, free gaps, and total free minutes — already computed. Use for anything about how much time they have or when to slot work; never do free/busy math yourself.",
+    inputSchema: z.object({
+      date: z.string().optional().describe('YYYY-MM-DD; defaults to today'),
+    }),
+    execute: async ({ date }) => {
+      const d = date || forDate;
+      try {
+        const blocks = d === forDate ? calendarBlocks : await getCalendarEventsForDay(d);
+        const g = d === forDate ? gaps : computeFreeGaps(blocks, { workdayStart, workdayEnd, date: d });
+        return {
+          date: d,
+          workday: `${workdayStart}-${workdayEnd}`,
+          calendarConnected: blocks.length > 0,
+          busy: blocks.map((b) => ({ start: b.start, end: b.end, title: b.title })),
+          freeGaps: g.map(formatGap),
+          freeMinutes: availableMinutes(g),
+        };
+      } catch {
+        return { date: d, calendarConnected: false, freeMinutes: null, note: 'calendar unavailable' };
+      }
+    },
   });
 
-  const searchContext = collectSearchResults(contextResult.steps);
+  // Read-only tools for the user's connected services ({} if none connected).
+  const connectorTools = await getReadOnlyConnectorTools();
+
+  const contextModel = process.env.MODEL_STANDARD || 'gpt-5.4-mini';
+
+  let gatheredBrief = '';
+  let searchContext = '';
+  try {
+    const contextResult = await generateText({
+      model: openai(contextModel),
+      system: CONTEXT_GATHERING_PROMPT,
+      prompt: basePrompt,
+      tools: { searchKnowledgeBase, get_day_shape, ...connectorTools },
+      stopWhen: stepCountIs(10),
+    });
+    gatheredBrief = contextResult.text?.trim() ?? '';
+    searchContext = collectSearchResults(contextResult.steps);
+  } catch (err) {
+    // Gathering is best-effort — a tool/model hiccup must never block the deck.
+    console.warn('[deck] context gathering failed, generating without live context', err);
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // Phase 3: Generate deck (structured output, guaranteed)
   // ═══════════════════════════════════════════════════════════════
 
-  const enrichedPrompt = searchContext
-    ? `${basePrompt}\n\n[Knowledge Base Context]\nThe following relevant items were found from the user's notes, stream entries, and related tasks:\n${searchContext}`
-    : basePrompt;
+  // Prefer the model's synthesized brief (it already folds in KB hits, calendar,
+  // and any connected sources); fall back to raw KB hits.
+  const liveContext = gatheredBrief
+    ? `\n\n[Live Context]\nGathered from your connected tools and knowledge base:\n${gatheredBrief}`
+    : searchContext
+      ? `\n\n[Live Context]\nFrom your notes, stream entries, and related tasks:\n${searchContext}`
+      : '';
+  const enrichedPrompt = `${basePrompt}${liveContext}`;
 
   const model = process.env.MODEL_STANDARD || 'gpt-5.4-mini';
 
@@ -429,7 +480,7 @@ export async function generateDeck(
     framing: aiResponse.framing ?? null,
     items: deckItems,
     alternatives: aiResponse.alternatives,
-    searchContext: searchContext || null,
+    searchContext: gatheredBrief || searchContext || null,
     model,
     origin: opts.origin ?? 'manual',
     changes,

@@ -30,6 +30,11 @@ vi.mock('@/lib/executor/adapter', () => ({
 
 const TEST_DB = path.join(os.tmpdir(), `flow-dispatch-test-${process.pid}.db`);
 
+// The first test in this file pays the full cold migration cost in its body;
+// under full-suite parallel-worker CPU contention that can exceed the 5s
+// default and flake. Give DB-backed cases headroom (still a real ceiling).
+vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
+
 beforeEach(() => {
   for (const suffix of ['', '-wal', '-shm']) {
     const p = TEST_DB + suffix;

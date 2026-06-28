@@ -153,6 +153,17 @@ export async function register() {
     console.warn('[preview] provider/idle-evict init failed', err);
   }
 
+  // Wire the live calendar connector into the deck's calendar seam so the
+  // proactive deck sizes/slots against the user's real day. No-op until a
+  // calendar is connected; the connector isn't loaded until a deck generation
+  // actually reads the calendar.
+  try {
+    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-connector');
+    ensureCalendarProvider();
+  } catch (err) {
+    console.warn('[calendar] provider init failed', err);
+  }
+
   // Best-effort: stop every supervised preview when Flow is asked to
   // exit cleanly. SIGTERM/SIGINT only — Node can't intercept SIGKILL.
   // Lives in a dynamically-imported module because Next.js's Edge

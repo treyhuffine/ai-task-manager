@@ -1,0 +1,1 @@
+ALTER TABLE `user_state` ADD `default_agent_effort` text;

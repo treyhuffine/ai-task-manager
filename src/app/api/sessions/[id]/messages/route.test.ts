@@ -26,11 +26,13 @@ import type { NextRequest } from 'next/server';
 
 const getChatEventById = vi.fn();
 const getChatSessionWithExecution = vi.fn();
+const getExecution = vi.fn();
 const insertChatEvent = vi.fn();
 const materializeEventRefs = vi.fn();
 const getAgent = vi.fn();
 const budgetGate = vi.fn(() => 'ok');
 const dispatch = vi.fn(async () => {});
+const ensureWorktreeReady = vi.fn(async () => ({ ok: true }) as { ok: true } | { ok: false; error: string });
 const healthCheckSession = vi.fn(async () => {});
 const expandMarkers = vi.fn(async (s: string) => s);
 const expandEntityMarkers = vi.fn((s: string) => s);
@@ -48,10 +50,16 @@ vi.mock('@/lib/db/queries', () => ({
   materializeEventRefs: (a: string, b: string, c: string) =>
     (materializeEventRefs as unknown as (...args: unknown[]) => unknown)(a, b, c),
   getAgent: (id: string) => (getAgent as unknown as (id: string) => unknown)(id),
+  getExecution: (id: string) => (getExecution as unknown as (id: string) => unknown)(id),
 }));
 
 vi.mock('@/lib/runs/budget', () => ({
   budgetGate: () => (budgetGate as unknown as () => string)(),
+}));
+
+vi.mock('@/lib/runs/dispatch', () => ({
+  ensureWorktreeReady: (id: string, exec: unknown) =>
+    (ensureWorktreeReady as unknown as (id: string, exec: unknown) => Promise<unknown>)(id, exec),
 }));
 
 vi.mock('@/lib/executor/adapter', () => ({
@@ -103,8 +111,10 @@ beforeEach(() => {
   insertChatEvent.mockReset();
   materializeEventRefs.mockReset();
   getAgent.mockReset();
+  getExecution.mockReset().mockReturnValue({ id: EXECUTION_ID, workspaceId: 'ws-1', worktreePath: null });
   budgetGate.mockReset().mockReturnValue('ok');
   dispatch.mockReset().mockResolvedValue(undefined);
+  ensureWorktreeReady.mockReset().mockResolvedValue({ ok: true });
   healthCheckSession.mockReset().mockResolvedValue(undefined);
   expandMarkers.mockReset().mockImplementation(async (s: string) => s);
   expandEntityMarkers.mockReset().mockImplementation((s: string) => s);
@@ -145,7 +155,10 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
     );
     expect(res.status).toBe(201);
     expect(insertChatEvent).toHaveBeenCalled();
-    expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello');
+    // Dispatch is fire-and-forget and now runs after the worktree self-heal
+    // (`ensureWorktreeReady`) resolves — await that deferred continuation.
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello'));
+    expect(ensureWorktreeReady).toHaveBeenCalled();
   });
 
   it('retry of an existing send → 201 (budget pre-flight bypassed, health redispatches)', async () => {
@@ -192,7 +205,33 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
     );
     expect(res.status).toBe(201);
     expect(insertChatEvent).toHaveBeenCalled();
-    expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello');
+    // Dispatch is fire-and-forget and now runs after the worktree self-heal
+    // (`ensureWorktreeReady`) resolves — await that deferred continuation.
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello'));
+    expect(ensureWorktreeReady).toHaveBeenCalled();
+  });
+
+  it('fresh send but worktree cannot be made ready → does NOT dispatch the agent', async () => {
+    // Regression guard: if the per-execution worktree is gone and can't be
+    // reprovisioned, the agent must not run (it would otherwise fall into
+    // the workspace's main checkout). The route still 201s the persisted
+    // message; it just never dispatches.
+    getChatEventById.mockReturnValue(undefined);
+    insertChatEvent.mockReturnValue({
+      id: CLIENT_ID,
+      sessionId: SESSION_ID,
+      role: 'user',
+      source: 'user',
+      content: 'hello',
+    });
+    ensureWorktreeReady.mockResolvedValue({ ok: false, error: 'worktree gone' });
+
+    const res = await POST(makeRequest({ content: 'hello', id: CLIENT_ID }), makeParams());
+    expect(res.status).toBe(201);
+    await vi.waitFor(() => expect(ensureWorktreeReady).toHaveBeenCalled());
+    // Give any (incorrect) deferred dispatch a chance to fire, then assert it didn't.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('fresh send + budget block → 402', async () => {

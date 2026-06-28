@@ -34,18 +34,7 @@ interface PanelPosition {
  * pending close, so users can pause to read.
  */
 export function SessionHoverPreview() {
-  const { state, cancelClose, onRowLeave, closeNow } = useSessionHover();
-
-  // Any scroll (rail body, window, ancestor) invalidates the stored
-  // anchor — the row's onscreen position has moved but state hasn't.
-  // Capture-phase listener catches scrolls on any container without
-  // having to know which element actually owns the scroll.
-  useEffect(() => {
-    if (!state) return;
-    const handler = () => closeNow();
-    window.addEventListener('scroll', handler, { capture: true, passive: true });
-    return () => window.removeEventListener('scroll', handler, { capture: true });
-  }, [state, closeNow]);
+  const { state, cancelClose, onRowLeave } = useSessionHover();
 
   return state ? (
     <PreviewPortal
@@ -76,10 +65,28 @@ function PreviewPortal({
   onMouseEnter,
   onMouseLeave,
 }: PreviewPortalProps) {
+  const { closeNow } = useSessionHover();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // A scroll outside the panel (rail body, window, an ancestor) shifts
+  // the anchored row without updating the stored anchor, leaving the
+  // panel stranded in a stale spot — close it. Scrolls *inside* the
+  // panel's own message list must be ignored, or it dismisses itself the
+  // instant the user tries to read past the fold. Capture phase is
+  // required: scroll events don't bubble, but they do reach listeners on
+  // the way down, and `e.target` is always the element that scrolled.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const panel = panelRef.current;
+      if (panel && e.target instanceof Node && panel.contains(e.target)) return;
+      closeNow();
+    };
+    window.addEventListener('scroll', handler, { capture: true, passive: true });
+    return () => window.removeEventListener('scroll', handler, { capture: true });
+  }, [closeNow]);
   // `null` until first measurement — the panel renders hidden on the
   // initial frame so a wrong-height estimate doesn't flash the panel at
   // the top of the viewport before snapping back to the row.

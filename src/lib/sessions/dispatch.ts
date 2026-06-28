@@ -157,9 +157,10 @@ export async function dispatchExecutionSession(
     workspaceId: args.workspaceId,
     agentId: agent.id,
     chatSessionId: sessionId,
-    // Seed the user's default model (Settings → AI agent); overridable
-    // per-session from the composer. null = harness default.
+    // Seed the user's default model + effort (last composer pick / Settings →
+    // AI agent); overridable per-session from the composer. null = harness default.
     model: getUserState()?.defaultAgentModel ?? null,
+    effort: getUserState()?.defaultAgentEffort ?? null,
     label,
     worktreePath: liveMode ? ws.cwd : null,
     branchName: liveBranch,

@@ -76,6 +76,11 @@ export const userState = sqliteTable('user_state', {
   voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
   defaultAgentHarness: text({ enum: ['claude', 'codex'] }),
   defaultAgentModel: text(),
+  // Default reasoning effort new chats/executions start with (Claude only;
+  // Codex ignores it). Mirrors the chat_sessions.effort enum. Null = use the
+  // harness default. Updated whenever the user picks an effort in the composer,
+  // so the next new chat inherits the last selection.
+  defaultAgentEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
   // Which brain powers the dashboard orchestrator chat:
   //   legacy         — hand-rolled streamText agent (src/lib/ai/chat-tools.ts)
   //   harness_skills — harness session (cwd = data root), actions via CLI/skills

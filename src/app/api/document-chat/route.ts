@@ -85,8 +85,9 @@ function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
   // otherwise the user's default harness.
   const harness = override.providerId ? providerHarnessKey(override.providerId) : defaultHarness();
   const agent = getOrCreateDefaultOrchestrator(harness);
+  const userState = getUserState();
   // Model: an explicit override (even null) wins; else the user's default.
-  const model = override.model !== undefined ? override.model : getUserState()?.defaultAgentModel ?? null;
+  const model = override.model !== undefined ? override.model : userState?.defaultAgentModel ?? null;
   return createChatSession({
     type: 'content',
     agentId: agent.id,
@@ -95,6 +96,9 @@ function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
     surfaceKind: ref.entityType,
     surfaceRef: ref.entityId,
     model,
+    // Effort: seeded from the user's default (last composer pick). Null =
+    // harness default. Overridable per-session in the composer.
+    effort: userState?.defaultAgentEffort ?? null,
     // Label stays null until the first send — the messages route's label
     // derivation only fires on unlabeled sessions.
     label: null,

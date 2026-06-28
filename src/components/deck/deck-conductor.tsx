@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronDown, RefreshCw, Clock, Check } from 'lucide-react';
+import { ChevronDown, RefreshCw, Clock, Check, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAreas } from '@/hooks/use-areas';
 import { api } from '@/lib/api/client';
+import { openSettings } from '@/components/settings/settings-store';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -201,6 +202,11 @@ export function DeckConductor({
                 ? `Reconciles yesterday into today around ${morning.time} (while the app is running).`
                 : 'Off: the deck still deals itself the first time you open it each day.'}
             </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => openSettings('profile')} className="text-xs gap-2">
+              <SlidersHorizontal size={12} className="text-muted-foreground" />
+              <span className="flex-1">Edit deck sources…</span>
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 

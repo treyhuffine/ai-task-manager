@@ -1,6 +1,6 @@
 'use client';
 
-import { Check } from 'lucide-react';
+import { Check, MessageSquarePlus } from 'lucide-react';
 import { PROVIDERS, findProvider, modelsForProvider, type ProviderId } from '@/lib/agent-options';
 import { useAgentConnection } from '@/hooks/use-agent-connection';
 import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './agent-connection-ui';
@@ -23,15 +23,29 @@ export function ModelList({
   selected,
   onPick,
   className,
+  switchHintProvider,
 }: {
   selected: ModelSelection;
   onPick: (harness: ProviderId, model: string | null) => void;
   className?: string;
+  /**
+   * When set, every provider OTHER than this one is flagged in its header as
+   * "new chat" — picking it switches the session (a fresh thread) rather than
+   * pinning a model in place. The composer passes the session's current
+   * provider; settings/onboarding omit it (there a pick just sets a default).
+   */
+  switchHintProvider?: ProviderId;
 }) {
   return (
     <div className={cn('space-y-3', className)}>
       {PROVIDERS.map((p) => (
-        <ProviderGroup key={p.id} providerId={p.id} selected={selected} onPick={onPick} />
+        <ProviderGroup
+          key={p.id}
+          providerId={p.id}
+          selected={selected}
+          onPick={onPick}
+          isSwitch={switchHintProvider != null && p.id !== switchHintProvider}
+        />
       ))}
     </div>
   );
@@ -41,10 +55,12 @@ function ProviderGroup({
   providerId,
   selected,
   onPick,
+  isSwitch,
 }: {
   providerId: ProviderId;
   selected: ModelSelection;
   onPick: (harness: ProviderId, model: string | null) => void;
+  isSwitch?: boolean;
 }) {
   const { connection } = useAgentConnection(providerId);
   const connected = connection.connected;
@@ -59,6 +75,15 @@ function ProviderGroup({
       <div className="mb-1 flex items-center gap-2 px-1">
         <ProviderIcon id={providerId} size={13} />
         <span className="text-[12px] font-semibold text-foreground">{provider.name}</span>
+        {isSwitch && (
+          <span
+            className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground/70"
+            title="Picking this provider starts a fresh chat"
+          >
+            <MessageSquarePlus size={10} />
+            new chat
+          </span>
+        )}
         <ConnectionBadge harness={providerId} className="ml-auto" />
       </div>
 

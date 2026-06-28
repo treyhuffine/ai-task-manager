@@ -1302,12 +1302,23 @@ function mapUnknownEvent(
  * legacy chat_sessions columns are dropped.
  *
  * Stale-path guard: an execution row can outlive its worktree (archive
- * teardown, manual cleanup, dev resets, reconciler running offline).
- * Auto-resume-on-view handles the click-archived-chat case by nulling
- * `worktreePath` before re-provision, but dispatch/reconcile still see
- * stale paths in the other scenarios. `existsSync` falls through to the
- * workspace cwd so `spawn` doesn't fail with `ENOENT` on a deleted dir.
- * Mirrors the local guard in `terminals/route.ts`.
+ * teardown, manual `git worktree remove`/`prune`, dev resets, a
+ * multi-device home where `.work` wasn't synced, reconciler running
+ * offline). Auto-resume-on-view handles the click-archived-chat case by
+ * nulling `worktreePath` before re-provision, but dispatch/reconcile can
+ * still see stale paths in the other scenarios.
+ *
+ * Critically, for a GIT workspace we must NOT fall through to the
+ * workspace's source checkout when the worktree is missing. The worktree
+ * is the unit of per-execution isolation; running the agent in `ws.cwd`
+ * instead means it reads, edits, and commits in the user's main tree on
+ * whatever branch happens to be checked out there. We return null so the
+ * caller fails loud (`dispatch` throws `invalid_state`, `reconcile` skips
+ * with `no_cwd`) or, better, reprovisions first (`ensureWorktreeReady`,
+ * which the scheduled path and the message route both run before
+ * dispatch). The `ws.cwd` fallback is correct only for NON-git workspaces,
+ * which have no worktree concept. (Live mode keeps `worktreePath ===
+ * ws.cwd`, so the existence check above already returns it.)
  */
 export function resolveCwd(session: { worktreePath: string | null; workspaceId: string | null }): string | null {
   if (session.worktreePath && existsSync(session.worktreePath)) return session.worktreePath;
@@ -1321,6 +1332,10 @@ export function resolveCwd(session: { worktreePath: string | null; workspaceId: 
     return getAppRoot();
   }
   const workspace = getWorkspace(session.workspaceId);
-  return workspace?.cwd ?? null;
+  if (!workspace) return null;
+  // Git workspace with no usable worktree → refuse rather than silently
+  // running the agent in the shared source checkout.
+  if (workspace.isGit) return null;
+  return workspace.cwd ?? null;
 }
 

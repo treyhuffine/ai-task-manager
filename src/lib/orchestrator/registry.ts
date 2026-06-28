@@ -561,6 +561,11 @@ const regenerate_deck_action = defineAction({
     // Lazy: the deck pipeline pulls in the AI SDKs, which the CLI
     // shouldn't load until a regeneration actually fires (same pattern
     // as the executor imports above).
+    // Register the calendar provider for this process (the CLI subprocess
+    // doesn't run instrumentation, so the web-path boot registration doesn't
+    // reach it). Idempotent + no-op when no calendar is connected.
+    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-connector');
+    ensureCalendarProvider();
     const { generateDeck } = await import('@/lib/ai/generate-deck');
     return generateDeck(input);
   },
@@ -578,6 +583,10 @@ const reconcile_deck_action = defineAction({
   },
   mutating: true,
   handler: async (_ctx, input) => {
+    // Ensure the calendar provider is registered in this process (CLI
+    // subprocess doesn't run instrumentation). Idempotent.
+    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-connector');
+    ensureCalendarProvider();
     const { reconcileDeckWithExternalChanges } = await import('@/lib/deck/reconcile-external');
     return reconcileDeckWithExternalChanges({ inFocus: input.in_focus });
   },

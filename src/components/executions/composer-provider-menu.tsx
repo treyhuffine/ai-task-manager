@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sparkles, MessageSquarePlus, Loader2 } from 'lucide-react';
-import { findProvider, type ProviderId } from '@/lib/agent-options';
+import { findProvider, modelsForProvider, type ProviderId } from '@/lib/agent-options';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
+import { ProviderIcon } from '@/components/settings/agent-connection-ui';
 import { cn } from '@/lib/utils';
 
 interface ComposerProviderMenuProps {
@@ -28,9 +29,13 @@ interface ComposerProviderMenuProps {
  * The composer's model control: a flat, all-providers-at-once list (see
  * ModelList). Picking a model in the *current* provider pins it on this
  * session immediately. Picking a model in a *different* provider can't change
- * this session mid-stream (the agents can't resume each other), so it stages a
- * confirm and starts a **fresh chat** on that provider. Disconnected providers
- * carry the same login/check panel as onboarding and their rows are disabled.
+ * this session mid-stream (the agents can't resume each other), so the list is
+ * REPLACED by a focused confirm (provider icon + explanation + Start new chat /
+ * Back) that starts a **fresh chat** on that provider — an unmissable takeover
+ * rather than a CTA appended below a scrolling list. Other-provider groups are
+ * flagged "new chat" in the list so the switch is expected before the click.
+ * Disconnected providers carry the same login/check panel as onboarding and
+ * their rows are disabled.
  */
 export function ComposerProviderMenu({
   open,
@@ -62,6 +67,10 @@ export function ComposerProviderMenu({
 
   const selected: ModelSelection = pending ?? { harness: currentProvider, model };
   const pendingProvider = pending ? findProvider(pending.harness) : null;
+  const pendingModelLabel =
+    pending && pending.model
+      ? modelsForProvider(pending.harness).find((m) => m.id === pending.model)?.label ?? pending.model
+      : null;
 
   return (
     <Popover open={open} onOpenChange={reset}>
@@ -80,15 +89,27 @@ export function ComposerProviderMenu({
           <span>{fallbackLabel}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="max-h-[440px] w-80 overflow-y-auto p-2">
-        <ModelList selected={selected} onPick={handlePick} />
-
-        {pending && pendingProvider && (
-          <div className="mt-2 space-y-2 border-t border-border/60 pt-2">
-            <p className="px-1 text-[11px] leading-snug text-muted-foreground">
-              Switching to {pendingProvider.name} starts a fresh chat on it. Your current thread is saved in history.
-            </p>
-            <div className="flex gap-1.5">
+      <PopoverContent align="end" sideOffset={6} className="w-80 p-2">
+        {pending && pendingProvider ? (
+          // Cross-provider pick can't change this session mid-stream, so the
+          // list is REPLACED by a focused confirm — there's nothing else to
+          // click, so the action can't be missed or scrolled past (the old
+          // design appended this below the list, often below the fold).
+          <div className="p-1">
+            <div className="flex flex-col items-center gap-2 px-2 pb-3 pt-2 text-center">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <ProviderIcon id={pending.harness} size={20} />
+              </span>
+              <span className="text-[13px] font-semibold text-foreground">
+                Switch to {pendingProvider.name}?
+              </span>
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Starts a fresh chat on {pendingProvider.name}
+                {pendingModelLabel ? ` with ${pendingModelLabel}` : ''}. Your current thread is saved
+                in history.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
               <button
                 type="button"
                 onClick={() => {
@@ -96,7 +117,7 @@ export function ComposerProviderMenu({
                   reset(false);
                 }}
                 disabled={switching}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 {switching ? <Loader2 size={13} className="animate-spin" /> : <MessageSquarePlus size={13} />}
                 Start new chat
@@ -104,11 +125,16 @@ export function ComposerProviderMenu({
               <button
                 type="button"
                 onClick={() => setPending(null)}
-                className="rounded-md border border-border px-2 py-1.5 text-[12px] text-muted-foreground hover:text-foreground"
+                disabled={switching}
+                className="rounded-md border border-border px-2 py-1.5 text-[12px] text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
-                Cancel
+                Back
               </button>
             </div>
+          </div>
+        ) : (
+          <div className="max-h-[440px] overflow-y-auto">
+            <ModelList selected={selected} onPick={handlePick} switchHintProvider={currentProvider} />
           </div>
         )}
       </PopoverContent>
