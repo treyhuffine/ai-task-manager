@@ -32,6 +32,7 @@ import { FileTree } from './file-tree/file-tree';
 import { ViewerArea } from './viewer-area';
 import { useInitialSelectedFile } from './viewer/use-initial-selected-file';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
+import { useFileHistory } from '@/hooks/use-file-history';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverBanner } from './takeover/takeover-banner';
 import { SetupPlaceholder } from './setup-placeholder';
@@ -238,9 +239,20 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // swaps to its Files tab when this changes. Closing a file (onSelect(null))
   // does NOT bump it — closing isn't a request to view files.
   const [filePickSignal, setFilePickSignal] = useState(0);
+
+  // Per-session LRU of files opened in the viewer, surfaced by the
+  // history menu in the viewer's tab strip. Recorded here because this is
+  // the one place every "open a file" path converges (tree pick below and
+  // the transcript-chip listener), keyed on the same sessionId the
+  // selection reset uses.
+  const { history: fileHistory, recordOpen: recordFileOpen } = useFileHistory(sessionId);
+
   const handleFilePicked = (path: string | null) => {
     setSelectedPath(path);
-    if (path) setFilePickSignal((n) => n + 1);
+    if (path) {
+      setFilePickSignal((n) => n + 1);
+      recordFileOpen(path);
+    }
   };
 
   // Transcript file chips fire `flow:open-file` (a window event) when
@@ -253,8 +265,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         if (!rel) return;
         setSelectedPath(rel);
         setFilePickSignal((n) => n + 1);
+        recordFileOpen(rel);
       },
-      [session?.worktreePath],
+      [session?.worktreePath, recordFileOpen],
     ),
   );
 
@@ -661,6 +674,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                     selectedPath={selectedPath}
                     onCloseFile={() => setSelectedPath(null)}
                     filePickSignal={filePickSignal}
+                    fileHistory={fileHistory}
                     onReferenceInChat={handleReferenceFileInChat}
                     active
                   />

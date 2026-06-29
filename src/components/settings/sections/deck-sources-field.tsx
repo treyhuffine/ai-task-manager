@@ -50,9 +50,9 @@ export function DeckSourcesField() {
         Deck sources
       </label>
       <p className="text-[11px] leading-snug text-muted-foreground/70">
-        Plain-language instructions for how your daily deck is planned and which connected
-        services it should pull from (calendar, issue trackers, etc.). The deck reads this on
-        every refresh.
+        Tell your deck, in plain words, how to plan your day and which connected services to
+        use (your calendar, task trackers, etc.). Just write naturally — no formatting needed.
+        The deck reads this on every refresh.
       </p>
       <textarea
         id="deck-sources"
@@ -60,9 +60,10 @@ export function DeckSourcesField() {
         onChange={(e) => onChange(e.target.value)}
         disabled={!loaded}
         placeholder={
-          'e.g. Use my Google Calendar for work events — size my day around meetings.\n' +
-          'Use Linear for task updates from my team.\n' +
-          "I'm heads-down shipping; favor momentum over starting new things."
+          'e.g. Use my calendar to size the day around meetings and slot deep work into the open gaps.\n' +
+          'Pull in work I’m responsible for from my connected tools.\n' +
+          'When something has a hard deadline, rank it up even if it still feels early.\n' +
+          "I'm heads-down shipping right now — favor momentum over starting new things."
         }
         className="h-48 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
       />

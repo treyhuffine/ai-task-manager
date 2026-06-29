@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { X, Zap, Loader2 } from 'lucide-react';
 import { useCreateExecution, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface LiveModeModalProps {
   workspaceId: string | null;
@@ -112,15 +113,19 @@ export function LiveModeModal({ workspaceId, workspaceName, onClose }: LiveModeM
             </div>
 
             <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30">
-              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none">
-                <input
-                  type="checkbox"
+              <div className="flex items-center gap-1.5">
+                <Checkbox
+                  id="live-mode-dont-ask"
                   checked={dontAsk}
-                  onChange={(e) => setDontAsk(e.target.checked)}
-                  className="size-3 rounded-sm accent-amber-500 cursor-pointer"
+                  onCheckedChange={(checked) => setDontAsk(checked === true)}
                 />
-                Don&apos;t ask again for this workspace
-              </label>
+                <label
+                  htmlFor="live-mode-dont-ask"
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none"
+                >
+                  Don&apos;t ask again for this workspace
+                </label>
+              </div>
               <div className="flex items-center gap-2">
               <DialogPrimitive.Close asChild>
                 <button

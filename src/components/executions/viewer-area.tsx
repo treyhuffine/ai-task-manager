@@ -6,7 +6,9 @@ import { cn } from '@/lib/utils';
 import { usePreviewState } from '@/hooks/use-preview';
 import type { PreviewServerStatus } from '@/lib/api/preview';
 import { FileViewer } from './viewer/file-viewer';
+import { FileHistoryMenu } from './viewer/file-history-menu';
 import { PreviewPane } from './preview/preview-pane';
+import type { FileHistoryEntry } from '@/hooks/use-file-history';
 
 interface ViewerAreaProps {
   sessionId: string;
@@ -28,6 +30,13 @@ interface ViewerAreaProps {
    * user out of a Preview view they're still using.
    */
   filePickSignal?: number;
+  /**
+   * Per-session list of recently opened files (newest first), owned by
+   * `ExecutionView` via `useFileHistory`. Powers the history menu in the
+   * tab strip. Passed down rather than read locally so the menu reflects
+   * opens triggered from the tree and transcript chips, not just here.
+   */
+  fileHistory?: FileHistoryEntry[];
   /**
    * Wired by `ExecutionView` so the file viewer's header kebab can
    * insert `@<path>` at the chat composer's cursor — same UX as the
@@ -56,7 +65,7 @@ const TAB_STORAGE_KEY_PREFIX = 'flow.viewer.tab.';
  */
 export function ViewerArea({
   sessionId, workspaceId, executionId, selectedPath, onCloseFile, onOpenWorkspaceSettings, active,
-  filePickSignal, onReferenceInChat,
+  filePickSignal, fileHistory, onReferenceInChat,
 }: ViewerAreaProps) {
   const [tab, setTab] = useState<Tab>(() => readPersistedTab(sessionId));
 
@@ -119,6 +128,13 @@ export function ViewerArea({
           label="Preview"
           indicator={previewState}
         />
+        <div className="ml-auto flex items-center">
+          <FileHistoryMenu
+            sessionId={sessionId}
+            history={fileHistory ?? []}
+            selectedPath={selectedPath}
+          />
+        </div>
       </div>
 
       <div className="min-h-0 flex-1">

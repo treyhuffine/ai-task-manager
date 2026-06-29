@@ -199,7 +199,7 @@ export function TreeFileRow({
   );
 }
 
-function statusBadgeChar(status: TreeEntryStatus): string {
+export function statusBadgeChar(status: TreeEntryStatus): string {
   switch (status) {
     case 'modified':
     case 'staged':
@@ -212,7 +212,7 @@ function statusBadgeChar(status: TreeEntryStatus): string {
   }
 }
 
-function statusBadgeColor(status: TreeEntryStatus): string {
+export function statusBadgeColor(status: TreeEntryStatus): string {
   switch (status) {
     case 'modified':
     case 'staged':

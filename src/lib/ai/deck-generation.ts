@@ -102,11 +102,11 @@ export const CONTEXT_GATHERING_PROMPT = `You are the context-gathering step in a
 Tools available to you:
 - searchKnowledgeBase: the user's own notes, stream entries, and tasks (semantic + keyword search).
 - get_day_shape: the user's available work time for a date — busy calendar blocks, free gaps, and total free minutes, ALREADY COMPUTED. Use this for anything about how much time they have or when to slot work. NEVER compute free/busy from raw calendar events yourself; call get_day_shape.
-- You may also have READ-ONLY tools for the user's connected services (calendar, issue trackers like Linear, docs, etc.). Only ever read/list/get — never create, send, or modify anything.
+- You may also have READ-ONLY tools for the user's connected services (calendars, task/issue trackers, docs, messaging, etc.). Only ever read/list/get — never create, send, or modify anything.
 
 How much to consult:
-- Default: when the user has connected services, consult the ones relevant to planning today — calendar for available time, issue trackers for work they're responsible for — UNLESS their instructions say otherwise. A simple day may need nothing.
-- If a [Your Source Instructions] section is present, FOLLOW IT exactly. It says which sources to use and how, and overrides the default.
+- The user's own instructions are the most important guidance. If a [Your Source Instructions] section is present, follow it — it says which sources to use and how, and it OVERRIDES everything below whenever they conflict.
+- Otherwise, as a sensible default: consult the connected services that are relevant to planning today — a calendar for available time, a task/issue tracker for work they're responsible for — and skip what isn't useful. A simple day may need nothing.
 - If a tool errors or a service isn't connected, just move on. Never block on it.
 
 Then output a concise CONTEXT BRIEF (a few lines) of what you found that's relevant to today: the shape of their time, any external items/issues that should influence priorities, and anything time-sensitive. Clearly mark items that are EXTERNAL (not in their task list) so the planner treats them as context, not as deck entries.`;
@@ -119,7 +119,7 @@ You will receive their active tasks (roughly pre-ordered by current priority), a
 
 YOUR JOB: Pick ${DECK_MIN_ITEMS}-${DECK_MAX_ITEMS} tasks for the deck (the priority stack) and ${ALT_MIN_ITEMS}-${ALT_MAX_ITEMS} alternatives. Return task IDs from the provided list. Never invent tasks.
 
-USING [Live Context]: factor it into ranking and framing — calendar/time info constrains how much fits and when; external issues or signals can raise or lower a task's urgency. IMPORTANT: deck items and alternatives must still be task IDs from the provided [Active Tasks] list. An external item (e.g. a Linear issue that isn't in the task list) can inform your decisions but cannot itself be a deck entry.
+USING [Live Context]: factor it into ranking and framing — calendar/time info constrains how much fits and when; external issues or signals can raise or lower a task's urgency. IMPORTANT: deck items and alternatives must still be task IDs from the provided [Active Tasks] list. An external item (e.g. an issue from a connected tool that isn't in the task list) can inform your decisions but cannot itself be a deck entry.
 
 RANKING PRINCIPLES:
 - Hard deadlines are the strongest signal. Due today/tomorrow = near top. Overdue = top.
