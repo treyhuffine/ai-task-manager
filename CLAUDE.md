@@ -38,6 +38,12 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getDbPath`, `getAttachmentsDir`, `getConfigDir`, `getWorkDir`) — never hardcode the `<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_DB_PATH`, `<APP>_CONFIG_DIR`, `<APP>_WORK_DIR` env overrides. (`getBrainDir` is a deprecated alias for `getAppRoot` — content lives at the home root now; there is no `brain/` subfolder, and `<APP>_BRAIN_PATH` is ignored.)
 - **Hotkeys** are defined in `src/constants/commands.ts` and must be used by components. Use `matchesHotkey(e, HOTKEYS.focusChatInput)` etc. rather than ad-hoc checks.
 
+## Timestamps
+
+- Every table has `created_at` and `updated_at` (NOT NULL, default `(datetime('now'))`), declared right after `id`. Use a shared `timestamps` spread so every table is identical: `sqliteTable('x', { id: text().primaryKey(), ...timestamps, ...rest })`.
+- `updated_at` adds `.$onUpdate()` returning `(datetime('now'))` so it bumps on every write, not just insert. A plain default only fires on insert, leaving `updated_at` stuck equal to `created_at`.
+- Declare timestamps at table creation, never reorder them onto an existing table. Position is cosmetic and not worth a migration, and retrofitting a NOT-NULL timestamp onto a populated table is not cleanly autogeneratable (drizzle-kit either fails the ADD COLUMN or emits a broken rebuild). New timestamp columns go on nullable, then backfill, then enforce NOT NULL.
+
 ## Attachments
 
 One generic attachment system across the whole app:

@@ -2,7 +2,7 @@
  * Small natural-language → cron compiler.
  *
  * Heuristic only — covers the patterns users actually type into the
- * schedule creation form. When the heuristic fails, the form falls
+ * trigger creation form. When the heuristic fails, the form falls
  * back to manual cron entry; we don't ship an LLM call for this.
  *
  * Supported shapes:
@@ -44,7 +44,7 @@ export interface CompileError {
 
 export function naturalLanguageToCron(input: string, timezone = 'UTC'): CompileResult | CompileError {
   const text = input.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!text) return { ok: false, error: 'Enter a schedule like "every weekday at 9am"' };
+  if (!text) return { ok: false, error: 'Enter a trigger like "every weekday at 9am"' };
 
   const expression = compileExpression(text);
   if (!expression) {

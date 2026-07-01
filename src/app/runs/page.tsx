@@ -9,15 +9,15 @@
  * Per docs/async-agents-v1.md §4.8 the goal is a single executions view
  * with trigger badges; in V1 we surface this as a dedicated /runs page
  * since the existing executions view is mid-refactor. The TopHud's
- * `Clock` icon entry routes to /schedules; runs are linked from each
- * schedule's detail view and via the TopHud "Active runs" indicator.
+ * `Clock` icon entry routes to /triggers; runs are linked from each
+ * trigger's detail view and via the TopHud "Active runs" indicator.
  */
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Activity, Hourglass } from 'lucide-react';
 import Link from 'next/link';
-import { useRuns } from '@/hooks/use-schedules';
+import { useRuns } from '@/hooks/use-triggers';
 import { cn } from '@/lib/utils';
 import type { RunRecord, RunTrigger } from '@/db/types';
 import { RunActivityBadge } from '@/components/runs/run-activity-badge';
@@ -50,10 +50,10 @@ export default function RunsPage() {
         <h1 className="text-base font-semibold">Runs</h1>
         <div className="flex-1" />
         <Link
-          href="/schedules"
+          href="/triggers"
           className="text-[12px] text-muted-foreground hover:text-foreground"
         >
-          Manage schedules →
+          Manage triggers →
         </Link>
       </header>
 
@@ -110,7 +110,7 @@ function RunRow({ run }: { run: RunRecord }) {
       href={run.chatSessionId ? `/?session=${run.chatSessionId}` : `/runs/${run.id}`}
       className="flex items-center gap-3 p-3 rounded-md border border-border bg-card hover:bg-muted text-sm"
     >
-      <TriggerBadge trigger={run.trigger} />
+      <TriggerBadge trigger={run.triggerKind} />
       <RunActivityBadge runId={run.id} terminalStatus={terminal} />
       <span className="flex-1 truncate text-muted-foreground text-[12px]">
         {run.summary ?? run.errorMessage ?? '-'}

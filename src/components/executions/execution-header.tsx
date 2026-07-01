@@ -6,14 +6,13 @@ import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useArchiveSession } from '@/hooks/use-workspaces';
+import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { useUpdateSession } from '@/hooks/use-execution';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { fsApi } from '@/lib/api/fs';
-import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import type { WorkspaceRecord } from '@/db/types';
 import type { ChatSessionWithAgent } from '@/lib/api/sessions';
@@ -78,7 +77,7 @@ export function ExecutionHeader({
   newChatPending,
 }: ExecutionHeaderProps) {
   const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
-  const archive = useArchiveSession();
+  const { confirmArchive } = useArchiveWithConfirm();
   const updateSession = useUpdateSession();
 
   // Header layout variant — three arrangements the user can flip between
@@ -220,33 +219,11 @@ export function ExecutionHeader({
               : 'bg-zinc-400';
 
   const handleArchive = () => {
-    if (!confirm(`Archive "${displayLabel ?? 'this execution'}"?`)) return;
-    archive.mutate(
-      { id: session.id, force: false },
-      {
-        onSuccess: () => {
-          setActiveView('command');
-        },
-        onError: (err) => {
-          if (err instanceof ApiError && err.status === 409) {
-            const body = err.body as { code?: string } | null;
-            if (body?.code === 'dirty_worktree') {
-              const force = confirm(
-                'Worktree has uncommitted or unpushed changes. Archive anyway? Local changes will be lost.',
-              );
-              if (force) {
-                archive.mutate(
-                  { id: session.id, force: true },
-                  { onSuccess: () => setActiveView('command') },
-                );
-              }
-              return;
-            }
-          }
-          alert(`Couldn't archive: ${err instanceof Error ? err.message : String(err)}`);
-        },
-      },
-    );
+    void confirmArchive({
+      id: session.id,
+      label: displayLabel,
+      onArchived: () => setActiveView('command'),
+    });
   };
 
   // Shared elements between layouts. Defined once so mobile + desktop
@@ -653,7 +630,7 @@ export function ExecutionHeader({
             <ReferencesButton open={referencesOpen} onClick={onToggleReferences} />
           )}
           {onToggleScratchpad && (
-            <ScratchpadButton open={scratchpadOpen} onClick={onToggleScratchpad} />
+            <ScratchpadButton sessionId={session.id} open={scratchpadOpen} onClick={onToggleScratchpad} />
           )}
           {headerLayout === 'right' && workspace?.isGit && (!!session.worktreePath || !!session.setupError) && (
             <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { QueryProvider } from "@/providers/query-provider";
 import { PairingBootstrap } from "@/components/auth/pairing-bootstrap";
 import "./globals.css";
@@ -24,7 +25,9 @@ export default function RootLayout({
       <body className="antialiased">
         <QueryProvider>
           <PairingBootstrap />
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            <ConfirmProvider>{children}</ConfirmProvider>
+          </TooltipProvider>
           <Toaster position="bottom-left" richColors closeButton />
         </QueryProvider>
       </body>

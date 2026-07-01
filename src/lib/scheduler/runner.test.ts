@@ -1,6 +1,6 @@
 /**
  * Tick-level behavior of the scheduler runner — at-most-once semantics
- * for one-off schedules, the active-hours skip, and the lock-held
+ * for one-off triggers, the active-hours skip, and the lock-held
  * branch's quiet idempotency.
  */
 
@@ -60,15 +60,15 @@ async function seed() {
   return { wsId, agentId };
 }
 
-describe('runTick — at-most-once for one-off schedules', () => {
-  it('fires a kind=at schedule exactly once across multiple ticks', async () => {
+describe('runTick — at-most-once for one-off triggers', () => {
+  it('fires a kind=at trigger exactly once across multiple ticks', async () => {
     const { wsId, agentId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { runTick } = await import('./runner');
 
     // Past runAt — would be immediately due on first tick.
     const past = new Date(Date.now() - 60_000).toISOString();
-    queries.createSchedule({
+    queries.createTrigger({
       name: 'one-shot',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -95,13 +95,13 @@ describe('runTick — at-most-once for one-off schedules', () => {
     expect(real.length).toBe(1);
   });
 
-  it('every schedule keeps advancing past now after each fire', async () => {
+  it('every trigger keeps advancing past now after each fire', async () => {
     const { agentId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { runTick } = await import('./runner');
 
     const past = new Date(Date.now() - 120_000).toISOString();
-    queries.createSchedule({
+    queries.createTrigger({
       name: 'tick',
       targetKind: 'orchestrator',
       agentId,
@@ -113,9 +113,9 @@ describe('runTick — at-most-once for one-off schedules', () => {
 
     await runTick(new Date());
     await new Promise((r) => setTimeout(r, 50));
-    const schedules = queries.listSchedules({});
-    expect(schedules[0]?.nextRunAt).toBeDefined();
+    const triggers = queries.listTriggers({});
+    expect(triggers[0]?.nextRunAt).toBeDefined();
     // nextRunAt should now be in the future.
-    expect(new Date(schedules[0]!.nextRunAt!).getTime()).toBeGreaterThan(Date.now() - 1000);
+    expect(new Date(triggers[0]!.nextRunAt!).getTime()).toBeGreaterThan(Date.now() - 1000);
   });
 });

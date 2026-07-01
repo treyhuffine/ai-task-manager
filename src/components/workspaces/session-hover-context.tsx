@@ -30,7 +30,7 @@ interface HoverContextValue {
   /** Show the preview after a brief delay so flicking past rows doesn't
    *  pop a panel for every one. */
   onRowEnter: (sessionId: string, anchor: HoverAnchor) => void;
-  /** Schedule a close — cancellable if the cursor re-enters the row or
+  /** Trigger a close — cancellable if the cursor re-enters the row or
    *  moves onto the panel. */
   onRowLeave: () => void;
   /** Cancel any pending close — used by the panel itself when the user

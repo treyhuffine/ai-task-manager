@@ -15,7 +15,7 @@
  * "Live" button sends a real prompt for end-to-end coverage.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, RotateCcw, Beaker, Zap, RefreshCw } from 'lucide-react';
 import { DashboardProvider } from '@/contexts/dashboard-context';
@@ -33,10 +33,13 @@ interface ScratchResponse {
 }
 
 export default function DevExecutionChatPage() {
+  // Suspense boundary required: DashboardProvider reads useSearchParams.
   return (
-    <DashboardProvider>
-      <DevExecutionChatInner />
-    </DashboardProvider>
+    <Suspense fallback={null}>
+      <DashboardProvider>
+        <DevExecutionChatInner />
+      </DashboardProvider>
+    </Suspense>
   );
 }
 

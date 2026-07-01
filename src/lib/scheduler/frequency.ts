@@ -1,13 +1,13 @@
 /**
  * Friendly-frequency compiler — the bridge between the simplified
  * "Create scheduled task" UI (Manual / Hourly / Daily-at / Weekly-on-X-at /
- * Monthly-on-N-at / Webhook / Custom cron) and the schedule row's
+ * Monthly-on-N-at / Webhook / Custom cron) and the trigger row's
  * `kind` + cadence fields.
  *
  * Two directions:
- *   - `frequencyToSchedule(...)` — compile a friendly choice to the
- *     fields a `create_schedule` action needs.
- *   - `scheduleToFrequency(...)` — inverse, used by edit views to
+ *   - `frequencyToTrigger(...)` — compile a friendly choice to the
+ *     fields a `create_trigger` action needs.
+ *   - `triggerToFrequency(...)` — inverse, used by edit views to
  *     reconstruct the friendly choice from a stored row. Returns
  *     `{ kind: 'custom' }` when the stored cron doesn't match any
  *     preset, so power users editing custom expressions don't lose
@@ -43,8 +43,8 @@ export interface FrequencyChoice {
   cronExpression?: string;
 }
 
-export interface CompiledSchedule {
-  /** Maps to schedules.kind. Manual → 'manual'; webhook → 'webhook';
+export interface CompiledTrigger {
+  /** Maps to triggers.kind. Manual → 'manual'; webhook → 'webhook';
    *  everything else maps to 'cron'. */
   kind: 'manual' | 'cron' | 'webhook';
   /** Set when kind='cron'. */
@@ -52,11 +52,11 @@ export interface CompiledSchedule {
 }
 
 /**
- * Compile a friendly choice into the fields `create_schedule` needs.
+ * Compile a friendly choice into the fields `create_trigger` needs.
  * Throws on shapes the friendly UI shouldn't produce (e.g. daily with
  * a malformed time); UI validation catches these first.
  */
-export function frequencyToSchedule(choice: FrequencyChoice): CompiledSchedule {
+export function frequencyToTrigger(choice: FrequencyChoice): CompiledTrigger {
   switch (choice.kind) {
     case 'manual':
       return { kind: 'manual', cronExpression: null };
@@ -87,13 +87,13 @@ export function frequencyToSchedule(choice: FrequencyChoice): CompiledSchedule {
 }
 
 /**
- * Inverse: derive a friendly choice from a stored schedule row. Used by
+ * Inverse: derive a friendly choice from a stored trigger row. Used by
  * the detail view's "Edit" form so it shows e.g. "Daily at 9:00 AM"
  * instead of `0 9 * * *`. Falls through to `custom` when the stored
  * expression doesn't match any preset shape (we never lose the user's
  * original cron).
  */
-export function scheduleToFrequency(row: {
+export function triggerToFrequency(row: {
   kind: 'manual' | 'at' | 'every' | 'cron' | 'webhook';
   cronExpression: string | null;
 }): FrequencyChoice {
@@ -154,7 +154,7 @@ export function scheduleToFrequency(row: {
 }
 
 /**
- * Human-readable summary of a stored schedule's cadence — used by the
+ * Human-readable summary of a stored trigger's cadence — used by the
  * list view + the detail header so the user sees "Daily at 9:00 AM"
  * not `0 9 * * *`.
  */
@@ -172,7 +172,7 @@ export function describeFrequency(row: {
     return row.runAt ? `once at ${formatIso(row.runAt)}` : 'once (no time)';
   }
   // Cron — try to humanize via the friendly compiler's reverse map.
-  const choice = scheduleToFrequency(row);
+  const choice = triggerToFrequency(row);
   switch (choice.kind) {
     case 'hourly':
       return 'Hourly';
@@ -224,7 +224,7 @@ function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }
 
-/** Cap day-of-month at 28 so the schedule fires every month including February. */
+/** Cap day-of-month at 28 so the trigger fires every month including February. */
 function clampDay(n: number): number {
   if (!Number.isInteger(n) || n < 1) return 1;
   if (n > 28) return 28;

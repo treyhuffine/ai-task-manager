@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2, RotateCw } from 'lucide-react';
+import { toast } from 'sonner';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
+import { formatElapsed } from '@/lib/executions/duration';
 import { ThinkingDots } from './thinking-dots';
 
 interface SetupCardProps {
@@ -173,7 +175,9 @@ function SetupErrorRow({
   const handleClick = () => {
     retry.mutate(undefined, {
       onError: (err) => {
-        alert(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
+        toast.error('Retry failed', {
+          description: err instanceof Error ? err.message : String(err),
+        });
       },
     });
   };
@@ -231,7 +235,7 @@ function SettingUpRow({ baseBranch, startedAt }: { baseBranch: string; startedAt
       <span>
         Creating worktree off{' '}
         <span className="font-mono text-foreground/80">{baseBranch}</span>
-        <span className="ml-1.5 font-mono text-muted-foreground/60">{elapsed}s</span>
+        <span className="ml-1.5 font-mono text-muted-foreground/60">{formatElapsed(elapsed)}</span>
       </span>
     </div>
   );

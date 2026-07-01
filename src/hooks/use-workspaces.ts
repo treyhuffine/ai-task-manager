@@ -1,8 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import { sessionsApi, type RailResponse } from '@/lib/api/sessions';
+import { ApiError } from '@/lib/api/client';
 import type {
   ChatSessionRecord,
+  ChatSessionWithExecution,
   CreateWorkspaceInput,
   UpdateWorkspaceInput,
   WorkspaceStatus,
@@ -273,11 +275,148 @@ export function useHistorySessions(enabled: boolean = true) {
   });
 }
 
+/** Snapshot of a cache entry we mutated optimistically, for rollback. */
+type CacheSnapshot = [QueryKey, unknown];
+
+/**
+ * Drop a session id from every rail-facing cache (workspace trees,
+ * needs-review, the rail GET) and return the prior values so a failed
+ * mutation can restore them. Deliberately leaves the History cache alone
+ * — archived executions still belong there, just flipped in status.
+ */
+function dropSessionFromCaches(
+  qc: ReturnType<typeof useQueryClient>,
+  id: string,
+): CacheSnapshot[] {
+  const snapshots: CacheSnapshot[] = [];
+
+  // Per-workspace session lists live at ['workspaces', <id>, 'sessions'].
+  for (const [key, data] of qc.getQueriesData<ChatSessionWithExecution[]>({
+    queryKey: WORKSPACES_KEY,
+  })) {
+    if (key.length === 3 && key[2] === 'sessions' && Array.isArray(data)) {
+      snapshots.push([key, data]);
+      qc.setQueryData(
+        key,
+        data.filter((s) => s.id !== id),
+      );
+    }
+  }
+
+  const needsReview = qc.getQueryData<ChatSessionWithExecution[]>(NEEDS_REVIEW_KEY);
+  if (needsReview) {
+    snapshots.push([NEEDS_REVIEW_KEY, needsReview]);
+    qc.setQueryData(
+      NEEDS_REVIEW_KEY,
+      needsReview.filter((s) => s.id !== id),
+    );
+  }
+
+  const rail = qc.getQueryData<RailResponse>(RAIL_KEY);
+  if (rail) {
+    snapshots.push([RAIL_KEY, rail]);
+    qc.setQueryData<RailResponse>(RAIL_KEY, {
+      ...rail,
+      sessions: rail.sessions.filter((s) => s.id !== id),
+    });
+  }
+
+  return snapshots;
+}
+
+/**
+ * Archive a single execution. The row vanishes from the rail immediately
+ * (optimistic remove across all session caches); a failed request rolls
+ * the snapshots back so the row reappears exactly where it was. The
+ * dirty-worktree 409 is an expected "failure" here — the caller catches
+ * it, the optimistic remove rolls back, and the row is gone again once
+ * the user confirms the force pass.
+ */
 export function useArchiveSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
       sessionsApi.archive(id, { force }),
+    onMutate: async ({ id }) => {
+      // Halt in-flight refetches so they can't clobber the optimistic
+      // edit with stale (pre-archive) data mid-request.
+      await Promise.all([
+        qc.cancelQueries({ queryKey: WORKSPACES_KEY }),
+        qc.cancelQueries({ queryKey: NEEDS_REVIEW_KEY }),
+        qc.cancelQueries({ queryKey: RAIL_KEY }),
+      ]);
+      return { snapshots: dropSessionFromCaches(qc, id) };
+    },
+    onError: (_err, _vars, context) => {
+      for (const [key, data] of context?.snapshots ?? []) {
+        qc.setQueryData(key, data);
+      }
+    },
+    onSettled: () => {
+      // Reconcile with the server on both success and (post-rollback)
+      // failure so the caches match the truth.
+      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
+      qc.invalidateQueries({ queryKey: RAIL_KEY });
+    },
+  });
+}
+
+/**
+ * Outcome of a bulk archive pass, partitioned so the caller can decide
+ * what to do next:
+ *   - `succeeded` — cleanly archived.
+ *   - `dirty` — refused with 409 `dirty_worktree`; archivable only by a
+ *     second force pass (which discards local changes), so it's surfaced
+ *     for an explicit confirm rather than forced silently.
+ *   - `failed` — any other error, with a message for the user.
+ */
+export interface BulkArchiveResult {
+  succeeded: string[];
+  dirty: string[];
+  failed: { id: string; message: string }[];
+}
+
+/**
+ * Archive many executions in one pass. Runs the per-session archive
+ * calls concurrently (`allSettled` so one failure never aborts the
+ * batch) and buckets the results. Dirty-worktree conflicts are NOT
+ * forced here — the caller re-invokes with `force: true` on just the
+ * `dirty` ids after confirming the data loss.
+ *
+ * Mirrors `useArchiveSession`'s cache invalidation so both the single
+ * and bulk paths refresh the same surfaces.
+ */
+export function useBulkArchiveSessions() {
+  const qc = useQueryClient();
+  return useMutation<BulkArchiveResult, Error, { ids: string[]; force?: boolean }>({
+    mutationFn: async ({ ids, force }) => {
+      const settled = await Promise.allSettled(
+        ids.map((id) => sessionsApi.archive(id, { force }).then(() => id)),
+      );
+      const result: BulkArchiveResult = { succeeded: [], dirty: [], failed: [] };
+      settled.forEach((outcome, i) => {
+        const id = ids[i]!;
+        if (outcome.status === 'fulfilled') {
+          result.succeeded.push(id);
+          return;
+        }
+        const err = outcome.reason;
+        const isDirty =
+          err instanceof ApiError &&
+          err.status === 409 &&
+          (err.body as { code?: string } | null)?.code === 'dirty_worktree';
+        if (isDirty) {
+          result.dirty.push(id);
+        } else {
+          result.failed.push({
+            id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+      return result;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });

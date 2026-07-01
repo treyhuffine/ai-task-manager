@@ -17,6 +17,7 @@ function row(
   return {
     id: 'r',
     sessionId: 's',
+    updatedAt: partial.createdAt,
     content: null,
     toolName: null,
     toolInput: null,

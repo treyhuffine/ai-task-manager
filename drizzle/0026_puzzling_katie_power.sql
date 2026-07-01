@@ -1,1 +1,0 @@
-ALTER TABLE `workspaces` DROP COLUMN `preview_command`;

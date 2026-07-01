@@ -15,8 +15,8 @@ export type BucketId = 'needsApproval' | 'unread' | 'waiting' | 'working';
 export const BUCKET_ORDER: readonly BucketId[] = [
   'needsApproval',
   'unread',
-  'waiting',
   'working',
+  'waiting',
 ] as const;
 
 export interface BucketConfig {
@@ -59,7 +59,6 @@ export const BUCKET_CONFIG: Record<BucketId, BucketConfig> = {
     label: 'Working',
     accentClass: 'text-emerald-600 dark:text-emerald-400',
     countBgClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-    headerBgClass: 'bg-emerald-500/[0.06] dark:bg-emerald-400/[0.08]',
     icon: <Zap size={13} className="text-emerald-500" />,
   },
 };

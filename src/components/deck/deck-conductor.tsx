@@ -77,14 +77,14 @@ export function DeckConductor({
   // Morning auto-refresh (cron) config — opt-in.
   const [morning, setMorning] = useState<{ enabled: boolean; time: string } | null>(null);
   useEffect(() => {
-    api.get<{ enabled: boolean; time: string }>('/deck/schedule')
+    api.get<{ enabled: boolean; time: string }>('/deck/trigger')
       .then((c) => setMorning({ enabled: c.enabled, time: c.time }))
       .catch(() => {});
   }, []);
   const toggleMorning = useCallback(() => {
     setMorning((prev) => {
       const next = { enabled: !(prev?.enabled ?? false), time: prev?.time ?? '04:00' };
-      api.put('/deck/schedule', { enabled: next.enabled }).catch(() => {});
+      api.put('/deck/trigger', { enabled: next.enabled }).catch(() => {});
       return next;
     });
   }, []);

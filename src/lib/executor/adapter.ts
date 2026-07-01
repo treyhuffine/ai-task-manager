@@ -430,8 +430,8 @@ export async function dispatch(
   // tool result, Codex merges it into the active turn. The earlier
   // `findActiveRunForExecution` mutex rejected a user's own in-flight
   // `trigger='manual'` turn as if it were a scheduled run. Genuine
-  // schedule-vs-schedule worktree contention is governed separately by
-  // each schedule's `concurrencyPolicy` in `runs/dispatch.ts`; that
+  // trigger-vs-trigger worktree contention is governed separately by
+  // each trigger's `concurrencyPolicy` in `runs/dispatch.ts`; that
   // path dispatches with `internalCall: true` and never reached this
   // check anyway.
 
@@ -455,16 +455,16 @@ export async function dispatch(
   // — manual, scheduled, or webhook — so cost tracking and budget
   // guards are honest. The scheduled wrapper sets `internalCall: true`
   // because it has already created the row + registered the run; we
-  // only spawn a `trigger='manual'` row for top-level callers.
+  // only spawn a `triggerKind='manual'` row for top-level callers.
   let manualRun: { runId: string; ownsLifecycle: boolean } | null = null;
   if (!options.internalCall) {
     const created = createRunRow({
-      scheduleId: null,
+      triggerId: null,
       workspaceId: session.workspaceId ?? null,
       executionId: session.executionId ?? null,
       chatSessionId,
       agentId: session.agentId,
-      trigger: 'manual',
+      triggerKind: 'manual',
       triggerPayload: null,
       scheduledFor: null,
       status: 'queued',

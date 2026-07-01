@@ -78,12 +78,12 @@ async function seed() {
 }
 
 describe('dispatchRun', () => {
-  it('recurring workspace schedule: first fire creates execution, second reuses it with a new chat', async () => {
+  it('recurring workspace trigger: first fire creates execution, second reuses it with a new chat', async () => {
     const { wsId, agentId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const recur = queries.createSchedule({
+    const recur = queries.createTrigger({
       name: 'morning-triage',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -94,13 +94,13 @@ describe('dispatchRun', () => {
     });
 
     const r1 = await dispatchRun({
-      schedule: recur,
-      trigger: 'cron',
+      trigger: recur,
+      triggerKind: 'cron',
       scheduledFor: new Date().toISOString(),
     });
     expect(r1.run.executionId).toBeTruthy();
 
-    const owners = queries.findSchedulesByOwningExecution(r1.run.executionId!);
+    const owners = queries.findTriggersByOwningExecution(r1.run.executionId!);
     expect(owners.some((s) => s.id === recur.id)).toBe(true);
 
     // Wait for mock dispatch to finalize the run row.
@@ -108,22 +108,22 @@ describe('dispatchRun', () => {
     const finalized = queries.getRun(r1.run.id);
     expect(finalized?.status).toBe('completed');
 
-    const recurAfter = queries.getSchedule(recur.id)!;
+    const recurAfter = queries.getTrigger(recur.id)!;
     const r2 = await dispatchRun({
-      schedule: recurAfter,
-      trigger: 'cron',
+      trigger: recurAfter,
+      triggerKind: 'cron',
       scheduledFor: new Date().toISOString(),
     });
     expect(r2.run.executionId).toBe(r1.run.executionId);
     expect(r2.chatSession?.id).not.toBe(r1.chatSession?.id);
   });
 
-  it('one-shot (kind=at) workspace schedule creates a fresh execution + chat', async () => {
+  it('one-shot (kind=at) workspace trigger creates a fresh execution + chat', async () => {
     const { wsId, agentId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const recur = queries.createSchedule({
+    const recur = queries.createTrigger({
       name: 'recurring',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -132,10 +132,10 @@ describe('dispatchRun', () => {
       kind: 'cron',
       cronExpression: '* * * * *',
     });
-    const first = await dispatchRun({ schedule: recur, trigger: 'cron' });
+    const first = await dispatchRun({ trigger: recur, triggerKind: 'cron' });
     await new Promise((r) => setTimeout(r, 100));
 
-    const oneoff = queries.createSchedule({
+    const oneoff = queries.createTrigger({
       name: 'tomorrow-9am',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -144,20 +144,20 @@ describe('dispatchRun', () => {
       kind: 'at',
       runAt: new Date(Date.now() + 60_000).toISOString(),
     });
-    const oneoffFire = await dispatchRun({ schedule: oneoff, trigger: 'at' });
+    const oneoffFire = await dispatchRun({ trigger: oneoff, triggerKind: 'at' });
     expect(oneoffFire.run.executionId).toBeTruthy();
     expect(oneoffFire.run.executionId).not.toBe(first.run.executionId);
 
-    const ownsRecur = queries.findSchedulesByOwningExecution(oneoffFire.run.executionId!);
+    const ownsRecur = queries.findTriggersByOwningExecution(oneoffFire.run.executionId!);
     expect(ownsRecur).toEqual([]);
   });
 
-  it('orchestrator-target schedule fires create chats with executionId NULL', async () => {
+  it('orchestrator-target trigger fires create chats with executionId NULL', async () => {
     const { agentId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const orch = queries.createSchedule({
+    const orch = queries.createTrigger({
       name: 'morning-summary',
       workspaceId: null,
       targetKind: 'orchestrator',
@@ -166,7 +166,7 @@ describe('dispatchRun', () => {
       kind: 'cron',
       cronExpression: '0 9 * * 1-5',
     });
-    const r = await dispatchRun({ schedule: orch, trigger: 'cron' });
+    const r = await dispatchRun({ trigger: orch, triggerKind: 'cron' });
     expect(r.run.executionId).toBeNull();
     expect(r.chatSession?.executionId).toBeNull();
     expect(r.chatSession?.type).toBe('orchestration');
@@ -177,7 +177,7 @@ describe('dispatchRun', () => {
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'busy',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -187,11 +187,11 @@ describe('dispatchRun', () => {
       cronExpression: '* * * * *',
       concurrencyPolicy: 'skip_if_running',
     });
-    const fireA = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const fireA = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     // No wait — fire again while A is still running.
     const fireB = await dispatchRun({
-      schedule: { ...sched, owningExecutionId: fireA.run.executionId },
-      trigger: 'cron',
+      trigger: { ...sched, owningExecutionId: fireA.run.executionId },
+      triggerKind: 'cron',
     });
     expect(fireB.run.status).toBe('skipped');
     expect(fireB.run.statusReason).toBeTruthy();
@@ -202,7 +202,7 @@ describe('dispatchRun', () => {
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'morning-triage',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -212,11 +212,11 @@ describe('dispatchRun', () => {
       cronExpression: '* * * * *',
       concurrencyPolicy: 'coalesce_if_active',
     });
-    const fireA = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const fireA = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     // Second fire while A is still running.
     const fireB = await dispatchRun({
-      schedule: { ...sched, owningExecutionId: fireA.run.executionId },
-      trigger: 'cron',
+      trigger: { ...sched, owningExecutionId: fireA.run.executionId },
+      triggerKind: 'cron',
     });
 
     expect(fireB.run.status).toBe('skipped');
@@ -224,11 +224,11 @@ describe('dispatchRun', () => {
     expect(fireB.run.chatSessionId).toBe(fireA.run.chatSessionId);
 
     const events = queries.listChatEvents(fireA.run.chatSessionId!);
-    const marker = events.find((e) => e.role === 'user' && /from schedule morning-triage/.test(e.content ?? ''));
+    const marker = events.find((e) => e.role === 'user' && /from trigger morning-triage/.test(e.content ?? ''));
     expect(marker).toBeDefined();
   });
 
-  it('honors schedule.timeoutSeconds: a slow executor is interrupted and the run lands as failed with errorCode=timeout', async () => {
+  it('honors trigger.timeoutSeconds: a slow executor is interrupted and the run lands as failed with errorCode=timeout', async () => {
     const { wsId, agentId } = await seed();
     const queries = await import('@/lib/db/queries');
     const adapter = await import('@/lib/executor/adapter');
@@ -240,7 +240,7 @@ describe('dispatchRun', () => {
     );
     (adapter.abort as unknown as ReturnType<typeof vi.fn>).mockClear();
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'tight-timeout',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -250,7 +250,7 @@ describe('dispatchRun', () => {
       cronExpression: '* * * * *',
       timeoutSeconds: 1,
     });
-    const fire = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const fire = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     await new Promise((r) => setTimeout(r, 1500));
 
     const after = queries.getRun(fire.run.id)!;
@@ -270,7 +270,7 @@ describe('dispatchRun', () => {
       async () => { await new Promise((r) => setTimeout(r, 50)); },
     );
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'no-timeout',
       targetKind: 'orchestrator',
       agentId,
@@ -279,7 +279,7 @@ describe('dispatchRun', () => {
       cronExpression: '* * * * *',
       timeoutSeconds: 0,
     });
-    const fire = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const fire = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     await new Promise((r) => setTimeout(r, 150));
     const after = queries.getRun(fire.run.id)!;
     expect(after.status).toBe('completed');
@@ -290,7 +290,7 @@ describe('dispatchRun', () => {
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'parallel-ws',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -300,15 +300,15 @@ describe('dispatchRun', () => {
       cronExpression: '* * * * *',
       concurrencyPolicy: 'allow_concurrent',
     });
-    const fireA = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const fireA = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     const fireB = await dispatchRun({
-      schedule: { ...sched, owningExecutionId: fireA.run.executionId },
-      trigger: 'cron',
+      trigger: { ...sched, owningExecutionId: fireA.run.executionId },
+      triggerKind: 'cron',
     });
     // V1 doesn't honor allow_concurrent for workspace targets — second
     // fire is skipped just like skip_if_running.
     expect(fireB.run.status).toBe('skipped');
-    expect(fireB.run.statusReason).toBe('schedule_busy');
+    expect(fireB.run.statusReason).toBe('trigger_busy');
   });
 
   it('allow_concurrent on an orchestrator target spawns a second run', async () => {
@@ -316,7 +316,7 @@ describe('dispatchRun', () => {
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'parallel-orch',
       targetKind: 'orchestrator',
       agentId,
@@ -325,8 +325,8 @@ describe('dispatchRun', () => {
       cronExpression: '* * * * *',
       concurrencyPolicy: 'allow_concurrent',
     });
-    const fireA = await dispatchRun({ schedule: sched, trigger: 'cron' });
-    const fireB = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const fireA = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
+    const fireB = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     // Orchestrator targets have no shared worktree — allow_concurrent
     // does what it says. Re-read since `dispatchRun` returns the
     // initial 'queued' snapshot.
@@ -335,12 +335,12 @@ describe('dispatchRun', () => {
     expect(fireB.run.chatSessionId).not.toBe(fireA.run.chatSessionId);
   });
 
-  it('cross-schedule sharing one execution: B with skip_if_running is skipped, not coalesced', async () => {
+  it('cross-trigger sharing one execution: B with skip_if_running is skipped, not coalesced', async () => {
     const { wsId, agentId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const schedA = queries.createSchedule({
+    const schedA = queries.createTrigger({
       name: 'sched-a',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -350,9 +350,9 @@ describe('dispatchRun', () => {
       cronExpression: '* * * * *',
       concurrencyPolicy: 'coalesce_if_active',
     });
-    const fireA = await dispatchRun({ schedule: schedA, trigger: 'cron' });
+    const fireA = await dispatchRun({ trigger: schedA, triggerKind: 'cron' });
 
-    const schedB = queries.createSchedule({
+    const schedB = queries.createTrigger({
       name: 'sched-b',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -361,11 +361,11 @@ describe('dispatchRun', () => {
       kind: 'cron',
       cronExpression: '* * * * *',
       // B shares A's execution. Its policy says skip — should be
-      // honored even though the blocker is a different schedule.
+      // honored even though the blocker is a different trigger.
       concurrencyPolicy: 'skip_if_running',
       owningExecutionId: fireA.run.executionId,
     });
-    const fireB = await dispatchRun({ schedule: schedB, trigger: 'cron' });
+    const fireB = await dispatchRun({ trigger: schedB, triggerKind: 'cron' });
     expect(fireB.run.status).toBe('skipped');
     expect(fireB.run.statusReason).toBe('execution_busy');
   });
@@ -375,7 +375,7 @@ describe('dispatchRun', () => {
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'with-transcript',
       targetKind: 'orchestrator',
       agentId,
@@ -383,7 +383,7 @@ describe('dispatchRun', () => {
       kind: 'cron',
       cronExpression: '* * * * *',
     });
-    const fire = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const fire = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     await new Promise((r) => setTimeout(r, 80));
 
     const events = queries.listChatEvents(fire.run.chatSessionId!);
@@ -398,7 +398,7 @@ describe('dispatchRun', () => {
     const { dispatchRun } = await import('./dispatch');
     const { runs } = await import('@/lib/db/schema');
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'recoverable',
       workspaceId: wsId,
       targetKind: 'workspace',
@@ -407,7 +407,7 @@ describe('dispatchRun', () => {
       kind: 'cron',
       cronExpression: '* * * * *',
     });
-    const r = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const r = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     await new Promise((wait) => setTimeout(wait, 100));
     // Synthetically resurrect to `running` to simulate a crash leaving it stuck.
     db.update(runs).set({ status: 'running' }).where(eq(runs.id, r.run.id)).run();

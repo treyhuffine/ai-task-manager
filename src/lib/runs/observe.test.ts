@@ -77,7 +77,7 @@ async function seedRun(overrides: {
     chatSessionId: chatId,
     workspaceId: wsId,
     agentId,
-    trigger: 'manual',
+    triggerKind: 'manual',
     status: overrides.status ?? 'running',
     startedAt: overrides.startedAt === undefined ? new Date(Date.now() - 60_000).toISOString() : overrides.startedAt,
     completedAt: overrides.completedAt ?? null,

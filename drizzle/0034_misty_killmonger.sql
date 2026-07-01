@@ -1,1 +1,0 @@
-ALTER TABLE `notification_channels` ADD `label` text;

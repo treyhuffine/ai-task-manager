@@ -13,6 +13,7 @@ import { FilesToCopySection } from './files-to-copy-section';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
 import { WorkspaceConnectorsSection } from './workspace-connectors-section';
 import { Switch } from '@/components/ui/switch';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -27,6 +28,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const { data: areas } = useAreas();
   const update = useUpdateWorkspace();
   const archive = useArchiveWorkspace();
+  const confirm = useConfirm();
 
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState<string | null>(null);
@@ -112,9 +114,14 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     );
   };
 
-  const handleArchive = () => {
+  const handleArchive = async () => {
     if (!ws) return;
-    if (!confirm(`Archive "${ws.name}"? Sessions stay. The workspace leaves the active list.`)) return;
+    const ok = await confirm({
+      title: 'Archive workspace?',
+      description: `"${ws.name}" leaves your active list. Its executions and sessions are kept, and you can restore the workspace later.`,
+      confirmLabel: 'Archive',
+    });
+    if (!ok) return;
     const archivedName = ws.name;
     archive.mutate(ws.id, {
       onSuccess: () => {

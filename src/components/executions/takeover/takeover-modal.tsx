@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { X, Copy, Check, ChevronDown, Loader2 } from 'lucide-react';
 import { useTakeover } from '@/hooks/use-takeover';
 import { ApiError } from '@/lib/api/client';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { TakeoverResponse } from '@/lib/api/sessions';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +27,7 @@ interface TakeoverModalProps {
  */
 export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) {
   const { resume, cancel } = useTakeover(sessionId);
+  const confirm = useConfirm();
   const [showFallback, setShowFallback] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -45,13 +47,14 @@ export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) 
     });
   };
 
-  const handleCancel = () => {
-    if (
-      !confirm(
-        'Cancel this takeover? The remote branch and any local clone are left as-is. The agent resumes from where it was paused.',
-      )
-    )
-      return;
+  const handleCancel = async () => {
+    const ok = await confirm({
+      title: 'Cancel takeover?',
+      description: 'The remote branch and any local clone are left as-is. The agent resumes from where it was paused.',
+      confirmLabel: 'Cancel takeover',
+      cancelLabel: 'Keep takeover',
+    });
+    if (!ok) return;
     setCancelError(null);
     cancel.mutate(undefined, {
       onSuccess: () => onClose(),

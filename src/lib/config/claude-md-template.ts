@@ -42,7 +42,7 @@ derivation. The UI and search rely on those invariants. Corrupting them is
 silent and only surfaces later.
 
 - **MCP tools** (preferred when wired): one tool per action (tasks, notes,
-  areas, deck, search, user state, workspaces, schedules, runs).
+  areas, deck, search, user state, workspaces, triggers, runs).
 - **CLI fallback**: \`${APP_SHORT_ID} agent <action> [params]\`. Output is JSON.
 
 The \`orchestrator\` skill has the full conventions (status values, energy,

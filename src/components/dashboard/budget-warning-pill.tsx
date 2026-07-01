@@ -27,7 +27,7 @@ export function BudgetWarningPill() {
       : 'text-amber-600 border-amber-500/40 bg-amber-500/10 dark:text-amber-400';
   const message =
     data.budgetState === 'block'
-      ? `Budget exceeded. Schedules auto-paused`
+      ? `Budget exceeded. Triggers auto-paused`
       : `Budget ${pct}% used`;
 
   return (

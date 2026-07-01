@@ -108,8 +108,8 @@ export async function POST(
     // active turn). The earlier execution-level mutex pre-flight rejected
     // a user's own in-flight turn with a misleading "a scheduled run is in
     // flight" 409 — it couldn't tell the user's own `trigger='manual'` run
-    // apart from a real peer/scheduled one. Schedule-vs-schedule worktree
-    // contention is still governed separately by each schedule's
+    // apart from a real peer/scheduled one. Trigger-vs-trigger worktree
+    // contention is still governed separately by each trigger's
     // `concurrencyPolicy` in `runs/dispatch.ts`; that path is untouched.
     //
     // Budget is the one pre-flight that remains. The executor's `dispatch`

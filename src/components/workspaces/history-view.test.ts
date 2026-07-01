@@ -8,6 +8,8 @@ import { groupByDateBucket } from './history-view';
 function s(id: string, iso: string): RailSession {
   return {
     id,
+    createdAt: iso,
+    updatedAt: iso,
     userId: 'local',
     agentId: 'a',
     type: 'execution',

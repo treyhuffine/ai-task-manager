@@ -115,7 +115,7 @@ describe('notify() outbox', () => {
     const ch = queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'test', config: {}, events: [], enabled: true });
 
     await notify(
-      evt({ type: 'schedule.run_completed', dedupeKey: 'schedule.run_completed:run9' }),
+      evt({ type: 'trigger.run_completed', dedupeKey: 'trigger.run_completed:run9' }),
       { deliverTo: [ch.id] },
       { resolveAdapter: () => adapter },
     );
@@ -143,7 +143,7 @@ describe('cascades', () => {
     expect(queries.listNotificationChannels({ userId: 'local' })).toHaveLength(1);
   });
 
-  it('deleting a channel scrubs it from schedule deliverResultTo bindings', async () => {
+  it('deleting a channel scrubs it from trigger deliverResultTo bindings', async () => {
     const { queries } = await mod();
     const { getDb } = await import('@/lib/db');
     const { uuidv7 } = await import('uuidv7');
@@ -152,14 +152,14 @@ describe('cascades', () => {
     getDb().insert(agents).values({ id: agentId, userId: 'local', kind: 'executor', name: 'Orch', harness: 'claude_code', config: {}, status: 'active' }).run();
 
     const ch = queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'telegram', config: {}, events: [], enabled: true });
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       userId: 'local', name: 'digest', agentId, targetKind: 'orchestrator', prompt: 'summarize',
       kind: 'cron', cronExpression: '0 9 * * *', timezone: 'UTC', deliverResultTo: [ch.id],
     });
-    expect(queries.getSchedule(sched.id)!.deliverResultTo).toEqual([ch.id]);
+    expect(queries.getTrigger(sched.id)!.deliverResultTo).toEqual([ch.id]);
 
     queries.deleteNotificationChannel(ch.id);
-    expect(queries.getSchedule(sched.id)!.deliverResultTo).toEqual([]);
+    expect(queries.getTrigger(sched.id)!.deliverResultTo).toEqual([]);
   });
 });
 

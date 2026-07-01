@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Laptop, Loader2, RotateCw, XCircle } from 'lucide-react';
 import { useTakeover } from '@/hooks/use-takeover';
 import { ApiError } from '@/lib/api/client';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import type { ChatSessionWithExecution } from '@/db/types';
 
@@ -19,6 +20,7 @@ interface TakeoverBannerProps {
  */
 export function TakeoverBanner({ session }: TakeoverBannerProps) {
   const { resume, cancel } = useTakeover(session.id);
+  const confirm = useConfirm();
   const [error, setError] = useState<string | null>(null);
 
   if (!session.takeoverStartedAt || !session.takeoverToken) return null;
@@ -37,13 +39,14 @@ export function TakeoverBanner({ session }: TakeoverBannerProps) {
     });
   };
 
-  const handleCancel = () => {
-    if (
-      !confirm(
-        'Cancel this takeover? The remote branch and any local clone are left as-is. The agent resumes from where it was paused.',
-      )
-    )
-      return;
+  const handleCancel = async () => {
+    const ok = await confirm({
+      title: 'Cancel takeover?',
+      description: 'The remote branch and any local clone are left as-is. The agent resumes from where it was paused.',
+      confirmLabel: 'Cancel takeover',
+      cancelLabel: 'Keep takeover',
+    });
+    if (!ok) return;
     setError(null);
     cancel.mutate(undefined, {
       onError: (err) => setError(err instanceof Error ? err.message : String(err)),

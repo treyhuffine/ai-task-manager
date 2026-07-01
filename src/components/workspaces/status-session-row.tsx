@@ -183,12 +183,9 @@ function BucketIndicator({
   timestamp: string;
 }) {
   if (bucket === 'working') {
-    return (
-      <>
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="text-emerald-500/80 font-medium">working</span>
-      </>
-    );
+    // The "Working" group header already says the state — the row just
+    // needs the live pulse to signal it's actively running.
+    return <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />;
   }
   if (bucket === 'needsApproval') {
     return (

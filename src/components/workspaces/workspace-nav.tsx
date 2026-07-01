@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Folder, FolderPlus } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Archive, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -18,7 +18,10 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { useWorkspaces, useReorderWorkspaces } from '@/hooks/use-workspaces';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { NeedsReviewSection } from './needs-review-section';
 import { WorkspaceRow } from './workspace-row';
@@ -26,15 +29,30 @@ import { WorkspaceCreateModal } from './workspace-create-modal';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 import { CreateFromModal } from './create-from-modal';
 import { LiveModeModal } from './live-mode-modal';
-import { useCreateExecution } from '@/hooks/use-workspaces';
+import { useCreateExecution, useBulkArchiveSessions } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
+import {
+  WorkspaceSelectionProvider,
+  useWorkspaceSelection,
+} from './workspace-selection-context';
 
 /**
  * Top-level container for the workspace tree in the left rail. Owns the
  * Needs Review surface, the workspace list (with DnD reorder), and the
  * settings/create modals so the rail itself stays stateless.
+ *
+ * Wraps the tree in {@link WorkspaceSelectionProvider} so the header's
+ * archive toolbar and the per-row checkboxes share one selection state.
  */
 export function WorkspaceNav() {
+  return (
+    <WorkspaceSelectionProvider>
+      <WorkspaceNavInner />
+    </WorkspaceSelectionProvider>
+  );
+}
+
+function WorkspaceNavInner() {
   const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
   const reorder = useReorderWorkspaces();
   const qc = useQueryClient();
@@ -51,6 +69,46 @@ export function WorkspaceNav() {
     : null;
   const { setActiveView } = useDashboard();
   const createExecution = useCreateExecution();
+
+  // Bulk-archive selection state (shared with the session rows via the
+  // surrounding provider). The header toggles in and out of selection
+  // mode; the rows render the checkboxes.
+  const selection = useWorkspaceSelection()!;
+  const { selecting, count, selectedIds, enter, exit } = selection;
+  const bulkArchive = useBulkArchiveSessions();
+  const confirm = useConfirm();
+
+  const handleConfirmArchive = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || bulkArchive.isPending) return;
+
+    // First pass: archive everything that's clean. Dirty worktrees come
+    // back unforced so we can confirm the data loss before discarding.
+    const result = await bulkArchive.mutateAsync({ ids, force: false });
+
+    if (result.dirty.length > 0) {
+      const n = result.dirty.length;
+      const ok = await confirm({
+        title: 'Discard uncommitted changes?',
+        description: `${n} of the selected execution${n === 1 ? ' has' : 's have'} uncommitted or unpushed work. Archiving removes those worktrees from disk, which permanently deletes any changes that haven't been committed. Committed work stays on each branch.`,
+        confirmLabel: `Archive and discard ${n}`,
+        tone: 'destructive',
+      });
+      if (ok) {
+        const forced = await bulkArchive.mutateAsync({ ids: result.dirty, force: true });
+        result.failed.push(...forced.failed);
+      }
+    }
+
+    if (result.failed.length > 0) {
+      const n = result.failed.length;
+      toast.error(`Couldn't archive ${n} execution${n === 1 ? '' : 's'}`, {
+        description: result.failed.map((f) => f.message).join('\n'),
+      });
+    }
+
+    exit();
+  };
 
   const handleCreateExecution = (workspaceId: string) => {
     if (createExecution.isPending) return;
@@ -104,22 +162,82 @@ export function WorkspaceNav() {
   };
 
   return (
-    <div className="flex flex-col">
-      <NeedsReviewSection />
+    <div
+      className={cn(
+        'flex flex-col',
+        // The rail's scroll container has its own `pt-1`, which sits ABOVE
+        // this nav — out of reach of the sticky header below (whose
+        // containing block is this div). Left as-is, scrolling rows peek
+        // through that 4px strip between the tabs and the pinned toolbar.
+        // While selecting, cancel that padding so the nav (and the sticky
+        // header's pin point) sits flush under the tabs with no gap.
+        selecting && '-mt-1',
+      )}
+    >
+      {/* The needs-review triage surface duplicates tree rows; hide it
+          while selecting so a session never shows two checkboxes (or a
+          checkbox up top and a plain row below). */}
+      {!selecting && <NeedsReviewSection />}
 
-      <div className="px-1 pt-1 pb-1.5">
-        <div className="flex items-center justify-between px-1.5">
-          <span className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
-            Workspaces
-          </span>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="p-1 rounded text-primary bg-primary/10 hover:bg-primary/15 transition-colors"
-            aria-label="New workspace"
-            title="New workspace"
-          >
-            <FolderPlus size={12} />
-          </button>
+      <div
+        className={cn(
+          'px-1 pt-1 pb-1.5',
+          // While selecting, pin the Archive/Cancel toolbar to the top of
+          // the rail's scroll area so it stays reachable no matter how far
+          // the user scrolls the workspace tree. Solid bg + border so rows
+          // scroll cleanly underneath it.
+          selecting && 'sticky top-0 z-20 bg-background border-b border-border/60',
+        )}
+      >
+        <div className="flex items-center justify-between gap-2 px-1.5 min-h-[22px]">
+          {selecting ? (
+            <>
+              <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
+                {count} selected
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleConfirmArchive}
+                  disabled={count === 0 || bulkArchive.isPending}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-primary-foreground text-[10px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+                >
+                  <Archive size={11} />
+                  Archive
+                </button>
+                <button
+                  onClick={() => exit()}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <X size={11} />
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
+                Workspaces
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={enter}
+                  className="p-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
+                  aria-label="Select executions to archive"
+                  title="Select executions to archive"
+                >
+                  <Archive size={12} />
+                </button>
+                <button
+                  onClick={() => setCreateOpen(true)}
+                  className="p-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                  aria-label="New workspace"
+                  title="New workspace"
+                >
+                  <FolderPlus size={12} />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

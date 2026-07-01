@@ -11,11 +11,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  useArchiveSession,
   useMarkSessionRead,
   useMarkSessionUnread,
 } from '@/hooks/use-workspaces';
-import { ApiError } from '@/lib/api/client';
+import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { cn } from '@/lib/utils';
 
 interface SessionRowMenuProps {
@@ -64,32 +63,12 @@ export function SessionRowMenu({
   onOpenCreateFrom,
   className,
 }: SessionRowMenuProps) {
-  const archive = useArchiveSession();
+  const { confirmArchive } = useArchiveWithConfirm();
   const markRead = useMarkSessionRead();
   const markUnread = useMarkSessionUnread();
 
   const handleArchive = () => {
-    if (archive.isPending) return;
-    if (!confirm(`Archive "${label}"?`)) return;
-    archive.mutate(
-      { id: sessionId, force: false },
-      {
-        onError: (err) => {
-          if (err instanceof ApiError && err.status === 409) {
-            const body = err.body as { code?: string } | null;
-            if (body?.code === 'dirty_worktree') {
-              const force = confirm(
-                `"${label}" has uncommitted or unpushed changes. Archive anyway? ` +
-                'Local changes in the worktree will be lost.',
-              );
-              if (force) archive.mutate({ id: sessionId, force: true });
-              return;
-            }
-          }
-          alert(`Couldn't archive: ${err instanceof Error ? err.message : String(err)}`);
-        },
-      },
-    );
+    void confirmArchive({ id: sessionId, label });
   };
 
   const showWorkspaceGroup =

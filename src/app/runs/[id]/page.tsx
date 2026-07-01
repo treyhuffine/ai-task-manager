@@ -11,7 +11,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import { runsApi } from '@/lib/api/schedules';
+import { runsApi } from '@/lib/api/triggers';
 import type { RunRecord } from '@/db/types';
 
 export default function RunDetailPage() {
@@ -44,7 +44,7 @@ export default function RunDetailPage() {
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-semibold truncate">Run {run.id.slice(0, 8)}</h1>
           <p className="text-[11px] text-muted-foreground">
-            trigger={run.trigger} · status={run.status}
+            trigger={run.triggerKind} · status={run.status}
           </p>
         </div>
         {run.chatSessionId && (

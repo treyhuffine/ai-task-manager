@@ -66,7 +66,7 @@ describe('listNeedsReviewSessionCandidates', () => {
     const runId = uuidv7();
     getDb().insert(runs).values({
       id: runId, agentId: orch.id, chatSessionId: scheduled.id,
-      trigger: 'cron', status: 'completed',
+      triggerKind: 'cron', status: 'completed',
     }).run();
     q.updateChatSession(scheduled.id, {
       createdByRunId: runId, lastOutcomeEventAt: past(1), lastViewedAt: past(10),

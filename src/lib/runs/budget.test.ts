@@ -64,7 +64,7 @@ async function seedWithSpend(opts: { budget: number | null; spend: number }) {
     db.insert(runs).values({
       id: uuidv7(),
       workspaceId: wsId, agentId,
-      trigger: 'manual', status: 'completed',
+      triggerKind: 'manual', status: 'completed',
       costUsd: opts.spend,
       queuedAt: now, startedAt: now, completedAt: now, createdAt: now,
     }).run();
@@ -95,22 +95,22 @@ describe('budget guard', () => {
     expect(budgetGate()).toBe('block');
   });
 
-  it('dispatchRun auto-pauses the schedule when budget blocks', async () => {
+  it('dispatchRun auto-pauses the trigger when budget blocks', async () => {
     const { wsId, agentId } = await seedWithSpend({ budget: 1, spend: 5 });
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
-    const sched = queries.createSchedule({
+    const sched = queries.createTrigger({
       name: 'over-budget',
       workspaceId: wsId, targetKind: 'workspace',
       agentId, prompt: 'X', kind: 'cron',
       cronExpression: '* * * * *',
     });
-    const result = await dispatchRun({ schedule: sched, trigger: 'cron' });
+    const result = await dispatchRun({ trigger: sched, triggerKind: 'cron' });
     expect(result.run.status).toBe('skipped');
     expect(result.run.statusReason).toBe('budget_exceeded');
 
-    const after = queries.getSchedule(sched.id)!;
+    const after = queries.getTrigger(sched.id)!;
     expect(after.enabled).toBe(false);
     expect(after.disabledReason).toBe('budget_exceeded');
   });

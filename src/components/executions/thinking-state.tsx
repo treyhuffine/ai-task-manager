@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ThinkingDots } from './thinking-dots';
+import { formatElapsed } from '@/lib/executions/duration';
 
 interface ThinkingStateProps {
   /** ISO timestamp from which to count elapsed seconds. */
@@ -31,7 +32,7 @@ export function ThinkingState({ since }: ThinkingStateProps) {
   return (
     <div className="flex items-center gap-2 text-muted-foreground/70">
       <ThinkingDots />
-      <span className="font-mono text-[11px]">{elapsed}s</span>
+      <span className="font-mono text-[11px]">{formatElapsed(elapsed)}</span>
     </div>
   );
 }

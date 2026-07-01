@@ -3,7 +3,7 @@ import { getNotificationChannel, updateNotificationChannel, deleteNotificationCh
 import { getNotifierUserId } from '@/lib/notifications/user';
 import { MATRIX_EVENT_TYPES } from '@/lib/notifications/events';
 
-/** PATCH → toggle events / enabled / config. DELETE → remove (scrubs schedule bindings). */
+/** PATCH → toggle events / enabled / config. DELETE → remove (scrubs trigger bindings). */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const existing = getNotificationChannel(id);

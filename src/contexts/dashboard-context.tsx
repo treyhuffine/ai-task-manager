@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useRef, type ReactNode, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Agent, Task, StreamEvent } from '@/types/dashboard';
 import { hot } from '@/lib/_debug/hot-path';
 
@@ -179,7 +180,30 @@ const DEFAULT_PANEL_B_TAB: AnyPanelTab = 'chat';
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
-  const [activeView, setActiveViewState] = useState<ActiveView>('command');
+  // ─── Active view (URL-canonical, local-mirror for snappy swaps) ──
+  // Which primary surface fills the main area: 'command' (default
+  // dashboard) or a chat_session id (execution view).
+  //
+  // The URL (`?session=`) stays the canonical owner: it drives SSR (the home
+  // route is force-dynamic, so a `/?session=` link paints the right surface
+  // on the first frame), deep links, and Back/Forward. But we *render* from a
+  // local mirror seeded from the URL, because Next dispatches the
+  // pushState→useSearchParams update as a concurrent (non-urgent) transition
+  // — driving the view straight off `useSearchParams()` makes an in-app open
+  // feel laggy. Updating local state in `setActiveView` is an urgent render,
+  // so the surface swaps this frame; the URL write rides alongside.
+  //
+  // Not a second source of truth: the mirror only ever reconciles *to* the
+  // URL (effect below) — Back/Forward, deep links, and external <Link>s flow
+  // URL→mirror; in-app nav writes both together. They can't durably diverge.
+  const urlView: ActiveView = useSearchParams().get('session') ?? 'command';
+  const [activeView, setActiveViewLocal] = useState<ActiveView>(urlView);
+  useEffect(() => {
+    // Reconcile when the URL changes from outside (Back/Forward, deep link,
+    // a <Link> elsewhere). No-op right after our own setActiveView, since the
+    // mirror already holds this value.
+    setActiveViewLocal((prev) => (prev === urlView ? prev : urlView));
+  }, [urlView]);
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const [panelATab, setPanelATab] = useState<AnyPanelTab>(DEFAULT_PANEL_A_TAB);
   const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(DEFAULT_PANEL_B_TAB);
@@ -274,6 +298,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const stored = window.localStorage.getItem('flow.execution.lastId');
     if (stored) setLastExecutionIdState(stored);
   }, []);
+  // Record the last-viewed execution whenever the URL points at one.
+  // Purely downstream of `activeView` (the URL) — never read to decide the
+  // current view, only consulted by ⌘E "reopen last" when no `?session=` is
+  // present. Persisted so it survives reload. Runs after the hydrate effect
+  // above, so on a `/?session=x` deep link this freshest value wins.
+  useEffect(() => {
+    if (activeView === 'command' || typeof window === 'undefined') return;
+    setLastExecutionIdState(activeView);
+    window.localStorage.setItem('flow.execution.lastId', activeView);
+  }, [activeView]);
 
   // ─── Execution-view rail open ───────────────────────────
   // Per-execution-view override: when on an execution surface the rail
@@ -419,18 +453,23 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setActiveDeckId(null);
   }, []);
 
+  // Navigate: swap the surface this frame (urgent local update), then write
+  // the URL. `window.history.pushState` integrates with Next's router and
+  // creates a real history entry, so Back/Forward move between executions;
+  // the urgent mirror update keeps the swap snappy instead of waiting on the
+  // router transition. Other query params are preserved so future surfaces
+  // (?task=, ?note=) can compose; 'command' just drops the `session` param.
+  // `activeExecutionId` is intentionally NOT touched here — ExecutionView
+  // owns it (set from the loaded session, cleared on unmount), which keeps
+  // click-nav and Back/Forward symmetric (the latter never calls this).
   const setActiveView = useCallback((view: ActiveView) => {
-    setActiveViewState(view);
-    if (view !== 'command') {
-      setLastExecutionIdState(view);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('flow.execution.lastId', view);
-      }
-    } else {
-      // Leaving for the command view: drop the active-execution highlight.
-      // (ExecutionView re-sets it from the loaded session on the way in.)
-      setActiveExecutionId(null);
-    }
+    setActiveViewLocal(view);
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (view === 'command') params.delete('session');
+    else params.set('session', view);
+    const qs = params.toString();
+    window.history.pushState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
   }, []);
 
   return (

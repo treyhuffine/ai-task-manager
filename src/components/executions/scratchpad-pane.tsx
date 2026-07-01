@@ -5,10 +5,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import { X, Notebook, NotebookPen, Plus, Loader2, ArrowRight } from 'lucide-react';
+import { X, NotebookPen, Plus, Loader2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import { useScratchpad, useSetScratchpad } from '@/hooks/use-execution';
+import { ScratchpadIcon } from '@/components/shared/scratchpad-icon';
 import { api } from '@/lib/api/client';
 
 interface ScratchpadPaneProps {
@@ -366,30 +367,57 @@ function PromotionBar({
 }
 
 interface ScratchpadButtonProps {
+  /** Session whose scratchpad this toggles — drives the empty/content icon. */
+  sessionId: string;
   /** True when the scratchpad pane is currently visible. */
   open?: boolean;
   /** Toggles the pane — click again to close. */
   onClick: () => void;
 }
 
-export function ScratchpadButton({ open, onClick }: ScratchpadButtonProps) {
+/**
+ * Header toggle for the scratchpad. The icon mirrors the notes
+ * empty-vs-content convention: a blank notebook when the scratchpad is
+ * empty, a lined notebook once it has content (see {@link ScratchpadIcon}).
+ * Reads the same cached `useScratchpad` query the editor writes, so the
+ * indicator updates the moment a jot is saved. A small dot keeps the
+ * has-content signal visible even while the pane is open (icon shows `X`).
+ */
+export function ScratchpadButton({ sessionId, open, onClick }: ScratchpadButtonProps) {
+  const { data } = useScratchpad(sessionId);
+  const hasContent = !!data?.scratchPad?.trim();
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={!!open}
       className={cn(
-        'inline-flex items-center gap-1.5 px-2 py-1 rounded-md',
+        'relative inline-flex items-center gap-1.5 px-2 py-1 rounded-md',
         'text-[11px] font-medium transition-colors flex-shrink-0',
         open
           ? 'bg-primary/15 text-primary hover:bg-primary/20'
           : 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
       )}
-      title={open ? 'Close scratchpad' : 'Scratchpad: jot thoughts for this session'}
+      title={
+        open
+          ? 'Close scratchpad'
+          : hasContent
+            ? 'Scratchpad: this session has notes'
+            : 'Scratchpad: jot thoughts for this session'
+      }
       aria-label={open ? 'Close scratchpad' : 'Scratchpad'}
     >
-      {open ? <X size={12} /> : <NotebookPen size={12} />}
+      {open ? <X size={12} /> : <ScratchpadIcon content={data?.scratchPad} size={12} />}
       <span>{open ? 'Close' : 'Scratchpad'}</span>
+      {hasContent && (
+        <span
+          aria-hidden
+          className={cn(
+            'absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full',
+            'bg-primary ring-2 ring-background',
+          )}
+        />
+      )}
     </button>
   );
 }

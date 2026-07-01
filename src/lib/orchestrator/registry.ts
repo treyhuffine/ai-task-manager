@@ -45,16 +45,16 @@ import {
   listRailSessions,
   getChatSession,
   listChatEvents,
-  listSchedulesWithLastRun,
-  getSchedule,
-  findScheduleByName,
-  createSchedule,
-  updateSchedule,
-  deleteSchedule,
+  listTriggersWithLastRun,
+  getTrigger,
+  findTriggerByName,
+  createTrigger,
+  updateTrigger,
+  deleteTrigger,
   listRuns,
   getRun,
   markRunFailed,
-  resetScheduleFailures,
+  resetTriggerFailures,
   listNotificationChannels,
   getNotificationChannel,
   getOrCreateDefaultExecutor,
@@ -63,13 +63,13 @@ import {
 import { getNotifierUserId } from '@/lib/notifications/user';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
-import { generateWebhookCredentials } from '@/lib/scheduler/webhook';
+import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
 // invocation — even `flow start --dev`, which doesn't need either symbol.
 // Loading them lazily inside the two action handlers that use them lets the
-// dev CLI boot under tsx and matches the actual call graph: `run_schedule`
+// dev CLI boot under tsx and matches the actual call graph: `run_trigger`
 // and `cancel_run` are the only paths that touch the executor.
 import { inventorySkills } from '@/lib/executor/skills';
 import { fetchLiveSignals, serverFetch } from './server-client';
@@ -901,23 +901,23 @@ const send_session_message_action = defineAction({
   },
 });
 
-// ── Schedules + Runs ─────────────────────────────────────────
+// ── Triggers + Runs ─────────────────────────────────────────
 
-const scheduleKind = z.enum(['manual', 'at', 'every', 'cron', 'webhook']);
-const scheduleTargetKind = z.enum(['workspace', 'orchestrator']);
-const scheduleConcurrencyPolicy = z.enum([
+const triggerKind = z.enum(['manual', 'at', 'every', 'cron', 'webhook']);
+const triggerTargetKind = z.enum(['workspace', 'orchestrator']);
+const triggerConcurrencyPolicy = z.enum([
   'skip_if_running',
   'coalesce_if_active',
   'allow_concurrent',
 ]);
-const scheduleCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
+const triggerCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped']);
 const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
 
 /**
  * Validate a `deliverResultTo[]` digest binding (notifier channel ids) before
- * it lands on a schedule. The binding is only honored for orchestrator-target
+ * it lands on a trigger. The binding is only honored for orchestrator-target
  * runs — `notifyRunTerminal` (src/lib/notifications/emit.ts) reads it solely on
  * the orchestrator branch; workspace runs route via the `execution.finished`
  * matrix instead. Rejecting a non-empty binding on a workspace target (rather
@@ -927,7 +927,7 @@ const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
  */
 function validateDeliverResultTo(
   ids: string[],
-  targetKind: z.infer<typeof scheduleTargetKind>,
+  targetKind: z.infer<typeof triggerTargetKind>,
 ): string[] {
   if (ids.length === 0) return [];
   if (targetKind !== 'orchestrator') {
@@ -948,23 +948,23 @@ function validateDeliverResultTo(
   return deduped;
 }
 
-const list_schedules_action = defineAction({
-  name: 'list_schedules',
-  description: 'List schedules with last-run rollup. Filters: enabled, kind, target, workspace_id.',
+const list_triggers_action = defineAction({
+  name: 'list_triggers',
+  description: 'List triggers with last-run rollup. Filters: enabled, kind, target, workspace_id.',
   params: {
     enabled: z.boolean().optional(),
-    kind: scheduleKind.optional(),
-    targetKind: scheduleTargetKind.optional(),
+    kind: triggerKind.optional(),
+    targetKind: triggerTargetKind.optional(),
     workspaceId: z.string().nullable().optional(),
     limit: z.number().int().positive().max(500).optional(),
     offset: z.number().int().nonnegative().optional(),
   },
-  handler: (_ctx, input) => listSchedulesWithLastRun(input),
+  handler: (_ctx, input) => listTriggersWithLastRun(input),
 });
 
-const get_schedule_action = defineAction({
-  name: 'get_schedule',
-  description: 'Fetch a single schedule by id (or unique name within scope).',
+const get_trigger_action = defineAction({
+  name: 'get_trigger',
+  description: 'Fetch a single trigger by id (or unique name within scope).',
   params: {
     id: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
@@ -975,14 +975,14 @@ const get_schedule_action = defineAction({
       throw new ActionError('invalid_params', 'Provide id or name');
     }
     const row = id
-      ? getSchedule(id)
-      : findScheduleByName(name!, workspaceId ?? null);
-    if (!row) throw new ActionError('not_found', `Schedule not found: ${id ?? name}`);
+      ? getTrigger(id)
+      : findTriggerByName(name!, workspaceId ?? null);
+    if (!row) throw new ActionError('not_found', `Trigger not found: ${id ?? name}`);
     return row;
   },
 });
 
-const createScheduleShape = {
+const createTriggerShape = {
   name: z.string().min(1),
   description: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
@@ -992,34 +992,34 @@ const createScheduleShape = {
   // policy the spec describes; surfaces the same handle to CLI + UI.
   agentId: z.string().min(1).optional(),
   workspaceId: z.string().nullable().optional(),
-  targetKind: scheduleTargetKind,
+  targetKind: triggerTargetKind,
   prompt: z.string().min(1),
   skillHints: z.array(z.string()).nullable().optional(),
-  kind: scheduleKind,
+  kind: triggerKind,
   cronExpression: z.string().nullable().optional(),
   intervalSeconds: z.number().int().positive().nullable().optional(),
   runAt: z.string().nullable().optional(),
   timezone: z.string().nullable().optional(),
   activeHoursStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   activeHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
-  concurrencyPolicy: scheduleConcurrencyPolicy.optional(),
-  catchUpPolicy: scheduleCatchUpPolicy.optional(),
+  concurrencyPolicy: triggerConcurrencyPolicy.optional(),
+  catchUpPolicy: triggerCatchUpPolicy.optional(),
   maxCatchUpRuns: z.number().int().positive().max(10).optional(),
   model: z.string().nullable().optional(),
   effort: effortLevel.nullable().optional(),
   timeoutSeconds: z.number().int().positive().nullable().optional(),
   // Notifier digest binding: notification_channel ids the run result is
   // delivered to when an orchestrator-target run completes
-  // (`schedule.run_completed`). Discover ids via list_notification_channels.
+  // (`trigger.run_completed`). Discover ids via list_notification_channels.
   // Only honored for target_kind=orchestrator (see validateDeliverResultTo).
   deliverResultTo: z.array(z.string().min(1)).optional(),
 } as const;
 
-const create_schedule_action = defineAction({
-  name: 'create_schedule',
+const create_trigger_action = defineAction({
+  name: 'create_trigger',
   description:
-    'Create a schedule. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_schedule).',
-  params: createScheduleShape,
+    'Create a trigger. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_trigger).',
+  params: createTriggerShape,
   mutating: true,
   handler: (_ctx, input) => {
     // Per-kind validation: catch bad rows here rather than at the tick.
@@ -1044,7 +1044,7 @@ const create_schedule_action = defineAction({
       throw new ActionError('invalid_params', 'workspace_id is required when target_kind=workspace');
     }
     if (input.targetKind === 'orchestrator' && input.workspaceId) {
-      // Orchestrator schedules don't anchor to a workspace; allowing
+      // Orchestrator triggers don't anchor to a workspace; allowing
       // a workspaceId here would let an orchestration chat be created
       // with a workspace cwd via `createChatForFire` (dispatch.ts),
       // which is the wrong execution-isolation story.
@@ -1088,7 +1088,7 @@ const create_schedule_action = defineAction({
     };
     const nextRunAt = computeNextRun(draft);
 
-    const row = createSchedule({
+    const row = createTrigger({
       name: input.name,
       description: input.description ?? null,
       enabled: input.enabled ?? true,
@@ -1121,20 +1121,20 @@ const create_schedule_action = defineAction({
 
     return webhookCredentials
       ? {
-          schedule: row,
+          trigger: row,
           // Plaintext secret — show once, never stored. Callers must
           // persist this on their side to sign future webhook requests.
           webhookSecret: webhookCredentials.secret,
           webhookPublicId,
         }
-      : { schedule: row };
+      : { trigger: row };
   },
 });
 
-const update_schedule_action = defineAction({
-  name: 'update_schedule',
+const update_trigger_action = defineAction({
+  name: 'update_trigger',
   description:
-    'Patch a schedule. Cron / interval / runAt changes recompute nextRunAt automatically.',
+    'Patch a trigger. Cron / interval / runAt changes recompute nextRunAt automatically.',
   params: {
     id: z.string().min(1),
     name: z.string().min(1).optional(),
@@ -1148,22 +1148,22 @@ const update_schedule_action = defineAction({
     timezone: z.string().nullable().optional(),
     activeHoursStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
     activeHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
-    concurrencyPolicy: scheduleConcurrencyPolicy.optional(),
-    catchUpPolicy: scheduleCatchUpPolicy.optional(),
+    concurrencyPolicy: triggerConcurrencyPolicy.optional(),
+    catchUpPolicy: triggerCatchUpPolicy.optional(),
     model: z.string().nullable().optional(),
     effort: effortLevel.nullable().optional(),
     timeoutSeconds: z.number().int().positive().optional(),
     disabledReason: z.string().nullable().optional(),
     // Replace the notifier digest binding (full set, not a delta). Pass []
-    // to unbind. Validated against the schedule's existing target_kind.
+    // to unbind. Validated against the trigger's existing target_kind.
     deliverResultTo: z.array(z.string().min(1)).optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
   handler: (_ctx, input) => {
     const { id, ...rest } = input;
-    const current = getSchedule(id);
-    if (!current) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    const current = getTrigger(id);
+    if (!current) throw new ActionError('not_found', `Trigger not found: ${id}`);
 
     // Verify the digest binding against the (immutable) target_kind before write.
     if (rest.deliverResultTo !== undefined) {
@@ -1198,29 +1198,29 @@ const update_schedule_action = defineAction({
       });
     }
 
-    const row = updateSchedule(id, { ...rest, nextRunAt });
+    const row = updateTrigger(id, { ...rest, nextRunAt });
     return row;
   },
 });
 
-const delete_schedule_action = defineAction({
-  name: 'delete_schedule',
+const delete_trigger_action = defineAction({
+  name: 'delete_trigger',
   description:
-    'Delete a schedule. Existing runs survive (schedule_id nulled). Owned execution is preserved. Many schedules can share executions, so removing one doesn\'t archive shared work.',
+    'Delete a trigger. Existing runs survive (trigger_id nulled). Owned execution is preserved. Many triggers can share executions, so removing one doesn\'t archive shared work.',
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
-    const ok = deleteSchedule(id);
-    if (!ok) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    const ok = deleteTrigger(id);
+    if (!ok) throw new ActionError('not_found', `Trigger not found: ${id}`);
     return { id, deleted: true };
   },
 });
 
-const run_schedule_action = defineAction({
-  name: 'run_schedule',
+const run_trigger_action = defineAction({
+  name: 'run_trigger',
   description:
-    'Fire a schedule immediately, outside its cadence. Recorded as trigger=manual (user-initiated immediate) so the run history is consistent with chat-send dispatches.',
+    'Fire a trigger immediately, outside its cadence. Recorded as trigger=manual (user-initiated immediate) so the run history is consistent with chat-send dispatches.',
   params: {
     id: z.string().min(1),
     triggerPayload: z.unknown().optional(),
@@ -1228,14 +1228,14 @@ const run_schedule_action = defineAction({
   mutating: true,
   cli: { positional: ['id'] },
   handler: async (_ctx, { id, triggerPayload }) => {
-    const schedule = getSchedule(id);
-    if (!schedule) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    const trigger = getTrigger(id);
+    if (!trigger) throw new ActionError('not_found', `Trigger not found: ${id}`);
     // Lazy: see the import-section comment. Pulls in the executor adapter
     // and `@agentex/agent` only on actual run-trigger invocations.
     const { dispatchRun } = await import('@/lib/runs/dispatch');
     const result = await dispatchRun({
-      schedule,
-      trigger: 'manual',
+      trigger,
+      triggerKind: 'manual',
       triggerPayload: (triggerPayload as Record<string, unknown> | string | undefined) ?? null,
     });
     return { run: result.run, chatSessionId: result.chatSession?.id ?? null };
@@ -1248,7 +1248,7 @@ const list_runs_action = defineAction({
   params: {
     status: z.union([runStatusFilter, z.array(runStatusFilter)]).optional(),
     trigger: z.union([runTriggerFilter, z.array(runTriggerFilter)]).optional(),
-    scheduleId: z.string().optional(),
+    triggerId: z.string().optional(),
     agentId: z.string().optional(),
     executionId: z.string().optional(),
     workspaceId: z.string().optional(),
@@ -1304,16 +1304,16 @@ const cancel_run_action = defineAction({
   },
 });
 
-const reset_schedule_failures_action = defineAction({
-  name: 'reset_schedule_failures',
+const reset_trigger_failures_action = defineAction({
+  name: 'reset_trigger_failures',
   description:
-    'Clear the consecutive_failures counter on a schedule. Used by the "Reset failure count" affordance once the user has investigated the failures. Does not change enabled state.',
+    'Clear the consecutive_failures counter on a trigger. Used by the "Reset failure count" affordance once the user has investigated the failures. Does not change enabled state.',
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
-    const row = resetScheduleFailures(id);
-    if (!row) throw new ActionError('not_found', `Schedule not found: ${id}`);
+    const row = resetTriggerFailures(id);
+    if (!row) throw new ActionError('not_found', `Trigger not found: ${id}`);
     return row;
   },
 });
@@ -1321,7 +1321,7 @@ const reset_schedule_failures_action = defineAction({
 const list_notification_channels_action = defineAction({
   name: 'list_notification_channels',
   description:
-    "List the user's notification channels (Telegram connector, web push, in-app). Returns each channel's id, provider, label, target config and enabled state. Use the id to bind a schedule's result digest via create_schedule / update_schedule deliver_result_to. Channels themselves are created in the app UI (Telegram linking needs an OAuth-style claim flow).",
+    "List the user's notification channels (Telegram connector, web push, in-app). Returns each channel's id, provider, label, target config and enabled state. Use the id to bind a trigger's result digest via create_trigger / update_trigger deliver_result_to. Channels themselves are created in the app UI (Telegram linking needs an OAuth-style claim flow).",
   params: {
     kind: z.enum(['connector', 'web_push', 'in_app']).optional(),
     providerId: z.string().min(1).optional(),
@@ -1383,16 +1383,16 @@ export const actions = [
   get_pending_input_action,
   answer_pending_input_action,
   send_session_message_action,
-  list_schedules_action,
-  get_schedule_action,
-  create_schedule_action,
-  update_schedule_action,
-  delete_schedule_action,
-  run_schedule_action,
+  list_triggers_action,
+  get_trigger_action,
+  create_trigger_action,
+  update_trigger_action,
+  delete_trigger_action,
+  run_trigger_action,
   list_runs_action,
   get_run_action,
   cancel_run_action,
-  reset_schedule_failures_action,
+  reset_trigger_failures_action,
   list_notification_channels_action,
   list_skills_action,
 ];

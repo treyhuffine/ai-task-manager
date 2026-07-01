@@ -468,6 +468,7 @@ export function useSendMessage(id: string) {
         content: input.content,
         attachments: input.attachments ?? [],
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         toolName: null,
         toolInput: null,
         toolIsError: null,

@@ -1,55 +1,55 @@
 import { describe, expect, it } from 'vitest';
 import {
   describeFrequency,
-  frequencyToSchedule,
-  scheduleToFrequency,
+  frequencyToTrigger,
+  triggerToFrequency,
 } from './frequency';
 
-describe('frequencyToSchedule', () => {
+describe('frequencyToTrigger', () => {
   it('manual → kind=manual, no cron', () => {
-    expect(frequencyToSchedule({ kind: 'manual' })).toEqual({
+    expect(frequencyToTrigger({ kind: 'manual' })).toEqual({
       kind: 'manual',
       cronExpression: null,
     });
   });
 
   it('webhook → kind=webhook, no cron', () => {
-    expect(frequencyToSchedule({ kind: 'webhook' })).toEqual({
+    expect(frequencyToTrigger({ kind: 'webhook' })).toEqual({
       kind: 'webhook',
       cronExpression: null,
     });
   });
 
   it('hourly → top-of-hour cron', () => {
-    expect(frequencyToSchedule({ kind: 'hourly' })).toEqual({
+    expect(frequencyToTrigger({ kind: 'hourly' })).toEqual({
       kind: 'cron',
       cronExpression: '0 * * * *',
     });
   });
 
   it('daily at 09:00 → 0 9 * * *', () => {
-    expect(frequencyToSchedule({ kind: 'daily', time: '09:00' })).toEqual({
+    expect(frequencyToTrigger({ kind: 'daily', time: '09:00' })).toEqual({
       kind: 'cron',
       cronExpression: '0 9 * * *',
     });
   });
 
   it('weekly on Monday at 08:30 → 30 8 * * 1', () => {
-    expect(frequencyToSchedule({ kind: 'weekly', time: '08:30', weekday: 1 })).toEqual({
+    expect(frequencyToTrigger({ kind: 'weekly', time: '08:30', weekday: 1 })).toEqual({
       kind: 'cron',
       cronExpression: '30 8 * * 1',
     });
   });
 
   it('monthly on the 15th at 6 PM → 0 18 15 * *', () => {
-    expect(frequencyToSchedule({ kind: 'monthly', time: '18:00', dayOfMonth: 15 })).toEqual({
+    expect(frequencyToTrigger({ kind: 'monthly', time: '18:00', dayOfMonth: 15 })).toEqual({
       kind: 'cron',
       cronExpression: '0 18 15 * *',
     });
   });
 
   it('monthly clamps day-of-month to 28', () => {
-    expect(frequencyToSchedule({ kind: 'monthly', time: '09:00', dayOfMonth: 31 })).toEqual({
+    expect(frequencyToTrigger({ kind: 'monthly', time: '09:00', dayOfMonth: 31 })).toEqual({
       kind: 'cron',
       cronExpression: '0 9 28 * *',
     });
@@ -57,12 +57,12 @@ describe('frequencyToSchedule', () => {
 
   it('custom passes through the raw expression', () => {
     expect(
-      frequencyToSchedule({ kind: 'custom', cronExpression: '*/15 * * * *' }),
+      frequencyToTrigger({ kind: 'custom', cronExpression: '*/15 * * * *' }),
     ).toEqual({ kind: 'cron', cronExpression: '*/15 * * * *' });
   });
 });
 
-describe('scheduleToFrequency (round trip)', () => {
+describe('triggerToFrequency (round trip)', () => {
   const cases = [
     { friendly: { kind: 'hourly' as const } },
     { friendly: { kind: 'daily' as const, time: '09:00' } },
@@ -72,8 +72,8 @@ describe('scheduleToFrequency (round trip)', () => {
   ];
   for (const { friendly } of cases) {
     it(`${JSON.stringify(friendly)} round-trips`, () => {
-      const compiled = frequencyToSchedule(friendly);
-      const reverse = scheduleToFrequency({
+      const compiled = frequencyToTrigger(friendly);
+      const reverse = triggerToFrequency({
         kind: 'cron',
         cronExpression: compiled.cronExpression,
       });
@@ -83,12 +83,12 @@ describe('scheduleToFrequency (round trip)', () => {
 
   it('falls back to custom for cron expressions the menu cannot express', () => {
     expect(
-      scheduleToFrequency({ kind: 'cron', cronExpression: '*/15 * * * 1-5' }),
+      triggerToFrequency({ kind: 'cron', cronExpression: '*/15 * * * 1-5' }),
     ).toEqual({ kind: 'custom', cronExpression: '*/15 * * * 1-5' });
   });
 
   it('manual → manual', () => {
-    expect(scheduleToFrequency({ kind: 'manual', cronExpression: null })).toEqual({
+    expect(triggerToFrequency({ kind: 'manual', cronExpression: null })).toEqual({
       kind: 'manual',
     });
   });

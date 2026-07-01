@@ -448,7 +448,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       [editorHasPendingChip],
     );
 
-    const scheduleDraftSave = useCallback(() => {
+    const triggerDraftSave = useCallback(() => {
       const key = draftKeyRef.current;
       if (!key) return;
       const ed = editorRef.current;
@@ -614,7 +614,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         // doc-changing transaction that runs onUpdate. The parent uses
         // this to disable Send while an upload is in flight.
         onPendingUploadsChange?.(editorHasPendingChip(editor));
-        scheduleDraftSave();
+        triggerDraftSave();
       },
       onFocus() {
         onFocusRef.current?.();

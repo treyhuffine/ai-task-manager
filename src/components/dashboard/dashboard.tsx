@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { DashboardProvider, useDashboard } from '@/contexts/dashboard-context';
 import { useLatestExecutionId } from '@/hooks/use-latest-execution';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -166,9 +166,13 @@ function DashboardShell() {
 }
 
 export function Dashboard() {
+  // Suspense boundary is required because DashboardProvider reads the URL via
+  // useSearchParams (the source of truth for `activeView`).
   return (
-    <DashboardProvider>
-      <DashboardShell />
-    </DashboardProvider>
+    <Suspense fallback={null}>
+      <DashboardProvider>
+        <DashboardShell />
+      </DashboardProvider>
+    </Suspense>
   );
 }

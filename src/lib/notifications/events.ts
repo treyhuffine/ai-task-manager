@@ -5,7 +5,7 @@
  *
  * `routing` is how an event reaches channels:
  *   - 'matrix'  → the per-channel `events[]` toggles (ambient lifecycle events);
- *   - 'binding' → the schedule's `deliverResultTo[]` (digests — `notify(event, { deliverTo })`).
+ *   - 'binding' → the trigger's `deliverResultTo[]` (digests — `notify(event, { deliverTo })`).
  */
 export interface EventCatalogEntry {
   type: string;
@@ -46,7 +46,7 @@ export const EVENT_CATALOG = [
     defaultOn: true,
   },
   {
-    type: 'schedule.run_completed',
+    type: 'trigger.run_completed',
     label: 'Scheduled run result',
     description: "A scheduled job's result, delivered to the channels you bound it to.",
     routing: 'binding',

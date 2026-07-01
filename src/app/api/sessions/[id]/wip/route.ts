@@ -13,8 +13,11 @@ import {
  * the banner asks about *what's there now*, not what was there at create
  * time.
  *
- * Returns `null` for non-git workspaces or sessions whose worktree
- * hasn't been provisioned yet — the banner sits dormant in those cases.
+ * Returns `null` for non-git workspaces, sessions whose worktree hasn't
+ * been provisioned yet, or Live / in-place sessions (worktreePath === cwd)
+ * — the banner sits dormant in those cases. An in-place session edits the
+ * source checkout directly, so there is no separate worktree for WIP to
+ * "stay behind" from.
  */
 export async function GET(
   _request: NextRequest,
@@ -29,6 +32,7 @@ export async function GET(
     }
     const ws = getWorkspace(session.workspaceId);
     if (!ws || !ws.isGit) return Response.json(null);
+    if (session.worktreePath === ws.cwd) return Response.json(null);
 
     const wip = await detectSourceWip(ws.cwd, ws.filesToCopy ?? []);
     return Response.json(wip);
@@ -73,6 +77,14 @@ export async function POST(
     const ws = getWorkspace(session.workspaceId);
     if (!ws || !ws.isGit) {
       return Response.json({ error: 'Workspace is not a git workspace' }, { status: 409 });
+    }
+    if (session.worktreePath === ws.cwd) {
+      // In-place session: the source checkout IS the worktree, so there is
+      // nothing to copy or stash across.
+      return Response.json(
+        { error: 'Session runs in-place; no worktree handoff needed' },
+        { status: 409 },
+      );
     }
 
     const wip = await detectSourceWip(ws.cwd, ws.filesToCopy ?? []);

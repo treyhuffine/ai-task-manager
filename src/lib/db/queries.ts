@@ -7,7 +7,7 @@ import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
-  schedules, runs, previewTargets, entityVersions,
+  triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
 } from '@/lib/db/schema';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -31,8 +31,8 @@ import type {
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
-  ScheduleRecord, CreateScheduleInput, UpdateScheduleInput,
-  RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, ScheduleWithLastRun,
+  TriggerRecord, CreateTriggerInput, UpdateTriggerInput,
+  RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun,
   EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
   TaskStatus, NoteStatus, Energy, Effort,
   NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput,
@@ -1195,7 +1195,7 @@ export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
 /**
  * Find or create the default orchestrator agent. Mirrors
  * `getOrCreateDefaultExecutor` for the orchestrator side — used by the
- * schedule action's `agentId` default when `targetKind='orchestrator'`
+ * trigger action's `agentId` default when `targetKind='orchestrator'`
  * and the caller didn't pick one. Single shared agent until per-purpose
  * orchestrators become real surfaces.
  */
@@ -1740,6 +1740,10 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       ...input,
       id: input.id ?? uuidv7(),
       status: input.status ?? 'active',
+      // Store ISO (UTC) rather than the SQLite `datetime('now')` default's
+      // space-format, so `startedAt` sorts consistently against the ISO
+      // outcome/unread timestamps it's compared with (see session-sort.ts).
+      startedAt: input.startedAt ?? new Date().toISOString(),
     })
     .returning()
     .get();
@@ -1790,7 +1794,7 @@ export function createExecutionWithChat(params: {
   prNumber?: number | null;
   setupStartedAt?: string | null;
   /** Optional per-session model override (e.g. propagated from a
-   *  schedule's `model` field). Null = use the harness default. */
+   *  trigger's `model` field). Null = use the harness default. */
   model?: string | null;
   /** Optional per-session effort override (Claude `--effort` flag). */
   effort?: ChatSessionRecord['effort'];
@@ -1826,6 +1830,10 @@ export function createExecutionWithChat(params: {
         executionId: executionId,
         label: params.label,
         status: 'active',
+        // ISO (UTC) to match the execution's timestamps and to sort
+        // consistently against ISO outcome/unread timestamps (the SQLite
+        // `datetime('now')` default would store the space-format instead).
+        startedAt: now,
         ...(params.model !== undefined ? { model: params.model } : {}),
         ...(params.effort !== undefined ? { effort: params.effort } : {}),
       })
@@ -2651,42 +2659,42 @@ export function setSessionScratchPad(
   return updateChatSession(sessionId, { scratchPad: scratchPad });
 }
 
-// ─── Schedules ────────────────────────────────────────────────
-// All schedule mutations route through here so the scheduler tick, the
+// ─── Triggers ────────────────────────────────────────────────
+// All trigger mutations route through here so the scheduler tick, the
 // orchestrator actions, and the UI share a single write path. Reads
-// land in two flavors: bare `ScheduleRecord` for the tick (it doesn't
-// want the extra join cost) and `ScheduleWithLastRun` for surfaces
+// land in two flavors: bare `TriggerRecord` for the tick (it doesn't
+// want the extra join cost) and `TriggerWithLastRun` for surfaces
 // that render status pills.
 
-export interface ScheduleFilter {
+export interface TriggerFilter {
   enabled?: boolean;
-  kind?: ScheduleRecord['kind'];
-  targetKind?: ScheduleRecord['targetKind'];
+  kind?: TriggerRecord['kind'];
+  targetKind?: TriggerRecord['targetKind'];
   workspaceId?: string | null;
-  /** Default 'all' — include archived workspaces' schedules unless overridden. */
+  /** Default 'all' — include archived workspaces' triggers unless overridden. */
   limit?: number;
   offset?: number;
 }
 
-export function listSchedules(filter: ScheduleFilter = {}): ScheduleRecord[] {
+export function listTriggers(filter: TriggerFilter = {}): TriggerRecord[] {
   const db = getDb();
   const conditions: SQL[] = [];
-  if (filter.enabled != null) conditions.push(eq(schedules.enabled, filter.enabled));
-  if (filter.kind) conditions.push(eq(schedules.kind, filter.kind));
-  if (filter.targetKind) conditions.push(eq(schedules.targetKind, filter.targetKind));
-  if (filter.workspaceId === null) conditions.push(isNull(schedules.workspaceId));
-  else if (filter.workspaceId) conditions.push(eq(schedules.workspaceId, filter.workspaceId));
-  let query = db.select().from(schedules).$dynamic();
+  if (filter.enabled != null) conditions.push(eq(triggers.enabled, filter.enabled));
+  if (filter.kind) conditions.push(eq(triggers.kind, filter.kind));
+  if (filter.targetKind) conditions.push(eq(triggers.targetKind, filter.targetKind));
+  if (filter.workspaceId === null) conditions.push(isNull(triggers.workspaceId));
+  else if (filter.workspaceId) conditions.push(eq(triggers.workspaceId, filter.workspaceId));
+  let query = db.select().from(triggers).$dynamic();
   if (conditions.length > 0) query = query.where(and(...conditions));
-  query = query.orderBy(desc(schedules.createdAt));
+  query = query.orderBy(desc(triggers.createdAt));
   if (filter.limit) query = query.limit(filter.limit);
   if (filter.offset) query = query.offset(filter.offset);
   return query.all();
 }
 
-export function getSchedule(id: string): ScheduleRecord | undefined {
+export function getTrigger(id: string): TriggerRecord | undefined {
   const db = getDb();
-  return db.select().from(schedules).where(eq(schedules.id, id)).get();
+  return db.select().from(triggers).where(eq(triggers.id, id)).get();
 }
 
 /**
@@ -2694,25 +2702,25 @@ export function getSchedule(id: string): ScheduleRecord | undefined {
  * means brain-level only; pass a workspaceId to scope to that workspace.
  * Matches the partial-unique index semantics — exact within-scope.
  */
-export function findScheduleByName(
+export function findTriggerByName(
   name: string,
   workspaceId?: string | null,
-): ScheduleRecord | undefined {
+): TriggerRecord | undefined {
   const db = getDb();
   const scopeFilter =
-    workspaceId == null ? isNull(schedules.workspaceId) : eq(schedules.workspaceId, workspaceId);
+    workspaceId == null ? isNull(triggers.workspaceId) : eq(triggers.workspaceId, workspaceId);
   return db
     .select()
-    .from(schedules)
-    .where(and(eq(schedules.name, name), scopeFilter))
+    .from(triggers)
+    .where(and(eq(triggers.name, name), scopeFilter))
     .get();
 }
 
-export function createSchedule(input: CreateScheduleInput): ScheduleRecord {
+export function createTrigger(input: CreateTriggerInput): TriggerRecord {
   const db = getDb();
   const now = new Date().toISOString();
   return db
-    .insert(schedules)
+    .insert(triggers)
     .values({
       ...input,
       id: input.id ?? uuidv7(),
@@ -2723,109 +2731,109 @@ export function createSchedule(input: CreateScheduleInput): ScheduleRecord {
     .get();
 }
 
-export function updateSchedule(
+export function updateTrigger(
   id: string,
-  input: UpdateScheduleInput,
-): ScheduleRecord | null {
+  input: UpdateTriggerInput,
+): TriggerRecord | null {
   const db = getDb();
   const row = db
-    .update(schedules)
+    .update(triggers)
     .set({ ...input, updatedAt: new Date().toISOString() })
-    .where(eq(schedules.id, id))
+    .where(eq(triggers.id, id))
     .returning()
     .get();
   return row ?? null;
 }
 
 /**
- * Delete a schedule. Runs that reference it get scheduleId nulled (ON
+ * Delete a trigger. Runs that reference it get triggerId nulled (ON
  * DELETE SET NULL) so the run history survives. Owning execution and
- * its chats are unaffected — multiple schedules can share an
+ * its chats are unaffected — multiple triggers can share an
  * execution.
  */
-export function deleteSchedule(id: string): boolean {
+export function deleteTrigger(id: string): boolean {
   const db = getDb();
-  const result = db.delete(schedules).where(eq(schedules.id, id)).run();
+  const result = db.delete(triggers).where(eq(triggers.id, id)).run();
   return result.changes > 0;
 }
 
-/** Schedules due to fire — what the tick reads. */
-export function listDueSchedules(now: Date): ScheduleRecord[] {
+/** Triggers due to fire — what the tick reads. */
+export function listDueTriggers(now: Date): TriggerRecord[] {
   const db = getDb();
   return db
     .select()
-    .from(schedules)
+    .from(triggers)
     .where(
       and(
-        eq(schedules.enabled, true),
-        isNotNull(schedules.nextRunAt),
-        lte(schedules.nextRunAt, now.toISOString()),
+        eq(triggers.enabled, true),
+        isNotNull(triggers.nextRunAt),
+        lte(triggers.nextRunAt, now.toISOString()),
       ),
     )
     .all();
 }
 
 /**
- * Atomically advance the schedule's nextRunAt and record the fire time.
+ * Atomically advance the trigger's nextRunAt and record the fire time.
  * Used by the tick BEFORE dispatching — that's the at-most-once
  * guarantee. Returns the patched row so caller can verify.
  */
-export function advanceScheduleNextRun(
+export function advanceTriggerNextRun(
   id: string,
   nextRunAt: string | null,
   firedAt: string,
-): ScheduleRecord | null {
-  return updateSchedule(id, {
+): TriggerRecord | null {
+  return updateTrigger(id, {
     nextRunAt: nextRunAt,
     lastFiredAt: firedAt,
   });
 }
 
-/** Persist the result of a run back to its parent schedule. */
-export function setScheduleLastRun(
+/** Persist the result of a run back to its parent trigger. */
+export function setTriggerLastRun(
   id: string,
   runId: string,
   status: 'completed' | 'failed' | 'skipped',
-): ScheduleRecord | null {
+): TriggerRecord | null {
   // Reset consecutive_failures on success, otherwise bump it.
-  const current = getSchedule(id);
+  const current = getTrigger(id);
   if (!current) return null;
   const nextFailures =
     status === 'failed' ? current.consecutiveFailures + 1 : 0;
-  return updateSchedule(id, {
+  return updateTrigger(id, {
     lastRunId: runId,
     lastRunStatus: status,
     consecutiveFailures: nextFailures,
   });
 }
 
-export function resetScheduleFailures(id: string): ScheduleRecord | null {
-  return updateSchedule(id, { consecutiveFailures: 0 });
+export function resetTriggerFailures(id: string): TriggerRecord | null {
+  return updateTrigger(id, { consecutiveFailures: 0 });
 }
 
-/** Find the schedule (if any) currently owning this execution. */
-export function findSchedulesByOwningExecution(executionId: string): ScheduleRecord[] {
+/** Find the trigger (if any) currently owning this execution. */
+export function findTriggersByOwningExecution(executionId: string): TriggerRecord[] {
   const db = getDb();
   return db
     .select()
-    .from(schedules)
-    .where(eq(schedules.owningExecutionId, executionId))
+    .from(triggers)
+    .where(eq(triggers.owningExecutionId, executionId))
     .all();
 }
 
 /** Webhook lookup. Single row by definition (unique index). */
-export function findScheduleByWebhookPublicId(publicId: string): ScheduleRecord | undefined {
+export function findTriggerByWebhookPublicId(publicId: string): TriggerRecord | undefined {
   const db = getDb();
   return db
     .select()
-    .from(schedules)
-    .where(eq(schedules.webhookPublicId, publicId))
+    .from(triggers)
+    .where(eq(triggers.webhookPublicId, publicId))
     .get();
 }
 
-/** Pair a schedule with its most-recent run for the list view. */
-export function listSchedulesWithLastRun(filter: ScheduleFilter = {}): ScheduleWithLastRun[] {
-  const list = listSchedules(filter);
+/** Pair a trigger with its most-recent run for the list view. */
+export function listTriggersWithLastRun(filter: TriggerFilter = {}): TriggerWithLastRun[] {
+  const list = listTriggers(filter);
   if (list.length === 0) return [];
   const db = getDb();
   // Single round-trip — fetch last-run rows for the result set in one shot.
@@ -2849,7 +2857,7 @@ export function listSchedulesWithLastRun(filter: ScheduleFilter = {}): ScheduleW
 export interface RunFilter {
   status?: RunStatus | RunStatus[];
   trigger?: RunTrigger | RunTrigger[];
-  scheduleId?: string;
+  triggerId?: string;
   agentId?: string;
   executionId?: string;
   workspaceId?: string;
@@ -2868,9 +2876,11 @@ export function listRuns(filter: RunFilter = {}): RunRecord[] {
   }
   if (filter.trigger) {
     const arr = Array.isArray(filter.trigger) ? filter.trigger : [filter.trigger];
-    conditions.push(arr.length === 1 ? eq(runs.trigger, arr[0]) : inArray(runs.trigger, arr));
+    conditions.push(
+      arr.length === 1 ? eq(runs.triggerKind, arr[0]) : inArray(runs.triggerKind, arr),
+    );
   }
-  if (filter.scheduleId) conditions.push(eq(runs.scheduleId, filter.scheduleId));
+  if (filter.triggerId) conditions.push(eq(runs.triggerId, filter.triggerId));
   if (filter.agentId) conditions.push(eq(runs.agentId, filter.agentId));
   if (filter.executionId) conditions.push(eq(runs.executionId, filter.executionId));
   if (filter.workspaceId) conditions.push(eq(runs.workspaceId, filter.workspaceId));
@@ -2994,13 +3004,13 @@ export function findActiveRunForExecution(executionId: string): RunRecord | unde
     .get();
 }
 
-/** Per-schedule concurrency check (distinct from the execution mutex). */
-export function findActiveRunForSchedule(scheduleId: string): RunRecord | undefined {
+/** Per-trigger concurrency check (distinct from the execution mutex). */
+export function findActiveRunForTrigger(triggerId: string): RunRecord | undefined {
   const db = getDb();
   return db
     .select()
     .from(runs)
-    .where(and(eq(runs.scheduleId, scheduleId), eq(runs.status, 'running')))
+    .where(and(eq(runs.triggerId, triggerId), eq(runs.status, 'running')))
     .get();
 }
 
@@ -3077,10 +3087,10 @@ export function updateNotificationChannel(id: string, input: UpdateNotificationC
   return row ?? null;
 }
 
-/** Delete a channel and scrub its id from every schedule's deliverResultTo binding (§2.13). */
+/** Delete a channel and scrub its id from every trigger's deliverResultTo binding (§2.13). */
 export function deleteNotificationChannel(id: string): boolean {
   const db = getDb();
-  removeChannelFromScheduleBindings(id);
+  removeChannelFromTriggerBindings(id);
   const result = db.delete(notificationChannels).where(eq(notificationChannels.id, id)).run();
   return result.changes > 0; // notification_deliveries FK-cascade automatically
 }
@@ -3089,19 +3099,19 @@ export function deleteNotificationChannel(id: string): boolean {
 export function deleteChannelsForConnection(connectionId: string): number {
   const db = getDb();
   const affected = listNotificationChannels({ connectionId });
-  for (const c of affected) removeChannelFromScheduleBindings(c.id);
+  for (const c of affected) removeChannelFromTriggerBindings(c.id);
   const result = db.delete(notificationChannels).where(eq(notificationChannels.connectionId, connectionId)).run();
   return result.changes;
 }
 
-/** Remove a channel id from every schedule's deliverResultTo[] (channel-delete cascade, §2.13). */
-export function removeChannelFromScheduleBindings(channelId: string): void {
+/** Remove a channel id from every trigger's deliverResultTo[] (channel-delete cascade, §2.13). */
+export function removeChannelFromTriggerBindings(channelId: string): void {
   const db = getDb();
-  const bound = db.select().from(schedules).all().filter((s) => (s.deliverResultTo ?? []).includes(channelId));
+  const bound = db.select().from(triggers).all().filter((s) => (s.deliverResultTo ?? []).includes(channelId));
   for (const s of bound) {
-    db.update(schedules)
+    db.update(triggers)
       .set({ deliverResultTo: (s.deliverResultTo ?? []).filter((id) => id !== channelId), updatedAt: new Date().toISOString() })
-      .where(eq(schedules.id, s.id))
+      .where(eq(triggers.id, s.id))
       .run();
   }
 }

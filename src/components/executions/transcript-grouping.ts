@@ -1,6 +1,7 @@
 import type { ChatEventRecord } from '@/db/types';
 import { isSubagentTool, isPlumbingTool, fileTargetPath } from '@/lib/executions/tool-display';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
+import { formatSpanSeconds } from '@/lib/executions/duration';
 import type { TranscriptDensity } from '@/lib/client/transcript-density';
 
 /** A file written/edited during a turn, with cumulative +/− across the turn. */
@@ -193,15 +194,10 @@ function appendCollapsedTurn(nodes: TranscriptNode[], turn: ChatEventRecord[]): 
   appendFilesFooter();
 }
 
-/** Compact elapsed label for a group span, e.g. "7.4s", "2m 14s". */
+/** Compact elapsed label for a group span, e.g. "7.4s", "2m 14s", "1h 5m". */
 export function formatSpan(startISO: string, endISO: string): string | null {
   const a = Date.parse(startISO);
   const b = Date.parse(endISO);
   if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
-  const secs = (b - a) / 1000;
-  if (secs < 1) return null;
-  if (secs < 60) return `${secs < 10 ? secs.toFixed(1) : Math.round(secs)}s`;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
-  return s ? `${m}m ${s}s` : `${m}m`;
+  return formatSpanSeconds((b - a) / 1000);
 }

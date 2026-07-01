@@ -1,3 +1,5 @@
+import { timestampEpoch } from './timestamps';
+
 /**
  * Shared session "hotness" key used to sort rail lists. A session's
  * hotness is the most recent timestamp across:
@@ -7,8 +9,12 @@
  *   - `startedAt`            — session creation (floor for brand-new
  *                                sessions with no events yet)
  *
- * ISO 8601 strings sort lexicographically, so we compare strings
- * directly without parsing — cheaper and avoids timezone surprises.
+ * `startedAt` is a SQLite space-format timestamp while the other two are
+ * ISO (`toISOString`). Those formats do NOT sort consistently as raw
+ * strings (' ' < 'T'), so we compare via {@link timestampEpoch}, which
+ * normalizes both to UTC epoch ms. Comparing the strings directly is what
+ * made a brand-new session sink below the day's active ones instead of
+ * rising to the top.
  */
 
 interface SortableSession {
@@ -17,11 +23,13 @@ interface SortableSession {
   startedAt: string;
 }
 
-export function sessionHotnessKey(s: SortableSession): string {
-  let max = s.startedAt;
-  if (s.lastOutcomeEventAt && s.lastOutcomeEventAt > max) max = s.lastOutcomeEventAt;
-  if (s.unreadMarkerAt && s.unreadMarkerAt > max) max = s.unreadMarkerAt;
-  return max;
+/** UTC epoch ms of the session's most recent activity. */
+export function sessionHotnessKey(s: SortableSession): number {
+  return Math.max(
+    timestampEpoch(s.startedAt),
+    timestampEpoch(s.lastOutcomeEventAt),
+    timestampEpoch(s.unreadMarkerAt),
+  );
 }
 
 /**
@@ -30,12 +38,7 @@ export function sessionHotnessKey(s: SortableSession): string {
  * cache entries stay referentially stable.
  */
 export function sortSessionsHotnessDesc<T extends SortableSession>(sessions: readonly T[]): T[] {
-  return [...sessions].sort((a, b) => {
-    const ka = sessionHotnessKey(a);
-    const kb = sessionHotnessKey(b);
-    if (ka === kb) return 0;
-    return kb < ka ? -1 : 1;
-  });
+  return [...sessions].sort((a, b) => sessionHotnessKey(b) - sessionHotnessKey(a));
 }
 
 interface UnreadableSession {

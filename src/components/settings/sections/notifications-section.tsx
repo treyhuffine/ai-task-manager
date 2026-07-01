@@ -762,7 +762,7 @@ export function NotificationsSection() {
       {/* 5. Advanced */}
       <CollapsibleSection title="Scheduled digests" icon={<Calendar size={15} className="text-muted-foreground" />}>
         <p className="mb-3 text-[11px] leading-normal text-muted-foreground">
-          Route outcomes from automated agent schedules directly to your channels.
+          Route outcomes from automated agent triggers directly to your channels.
         </p>
         {digests.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border py-6 text-center text-xs text-muted-foreground">

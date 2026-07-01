@@ -35,3 +35,9 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - **Installable UI components** (shadcn, Vercel AI elements, ElevenLabs, etc.) must be added via their CLI tool — do not manually write or copy component source files
 - **Types** are derived from the Drizzle schema in `src/db/types.ts` — do not duplicate type definitions
 - **API routes** use shared query functions from `src/lib/db/queries.ts` — do not write raw SQL in route handlers
+
+## Timestamps
+
+- Every table has `created_at` and `updated_at` (NOT NULL, default `(datetime('now'))`), declared right after `id` via a shared `timestamps` spread: `sqliteTable('x', { id: text().primaryKey(), ...timestamps, ...rest })`.
+- `updated_at` adds `.$onUpdate()` returning `(datetime('now'))` so it bumps on every write, not just insert.
+- Declare timestamps at table creation, never reorder them onto an existing table. Retrofitting a NOT-NULL timestamp onto a populated table is not cleanly autogeneratable; new timestamp columns go on nullable, backfill, then enforce NOT NULL.

@@ -1,16 +1,16 @@
 /**
  * Scheduler runner — owns the 60s tick, the boot recovery, and the
  * dispatch chokepoint. Started from `instrumentation.ts` once per Node
- * process; the tick is `unref`'d so a stuck schedule doesn't keep the
+ * process; the tick is `unref`'d so a stuck trigger doesn't keep the
  * process alive at shutdown.
  *
  * The tick body, in order:
  *   1. acquire scheduler lock (single-process safety against slow ticks)
- *   2. select enabled schedules whose `next_run_at <= now`
+ *   2. select enabled triggers whose `next_run_at <= now`
  *   3. for each, advance `next_run_at` BEFORE dispatch (at-most-once)
  *   4. honor active-hours window — outside hours = skip the slot, but
  *      we still advance so we don't busy-loop on the same row
- *   5. enforce per-schedule + per-execution concurrency before kicking
+ *   5. enforce per-trigger + per-execution concurrency before kicking
  *      the dispatch (see `runs.dispatchRun`)
  *   6. release the lock — dispatched runs continue async, the tick
  *      finishes immediately.
@@ -29,11 +29,11 @@ import {
 } from './lock';
 import { computeNextRun, isWithinActiveHours } from './cron';
 import {
-  advanceScheduleNextRun,
-  listDueSchedules,
+  advanceTriggerNextRun,
+  listDueTriggers,
   reapStaleRunningRuns,
 } from '@/lib/db/queries';
-import type { ScheduleRecord } from '@/db/types';
+import type { TriggerRecord } from '@/db/types';
 import { dispatchRun } from '@/lib/runs/dispatch';
 
 const TICK_INTERVAL_MS = 60_000;
@@ -110,7 +110,7 @@ export function startScheduler(): void {
   }
 
   // Defer first tick a few seconds so DB migrations and lazy modules
-  // finish before we go banging on the schedules table.
+  // finish before we go banging on the triggers table.
   const initial = setTimeout(() => {
     void runTick();
     state.interval = setInterval(() => void runTick(), TICK_INTERVAL_MS);
@@ -153,14 +153,14 @@ export async function runTick(now: Date = new Date()): Promise<number> {
   let dispatched = 0;
   try {
     state.tickCount++;
-    const due = listDueSchedules(now);
-    for (const schedule of due) {
+    const due = listDueTriggers(now);
+    for (const trigger of due) {
       try {
-        const fired = await processSchedule(schedule, now);
+        const fired = await processTrigger(trigger, now);
         if (fired) dispatched++;
       } catch (err) {
         // One bad row can't break the tick — log and move on.
-        console.error(`[scheduler] tick failed for schedule ${schedule.id}:`, err);
+        console.error(`[scheduler] tick failed for trigger ${trigger.id}:`, err);
       }
     }
   } finally {
@@ -171,7 +171,7 @@ export async function runTick(now: Date = new Date()): Promise<number> {
 }
 
 /**
- * Drive a single schedule's fire decision: advance next_run_at first,
+ * Drive a single trigger's fire decision: advance next_run_at first,
  * skip-if-outside-active-hours, then call into the dispatch layer.
  *
  * Always advances next_run_at before dispatch — that's the at-most-once
@@ -179,11 +179,11 @@ export async function runTick(now: Date = new Date()): Promise<number> {
  * crash between dispatch start and result leaves the run in `running`
  * and the boot reaper marks it failed.
  *
- * Webhook schedules don't fire from the tick (their next_run_at is
+ * Webhook triggers don't fire from the tick (their next_run_at is
  * NULL); this function is a no-op for them by virtue of the listDue
  * query.
  */
-async function processSchedule(schedule: ScheduleRecord, now: Date): Promise<boolean> {
+async function processTrigger(trigger: TriggerRecord, now: Date): Promise<boolean> {
   // Compute the next fire POST-dispatch so an already-fired `at` slot
   // doesn't loop on its own past `runAt`. Passing `lastFiredAt: now`
   // models the world after we fire: for `at` that returns null (one-
@@ -191,20 +191,20 @@ async function processSchedule(schedule: ScheduleRecord, now: Date): Promise<boo
   // `cron` it ignores lastFiredAt and resolves the next slot after
   // `now` — all the right answers in one shape.
   const nextRunAt = computeNextRun(
-    { ...schedule, lastFiredAt: now.toISOString() },
+    { ...trigger, lastFiredAt: now.toISOString() },
     now,
   );
-  advanceScheduleNextRun(schedule.id, nextRunAt, now.toISOString());
+  advanceTriggerNextRun(trigger.id, nextRunAt, now.toISOString());
 
   // Active-hours skip — the slot is consumed (we already advanced
   // next_run_at) so we don't busy-loop on the same row at the next tick.
-  if (!isWithinActiveHours(schedule, now)) {
+  if (!isWithinActiveHours(trigger, now)) {
     return false;
   }
 
   await dispatchRun({
-    schedule,
-    trigger: schedule.kind === 'webhook' ? 'webhook' : schedule.kind,
+    trigger,
+    triggerKind: trigger.kind === 'webhook' ? 'webhook' : trigger.kind,
     triggerPayload: null,
     scheduledFor: now.toISOString(),
   });

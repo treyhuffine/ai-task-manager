@@ -5,10 +5,12 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { ChatSessionWithExecution } from '@/db/types';
 import { DiffStatsPair } from './diff-stats';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
+import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -62,6 +64,14 @@ export function SessionRow({
   const { data: diffStats } = useDiffStats(session.worktreePath ? session.id : null);
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
+  // Multi-select for bulk archive lives only on the canonical tree row;
+  // the needs-review duplicate stays plain navigation so a session can't
+  // present two checkboxes. `selection` is null outside the workspace
+  // nav (e.g. the by-status surface), which keeps the row inert there.
+  const selection = useWorkspaceSelection();
+  const selectable = variant === 'tree' && !!selection?.selecting;
+  const selected = selectable && !!selection?.isSelected(session.id);
+
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
 
@@ -92,8 +102,14 @@ export function SessionRow({
 
   // Read receipt fires on navigate-away, not click-in (handled in
   // ExecutionView's cleanup). Clicking the row stays cheap and the
-  // rail's buckets don't reshuffle out from under the user.
+  // rail's buckets don't reshuffle out from under the user. In selection
+  // mode the same click toggles the checkbox instead of navigating, so
+  // the whole row is the hit target.
   const handleOpen = () => {
+    if (selectable) {
+      selection!.toggle(session.id);
+      return;
+    }
     closeNow();
     setActiveView(session.id);
   };
@@ -109,9 +125,13 @@ export function SessionRow({
     <div
       ref={rowRef}
       onClick={handleOpen}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      // Suppress the hover preview while selecting — the user is scanning
+      // checkboxes, not previewing transcripts, and a popped panel would
+      // just cover the rows they're trying to tick.
+      onMouseEnter={selectable ? undefined : onMouseEnter}
+      onMouseLeave={selectable ? undefined : onMouseLeave}
       role="button"
+      aria-pressed={selectable ? selected : undefined}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -121,15 +141,19 @@ export function SessionRow({
       }}
       className={cn(
         'relative w-full group flex items-start gap-2 pl-5 pr-1.5 py-1 rounded-md transition-colors text-left cursor-pointer',
-        isActive
-          ? variant === 'needs-review'
-            // Needs-review variant defers the background fill to the
-            // canonical tree row below; the accent comes from the
-            // absolute bar below so the rounded corners stay clean
-            // and the row's horizontal padding stays intact.
-            ? 'text-foreground'
-            : 'bg-secondary text-foreground'
-          : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+        selectable
+          ? selected
+            ? 'bg-primary/10 text-foreground'
+            : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+          : isActive
+            ? variant === 'needs-review'
+              // Needs-review variant defers the background fill to the
+              // canonical tree row below; the accent comes from the
+              // absolute bar below so the rounded corners stay clean
+              // and the row's horizontal padding stays intact.
+              ? 'text-foreground'
+              : 'bg-secondary text-foreground'
+            : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
       )}
     >
       {/* Slim selection accent for the needs-review duplicate. Sits
@@ -148,13 +172,26 @@ export function SessionRow({
       )}
       {/* Pip centers against line 1 (the title), not the whole row —
           it reads with the label, and the metadata line below stays
-          visually subordinate. */}
+          visually subordinate. In selection mode the pip is swapped for
+          a checkbox in the same slot so nothing shifts. The checkbox is
+          pointer-events-none — the row's onClick is the single source of
+          toggle truth, so a click anywhere on the row (box included)
+          flips selection exactly once. */}
       <span className="flex h-4 items-center flex-shrink-0">
-        <StatusPip
-          isStreaming={isStreaming}
-          isPending={isPending}
-          isUnread={isUnread}
-        />
+        {selectable ? (
+          <Checkbox
+            checked={selected}
+            tabIndex={-1}
+            aria-hidden
+            className="pointer-events-none size-3.5"
+          />
+        ) : (
+          <StatusPip
+            isStreaming={isStreaming}
+            isPending={isPending}
+            isUnread={isUnread}
+          />
+        )}
       </span>
       <div className="flex-1 min-w-0">
         <span
@@ -183,18 +220,22 @@ export function SessionRow({
       </div>
       {/* The metadata cluster is left-anchored, so the row's right
           half is dead space — the kebab fades in there without hiding
-          or displacing anything. */}
-      <SessionRowMenu
-        sessionId={session.id}
-        workspaceId={session.workspaceId ?? null}
-        workspaceIsGit={workspaceIsGit ?? false}
-        isUnread={isUnread || isPending}
-        label={label}
-        onOpenWorkspaceSettings={onOpenWorkspaceSettings}
-        onCreateExecution={onCreateExecution}
-        onOpenCreateFrom={onOpenCreateFrom}
-        className="absolute right-1 top-1/2 -translate-y-1/2"
-      />
+          or displacing anything. Hidden in selection mode: the row's
+          only job then is to toggle, and a per-row menu would invite a
+          one-off archive that competes with the batch action. */}
+      {!selectable && (
+        <SessionRowMenu
+          sessionId={session.id}
+          workspaceId={session.workspaceId ?? null}
+          workspaceIsGit={workspaceIsGit ?? false}
+          isUnread={isUnread || isPending}
+          label={label}
+          onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+          onCreateExecution={onCreateExecution}
+          onOpenCreateFrom={onOpenCreateFrom}
+          className="absolute right-1 top-1/2 -translate-y-1/2"
+        />
+      )}
     </div>
   );
 }

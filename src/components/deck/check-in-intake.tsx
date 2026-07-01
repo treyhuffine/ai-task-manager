@@ -76,7 +76,7 @@ export function CheckInIntake({ onSubmit, onSkip, hasPreviousDeck, collapsed, on
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Energy level, schedule changes, what's top of mind..."
+        placeholder="Energy level, trigger changes, what's top of mind..."
         rows={2}
         className="w-full bg-card border border-border rounded-lg px-3 py-2.5 text-[12px] text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:border-primary/30 transition-colors"
       />

@@ -14,6 +14,7 @@ import {
   Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatSpanSeconds } from '@/lib/executions/duration';
 import type { ChatEventRecord } from '@/db/types';
 import {
   Sheet,
@@ -369,8 +370,5 @@ function formatTokens(n: number): string {
 }
 
 function formatDuration(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m ${s % 60}s`;
+  return formatSpanSeconds(ms / 1000) ?? '0s';
 }

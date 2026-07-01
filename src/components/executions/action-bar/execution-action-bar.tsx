@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Send, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive } from 'lucide-react';
 import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState } from '@/hooks/use-execution-actions';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
-import { useArchiveSession } from '@/hooks/use-workspaces';
+import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { ApiError } from '@/lib/api/client';
 import { ActionButton } from './action-button';
@@ -44,7 +44,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
     session,
     workspace?.isGit ?? false,
   );
-  const archive = useArchiveSession();
+  const { confirmArchive, isPending: archivePending } = useArchiveWithConfirm();
   const helpWithError = useHelpWithError(session.id);
   const { setActiveView } = useDashboard();
 
@@ -82,36 +82,11 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
   };
 
   const handleArchive = () => {
-    if (!confirm(`Archive "${session.execution?.label ?? session.label ?? 'this execution'}"?`)) return;
-    archive.mutate(
-      { id: session.id, force: false },
-      {
-        onSuccess: () => setActiveView('command'),
-        onError: (err) => {
-          if (err instanceof ApiError && err.status === 409) {
-            const body = err.body as { code?: string } | null;
-            if (body?.code === 'dirty_worktree') {
-              const force = confirm(
-                'Worktree has uncommitted or unpushed changes. Archive anyway? Local changes will be lost.',
-              );
-              if (force) {
-                archive.mutate(
-                  { id: session.id, force: true },
-                  { onSuccess: () => setActiveView('command') },
-                );
-              }
-              return;
-            }
-          }
-          setActionError({
-            title: "Couldn't archive",
-            action: 'Archive',
-            message: errorText(err),
-            context: baseContext(),
-          });
-        },
-      },
-    );
+    void confirmArchive({
+      id: session.id,
+      label: session.execution?.label ?? session.label,
+      onArchived: () => setActiveView('command'),
+    });
   };
 
   // Hide entirely for non-git, no-worktree, or archived sessions.
@@ -253,7 +228,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
           push={{ pending: push.isPending, onClick: handlePush }}
           pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
           retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
-          archive={{ pending: archive.isPending, onClick: handleArchive }}
+          archive={{ pending: archivePending, onClick: handleArchive }}
           resolveConflicts={resolveAction}
         />
         {errorModal}
@@ -268,7 +243,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
       push={{ pending: push.isPending, onClick: handlePush }}
       pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
       retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
-      archive={{ pending: archive.isPending, onClick: handleArchive }}
+      archive={{ pending: archivePending, onClick: handleArchive }}
       resolveConflicts={resolveAction}
       openPrPending={openPr.isPending}
       mergePending={mergePr.isPending}

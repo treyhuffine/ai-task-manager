@@ -1,1 +1,0 @@
-ALTER TABLE `chat_sessions` ADD `permission_mode` text DEFAULT 'bypass' NOT NULL;

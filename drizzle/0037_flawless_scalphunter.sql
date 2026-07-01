@@ -1,1 +1,0 @@
-ALTER TABLE `workspaces` ADD `skip_live_confirm` integer DEFAULT false NOT NULL;

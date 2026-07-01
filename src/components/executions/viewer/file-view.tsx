@@ -85,7 +85,7 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
   // to file Y leaves the buffer holding X's content for one frame
   // (until the load-effect below fires for Y), which would render
   // X's text under Y's path. Setting state during render is allowed
-  // when guarded by an equality check — React reschedules the render
+  // when guarded by an equality check — React retriggers the render
   // with the new state instead of looping.
   const lastPathRef = useRef<string | null>(null);
   if (lastPathRef.current !== path) {

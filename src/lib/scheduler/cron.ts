@@ -1,5 +1,5 @@
 /**
- * Cron + cadence helpers. Computes a schedule's `next_run_at` and
+ * Cron + cadence helpers. Computes a trigger's `next_run_at` and
  * validates user-supplied cron strings. All time math goes through
  * `croner` (5-field, classic Unix cron with timezone-aware parsing).
  *
@@ -8,13 +8,13 @@
  * just trip users up. We reject 6-field input rather than silently
  * truncating.
  *
- * Active-hours skip is computed here too, in the schedule's timezone,
+ * Active-hours skip is computed here too, in the trigger's timezone,
  * so the tick can check "should this fire even though next_run_at is
  * due?" without re-parsing time zones at the call site.
  */
 
 import { Cron } from 'croner';
-import type { ScheduleRecord } from '@/db/types';
+import type { TriggerRecord } from '@/db/types';
 
 export interface CronValidationResult {
   valid: boolean;
@@ -66,52 +66,52 @@ export function validateCronExpression(
 }
 
 /**
- * Compute when this schedule should next fire. Returns null for kinds
+ * Compute when this trigger should next fire. Returns null for kinds
  * that don't have a time-based fire (webhook), for one-offs that have
  * already run, and for misconfigured rows the validator would have
  * caught at create-time. Always advances strictly past `from` — a
- * schedule that just fired won't immediately re-fire.
+ * trigger that just fired won't immediately re-fire.
  *
- * The tick reads this value back into `schedules.next_run_at` BEFORE
+ * The tick reads this value back into `triggers.next_run_at` BEFORE
  * dispatching. That's the at-most-once guarantee.
  */
 export function computeNextRun(
-  schedule: Pick<
-    ScheduleRecord,
+  trigger: Pick<
+    TriggerRecord,
     'kind' | 'cronExpression' | 'intervalSeconds' | 'runAt' | 'timezone' | 'lastFiredAt'
   >,
   from: Date = new Date(),
 ): string | null {
-  switch (schedule.kind) {
+  switch (trigger.kind) {
     case 'manual':
     case 'webhook':
       return null;
     case 'at': {
-      if (!schedule.runAt) return null;
+      if (!trigger.runAt) return null;
       // One-off has already fired if lastFiredAt is set.
-      if (schedule.lastFiredAt) return null;
-      const at = new Date(schedule.runAt);
+      if (trigger.lastFiredAt) return null;
+      const at = new Date(trigger.runAt);
       if (Number.isNaN(at.getTime())) return null;
       // Even one-offs whose `runAt` is in the past need a non-null
       // next_run_at so the tick picks them up on the next sweep.
       return at.toISOString();
     }
     case 'every': {
-      if (!schedule.intervalSeconds || schedule.intervalSeconds <= 0) return null;
-      const base = schedule.lastFiredAt ? new Date(schedule.lastFiredAt) : from;
+      if (!trigger.intervalSeconds || trigger.intervalSeconds <= 0) return null;
+      const base = trigger.lastFiredAt ? new Date(trigger.lastFiredAt) : from;
       // Advance strictly past `from` so a long-running tick can't
       // immediately re-fire on its own dispatch.
-      let next = new Date(base.getTime() + schedule.intervalSeconds * 1000);
+      let next = new Date(base.getTime() + trigger.intervalSeconds * 1000);
       while (next.getTime() <= from.getTime()) {
-        next = new Date(next.getTime() + schedule.intervalSeconds * 1000);
+        next = new Date(next.getTime() + trigger.intervalSeconds * 1000);
       }
       return next.toISOString();
     }
     case 'cron': {
-      if (!schedule.cronExpression) return null;
+      if (!trigger.cronExpression) return null;
       try {
-        const cron = new Cron(schedule.cronExpression, {
-          timezone: schedule.timezone ?? 'UTC',
+        const cron = new Cron(trigger.cronExpression, {
+          timezone: trigger.timezone ?? 'UTC',
         });
         const next = cron.nextRun(from);
         return next ? next.toISOString() : null;
@@ -123,25 +123,25 @@ export function computeNextRun(
 }
 
 /**
- * True when the given instant falls inside the schedule's active-hours
+ * True when the given instant falls inside the trigger's active-hours
  * window. Returns true (allow) when no window is configured. Used by
- * the tick to skip dispatch on schedules whose `next_run_at` matured
+ * the tick to skip dispatch on triggers whose `next_run_at` matured
  * outside business hours.
  *
- * The window is evaluated in the schedule's timezone — "9–5" means
- * 9am–5pm wherever the schedule's user lives, not UTC. The window can
+ * The window is evaluated in the trigger's timezone — "9–5" means
+ * 9am–5pm wherever the trigger's user lives, not UTC. The window can
  * cross midnight (`22:00`–`06:00`) and is half-open: equals start fires,
  * equals end skips.
  */
 export function isWithinActiveHours(
-  schedule: Pick<ScheduleRecord, 'activeHoursStart' | 'activeHoursEnd' | 'timezone'>,
+  trigger: Pick<TriggerRecord, 'activeHoursStart' | 'activeHoursEnd' | 'timezone'>,
   at: Date = new Date(),
 ): boolean {
-  if (!schedule.activeHoursStart || !schedule.activeHoursEnd) return true;
-  const tz = schedule.timezone ?? 'UTC';
+  if (!trigger.activeHoursStart || !trigger.activeHoursEnd) return true;
+  const tz = trigger.timezone ?? 'UTC';
   const local = formatHHMMInTz(at, tz);
-  const start = schedule.activeHoursStart;
-  const end = schedule.activeHoursEnd;
+  const start = trigger.activeHoursStart;
+  const end = trigger.activeHoursEnd;
   if (start === end) return false; // zero-width window
   if (start < end) {
     // Simple window — e.g. 09:00..17:00

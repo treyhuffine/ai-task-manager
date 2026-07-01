@@ -485,9 +485,14 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       }}
       disabled={composerDisabled}
     >
-      {workspace?.isGit && !!session.worktreePath && (
-        <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
-      )}
+      {workspace?.isGit &&
+        !!session.worktreePath &&
+        session.worktreePath !== workspace.cwd && (
+          // Skip for Live / in-place sessions: their "worktree" IS the source
+          // checkout (worktreePath === cwd), so no WIP ever "stayed behind" —
+          // the agent edits the same tree the user does.
+          <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
+        )}
       {reconciling && <SyncingPill />}
       <ExecutionTranscript
         session={session}

@@ -20,9 +20,9 @@ import type { NotificationChannelAdapter, NotificationEvent } from './types';
 
 export interface NotifyOptions {
   /**
-   * Binding routing (spec §2.4): deliver to exactly these channel ids (a schedule's
+   * Binding routing (spec §2.4): deliver to exactly these channel ids (a trigger's
    * `deliverResultTo[]`), bypassing the per-channel `events[]` matrix. Used by
-   * `schedule.run_completed` / digests.
+   * `trigger.run_completed` / digests.
    */
   deliverTo?: string[];
 }

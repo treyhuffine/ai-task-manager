@@ -75,14 +75,6 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // `/api/triggers/<publicId>` is the webhook intake for schedules. The
-  // path's publicId is the identity; HMAC-SHA256 over the raw body
-  // (verified inside the route against `schedules.webhookSecretHash`)
-  // is the auth. See task #16.
-  if (request.nextUrl.pathname.startsWith('/api/triggers/')) {
-    return NextResponse.next();
-  }
-
   // `/api/takeover/<token>/...` is the CLI surface for "Take over locally."
   // The `token` in the path IS the auth — handlers validate it against
   // `chat_sessions.takeoverToken` and its `_expires_at`. Tokens are

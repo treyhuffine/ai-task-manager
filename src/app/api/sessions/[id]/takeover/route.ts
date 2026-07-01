@@ -168,7 +168,7 @@ export async function POST(
       expiresAt: expiresAt,
       // Pin the chat that initiated the takeover so resume lands in
       // *this* chat even when sibling chats accumulate on the
-      // execution (recurring schedule fires).
+      // execution (recurring trigger fires).
       chatSessionId: id,
     });
     if (!updated) {

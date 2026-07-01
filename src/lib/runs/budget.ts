@@ -9,7 +9,7 @@
  *   - 'warn'  — spend ∈ [75%, 100%); dispatch proceeds, UI shows a soft
  *               warning
  *   - 'block' — spend ≥ 100%; scheduled dispatch is rejected and the
- *               schedule is auto-paused; manual dispatch requires
+ *               trigger is auto-paused; manual dispatch requires
  *               explicit user confirmation
  *
  * In-flight runs at the threshold finish normally — we gate *new*
@@ -66,7 +66,7 @@ export function budgetGate(now: Date = new Date()): BudgetGateState {
 }
 
 /**
- * Human-readable reason recorded on `schedules.disabledReason` when the
- * budget guard auto-pauses a schedule.
+ * Human-readable reason recorded on `triggers.disabledReason` when the
+ * budget guard auto-pauses a trigger.
  */
 export const BUDGET_DISABLED_REASON = 'budget_exceeded';
