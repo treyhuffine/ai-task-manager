@@ -14,7 +14,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
-import { useUpdateSession, useSessionMeta, useSessionTree, usePicker } from '@/hooks/use-execution';
+import {
+  useUpdateSession,
+  useSessionMeta,
+  useSessionTree,
+  usePicker,
+  useSessionEvents,
+} from '@/hooks/use-execution';
+import { buildRecallHistory } from '@/components/chat/editor/history-recall';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META, nextPermissionMode } from '@/lib/permission-modes';
@@ -294,6 +301,17 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const prMentionsRef = useRef(prMentions);
     prMentionsRef.current = prMentions;
 
+    // Sent-message recall (ArrowUp in the composer). Derived from the same
+    // persisted transcript the chat body renders — already in the query
+    // cache, so this is a read, not an extra fetch — so history survives a
+    // page reload like a real shell's. `buildRecallHistory` keeps only the
+    // user's own sends, oldest → newest, marker-stripped.
+    const { data: sessionEvents } = useSessionEvents(sessionId || null);
+    const messageHistory = useMemo(
+      () => buildRecallHistory(sessionEvents ?? []),
+      [sessionEvents],
+    );
+
     // The chip shows the user's *selection*, never what last ran. For Claude
     // a pick is a tier alias (`opus`/`sonnet`/`haiku`), shown as the generic
     // tier ("Opus") = "latest Opus", resolved at run time. With no explicit
@@ -558,6 +576,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   mentionNotes={mentionNotes}
                   prs={prMentions}
                   draftKey={sessionId ? `exec:${sessionId}` : undefined}
+                  history={messageHistory}
                 />
               )}
               {/* Floating focus hint — only when the editor is the empty

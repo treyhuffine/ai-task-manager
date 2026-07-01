@@ -58,6 +58,7 @@ import {
   DRAFT_STORAGE_PREFIX,
   DRAFT_SAVE_DEBOUNCE_MS,
 } from './draft-storage';
+import { recallStep, textToDocJSON, type RecallDirection } from './history-recall';
 import { SlashMenuExtension } from './slash-menu/extension';
 import type { SkillCommandDescriptor } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
@@ -222,6 +223,17 @@ interface ChatInputEditorProps {
    * stuck forever.
    */
   draftKey?: string;
+  /**
+   * Prior sent messages, oldest → newest, for shell-style recall. When
+   * non-empty, pressing ArrowUp while the caret is on the first line of the
+   * editor cycles back through them (stashing the in-progress draft first);
+   * ArrowDown on the last line walks forward and hands the draft back once
+   * you step past the newest entry. Consumers own what counts as "sent":
+   * the execution composer derives this from the persisted transcript so it
+   * survives reloads like a real shell history; the legacy chat derives it
+   * from its in-memory message list. Omit (or pass empty) to disable recall.
+   */
+  history?: string[];
 }
 
 // ─── Tunables ──────────────────────────────────────────────────
@@ -337,6 +349,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       mentionNotes,
       prs,
       draftKey,
+      history,
     },
     ref,
   ) {
@@ -366,6 +379,29 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     const prsRef = useRef(prs);
     prsRef.current = prs;
     onFocusRef.current = onFocus;
+    // Mirror the recall ring in a ref so the keymap (built once) always
+    // reads the latest sent-message list without re-creating the editor.
+    const historyRef = useRef(history);
+    historyRef.current = history;
+
+    // ─── Sent-message recall (ArrowUp / ArrowDown) ────────────────
+    //
+    // `historyIndexRef` is the ring position — null means "showing the
+    // live draft, not navigating". `historyStashRef` holds the draft
+    // captured when navigation began so ArrowDown past the newest entry
+    // can hand it back (null there means the draft was empty). Both are
+    // refs (no re-render) and reset whenever the doc is replaced out from
+    // under navigation: send/clear, failed-send restore, draft-key switch.
+    const historyIndexRef = useRef<number | null>(null);
+    const historyStashRef = useRef<EditorSnapshot | null>(null);
+    const resetHistoryNav = useCallback(() => {
+      historyIndexRef.current = null;
+      historyStashRef.current = null;
+    }, []);
+    // The keymap is built once (deps []) but the recall handler closes over
+    // callbacks defined further down; route through a ref so the keymap
+    // calls the latest implementation without being recreated.
+    const recallRef = useRef<(ed: Editor, direction: RecallDirection) => boolean>(() => false);
 
     const KeymapExtension = useMemo(
       () =>
@@ -387,6 +423,14 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
                 onSubmitRef.current?.();
                 return true;
               },
+              // Shell-style recall. Only fires when the caret sits at the
+              // recall edge with an empty ring available (see `applyRecall`),
+              // otherwise returns false so the arrow performs its normal
+              // caret motion. Open suggestion menus intercept the arrows
+              // first (their plugins run before this keymap), so `/ @ #`
+              // navigation is unaffected.
+              ArrowUp: () => recallRef.current(this.editor, 'prev'),
+              ArrowDown: () => recallRef.current(this.editor, 'next'),
               Backspace: () => {
                 if (!this.editor.isEmpty) return false;
                 onBackspaceRef.current?.();
@@ -424,17 +468,99 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       return hasPendingFileChip(ed.getJSON() as ProseMirrorJSONNode, FILE_CHIP_NAME);
     }, []);
 
+    // Handle one recall keypress. Returns true when it swapped the doc
+    // (consuming the key), false to let the arrow move the caret normally.
+    // The pure ring math lives in `history-recall.ts`; here we gate on
+    // caret geometry and drive the Tiptap content swap.
+    const applyRecall = useCallback(
+      (ed: Editor, direction: RecallDirection): boolean => {
+        const { selection } = ed.state;
+        // Range selections mean the user is selecting text — let the arrow
+        // extend/collapse it rather than hijacking for recall.
+        if (!selection.empty) return false;
+        // A pending upload would be stashed as an unrestorable spinner chip;
+        // skip recall until it resolves (Send is disabled then too).
+        if (editorHasPendingChip(ed)) return false;
+        const { $from } = selection;
+        // Defensive: a doc-level / gap-cursor selection has no enclosing
+        // textblock, so `before()`/`after()` below would throw. Never happens
+        // for a normal text caret (depth ≥ 1) in this inline-only schema.
+        if ($from.depth === 0) return false;
+        // The caret must be on the first (Up) / last (Down) visual line of
+        // the whole document. `endOfTextblock` reads DOM coordinates, so it
+        // honors soft-wrapped lines and hard breaks; the block-position
+        // guard covers the rare multi-paragraph doc (pasted content).
+        if (direction === 'prev') {
+          if (!ed.view.endOfTextblock('up') || $from.before() !== 0) return false;
+        } else {
+          if (!ed.view.endOfTextblock('down') || $from.after() !== ed.state.doc.content.size) {
+            return false;
+          }
+        }
+        const ring = historyRef.current ?? [];
+        const step = recallStep(historyIndexRef.current, ring.length, direction);
+        if (!step) return false;
+        // Snapshot the in-progress draft on the first step in so ArrowDown
+        // past the newest entry can restore it (null = the draft was empty).
+        if (step.captureStash) {
+          historyStashRef.current = ed.isEmpty ? null : { doc: ed.getJSON() };
+        }
+        if (step.nextIndex === null) {
+          // Stepped out the bottom of history — hand the stashed draft back.
+          const stash = historyStashRef.current;
+          resetHistoryNav();
+          if (stash) {
+            ed.chain().setContent(stash.doc as never, { emitUpdate: true }).focus('end').run();
+          } else {
+            ed.chain().clearContent(true).focus().run();
+          }
+        } else {
+          // Set the index before swapping content: the `emitUpdate` below
+          // runs `onUpdate` synchronously, and `triggerDraftSave` keys off a
+          // non-null index to skip persisting the recalled (scratch) text.
+          historyIndexRef.current = step.nextIndex;
+          ed
+            .chain()
+            .setContent(textToDocJSON(ring[step.nextIndex] ?? '') as never, { emitUpdate: true })
+            .focus('end')
+            .run();
+        }
+        return true;
+      },
+      [editorHasPendingChip, resetHistoryNav],
+    );
+    recallRef.current = applyRecall;
+
     const writeDraftSync = useCallback(
       (key: string) => {
         const ed = editorRef.current;
         if (!ed) return;
+        const storageKey = `${DRAFT_STORAGE_PREFIX}${key}`;
+        // While navigating sent-message history the visible doc is a
+        // recalled message, not the user's draft. Persist the stashed
+        // pre-navigation draft instead (or clear the slot when it was
+        // empty) so a session switch mid-recall doesn't overwrite the real
+        // draft with a recalled message.
+        if (historyIndexRef.current !== null) {
+          if (!hydratedKeysRef.current.has(key)) return;
+          const stash = historyStashRef.current;
+          try {
+            if (stash) {
+              window.localStorage.setItem(storageKey, JSON.stringify(stash.doc));
+            } else {
+              window.localStorage.removeItem(storageKey);
+            }
+          } catch {
+            // Quota exceeded / storage disabled / SSR — drop silently.
+          }
+          return;
+        }
         const action = draftStorageAction({
           isEmpty: ed.isEmpty,
           hasPendingChip: editorHasPendingChip(ed),
           hydrated: hydratedKeysRef.current.has(key),
         });
         if (action === 'skip') return;
-        const storageKey = `${DRAFT_STORAGE_PREFIX}${key}`;
         try {
           if (action === 'remove') {
             window.localStorage.removeItem(storageKey);
@@ -453,6 +579,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       if (!key) return;
       const ed = editorRef.current;
       if (!ed) return;
+      // Recalled sent messages are transient scratch — never persist them as
+      // the draft. The pre-navigation draft is already stashed and is what
+      // `writeDraftSync` flushes on a mid-recall key switch / unmount.
+      if (historyIndexRef.current !== null) return;
       const action = draftStorageAction({
         isEmpty: ed.isEmpty,
         hasPendingChip: editorHasPendingChip(ed),
@@ -643,6 +773,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         writeDraftSync(previousKey);
       }
       draftKeyRef.current = draftKey;
+      // The doc is about to be replaced with this key's draft, so any recall
+      // navigation from the previous key is over. Reset after the flush
+      // above (which still needs the stash) so history state doesn't leak
+      // across a session switch.
+      resetHistoryNav();
       if (!draftKey) return;
       // Mark this key hydrated *before* reading: from here on an empty
       // editor genuinely means "user cleared it", so saves/removes are
@@ -674,7 +809,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       if (previousKey && previousKey !== draftKey) {
         editor.commands.clearContent(true);
       }
-    }, [editor, draftKey, writeDraftSync]);
+    }, [editor, draftKey, writeDraftSync, resetHistoryNav]);
 
     // Final flush on unmount so a debounced save in flight isn't lost
     // when the editor tears down (page nav, parent unmount).
@@ -726,6 +861,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         },
         clear: () => {
           if (!editor) return;
+          // A send/clear ends any recall navigation — the stashed draft is
+          // intentionally discarded (the user committed the recalled text).
+          resetHistoryNav();
           editor.commands.clearContent(true);
         },
         insertTextAtCursor: (text) => {
@@ -747,6 +885,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         },
         restore: (snap) => {
           if (!editor) return;
+          // A failed-send rollback puts the real draft back — end any recall
+          // navigation so the restored text is treated as the live draft.
+          resetHistoryNav();
           // `setContent` with `emitUpdate: true` so `onUpdate` runs and
           // the parent's `hasContent` flips back to true after a
           // failed-send rollback. Focus to the end matches what the
@@ -757,7 +898,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         getMarkerOutput: () => buildMarkerOutput(editor),
         getUiMessageParts: () => buildUiMessageParts(editor),
       }),
-      [editor, uploadAndInsert, editorHasPendingChip],
+      [editor, uploadAndInsert, editorHasPendingChip, resetHistoryNav],
     );
 
     return (

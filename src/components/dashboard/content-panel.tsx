@@ -7,7 +7,7 @@ import {
   Zap, Radar, Shuffle, Clock, AlertCircle, Battery, Trophy, TrendingDown, MoreHorizontal,
   Wrench, Check, XCircle, AudioLines, Plus, History,
 } from 'lucide-react';
-import { useState, useCallback, Fragment, useRef, useEffect } from 'react';
+import { useState, useCallback, Fragment, useRef, useEffect, useMemo } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { isFileUIPart, isToolUIPart, getToolName, DefaultChatTransport } from 'ai';
 import { getAuthToken } from '@/lib/api/client';
@@ -37,6 +37,7 @@ import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import {
   ChatInputEditor, type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor';
+import { buildRecallHistory } from '@/components/chat/editor/history-recall';
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { APP_NAME } from '@/constants/app';
@@ -408,6 +409,27 @@ function LegacyChatContent({ panelId }: { panelId: PanelId }) {
   const moreActionsRef = useRef<HTMLDivElement>(null);
   const { messages, sendMessage, status, stop } = useChat({ transport: chatTransport });
   const isStreaming = status === 'streaming';
+
+  // Sent-message recall (ArrowUp in the composer). The classic chat keeps
+  // messages in memory (ai-sdk `useChat`), so recall history lives and dies
+  // with the session — no persistence, unlike the harness chats. We flatten
+  // each user turn's text parts into one recall entry.
+  const messageHistory = useMemo(
+    () =>
+      buildRecallHistory(
+        messages
+          .filter((m) => m.role === 'user')
+          .map((m) => ({
+            role: 'user',
+            source: 'user',
+            content: m.parts
+              .map((p) => (p.type === 'text' ? p.text : ''))
+              .join('')
+              .trim(),
+          })),
+      ),
+    [messages],
+  );
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
   const voiceAutoSend = userState?.voiceAutoSend ?? true;
@@ -877,6 +899,7 @@ function LegacyChatContent({ panelId }: { panelId: PanelId }) {
                 onContentChange={setEditorHasContent}
                 onPendingUploadsChange={setHasPendingUploads}
                 onSubmit={() => (isStreaming ? stop() : handleSubmit())}
+                history={messageHistory}
                 className="pl-1"
               />
               <AttachButton
