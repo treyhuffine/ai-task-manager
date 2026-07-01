@@ -44,16 +44,21 @@ for (const t of mainTables) {
   if (!oldTables.has(src)) { console.log('  ' + t + ': (no source) skipped'); continue; }
   const newCols = db.prepare('PRAGMA table_info(' + q(t) + ')').all().map((c) => c.name);
   const oldSet = new Set(db.prepare('PRAGMA src.table_info(' + q(src) + ')').all().map((c) => c.name));
-  const exprs = newCols.map((c) => {
-    if (oldSet.has(c)) return q(c);
-    if (c === 'trigger_kind' && oldSet.has('trigger')) return q('trigger');
-    if (c === 'trigger_id' && oldSet.has('schedule_id') && !oldSet.has('trigger_id')) return q('schedule_id');
-    if (c === 'created_at') return "(datetime('now'))";
-    if (c === 'updated_at') return oldSet.has('created_at') ? q('created_at') : "(datetime('now'))";
-    return 'NULL';
-  });
+  const cols = [];
+  const exprs = [];
+  for (const c of newCols) {
+    let e;
+    if (oldSet.has(c)) e = q(c);
+    else if (c === 'trigger_kind' && oldSet.has('trigger')) e = q('trigger');
+    else if (c === 'trigger_id' && oldSet.has('schedule_id') && !oldSet.has('trigger_id')) e = q('schedule_id');
+    else if (c === 'created_at') e = "(datetime('now'))";
+    else if (c === 'updated_at') e = oldSet.has('created_at') ? q('created_at') : "(datetime('now'))";
+    else continue; // column is new (absent from the old DB) -> omit it so its schema DEFAULT fills in
+    cols.push(q(c));
+    exprs.push(e);
+  }
   const verb = t === 'user_state' ? 'INSERT OR REPLACE INTO' : 'INSERT INTO';
-  db.prepare(verb + ' main.' + q(t) + ' (' + newCols.map(q).join(',') + ') SELECT ' + exprs.join(',') + ' FROM src.' + q(src)).run();
+  db.prepare(verb + ' main.' + q(t) + ' (' + cols.join(',') + ') SELECT ' + exprs.join(',') + ' FROM src.' + q(src)).run();
   const nc = db.prepare('SELECT count(*) c FROM main.' + q(t)).get().c;
   const sc = db.prepare('SELECT count(*) c FROM src.' + q(src)).get().c;
   if (nc !== sc) warn++;
