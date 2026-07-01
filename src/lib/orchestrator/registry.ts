@@ -64,6 +64,7 @@ import { getNotifierUserId } from '@/lib/notifications/user';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
+import { isReservedTrigger, RESERVED_LOCKED_FIELDS } from '@/lib/triggers/reserved';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
@@ -1165,6 +1166,21 @@ const update_trigger_action = defineAction({
     const current = getTrigger(id);
     if (!current) throw new ActionError('not_found', `Trigger not found: ${id}`);
 
+    // App-managed rows: schedule + delivery are user-owned, identity/behavior
+    // is not. Reject edits to locked fields; the friendly editor (e.g. Deck
+    // settings) owns those. Internal callers bypass this via raw updateTrigger.
+    if (isReservedTrigger(id)) {
+      const locked = RESERVED_LOCKED_FIELDS.filter(
+        (f) => (rest as Record<string, unknown>)[f] !== undefined,
+      );
+      if (locked.length > 0) {
+        throw new ActionError(
+          'conflict',
+          `This trigger is managed by the app. You can change its schedule and delivery, but not: ${locked.join(', ')}.`,
+        );
+      }
+    }
+
     // Verify the digest binding against the (immutable) target_kind before write.
     if (rest.deliverResultTo !== undefined) {
       rest.deliverResultTo = validateDeliverResultTo(rest.deliverResultTo, current.targetKind);
@@ -1211,6 +1227,14 @@ const delete_trigger_action = defineAction({
   mutating: true,
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
+    // App-managed rows are disabled, never deleted — otherwise the next boot's
+    // ensure-seed would re-create the row and silently undo the user's intent.
+    if (isReservedTrigger(id)) {
+      throw new ActionError(
+        'conflict',
+        'This trigger is managed by the app. Disable it instead of deleting.',
+      );
+    }
     const ok = deleteTrigger(id);
     if (!ok) throw new ActionError('not_found', `Trigger not found: ${id}`);
     return { id, deleted: true };

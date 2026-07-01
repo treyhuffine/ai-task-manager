@@ -15,6 +15,7 @@ import { useTriggers, useUpdateTrigger } from '@/hooks/use-triggers';
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { describeFrequency } from '@/lib/scheduler/frequency';
+import { isReservedTrigger } from '@/lib/triggers/reserved';
 
 export default function TriggersPage() {
   const router = useRouter();
@@ -112,6 +113,14 @@ function TriggerRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{trigger.name}</p>
+          {isReservedTrigger(trigger.id) && (
+            <span
+              className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-md bg-muted text-muted-foreground"
+              title="Managed by the app — edit its schedule in Settings › General"
+            >
+              Managed
+            </span>
+          )}
           {failing && (
             <span
               className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded-md bg-destructive/10 text-destructive"

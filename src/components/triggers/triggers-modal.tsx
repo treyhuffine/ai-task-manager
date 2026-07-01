@@ -34,6 +34,7 @@ import {
 } from './trigger-create-form';
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
+import { isReservedTrigger } from '@/lib/triggers/reserved';
 
 type View = 'list' | 'new' | 'webhook-credentials';
 
@@ -305,6 +306,14 @@ function Row({
       >
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{trigger.name}</p>
+          {isReservedTrigger(trigger.id) && (
+            <span
+              className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-medium bg-muted text-muted-foreground"
+              title="Managed by the app"
+            >
+              Managed
+            </span>
+          )}
           {trigger.lastRunStatus && (
             <span
               className={cn(

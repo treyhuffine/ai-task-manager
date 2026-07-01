@@ -5,6 +5,7 @@ import { Moon, Sun } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
+import { useMorningDeck, useUpdateMorningDeck } from '@/hooks/use-morning-deck';
 import {
   useEditorPreference,
   EDITOR_CHOICE_LABELS,
@@ -65,6 +66,14 @@ export function GeneralSection() {
     () => (zones.includes(effectiveTz) ? zones : [effectiveTz, ...zones]),
     [zones, effectiveTz],
   );
+
+  const { data: morning } = useMorningDeck();
+  const updateMorning = useUpdateMorningDeck();
+  const [morningTime, setMorningTime] = useState('04:00');
+  useEffect(() => {
+    if (morning) setMorningTime(morning.time);
+  }, [morning?.time]); // eslint-disable-line react-hooks/exhaustive-deps
+  const morningEnabled = morning?.enabled ?? false;
 
   const { choice, customCommand, setChoice, setCustomCommand } = useEditorPreference();
   const { density, setDensity } = useTranscriptDensity();
@@ -130,6 +139,32 @@ export function GeneralSection() {
           <TimeField label="Start" value={start} onChange={(v) => { setStart(v); update.mutate({ workdayStart: v }); }} />
           <span className="mt-4 text-muted-foreground">-</span>
           <TimeField label="End" value={end} onChange={(v) => { setEnd(v); update.mutate({ workdayEnd: v }); }} />
+        </div>
+      </section>
+
+      {/* Daily deck refresh */}
+      <section className="space-y-2">
+        <h3 className="text-[12px] font-medium text-foreground">Daily deck refresh</h3>
+        <p className="text-[11px] text-muted-foreground/85">
+          Prepares tomorrow&apos;s deck overnight so it&apos;s ready before you open the app. Your deck is
+          always generated the first time you open it each day regardless.
+        </p>
+        <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-foreground">Refresh each morning</span>
+            <Switch
+              checked={morningEnabled}
+              onCheckedChange={(next) => updateMorning.mutate({ enabled: next })}
+              aria-label="Refresh the deck each morning"
+            />
+          </div>
+          {morningEnabled && (
+            <TimeField
+              label="Refresh at"
+              value={morningTime}
+              onChange={(v) => { setMorningTime(v); updateMorning.mutate({ time: v }); }}
+            />
+          )}
         </div>
       </section>
 

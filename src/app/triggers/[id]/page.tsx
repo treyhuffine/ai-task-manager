@@ -35,6 +35,8 @@ import { cn } from '@/lib/utils';
 import type { RunRecord } from '@/db/types';
 import { describeFrequency } from '@/lib/scheduler/frequency';
 import { RunActivityBadge } from '@/components/runs/run-activity-badge';
+import { isReservedTrigger } from '@/lib/triggers/reserved';
+import { openSettings } from '@/components/settings/settings-store';
 
 export default function TriggerDetailPage() {
   const params = useParams<{ id: string }>();
@@ -58,6 +60,7 @@ export default function TriggerDetailPage() {
 
   const failing = trigger.consecutiveFailures >= 3;
   const lastFailedRun = (recentRuns ?? []).find((r) => r.status === 'failed');
+  const managed = isReservedTrigger(id);
 
   return (
     <div className="min-h-dvh bg-background text-foreground font-sans">
@@ -69,7 +72,14 @@ export default function TriggerDetailPage() {
           <ArrowLeft size={16} />
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold truncate">{trigger.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-base font-semibold truncate">{trigger.name}</h1>
+            {managed && (
+              <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-md bg-muted text-muted-foreground">
+                Managed
+              </span>
+            )}
+          </div>
           {trigger.description && (
             <p className="text-[12px] text-muted-foreground truncate">
               {trigger.description}
@@ -158,14 +168,31 @@ export default function TriggerDetailPage() {
               </>
             )}
           </button>
-          <button
-            onClick={() => setConfirmingDelete(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-destructive/30 text-destructive text-sm hover:bg-destructive/10 ml-auto"
-          >
-            <Trash2 size={14} />
-            Delete
-          </button>
+          {!managed && (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-destructive/30 text-destructive text-sm hover:bg-destructive/10 ml-auto"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          )}
         </div>
+
+        {managed && (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
+            <span className="flex-1">
+              This trigger is managed by the app. Its name, prompt, and target are locked, and it is
+              disabled rather than deleted. Edit its schedule in settings.
+            </span>
+            <button
+              onClick={() => openSettings('general')}
+              className="flex-shrink-0 font-medium text-foreground hover:underline"
+            >
+              Open settings
+            </button>
+          </div>
+        )}
 
         <section>
           <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">

@@ -177,6 +177,16 @@ export async function register() {
     console.warn('[preview] shutdown hook init failed', err);
   }
 
+  // Seed the app-managed morning-deck trigger (create-if-absent, adopts any
+  // legacy name-linked row once). Must run before the scheduler tick so the
+  // row is present for the first pass. See src/lib/deck/trigger.ts.
+  try {
+    const { ensureMorningDeckTrigger } = await import('@/lib/deck/trigger');
+    ensureMorningDeckTrigger();
+  } catch (err) {
+    console.warn('[deck] morning trigger seed failed', err);
+  }
+
   // Scheduler tick — fires every 60s, reads enabled `schedules` whose
   // `next_run_at` has matured, and dispatches runs. Includes its own
   // boot recovery (reaping stuck `running` runs from a prior process)

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ChevronDown, RefreshCw, Clock, Check, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAreas } from '@/hooks/use-areas';
-import { api } from '@/lib/api/client';
+import { useMorningDeck, useUpdateMorningDeck } from '@/hooks/use-morning-deck';
 import { openSettings } from '@/components/settings/settings-store';
 import {
   DropdownMenu,
@@ -74,20 +74,12 @@ export function DeckConductor({
     return () => clearInterval(interval);
   }, [generatedAt]);
 
-  // Morning auto-refresh (cron) config — opt-in.
-  const [morning, setMorning] = useState<{ enabled: boolean; time: string } | null>(null);
-  useEffect(() => {
-    api.get<{ enabled: boolean; time: string }>('/deck/trigger')
-      .then((c) => setMorning({ enabled: c.enabled, time: c.time }))
-      .catch(() => {});
-  }, []);
+  // Morning auto-refresh (cron) config — shared cache with the settings pane.
+  const { data: morning } = useMorningDeck();
+  const updateMorning = useUpdateMorningDeck();
   const toggleMorning = useCallback(() => {
-    setMorning((prev) => {
-      const next = { enabled: !(prev?.enabled ?? false), time: prev?.time ?? '04:00' };
-      api.put('/deck/trigger', { enabled: next.enabled }).catch(() => {});
-      return next;
-    });
-  }, []);
+    updateMorning.mutate({ enabled: !(morning?.enabled ?? false) });
+  }, [morning?.enabled, updateMorning]);
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border">

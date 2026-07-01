@@ -11,16 +11,27 @@
  */
 
 import {
+  getTrigger,
   findTriggerByName,
   createTrigger,
   updateTrigger,
+  deleteTrigger,
   getOrCreateDefaultOrchestrator,
 } from '@/lib/db/queries';
 import { computeNextRun } from '@/lib/scheduler/cron';
+import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import type { TriggerRecord } from '@/db/types';
 
 export const MORNING_DECK_TRIGGER_NAME = 'Morning deck refresh';
 const DEFAULT_TIME = '04:00';
+/**
+ * Whether the morning refresh is enabled the first time it is seeded. Lazy
+ * first-look generation is the load-bearing guarantee regardless (see
+ * ensure-todays-deck.ts); the cron only pre-bakes. On-by-default is safe:
+ * `ensureTodaysDeck` dedupes, so a cron fire shifts the work earlier rather
+ * than double-generating, and no-ops harmlessly when the host is asleep.
+ */
+const DEFAULT_MORNING_ENABLED = true;
 
 const MORNING_PROMPT =
   'A new day has started. Refresh the deck for today: call the regenerate_deck action ' +
@@ -61,7 +72,7 @@ export interface MorningDeckConfig {
 }
 
 export function getMorningDeckTrigger(): TriggerRecord | null {
-  return findTriggerByName(MORNING_DECK_TRIGGER_NAME, null) ?? null;
+  return getTrigger(RESERVED_TRIGGER_IDS.morningDeck) ?? null;
 }
 
 export function getMorningDeckConfig(): MorningDeckConfig {
@@ -93,6 +104,7 @@ export function setMorningDeckConfig(input: { enabled?: boolean; time?: string }
     updateTrigger(existing.id, { enabled, cronExpression, timezone, nextRunAt });
   } else {
     createTrigger({
+      id: RESERVED_TRIGGER_IDS.morningDeck,
       name: MORNING_DECK_TRIGGER_NAME,
       description: 'Auto-refreshes the deck each morning, reconciling yesterday into today.',
       enabled,
@@ -107,4 +119,31 @@ export function setMorningDeckConfig(input: { enabled?: boolean; time?: string }
     });
   }
   return getMorningDeckConfig();
+}
+
+/**
+ * Ensure the reserved morning-deck row exists. Called once per server process
+ * (from instrumentation). Create-if-absent only — it never flips `enabled` on
+ * an existing row, so a user's disable survives reboots.
+ *
+ * On the first boot after the reserved-id change, it adopts the legacy
+ * name-linked row once: it copies that row's schedule into the sentinel row
+ * and drops the stray. The stray is deleted BEFORE the sentinel is created so
+ * the brain-level unique name index (`uniq_triggers_brain_name`) never sees
+ * two "Morning deck refresh" rows at once. The stray's runs get trigger_id
+ * nulled (ON DELETE SET NULL); run history survives. Idempotent, retry-safe.
+ */
+export function ensureMorningDeckTrigger(): void {
+  if (getTrigger(RESERVED_TRIGGER_IDS.morningDeck)) return;
+
+  const legacy = findTriggerByName(MORNING_DECK_TRIGGER_NAME, null);
+  if (legacy) {
+    const enabled = legacy.enabled;
+    const time = cronToTime(legacy.cronExpression);
+    deleteTrigger(legacy.id); // free the name before recreating under the sentinel id
+    setMorningDeckConfig({ enabled, time });
+    return;
+  }
+
+  setMorningDeckConfig({ enabled: DEFAULT_MORNING_ENABLED, time: DEFAULT_TIME });
 }
