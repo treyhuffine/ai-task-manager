@@ -1,7 +1,11 @@
 import type { NextRequest } from 'next/server';
 import { listRailSessions } from '@/lib/db/queries';
-import { listSessionsWithPending } from '@/lib/executor/pending-input';
-import { listRunningSessions } from '@/lib/executor/adapter';
+// Read running/pending state via a leaf snapshot module (globalThis-backed)
+// rather than the executor modules directly. Importing adapter.ts /
+// pending-input.ts drags in the full executor + @agentex/agent graph, which
+// Turbopack dev is extremely slow to compile — it made this route hang on
+// cold compile. The snapshot reads the same live state with no heavy imports.
+import { listRunningSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
 
 /**
  * One-shot fetch for the left rail's "by status" view. Returns all active

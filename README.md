@@ -38,10 +38,10 @@ The fuller product thinking lives in [`docs/prd.md`](docs/prd.md).
 ```bash
 pnpm install
 pnpm approve-builds       # one-time: allow better-sqlite3 + sqlite-vec to compile native bindings
-pnpm dev                  # Next dev, brain at ~/flow-dev, port 4224
+pnpm dev                  # Next dev, brain at ~/flow-dev, port 42241
 ```
 
-Open [http://localhost:4224](http://localhost:4224).
+Open [http://localhost:42241](http://localhost:42241).
 
 You'll need at least one LLM provider key in `.env.local` — copy `.env.example` and fill in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_AI_API_KEY`, or `OPENROUTER_API_KEY`.
 
@@ -166,7 +166,7 @@ pnpm cli:build            # bundle CLI to ./dist
 ## Project conventions
 
 - **Use pnpm.** Not npm or yarn.
-- **Dev server runs on 4224.**
+- **Dev server runs on 42241.** Production defaults to 4224, so both can run at once.
 - **Installable UI components** (shadcn, Vercel AI Elements) come in via their CLI tools — don't manually copy component source.
 - **Types** are derived from the Drizzle schema. Don't duplicate.
 - **API routes** call shared functions from `src/lib/db/queries.ts`. No raw SQL in handlers.

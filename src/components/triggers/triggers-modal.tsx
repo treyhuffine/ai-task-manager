@@ -148,7 +148,7 @@ function Header({
 }) {
   const title =
     view === 'list'
-      ? 'Triggers and Triggers'
+      ? 'Schedules and Triggers'
       : view === 'new'
         ? 'Create scheduled task'
         : 'Webhook ready';

@@ -5,7 +5,25 @@ const nextConfig: NextConfig = {
   // binary via `require.resolve` and execs it. It must stay external so the
   // production build doesn't bundle/rewrite that resolution (which breaks the
   // launch in `next start`). Same rationale as the native deps below.
-  serverExternalPackages: ["better-sqlite3", "sqlite-vec", "node-pty", "@beamd/cli"],
+  //
+  // The `@agentex/*` packages are Node SDKs that spawn CLI processes (claude,
+  // codex, git, gh), resolve binaries off PATH, and hold process-wide
+  // module-scope state (provider registry, auth cache, session maps). They
+  // must stay external so (a) the bundler doesn't rewrite binary/process
+  // plumbing and (b) Node's module cache keeps a single state instance per
+  // process — bundling can duplicate module state across dev compilations,
+  // which is exactly the failure mode the `globalThis` stashes in
+  // `pending-input.ts`/`adapter.ts` guard against. Externalizing also removes
+  // their ~160-module graph from every server-route compile.
+  serverExternalPackages: [
+    "better-sqlite3",
+    "sqlite-vec",
+    "node-pty",
+    "@beamd/cli",
+    "@agentex/agent",
+    "@agentex/workspace",
+    "@agentex/github",
+  ],
   // The connector engine is a workspace package shipped as raw TS (zod-only core);
   // Next must transpile it (and its subpath exports) to consume it from routes.
   transpilePackages: ["@connectors/engine"],

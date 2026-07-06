@@ -11,7 +11,7 @@ interface TreeViewToggleProps {
 }
 
 /**
- * Segmented control `[All] [Diff (N)]` for switching the file tree
+ * Segmented control `[All] [Changes (N)]` for switching the file tree
  * between "everything in the tree" and "just what the agent touched".
  * Renders full-width with 50/50 tabs so it can claim its own row in
  * the tree header — narrow tree columns can't fit it inline alongside
@@ -48,7 +48,7 @@ export function TreeViewToggle({
             : 'text-muted-foreground hover:text-foreground',
         )}
       >
-        Diff{' '}
+        Changes{' '}
         <span className="tabular-nums text-muted-foreground/70">
           ({changedCount})
         </span>

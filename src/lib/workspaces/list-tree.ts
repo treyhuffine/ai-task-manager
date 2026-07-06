@@ -124,6 +124,22 @@ async function listTreeGit(ws: GitWorkspace, surfaceIgnored: readonly string[]):
     }
   }
 
+  // Overlay conflicts from git's unmerged index — `git diff --diff-filter=U`
+  // lists every path with stage>0 entries (mid-merge/rebase/pull/stash). This
+  // is exactly how editors decide a file is "in conflict": VS Code's "Merge
+  // Changes" group and JetBrains' conflict list both read git's index state,
+  // never the file contents. 'conflict' wins over the M/A/D status the file
+  // also carries vs. base. The resolver (ConflictView) parses the on-disk
+  // markers when the file is opened — the content-level check lives there,
+  // per-file and lazy, mirroring VS Code's inline merge-conflict decorations.
+  try {
+    const unmerged = await ws.git.raw(['diff', '--name-only', '--diff-filter=U', '-z']);
+    for (const p of unmerged.stdout.split('\0').filter(Boolean)) statusMap.set(p, 'conflict');
+  } catch {
+    /* best-effort — if git can't report unmerged, conflicts just render as
+       their plain M/A/D status until the next successful read. */
+  }
+
   const entries: TreeEntry[] = [];
   for (const rel of rels) {
     const entry: TreeEntry = {

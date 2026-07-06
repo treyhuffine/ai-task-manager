@@ -102,6 +102,36 @@ export async function writeWorkspaceFile(
 }
 
 /**
+ * Write the conflict-resolved `content` for `relPath`, then mark the file
+ * resolved in git (`git add`). The write clears the on-disk conflict
+ * markers; the `git add` clears the unmerged index entry — so both the
+ * marker scan and the `--diff-filter=U` signal in `list-tree.ts` stop
+ * reporting the file as a conflict and it drops into the "Clean" section.
+ *
+ * Callers must only pass fully-resolved content (no remaining markers);
+ * staging a file that still has markers would lie to git about the merge
+ * being done. The UI enforces "every block resolved" before calling this.
+ */
+export async function resolveWorkspaceConflict(
+  ws: Workspace,
+  relPath: string,
+  content: string,
+): Promise<{ path: string; size: number }> {
+  const result = await writeWorkspaceFile(ws, relPath, content);
+  if (ws.kind === 'git') {
+    try {
+      await ws.git.raw(['add', '--', result.path]);
+    } catch (err) {
+      throw new FileWriteError(
+        'io_error',
+        `Wrote the resolution but failed to stage it: ${(err as Error).message}`,
+      );
+    }
+  }
+  return result;
+}
+
+/**
  * Delete `relPath`. Files are unlinked; directories are removed
  * recursively (so the caller doesn't have to crawl the tree first).
  * Returns the kind that was removed so the client can refresh the right

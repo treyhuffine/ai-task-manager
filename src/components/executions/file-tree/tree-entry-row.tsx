@@ -209,6 +209,8 @@ export function statusBadgeChar(status: TreeEntryStatus): string {
       return 'A';
     case 'deleted':
       return 'D';
+    case 'conflict':
+      return '!';
   }
 }
 
@@ -222,6 +224,40 @@ export function statusBadgeColor(status: TreeEntryStatus): string {
       return 'text-emerald-500 dark:text-emerald-400';
     case 'deleted':
       return 'text-rose-500 dark:text-rose-400';
+    case 'conflict':
+      return 'text-orange-600 dark:text-orange-400';
   }
+}
+
+/**
+ * Section divider in the "Changes" view — splits changed files into
+ * "Conflicts" and "Clean" groups. Only rendered when conflicts exist, so
+ * a conflict-free session sees a flat list with no headers. Fixed to the
+ * same row height as file rows so the virtualizer's uniform sizing holds.
+ */
+export function TreeSectionHeader({
+  label,
+  count,
+  tone,
+}: {
+  label: string;
+  count: number;
+  tone: 'conflict' | 'neutral';
+}) {
+  return (
+    <div className="flex h-full w-full items-end gap-1.5 px-2.5 pb-0.5 select-none">
+      <span
+        className={cn(
+          'text-[10px] font-semibold uppercase tracking-[0.1em]',
+          tone === 'conflict'
+            ? 'text-orange-600 dark:text-orange-400'
+            : 'text-muted-foreground/70',
+        )}
+      >
+        {label}
+      </span>
+      <span className="text-[10px] tabular-nums text-muted-foreground/50">{count}</span>
+    </div>
+  );
 }
 

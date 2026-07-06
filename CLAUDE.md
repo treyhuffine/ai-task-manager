@@ -19,7 +19,7 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 
 ## Commands
 
-- `pnpm dev` — starts dev server on port 4224
+- `pnpm dev` — starts dev server on port 42241
 - `pnpm build` — production build
 - `pnpm ts` — typecheck (tsc --noEmit)
 - `pnpm lint` — ESLint
@@ -31,7 +31,7 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 ## Rules
 
 - **Use pnpm** — not npm or yarn
-- **Dev server runs on port 4224** by default
+- **Dev server runs on port 42241** by default (production defaults to 4224, so both can run side by side). Override either with `PORT` / `--port`.
 - **Installable UI components** (shadcn, Vercel AI elements, ElevenLabs, etc.) must be added via their CLI tool — do not manually write or copy component source files
 - **Types** are derived from the Drizzle schema in `src/db/types.ts` — do not duplicate type definitions
 - **API routes** use shared query functions from `src/lib/db/queries.ts` — do not write raw SQL in route handlers

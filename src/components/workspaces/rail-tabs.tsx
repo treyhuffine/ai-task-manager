@@ -125,7 +125,7 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
 
 /**
  * Prominent button at the top of the rail. Two modes:
- *   - expanded: full-width "Triggers and Triggers" pill with the clock icon
+ *   - expanded: full-width "Schedules and Triggers" pill with the clock icon
  *   - collapsed (skinny rail): icon-only button centered
  * Both open the TriggersModal — same surface, same affordance.
  */
@@ -147,10 +147,10 @@ function TriggersButton({
           onClick={onClick}
           aria-label={
             activeRuns > 0
-              ? `Open triggers and triggers: ${activeRuns} run${activeRuns === 1 ? '' : 's'} active`
-              : 'Open triggers and triggers'
+              ? `Open Schedules and Triggers: ${activeRuns} run${activeRuns === 1 ? '' : 's'} active`
+              : 'Open Schedules and Triggers'
           }
-          title={activeRuns > 0 ? `${activeRuns} active` : 'Triggers and Triggers'}
+          title={activeRuns > 0 ? `${activeRuns} active` : 'Schedules and Triggers'}
           className="relative p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors"
         >
           <Clock size={14} />
@@ -172,7 +172,7 @@ function TriggersButton({
         className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95"
       >
         <Clock size={12} className="text-primary-foreground" />
-        <span>Triggers and Triggers</span>
+        <span>Schedules and Triggers</span>
         {activeRuns > 0 && (
           <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary-foreground/15 text-primary-foreground text-[10px] tabular-nums">
             <span className="size-1.5 rounded-full bg-primary-foreground" />

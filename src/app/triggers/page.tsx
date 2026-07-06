@@ -34,7 +34,7 @@ export default function TriggersPage() {
         </button>
         <div className="flex items-center gap-2">
           <Clock size={16} className="text-primary" />
-          <h1 className="text-base font-semibold">Triggers and Triggers</h1>
+          <h1 className="text-base font-semibold">Schedules and Triggers</h1>
         </div>
         <div className="flex-1" />
         <Link

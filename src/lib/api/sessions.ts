@@ -89,7 +89,12 @@ export type TreeEntryStatus =
   | 'modified'
   | 'deleted'
   | 'staged'
-  | 'untracked';
+  | 'untracked'
+  /** Unmerged: the working-tree file carries git conflict markers
+   *  (mid-merge/rebase/pull, or from a `git ls-files -u` unmerged index
+   *  entry). Renders in the tree's "Conflicts" section and opens the
+   *  conflict resolver instead of the plain diff. */
+  | 'conflict';
 
 export interface TreeEntry {
   path: string;
@@ -469,6 +474,20 @@ export const sessionsApi = {
       `/sessions/${id}/file`,
       { content },
       { query: { path } },
+    );
+  },
+
+  /** Write conflict-resolved content AND stage it (`git add`) so git
+   *  records the merge conflict as resolved. `content` must have no
+   *  remaining conflict markers. */
+  resolveFileConflict(
+    id: string,
+    path: string,
+    content: string,
+  ): Promise<{ ok: true; path: string; size: number }> {
+    return api.post<{ ok: true; path: string; size: number }>(
+      `/sessions/${id}/file/resolve-conflict`,
+      { path, content },
     );
   },
 

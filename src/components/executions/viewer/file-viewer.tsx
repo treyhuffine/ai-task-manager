@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText,
   GitCompareArrows,
+  GitMerge,
   BookOpen,
   FolderOpen,
   SquareArrowOutUpRight,
@@ -33,6 +34,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { FileView, type FileViewHandle } from './file-view';
 import { DiffView } from './diff-view';
+import { ConflictView } from './conflict-view';
 import { MarkdownView } from './markdown-view';
 
 interface FileViewerProps {
@@ -49,7 +51,7 @@ interface FileViewerProps {
   onReferenceInChat?: (relativePath: string) => void;
 }
 
-type Mode = 'diff' | 'current' | 'render';
+type Mode = 'conflict' | 'diff' | 'current' | 'render';
 
 /**
  * Whether the file should expose the Render toggle. Markdown is the
@@ -88,6 +90,7 @@ export function FileViewer({
   }, [selectedPath, tree]);
 
   const isChanged = !!entry?.status;
+  const isConflict = entry?.status === 'conflict';
   const isMarkdown = !!selectedPath && isMarkdownPath(selectedPath);
 
   // Always land in Current when navigating to a new file. Sticky-on-Diff
@@ -96,10 +99,22 @@ export function FileViewer({
   // diff every time. Per-file Diff is a click away when wanted. Same
   // logic for Render — landing in source keeps editing as the default
   // gesture for any file the user opens.
+  //
+  // Conflicts are the exception: they need action, so we auto-open the
+  // resolver once the tree entry for this path resolves. `autoModePathRef`
+  // makes that a one-shot per file so it never fights a manual toggle.
   const [mode, setMode] = useState<Mode>('current');
+  const autoModePathRef = useRef<string | null>(null);
   useEffect(() => {
     setMode('current');
+    autoModePathRef.current = null;
   }, [selectedPath]);
+  useEffect(() => {
+    if (!selectedPath || !entry) return;
+    if (autoModePathRef.current === selectedPath) return;
+    autoModePathRef.current = selectedPath;
+    if (entry.status === 'conflict') setMode('conflict');
+  }, [selectedPath, entry]);
 
   // Dirty / save plumbing. The FileView owns the buffer; we just hold
   // a ref to its imperative surface so the header buttons can read the
@@ -160,11 +175,17 @@ export function FileViewer({
   }
 
   // Fall back to Current when the selected mode doesn't apply to this
-  // file — Diff only when there's a git status, Render only for markdown.
-  // Keeps the toggle "sticky" across file navigation without showing a
-  // dead button or rendering the wrong view.
+  // file — Conflicts only when unmerged, Diff only when there's a git
+  // status, Render only for markdown. Keeps the toggle "sticky" across
+  // file navigation without showing a dead button or rendering the wrong
+  // view. (After a conflict is resolved, `isConflict` flips false and the
+  // resolver falls back to Current, showing the resolved file.)
   const effectiveMode: Mode =
-    (mode === 'diff' && !isChanged) || (mode === 'render' && !isMarkdown) ? 'current' : mode;
+    (mode === 'conflict' && !isConflict) ||
+    (mode === 'diff' && !isChanged) ||
+    (mode === 'render' && !isMarkdown)
+      ? 'current'
+      : mode;
   const isDeleted = entry?.status === 'deleted';
   // Edit only makes sense in Current mode against a file that exists on
   // disk. Deleted-but-not-committed files have no working-tree copy to
@@ -177,6 +198,7 @@ export function FileViewer({
         sessionId={sessionId}
         path={selectedPath}
         isChanged={isChanged}
+        isConflict={isConflict}
         isMarkdown={isMarkdown}
         mode={effectiveMode}
         onModeChange={setMode}
@@ -187,7 +209,9 @@ export function FileViewer({
         onReferenceInChat={onReferenceInChat}
       />
       <div className="flex-1 min-h-0 overflow-hidden">
-        {effectiveMode === 'diff' && entry?.status ? (
+        {effectiveMode === 'conflict' && isConflict ? (
+          <ConflictView sessionId={sessionId} path={selectedPath} />
+        ) : effectiveMode === 'diff' && entry?.status ? (
           <DiffView sessionId={sessionId} path={selectedPath} status={entry.status} />
         ) : effectiveMode === 'render' ? (
           <MarkdownView sessionId={sessionId} path={selectedPath} />
@@ -211,6 +235,7 @@ interface HeaderProps {
   sessionId: string;
   path: string;
   isChanged: boolean;
+  isConflict: boolean;
   isMarkdown: boolean;
   mode: Mode;
   onModeChange: (m: Mode) => void;
@@ -226,6 +251,7 @@ function FileViewerHeader({
   sessionId,
   path,
   isChanged,
+  isConflict,
   isMarkdown,
   mode,
   onModeChange,
@@ -275,20 +301,36 @@ function FileViewerHeader({
       )}
       {(isChanged || isMarkdown) && (
         <div className="inline-flex items-center rounded-md border border-border bg-muted/40 p-0.5 text-[10px] font-medium shrink-0">
-          {isChanged && (
+          {isConflict ? (
             <button
               type="button"
-              onClick={() => onModeChange('diff')}
+              onClick={() => onModeChange('conflict')}
               className={cn(
                 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors',
-                mode === 'diff'
-                  ? 'bg-background text-foreground shadow-sm'
+                mode === 'conflict'
+                  ? 'bg-background text-orange-600 dark:text-orange-400 shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              <GitCompareArrows size={10} />
-              Diff
+              <GitMerge size={10} />
+              Conflicts
             </button>
+          ) : (
+            isChanged && (
+              <button
+                type="button"
+                onClick={() => onModeChange('diff')}
+                className={cn(
+                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors',
+                  mode === 'diff'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <GitCompareArrows size={10} />
+                Diff
+              </button>
+            )
           )}
           <button
             type="button"

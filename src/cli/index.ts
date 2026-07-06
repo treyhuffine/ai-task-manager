@@ -30,7 +30,7 @@ program
 program
   .command('start', { isDefault: true })
   .description(`Start ${APP_NAME} and open the app`)
-  .option('-p, --port <number>', 'port to bind', '4224')
+  .option('-p, --port <number>', 'port to bind (default: 4224, or 42241 with --dev)')
   .option('--no-open', 'do not launch the browser')
   .option('--pair', 'open the pairing URL even if already paired')
   .option('--dev', 'run the server in dev mode (next dev) instead of production')
@@ -47,6 +47,7 @@ program
   .command('stop')
   .description(`Stop a running ${APP_NAME} server`)
   .option('-p, --port <number>', 'port of the instance to stop')
+  .option('--dev', 'target the dev instance (dev data root, default port 42241)')
   .option('-f, --force', 'send SIGKILL immediately instead of SIGTERM')
   .option('-t, --timeout <ms>', 'how long to wait for graceful shutdown', '5000')
   .action(stopCommand);

@@ -7,14 +7,18 @@ import { EditorState } from '@codemirror/state';
 import { Loader2, FileX, Lock, FileWarning } from 'lucide-react';
 import { useSessionFile, useSessionBaseFile } from '@/hooks/use-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
+import type { TreeEntryStatus } from '@/lib/api/sessions';
 import { languageFor } from './language-for';
 import { cmTheme } from './cm-theme';
 
 interface DiffViewProps {
   sessionId: string;
   path: string;
-  /** From the tree entry — drives whether old/new might be empty. */
-  status: 'added' | 'modified' | 'deleted' | 'staged' | 'untracked';
+  /** From the tree entry — drives whether old/new might be empty. A
+   *  'conflict' file normally routes to the conflict resolver, not here;
+   *  if it ever reaches the diff it's treated like 'modified' (base vs
+   *  current), which is a sane fallback. */
+  status: TreeEntryStatus;
 }
 
 /**

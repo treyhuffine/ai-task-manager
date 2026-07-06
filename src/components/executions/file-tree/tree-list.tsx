@@ -10,7 +10,7 @@ import {
   collectDirPaths,
   type TreeRenderNode,
 } from './build-tree';
-import { TreeDirRow, TreeFileRow, CollapsedDirRow } from './tree-entry-row';
+import { TreeDirRow, TreeFileRow, CollapsedDirRow, TreeSectionHeader } from './tree-entry-row';
 import { TreeInputRow } from './tree-input-row';
 
 export interface PendingCreate {
@@ -82,7 +82,18 @@ type SyntheticInputNode = {
   inputKind: 'file' | 'dir';
 };
 
-type FlatNode = TreeRenderNode | SyntheticInputNode;
+// Section divider in 'changed' mode (Conflicts / Clean). `path` is a
+// synthetic stable key for the virtualizer.
+type SectionNode = {
+  kind: 'section';
+  path: string;
+  label: string;
+  count: number;
+  tone: 'conflict' | 'neutral';
+  depth: 0;
+};
+
+type FlatNode = TreeRenderNode | SyntheticInputNode | SectionNode;
 
 export function TreeList({
   entries,
@@ -148,18 +159,36 @@ export function TreeList({
 
   const flat: FlatNode[] = useMemo(() => {
     if (mode === 'changed') {
-      // Flat list of changed files, alphabetical by full path.
-      return filteredEntries
+      // Changed files, alphabetical by full path.
+      const changed = filteredEntries
         .filter((e) => !!e.status)
         .slice()
-        .sort((a, b) => a.path.localeCompare(b.path))
-        .map<FlatNode>((entry) => ({
-          kind: 'file',
-          path: entry.path,
-          name: entry.path, // show the full path in changed-only mode
-          depth: 0,
-          entry,
-        }));
+        .sort((a, b) => a.path.localeCompare(b.path));
+
+      const toFileNode = (entry: TreeEntry): FlatNode => ({
+        kind: 'file',
+        path: entry.path,
+        name: entry.path, // show the full path in changed-only mode
+        depth: 0,
+        entry,
+      });
+
+      const conflicts = changed.filter((e) => e.status === 'conflict');
+      // No conflicts → keep the plain flat list with no section headers.
+      if (conflicts.length === 0) return changed.map(toFileNode);
+
+      // Conflicts exist → split into "Conflicts" (first, needs attention)
+      // and "Clean" sections, each with its own header.
+      const clean = changed.filter((e) => e.status !== 'conflict');
+      const out: FlatNode[] = [
+        { kind: 'section', path: '__section_conflicts__', label: 'Conflicts', count: conflicts.length, tone: 'conflict', depth: 0 },
+        ...conflicts.map(toFileNode),
+      ];
+      if (clean.length > 0) {
+        out.push({ kind: 'section', path: '__section_clean__', label: 'Clean', count: clean.length, tone: 'neutral', depth: 0 });
+        out.push(...clean.map(toFileNode));
+      }
+      return out;
     }
 
     const base = flattenTree(tree, effectiveExpanded);
@@ -240,7 +269,9 @@ export function TreeList({
                 transform: `translateY(${vRow.start}px)`,
               }}
             >
-              {node.kind === 'input' ? (
+              {node.kind === 'section' ? (
+                <TreeSectionHeader label={node.label} count={node.count} tone={node.tone} />
+              ) : node.kind === 'input' ? (
                 <TreeInputRow
                   depth={node.depth}
                   kind={node.inputKind}

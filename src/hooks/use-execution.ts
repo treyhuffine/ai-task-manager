@@ -260,6 +260,30 @@ export function useWriteFile(sessionId: string) {
   });
 }
 
+/**
+ * Resolve a merge conflict for one file: write the resolved content and
+ * `git add` it. Invalidates worktree caches so the tree re-lists (the
+ * file leaves the "Conflicts" section) and the viewer repaints. Seeds the
+ * file cache with the resolved content so navigating away and back doesn't
+ * flash the pre-resolution markers.
+ */
+export function useResolveFileConflict(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ path, content }: { path: string; content: string }) =>
+      sessionsApi.resolveFileConflict(sessionId, path, content),
+    onSuccess: (_data, vars) => {
+      qc.setQueryData<FileResponse>(
+        ['session', sessionId, 'file', vars.path],
+        (prev) => (prev ? { ...prev, content: vars.content } : prev),
+      );
+      invalidateWorktree(qc, sessionId);
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.path] });
+      qc.invalidateQueries({ queryKey: ['session', sessionId, 'status'] });
+    },
+  });
+}
+
 export function useDeletePath(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({

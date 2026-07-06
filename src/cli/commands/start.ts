@@ -9,6 +9,7 @@ import {
   setRunningPort,
   setStaticUrl,
 } from '@/lib/auth/bootstrap';
+import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { resetDb } from '@/lib/db';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { getIsOnboarded, markOnboarded } from '@/lib/config/onboarded';
@@ -105,7 +106,9 @@ export async function startCommand(opts: StartOptions) {
   // sticking around after a previous portless run.
   setStaticUrl(portless?.url ?? null);
 
-  const preferredPort = Number(opts.port ?? 4224);
+  // Dev and prod default to different ports so both can run at once. An explicit
+  // `-p` always wins; otherwise `--dev` picks DEV_PORT and prod picks DEFAULT_PORT.
+  const preferredPort = Number(opts.port ?? (opts.dev ? DEV_PORT : DEFAULT_PORT));
   const s = spinner();
 
   // Auth first — used by both the health probe and the eventual app session.
@@ -128,11 +131,11 @@ export async function startCommand(opts: StartOptions) {
   }
 
   // Short-circuit: our server is already up. Probe the public URL — under
-  // portless that's `https://<name>.localhost`; otherwise it's the local port.
-  // An explicit `--port` overrides the remembered URL: probing the remembered
-  // port would false-positive on a *different* instance (e.g. the main dev
-  // server on 4224 while a smoke run asks for 4231) and skip the boot.
-  const probeUrl = opts.port ? `http://localhost:${preferredPort}` : getLocalBaseUrl();
+  // portless that's `https://<name>.localhost` (staticUrl); otherwise probe the
+  // exact port we're about to bind. Using `preferredPort` (not the remembered
+  // lastPort) avoids a false-positive on a *different* instance — e.g. a dev
+  // start on 42241 must not mistake a prod server on 4224 for "already running".
+  const probeUrl = getStaticUrl() ?? `http://localhost:${preferredPort}`;
   if (await isOurServerRunning(probeUrl)) {
     const url = info.pairingUrl;
     log.success(`Already running at ${probeUrl}`);
@@ -202,9 +205,15 @@ export async function startCommand(opts: StartOptions) {
   });
   // Wait against the public URL — under portless the proxy needs its backend
   // up before /api/health succeeds; without portless this is just localhost.
-  // Allow extra time when going through portless: the proxy adds a startup
-  // step, and the wrapped Next still has to compile the route on cold-hit.
-  await waitForServer(getLocalBaseUrl(), portless ? 60_000 : 30_000);
+  //
+  // Dev cold-boots are slow and unbounded-ish: Turbopack compiles the whole app
+  // on first run (the "Ready in Xs" line alone can be 35s+), and Next compiles
+  // routes lazily, so the first /api/health hit lands well after "Ready". A tight
+  // ceiling here makes the CLI report a timeout and exit 1 while the spawned Next
+  // child keeps booting in the background and eventually works — confusing. Give
+  // dev a generous ceiling. Portless adds proxy startup on top of either mode.
+  const readyTimeoutMs = opts.dev ? 120_000 : portless ? 120_000 : 90_000;
+  await waitForServer(getLocalBaseUrl(), readyTimeoutMs);
   s.stop(`Server ready at ${getLocalBaseUrl()}`);
 
   const url = info.pairingUrl;

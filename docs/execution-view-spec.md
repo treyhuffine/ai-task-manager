@@ -271,6 +271,51 @@ Two layers, both subtle:
    flips to `Changed` and selects it. Dismisses on click. Does **not**
    auto-snap the viewer otherwise.
 
+## Merge conflicts
+
+The "Changes" view (formerly labelled "Diff") splits changed files into
+two groups when any conflicts exist: **Conflicts** first, then **Clean**.
+With no conflicts there are no section headers, so the common case reads
+as a plain flat list. Conflicted files carry a `!` badge in a distinct
+conflict color and a new `TreeEntryStatus` value, `'conflict'`.
+
+### Detection (`src/lib/workspaces/list-tree.ts`)
+
+Detection is **git-index driven**, matching editor convention: a file is a
+conflict iff git reports it unmerged — `git diff --name-only
+--diff-filter=U` lists every path with stage>0 entries
+(mid-merge/rebase/pull/stash). This is exactly how VS Code's "Merge
+Changes" group and JetBrains' conflict list decide — they read git's index,
+never file contents. `status: 'conflict'` wins over the M/A/D status the
+file also carries vs. base.
+
+Content-level marker detection lives **only in the resolver**, per-file and
+lazy (see below), mirroring VS Code's inline merge-conflict decorations —
+those scan the text of the document you open, not the whole tree. So a file
+that merely *contains* markers with a clean index renders as a normal
+change, not a conflict (an earlier build also scanned changed-file contents
+at the tree level; dropped to avoid false positives + per-poll reads and to
+match expectations).
+
+### Resolution (`src/components/executions/viewer/conflict-view.tsx`)
+
+Opening a conflicted file lands on the **Conflicts** resolver (a new
+`'conflict'` viewer mode) instead of the plain diff. It parses the markers
+(`src/lib/conflicts/parse.ts`, pure + unit-tested) into context/conflict
+segments and offers the three standard per-block choices — **Accept
+current change**, **Accept incoming change**, **Accept both** — plus
+"All current / All incoming" shortcuts. "Current" is ours/HEAD; "Incoming"
+is theirs. Choices are held locally; nothing writes per click.
+
+Once every block is resolved, **Resolve file** serializes the resolution
+and calls `POST /api/sessions/[id]/file/resolve-conflict`
+(`resolveWorkspaceConflict`: write the resolved content **then**
+`git add`). The `git add` is what turns "unmerged" into "resolved" — a
+plain Save must not silently mark a merge done — so both detection signals
+stop firing and the file drops into the **Clean** section. Files that are
+unmerged with no parseable markers (delete/modify, binary) get a
+"Mark resolved" fallback that stages the current contents as-is.
+
 ## Removed surfaces
 
 These files get deleted (or gutted) once the new layout lands:

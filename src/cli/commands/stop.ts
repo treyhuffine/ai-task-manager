@@ -18,19 +18,32 @@ import { execFileSync } from 'node:child_process';
 import { intro, outro, log, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { APP_NAME } from '@/constants/app';
-import { getRunningPort } from '@/lib/auth/port';
+import { DEFAULT_PORT, DEV_PORT, getRunningPort } from '@/lib/auth/port';
+import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
 import { probeHealth } from '../lib/server';
 
 export interface StopOptions {
   port?: string;
   force?: boolean;
   timeout?: string;
+  dev?: boolean;
 }
 
 export async function stopCommand(opts: StopOptions) {
   intro(pc.bgCyan(pc.black(` ${APP_NAME} stop `)));
 
-  const port = Number(opts.port ?? getRunningPort());
+  // Mirror `start --dev`: route this process at the dev data root so we read the
+  // dev instance's persisted lastPort (and default). Precedence matches start —
+  // an explicit env override wins over the --dev auto-set. Must run before
+  // getRunningPort(), which reads config.json from whatever root is active.
+  if (opts.dev && !process.env[APP_ROOT_ENV]) {
+    process.env[APP_ROOT_ENV] = getDevAppRoot();
+  }
+
+  // Explicit --port wins; else the persisted lastPort for this root; else the
+  // mode default. The fallback matters because `pnpm dev` starts Next directly
+  // and never persists a lastPort, so a bare `stop --dev` must still find 42241.
+  const port = Number(opts.port ?? getRunningPort(opts.dev ? DEV_PORT : DEFAULT_PORT));
   if (!Number.isFinite(port) || port <= 0) {
     log.error(`Invalid port: ${opts.port}`);
     outro('Aborted');
