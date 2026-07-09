@@ -54,6 +54,8 @@ const FAMILY_LABEL: Record<string, string> = {
  *   claude-haiku-4-5-20251001  → "Haiku 4.5"   (trailing date dropped)
  *   opus                       → "Opus"        (bare alias, pre-dispatch)
  *   gpt-5.4-mini               → "GPT-5.4 mini"
+ *   gpt-5.6-sol                → "GPT-5.6 Sol"
+ *   gpt-5.3-codex-spark        → "GPT-5.3 Codex Spark"
  * Falls back to the raw id when nothing matches.
  */
 export function prettifyModelId(id: string): string {
@@ -66,8 +68,14 @@ export function prettifyModelId(id: string): string {
   const bareFamily = /^(opus|sonnet|haiku)$/i.exec(id);
   if (bareFamily) return FAMILY_LABEL[bareFamily[1].toLowerCase()];
 
-  const gpt = /gpt-?(\d+(?:\.\d+)?)(?:-(mini|nano))?/i.exec(id);
-  if (gpt) return `GPT-${gpt[1]}${gpt[2] ? ` ${gpt[2].toLowerCase()}` : ''}`;
+  const gpt = /^gpt-?(\d+(?:\.\d+)?)(?:-(mini|nano|sol|terra|luna|codex-spark))?$/i.exec(id);
+  if (gpt) {
+    const variant = gpt[2]?.toLowerCase() ?? null;
+    const variantLabel = variant === 'mini' || variant === 'nano'
+      ? variant
+      : variant?.split('-').map((word) => word[0].toUpperCase() + word.slice(1)).join(' ') ?? null;
+    return `GPT-${gpt[1]}${variantLabel ? ` ${variantLabel}` : ''}`;
+  }
 
   return id;
 }

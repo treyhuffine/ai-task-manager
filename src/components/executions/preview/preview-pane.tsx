@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Globe, Loader2, RotateCw, Smartphone, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle2, Globe, Loader2, RotateCw, Smartphone, X } from 'lucide-react';
 import { openSettings } from '@/components/settings/settings-store';
 import { OpenOnDevice } from './open-on-device';
 import { useWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
@@ -58,11 +58,22 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   // browser is, not on render state).
   const mode = useMemo(() => pickReachability(), []);
 
-  const [pollFastUntil, setPollFastUntil] = useState(0);
-  const fastWindow = Date.now() < pollFastUntil;
+  const [fastPolling, setFastPolling] = useState(false);
+  const fastPollTimerRef = useRef<number | null>(null);
+  const beginFastPolling = () => {
+    setFastPolling(true);
+    if (fastPollTimerRef.current) window.clearTimeout(fastPollTimerRef.current);
+    fastPollTimerRef.current = window.setTimeout(() => {
+      setFastPolling(false);
+      fastPollTimerRef.current = null;
+    }, 30_000);
+  };
+  useEffect(() => () => {
+    if (fastPollTimerRef.current) window.clearTimeout(fastPollTimerRef.current);
+  }, []);
   const stateQuery = usePreviewState(executionId, {
     enabled: !!executionId && active,
-    refetchInterval: !active ? false : fastWindow ? 1_500 : 4_000,
+    refetchInterval: !active ? false : fastPolling ? 1_500 : 4_000,
   });
   const state = stateQuery.data ?? null;
 
@@ -73,10 +84,13 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
 
   // Remote resolution (URL or actionable error) is held here, not in the
   // polled status — the cheap status endpoint never brings a tunnel up.
-  const [remoteResolved, setRemoteResolved] = useState<{ url: string | null; error: PreviewRemoteError | null } | null>(null);
-
-  // Reset remote resolution when switching executions.
-  useEffect(() => { setRemoteResolved(null); }, [executionId]);
+  const [remoteResolved, setRemoteResolved] = useState<{
+    executionId: string;
+    url: string | null;
+    error: PreviewRemoteError | null;
+  } | null>(null);
+  const remoteResolvedUrl = remoteResolved?.executionId === executionId ? remoteResolved.url : null;
+  const remoteResolvedError = remoteResolved?.executionId === executionId ? remoteResolved.error : null;
 
   // Keep fetching through 'crashed' too: a fast crash exits before the first
   // poll, so without this the captured stderr (the actual error) never reaches
@@ -102,25 +116,30 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
 
   // Compose the state the picker sees: local URL comes from the poll, remote
   // URL/error from the last Start (held above).
-  const stateForResolve: PreviewState | null = state
-    ? {
-        ...state,
-        remoteUrl: remoteResolved?.url ?? null,
-        remoteError: remoteResolved?.error ?? state.remoteError,
-      }
-    : null;
-  const resolved = useMemo(() => resolvePreviewSrc(stateForResolve), [stateForResolve]);
-  const remoteError = remoteResolved?.error ?? state?.remoteError ?? null;
+  const resolved = useMemo(() => {
+    const stateForResolve: PreviewState | null = state
+      ? {
+          ...state,
+          remoteUrl: remoteResolvedUrl,
+          remoteError: remoteResolvedError ?? state.remoteError,
+        }
+      : null;
+    return resolvePreviewSrc(stateForResolve);
+  }, [remoteResolvedError, remoteResolvedUrl, state]);
+  const remoteError = remoteResolvedError ?? state?.remoteError ?? null;
 
   const handleStart = () => {
-    setPollFastUntil(Date.now() + 30_000);
+    beginFastPolling();
     setLogsManuallyToggled(null);
     setIframeKey((k) => k + 1);
+    if (mode === 'remote') setRemoteResolved(null);
     startMut.mutate(
       { remote: mode === 'remote' },
       {
         onSuccess: (data) => {
-          if (mode === 'remote') setRemoteResolved({ url: data.remoteUrl, error: data.remoteError });
+          if (mode === 'remote' && executionId) {
+            setRemoteResolved({ executionId, url: data.remoteUrl, error: data.remoteError });
+          }
         },
       },
     );
@@ -134,7 +153,7 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
   const handleRetrySetup = () => {
     // Fast-poll so the gate flips to "Installing dependencies…" promptly, then
     // auto-starts once setup lands.
-    setPollFastUntil(Date.now() + 30_000);
+    beginFastPolling();
     retrySetupMut.mutate();
   };
   const handleSaveUrls = async (urls: PreviewManualUrl[]) => {
@@ -277,13 +296,28 @@ function PreviewBody(props: PreviewBodyProps) {
   const needsServer = providerNeedsServer(state);
   const setupStatus = state?.setupStatus ?? null;
 
-  // Remote preview is "set up" once beamd is the connected, active provider —
-  // until then we surface it as an option in the empty states (prominently
-  // when nothing's configured yet, subtly otherwise). Once set up, the header
-  // "Phone" button is the always-present, subtle entry point. Read this hook
-  // up front — it must run on every render, before any early return below.
+  // Read provider settings before the early returns below. Selecting Beamd and
+  // having a live Beamd connection are separate states, so only advertise the
+  // automatic path once both are true.
   const { data: previewSettings } = usePreviewSettings();
-  const remoteSetUp = !!previewSettings && previewSettings.beamd.connected && previewSettings.activeProvider === 'beamd';
+  const beamdReady = !!previewSettings && previewSettings.beamd.connected && previewSettings.activeProvider === 'beamd';
+  const automaticProviderLabel = beamdReady
+    ? previewSettings.providers.find((provider) => provider.id === previewSettings.activeProvider)?.label ?? 'Beamd'
+    : null;
+  const hasManualUrl = !!state?.manualUrls.some((u) => (u.service ?? null) === null && !!u.url?.trim());
+  const manualInput = (
+    <PreviewManualUrlInput
+      urls={state?.manualUrls ?? []}
+      onSave={props.onSaveUrls}
+      isSaving={props.isSavingUrls}
+      label={automaticProviderLabel ? 'Manual URL override' : undefined}
+      description={
+        automaticProviderLabel
+          ? `Already have another tunnel? Paste it here to override ${automaticProviderLabel} for this execution.`
+          : undefined
+      }
+    />
+  );
 
   // Setup script is still installing deps → the dev server is intentionally
   // held back (starting now would crash on missing node_modules). Show a
@@ -337,7 +371,12 @@ function PreviewBody(props: PreviewBodyProps) {
               Set up remote preview
             </button>
           ) : null}
-          <PreviewManualUrlInput urls={state?.manualUrls ?? []} onSave={props.onSaveUrls} isSaving={props.isSavingUrls} />
+          <div className="w-full space-y-4 border-t border-border pt-4">
+            {automaticProviderLabel && (
+              <RemoteProviderStatus providerLabel={automaticProviderLabel} hasManualUrl={hasManualUrl} />
+            )}
+            {manualInput}
+          </div>
         </div>
       </Centered>
     );
@@ -348,12 +387,17 @@ function PreviewBody(props: PreviewBodyProps) {
   // remote mode or when the manual provider is active.
   const variant = resolveEmptyVariant(serverStatus, command, state?.port ?? null);
   const showManual = mode === 'remote' || state?.activeRemoteProviderId === 'manual';
-  // Offer remote preview as an option every time there's no live preview on
-  // screen (this body only renders when there's no iframe) — big in the
-  // "nothing set up yet" state, subtle in every other (idle, stopped, crashed,
-  // starting…). Hidden only once remote is actually set up, where the header
-  // "Phone" button takes over.
-  const showPromo = !remoteSetUp;
+  // Once the selected provider is ready, show its status. Otherwise keep the
+  // setup affordance visible.
+  const showPromo = !automaticProviderLabel;
+  const startLabel =
+    mode !== 'remote'
+      ? undefined
+      : hasManualUrl
+        ? 'Open manual preview'
+        : automaticProviderLabel
+          ? `${variant === 'crashed' ? 'Restart' : 'Start'} with ${automaticProviderLabel}`
+          : undefined;
 
   // Setup recovery: surface the right path when the dev server likely can't
   // come up because dependencies are missing.
@@ -384,15 +428,18 @@ function PreviewBody(props: PreviewBodyProps) {
         onOpenSettings={props.onOpenWorkspaceSettings}
       />,
     );
+  if (mode === 'remote' && automaticProviderLabel)
+    footerNodes.push(
+      <RemoteProviderStatus
+        key="provider"
+        providerLabel={automaticProviderLabel}
+        hasManualUrl={hasManualUrl}
+      />,
+    );
   if (showPromo) footerNodes.push(<RemotePreviewPromo key="promo" prominent={variant === 'no-command'} />);
   if (showManual)
     footerNodes.push(
-      <PreviewManualUrlInput
-        key="manual"
-        urls={state?.manualUrls ?? []}
-        onSave={props.onSaveUrls}
-        isSaving={props.isSavingUrls}
-      />,
+      <div key="manual">{manualInput}</div>,
     );
 
   return (
@@ -405,8 +452,36 @@ function PreviewBody(props: PreviewBodyProps) {
       onOpenWorkspaceSettings={props.onOpenWorkspaceSettings}
       onStart={props.onStart}
       isStarting={props.isStarting}
+      startLabel={startLabel}
       footer={footerNodes.length ? <div className="w-full space-y-4">{footerNodes}</div> : undefined}
     />
+  );
+}
+
+function RemoteProviderStatus({
+  providerLabel,
+  hasManualUrl,
+}: {
+  providerLabel: string;
+  hasManualUrl: boolean;
+}) {
+  return (
+    <div className="flex w-full items-start gap-2">
+      <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[12px] font-medium text-foreground">{providerLabel} connected</span>
+          <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {hasManualUrl ? 'Override active' : 'Automatic'}
+          </span>
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {hasManualUrl
+            ? `The manual URL below is in use. Clear it to return to ${providerLabel}.`
+            : `Starting this preview will open a ${providerLabel} tunnel automatically.`}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -495,11 +570,14 @@ function OpenOnDeviceNudge({ onShow }: { onShow: () => void }) {
   // Start hidden to avoid a flash before localStorage is read.
   const [dismissed, setDismissed] = useState(true);
   useEffect(() => {
-    try {
-      setDismissed(localStorage.getItem(NUDGE_DISMISSED_KEY) === '1');
-    } catch {
-      setDismissed(false);
-    }
+    const id = window.setTimeout(() => {
+      try {
+        setDismissed(localStorage.getItem(NUDGE_DISMISSED_KEY) === '1');
+      } catch {
+        setDismissed(false);
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
   }, []);
 
   const close = () => {

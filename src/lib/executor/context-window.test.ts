@@ -23,6 +23,10 @@ describe('prettifyModelId', () => {
   it('renders Codex ids', () => {
     expect(prettifyModelId('gpt-5.4')).toBe('GPT-5.4');
     expect(prettifyModelId('gpt-5.4-mini')).toBe('GPT-5.4 mini');
+    expect(prettifyModelId('gpt-5.6-sol')).toBe('GPT-5.6 Sol');
+    expect(prettifyModelId('gpt-5.6-terra')).toBe('GPT-5.6 Terra');
+    expect(prettifyModelId('gpt-5.6-luna')).toBe('GPT-5.6 Luna');
+    expect(prettifyModelId('gpt-5.3-codex-spark')).toBe('GPT-5.3 Codex Spark');
   });
 
   it('falls back to the raw id when unrecognized', () => {

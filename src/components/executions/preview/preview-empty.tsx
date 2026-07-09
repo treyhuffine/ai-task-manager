@@ -26,6 +26,8 @@ interface PreviewEmptyProps {
   onOpenWorkspaceSettings?: () => void;
   onStart?: () => void;
   isStarting?: boolean;
+  /** Context-aware label for the primary action, such as "Start with Beamd". */
+  startLabel?: string;
   /** Extra content rendered below the status body (e.g. the BYO-URL input). */
   footer?: React.ReactNode;
 }
@@ -92,7 +94,7 @@ function renderBody(props: PreviewEmptyProps) {
             )}
           >
             <Play size={13} className="fill-current" />
-            {isStarting ? 'Starting…' : 'Start preview'}
+            {isStarting ? 'Starting…' : props.startLabel ?? 'Start preview'}
           </button>
         )}
       </>
@@ -116,7 +118,7 @@ function renderBody(props: PreviewEmptyProps) {
       <>
         <Heading>Process started, no port detected</Heading>
         <Subtle>
-          Your command is running but didn't print a recognizable
+          Your command is running but didn&apos;t print a recognizable
           {' '}<code className="rounded bg-muted px-1.5 py-0.5 text-[12px]">localhost:PORT</code>{' '}
           line. Set the port manually in workspace settings, then stop and start the preview again.
         </Subtle>
@@ -170,7 +172,7 @@ function renderBody(props: PreviewEmptyProps) {
           )}
         >
           <Play size={13} className="fill-current" />
-          Restart
+          {isStarting ? 'Starting…' : props.startLabel ?? 'Restart'}
         </button>
       )}
     </>
@@ -225,23 +227,6 @@ function CommandEditor({
   const [editing, setEditing] = useState(!!startInEditMode);
   const [draft, setDraft] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Track the value we last submitted so we can detect "save completed
-  // successfully" by watching for `isSaving` going false AFTER a save.
-  const pendingSaveRef = useRef(false);
-
-  // Keep draft in sync when parent updates initialValue (e.g., another
-  // browser tab edited the workspace).
-  useEffect(() => {
-    if (!editing) setDraft(initialValue);
-  }, [initialValue, editing]);
-
-  // Auto-collapse on successful save (isSaving 1 → 0 transition).
-  useEffect(() => {
-    if (!isSaving && pendingSaveRef.current) {
-      pendingSaveRef.current = false;
-      setEditing(false);
-    }
-  }, [isSaving]);
 
   // Auto-focus the input when entering edit mode.
   useEffect(() => {
@@ -267,11 +252,10 @@ function CommandEditor({
       setEditing(false);
       return;
     }
-    pendingSaveRef.current = true;
     try {
       await onSave(next);
+      setEditing(false);
     } catch {
-      pendingSaveRef.current = false;
       // Leave the form open so the user can retry / edit / cancel.
     }
   };
@@ -289,7 +273,10 @@ function CommandEditor({
         </pre>
         <button
           type="button"
-          onClick={() => setEditing(true)}
+          onClick={() => {
+            setDraft(initialValue);
+            setEditing(true);
+          }}
           title="Edit command"
           className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground group-hover:text-muted-foreground"
         >
@@ -346,4 +333,3 @@ function CommandEditor({
     </div>
   );
 }
-

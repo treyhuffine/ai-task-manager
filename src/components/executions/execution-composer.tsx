@@ -32,9 +32,7 @@ import {
   type Attachment,
 } from '@/db/types';
 import {
-  MODEL_OPTIONS,
   EFFORT_OPTIONS,
-  findModelOption,
   harnessSupportsEffort,
   type ProviderId,
 } from '@/lib/agent-options';
@@ -55,6 +53,7 @@ import type {
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { expandPrRefs } from '@/components/chat/editor/pr-menu/expand';
 import { usePrList } from '@/hooks/use-prs';
+import { useAgentModels } from '@/hooks/use-agent-models';
 
 /**
  * Imperative handle for the execution composer. Exposes the minimum
@@ -324,8 +323,13 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // highlighted row. The precise version that actually ran is a per-run
     // fact (runs.model / the system event), surfaced in the transcript — not
     // a property of the selection.
-    const harnessModels = harness ? (MODEL_OPTIONS[harness as keyof typeof MODEL_OPTIONS] ?? []) : [];
-    const pinnedModelOption = harness && model ? findModelOption(harness, model) : null;
+    const providerId = harness
+      ? mapHarnessToProvider(harness) as ProviderId
+      : null;
+    const { models: harnessModels } = useAgentModels(providerId);
+    const pinnedModelOption = model
+      ? harnessModels.find((option) => option.id === model) ?? null
+      : null;
     const displayModelLabel = pinnedModelOption?.label ?? null;
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOption = effort ? (EFFORT_OPTIONS.find((o) => o.id === effort) ?? null) : null;

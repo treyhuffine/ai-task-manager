@@ -1,9 +1,9 @@
 /**
  * Per-harness model + effort options surfaced in the composer dropdowns.
  *
- * Kept tight on purpose. We list the models we're willing to run by
- * default; users can pick "Custom…" later (not implemented) to type any
- * provider id. Adding a model here is a one-line change.
+ * This is the immediate UI fallback. Providers with model discovery replace
+ * their list at runtime. Keeping a complete fallback means settings still work
+ * when a CLI is missing, offline, or too old to expose model discovery.
  *
  * Effort levels mirror Claude's `--effort` flag (extended thinking
  * budget). Codex doesn't accept `--effort` in agentex — the dropdown
@@ -33,10 +33,8 @@ export interface ModelOption {
  * `resolveModelInfo` in ./executor/context-window) — the dropdown label
  * stays generic, the live chip upgrades to "Opus 4.8" once known.
  *
- * Codex stays pinned: the codex CLI has no stable tier aliases, and it
- * never reports a resolved model back (its stream events carry a null
- * model) — so an alias couldn't be resolved for display anyway. Bump the
- * `gpt-5.x` id by hand when a new codex model ships.
+ * Codex model ids come from `codex debug models` at runtime. The entries below
+ * mirror the current CLI catalog and are only the failure fallback.
  */
 export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
   claude_code: [
@@ -45,12 +43,22 @@ export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
     { id: 'haiku', label: 'Haiku', hint: 'latest · fast + cheap' },
   ],
   codex: [
-    // Flagship is at 5.5; the mini/nano tiers top out at 5.4 (no 5.5-mini
-    // exists). Verified against the OpenAI model list 2026-06-01.
-    { id: 'gpt-5.5', label: 'GPT-5.5', hint: 'top quality' },
-    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', hint: 'fast + cheap' },
+    { id: 'gpt-5.5', label: '5.5', hint: 'Frontier model for complex coding, research, and real-world work' },
+    { id: 'gpt-5.6-sol', label: '5.6 Sol', hint: 'Latest frontier agentic coding model' },
+    { id: 'gpt-5.6-terra', label: '5.6 Terra', hint: 'Balanced agentic coding model for everyday work' },
+    { id: 'gpt-5.6-luna', label: '5.6 Luna', hint: 'Fast and affordable agentic coding model' },
+    { id: 'gpt-5.4', label: '5.4', hint: 'Strong model for everyday coding' },
+    { id: 'gpt-5.4-mini', label: '5.4 Mini', hint: 'Small, fast, and cost-efficient model for simpler coding tasks' },
+    { id: 'gpt-5.3-codex-spark', label: '5.3 Codex Spark', hint: 'Ultra-fast coding model' },
   ],
 };
+
+export type AgentModelSource = 'provider' | 'cli' | 'config';
+
+export interface AgentModelsResponse {
+  models: ModelOption[];
+  source: AgentModelSource;
+}
 
 export interface EffortOption {
   id: EffortLevel;

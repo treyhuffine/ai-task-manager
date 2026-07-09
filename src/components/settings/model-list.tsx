@@ -1,8 +1,9 @@
 'use client';
 
 import { Check, MessageSquarePlus } from 'lucide-react';
-import { PROVIDERS, findProvider, modelsForProvider, type ProviderId } from '@/lib/agent-options';
+import { PROVIDERS, findProvider, type ProviderId } from '@/lib/agent-options';
 import { useAgentConnection } from '@/hooks/use-agent-connection';
+import { useAgentModels } from '@/hooks/use-agent-models';
 import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './agent-connection-ui';
 import { cn } from '@/lib/utils';
 
@@ -63,11 +64,12 @@ function ProviderGroup({
   isSwitch?: boolean;
 }) {
   const { connection } = useAgentConnection(providerId);
+  const { models } = useAgentModels(providerId);
   const connected = connection.connected;
   const provider = findProvider(providerId)!;
   const rows: Array<{ id: string | null; label: string; hint?: string }> = [
     { id: null, label: 'Auto', hint: 'Best available for this provider' },
-    ...modelsForProvider(providerId),
+    ...models,
   ];
 
   return (

@@ -11,6 +11,8 @@ interface PreviewManualUrlProps {
   /** Persist the new list. Pass `[]` to clear. */
   onSave: (urls: PreviewManualUrl[]) => Promise<void> | void;
   isSaving?: boolean;
+  label?: string;
+  description?: string;
 }
 
 /**
@@ -19,17 +21,27 @@ interface PreviewManualUrlProps {
  * Single default-service URL for now — the data model carries more for
  * multi-service (§10).
  */
-export function PreviewManualUrl({ urls, onSave, isSaving }: PreviewManualUrlProps) {
+export function PreviewManualUrl({
+  urls,
+  onSave,
+  isSaving,
+  label = 'Manual preview URL',
+  description = 'Running your own tunnel? Paste its URL and Flow will use it for the preview.',
+}: PreviewManualUrlProps) {
   const current = urls.find((u) => (u.service ?? null) === null)?.url ?? '';
   const [draft, setDraft] = useState(current);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    if (!pending) setDraft(current);
+    if (pending) return;
+    const id = window.setTimeout(() => setDraft(current), 0);
+    return () => window.clearTimeout(id);
   }, [current, pending]);
 
   useEffect(() => {
-    if (!isSaving && pending) setPending(false);
+    if (isSaving || !pending) return;
+    const id = window.setTimeout(() => setPending(false), 0);
+    return () => window.clearTimeout(id);
   }, [isSaving, pending]);
 
   const save = async (next: string) => {
@@ -50,10 +62,10 @@ export function PreviewManualUrl({ urls, onSave, isSaving }: PreviewManualUrlPro
     <div className="flex w-full flex-col gap-1.5">
       <label className="flex items-center gap-1.5 text-[12px] font-medium text-foreground">
         <LinkIcon size={12} className="text-muted-foreground" />
-        Manual preview URL
+        {label}
       </label>
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        Running your own tunnel? Paste its URL and Flow will use it for the preview.
+        {description}
       </p>
       <div className="flex w-full items-stretch gap-1.5">
         <input

@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sparkles, MessageSquarePlus, Loader2 } from 'lucide-react';
-import { findProvider, modelsForProvider, type ProviderId } from '@/lib/agent-options';
+import { findProvider, type ProviderId } from '@/lib/agent-options';
+import { useAgentModels } from '@/hooks/use-agent-models';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
 import { ProviderIcon } from '@/components/settings/agent-connection-ui';
 import { cn } from '@/lib/utils';
@@ -67,9 +68,10 @@ export function ComposerProviderMenu({
 
   const selected: ModelSelection = pending ?? { harness: currentProvider, model };
   const pendingProvider = pending ? findProvider(pending.harness) : null;
+  const { models: pendingModels } = useAgentModels(pending?.harness);
   const pendingModelLabel =
     pending && pending.model
-      ? modelsForProvider(pending.harness).find((m) => m.id === pending.model)?.label ?? pending.model
+      ? pendingModels.find((m) => m.id === pending.model)?.label ?? pending.model
       : null;
 
   return (
