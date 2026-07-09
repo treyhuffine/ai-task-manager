@@ -25,7 +25,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       dedupeKey,
       title: 'Test notification',
       body: `Your "${name}" channel is working. 🎉`,
-      url: '/notifications',
+      url: '/?settings=notifications',
     },
     { deliverTo: [id] },
   );
