@@ -2,10 +2,13 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Globe, Check, Loader2, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Globe, Check, Loader2, Trash2, CheckCircle2, AlertCircle, WandSparkles, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { usePreviewSettings } from '@/hooks/use-preview';
+import { ApiError } from '@/lib/api/client';
 import { settingsApi } from '@/lib/api/settings';
 import { APP_SHORT_ID } from '@/constants/app';
+import { setSettingsSection } from './settings-store';
 
 /**
  * CRUD for the remote base URL stored in ~/<APP_SHORT_ID>/config.json.
@@ -101,8 +104,16 @@ export function RemoteBaseUrlSection() {
     queryKey: ['settings', 'base-url'],
     queryFn: () => settingsApi.getBaseUrls(),
   });
+  const {
+    data: previewSettings,
+    isLoading: previewSettingsLoading,
+    isFetching: previewSettingsFetching,
+    refetch: refetchPreviewSettings,
+  } = usePreviewSettings();
 
   const saved = data?.tunnel ?? null;
+  const beamd = previewSettings?.beamd ?? null;
+  const beamdConnected = beamd?.connected ?? false;
   const [draftOverride, setDraftOverride] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>({ status: 'idle' });
@@ -118,9 +129,26 @@ export function RemoteBaseUrlSection() {
     },
   });
 
+  const beamdMutation = useMutation({
+    mutationFn: () => settingsApi.useBeamdTunnelUrl(),
+    onSuccess: (res) => {
+      queryClient.setQueryData(['settings', 'base-url'], {
+        tunnel: res.tunnel,
+        lan: res.lan,
+        local: res.local,
+      });
+      setDraftOverride(null);
+      setTestResult({ status: 'ok', url: res.beamd.url });
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1500);
+    },
+  });
+
   const dirty = (draft.trim() || null) !== saved;
   const testTarget = draft.trim();
   const canTest = !!testTarget && testResult.status !== 'testing';
+  const checkingBeamd = previewSettingsLoading || previewSettingsFetching;
+  const busy = isLoading || saveMutation.isPending || beamdMutation.isPending;
 
   const handleTest = async () => {
     if (!canTest) return;
@@ -145,6 +173,46 @@ export function RemoteBaseUrlSection() {
         The URL a remote device would paste in its browser to reach this machine. Anything works, port and all.
       </p>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+        {checkingBeamd ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Loader2 size={12} className="animate-spin" />
+            Checking Beamd login
+          </span>
+        ) : beamdConnected ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 size={12} className="shrink-0" />
+            <span className="truncate">
+              Beamd connected{beamd?.server ? <> to <span className="font-mono">{beamd.server}</span></> : null}
+            </span>
+          </span>
+        ) : (
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+            <AlertCircle size={12} className="shrink-0" />
+            <span className="truncate">
+              {beamd?.error?.message ?? 'Beamd is not connected on this machine.'}
+            </span>
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {!beamdConnected && !checkingBeamd && (
+            <Button size="xs" variant="outline" onClick={() => setSettingsSection('remote-preview')}>
+              Connect Beamd
+            </Button>
+          )}
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => refetchPreviewSettings()}
+            disabled={checkingBeamd}
+            title="Check whether this machine already has a Beamd login from the terminal"
+          >
+            <RefreshCw size={11} className={checkingBeamd ? 'animate-spin' : ''} />
+            Re-check
+          </Button>
+        </div>
+      </div>
+
       {!saved && !isLoading && (
         <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
           <AlertCircle size={12} className="mt-0.5 shrink-0 text-amber-500" />
@@ -161,7 +229,7 @@ export function RemoteBaseUrlSection() {
           value={draft}
           onChange={(e) => handleChange(e.target.value)}
           placeholder={`https://${APP_SHORT_ID}.example.com`}
-          disabled={isLoading || saveMutation.isPending}
+          disabled={busy}
           className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && dirty && draft.trim()) {
@@ -173,7 +241,7 @@ export function RemoteBaseUrlSection() {
           size="sm"
           variant="outline"
           onClick={() => saveMutation.mutate(draft.trim() || null)}
-          disabled={!dirty || saveMutation.isPending}
+          disabled={!dirty || busy}
         >
           {saveMutation.isPending ? (
             <Loader2 size={12} className="animate-spin" />
@@ -187,7 +255,7 @@ export function RemoteBaseUrlSection() {
             size="sm"
             variant="ghost"
             onClick={() => saveMutation.mutate(null)}
-            disabled={saveMutation.isPending}
+            disabled={busy}
             aria-label="Clear remote base URL"
           >
             <Trash2 size={12} />
@@ -195,12 +263,36 @@ export function RemoteBaseUrlSection() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 pt-0.5">
+      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() => {
+            if (beamdConnected) {
+              beamdMutation.mutate();
+            } else {
+              setSettingsSection('remote-preview');
+            }
+          }}
+          disabled={busy || checkingBeamd}
+          title={
+            beamdConnected
+              ? 'Open a Beamd tunnel to this Flow server and save the returned URL'
+              : 'Connect this machine to Beamd first'
+          }
+        >
+          {beamdMutation.isPending ? (
+            <Loader2 size={11} className="animate-spin" />
+          ) : (
+            <WandSparkles size={11} />
+          )}
+          {beamdConnected ? 'Use Beamd URL' : 'Connect Beamd'}
+        </Button>
         <Button
           size="xs"
           variant="outline"
           onClick={handleTest}
-          disabled={!canTest}
+          disabled={!canTest || busy}
         >
           {testResult.status === 'testing' ? (
             <Loader2 size={11} className="animate-spin" />
@@ -245,6 +337,19 @@ export function RemoteBaseUrlSection() {
           {saveMutation.error instanceof Error ? saveMutation.error.message : 'Failed to save.'}
         </p>
       )}
+      {beamdMutation.isError && (
+        <p className="text-[11px] text-destructive">
+          {beamdErrorMessage(beamdMutation.error)}
+        </p>
+      )}
     </div>
   );
+}
+
+function beamdErrorMessage(err: unknown): string {
+  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+    const body = err.body as { message?: unknown };
+    if (typeof body.message === 'string' && body.message.trim()) return body.message;
+  }
+  return err instanceof Error ? err.message : 'Beamd could not create a remote URL.';
 }

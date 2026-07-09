@@ -44,6 +44,7 @@ import {
   listChatSessions,
   listRailSessions,
   getChatSession,
+  getAgent,
   listChatEvents,
   listTriggersWithLastRun,
   getTrigger,
@@ -125,6 +126,13 @@ const noteCreateShape = {
   status: noteStatus.optional(),
   contextTags: z.array(z.string()).optional(),
 };
+
+function resumeCommandForSession(harness: string | null, externalSessionId: string | null): string | null {
+  if (!externalSessionId) return null;
+  if (harness === 'claude' || harness === 'claude_code') return `claude --resume ${externalSessionId}`;
+  if (harness === 'codex') return `codex resume ${externalSessionId}`;
+  return null;
+}
 
 // ── Actions ──────────────────────────────────────────────────────
 
@@ -742,7 +750,8 @@ const list_executions_action = defineAction({
     'List active execution sessions across all workspaces with status flags: running (turn in ' +
     'flight), awaitingInput (blocked on a prompt), unread (output the user has not viewed, what ' +
     'the rail\'s Unread section shows, minus currently-running sessions). The returned sessionId ' +
-    'is the handle for get_session_messages and send_session_message.',
+    'is the handle for get_session_messages, send_session_message, and [[execution:SESSION_ID]] links. ' +
+    'When available, resumeCommand is the provider CLI command for the external session id.',
   params: {},
   handler: async () => {
     const rows = listRailSessions();
@@ -752,9 +761,13 @@ const list_executions_action = defineAction({
       live: live !== null,
       executions: rows.map((r) => {
         const running = live?.runningSessionIds.includes(r.id) ?? false;
+        const agentHarness = getAgent(r.agentId)?.harness ?? null;
         return {
           sessionId: r.id,
           executionId: r.executionId,
+          externalSessionId: r.externalSessionId,
+          agentHarness,
+          resumeCommand: resumeCommandForSession(agentHarness, r.externalSessionId),
           label: r.label,
           workspace: { id: r.workspaceId, name: r.workspaceName },
           branch: r.execution?.branchName ?? null,
@@ -780,7 +793,8 @@ const get_session_messages_action = defineAction({
   description:
     'Read the latest messages of a session (execution or orchestrator chat) as a condensed transcript ' +
     'tail (user/agent text, one-line tool calls, errors), plus whether the session is running or ' +
-    'blocked on a permission/question prompt. Read this before nudging a session.',
+    'blocked on a permission/question prompt. The response includes app and provider ids plus a ' +
+    'provider resume command when one is available. Read this before nudging a session.',
   params: {
     sessionId: z.string().min(1),
     limit: z.number().int().positive().max(200).optional(),
@@ -789,6 +803,7 @@ const get_session_messages_action = defineAction({
   handler: async (_ctx, { sessionId, limit }) => {
     const session = getChatSession(sessionId);
     if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
+    const agentHarness = getAgent(session.agentId)?.harness ?? null;
 
     const events = listChatEvents(sessionId, { limit: limit ?? 40 });
     const pending = derivePendingFromEvents(events);
@@ -801,6 +816,10 @@ const get_session_messages_action = defineAction({
         type: session.type,
         status: session.status,
         workspaceId: session.workspaceId,
+        executionId: session.executionId,
+        externalSessionId: session.externalSessionId,
+        agentHarness,
+        resumeCommand: resumeCommandForSession(agentHarness, session.externalSessionId),
       },
       /** Null ⇒ server unreachable (live state unknown; nothing can be running while it is down). */
       running: live ? live.runningSessionIds.includes(sessionId) : null,

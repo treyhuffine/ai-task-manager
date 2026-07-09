@@ -33,8 +33,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0(@types/react@19.2.14)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@beamd/cli':
-        specifier: ^0.0.5
-        version: 0.0.5
+        specifier: ^0.0.7
+        version: 0.0.7
       '@clack/prompts':
         specifier: ^1.2.0
         version: 1.2.0
@@ -707,28 +707,28 @@ packages:
       '@types/react':
         optional: true
 
-  '@beamd/cli-darwin-arm64@0.0.5':
-    resolution: {integrity: sha512-eZAqvJoHgevojgVh5t0p8NXmlaZa2MqTdfs3pTXUeR7nEcDX+ZIRcknDFKJhyo9C9I+Npl0sNRoRRVGPdOH8Uw==}
+  '@beamd/cli-darwin-arm64@0.0.7':
+    resolution: {integrity: sha512-F4H/Wkwli1pMqRvJnmiV3kruMXhZzhWZ96IeK3PJjGLWfu7ZAzEA6v+Mj1XBBpshxy9BsuElRaR81v/kYB2S+g==}
     cpu: [arm64]
     os: [darwin]
 
-  '@beamd/cli-darwin-x64@0.0.5':
-    resolution: {integrity: sha512-CfILdZD+qYq46vCY2uk5XBkjHe29fa7X87xcU9w7dzcajiwilJDTSKlxq9GxhR0NNB+dStpcaRC3YeTgO+Tm2w==}
+  '@beamd/cli-darwin-x64@0.0.7':
+    resolution: {integrity: sha512-YsC2/nWwky5swFFZJMWxULgI0nl8Q50F1e+KOUZTKjTSXeYyloTVgf0+YHFMaK1vRYr8bh2/SIeS5TsxXE80vw==}
     cpu: [x64]
     os: [darwin]
 
-  '@beamd/cli-linux-arm64@0.0.5':
-    resolution: {integrity: sha512-J0cmpKo8qWszjIiFiwR6hzA0ltYtHcpNnFqLuybyD1nc9c/NvFLlaArYbw1xRIMMRwtUrgoRsGX1yYtQfh57mQ==}
+  '@beamd/cli-linux-arm64@0.0.7':
+    resolution: {integrity: sha512-/h/Ueh1ZU1lLiUJAjFLRPVFpRI4N4nNjdIObcy2TE/2V72MyHlHhHyriO6vz5sY9GclvG5Gy47ANpRTV1kogqA==}
     cpu: [arm64]
     os: [linux]
 
-  '@beamd/cli-linux-x64@0.0.5':
-    resolution: {integrity: sha512-ZIRg/odQxdTgENP+PNda70OmKM/ul34/s82Tu2/ipRv5iBVdGWx3614w+tBbeho6jIp6lOJLEQxdDA+DJGVoHw==}
+  '@beamd/cli-linux-x64@0.0.7':
+    resolution: {integrity: sha512-+XJx3HPxRbhYIAxDUKldWwYMgv2vWNOAY92r+gJHKW0kdLAIIaOuh5TKJ3MuCAsNF/7sRdXhN2eeGkB2QjAMTg==}
     cpu: [x64]
     os: [linux]
 
-  '@beamd/cli@0.0.5':
-    resolution: {integrity: sha512-XSMgaP4pohFNwSnEn2+ngXKnPVQ/eTEL865XvZqikQwPm7JryzXFWy4mzk2tNfZElqvSTv/hIkgL88FBmWS4cA==}
+  '@beamd/cli@0.0.7':
+    resolution: {integrity: sha512-8guk3hTt5GcNVaQkCMI4VM5gg7v0jYZuBhGbDq+1sJ3hoQZ0IehQXClw3Lj4QL22vqrttBlYt5+WMIPxlLwbNA==}
     hasBin: true
 
   '@blazediff/core@1.9.1':
@@ -9019,24 +9019,24 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.14
 
-  '@beamd/cli-darwin-arm64@0.0.5':
+  '@beamd/cli-darwin-arm64@0.0.7':
     optional: true
 
-  '@beamd/cli-darwin-x64@0.0.5':
+  '@beamd/cli-darwin-x64@0.0.7':
     optional: true
 
-  '@beamd/cli-linux-arm64@0.0.5':
+  '@beamd/cli-linux-arm64@0.0.7':
     optional: true
 
-  '@beamd/cli-linux-x64@0.0.5':
+  '@beamd/cli-linux-x64@0.0.7':
     optional: true
 
-  '@beamd/cli@0.0.5':
+  '@beamd/cli@0.0.7':
     optionalDependencies:
-      '@beamd/cli-darwin-arm64': 0.0.5
-      '@beamd/cli-darwin-x64': 0.0.5
-      '@beamd/cli-linux-arm64': 0.0.5
-      '@beamd/cli-linux-x64': 0.0.5
+      '@beamd/cli-darwin-arm64': 0.0.7
+      '@beamd/cli-darwin-x64': 0.0.7
+      '@beamd/cli-linux-arm64': 0.0.7
+      '@beamd/cli-linux-x64': 0.0.7
 
   '@blazediff/core@1.9.1':
     optional: true

@@ -215,12 +215,12 @@ function classifyError(res: RunResult): BeamdCliError {
   } else if (text.includes('not logged in') || text.includes('no account') || text.includes('no profile') || text.includes('run `beamd login`') || text.includes('run beamd login')) {
     code = 'beamd_not_connected';
     message = 'This machine isn’t connected to beamd. Connect it to enable remote previews.';
+  } else if (text.includes('unauthorized') || text.includes('bad_token') || text.includes('invalid token') || text.includes('forbidden') || text.includes('401') || text.includes('403')) {
+    code = 'beamd_unauthorized';
+    message = 'beamd rejected the credentials. Reconnect this machine to beamd, then re-check the connection.';
   } else if (text.includes('agent not available') || text.includes('agent did not start')) {
     code = 'beamd_agent_down';
     message = 'Could not reach the beamd edge (the tunnel agent failed to start). Check that this machine is connected to beamd.';
-  } else if (text.includes('unauthorized') || text.includes('invalid token') || text.includes('forbidden') || text.includes('401') || text.includes('403')) {
-    code = 'beamd_unauthorized';
-    message = 'beamd rejected the credentials. Reconnect this machine to beamd.';
   } else if (text.includes('max_tunnels') || text.includes('tunnel cap') || text.includes('too many tunnels')) {
     code = 'beamd_tunnel_cap';
     message = 'The beamd tunnel cap was hit. Close some previews and try again.';
@@ -303,6 +303,7 @@ export interface BeamdCheckResult {
   server: string;
   slug: string;
   baseDomain: string;
+  error?: string;
 }
 
 /**
@@ -316,12 +317,8 @@ export async function beamdCheck(timeoutMs = 12_000): Promise<BeamdCheckResult> 
   if (res.exitCode !== 0 && !res.stdout.trim().startsWith('{')) throw classifyError(res);
   const result = parseJson<Partial<BeamdCheckResult>>(res);
   if (result.ok !== true) {
-    throw new BeamdCliError(
-      res.exitCode === 0 ? 'beamd_unauthorized' : 'beamd_error',
-      'beamd could not authenticate with the configured server and token.',
-      res.stderr,
-      res.exitCode,
-    );
+    const detail = typeof result.error === 'string' && result.error.trim() ? result.error.trim() : res.stderr;
+    throw classifyError({ stdout: detail || res.stdout, stderr: res.stderr, exitCode: res.exitCode });
   }
   return result as BeamdCheckResult;
 }
@@ -409,12 +406,24 @@ export async function beamdLoginDevice(
     let url: string | null = null;
     let code: string | null = null;
     let buf = '';
-    let backstop: ReturnType<typeof setTimeout> | undefined;
 
+    // Device codes expire (~15 min) and beamd exits on its own; backstop-kill
+    // well past that so a wedged process can't hold the stream open forever.
+    const backstop = setTimeout(
+      () => {
+        try {
+          child.kill();
+        } catch {
+          /* gone */
+        }
+        finish(reject, new BeamdCliError('beamd_device_expired', 'Browser approval timed out.', buf, null));
+      },
+      20 * 60_000,
+    );
     const finish = (fn: (v: never) => void, val: unknown) => {
       if (settled) return;
       settled = true;
-      if (backstop) clearTimeout(backstop);
+      clearTimeout(backstop);
       if (opts.signal) opts.signal.removeEventListener('abort', onAbort);
       fn(val as never);
     };
@@ -433,20 +442,6 @@ export async function beamdLoginDevice(
       }
       opts.signal.addEventListener('abort', onAbort, { once: true });
     }
-
-    // Device codes expire (~15 min) and beamd exits on its own; backstop-kill
-    // well past that so a wedged process can't hold the stream open forever.
-    backstop = setTimeout(
-      () => {
-        try {
-          child.kill();
-        } catch {
-          /* gone */
-        }
-        finish(reject, new BeamdCliError('beamd_device_expired', 'Browser approval timed out.', buf, null));
-      },
-      20 * 60_000,
-    );
 
     // The challenge prints to stderr (a URL + a `XXXX-YYYY` code). Read both
     // streams and emit `pending` once we have the pair.

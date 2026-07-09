@@ -113,11 +113,20 @@ describe('execution oversight actions', () => {
   it('list_executions returns rail rows and degrades live flags without a server', async () => {
     await resetDb();
     const { session } = await seedExecutionSession();
+    const q = await import('@/lib/db/queries');
+    q.updateChatSession(session.id, { externalSessionId: 'claude-session-abc' });
     const list = await findAction('list_executions');
 
     const result = (await list.handler(ctx, {} as never)) as {
       live: boolean;
-      executions: Array<{ sessionId: string; workspace: { name: string }; running: boolean }>;
+      executions: Array<{
+        sessionId: string;
+        externalSessionId: string | null;
+        agentHarness: string | null;
+        resumeCommand: string | null;
+        workspace: { name: string };
+        running: boolean;
+      }>;
     };
 
     expect(result.live).toBe(false); // no config.json in the isolated root
@@ -125,6 +134,9 @@ describe('execution oversight actions', () => {
     expect(row).toBeDefined();
     expect(row!.workspace.name).toBe('OversightWs');
     expect(row!.running).toBe(false);
+    expect(row!.externalSessionId).toBe('claude-session-abc');
+    expect(row!.agentHarness).toBe('claude_code');
+    expect(row!.resumeCommand).toBe('claude --resume claude-session-abc');
   });
 
   it('list_executions derives unread the way the rail does', async () => {
@@ -175,6 +187,13 @@ describe('execution oversight actions', () => {
 
     const get = await findAction('get_session_messages');
     const result = (await get.handler(ctx, { sessionId: session.id } as never)) as {
+      session: {
+        id: string;
+        executionId: string | null;
+        externalSessionId: string | null;
+        agentHarness: string | null;
+        resumeCommand: string | null;
+      };
       running: boolean | null;
       awaitingInput: boolean;
       pendingDetail: { kind: string; detail: string } | null;
@@ -182,6 +201,9 @@ describe('execution oversight actions', () => {
     };
 
     expect(result.running).toBeNull(); // server unreachable → unknown
+    expect(result.session.id).toBe(session.id);
+    expect(result.session.executionId).toBe(session.executionId);
+    expect(result.session.agentHarness).toBe('claude_code');
     expect(result.awaitingInput).toBe(true); // derived from the unanswered question
     expect(result.pendingDetail?.kind).toBe('question');
     expect(result.pendingDetail?.detail).toContain('Which database?');

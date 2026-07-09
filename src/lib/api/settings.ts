@@ -9,6 +9,14 @@ export interface PairBaseUrls {
   local: string;
 }
 
+export interface BeamdBaseUrlResponse extends PairBaseUrls {
+  beamd: {
+    url: string;
+    name: string;
+    port: number;
+  };
+}
+
 export const settingsApi = {
   getBaseUrls(): Promise<PairBaseUrls> {
     return api.get<PairBaseUrls>('/settings/base-url');
@@ -16,5 +24,9 @@ export const settingsApi = {
 
   setTunnelUrl(baseUrl: string | null): Promise<PairBaseUrls> {
     return api.patch<PairBaseUrls>('/settings/base-url', { baseUrl });
+  },
+
+  useBeamdTunnelUrl(): Promise<BeamdBaseUrlResponse> {
+    return api.post<BeamdBaseUrlResponse>('/settings/base-url/beamd');
   },
 };

@@ -21,9 +21,11 @@ async function snapshot() {
   const settings = readPreviewSettings();
 
   // Read the connection AND any reason it failed, so the UI can show a real
-  // cause (e.g. a version-skew "beamd is outdated") instead of a bare
-  // "not connected". `status` reads local state without authenticating.
+  // cause (e.g. a version-skew "beamd is outdated" or a rejected token)
+  // instead of a bare "not connected". `status` reads local account state, but
+  // `check` is what proves the edge will accept this machine.
   let server: string | null = null;
+  let connected = false;
   let error: { code: string; message: string } | null = null;
   try {
     const status = await beamdStatus();
@@ -39,6 +41,16 @@ async function snapshot() {
           'Update Flow (or install a current beamd, Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.',
       };
     }
+    if (server) {
+      try {
+        const check = await beamdCheck();
+        connected = true;
+        server = check.server?.trim() ? check.server : server;
+      } catch (err) {
+        if (err instanceof BeamdCliError) error = { code: err.code, message: err.message };
+        else throw err;
+      }
+    }
   } catch (err) {
     if (err instanceof BeamdCliError) error = { code: err.code, message: err.message };
   }
@@ -48,7 +60,7 @@ async function snapshot() {
   return {
     activeProvider: settings.activeProvider,
     manualTemplate: settings.manualTemplate,
-    beamd: { connected: server !== null, server, error, bin },
+    beamd: { connected, server, error, bin },
     providers: listPreviewProviders(),
   };
 }

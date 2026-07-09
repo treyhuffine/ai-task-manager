@@ -83,34 +83,20 @@ export function ExecutionHeader({
   // Header layout variant — three arrangements the user can flip between
   // to compare. Persisted in localStorage. Default `right` (actions
   // adjacent to the right cluster).
-  const [headerLayout, setHeaderLayoutState] = useState<HeaderLayout>(() => readPersistedLayout());
-  const setHeaderLayout = useCallback((next: HeaderLayout) => {
-    setHeaderLayoutState(next);
-    try {
-      window.localStorage.setItem(HEADER_LAYOUT_KEY, next);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const [headerLayout] = useState<HeaderLayout>(() => readPersistedLayout());
 
   // Inline rename: click the label → swap to input. Enter / blur saves
   // via PATCH /api/sessions/:id; Escape cancels. The local draft holds
   // the in-progress text so React Query repaints from server data don't
   // clobber the user's edit while they're typing.
   //
-  // Reset on session change. ExecutionView doesn't remount on
-  // navigation, so without this an in-flight rename would carry the
-  // old draft text into the new session — pressing Enter would rename
-  // the wrong execution.
-  const [editing, setEditing] = useState(false);
+  // `editingSessionId` also resets on session change without an effect.
+  // ExecutionView doesn't remount on navigation, so a boolean alone
+  // would let an in-flight rename carry into the next execution.
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const lastRenameSessionRef = useRef(session.id);
-  if (lastRenameSessionRef.current !== session.id) {
-    lastRenameSessionRef.current = session.id;
-    setEditing(false);
-    setDraft('');
-  }
+  const editing = editingSessionId === session.id;
 
   // The header title is the EXECUTION's label — stable across chats. Starting
   // a new chat on the same execution gives that chat its own `session.label`
@@ -120,18 +106,21 @@ export function ExecutionHeader({
   const displayLabel = session.execution?.label ?? session.label ?? null;
 
   useEffect(() => {
-    if (editing) {
-      setDraft(displayLabel ?? '');
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      });
-    }
-  }, [editing, displayLabel]);
+    if (!editing) return;
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+  }, [editing]);
+
+  const beginRename = () => {
+    setDraft(displayLabel ?? '');
+    setEditingSessionId(session.id);
+  };
 
   const commitRename = () => {
     const next = draft.trim();
-    setEditing(false);
+    setEditingSessionId(null);
     if (next === (displayLabel ?? '')) return; // no-op
     // Rename the execution (the durable artifact) so the title survives a
     // "new chat". Orphaned chats with no execution fall back to their own label.
@@ -143,7 +132,7 @@ export function ExecutionHeader({
   };
 
   const cancelRename = () => {
-    setEditing(false);
+    setEditingSessionId(null);
     setDraft(displayLabel ?? '');
   };
 
@@ -312,6 +301,9 @@ export function ExecutionHeader({
   const isLive =
     !!workspace?.isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   const liveBadge = isLive ? <LiveBadge branch={session.branchName} /> : null;
+  const providerResumeCommand = session.externalSessionId
+    ? resumeCommand(session.agentHarness, session.externalSessionId)
+    : null;
 
   return (
     <div className="flex-shrink-0 border-b border-border bg-background">
@@ -330,7 +322,7 @@ export function ExecutionHeader({
           {labelElement ?? (
             <button
               type="button"
-              onClick={() => setEditing(true)}
+              onClick={beginRename}
               title="Rename"
               className={cn(
                 'truncate text-left rounded px-1 -mx-1 py-0.5',
@@ -396,12 +388,33 @@ export function ExecutionHeader({
                     value={statusLabel}
                     valueClass="text-foreground capitalize"
                   />
-                  {session.externalSessionId && (
+                  <CopyableDetailRow
+                    label="Session"
+                    value={session.id}
+                    copyLabel="app session id"
+                  />
+                  {session.executionId && (
                     <CopyableDetailRow
-                      label={resumeIdLabel(session.agentHarness)}
-                      value={session.externalSessionId}
-                      copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
+                      label="Execution"
+                      value={session.executionId}
+                      copyLabel="execution id"
                     />
+                  )}
+                  {session.externalSessionId && (
+                    <>
+                      <CopyableDetailRow
+                        label={resumeIdLabel(session.agentHarness)}
+                        value={session.externalSessionId}
+                        copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
+                      />
+                      {providerResumeCommand && (
+                        <CopyableDetailRow
+                          label="Resume"
+                          value={providerResumeCommand}
+                          copyLabel="resume command"
+                        />
+                      )}
+                    </>
                   )}
                   {session.worktreePath && (
                     <DetailRow
@@ -462,7 +475,7 @@ export function ExecutionHeader({
           {labelElement ?? (
             <button
               type="button"
-              onClick={() => setEditing(true)}
+              onClick={beginRename}
               title="Rename"
               className={cn(
                 'truncate text-left rounded px-0.5 -mx-0.5 min-w-0',
@@ -539,12 +552,33 @@ export function ExecutionHeader({
                   value={statusLabel}
                   valueClass="text-foreground capitalize"
                 />
-                {session.externalSessionId && (
+                <CopyableDetailRow
+                  label="Session"
+                  value={session.id}
+                  copyLabel="app session id"
+                />
+                {session.executionId && (
                   <CopyableDetailRow
-                    label={resumeIdLabel(session.agentHarness)}
-                    value={session.externalSessionId}
-                    copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
+                    label="Execution"
+                    value={session.executionId}
+                    copyLabel="execution id"
                   />
+                )}
+                {session.externalSessionId && (
+                  <>
+                    <CopyableDetailRow
+                      label={resumeIdLabel(session.agentHarness)}
+                      value={session.externalSessionId}
+                      copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
+                    />
+                    {providerResumeCommand && (
+                      <CopyableDetailRow
+                        label="Resume"
+                        value={providerResumeCommand}
+                        copyLabel="resume command"
+                      />
+                    )}
+                  </>
                 )}
                 {session.worktreePath && (
                   <DetailRow
@@ -802,10 +836,9 @@ function DetailRow({
 
 /**
  * Detail row whose value is click-to-copy. Used for surfacing the
- * harness-side session id (`externalSessionId`) — the token the CLI
- * (`claude --resume <id>` / `codex resume <id>`) needs to pick up a
- * thread later. Visible only when bound, so the row stays out of the
- * way for fresh sessions.
+ * app session id, durable execution id, harness-side session id, and
+ * resume command. Visible only when bound, so optional rows stay out of
+ * the way for fresh sessions.
  */
 function CopyableDetailRow({
   label,
@@ -854,9 +887,15 @@ function CopyableDetailRow({
 }
 
 function resumeIdLabel(harness: string | null): string {
-  if (harness === 'claude') return 'Claude id';
+  if (harness === 'claude' || harness === 'claude_code') return 'Claude id';
   if (harness === 'codex') return 'Codex id';
   return 'Resume id';
+}
+
+function resumeCommand(harness: string | null, id: string): string | null {
+  if (harness === 'claude' || harness === 'claude_code') return `claude --resume ${id}`;
+  if (harness === 'codex') return `codex resume ${id}`;
+  return null;
 }
 
 interface LinkPrSectionProps {
