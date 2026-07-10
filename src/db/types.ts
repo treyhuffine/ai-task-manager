@@ -214,7 +214,7 @@ export const PERMISSION_MODES = ['bypass', 'default', 'accept_edits', 'plan'] as
 
 export type EffortLevel = NonNullable<ChatSessionRecord['effort']>;
 
-export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly EffortLevel[];
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const satisfies readonly EffortLevel[];
 
 // ─── Triggers ─────────────────────────────────────────────────
 

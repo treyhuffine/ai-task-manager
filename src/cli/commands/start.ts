@@ -21,7 +21,12 @@ import {
   waitForServer,
 } from '../lib/server';
 import { openBrowser } from '../lib/browser';
-import { installWorkspaceSkills } from './skills';
+import {
+  getGlobalSkillPreference,
+  installAppRootSkills,
+  installGlobalSkills,
+} from '@/lib/agent-skills/shipped';
+import { cleanupKnownProjectSkillLinks } from '@/lib/agent-skills/project-cleanup';
 import { runWizard } from './onboard';
 import { runDoctorChecks, printDoctorChecks } from './doctor';
 import {
@@ -114,17 +119,35 @@ export async function startCommand(opts: StartOptions) {
   // Auth first — used by both the health probe and the eventual app session.
   s.start('Bootstrapping auth');
   const info = ensureLocalToken();
+  try {
+    const projectSkillCleanup = await cleanupKnownProjectSkillLinks();
+    if (projectSkillCleanup.removed > 0) {
+      log.success(`Removed ${projectSkillCleanup.removed} legacy project skill symlink(s)`);
+    }
+    if (projectSkillCleanup.errors > 0) {
+      log.warn(`Could not inspect ${projectSkillCleanup.errors} legacy project skill target(s)`);
+    }
+  } catch (err) {
+    log.warn(
+      `Legacy project skill cleanup skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   resetDb(); // release DB handle before spawning the server child.
   s.stop(info.created ? 'Created new host token' : 'Reusing existing token');
 
-  // Ensure the orchestrator skill is symlinked into the app data dir so an
-  // agent session opened there auto-discovers it. Idempotent: existing symlinks
-  // get status='skipped' and produce no log. First install logs a single
-  // success line; failures log a warning and do not block startup.
+  // Keep the app-root skill available for sessions opened in the data home.
+  // Maintain the user-level install only after the user explicitly opts in.
+  // Both operations are idempotent and non-blocking for startup.
   try {
-    const result = await installWorkspaceSkills();
-    if (result.installed > 0) {
-      log.success(`Installed ${result.installed} skill symlink(s) in the app data dir`);
+    const appRootResult = await installAppRootSkills();
+    if (appRootResult.installed > 0) {
+      log.success(`Installed ${appRootResult.installed} skill symlink(s) in the app data dir`);
+    }
+    if (getGlobalSkillPreference() === true) {
+      const globalResult = await installGlobalSkills();
+      if (globalResult.installed > 0) {
+        log.success(`Installed ${globalResult.installed} user-level skill symlink(s)`);
+      }
     }
   } catch (err) {
     log.warn(`Skill auto-install skipped: ${err instanceof Error ? err.message : String(err)}`);

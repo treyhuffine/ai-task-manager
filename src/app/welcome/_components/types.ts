@@ -33,9 +33,11 @@ export interface WizardState {
   description: string;
   areas: Array<{ name: string; emoji: string | null; attachments: Attachment[] }>;
   agentHarness: AgentHarness;
-  /** Default model id for the chosen provider, or null = let the agent pick. */
-  agentModel: string | null;
+  /** Explicit default model id for the chosen provider. */
+  agentModel: string;
   agentAuth: AgentAuthState;
+  /** User-level skill discovery for ordinary agent sessions in any project. */
+  globalSkillEnabled: boolean | null;
   importSkipped: boolean;
 }
 

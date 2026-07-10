@@ -4,20 +4,26 @@ import {
   archiveChatSession,
   getOrCreateDefaultOrchestrator,
   getUserState,
+  updateUserState,
 } from '@/lib/db/queries';
-import { providerHarnessKey, type ProviderId } from '@/lib/agent-options';
-import type { ChatSessionWithExecution } from '@/db/types';
+import type { ProviderId } from '@/lib/agent-options';
+import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
+import { resolveAgentSelection } from '@/lib/agent-model-discovery';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
   providerId?: ProviderId;
-  model?: string | null;
+  model?: string;
+  effort?: EffortLevel;
 }
 
-function parseOverride(src: { providerId?: unknown; model?: unknown }): ChatOverride {
+function parseOverride(src: { providerId?: unknown; model?: unknown; effort?: unknown }): ChatOverride {
   const out: ChatOverride = {};
   if (src.providerId === 'claude' || src.providerId === 'codex') out.providerId = src.providerId;
-  if (src.model === null || typeof src.model === 'string') out.model = src.model;
+  if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
+  if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
+    out.effort = src.effort as EffortLevel;
+  }
   return out;
 }
 
@@ -42,25 +48,23 @@ function findCurrent(): ChatSessionWithExecution | null {
   return sessions.find((s) => s.createdByRunId === null) ?? null;
 }
 
-/** user_state.defaultAgentHarness ('claude' | 'codex') → agents.harness vocabulary. */
-function defaultHarness(): string {
-  const pref = getUserState()?.defaultAgentHarness;
-  return pref === 'codex' ? 'codex' : 'claude_code';
-}
-
-function createInteractiveSession(override: ChatOverride = {}) {
-  // Provider: explicit override (composer "switch provider") wins; else default.
-  const harness = override.providerId ? providerHarnessKey(override.providerId) : defaultHarness();
-  const agent = getOrCreateDefaultOrchestrator(harness);
+async function createInteractiveSession(override: ChatOverride = {}) {
   const userState = getUserState();
-  return createChatSession({
+  const providerId = override.providerId
+    ?? (userState?.defaultAgentHarness === 'codex' ? 'codex' : 'claude');
+  const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
+  const selection = await resolveAgentSelection(providerId, {
+    model: override.model
+      ?? (savedTupleMatchesProvider ? userState?.defaultAgentModel : null),
+    effort: override.effort
+      ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null),
+  });
+  const agent = getOrCreateDefaultOrchestrator(selection.harness);
+  const session = createChatSession({
     type: 'orchestration',
     agentId: agent.id,
-    // Model: explicit override (even null) wins; else the user's default.
-    model: override.model !== undefined ? override.model : userState?.defaultAgentModel ?? null,
-    // Effort: seeded from the user's default (last composer pick). Null =
-    // harness default. No override channel here — set per-session in the composer.
-    effort: userState?.defaultAgentEffort ?? null,
+    model: selection.model,
+    effort: selection.effort,
     // Label stays null until the first send — the messages route's
     // `deriveAndSetSessionLabel` (haiku-via-harness, same pipeline that
     // names executions) only fires on unlabeled sessions. A hardcoded
@@ -68,11 +72,17 @@ function createInteractiveSession(override: ChatOverride = {}) {
     label: null,
     status: 'active',
   });
+  updateUserState({
+    defaultAgentHarness: selection.providerId,
+    defaultAgentModel: selection.model,
+    defaultAgentEffort: selection.effort,
+  });
+  return session;
 }
 
 export async function GET() {
   try {
-    const session = findCurrent() ?? createInteractiveSession();
+    const session = findCurrent() ?? await createInteractiveSession();
     return Response.json({ session });
   } catch (err) {
     console.error('[GET /api/orchestrator-chat]', err);
@@ -87,7 +97,11 @@ export async function POST(req: Request) {
   } catch {
     body = {};
   }
-  const override = parseOverride((body ?? {}) as { providerId?: unknown; model?: unknown });
+  const override = parseOverride((body ?? {}) as {
+    providerId?: unknown;
+    model?: unknown;
+    effort?: unknown;
+  });
   try {
     const current = findCurrent();
     if (current) {
@@ -103,7 +117,7 @@ export async function POST(req: Request) {
       const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
       void deriveRetrospectiveLabel(current.id);
     }
-    const session = createInteractiveSession(override);
+    const session = await createInteractiveSession(override);
     return Response.json({ session });
   } catch (err) {
     console.error('[POST /api/orchestrator-chat]', err);

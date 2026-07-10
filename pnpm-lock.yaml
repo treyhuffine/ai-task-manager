@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@agentex/agent':
-        specifier: ^0.0.23
-        version: 0.0.23(zod@3.25.76)
+        specifier: ^0.0.27
+        version: 0.0.27(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -430,9 +430,9 @@ packages:
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
-  '@agentex/agent@0.0.23':
-    resolution: {integrity: sha512-MwreolZg4AQsh5en0WuT8qWqYsazNfXkuVnBKuW87VsRUEgeoE5mA6WDPYwMZsNcVpYQ9WsdJ3ia9bEjU3o+Lw==}
-    engines: {node: '>=18.0.0'}
+  '@agentex/agent@0.0.27':
+    resolution: {integrity: sha512-jrlqBIT4o74S/EyQG6Trd6nN4gdLaZjwJpFCuhLEPhOCFd81fKQ0yJqbYk7UvUDeeGq1E6vI4IwrMqvftyCbww==}
+    engines: {node: '>=20.19.0'}
 
   '@agentex/github@0.0.1':
     resolution: {integrity: sha512-/TLsFdDUCZlANyIkvVc/EoLnVIlBIjCciNcyVEzMq4MkvArWqbCVyZUylmpg2un7AkVgQvrUGqi5rQdlD1YqQg==}
@@ -8290,10 +8290,6 @@ packages:
     resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
     hasBin: true
 
-  uuid@13.0.0:
-    resolution: {integrity: sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w==}
-    hasBin: true
-
   uuidv7@1.1.0:
     resolution: {integrity: sha512-2VNnOC0+XQlwogChUDzy6pe8GQEys9QFZBGOh54l6qVfwoCUwwRvk7rDTgaIsRgsF5GFa5oiNg8LqXE3jofBBg==}
     hasBin: true
@@ -8665,10 +8661,9 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@agentex/agent@0.0.23(zod@3.25.76)':
+  '@agentex/agent@0.0.27(zod@3.25.76)':
     dependencies:
       '@agentclientprotocol/sdk': 0.24.0(zod@3.25.76)
-      uuid: 13.0.0
     transitivePeerDependencies:
       - zod
 
@@ -17230,8 +17225,6 @@ snapshots:
   utils-merge@1.0.1: {}
 
   uuid@11.1.0: {}
-
-  uuid@13.0.0: {}
 
   uuidv7@1.1.0: {}
 

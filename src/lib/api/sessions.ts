@@ -379,8 +379,8 @@ export const sessionsApi = {
       /** The execution's stable header title (lives on the execution, not the chat). */
       executionLabel?: string | null;
       permissionMode?: PermissionMode;
-      model?: string | null;
-      effort?: EffortLevel | null;
+      model?: string;
+      effort?: EffortLevel;
       prNumber?: number | null;
     },
   ): Promise<ChatSessionWithExecution> {
@@ -590,7 +590,7 @@ export const sessionsApi = {
    */
   newChat(
     id: string,
-    opts?: { providerId?: 'claude' | 'codex'; model?: string | null },
+    opts?: { providerId?: 'claude' | 'codex'; model?: string; effort?: EffortLevel },
   ): Promise<{ session: ChatSessionWithExecution }> {
     return api.post<{ session: ChatSessionWithExecution }>(`/sessions/${id}/new-chat`, opts ?? {});
   },

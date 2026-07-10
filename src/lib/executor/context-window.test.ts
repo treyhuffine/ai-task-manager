@@ -6,6 +6,7 @@ describe('prettifyModelId', () => {
     expect(prettifyModelId('claude-opus-4-8')).toBe('Opus 4.8');
     expect(prettifyModelId('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
     expect(prettifyModelId('claude-sonnet-4-6')).toBe('Sonnet 4.6');
+    expect(prettifyModelId('claude-fable-5')).toBe('Fable 5');
   });
 
   it('renders a brand-new minor version with no code change', () => {
@@ -18,6 +19,7 @@ describe('prettifyModelId', () => {
   it('renders a bare tier alias (pre-dispatch)', () => {
     expect(prettifyModelId('opus')).toBe('Opus');
     expect(prettifyModelId('haiku')).toBe('Haiku');
+    expect(prettifyModelId('fable')).toBe('Fable');
   });
 
   it('renders Codex ids', () => {
@@ -60,6 +62,13 @@ describe('resolveModelInfo', () => {
   it('returns label with a 0 cap (hides %) for unknown models', () => {
     const info = resolveModelInfo('mystery-model-7');
     expect(info).toEqual({ label: 'mystery-model-7', contextWindow: 0 });
+  });
+
+  it('keeps Fable context usage hidden until its cap is documented', () => {
+    expect(resolveModelInfo('claude-fable-5')).toEqual({
+      label: 'Fable 5',
+      contextWindow: 0,
+    });
   });
 
   it('pairs a derived label with a derived cap', () => {

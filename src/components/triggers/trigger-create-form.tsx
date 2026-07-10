@@ -58,6 +58,11 @@ const WEEKDAY_LABELS: { value: Weekday; label: string }[] = [
   { value: 0, label: 'Sunday' },
 ];
 
+// Trigger creation does not yet select a provider and model together. Preserve
+// its existing provider-agnostic choices, while leaving Codex-only `ultra` to
+// the model-aware execution composer.
+const TRIGGER_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
 export interface WebhookCredentials {
   publicId: string;
   secret: string;
@@ -343,7 +348,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
               className={inputCls}
             >
               <option value="">Default</option>
-              {(['low', 'medium', 'high', 'xhigh', 'max'] as const).map((e) => (
+              {TRIGGER_EFFORT_LEVELS.map((e) => (
                 <option key={e} value={e}>
                   {e}
                 </option>
@@ -499,7 +504,7 @@ function ModelPill({
 }) {
   const [open, setOpen] = useState(false);
   // Single source of truth: the same Claude tier aliases the composer
-  // offers (opus/sonnet/haiku → always-latest). Empty id = harness default.
+  // offers (opus/sonnet/haiku/fable → always-latest). Empty id = harness default.
   const presets = [
     { id: '', label: 'Default model' },
     ...MODEL_OPTIONS.claude_code.map((m) => ({ id: m.id, label: m.label })),

@@ -3,7 +3,14 @@
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sparkles, MessageSquarePlus, Loader2 } from 'lucide-react';
-import { findProvider, type ProviderId } from '@/lib/agent-options';
+import {
+  explicitEffortForModel,
+  findProvider,
+  providerHarnessKey,
+  type ModelOption,
+  type ProviderId,
+} from '@/lib/agent-options';
+import type { EffortLevel } from '@/db/types';
 import { useAgentModels } from '@/hooks/use-agent-models';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
 import { ProviderIcon } from '@/components/settings/agent-connection-ui';
@@ -14,13 +21,13 @@ interface ComposerProviderMenuProps {
   onOpenChange: (open: boolean) => void;
   /** This session's provider (composer harness, mapped to provider vocab). */
   currentProvider: ProviderId;
-  /** This session's pinned model id, or null = harness default. */
-  model: string | null;
+  /** This session's explicit model id. */
+  model: string;
   fallbackLabel: string;
   /** Pick a model within the *current* provider — updates this session. */
-  onSelectModel: (id: string | null) => void;
+  onSelectModel: (id: string) => void;
   /** Switch to a *different* provider — starts a fresh chat on it. */
-  onSwitchProvider: (next: { harness: ProviderId; model: string | null }) => void;
+  onSwitchProvider: (next: { harness: ProviderId; model: string; effort: EffortLevel }) => void;
   /** A provider switch (new chat) is in flight. */
   switching?: boolean;
   disabled?: boolean;
@@ -56,23 +63,23 @@ export function ComposerProviderMenu({
     onOpenChange(next);
   };
 
-  const handlePick = (harness: ProviderId, m: string | null) => {
+  const handlePick = (harness: ProviderId, modelOption: ModelOption) => {
     if (harness === currentProvider) {
-      onSelectModel(m);
+      onSelectModel(modelOption.id);
       reset(false);
     } else {
       // Cross-provider: stage it; confirming starts a fresh chat.
-      setPending({ harness, model: m });
+      setPending({ harness, model: modelOption.id });
     }
   };
 
   const selected: ModelSelection = pending ?? { harness: currentProvider, model };
   const pendingProvider = pending ? findProvider(pending.harness) : null;
   const { models: pendingModels } = useAgentModels(pending?.harness);
-  const pendingModelLabel =
-    pending && pending.model
-      ? pendingModels.find((m) => m.id === pending.model)?.label ?? pending.model
-      : null;
+  const pendingModel = pending
+    ? pendingModels.find((candidate) => candidate.id === pending.model) ?? null
+    : null;
+  const pendingModelLabel = pendingModel?.label ?? pending?.model ?? null;
 
   return (
     <Popover open={open} onOpenChange={reset}>
@@ -80,7 +87,7 @@ export function ComposerProviderMenu({
         <button
           type="button"
           disabled={disabled}
-          title={model ? `Model: ${model}` : 'Use harness default'}
+          title={`Model: ${model}`}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
             'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
@@ -115,7 +122,15 @@ export function ComposerProviderMenu({
               <button
                 type="button"
                 onClick={() => {
-                  onSwitchProvider(pending);
+                  const modelOption = pendingModel ?? { id: pending.model, label: pending.model };
+                  onSwitchProvider({
+                    ...pending,
+                    effort: explicitEffortForModel(
+                      providerHarnessKey(pending.harness),
+                      modelOption,
+                      null,
+                    ),
+                  });
                   reset(false);
                 }}
                 disabled={switching}

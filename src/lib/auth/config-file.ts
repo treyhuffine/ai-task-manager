@@ -1,7 +1,8 @@
 /**
- * Persistent config at `~/<APP_SHORT_ID>/config.json`.
+ * Persistent machine-local config at the app's configured config path.
  * - Directory mode 0700, file mode 0600.
- * - Only the host's own plaintext token lives here. Remote-device tokens never touch disk.
+ * - The host token and machine-specific preferences live here. Remote-device
+ *   tokens never touch disk.
  */
 
 import fs from 'node:fs';
@@ -13,6 +14,10 @@ export interface AuthConfig {
   tunnelUrl: string | null;
   onboardedAt: string | null;
   voiceEnabled: boolean | null;
+  /** Whether the shipped productivity skill should be installed in the
+   *  user-level agent skill directories. Null means the user has not made
+   *  an explicit choice yet. */
+  globalSkillEnabled: boolean | null;
   /** Last port the server was started on. Written by `start`, read by `pair`
    *  so the CLI shows the right port even when invoked from a different shell. */
   lastPort: number | null;
@@ -42,6 +47,7 @@ export function readAuthConfig(): AuthConfig | null {
       tunnelUrl: parsed.tunnelUrl ?? null,
       onboardedAt: parsed.onboardedAt ?? null,
       voiceEnabled: parsed.voiceEnabled ?? null,
+      globalSkillEnabled: parsed.globalSkillEnabled ?? null,
       lastPort: parsed.lastPort ?? null,
       staticUrl: parsed.staticUrl ?? null,
     };
@@ -68,6 +74,7 @@ export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
     tunnelUrl: pick('tunnelUrl'),
     onboardedAt: pick('onboardedAt'),
     voiceEnabled: pick('voiceEnabled'),
+    globalSkillEnabled: pick('globalSkillEnabled'),
     lastPort: pick('lastPort'),
     staticUrl: pick('staticUrl'),
   };

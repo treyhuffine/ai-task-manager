@@ -93,13 +93,12 @@ export const userState = sqliteTable('user_state', {
   description: text().notNull().default(''),
   voiceAutoSend: integer({ mode: 'boolean' }).notNull().default(true),
   voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
+  // Last explicit provider-bound harness + model + effort tuple. The columns
+  // remain nullable for pre-onboarding and legacy databases, but chat creation
+  // resolves them to concrete values before anything reaches a runner.
   defaultAgentHarness: text({ enum: ['claude', 'codex'] }),
   defaultAgentModel: text(),
-  // Default reasoning effort new chats/executions start with (Claude only;
-  // Codex ignores it). Mirrors the chat_sessions.effort enum. Null = use the
-  // harness default. Updated whenever the user picks an effort in the composer,
-  // so the next new chat inherits the last selection.
-  defaultAgentEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+  defaultAgentEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
   // Which brain powers the dashboard orchestrator chat:
   //   legacy         — hand-rolled streamText agent (src/lib/ai/chat-tools.ts)
   //   harness_skills — harness session (cwd = data root), actions via CLI/skills
@@ -739,15 +738,14 @@ export const chatSessions = sqliteTable(
       .notNull()
       .default('bypass'),
 
-    // Per-session model + effort overrides. Null = use the harness default.
-    // For Claude these map to --model / --effort. For Codex --model only;
-    // effort is ignored. Changing either recycles the cached AgentSession
-    // so the next dispatch picks up the new flag.
+    // Explicit per-session model + effort. These stay nullable in the schema
+    // for legacy rows, while creation and dispatch normalize them before the
+    // provider boundary. Agentex maps the concrete values onto each provider's
+    // native session protocol. Changing either recycles the cached session.
     //
-    // Effort enum values mirror Claude's `--effort` flag — `xhigh` and
-    // `max` are the literal CLI values, not display strings.
+    // Effort enum values are literal provider tokens, not display strings.
     model: text(),
-    effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+    effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
 
     // When entering plan mode we stash the prior permission_mode here so
     // ExitPlanMode can revert. Mirrors Claude Code's `prePlanMode` on
@@ -1104,7 +1102,7 @@ export const triggers = sqliteTable(
     // Per-run overrides applied to the dispatched session. Null = inherit
     // the harness default.
     model: text(),
-    effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+    effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
     // Optional hard cap on wall-clock runtime per fire. NULL = no
     // timeout (the default for new triggers); positive int = seconds.
     // The honest signal for "is this run stuck" lives in the observe-

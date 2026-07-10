@@ -21,10 +21,14 @@ export interface ModelOption {
   label: string;
   /** Optional secondary line in the dropdown (e.g. "1M context"). */
   hint?: string;
+  /** Reasoning effort values advertised by this exact model. */
+  supportedEfforts?: EffortLevel[];
+  /** Provider-recommended effort when no per-session override is selected. */
+  defaultEffort?: EffortLevel;
 }
 
 /**
- * Claude models use the CLI's tier *aliases* (`opus`/`sonnet`/`haiku`)
+ * Claude models use the CLI's tier *aliases* (`opus`/`sonnet`/`haiku`/`fable`)
  * rather than pinned version ids. The alias resolves to whatever the
  * installed Claude binary currently ships as that tier, so a model
  * upgrade (Opus 4.7 → 4.8 → …) requires zero changes here — the picker
@@ -41,6 +45,7 @@ export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
     { id: 'opus', label: 'Opus', hint: 'latest · top quality' },
     { id: 'sonnet', label: 'Sonnet', hint: 'latest · balanced' },
     { id: 'haiku', label: 'Haiku', hint: 'latest · fast + cheap' },
+    { id: 'fable', label: 'Fable', hint: 'latest' },
   ],
   codex: [
     { id: 'gpt-5.5', label: '5.5', hint: 'Frontier model for complex coding, research, and real-world work' },
@@ -69,16 +74,140 @@ export interface EffortOption {
   hint: string;
 }
 
-// Mirrors Claude CLI's `--effort` choices: low, medium, high, xhigh, max.
-// `xhigh` and `max` are the literal CLI tokens — we use them on the wire
-// and display them with the same short labels other agent UIs use.
+// Provider reasoning-effort values. Individual Codex models expose a subset
+// through their live model catalog, while Claude currently uses the shared
+// list without model-specific discovery.
 export const EFFORT_OPTIONS: EffortOption[] = [
   { id: 'low', label: 'Low', shortLabel: 'low', hint: 'Minimal thinking, fastest' },
   { id: 'medium', label: 'Medium', shortLabel: 'med', hint: 'Balanced default' },
   { id: 'high', label: 'High', shortLabel: 'high', hint: 'More thinking budget' },
   { id: 'xhigh', label: 'Extra high', shortLabel: 'xhigh', hint: 'Heavy thinking budget' },
   { id: 'max', label: 'Max', shortLabel: 'max', hint: 'Maximum thinking budget' },
+  {
+    id: 'ultra',
+    label: 'Ultra',
+    shortLabel: 'ultra',
+    hint: 'Maximum reasoning with automatic task delegation',
+  },
 ];
+
+export function effortOptionsForModel(
+  harness: string | null,
+  model: ModelOption | null,
+): EffortOption[] {
+  if (harness === 'claude_code') {
+    return EFFORT_OPTIONS.filter((option) => option.id !== 'ultra');
+  }
+  if (harness !== 'codex') return [];
+
+  // Custom/default Codex models may not have catalog metadata. Keep that
+  // fallback conservative so the UI never offers max or ultra to a model that
+  // could reject them. Selecting a catalog model unlocks its exact levels.
+  const supported = new Set<EffortLevel>(
+    model?.supportedEfforts?.length
+      ? model.supportedEfforts
+      : ['low', 'medium', 'high', 'xhigh'],
+  );
+  return EFFORT_OPTIONS.filter((option) => supported.has(option.id));
+}
+
+/** Explicit fallback used when a provider does not advertise a preference. */
+export const DEFAULT_AGENT_EFFORT: EffortLevel = 'medium';
+
+/** Map an agent row's harness vocabulary back to the persisted provider id. */
+export function providerIdForHarness(harness: string | null | undefined): ProviderId {
+  return harness === 'codex' ? 'codex' : 'claude';
+}
+
+/**
+ * Return whether a model id can safely be sent to a provider.
+ *
+ * The catalog is authoritative when the model is present. The prefix checks
+ * cover discovered models that are newer than this app's bundled fallback,
+ * while explicitly rejecting the other provider's namespace. Unknown custom
+ * ids are rejected because the UI only supports catalog-backed selections.
+ */
+export function modelBelongsToProvider(
+  providerId: ProviderId,
+  modelId: string,
+  models: readonly ModelOption[] = modelsForProvider(providerId),
+): boolean {
+  if (models.some((model) => model.id === modelId)) return true;
+  if (providerId === 'claude') {
+    return modelId.startsWith('claude-') || ['opus', 'sonnet', 'haiku', 'fable'].includes(modelId);
+  }
+  return /^(?:gpt-|o\d(?:-|$)|codex(?:-|$))/i.test(modelId);
+}
+
+/**
+ * Resolve a model to a concrete option for one provider. Invalid, empty, and
+ * cross-provider values fall back to that provider's first configured model.
+ */
+export function explicitModelForProvider(
+  providerId: ProviderId,
+  preferred: string | null | undefined,
+  models: readonly ModelOption[] = modelsForProvider(providerId),
+): ModelOption {
+  const catalog = models.length > 0 ? models : modelsForProvider(providerId);
+  const modelId = preferred?.trim();
+  if (modelId && modelBelongsToProvider(providerId, modelId, catalog)) {
+    return catalog.find((model) => model.id === modelId) ?? { id: modelId, label: modelId };
+  }
+
+  return catalog[0] ?? {
+    id: defaultModelFor(providerId),
+    label: defaultModelFor(providerId),
+  };
+}
+
+/**
+ * Resolve reasoning effort to a concrete provider-supported value. A model's
+ * advertised default wins when the preferred value is absent or unsupported.
+ */
+export function explicitEffortForModel(
+  harness: string,
+  model: ModelOption,
+  preferred: EffortLevel | null | undefined,
+): EffortLevel {
+  const options = effortOptionsForModel(harness, model);
+  const supported = new Set(options.map((option) => option.id));
+  // Without model capability metadata, an explicit Codex value may have
+  // already been validated against live discovery by the server. Preserve it
+  // here so the synchronous DB creation guard does not downgrade that tuple.
+  if (harness === 'codex' && preferred && !model.supportedEfforts?.length) {
+    return preferred;
+  }
+  if (preferred && supported.has(preferred)) return preferred;
+  if (model.defaultEffort && supported.has(model.defaultEffort)) return model.defaultEffort;
+  if (supported.has(DEFAULT_AGENT_EFFORT)) return DEFAULT_AGENT_EFFORT;
+  return options[0]?.id ?? DEFAULT_AGENT_EFFORT;
+}
+
+export interface ExplicitAgentSelection {
+  providerId: ProviderId;
+  harness: AgentHarness;
+  model: string;
+  effort: EffortLevel;
+}
+
+/** Resolve the atomic provider + model + effort tuple stored on a chat. */
+export function explicitAgentSelection(
+  providerId: ProviderId,
+  preferred: {
+    model?: string | null;
+    effort?: EffortLevel | null;
+  } = {},
+  models: readonly ModelOption[] = modelsForProvider(providerId),
+): ExplicitAgentSelection {
+  const harness = providerHarnessKey(providerId);
+  const model = explicitModelForProvider(providerId, preferred.model, models);
+  return {
+    providerId,
+    harness,
+    model: model.id,
+    effort: explicitEffortForModel(harness, model, preferred.effort),
+  };
+}
 
 /**
  * Resolve a provider model id to its option metadata. Returns null when
@@ -93,7 +222,7 @@ export function findModelOption(harness: string, modelId: string | null): ModelO
 }
 
 export function harnessSupportsEffort(harness: string): boolean {
-  return harness === 'claude_code';
+  return harness === 'claude_code' || harness === 'codex';
 }
 
 // ─── Providers ────────────────────────────────────────────────

@@ -4,7 +4,12 @@ import { Bot } from 'lucide-react';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { ProviderModelSelector } from './provider-model-selector';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
-import type { ProviderId } from '@/lib/agent-options';
+import {
+  explicitEffortForModel,
+  explicitModelForProvider,
+  providerHarnessKey,
+  type ProviderId,
+} from '@/lib/agent-options';
 
 /**
  * Default agent provider + model, editable after onboarding. Writes through
@@ -16,7 +21,7 @@ export function AgentSettingsPanel() {
   const update = useUpdateUserState();
 
   const harness = (userState?.defaultAgentHarness ?? 'claude') as ProviderId;
-  const model = userState?.defaultAgentModel ?? null;
+  const model = explicitModelForProvider(harness, userState?.defaultAgentModel);
 
   return (
     <section className="space-y-3 text-[12px]">
@@ -33,10 +38,19 @@ export function AgentSettingsPanel() {
       ) : (
         <ProviderModelSelector
           harness={harness}
-          model={model}
-          onChange={(next) =>
-            update.mutate({ defaultAgentHarness: next.harness, defaultAgentModel: next.model })
-          }
+          model={model.id}
+          onChange={(next) => {
+            const effort = explicitEffortForModel(
+              providerHarnessKey(next.harness),
+              next.model,
+              userState?.defaultAgentEffort,
+            );
+            update.mutate({
+              defaultAgentHarness: next.harness,
+              defaultAgentModel: next.model.id,
+              defaultAgentEffort: effort,
+            });
+          }}
         />
       )}
     </section>

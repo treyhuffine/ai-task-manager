@@ -16,6 +16,13 @@ describe('parseCodexModelCatalog', () => {
           display_name: 'GPT-5.6-Sol',
           description: 'Latest frontier agentic coding model.',
           visibility: 'list',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses' },
+            { effort: 'max', description: 'Maximum reasoning' },
+            { effort: 'ultra', description: 'Automatic delegation' },
+            { effort: 'future-value', description: 'Unknown to this app' },
+          ],
+          default_reasoning_level: 'low',
         },
         {
           slug: 'hidden-model',
@@ -27,7 +34,13 @@ describe('parseCodexModelCatalog', () => {
 
     expect(result).toEqual([
       { id: 'gpt-5.5', label: '5.5', hint: 'Frontier model' },
-      { id: 'gpt-5.6-sol', label: '5.6 Sol', hint: 'Latest frontier agentic coding model' },
+      {
+        id: 'gpt-5.6-sol',
+        label: '5.6 Sol',
+        hint: 'Latest frontier agentic coding model',
+        supportedEfforts: ['low', 'max', 'ultra'],
+        defaultEffort: 'low',
+      },
     ]);
   });
 

@@ -1,7 +1,16 @@
 import type { NextRequest } from 'next/server';
-import { getChatSessionWithExecution, getAgent, updateChatSession, setExecutionPR, setExecutionLabel } from '@/lib/db/queries';
+import {
+  getChatSessionWithExecution,
+  getAgent,
+  updateChatSession,
+  updateUserState,
+  setExecutionPR,
+  setExecutionLabel,
+} from '@/lib/db/queries';
 import { PERMISSION_MODES, EFFORT_LEVELS, type PermissionMode, type EffortLevel } from '@/db/types';
 import * as executor from '@/lib/executor/adapter';
+import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
+import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
 
 export async function GET(
   _request: NextRequest,
@@ -32,10 +41,10 @@ interface PatchBody {
    */
   executionLabel?: string | null;
   permissionMode?: PermissionMode;
-  /** Provider model id. `null` clears back to the harness default. */
-  model?: string | null;
-  /** Effort level (Claude only — Codex ignores). `null` clears. */
-  effort?: EffortLevel | null;
+  /** Explicit provider model id. */
+  model?: string;
+  /** Explicit provider reasoning effort. */
+  effort?: EffortLevel;
   /** Explicit PR link. `null` clears the link. */
   prNumber?: number | null;
 }
@@ -92,23 +101,44 @@ export async function PATCH(
         }
       }
     }
-    if ('model' in body) {
-      const model = body.model === null ? null : (body.model ?? '').trim() || null;
-      if (model !== existing.model) {
-        updates.model = model;
-        executorChanged = true;
-      }
-    }
-    if ('effort' in body) {
-      const effort = body.effort;
-      if (effort !== null && (effort === undefined || !EFFORT_LEVELS.includes(effort))) {
+    let nextSelection: ReturnType<typeof explicitAgentSelection> | null = null;
+    if ('model' in body || 'effort' in body) {
+      const agent = getAgent(existing.agentId);
+      const providerId = providerIdForHarness(agent?.harness);
+      const catalog = await getAgentModelCatalog(providerId);
+      const requestedModel = 'model' in body ? body.model?.trim() : existing.model;
+      if ('model' in body && (!requestedModel || !catalog.some((model) => model.id === requestedModel))) {
         return Response.json(
-          { error: `Invalid effort. Expected null or one of ${EFFORT_LEVELS.join(', ')}.` },
+          { error: `Invalid model for ${providerId}. Pick a model from that provider's catalog.` },
           { status: 400 },
         );
       }
-      if (effort !== existing.effort) {
-        updates.effort = effort;
+
+      const requestedEffort = 'effort' in body ? body.effort : existing.effort;
+      if ('effort' in body && (!requestedEffort || !EFFORT_LEVELS.includes(requestedEffort))) {
+        return Response.json(
+          { error: `Invalid effort. Expected one of ${EFFORT_LEVELS.join(', ')}.` },
+          { status: 400 },
+        );
+      }
+
+      nextSelection = explicitAgentSelection(
+        providerId,
+        { model: requestedModel, effort: requestedEffort },
+        catalog,
+      );
+      if ('effort' in body && nextSelection.effort !== requestedEffort) {
+        return Response.json(
+          { error: `Effort ${requestedEffort} is not supported by model ${nextSelection.model}.` },
+          { status: 400 },
+        );
+      }
+      if (nextSelection.model !== existing.model) {
+        updates.model = nextSelection.model;
+        executorChanged = true;
+      }
+      if (nextSelection.effort !== existing.effort) {
+        updates.effort = nextSelection.effort;
         executorChanged = true;
       }
     }
@@ -148,6 +178,13 @@ export async function PATCH(
     // throws "No values to set" with an empty patch, so short-circuit. A
     // prNumber/executionLabel-only change is applied to the execution
     // above, so reload the flattened row to reflect it.
+    if (nextSelection) {
+      updateUserState({
+        defaultAgentHarness: nextSelection.providerId,
+        defaultAgentModel: nextSelection.model,
+        defaultAgentEffort: nextSelection.effort,
+      });
+    }
     if (Object.keys(updates).length === 0) {
       return Response.json(prChanged || executionChanged ? getChatSessionWithExecution(id) : existing);
     }

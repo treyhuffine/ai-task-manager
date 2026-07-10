@@ -31,6 +31,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ancestorsOfChanged } from './build-tree';
+import {
+  type ExpandOverrides,
+  resolveExpanded,
+  setOverride,
+  toggleOverride,
+  forceOpenAncestors,
+  parseOverrides,
+  serializeOverrides,
+} from './expand-state';
 import { TreeList, type PendingCreate, type PendingError } from './tree-list';
 import { TreeViewToggle, type TreeViewMode } from './tree-view-toggle';
 import { TreeSearchBar } from './tree-search-bar';
@@ -78,16 +88,16 @@ function readPersistedMode(id: string): TreeViewMode {
   return 'all';
 }
 
-function readPersistedExpanded(id: string): Set<string> {
-  if (typeof window === 'undefined') return new Set();
+/**
+ * Read the persisted directory expand/collapse overrides for a session.
+ * The tri-state model + format details live in `./expand-state`.
+ */
+function readPersistedOverrides(id: string): ExpandOverrides {
+  if (typeof window === 'undefined') return new Map();
   try {
-    const raw = window.localStorage.getItem(EXPANDED_KEY(id));
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((s): s is string => typeof s === 'string'));
+    return parseOverrides(window.localStorage.getItem(EXPANDED_KEY(id)));
   } catch {
-    return new Set();
+    return new Map();
   }
 }
 
@@ -120,8 +130,9 @@ export function FileTree({
   const entries = useMemo(() => tree?.entries ?? [], [tree?.entries]);
 
   const [mode, setModeState] = useState<TreeViewMode>(() => readPersistedMode(sessionId));
-  const [expanded, setExpandedState] = useState<Set<string>>(() =>
-    readPersistedExpanded(sessionId),
+  // Explicit user expand/collapse intent per dir. See `./expand-state`.
+  const [overrides, setOverridesState] = useState<ExpandOverrides>(() =>
+    readPersistedOverrides(sessionId),
   );
   // Search query is intentionally ephemeral — not persisted. Different
   // sessions are different mental contexts; carrying a stale filter
@@ -131,7 +142,7 @@ export function FileTree({
   // Re-read persisted state when navigating between sessions.
   useEffect(() => {
     setModeState(readPersistedMode(sessionId));
-    setExpandedState(readPersistedExpanded(sessionId));
+    setOverridesState(readPersistedOverrides(sessionId));
     setQuery('');
   }, [sessionId]);
 
@@ -148,17 +159,15 @@ export function FileTree({
   );
 
   const writeExpandedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setExpanded = useCallback(
-    (updater: (prev: Set<string>) => Set<string>) => {
-      setExpandedState((prev) => {
+  const setOverrides = useCallback(
+    (updater: (prev: ExpandOverrides) => ExpandOverrides) => {
+      setOverridesState((prev) => {
         const next = updater(prev);
+        if (next === prev) return prev;
         if (writeExpandedTimer.current) clearTimeout(writeExpandedTimer.current);
         writeExpandedTimer.current = setTimeout(() => {
           try {
-            window.localStorage.setItem(
-              EXPANDED_KEY(sessionId),
-              JSON.stringify(Array.from(next)),
-            );
+            window.localStorage.setItem(EXPANDED_KEY(sessionId), serializeOverrides(next));
           } catch {
             /* ignore */
           }
@@ -169,47 +178,44 @@ export function FileTree({
     [sessionId],
   );
 
+  // Ancestors of every changed file default to expanded so the user sees
+  // their changes without drilling in. Computed from the full entries
+  // (unfiltered) so search pruning never collapses a change out of view.
+  const autoExpanded = useMemo(() => ancestorsOfChanged(entries), [entries]);
+
+  // The effective expand set the tree renders: the auto-expand defaults
+  // with the user's explicit overrides applied on top. This is the single
+  // source of truth for both display and toggle direction, so a manual
+  // collapse of an auto-expanded folder actually takes effect.
+  const effectiveExpanded = useMemo(
+    () => resolveExpanded(autoExpanded, overrides),
+    [autoExpanded, overrides],
+  );
+
   const toggleDir = useCallback(
     (path: string) => {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        if (next.has(path)) next.delete(path);
-        else next.add(path);
-        return next;
-      });
+      const currentlyOpen = effectiveExpanded.has(path);
+      setOverrides((prev) => toggleOverride(prev, autoExpanded, path, currentlyOpen));
     },
-    [setExpanded],
+    [effectiveExpanded, autoExpanded, setOverrides],
   );
 
   const ensureExpanded = useCallback(
     (path: string) => {
       if (!path) return;
-      setExpanded((prev) => {
-        if (prev.has(path)) return prev;
-        const next = new Set(prev);
-        next.add(path);
-        return next;
-      });
+      setOverrides((prev) => setOverride(prev, autoExpanded, path, true));
     },
-    [setExpanded],
+    [autoExpanded, setOverrides],
   );
 
-  /** Walk every ancestor of a path and add them to the expanded set so
-   * the user can see a freshly-created file at depth without manual
-   * drilling. */
+  /** Walk every ancestor of a path and force them open so the user can
+   * see a freshly-created file at depth without manual drilling. */
   const expandAncestors = useCallback(
     (path: string) => {
       if (!path) return;
-      const parts = path.split('/');
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        for (let i = 1; i < parts.length; i++) {
-          next.add(parts.slice(0, i).join('/'));
-        }
-        return next;
-      });
+      setOverrides((prev) => forceOpenAncestors(prev, autoExpanded, path));
     },
-    [setExpanded],
+    [autoExpanded, setOverrides],
   );
 
   const changedEntries = useMemo(
@@ -482,7 +488,7 @@ export function FileTree({
             mode={effectiveMode}
             selectedPath={selectedPath}
             onSelect={onSelect}
-            expanded={expanded}
+            expanded={effectiveExpanded}
             onToggleDir={toggleDir}
             filterQuery={trimmedQuery}
             savingPaths={savingPaths}

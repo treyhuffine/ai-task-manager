@@ -434,7 +434,11 @@ export function useNewExecutionChat(id: string) {
   return useMutation({
     // `| void` keeps the no-arg "new chat" button working alongside the
     // composer's `{ providerId, model }` switch.
-    mutationFn: (opts: { providerId?: 'claude' | 'codex'; model?: string | null } | void) =>
+    mutationFn: (opts: {
+      providerId?: 'claude' | 'codex';
+      model?: string;
+      effort?: EffortLevel;
+    } | void) =>
       sessionsApi.newChat(id, opts ?? undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
@@ -671,8 +675,8 @@ export function useUpdateSession() {
       label?: string | null;
       executionLabel?: string | null;
       permissionMode?: PermissionMode;
-      model?: string | null;
-      effort?: EffortLevel | null;
+      model?: string;
+      effort?: EffortLevel;
       prNumber?: number | null;
     }) => sessionsApi.update(id, input),
     onSuccess: (data) => {

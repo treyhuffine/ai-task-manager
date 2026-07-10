@@ -7,7 +7,7 @@ import { api, ApiError } from '@/lib/api/client'
 import { useRuntimeStatus } from '@/hooks/use-execution'
 import { HarnessChatSession } from '@/components/chat/harness-chat'
 import { cn } from '@/lib/utils'
-import type { TaskRecord, NoteRecord, ChatSessionRecord } from '@/db/types'
+import type { TaskRecord, NoteRecord, ChatSessionRecord, EffortLevel } from '@/db/types'
 import type { ProviderId } from '@/lib/agent-options'
 
 const CHAT_PANEL_MIN_WIDTH = 420
@@ -72,7 +72,7 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
   const newChat = useMutation({
     // Optional provider/model = the composer's "switch provider" → fresh chat
     // on the chosen provider. No args (void) = a plain new chat on the default.
-    mutationFn: (opts: { providerId?: ProviderId; model?: string | null } | void) =>
+    mutationFn: (opts: { providerId?: ProviderId; model?: string; effort?: EffortLevel } | void) =>
       api.post<DocumentChatResponse>('/document-chat', {
         entityType: documentType,
         entityId,
@@ -288,7 +288,11 @@ function ChatBody({
       <HarnessChatSession
         sessionId={chat.sessionId}
         isMobile={isMobile}
-        onSwitchProvider={(next) => chat.newChat.mutate({ providerId: next.harness, model: next.model })}
+        onSwitchProvider={(next) => chat.newChat.mutate({
+          providerId: next.harness,
+          model: next.model,
+          effort: next.effort,
+        })}
         switchingProvider={chat.newChat.isPending}
       />
     </div>

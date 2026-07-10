@@ -1051,16 +1051,14 @@
 }
 .cm-mergeView {
   height: 100%;
+  overflow: auto;
 }
 .cm-mergeViewEditors {
-  height: 100%;
+  min-height: 100%;
 }
 .cm-mergeView .cm-mergeViewEditor {
   flex: 1 1 0;
   min-width: 0;
-}
-.cm-mergeView .cm-mergeViewEditor .cm-editor {
-  height: 100%;
 }
 .diff-view-host .cm-changedLine {
   background-color: color-mix(in oklab, var(--primary, #2563eb) 10%, transparent);

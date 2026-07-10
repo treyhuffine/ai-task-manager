@@ -13,11 +13,11 @@
  *
  * The executor adapter doesn't render `SKILL.md` itself — it hands the
  * resolved source directories to `@agentex/agent`'s `skillDirs`
- * config, which symlinks them into a per-session staging dir and adds
- * the dir via the harness-specific flag (`--add-dir` for Claude Code,
- * the equivalent for Codex / OpenClaw). That's the per-harness
- * translation layer; our job is to enumerate the right authoring
- * dirs.
+ * config, which translates discovery for the active harness. The shipped
+ * orchestrator skill is deliberately excluded from this path because it is
+ * installed at the app root or, after explicit opt-in, in the user's global
+ * agent skill directories. Our job here is only to enumerate user-authored
+ * global and workspace skills.
  */
 
 import fs from 'node:fs';

@@ -12,6 +12,7 @@ import { StepAgent } from './step-agent';
 import { StepImport } from './step-import';
 import { StepLaunch } from './step-launch';
 import { STEPS, type WizardState, type StepId } from './types';
+import { DEFAULT_AGENT_EFFORT, defaultModelFor } from '@/lib/agent-options';
 
 const INITIAL_STATE: WizardState = {
   name: '',
@@ -21,8 +22,9 @@ const INITIAL_STATE: WizardState = {
     { name: 'Personal', emoji: '🏡', attachments: [] },
   ],
   agentHarness: 'claude',
-  agentModel: null,
+  agentModel: defaultModelFor('claude'),
   agentAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
+  globalSkillEnabled: null,
   importSkipped: true,
 };
 
@@ -51,6 +53,7 @@ export function Wizard() {
         return state.areas.length > 0;
       case 'agent': {
         if (!state.agentHarness) return false;
+        if (state.globalSkillEnabled === null) return false;
         const a = state.agentAuth;
         if (a.phase !== 'ready' || !a.report) return false;
         if (!a.report.binary.installed) return false;
@@ -107,13 +110,27 @@ export function Wizard() {
         }
       }
 
-      // 2. Save user state + mark onboarded
+      // 2. Apply the explicit user-level skill choice. This also cleans old
+      // app-owned project symlinks without touching unrelated skill entries.
+      if (state.globalSkillEnabled === null) {
+        throw new Error('Choose where agents can use task and note actions');
+      }
+      try {
+        await api.put('/agent/skills/global', {
+          enabled: state.globalSkillEnabled,
+        });
+      } catch {
+        throw new Error('Failed to configure agent skill access');
+      }
+
+      // 3. Save user state + mark onboarded
       try {
         await api.patch('/user-state', {
           name: state.name.trim(),
           description: state.description.trim(),
           defaultAgentHarness: state.agentHarness,
           defaultAgentModel: state.agentModel,
+          defaultAgentEffort: DEFAULT_AGENT_EFFORT,
           onboardedAt: new Date().toISOString(),
         });
       } catch {

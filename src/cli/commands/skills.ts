@@ -1,8 +1,8 @@
 /**
  * `<cli> skills` — install, list, remove the skills this app ships.
  *
- * Skills live at <repo>/skills/*. Install uses agentex to symlink each skill dir
- * into both standard cross-agent discovery channels:
+ * Skills live at <package-root>/skills/*. Install uses agentex to symlink each
+ * skill dir into both standard cross-agent discovery channels:
  *   ~/.agents/skills/<name>  (Codex, Cursor, Gemini, OpenCode, Pi)
  *   ~/.claude/skills/<name>  (Claude Code)
  *
@@ -10,13 +10,15 @@
  * guidance automatically without a re-install.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
 import { Command } from 'commander';
 import { getAppRoot } from '@/lib/config/paths';
 import { APP_SHORT_ID } from '@/constants/app';
+import {
+  configureGlobalSkill,
+  installAppRootSkills,
+  removeAppRootSkills,
+} from '@/lib/agent-skills/shipped';
 
 // agentex is lazy-imported inside each action. Two reasons:
 //   1. `@agentex/agent@0.0.6` ships only an `"import"` condition in its exports
@@ -27,44 +29,6 @@ import { APP_SHORT_ID } from '@/constants/app';
 //      manager just to run `<cli> start` or `<cli> doctor`.
 async function loadAgentex() {
   return import('@agentex/agent');
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Safety gate.
-//
-// While this is still new, `install` refuses to touch the user's global
-// ~/.claude/skills/ and ~/.agents/skills/ unless this constant is flipped.
-// Flip to true once you're comfortable with the skill content and ready to
-// let this app's skills live alongside your other skill packs.
-//
-// `remove` and `list` always work — they're how you recover or inspect.
-// ──────────────────────────────────────────────────────────────────────
-const ALLOW_GLOBAL_INSTALL = false;
-
-// The shipped skills live at <package-root>/skills/*. Walking up from the
-// current file to find the nearest package.json handles every caller:
-//   - Dev via tsx: source at src/cli/commands/skills.ts → repo root is 3 up
-//   - Bundled via tsup: dist/cli/index.mjs → repo root is 2 up
-//   - npm install: node_modules/<pkg>/dist/cli/index.mjs → pkg root is 2 up
-// In every case, the package.json sits at the skills/ dir's sibling.
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-function findPackageRoot(startDir: string): string {
-  let dir = startDir;
-  while (dir !== path.parse(dir).root) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
-    dir = path.dirname(dir);
-  }
-  throw new Error(`Could not find package.json walking up from ${startDir}`);
-}
-const SKILLS_ROOT = path.join(findPackageRoot(__dirname), 'skills');
-
-// Skills that get installed to the user's agent homes. The contributor skill
-// stays out of this list — it belongs in <repo>/.claude/skills/ as project
-// local and shouldn't leak into other repos' sessions.
-const SHIPPED_SKILLS = ['orchestrator'];
-
-function skillDirs(): string[] {
-  return SHIPPED_SKILLS.map((name) => path.join(SKILLS_ROOT, name));
 }
 
 /**
@@ -78,11 +42,7 @@ function skillDirs(): string[] {
  * opened in the app data dir auto-discovers the orchestrator skill.
  */
 export async function installWorkspaceSkills() {
-  const { installSkills } = await loadAgentex();
-  return installSkills(skillDirs(), {
-    location: 'workspace',
-    cwd: getAppRoot(),
-  });
+  return installAppRootSkills();
 }
 
 export function registerSkillsCommand(program: Command) {
@@ -94,30 +54,14 @@ export function registerSkillsCommand(program: Command) {
     .command('install')
     .description(
       'Symlink shipped skills into the app data dir (<app-root>/.claude/skills and <app-root>/.agents/skills). ' +
-        'Pass --global to symlink into ~/.claude/skills/ and ~/.agents/skills/ (shared with other agents, gated).',
+        'Pass --global to opt in to user-level ~/.claude/skills/ and ~/.agents/skills/.',
     )
     .option('--global', 'Install into the user-level ~/.claude/skills and ~/.agents/skills instead of the app data dir')
     .action(async (opts: { global?: boolean }) => {
-      const { installSkills } = await loadAgentex();
       const isGlobal = !!opts.global;
-
-      if (isGlobal && !ALLOW_GLOBAL_INSTALL) {
-        console.error(
-          pc.yellow(
-            '--global is disabled. It would symlink into ~/.claude/skills/ and ~/.agents/skills/,\nshared with your other agents and skill packs.\n',
-          ),
-        );
-        console.error(
-          'To enable, flip ALLOW_GLOBAL_INSTALL to true in src/cli/commands/skills.ts and rebuild.',
-        );
-        console.error(pc.dim(`\nWould have symlinked:`));
-        for (const dir of skillDirs()) console.error(pc.dim(`  ${dir}`));
-        process.exit(1);
-      }
-
       const result = isGlobal
-        ? await installSkills(skillDirs(), { location: 'global' })
-        : await installSkills(skillDirs(), { location: 'workspace', cwd: getAppRoot() });
+        ? (await configureGlobalSkill(true)).install
+        : await installAppRootSkills();
 
       for (const e of result.entries) {
         const tag =
@@ -139,7 +83,7 @@ export function registerSkillsCommand(program: Command) {
       if (result.conflicts > 0) {
         console.log(
           pc.yellow(
-            `\nSome targets already exist pointing elsewhere. Remove them manually and re-run, or run \`${APP_SHORT_ID} skills remove\` first if they are ours.`,
+            `\nSome targets already exist pointing elsewhere. Remove them manually and re-run, or run \`${APP_SHORT_ID} skills remove${isGlobal ? ' --global' : ''}\` first if they are ours.`,
           ),
         );
       }
@@ -150,10 +94,9 @@ export function registerSkillsCommand(program: Command) {
     .description('Remove shipped-skill symlinks from the app data dir. Pass --global to target ~/.claude and ~/.agents.')
     .option('--global', 'Remove from the user-level ~/.claude/skills and ~/.agents/skills')
     .action(async (opts: { global?: boolean }) => {
-      const { removeSkills } = await loadAgentex();
       const result = opts.global
-        ? await removeSkills(skillDirs(), { location: 'global' })
-        : await removeSkills(skillDirs(), { location: 'workspace', cwd: getAppRoot() });
+        ? (await configureGlobalSkill(false)).remove
+        : await removeAppRootSkills();
       for (const e of result.entries) {
         const tag =
           e.status === 'removed'

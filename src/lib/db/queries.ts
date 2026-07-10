@@ -48,6 +48,7 @@ import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
+import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -1734,10 +1735,19 @@ export function getChatSession(id: string): ChatSessionRecord | undefined {
 
 export function createChatSession(input: CreateChatSessionInput & { id?: string }): ChatSessionRecord {
   const db = getDb();
+  const agent = db.select().from(agents).where(eq(agents.id, input.agentId)).get();
+  const selection = explicitAgentSelection(
+    providerIdForHarness(agent?.harness),
+    { model: input.model, effort: input.effort },
+  );
   const row = db
     .insert(chatSessions)
     .values({
       ...input,
+      // A session owns a concrete provider tuple. Never let nullable legacy
+      // defaults or a model from another provider reach the executor.
+      model: selection.model,
+      effort: selection.effort,
       id: input.id ?? uuidv7(),
       status: input.status ?? 'active',
       // Store ISO (UTC) rather than the SQLite `datetime('now')` default's
@@ -1793,14 +1803,19 @@ export function createExecutionWithChat(params: {
   baseSha?: string | null;
   prNumber?: number | null;
   setupStartedAt?: string | null;
-  /** Optional per-session model override (e.g. propagated from a
-   *  trigger's `model` field). Null = use the harness default. */
+  /** Optional preferred model (e.g. propagated from a trigger). Missing or
+   *  invalid values are resolved to the provider's explicit fallback. */
   model?: string | null;
-  /** Optional per-session effort override (Claude `--effort` flag). */
+  /** Optional preferred effort, normalized against the selected model. */
   effort?: ChatSessionRecord['effort'];
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const db = getDb();
   const now = new Date().toISOString();
+  const agent = db.select().from(agents).where(eq(agents.id, params.agentId)).get();
+  const selection = explicitAgentSelection(
+    providerIdForHarness(agent?.harness),
+    { model: params.model, effort: params.effort },
+  );
   return db.transaction((tx) => {
     const executionId = uuidv7();
     const execution = tx
@@ -1834,8 +1849,8 @@ export function createExecutionWithChat(params: {
         // consistently against ISO outcome/unread timestamps (the SQLite
         // `datetime('now')` default would store the space-format instead).
         startedAt: now,
-        ...(params.model !== undefined ? { model: params.model } : {}),
-        ...(params.effort !== undefined ? { effort: params.effort } : {}),
+        model: selection.model,
+        effort: selection.effort,
       })
       .returning()
       .get();

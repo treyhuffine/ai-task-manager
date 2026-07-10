@@ -122,7 +122,7 @@ Every handler dispatches through `src/lib/db/queries.ts` — never raw SQL. The 
 
 ### Skills
 
-`skills/orchestrator/SKILL.md` teaches Claude Code (and compatible harnesses) how to use the action surface. The CLI installs it during bootstrap.
+`skills/orchestrator/SKILL.md` teaches Claude Code, Codex, and compatible harnesses how to use the action surface. The CLI installs it in the app data root during bootstrap. Onboarding offers an explicit opt-in to install the same skill in `~/.claude/skills/` and `~/.agents/skills/`, making it available across projects without writing into individual repositories.
 
 ### Device pairing
 
@@ -189,7 +189,7 @@ src/
     mcp/               # NL MCP agent (query/update tools)
     embeddings/        # sqlite-vec backfill + helpers
     config/paths.ts    # canonical brain-path resolution
-skills/orchestrator/   # Claude Code skill (installed by `flow start`)
+skills/orchestrator/   # Cross-agent skill with app-root and opt-in global installs
 modules/parakeet-stt/  # voice submodule (Docker sidecar)
 docs/                  # PRD, specs, architecture notes
 scripts/               # smoke tests, seed-dev, backups

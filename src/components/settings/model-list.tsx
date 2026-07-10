@@ -1,7 +1,7 @@
 'use client';
 
 import { Check, MessageSquarePlus } from 'lucide-react';
-import { PROVIDERS, findProvider, type ProviderId } from '@/lib/agent-options';
+import { PROVIDERS, findProvider, type ModelOption, type ProviderId } from '@/lib/agent-options';
 import { useAgentConnection } from '@/hooks/use-agent-connection';
 import { useAgentModels } from '@/hooks/use-agent-models';
 import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './agent-connection-ui';
@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 export interface ModelSelection {
   harness: ProviderId;
-  model: string | null;
+  model: string;
 }
 
 /**
@@ -27,7 +27,7 @@ export function ModelList({
   switchHintProvider,
 }: {
   selected: ModelSelection;
-  onPick: (harness: ProviderId, model: string | null) => void;
+  onPick: (harness: ProviderId, model: ModelOption) => void;
   className?: string;
   /**
    * When set, every provider OTHER than this one is flagged in its header as
@@ -60,17 +60,14 @@ function ProviderGroup({
 }: {
   providerId: ProviderId;
   selected: ModelSelection;
-  onPick: (harness: ProviderId, model: string | null) => void;
+  onPick: (harness: ProviderId, model: ModelOption) => void;
   isSwitch?: boolean;
 }) {
   const { connection } = useAgentConnection(providerId);
   const { models } = useAgentModels(providerId);
   const connected = connection.connected;
   const provider = findProvider(providerId)!;
-  const rows: Array<{ id: string | null; label: string; hint?: string }> = [
-    { id: null, label: 'Auto', hint: 'Best available for this provider' },
-    ...models,
-  ];
+  const rows = models;
 
   return (
     <div>
@@ -97,10 +94,10 @@ function ProviderGroup({
           const isSelected = selected.harness === providerId && selected.model === m.id;
           return (
             <button
-              key={m.id ?? 'auto'}
+              key={m.id}
               type="button"
               disabled={!connected}
-              onClick={() => onPick(providerId, m.id)}
+              onClick={() => onPick(providerId, m)}
               className={cn(
                 'flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed',
                 isSelected ? 'bg-primary/10' : connected && 'hover:bg-muted/50',

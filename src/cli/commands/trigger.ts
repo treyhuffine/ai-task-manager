@@ -60,7 +60,7 @@ function registerTriggerCommand(program: Command) {
     .option('--agent <id>', 'Agent id to dispatch as. Defaults to the target type default.')
     // ── Per-run overrides ──
     .option('--model <model>', 'Per-run model override.')
-    .option('--effort <level>', 'low | medium | high | xhigh | max')
+    .option('--effort <level>', 'low | medium | high | xhigh | max | ultra')
     .option('--timeout <seconds>', 'Run timeout (seconds).', Number)
     .option(
       '--active-hours <start-end>',

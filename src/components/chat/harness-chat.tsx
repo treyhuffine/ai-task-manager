@@ -21,6 +21,7 @@ import { PendingInputArea } from '@/components/executions/pending-input-overlay'
 import { SyncingPill } from '@/components/executions/syncing-pill';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { ApiError } from '@/lib/api/client';
+import type { EffortLevel } from '@/db/types';
 
 /**
  * The harness-backed orchestrator chat — the dashboard Chat tab when
@@ -74,7 +75,11 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
     <HarnessChatSession
       sessionId={sessionId}
       isMobile={isMobile}
-      onSwitchProvider={(next) => newChat.mutate({ providerId: next.harness, model: next.model })}
+      onSwitchProvider={(next) => newChat.mutate({
+        providerId: next.harness,
+        model: next.model,
+        effort: next.effort,
+      })}
       switchingProvider={newChat.isPending}
     />
   );
@@ -97,7 +102,11 @@ export function HarnessChatSession({
   isMobile?: boolean;
   /** Optional: enables the composer's provider switcher (starts a fresh chat
    *  on the chosen provider). The host owns what "new chat" means. */
-  onSwitchProvider?: (next: { harness: 'claude' | 'codex'; model: string | null }) => void;
+  onSwitchProvider?: (next: {
+    harness: 'claude' | 'codex';
+    model: string;
+    effort: EffortLevel;
+  }) => void;
   switchingProvider?: boolean;
 }) {
   const { data: session } = useSession(sessionId);

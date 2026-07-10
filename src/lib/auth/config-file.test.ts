@@ -67,6 +67,7 @@ describe('readAuthConfig', () => {
       staticUrl: null,
       onboardedAt: null,
       voiceEnabled: null,
+      globalSkillEnabled: null,
       lastPort: null,
     });
   });
@@ -80,6 +81,7 @@ describe('readAuthConfig', () => {
       staticUrl: null,
       onboardedAt: null,
       voiceEnabled: null,
+      globalSkillEnabled: null,
       lastPort: null,
     });
   });
@@ -93,7 +95,11 @@ describe('writeAuthConfig', () => {
   });
 
   it('merges with existing config (preserves unspecified fields)', () => {
-    writeAuthConfig({ localToken: 'tok-1', tunnelUrl: 'https://a' });
+    writeAuthConfig({
+      localToken: 'tok-1',
+      tunnelUrl: 'https://a',
+      globalSkillEnabled: true,
+    });
     writeAuthConfig({ tunnelUrl: 'https://b' });
     expect(readAuthConfig()).toEqual({
       version: 1,
@@ -102,6 +108,7 @@ describe('writeAuthConfig', () => {
       staticUrl: null,
       onboardedAt: null,
       voiceEnabled: null,
+      globalSkillEnabled: true,
       lastPort: null,
     });
   });
@@ -115,6 +122,7 @@ describe('writeAuthConfig', () => {
       staticUrl: null,
       onboardedAt: null,
       voiceEnabled: null,
+      globalSkillEnabled: null,
       lastPort: null,
     });
   });

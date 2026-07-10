@@ -4,20 +4,26 @@ import {
   archiveChatSession,
   getOrCreateDefaultOrchestrator,
   getUserState,
+  updateUserState,
 } from '@/lib/db/queries';
-import { providerHarnessKey, type ProviderId } from '@/lib/agent-options';
-import type { ChatSessionWithExecution } from '@/db/types';
+import type { ProviderId } from '@/lib/agent-options';
+import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
+import { resolveAgentSelection } from '@/lib/agent-model-discovery';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
   providerId?: ProviderId;
-  model?: string | null;
+  model?: string;
+  effort?: EffortLevel;
 }
 
-function parseOverride(src: { providerId?: unknown; model?: unknown }): ChatOverride {
+function parseOverride(src: { providerId?: unknown; model?: unknown; effort?: unknown }): ChatOverride {
   const out: ChatOverride = {};
   if (src.providerId === 'claude' || src.providerId === 'codex') out.providerId = src.providerId;
-  if (src.model === null || typeof src.model === 'string') out.model = src.model;
+  if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
+  if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
+    out.effort = src.effort as EffortLevel;
+  }
   return out;
 }
 
@@ -74,36 +80,38 @@ function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
   );
 }
 
-/** user_state.defaultAgentHarness ('claude' | 'codex') → agents.harness vocabulary. */
-function defaultHarness(): string {
-  const pref = getUserState()?.defaultAgentHarness;
-  return pref === 'codex' ? 'codex' : 'claude_code';
-}
-
-function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
-  // Provider: the explicit override (composer "switch provider") wins;
-  // otherwise the user's default harness.
-  const harness = override.providerId ? providerHarnessKey(override.providerId) : defaultHarness();
-  const agent = getOrCreateDefaultOrchestrator(harness);
+async function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
   const userState = getUserState();
-  // Model: an explicit override (even null) wins; else the user's default.
-  const model = override.model !== undefined ? override.model : userState?.defaultAgentModel ?? null;
-  return createChatSession({
+  const providerId = override.providerId
+    ?? (userState?.defaultAgentHarness === 'codex' ? 'codex' : 'claude');
+  const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
+  const selection = await resolveAgentSelection(providerId, {
+    model: override.model
+      ?? (savedTupleMatchesProvider ? userState?.defaultAgentModel : null),
+    effort: override.effort
+      ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null),
+  });
+  const agent = getOrCreateDefaultOrchestrator(selection.harness);
+  const session = createChatSession({
     type: 'content',
     agentId: agent.id,
     // Pins the harness session to this one entity (see harness-surface's
     // renderContentFocusPrompt + the adapter's content branch).
     surfaceKind: ref.entityType,
     surfaceRef: ref.entityId,
-    model,
-    // Effort: seeded from the user's default (last composer pick). Null =
-    // harness default. Overridable per-session in the composer.
-    effort: userState?.defaultAgentEffort ?? null,
+    model: selection.model,
+    effort: selection.effort,
     // Label stays null until the first send — the messages route's label
     // derivation only fires on unlabeled sessions.
     label: null,
     status: 'active',
   });
+  updateUserState({
+    defaultAgentHarness: selection.providerId,
+    defaultAgentModel: selection.model,
+    defaultAgentEffort: selection.effort,
+  });
+  return session;
 }
 
 export async function GET(req: Request) {
@@ -116,7 +124,7 @@ export async function GET(req: Request) {
     return Response.json({ error: 'entityType (task|note) and entityId are required' }, { status: 400 });
   }
   try {
-    const session = findCurrent(ref) ?? createFocusedSession(ref);
+    const session = findCurrent(ref) ?? await createFocusedSession(ref);
     return Response.json({ session });
   } catch (err) {
     console.error('[GET /api/document-chat]', err);
@@ -131,7 +139,13 @@ export async function POST(req: Request) {
   } catch {
     body = {};
   }
-  const src = (body ?? {}) as { entityType?: unknown; entityId?: unknown; providerId?: unknown; model?: unknown };
+  const src = (body ?? {}) as {
+    entityType?: unknown;
+    entityId?: unknown;
+    providerId?: unknown;
+    model?: unknown;
+    effort?: unknown;
+  };
   const ref = parseEntity(src);
   if (!ref) {
     return Response.json({ error: 'entityType (task|note) and entityId are required' }, { status: 400 });
@@ -149,7 +163,7 @@ export async function POST(req: Request) {
       const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
       void deriveRetrospectiveLabel(current.id);
     }
-    const session = createFocusedSession(ref, override);
+    const session = await createFocusedSession(ref, override);
     return Response.json({ session });
   } catch (err) {
     console.error('[POST /api/document-chat]', err);

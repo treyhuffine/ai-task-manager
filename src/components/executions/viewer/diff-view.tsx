@@ -160,7 +160,7 @@ export function DiffView({ sessionId, path, status }: DiffViewProps) {
   return (
     <div
       ref={hostRef}
-      className="diff-view-host h-full w-full overflow-auto"
+      className="diff-view-host h-full w-full overflow-hidden"
     />
   );
 }

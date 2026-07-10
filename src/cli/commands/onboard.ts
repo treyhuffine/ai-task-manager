@@ -19,6 +19,10 @@ import { ensureLocalToken, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getIsOnboarded, markOnboarded, getOnboardedAt } from '@/lib/config/onboarded';
 import { getVoiceEnabled, setVoiceEnabled } from '@/lib/config/voice';
+import {
+  configureGlobalSkill,
+  getGlobalSkillPreference,
+} from '@/lib/agent-skills/shipped';
 import { isOurServerRunning } from '../lib/server';
 import { isDockerAvailable } from '../lib/voice';
 import { openBrowser } from '../lib/browser';
@@ -144,9 +148,9 @@ export async function onboardCommand(opts: OnboardOptions) {
 /**
  * The actual setup questions.
  *
- * Today: only the voice/Docker prompt is real — API-key prompts will land
- * here next. Keep wizard steps in one function so `start`'s auto-onboard and
- * the explicit `onboard` command share identical behavior.
+ * Voice and user-level skill access are configured here. Keep wizard steps in
+ * one function so `start`'s auto-onboard and the explicit `onboard` command
+ * share identical behavior.
  */
 export async function runWizard(): Promise<void> {
   // Voice prompt. Default YES if Docker is reachable, NO if it isn't —
@@ -169,6 +173,24 @@ export async function runWizard(): Promise<void> {
 
   if (voice && !dockerOk) {
     log.info('Voice is enabled. Start Docker before running the server to activate it.');
+  }
+
+  const globalSkill = await confirm({
+    message: 'Make task and note actions available to agents in every project?',
+    initialValue: getGlobalSkillPreference() ?? true,
+  });
+  if (isCancel(globalSkill)) {
+    throw new Error('Setup cancelled');
+  }
+
+  const skillResult = await configureGlobalSkill(!!globalSkill);
+  if (skillResult.enabled) {
+    if (skillResult.install.errors > 0) {
+      throw new Error('Could not install the user-level productivity skill');
+    }
+    if (skillResult.install.conflicts > 0) {
+      log.warn('A user-level skill named orchestrator already exists and was left unchanged.');
+    }
   }
 
   // TODO: prompt for ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.

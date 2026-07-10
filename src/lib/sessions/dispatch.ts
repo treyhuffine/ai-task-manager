@@ -51,6 +51,7 @@ import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForSession } from '@/lib/terminal/pty-manager';
 import { invalidateAgentSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
+import { providerHarnessKey, providerIdForHarness } from '@/lib/agent-options';
 
 const execFileAsync = promisify(execFile);
 
@@ -130,7 +131,12 @@ export async function dispatchExecutionSession(
   const ws = getWorkspace(args.workspaceId);
   if (!ws) throw new WorkspaceNotFoundForDispatch(args.workspaceId);
 
-  const agent = getOrCreateDefaultExecutor(args.harness ?? 'claude_code');
+  const userState = getUserState();
+  const harness = args.harness
+    ?? providerHarnessKey(userState?.defaultAgentHarness === 'codex' ? 'codex' : 'claude');
+  const providerId = providerIdForHarness(harness);
+  const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
+  const agent = getOrCreateDefaultExecutor(harness);
   const sessionId = uuidv7();
   const label = args.label?.trim() || null;
   const prNumber = normalizePrNumber(args.prNumber);
@@ -157,10 +163,10 @@ export async function dispatchExecutionSession(
     workspaceId: args.workspaceId,
     agentId: agent.id,
     chatSessionId: sessionId,
-    // Seed the user's default model + effort (last composer pick / Settings →
-    // AI agent); overridable per-session from the composer. null = harness default.
-    model: getUserState()?.defaultAgentModel ?? null,
-    effort: getUserState()?.defaultAgentEffort ?? null,
+    // The three saved values are one tuple. Reuse model + effort only when
+    // their saved provider matches this execution's provider.
+    model: savedTupleMatchesProvider ? userState?.defaultAgentModel : null,
+    effort: savedTupleMatchesProvider ? userState?.defaultAgentEffort : null,
     label,
     worktreePath: liveMode ? ws.cwd : null,
     branchName: liveBranch,

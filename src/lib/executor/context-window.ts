@@ -8,7 +8,8 @@
  *  - The **label** is computed generically by `prettifyModelId` — any
  *    `claude-<family>-<maj>-<min>` becomes "Family Maj.Min". A brand-new
  *    Opus version renders correctly with no code change. This is what lets
- *    us send the `opus`/`sonnet`/`haiku` aliases (see ../agent-options) and
+ *    us send the `opus`/`sonnet`/`haiku`/`fable` aliases (see
+ *    ../agent-options) and
  *    still show the precise resolved version once a turn has run.
  *
  *  - The **context-window cap** is the one thing the CLI *doesn't* report,
@@ -46,12 +47,14 @@ const FAMILY_LABEL: Record<string, string> = {
   opus: 'Opus',
   sonnet: 'Sonnet',
   haiku: 'Haiku',
+  fable: 'Fable',
 };
 
 /**
  * Turn a raw provider model id into a friendly label:
  *   claude-opus-4-8            → "Opus 4.8"
  *   claude-haiku-4-5-20251001  → "Haiku 4.5"   (trailing date dropped)
+ *   claude-fable-5              → "Fable 5"
  *   opus                       → "Opus"        (bare alias, pre-dispatch)
  *   gpt-5.4-mini               → "GPT-5.4 mini"
  *   gpt-5.6-sol                → "GPT-5.6 Sol"
@@ -59,13 +62,14 @@ const FAMILY_LABEL: Record<string, string> = {
  * Falls back to the raw id when nothing matches.
  */
 export function prettifyModelId(id: string): string {
-  const anthropic = /claude-(opus|sonnet|haiku)-(\d+)-(\d+)/i.exec(id);
+  const anthropic = /claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i.exec(id);
   if (anthropic) {
     const [, family, major, minor] = anthropic;
-    return `${FAMILY_LABEL[family.toLowerCase()]} ${major}.${minor}`;
+    const version = minor ? `${major}.${minor}` : major;
+    return `${FAMILY_LABEL[family.toLowerCase()]} ${version}`;
   }
 
-  const bareFamily = /^(opus|sonnet|haiku)$/i.exec(id);
+  const bareFamily = /^(opus|sonnet|haiku|fable)$/i.exec(id);
   if (bareFamily) return FAMILY_LABEL[bareFamily[1].toLowerCase()];
 
   const gpt = /^gpt-?(\d+(?:\.\d+)?)(?:-(mini|nano|sol|terra|luna|codex-spark))?$/i.exec(id);

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api/client';
-import type { ChatSessionRecord } from '@/db/types';
+import type { ChatSessionRecord, EffortLevel } from '@/db/types';
 
 /** Mirrors `user_state.orchestratorMode` (see schema.ts). */
 export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
@@ -37,7 +37,11 @@ export function useNewOrchestratorChat() {
   return useMutation({
     // Optional provider/model = the composer's "switch provider" → fresh
     // orchestrator chat on the chosen provider. No args (void) = plain new chat.
-    mutationFn: (opts: { providerId?: 'claude' | 'codex'; model?: string | null } | void) =>
+    mutationFn: (opts: {
+      providerId?: 'claude' | 'codex';
+      model?: string;
+      effort?: EffortLevel;
+    } | void) =>
       api.post<OrchestratorChatResponse>('/orchestrator-chat', opts ?? {}),
     onSuccess: (data) => {
       qc.setQueryData(ORCHESTRATOR_CHAT_KEY, data);

@@ -33,7 +33,11 @@ import {
 } from '@/db/types';
 import {
   EFFORT_OPTIONS,
+  explicitEffortForModel,
+  explicitModelForProvider,
+  effortOptionsForModel,
   harnessSupportsEffort,
+  providerHarnessKey,
   type ProviderId,
 } from '@/lib/agent-options';
 import { mapHarnessToProvider } from '@/lib/executor/harness';
@@ -87,11 +91,11 @@ interface ExecutionComposerProps {
   sessionId: string;
   /** Current permission mode for the session. Drives the mode picker. */
   permissionMode: PermissionMode;
-  /** Per-session model id (null = harness default). */
+  /** Per-session model id. Null is accepted only for legacy rows and repaired. */
   model: string | null;
-  /** Per-session effort level (null = harness default; ignored on non-Claude). */
+  /** Per-session effort. Null is accepted only for legacy rows and repaired. */
   effort: EffortLevel | null;
-  /** Agent harness — drives which model catalog + whether effort is shown. */
+  /** Agent harness, used to choose the model catalog and supported controls. */
   harness: string | null;
   disabled?: boolean;
   disabledReason?: string;
@@ -128,7 +132,7 @@ interface ExecutionComposerProps {
    * session's own provider can't change mid-stream). Omit for surfaces that
    * don't support switching provider (executions keep the model-only picker).
    */
-  onSwitchProvider?: (next: { harness: ProviderId; model: string | null }) => void;
+  onSwitchProvider?: (next: { harness: ProviderId; model: string; effort: EffortLevel }) => void;
   /** A provider switch (new chat) is in flight. */
   switchingProvider?: boolean;
 }
@@ -235,7 +239,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       return () => clearTimeout(t);
     }, [sessionId, disabled]);
 
-    const modeMeta = PERMISSION_MODE_META[permissionMode];
     const sessionMeta = useSessionMeta(sessionId);
     const slashCommandsQuery = useSlashCommands(sessionId);
 
@@ -311,28 +314,27 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       [sessionEvents],
     );
 
-    // The chip shows the user's *selection*, never what last ran. For Claude
-    // a pick is a tier alias (`opus`/`sonnet`/`haiku`), shown as the generic
-    // tier ("Opus") = "latest Opus", resolved at run time. With no explicit
-    // pick (model === null) the selection is literally "Default" — let the
-    // harness choose — so the chip reads "Default" (the ModelPicker
-    // substitutes that for a null label). We deliberately do NOT fall back to
-    // the previous run's resolved model: showing "Sonnet 4.6" for a Default
-    // session (or "Opus 4.7" for an `opus` pick) makes a stale per-run
-    // snapshot look like a pinned selection and contradicts the dropdown's
-    // highlighted row. The precise version that actually ran is a per-run
-    // fact (runs.model / the system event), surfaced in the transcript — not
-    // a property of the selection.
+    // The chip shows the explicit user selection, never what last ran. Claude
+    // tier aliases (`opus`/`sonnet`/`haiku`/`fable`) stay generic because the precise
+    // version that ran is a per-run fact surfaced in the transcript.
     const providerId = harness
       ? mapHarnessToProvider(harness) as ProviderId
       : null;
     const { models: harnessModels } = useAgentModels(providerId);
-    const pinnedModelOption = model
-      ? harnessModels.find((option) => option.id === model) ?? null
-      : null;
-    const displayModelLabel = pinnedModelOption?.label ?? null;
+    const pinnedModelOption = explicitModelForProvider(
+      providerId ?? 'claude',
+      model,
+      harnessModels,
+    );
+    const explicitModel = pinnedModelOption.id;
+    const displayModelLabel = pinnedModelOption.label;
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
-    const effortOption = effort ? (EFFORT_OPTIONS.find((o) => o.id === effort) ?? null) : null;
+    const effortOptions = effortOptionsForModel(harness, pinnedModelOption);
+    const explicitEffort = explicitEffortForModel(
+      harness ?? providerHarnessKey(providerId ?? 'claude'),
+      pinnedModelOption,
+      effort,
+    );
 
     const setPermissionMode = useCallback(
       (next: PermissionMode) => {
@@ -346,22 +348,32 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       setPermissionMode(nextPermissionMode(permissionMode));
     }, [permissionMode, setPermissionMode]);
 
-    // A pick saves to this session AND becomes the user's default, so the
-    // next new chat/execution inherits the last selection instead of
-    // snapping back to "Default"/"Effort". (Seeded into new sessions by the
-    // orchestrator-chat / document-chat / dispatch creation paths.)
-    const setModel = (id: string | null) => {
+    // The session PATCH also stores this provider-bound tuple as the user's
+    // next-chat preference on the server.
+    const setModel = (id: string) => {
       setModelMenuOpen(false);
-      if (id === model) return;
-      updateSession.mutate({ id: sessionId, model: id });
-      updateUserState.mutate({ defaultAgentModel: id });
+      if (id === explicitModel) return;
+      const nextModel = explicitModelForProvider(
+        providerId ?? 'claude',
+        id,
+        harnessModels,
+      );
+      const nextEffort = explicitEffortForModel(
+        harness ?? providerHarnessKey(providerId ?? 'claude'),
+        nextModel,
+        explicitEffort,
+      );
+      updateSession.mutate({
+        id: sessionId,
+        model: nextModel.id,
+        effort: nextEffort,
+      });
     };
 
-    const setEffort = (level: EffortLevel | null) => {
+    const setEffort = (level: EffortLevel) => {
       setEffortMenuOpen(false);
-      if (level === effort) return;
+      if (level === explicitEffort) return;
       updateSession.mutate({ id: sessionId, effort: level });
-      updateUserState.mutate({ defaultAgentEffort: level });
     };
 
     const handleSend = useCallback(
@@ -637,8 +649,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       open={modelMenuOpen}
                       onOpenChange={setModelMenuOpen}
                       currentProvider={mapHarnessToProvider(harness ?? 'claude_code') as ProviderId}
-                      model={model}
-                      fallbackLabel={displayModelLabel ?? 'Default'}
+                      model={explicitModel}
+                      fallbackLabel={displayModelLabel}
                       onSelectModel={setModel}
                       onSwitchProvider={onSwitchProvider}
                       switching={switchingProvider}
@@ -650,8 +662,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                         open={modelMenuOpen}
                         onOpenChange={setModelMenuOpen}
                         options={harnessModels}
-                        pinnedId={model}
-                        fallbackLabel={displayModelLabel ?? 'Default'}
+                        pinnedId={explicitModel}
+                        fallbackLabel={displayModelLabel}
                         onSelect={setModel}
                         disabled={updateSession.isPending}
                       />
@@ -662,7 +674,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     <EffortPicker
                       open={effortMenuOpen}
                       onOpenChange={setEffortMenuOpen}
-                      current={effort}
+                      current={explicitEffort}
+                      options={effortOptions}
                       onSelect={setEffort}
                       disabled={updateSession.isPending}
                     />
@@ -875,9 +888,9 @@ interface ModelPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   options: ReadonlyArray<{ id: string; label: string; hint?: string }>;
-  pinnedId: string | null;
+  pinnedId: string;
   fallbackLabel: string;
-  onSelect: (id: string | null) => void;
+  onSelect: (id: string) => void;
   disabled?: boolean;
 }
 
@@ -896,7 +909,7 @@ function ModelPicker({
         <button
           type="button"
           disabled={disabled}
-          title={pinnedId ? `Model pinned: ${pinnedId}` : 'Use harness default'}
+          title={`Model: ${pinnedId}`}
           className={cn(
             'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
             'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
@@ -911,24 +924,6 @@ function ModelPicker({
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
           Model
         </div>
-        <button
-          type="button"
-          onClick={() => onSelect(null)}
-          className={cn(
-            'w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md text-left transition-colors',
-            pinnedId === null ? 'bg-primary/10' : 'hover:bg-muted/50',
-          )}
-        >
-          <div className="w-4 h-4 mt-0.5 flex items-center justify-center shrink-0">
-            {pinnedId === null && <Check size={12} className="text-primary" strokeWidth={3} />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-foreground">Default</div>
-            <div className="text-[10.5px] text-muted-foreground/80 mt-0.5 leading-snug">
-              Use whatever the harness picks.
-            </div>
-          </div>
-        </button>
         {options.map((opt) => {
           const active = opt.id === pinnedId;
           return (
@@ -965,28 +960,37 @@ function ModelPicker({
 interface EffortPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  current: EffortLevel | null;
-  onSelect: (level: EffortLevel | null) => void;
+  current: EffortLevel;
+  options: typeof EFFORT_OPTIONS;
+  onSelect: (level: EffortLevel) => void;
   disabled?: boolean;
 }
 
-function EffortPicker({ open, onOpenChange, current, onSelect, disabled }: EffortPickerProps) {
-  const opt = current ? EFFORT_OPTIONS.find((o) => o.id === current) : null;
-  const label = opt?.shortLabel ?? 'Effort';
+function EffortPicker({
+  open,
+  onOpenChange,
+  current,
+  options,
+  onSelect,
+  disabled,
+}: EffortPickerProps) {
+  const opt = options.find((option) => option.id === current)
+    ?? EFFORT_OPTIONS.find((option) => option.id === current);
+  const label = opt?.shortLabel ?? current;
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
           disabled={disabled}
-          title={current ? `Effort: ${label}` : 'Use harness default thinking budget'}
+          title={`Effort: ${label}`}
           className={cn(
             'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
             'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
             'disabled:opacity-50',
           )}
         >
-          <Zap size={10} className={cn(current ? 'text-amber-500' : 'text-muted-foreground/60')} />
+          <Zap size={10} className="text-amber-500" />
           <span>{label}</span>
         </button>
       </PopoverTrigger>
@@ -994,25 +998,7 @@ function EffortPicker({ open, onOpenChange, current, onSelect, disabled }: Effor
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
           Reasoning effort
         </div>
-        <button
-          type="button"
-          onClick={() => onSelect(null)}
-          className={cn(
-            'w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md text-left transition-colors',
-            current === null ? 'bg-primary/10' : 'hover:bg-muted/50',
-          )}
-        >
-          <div className="w-4 h-4 mt-0.5 flex items-center justify-center shrink-0">
-            {current === null && <Check size={12} className="text-primary" strokeWidth={3} />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-foreground">Default</div>
-            <div className="text-[10.5px] text-muted-foreground/80 mt-0.5 leading-snug">
-              Use the harness default thinking budget.
-            </div>
-          </div>
-        </button>
-        {EFFORT_OPTIONS.map((opt) => {
+        {options.map((opt) => {
           const active = opt.id === current;
           return (
             <button

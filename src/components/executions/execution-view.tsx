@@ -13,6 +13,7 @@ import {
   VERTICAL_PANEL_IDS,
 } from '@/hooks/use-execution-layout-sizes';
 import type { RailResponse } from '@/lib/api/sessions';
+import type { EffortLevel } from '@/db/types';
 import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 import {
   ResizableHandle,
@@ -87,7 +88,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // Start a fresh chat on this execution's worktree (the "New chat" button and
   // the composer's provider switcher), then navigate to it. Provider switch
   // passes { providerId, model }; a plain new chat passes nothing.
-  const startNewChat = (opts?: { providerId?: 'claude' | 'codex'; model?: string | null }) => {
+  const startNewChat = (opts?: {
+    providerId?: 'claude' | 'codex';
+    model?: string;
+    effort?: EffortLevel;
+  }) => {
     newExecutionChat
       .mutateAsync(opts ?? undefined)
       .then((r) => setActiveView(r.session.id))
@@ -518,7 +523,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           disabledReason={composerDisabledReason}
           submitOnEnter={submitOnEnter}
           isRunning={isRunning}
-          onSwitchProvider={(next) => startNewChat({ providerId: next.harness, model: next.model })}
+          onSwitchProvider={(next) => startNewChat({
+            providerId: next.harness,
+            model: next.model,
+            effort: next.effort,
+          })}
           switchingProvider={newExecutionChat.isPending}
           onSend={async (content, opts) => {
             const event = await sendMessage.mutateAsync({

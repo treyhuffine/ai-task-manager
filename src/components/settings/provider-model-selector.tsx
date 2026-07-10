@@ -1,14 +1,14 @@
 'use client';
 
 import { ModelList } from './model-list';
-import type { ProviderId } from '@/lib/agent-options';
+import type { ModelOption, ProviderId } from '@/lib/agent-options';
 
 interface ProviderModelSelectorProps {
   /** Current provider (user_state.defaultAgentHarness vocabulary). */
   harness: ProviderId;
-  /** Current default model id, or null = let the provider pick. */
-  model: string | null;
-  onChange: (next: { harness: ProviderId; model: string | null }) => void;
+  /** Current explicit default model id. */
+  model: string;
+  onChange: (next: { harness: ProviderId; model: ModelOption }) => void;
   className?: string;
 }
 
@@ -22,7 +22,7 @@ export function ProviderModelSelector({ harness, model, onChange, className }: P
   return (
     <ModelList
       selected={{ harness, model }}
-      onPick={(h, m) => onChange({ harness: h, model: m })}
+      onPick={(harness, model) => onChange({ harness, model })}
       className={className}
     />
   );

@@ -32,7 +32,7 @@
 
 import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
-import { getProvider, listInstalledSkills, commandInventoryFromEvent } from '@agentex/agent';
+import { getProvider, commandInventoryFromEvent } from '@agentex/agent';
 import type {
   AgentSession,
   StreamEvent,
@@ -47,6 +47,7 @@ import {
   getWorkspace,
   getUserState,
   updateChatSession,
+  updateUserState,
   listChatSessions,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
@@ -84,6 +85,8 @@ import {
 } from '@/lib/db/queries';
 import { notifyNeedsInput, notifyRunTerminal } from '@/lib/notifications/emit';
 import { budgetGate } from '@/lib/runs/budget';
+import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
+import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
 
 // ─── Public errors ────────────────────────────────────────────
 
@@ -229,60 +232,6 @@ export function _recordSessionInventory(chatSessionId: string, event: StreamEven
   }
 }
 
-// ─── Bundled skill discovery ──────────────────────────────────
-//
-// Resolved once per process. `<cli> skills install` symlinks the shipped
-// skills into <app-root>/.claude/skills/ and <app-root>/.agents/skills/;
-// here we ask agentex to enumerate those symlinks and return the source
-// paths. Cached because the install state doesn't change at runtime —
-// re-running the CLI install is what would invalidate it, and that
-// implies a restart anyway.
-let cachedSkillDirs: Promise<string[]> | null = null;
-
-export async function _resolveBundledSkillDirs(): Promise<string[]> {
-  if (!cachedSkillDirs) {
-    cachedSkillDirs = (async () => {
-      try {
-        const channels = await listInstalledSkills({ location: 'workspace', cwd: getAppRoot() });
-        const dirs = new Set<string>();
-        for (const skills of Object.values(channels)) {
-          for (const skill of skills) {
-            if (skill.sourcePath) dirs.add(skill.sourcePath);
-          }
-        }
-        return Array.from(dirs);
-      } catch (err) {
-        console.warn('[executor] failed to enumerate bundled skills:', err);
-        return [];
-      }
-    })();
-  }
-  return cachedSkillDirs;
-}
-
-/** Test seam: clears the skillDirs cache so the next resolve re-fetches. */
-export function _resetSkillDirsCache(): void {
-  cachedSkillDirs = null;
-}
-
-/**
- * Merge two skill-dir lists, deduping while preserving order. The
- * second list (user skills) gets precedence: when the same source dir
- * appears in both, the user-skill placement wins. Doesn't dedupe by
- * skill *name* — that lives in `resolveSkillsForSession`; this is the
- * unique-paths layer.
- */
-function mergeSkillDirs(bundled: string[], userSkills: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const dir of [...userSkills, ...bundled]) {
-    if (seen.has(dir)) continue;
-    seen.add(dir);
-    out.push(dir);
-  }
-  return out;
-}
-
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
   agentSessions.clear();
@@ -407,6 +356,34 @@ export async function dispatch(
   const agent = getAgent(session.agentId);
   if (!agent) throw new ExecutorError('not_found', `Agent not found: ${session.agentId}`);
 
+  // Final provider-boundary guard. It repairs nullable legacy sessions and
+  // rejects cross-provider state before config reaches agentex, even if a row
+  // was inserted outside the normal creation APIs.
+  const selection = explicitAgentSelection(
+    providerIdForHarness(agent.harness),
+    { model: session.model, effort: session.effort },
+  );
+  if (selection.model !== session.model || selection.effort !== session.effort) {
+    updateChatSession(session.id, {
+      model: selection.model,
+      effort: selection.effort,
+    });
+  }
+  if (!options.internalCall) {
+    const savedSelection = getUserState();
+    if (
+      savedSelection?.defaultAgentHarness !== selection.providerId
+      || savedSelection?.defaultAgentModel !== selection.model
+      || savedSelection?.defaultAgentEffort !== selection.effort
+    ) {
+      updateUserState({
+        defaultAgentHarness: selection.providerId,
+        defaultAgentModel: selection.model,
+        defaultAgentEffort: selection.effort,
+      });
+    }
+  }
+
   const cwd = resolveCwd(session);
   if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
 
@@ -486,8 +463,8 @@ export async function dispatch(
       surfaceRef: session.surfaceRef,
       existingExternalSessionId: session.externalSessionId,
       permissionMode: session.permissionMode,
-      model: session.model,
-      effort: session.effort,
+      model: selection.model,
+      effort: selection.effort,
       writer,
     });
     const { result } = await agentSession.send(userMessage);
@@ -667,7 +644,6 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   const extraArgs: string[] = [];
   if (claudeMode) extraArgs.push('--permission-mode', claudeMode);
   if (args.model) config.model = args.model;
-  // Codex provider ignores `config.effort`; passing it is harmless.
   if (args.effort) config.effort = args.effort;
 
   // Orchestration sessions run in the app data root and act through the
@@ -739,19 +715,27 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
 
   if (extraArgs.length > 0) config.extraArgs = extraArgs;
 
-  // Bundled skills live at <app-root>/.claude/skills/ and <app-root>/.agents/skills/
-  // (installed via `<cli> skills install`, which runs on `start`). The session
-  // opens at the workspace cwd, which is typically *not* under app-root, so
-  // Claude's ancestor walk won't see them. Pass them through skillDirs so
-  // agentex symlinks them into a temp dir and adds it via --add-dir.
-  //
-  // On top of bundled, layer in the author-neutral user-skill paths:
+  // Shipped skills are discovered from the app root or the user's explicit
+  // global install. Never pass them through skillDirs here. The Codex provider
+  // materializes configured skillDirs inside the project, which previously
+  // left an app-owned .agents/skills/orchestrator symlink in every workspace.
+  // Clean that legacy link only when it points to our shipped skill.
+  if (args.sessionType === 'execution') {
+    try {
+      const cleanup = await removeOwnedProjectSkillLinks(args.cwd);
+      if (cleanup.entries.some((entry) => entry.status === 'error')) {
+        console.warn('[executor] failed to clean one or more legacy project skill links');
+      }
+    } catch (err) {
+      console.warn('[executor] failed to clean legacy project skill links:', err);
+    }
+  }
+
+  // Layer in author-neutral user-skill paths:
   //   - Global: <brain>/skills/<name>/SKILL.md
   //   - Workspace: <workspace>/.flow/skills/<name>/SKILL.md (workspace wins
   //     on name collision). See src/lib/executor/skills.ts.
-  const bundled = await _resolveBundledSkillDirs();
-  const userSkills = resolveSkillDirsForSession(args.cwd);
-  const skillDirs = mergeSkillDirs(bundled, userSkills);
+  const skillDirs = resolveSkillDirsForSession(args.cwd);
   if (skillDirs.length > 0) config.skillDirs = skillDirs;
 
   const handle = await provider.createSession({
@@ -1338,4 +1322,3 @@ export function resolveCwd(session: { worktreePath: string | null; workspaceId: 
   if (workspace.isGit) return null;
   return workspace.cwd ?? null;
 }
-

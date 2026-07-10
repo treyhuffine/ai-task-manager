@@ -33,7 +33,11 @@ afterAll(wipe);
 
 describe('GET /api/document-chat — seeds model + effort from defaults', () => {
   it('a fresh focused chat inherits defaultAgentModel + defaultAgentEffort', async () => {
-    updateUserState({ defaultAgentModel: 'sonnet', defaultAgentEffort: 'medium' });
+    updateUserState({
+      defaultAgentHarness: 'claude',
+      defaultAgentModel: 'sonnet',
+      defaultAgentEffort: 'medium',
+    });
 
     const req = new Request('http://test/api/document-chat?entityType=task&entityId=task_seed_1');
     const { session } = await (await GET(req)).json();
@@ -42,10 +46,10 @@ describe('GET /api/document-chat — seeds model + effort from defaults', () => 
     expect(session.effort).toBe('medium');
   });
 
-  it('null defaults → null model + effort', async () => {
+  it('null defaults resolve to an explicit provider tuple', async () => {
     const req = new Request('http://test/api/document-chat?entityType=note&entityId=note_seed_1');
     const { session } = await (await GET(req)).json();
-    expect(session.model).toBeNull();
-    expect(session.effort).toBeNull();
+    expect(session.model).toBe('opus');
+    expect(session.effort).toBe('medium');
   });
 });

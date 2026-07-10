@@ -1,4 +1,4 @@
-import { Rocket, Check, User, Layers, Bot, Upload } from 'lucide-react';
+import { Rocket, Check, User, Layers, Bot, Upload, Globe2 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import type { WizardState } from './types';
 
@@ -35,6 +35,16 @@ export function StepLaunch({ state }: { state: WizardState }) {
       icon: Bot,
       label: HARNESS_LABEL[state.agentHarness],
       sub: agentAuthSummary(state),
+    },
+    {
+      icon: Globe2,
+      label: 'Agent skill access',
+      sub:
+        state.globalSkillEnabled === null
+          ? 'Not selected'
+          : state.globalSkillEnabled
+            ? 'Available in every project'
+            : 'Available only inside the app',
     },
     {
       icon: Upload,

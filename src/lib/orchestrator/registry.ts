@@ -931,7 +931,7 @@ const triggerConcurrencyPolicy = z.enum([
   'allow_concurrent',
 ]);
 const triggerCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
-const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped']);
 const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
 

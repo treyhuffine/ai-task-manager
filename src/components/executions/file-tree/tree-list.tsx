@@ -6,7 +6,6 @@ import type { TreeEntry } from '@/lib/api/sessions';
 import {
   buildTree,
   flattenTree,
-  ancestorsOfChanged,
   collectDirPaths,
   type TreeRenderNode,
 } from './build-tree';
@@ -139,23 +138,23 @@ export function TreeList({
 
   const tree = useMemo(() => buildTree(filteredEntries), [filteredEntries]);
 
-  // Auto-expand every ancestor of a changed file so the user can see
-  // their changes without having to drill in manually. Computed once
-  // per entries snapshot and union'd with the user's manual expansions.
-  const autoExpanded = useMemo(() => ancestorsOfChanged(filteredEntries), [filteredEntries]);
-  // When filtering, expand every directory in the (already-pruned) tree.
-  // Without this, the user would type a query and see a single closed
-  // directory at the root with no visible matches inside.
+  // `expanded` already folds in the auto-expand defaults (ancestors of
+  // changed files) and the user's explicit collapse/expand overrides —
+  // it's computed by `file-tree.tsx`. The only thing left to layer on
+  // here is the transient search behavior: when filtering, expand every
+  // directory in the (already-pruned) tree, otherwise the user would type
+  // a query and see a single closed directory at the root with no visible
+  // matches inside.
   const filterExpanded = useMemo(() => {
     if (!isFiltering) return null;
     return new Set(collectDirPaths(tree));
   }, [isFiltering, tree]);
   const effectiveExpanded = useMemo(() => {
+    if (!filterExpanded) return expanded;
     const out = new Set(expanded);
-    for (const p of autoExpanded) out.add(p);
-    if (filterExpanded) for (const p of filterExpanded) out.add(p);
+    for (const p of filterExpanded) out.add(p);
     return out;
-  }, [expanded, autoExpanded, filterExpanded]);
+  }, [expanded, filterExpanded]);
 
   const flat: FlatNode[] = useMemo(() => {
     if (mode === 'changed') {

@@ -10,9 +10,10 @@ import {
   Code2,
   RefreshCw,
   Package,
+  Globe2,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
-import { modelsForProvider } from '@/lib/agent-options';
+import { defaultModelFor, modelsForProvider } from '@/lib/agent-options';
 import { api, ApiError } from '@/lib/api/client';
 import type {
   WizardState,
@@ -162,8 +163,9 @@ export function StepAgent({
 
   const selectHarness = (id: AgentHarness) => {
     if (id === state.agentHarness) return;
-    // Reset the model — the prior pick belongs to a different catalog.
-    update({ agentHarness: id, agentModel: null });
+    // Pick an explicit model from the destination catalog. The prior pick
+    // belongs to a different provider and must never cross the boundary.
+    update({ agentHarness: id, agentModel: defaultModelFor(id) });
   };
 
   const acceptApiKey = (checked: boolean) => {
@@ -229,6 +231,63 @@ export function StepAgent({
           onSelect={(id) => update({ agentModel: id })}
         />
       )}
+
+      <div className="space-y-3 rounded-lg border p-4">
+        <div className="flex gap-3">
+          <Globe2 className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+          <div>
+            <div className="text-sm font-medium">Where should agents use task and note actions?</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Individual repositories stay untouched with either choice.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            {
+              enabled: true,
+              label: 'Every project',
+              hint: 'Install one user-level skill',
+              recommended: true,
+            },
+            {
+              enabled: false,
+              label: 'Only inside the app',
+              hint: 'Keep agent access scoped',
+              recommended: false,
+            },
+          ].map((option) => {
+            const selected = state.globalSkillEnabled === option.enabled;
+            return (
+              <button
+                key={String(option.enabled)}
+                type="button"
+                onClick={() => update({ globalSkillEnabled: option.enabled })}
+                className={`relative rounded-md border p-3 text-left transition-colors ${
+                  selected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+                }`}
+              >
+                {option.recommended && (
+                  <span className="absolute top-2 right-2 text-[10px] text-muted-foreground">
+                    Recommended
+                  </span>
+                )}
+                <div className="flex items-center gap-2 pr-16 text-sm font-medium">
+                  <span
+                    className={`flex size-4 items-center justify-center rounded-full border ${
+                      selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
+                    }`}
+                  >
+                    {selected && <Check className="size-3" />}
+                  </span>
+                  {option.label}
+                </div>
+                <div className="mt-1 pl-6 text-xs text-muted-foreground">{option.hint}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -241,14 +300,11 @@ function ModelChoice({
   onSelect,
 }: {
   harness: AgentHarness;
-  selected: string | null;
-  onSelect: (id: string | null) => void;
+  selected: string;
+  onSelect: (id: string) => void;
 }) {
   const models = modelsForProvider(harness);
-  const options: Array<{ id: string | null; label: string; hint?: string }> = [
-    { id: null, label: 'Default', hint: 'Let the agent pick' },
-    ...models,
-  ];
+  const options = models;
   return (
     <div className="space-y-2">
       <div className="text-xs uppercase tracking-wide text-muted-foreground">Default model</div>
@@ -257,7 +313,7 @@ function ModelChoice({
           const active = selected === opt.id;
           return (
             <button
-              key={opt.id ?? 'default'}
+              key={opt.id}
               type="button"
               onClick={() => onSelect(opt.id)}
               className={`flex flex-col items-start gap-0.5 rounded-lg border p-3 text-left transition-colors ${
