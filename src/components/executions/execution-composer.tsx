@@ -45,6 +45,7 @@ import { ComposerProviderMenu } from './composer-provider-menu';
 import {
   ChatInputEditor,
   type ChatInputEditorHandle,
+  type EditorSnapshot,
 } from '@/components/chat/editor/chat-input-editor';
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
@@ -132,7 +133,10 @@ interface ExecutionComposerProps {
    * session's own provider can't change mid-stream). Omit for surfaces that
    * don't support switching provider (executions keep the model-only picker).
    */
-  onSwitchProvider?: (next: { harness: ProviderId; model: string; effort: EffortLevel }) => void;
+  onSwitchProvider?: (
+    next: { harness: ProviderId; model: string; effort: EffortLevel },
+    draft: EditorSnapshot | null,
+  ) => void;
   /** A provider switch (new chat) is in flight. */
   switchingProvider?: boolean;
 }
@@ -652,7 +656,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       model={explicitModel}
                       fallbackLabel={displayModelLabel}
                       onSelectModel={setModel}
-                      onSwitchProvider={onSwitchProvider}
+                      onSwitchProvider={(next) => {
+                        onSwitchProvider(next, editorRef.current?.snapshot() ?? null);
+                      }}
                       switching={switchingProvider}
                       disabled={updateSession.isPending}
                     />

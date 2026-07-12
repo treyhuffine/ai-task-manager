@@ -18,17 +18,17 @@ import type { ChatEventRecord } from '@/db/types';
 import type { PendingInput } from '@/lib/executor/pending-input';
 
 /**
- * Payload variants the bus carries.
- *
- *   - `chat_event` — a new row landed in `chat_events`. Carries the row.
- *   - `runtime`    — the executor's running flag flipped for this
- *                    session. Carries the new value.
- *   - `pending_input` — the pending-input store changed (a request was
- *                    registered, resolved, or bulk-rejected). Carries
- *                    the current full list so subscribers don't have
- *                    to merge deltas — pending state is small (~0–1
- *                    entries typical, never more than a handful).
+ * Lightweight cross-session signal for rail-facing state. The detailed
+ * payload stays on the per-session channel. Dashboard listeners only need to
+ * know that their authoritative rail snapshot is stale.
  */
+export type GlobalSessionStreamMessage = {
+  kind: 'session_updated';
+  sessionId: string;
+  reason: 'outcome' | 'runtime' | 'pending_input' | 'reconcile';
+};
+
+/** Payload variants carried by the in-process realtime bus. */
 export type SessionStreamMessage =
   | { kind: 'chat_event'; event: ChatEventRecord }
   | { kind: 'runtime'; running: boolean }
@@ -39,7 +39,8 @@ export type SessionStreamMessage =
    * affordance, `done` clears it. The replay itself emits regular
    * `chat_event` frames as rows land — this variant just brackets them.
    */
-  | { kind: 'reconcile'; status: 'started' | 'done'; replayed?: number };
+  | { kind: 'reconcile'; status: 'started' | 'done'; replayed?: number }
+  | GlobalSessionStreamMessage;
 
 type Listener = (message: SessionStreamMessage) => void;
 
@@ -88,6 +89,13 @@ export function sessionChannel(sessionId: string): string {
   return `session:${sessionId}`;
 }
 
+/** Dashboard-wide lifecycle channel used to refresh background sessions. */
+export const globalSessionChannel = 'sessions:all';
+
+function publishGlobal(message: GlobalSessionStreamMessage): void {
+  publish(globalSessionChannel, message);
+}
+
 /**
  * Convenience helper. Used by the queries.ts insert path and the
  * messages route's direct user-event write. Keeping the channel
@@ -95,14 +103,21 @@ export function sessionChannel(sessionId: string): string {
  */
 export function publishChatEvent(event: ChatEventRecord): void {
   publish(sessionChannel(event.sessionId), { kind: 'chat_event', event });
+  // Result is the durable turn boundary. Agent/tool activity can be very
+  // frequent and the runtime edge below already covers live bucket changes.
+  if (event.source === 'result') {
+    publishGlobal({ kind: 'session_updated', sessionId: event.sessionId, reason: 'outcome' });
+  }
 }
 
 export function publishRuntime(sessionId: string, running: boolean): void {
   publish(sessionChannel(sessionId), { kind: 'runtime', running });
+  publishGlobal({ kind: 'session_updated', sessionId, reason: 'runtime' });
 }
 
 export function publishPendingInput(sessionId: string, pending: PendingInput[]): void {
   publish(sessionChannel(sessionId), { kind: 'pending_input', pending });
+  publishGlobal({ kind: 'session_updated', sessionId, reason: 'pending_input' });
 }
 
 export function publishReconcileStarted(sessionId: string): void {
@@ -111,4 +126,7 @@ export function publishReconcileStarted(sessionId: string): void {
 
 export function publishReconcileDone(sessionId: string, replayed: number): void {
   publish(sessionChannel(sessionId), { kind: 'reconcile', status: 'done', replayed });
+  if (replayed > 0) {
+    publishGlobal({ kind: 'session_updated', sessionId, reason: 'reconcile' });
+  }
 }

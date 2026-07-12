@@ -4,13 +4,16 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@agentex/agent': file:../../../../private/tmp/agentex-harness-expansion/packages/agent
+
 importers:
 
   .:
     dependencies:
       '@agentex/agent':
-        specifier: ^0.0.27
-        version: 0.0.27(zod@3.25.76)
+        specifier: file:../../../../private/tmp/agentex-harness-expansion/packages/agent
+        version: file:../../../../private/tmp/agentex-harness-expansion/packages/agent(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -430,8 +433,8 @@ packages:
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
-  '@agentex/agent@0.0.27':
-    resolution: {integrity: sha512-jrlqBIT4o74S/EyQG6Trd6nN4gdLaZjwJpFCuhLEPhOCFd81fKQ0yJqbYk7UvUDeeGq1E6vI4IwrMqvftyCbww==}
+  '@agentex/agent@file:../../../../private/tmp/agentex-harness-expansion/packages/agent':
+    resolution: {directory: ../../../../private/tmp/agentex-harness-expansion/packages/agent, type: directory}
     engines: {node: '>=20.19.0'}
 
   '@agentex/github@0.0.1':
@@ -8661,7 +8664,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@agentex/agent@0.0.27(zod@3.25.76)':
+  '@agentex/agent@file:../../../../private/tmp/agentex-harness-expansion/packages/agent(zod@3.25.76)':
     dependencies:
       '@agentclientprotocol/sdk': 0.24.0(zod@3.25.76)
     transitivePeerDependencies:

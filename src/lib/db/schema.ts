@@ -96,7 +96,7 @@ export const userState = sqliteTable('user_state', {
   // Last explicit provider-bound harness + model + effort tuple. The columns
   // remain nullable for pre-onboarding and legacy databases, but chat creation
   // resolves them to concrete values before anything reaches a runner.
-  defaultAgentHarness: text({ enum: ['claude', 'codex'] }),
+  defaultAgentHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
   defaultAgentModel: text(),
   defaultAgentEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
   // Which brain powers the dashboard orchestrator chat:
@@ -117,6 +117,35 @@ export const userState = sqliteTable('user_state', {
   monthlyBudgetUsd: real(),
   onboardedAt: text(),
 });
+
+// ─── Agent Harness Settings ───────────────────────────────────
+
+export const agentHarnessSettings = sqliteTable('agent_harness_settings', {
+  id: text().primaryKey(),
+  ...timestamps,
+  harness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }).notNull().unique(),
+  enabledModels: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+  defaultModel: text(),
+  defaultVariant: text(),
+  defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
+  catalogRefreshedAt: text(),
+});
+
+export const agentHarnessOperations = sqliteTable(
+  'agent_harness_operations',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    harness: text({ enum: ['opencode'] }).notNull(),
+    operation: text({ enum: ['disconnect_upstream_provider'] }).notNull(),
+    upstreamProviderId: text().notNull(),
+    status: text({ enum: ['pending', 'completed', 'failed'] }).notNull(),
+    replacementHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
+    replacementModel: text(),
+    lastErrorCode: text(),
+  },
+  (table) => [index('idx_agent_harness_operations_status').on(table.status, table.updatedAt)],
+);
 
 // ─── Areas ────────────────────────────────────────────────────
 
@@ -745,6 +774,7 @@ export const chatSessions = sqliteTable(
     //
     // Effort enum values are literal provider tokens, not display strings.
     model: text(),
+    modelVariant: text(),
     effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
 
     // When entering plan mode we stash the prior permission_mode here so

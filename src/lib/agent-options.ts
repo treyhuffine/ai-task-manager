@@ -11,8 +11,16 @@
  */
 
 import type { EffortLevel } from '@/db/types';
+import {
+  HARNESS_IDS,
+  HARNESS_REGISTRY,
+  harnessDefinition,
+  harnessIdForAgentRecord,
+  type AgentHarness,
+  type HarnessId,
+} from '@/lib/agents/registry';
 
-export type AgentHarness = 'claude_code' | 'codex';
+export type { AgentHarness } from '@/lib/agents/registry';
 
 export interface ModelOption {
   /** Provider id passed to agentex via `config.model`. */
@@ -56,6 +64,8 @@ export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
     { id: 'gpt-5.4-mini', label: '5.4 Mini', hint: 'Small, fast, and cost-efficient model for simpler coding tasks' },
     { id: 'gpt-5.3-codex-spark', label: '5.3 Codex Spark', hint: 'Ultra-fast coding model' },
   ],
+  cursor: [],
+  opencode: [],
 };
 
 export type AgentModelSource = 'provider' | 'cli' | 'config';
@@ -116,7 +126,8 @@ export const DEFAULT_AGENT_EFFORT: EffortLevel = 'medium';
 
 /** Map an agent row's harness vocabulary back to the persisted provider id. */
 export function providerIdForHarness(harness: string | null | undefined): ProviderId {
-  return harness === 'codex' ? 'codex' : 'claude';
+  if (!harness) throw new Error('Agent harness is required');
+  return harnessIdForAgentRecord(harness);
 }
 
 /**
@@ -136,7 +147,8 @@ export function modelBelongsToProvider(
   if (providerId === 'claude') {
     return modelId.startsWith('claude-') || ['opus', 'sonnet', 'haiku', 'fable'].includes(modelId);
   }
-  return /^(?:gpt-|o\d(?:-|$)|codex(?:-|$))/i.test(modelId);
+  if (providerId === 'codex') return /^(?:gpt-|o\d(?:-|$)|codex(?:-|$))/i.test(modelId);
+  return models.some((model) => model.id === modelId);
 }
 
 /**
@@ -233,7 +245,7 @@ export function harnessSupportsEffort(harness: string): boolean {
 // onboarding step, the settings selector, and the connection check.
 
 /** Persistable provider id — matches `user_state.defaultAgentHarness`. */
-export type ProviderId = 'claude' | 'codex';
+export type ProviderId = HarnessId;
 
 export interface ProviderOption {
   id: ProviderId;
@@ -249,29 +261,23 @@ export interface ProviderOption {
 }
 
 export const PROVIDERS: ProviderOption[] = [
-  {
-    id: 'claude',
-    harnessKey: 'claude_code',
-    name: 'Claude',
-    blurb: 'Anthropic, runs on the Claude Code agent',
-    loginCmd: 'claude login',
-    apiKeyVar: 'ANTHROPIC_API_KEY',
-    installHint: 'npm install -g @anthropic-ai/claude-code',
-  },
-  {
-    id: 'codex',
-    harnessKey: 'codex',
-    name: 'OpenAI Codex',
-    blurb: 'OpenAI, runs on the Codex agent',
-    loginCmd: 'codex login',
-    apiKeyVar: 'OPENAI_API_KEY',
-    installHint: 'npm install -g @openai/codex',
-  },
+  ...HARNESS_IDS.map((id) => {
+    const harness = HARNESS_REGISTRY[id];
+    return {
+      id,
+      harnessKey: harness.agentRecordHarness,
+      name: harness.name,
+      blurb: harness.description,
+      loginCmd: harness.loginCommand ?? '',
+      apiKeyVar: harness.apiKeyVar ?? '',
+      installHint: harness.installHint,
+    };
+  }),
 ];
 
 /** `defaultAgentHarness` vocab → MODEL_OPTIONS / harness vocab. */
 export function providerHarnessKey(id: ProviderId): AgentHarness {
-  return id === 'codex' ? 'codex' : 'claude_code';
+  return harnessDefinition(id).agentRecordHarness;
 }
 
 export function findProvider(id: string | null | undefined): ProviderOption | null {

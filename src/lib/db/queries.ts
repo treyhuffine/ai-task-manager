@@ -5,12 +5,12 @@
 
 import { getDb, getRawDb } from '@/lib/db';
 import {
-  tasks, notes, areas, stream, taskCompletions, decks, userState, apiKeys,
+  tasks, notes, areas, stream, taskCompletions, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
 } from '@/lib/db/schema';
-import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
@@ -38,7 +38,9 @@ import type {
   NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput,
   WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
   NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
+  AgentHarnessSettingsRecord, UpsertAgentHarnessSettingsInput, AgentHarnessOperationRecord,
 } from '@/db/types';
+import type { HarnessId } from '@/lib/agents/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
@@ -49,6 +51,7 @@ import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/h
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
+import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -904,6 +907,181 @@ export function updateUserState(input: UpdateUserStateInput) {
     .where(eq(userState.id, 1))
     .returning()
     .get();
+}
+
+// ─── Agent Harness Settings ──────────────────────────────────
+
+export function getAgentHarnessSettings(harness: HarnessId): AgentHarnessSettingsRecord | undefined {
+  return getDb().select().from(agentHarnessSettings)
+    .where(eq(agentHarnessSettings.harness, harness)).get();
+}
+
+export function listAgentHarnessSettings(): AgentHarnessSettingsRecord[] {
+  return getDb().select().from(agentHarnessSettings).orderBy(asc(agentHarnessSettings.harness)).all();
+}
+
+export function upsertAgentHarnessSettings(
+  input: UpsertAgentHarnessSettingsInput,
+): AgentHarnessSettingsRecord {
+  const now = new Date().toISOString();
+  const id = input.id ?? `harness:${input.harness}`;
+  return getDb().insert(agentHarnessSettings)
+    .values({ ...input, id, updatedAt: now })
+    .onConflictDoUpdate({
+      target: agentHarnessSettings.harness,
+      set: {
+        enabledModels: input.enabledModels,
+        defaultModel: input.defaultModel,
+        defaultVariant: input.defaultVariant,
+        defaultEffort: input.defaultEffort,
+        catalogRefreshedAt: input.catalogRefreshedAt,
+        updatedAt: now,
+      },
+    })
+    .returning().get();
+}
+
+function normalizeEnabledModels(models: string[]): string[] {
+  const normalized = models.map((model) => model.trim()).filter(Boolean);
+  if (new Set(normalized).size !== normalized.length) throw new Error('Enabled models must be unique');
+  return normalized;
+}
+
+export function setEnabledHarnessModels(
+  harness: HarnessId,
+  models: string[],
+  requestedDefault?: string | null,
+): AgentHarnessSettingsRecord {
+  const enabledModels = normalizeEnabledModels(models);
+  const db = getDb();
+  return db.transaction((tx) => {
+    const existing = tx.select().from(agentHarnessSettings)
+      .where(eq(agentHarnessSettings.harness, harness)).get();
+    const defaultModel = requestedDefault ?? existing?.defaultModel ?? enabledModels[0] ?? null;
+    if (defaultModel && !enabledModels.includes(defaultModel)) {
+      throw new Error('The default model must be enabled');
+    }
+    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultAgentHarness;
+    if (active === harness && enabledModels.length === 0) {
+      throw new Error('The active harness must have at least one enabled model');
+    }
+    const now = new Date().toISOString();
+    return tx.insert(agentHarnessSettings)
+      .values({
+        id: `harness:${harness}`,
+        harness,
+        enabledModels,
+        defaultModel,
+        defaultVariant: existing?.defaultVariant,
+        defaultEffort: existing?.defaultEffort,
+        catalogRefreshedAt: existing?.catalogRefreshedAt,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: agentHarnessSettings.harness,
+        set: { enabledModels, defaultModel, updatedAt: now },
+      })
+      .returning().get();
+  });
+}
+
+export function setHarnessDefaultSelection(
+  harness: HarnessId,
+  selection: { model: string; variant?: string | null; effort?: AgentHarnessSettingsRecord['defaultEffort'] },
+): AgentHarnessSettingsRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx.select().from(agentHarnessSettings)
+      .where(eq(agentHarnessSettings.harness, harness)).get();
+    if (!row || !row.enabledModels.includes(selection.model)) throw new Error('The default model must be enabled');
+    const updated = tx.update(agentHarnessSettings).set({
+      defaultModel: selection.model,
+      defaultVariant: selection.variant ?? null,
+      defaultEffort: selection.effort ?? null,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(agentHarnessSettings.harness, harness)).returning().get();
+    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultAgentHarness;
+    if (active === harness) {
+      tx.update(userState).set({
+        defaultAgentModel: selection.model,
+        defaultAgentEffort: selection.effort ?? null,
+        updatedAt: new Date().toISOString(),
+      }).where(eq(userState.id, 1)).run();
+    }
+    return updated;
+  });
+}
+
+export function setActiveHarness(harness: HarnessId): AgentHarnessSettingsRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx.select().from(agentHarnessSettings)
+      .where(eq(agentHarnessSettings.harness, harness)).get();
+    if (!row?.defaultModel || !row.enabledModels.includes(row.defaultModel)) {
+      throw new Error('The selected harness needs an enabled default model');
+    }
+    tx.update(userState).set({
+      defaultAgentHarness: harness,
+      defaultAgentModel: row.defaultModel,
+      defaultAgentEffort: row.defaultEffort,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(userState.id, 1)).run();
+    return row;
+  });
+}
+
+export function beginProviderDisconnectSaga(input: {
+  upstreamProviderId: string;
+  replacementHarness?: HarnessId | null;
+  replacementModel?: string | null;
+}): AgentHarnessOperationRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    if (input.replacementHarness) {
+      const replacement = tx.select().from(agentHarnessSettings)
+        .where(eq(agentHarnessSettings.harness, input.replacementHarness)).get();
+      if (!replacement || !input.replacementModel || !replacement.enabledModels.includes(input.replacementModel)) {
+        throw new Error('A valid enabled replacement selection is required');
+      }
+      tx.update(userState).set({
+        defaultAgentHarness: input.replacementHarness,
+        defaultAgentModel: input.replacementModel,
+        defaultAgentEffort: replacement.defaultEffort,
+        updatedAt: new Date().toISOString(),
+      }).where(eq(userState.id, 1)).run();
+    }
+    return tx.insert(agentHarnessOperations).values({
+      id: uuidv7(),
+      harness: 'opencode',
+      operation: 'disconnect_upstream_provider',
+      upstreamProviderId: input.upstreamProviderId,
+      status: 'pending',
+      replacementHarness: input.replacementHarness ?? null,
+      replacementModel: input.replacementModel ?? null,
+    }).returning().get();
+  });
+}
+
+export function completeProviderDisconnectSaga(id: string): AgentHarnessOperationRecord | undefined {
+  return getDb().update(agentHarnessOperations).set({
+    status: 'completed', lastErrorCode: null, updatedAt: new Date().toISOString(),
+  }).where(eq(agentHarnessOperations.id, id)).returning().get();
+}
+
+export function failProviderDisconnectSaga(id: string, safeErrorCode: string): AgentHarnessOperationRecord | undefined {
+  return getDb().update(agentHarnessOperations).set({
+    status: 'failed', lastErrorCode: safeErrorCode.slice(0, 100), updatedAt: new Date().toISOString(),
+  }).where(eq(agentHarnessOperations.id, id)).returning().get();
+}
+
+export function getProviderDisconnectSaga(id: string): AgentHarnessOperationRecord | undefined {
+  return getDb().select().from(agentHarnessOperations).where(eq(agentHarnessOperations.id, id)).get();
+}
+
+export function listRetryableProviderDisconnectSagas(): AgentHarnessOperationRecord[] {
+  return getDb().select().from(agentHarnessOperations)
+    .where(inArray(agentHarnessOperations.status, ['pending', 'failed']))
+    .orderBy(asc(agentHarnessOperations.createdAt)).all();
 }
 
 // ─── API Keys ─────────────────────────────────────────────────
@@ -2000,6 +2178,15 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
  */
 export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
   const db = getDb();
+  const createdByMorningDeckRun = db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.id, chatSessions.createdByRunId),
+        eq(runs.triggerId, RESERVED_TRIGGER_IDS.morningDeck),
+      ),
+    );
   const rows = db
     .select({
       ...getTableColumns(chatSessions),
@@ -2013,10 +2200,12 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
         // The interactive orchestrator chat (orchestration + no creating
         // run) is "the assistant in the Chat tab" — its replies are the
         // conversation itself, not output owed review, so it never belongs
-        // in the unread queue. Scheduled orchestrator chats
-        // (created_by_run_id set) stay eligible: surfacing their results
-        // here is how scheduled-fire output reaches the user.
+        // in the unread queue. Scheduled orchestrator chats generally stay
+        // eligible because this is how their results reach the user. The
+        // reserved morning-deck refresh is the exception: its result already
+        // has a purpose-built review surface in the Deck pane.
         sql`NOT (${chatSessions.type} = 'orchestration' AND ${chatSessions.createdByRunId} IS NULL)`,
+        notExists(createdByMorningDeckRun),
         sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
         sql`COALESCE(
           MAX(

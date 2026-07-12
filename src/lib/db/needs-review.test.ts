@@ -30,7 +30,7 @@ async function setup() {
 const past = (mins: number) => new Date(Date.now() - mins * 60_000).toISOString();
 
 describe('listNeedsReviewSessionCandidates', () => {
-  it('excludes the interactive orchestrator chat but keeps executions and scheduled orchestration chats', async () => {
+  it('excludes interactive and morning-deck chats but keeps executions and other scheduled chats', async () => {
     const q = await setup();
     const { getDb } = await import('@/lib/db');
     const { workspaces, runs } = await import('@/lib/db/schema');
@@ -72,9 +72,41 @@ describe('listNeedsReviewSessionCandidates', () => {
       createdByRunId: runId, lastOutcomeEventAt: past(1), lastViewedAt: past(10),
     });
 
+    // 4. The app-managed morning deck refresh has its own review surface in
+    //    the Deck pane, so its scheduled chat must not pile up in this queue.
+    const { RESERVED_TRIGGER_IDS } = await import('@/lib/triggers/reserved');
+    q.createTrigger({
+      id: RESERVED_TRIGGER_IDS.morningDeck,
+      name: 'Morning deck refresh',
+      description: 'Refreshes the deck',
+      enabled: true,
+      agentId: orch.id,
+      workspaceId: null,
+      targetKind: 'orchestrator',
+      prompt: 'Refresh the deck',
+      kind: 'cron',
+      cronExpression: '0 4 * * *',
+      timezone: 'UTC',
+      nextRunAt: new Date().toISOString(),
+    });
+    const morning = q.createChatSession({
+      type: 'orchestration', agentId: orch.id, label: 'Morning deck refresh', status: 'active',
+    });
+    const morningRun = q.createRun({
+      triggerId: RESERVED_TRIGGER_IDS.morningDeck,
+      agentId: orch.id,
+      chatSessionId: morning.id,
+      triggerKind: 'cron',
+      status: 'completed',
+    });
+    q.updateChatSession(morning.id, {
+      createdByRunId: morningRun.id, lastOutcomeEventAt: past(1), lastViewedAt: past(10),
+    });
+
     const ids = q.listNeedsReviewSessionCandidates().map((s) => s.id);
     expect(ids).not.toContain(interactive.id); // the Chat tab is not an inbox item
     expect(ids).toContain(execChat.id);
     expect(ids).toContain(scheduled.id);
+    expect(ids).not.toContain(morning.id);
   });
 });

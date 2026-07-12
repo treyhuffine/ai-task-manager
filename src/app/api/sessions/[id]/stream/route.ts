@@ -80,6 +80,7 @@ export async function GET(
           case 'reconcile':
             enqueue(sse('reconcile', { status: message.status, replayed: message.replayed }));
             break;
+          case 'session_updated': break;
         }
       });
 

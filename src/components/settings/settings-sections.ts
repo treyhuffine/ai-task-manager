@@ -8,6 +8,7 @@ import {
   MonitorSmartphone,
   Globe,
   ListChecks,
+  Download,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -28,6 +29,7 @@ export type SectionId =
   | 'connectors'
   | 'notifications'
   | 'devices'
+  | 'imports'
   | 'remote-preview';
 
 export interface SettingsSectionDef {
@@ -86,6 +88,13 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     icon: Plug,
     title: 'Connectors',
     description: 'Connect external services so agents can act on your behalf.',
+  },
+  {
+    id: 'imports',
+    label: 'Imports',
+    icon: Download,
+    title: 'Import agent history',
+    description: 'Bring local projects and chats from Claude Code and Codex into Flow.',
   },
   {
     id: 'notifications',

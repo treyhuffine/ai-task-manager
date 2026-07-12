@@ -3,7 +3,7 @@
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
-  userState, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
+  userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -31,6 +31,10 @@ type WithCamelAttachments<T> =
 
 export type UserStateRecord = InferSelectModel<typeof userState>;
 export type UpdateUserStateInput = Partial<Omit<InferInsertModel<typeof userState>, 'id'>>;
+
+export type AgentHarnessSettingsRecord = InferSelectModel<typeof agentHarnessSettings>;
+export type UpsertAgentHarnessSettingsInput = Omit<InferInsertModel<typeof agentHarnessSettings>, 'id'> & { id?: string };
+export type AgentHarnessOperationRecord = InferSelectModel<typeof agentHarnessOperations>;
 
 // ─── Areas ────────────────────────────────────────────────────
 

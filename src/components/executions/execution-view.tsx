@@ -42,6 +42,8 @@ import { ReferencesPane } from './references-pane';
 import { ScratchpadPane } from './scratchpad-pane';
 import { useOpenReferenceListener } from '@/lib/entity-refs/open-event';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
+import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
+import { DRAFT_STORAGE_PREFIX } from '@/components/chat/editor/draft-storage';
 import { hot } from '@/lib/_debug/hot-path';
 
 interface ExecutionViewProps {
@@ -92,10 +94,22 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     providerId?: 'claude' | 'codex';
     model?: string;
     effort?: EffortLevel;
-  }) => {
+  }, draft?: EditorSnapshot | null) => {
     newExecutionChat
       .mutateAsync(opts ?? undefined)
-      .then((r) => setActiveView(r.session.id))
+      .then((r) => {
+        if (draft) {
+          try {
+            window.localStorage.setItem(
+              `${DRAFT_STORAGE_PREFIX}exec:${r.session.id}`,
+              JSON.stringify(draft.doc),
+            );
+          } catch {
+            // Draft persistence is best-effort when storage is unavailable.
+          }
+        }
+        setActiveView(r.session.id);
+      })
       .catch(() => {});
   };
 
@@ -523,11 +537,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           disabledReason={composerDisabledReason}
           submitOnEnter={submitOnEnter}
           isRunning={isRunning}
-          onSwitchProvider={(next) => startNewChat({
+          onSwitchProvider={(next, draft) => startNewChat({
             providerId: next.harness,
             model: next.model,
             effort: next.effort,
-          })}
+          }, draft)}
           switchingProvider={newExecutionChat.isPending}
           onSend={async (content, opts) => {
             const event = await sendMessage.mutateAsync({

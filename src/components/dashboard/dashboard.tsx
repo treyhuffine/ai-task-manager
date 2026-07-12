@@ -20,6 +20,7 @@ import { MobileLayout } from '@/components/mobile/mobile-layout';
 import { TabletLayout } from '@/components/mobile/tablet-layout';
 import { AuthRecoveryCard } from '@/components/auth/auth-recovery-card';
 import { useRailContextHydrate } from '@/hooks/use-rail-context-hydrate';
+import { useGlobalSessionStream } from '@/hooks/use-global-session-stream';
 import { cn } from '@/lib/utils';
 
 function DashboardShell() {
@@ -43,9 +44,10 @@ function DashboardShell() {
 
   // Sync the rail GET's pending/running snapshots into the dashboard
   // context so the by-status bucketizer and by-workspace status pips
-  // both reflect cross-session state without a separate live SSE.
-  // The rail's own poll + per-session SSE invalidation keeps it fresh.
+  // both reflect cross-session state. The global lifecycle stream refreshes
+  // background sessions, with the rail poll as a safety net.
   useRailContextHydrate();
+  useGlobalSessionStream();
 
   // Keep a ref so the keyboard handler can read `isExecutionView`
   // without re-binding on every navigation.

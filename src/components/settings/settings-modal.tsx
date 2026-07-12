@@ -28,6 +28,7 @@ import { ConnectorsSection } from './sections/connectors-section';
 import { NotificationsSection } from './sections/notifications-section';
 import { DevicesSettingsSection } from './sections/devices-section';
 import { RemotePreviewSection } from './sections/remote-preview-section';
+import { ImportsSection } from './sections/imports-section';
 
 function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupChecklist }) {
   // Only the active pane mounts — the Notifications pane in particular fires a
@@ -47,6 +48,8 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
       return <ConnectorsSection />;
     case 'notifications':
       return <NotificationsSection />;
+    case 'imports':
+      return <ImportsSection />;
     case 'devices':
       return <DevicesSettingsSection />;
     case 'remote-preview':
