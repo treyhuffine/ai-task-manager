@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server';
-import { getProvider, type AuthReport } from '@agentex/agent';
-
-const ALLOWED = new Set(['claude', 'codex']);
+import type { AuthReport } from '@agentex/agent';
+import { isHarnessId } from '@/lib/agents/registry';
+import { getHarnessRuntime, resolveHarnessAuth } from '@/lib/agents/runtime';
+import { getAppRoot } from '@/lib/config/paths';
+import { openCodeProviderManager, openCodeRuntimeContext } from '@/lib/agents/opencode';
 
 // We return the full AuthReport the SDK gives us, plus a few precomputed
 // flags so the client doesn't have to rewalk `options[]` to figure out what
@@ -12,6 +14,8 @@ export interface AgentAuthResponse extends AuthReport {
   hasBedrock: boolean;
   /** Env var name for the first detected API key, for UI hints. */
   apiKeyVar: string | null;
+  runtime: Awaited<ReturnType<typeof getHarnessRuntime>>;
+  hasConfiguredUpstream: boolean;
 }
 
 function hasMethod(report: AuthReport, method: 'subscription' | 'api_key' | 'bedrock'): boolean {
@@ -29,12 +33,19 @@ function firstApiKeyVar(report: AuthReport): string | null {
 export async function POST(request: NextRequest) {
   try {
     const { harness, fresh } = await request.json();
-    if (!ALLOWED.has(harness)) {
+    if (!isHarnessId(harness)) {
       return Response.json({ error: `unknown harness: ${harness}` }, { status: 400 });
     }
 
-    const provider = getProvider(harness);
-    const report = await provider.resolveAuth({ fresh: fresh === true });
+    const [report, runtime, hasConfiguredUpstream] = await Promise.all([
+      resolveHarnessAuth(harness, { cwd: getAppRoot(), fresh: fresh === true }),
+      getHarnessRuntime(harness, { cwd: getAppRoot(), refresh: fresh === true }),
+      harness === 'opencode'
+        ? openCodeProviderManager().list(await openCodeRuntimeContext(fresh === true))
+          .then((providers) => providers.some((provider) => provider.connected))
+          .catch(() => false)
+        : Promise.resolve(false),
+    ]);
 
     const payload: AgentAuthResponse = {
       ...report,
@@ -42,6 +53,8 @@ export async function POST(request: NextRequest) {
       hasApiKey: hasMethod(report, 'api_key'),
       hasBedrock: hasMethod(report, 'bedrock'),
       apiKeyVar: firstApiKeyVar(report),
+      runtime,
+      hasConfiguredUpstream,
     };
 
     return Response.json(payload);

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useOrchestratorChat, useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
+import type { HarnessId } from '@/lib/agents/registry';
 import {
   useSession,
   useSendMessage,
@@ -78,6 +79,7 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
       onSwitchProvider={(next) => newChat.mutate({
         providerId: next.harness,
         model: next.model,
+        variant: next.variant,
         effort: next.effort,
       })}
       switchingProvider={newChat.isPending}
@@ -103,9 +105,10 @@ export function HarnessChatSession({
   /** Optional: enables the composer's provider switcher (starts a fresh chat
    *  on the chosen provider). The host owns what "new chat" means. */
   onSwitchProvider?: (next: {
-    harness: 'claude' | 'codex';
+    harness: HarnessId;
     model: string;
-    effort: EffortLevel;
+    variant?: string;
+    effort?: EffortLevel;
   }) => void;
   switchingProvider?: boolean;
 }) {
@@ -174,6 +177,7 @@ export function HarnessChatSession({
           sessionId={session.id}
           permissionMode={session.permissionMode}
           model={session.model}
+          modelVariant={session.modelVariant}
           effort={session.effort}
           harness={session.agentHarness ?? null}
           submitOnEnter={!isMobile}

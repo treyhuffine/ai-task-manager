@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, MessageSquarePlus } from 'lucide-react';
+import { Check, MessageSquarePlus, Settings2 } from 'lucide-react';
 import { PROVIDERS, findProvider, type ModelOption, type ProviderId } from '@/lib/agent-options';
 import { useAgentConnection } from '@/hooks/use-agent-connection';
 import { useAgentModels } from '@/hooks/use-agent-models';
@@ -25,6 +25,7 @@ export function ModelList({
   onPick,
   className,
   switchHintProvider,
+  onManageModels,
 }: {
   selected: ModelSelection;
   onPick: (harness: ProviderId, model: ModelOption) => void;
@@ -36,6 +37,8 @@ export function ModelList({
    * provider; settings/onboarding omit it (there a pick just sets a default).
    */
   switchHintProvider?: ProviderId;
+  /** Optional composer footer that opens the model allowlist settings. */
+  onManageModels?: () => void;
 }) {
   return (
     <div className={cn('space-y-3', className)}>
@@ -48,6 +51,16 @@ export function ModelList({
           isSwitch={switchHintProvider != null && p.id !== switchHintProvider}
         />
       ))}
+      {onManageModels && (
+        <button
+          type="button"
+          onClick={onManageModels}
+          className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+        >
+          <Settings2 size={11} />
+          Manage models
+        </button>
+      )}
     </div>
   );
 }

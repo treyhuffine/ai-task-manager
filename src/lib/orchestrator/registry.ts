@@ -60,12 +60,25 @@ import {
   getNotificationChannel,
   getOrCreateDefaultExecutor,
   getOrCreateDefaultOrchestrator,
+  getStreamAutonomy,
+  effectiveAutonomyLevel,
+  proposeTriageDecisions,
+  recordTriageDecisionAndApply,
+  undoTriageDecision,
+  firstLineTitle,
+  TriageError,
+  type TriageDecisionInput,
 } from '@/lib/db/queries';
+import { beginSweep, finishSweep } from '@/lib/stream-triage/sweep';
+import { triageProposalSchema } from '@/lib/stream-triage/schema';
+import { getTriageMetrics } from '@/lib/stream-triage/metrics';
+import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 import { getNotifierUserId } from '@/lib/notifications/user';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { isReservedTrigger, RESERVED_LOCKED_FIELDS } from '@/lib/triggers/reserved';
+import { resumeCommandForHarness } from '@/lib/agents/registry';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
@@ -126,13 +139,6 @@ const noteCreateShape = {
   status: noteStatus.optional(),
   contextTags: z.array(z.string()).optional(),
 };
-
-function resumeCommandForSession(harness: string | null, externalSessionId: string | null): string | null {
-  if (!externalSessionId) return null;
-  if (harness === 'claude' || harness === 'claude_code') return `claude --resume ${externalSessionId}`;
-  if (harness === 'codex') return `codex resume ${externalSessionId}`;
-  return null;
-}
 
 // ── Actions ──────────────────────────────────────────────────────
 
@@ -303,20 +309,79 @@ const update_note_action = defineAction({
 
 // ── Stream ────────────────────────────────────────────────────
 //
-// The quick-capture inbox: brain dumps that get triaged into tasks/notes
-// or dismissed. Promotion is the one compound action here — it creates the
-// target entity AND stamps the stream row's promotion links in one call,
-// so the agent can't leave a half-promoted item behind (the UI does the
-// same two steps client-side; see stream-list.tsx).
+// The capture ledger + its reconciliation surface. Every disposition
+// (promote / merge / combine / journal / dismiss / incubate) flows through
+// the triage query layer so provenance (stream_links), acceptance
+// telemetry (triage_decisions), and undo are recorded uniformly.
+//
+// POLICY ENFORCEMENT LIVES HERE, NOT IN THE PROMPT: execute-actions called
+// with a pass_id (a sweep) are downgraded to proposals when the
+// disposition's autonomy level is 'suggest' — and the kill switch forces
+// every remote (agent) call to propose. A confidently wrong agent cannot
+// overstep. See docs/streaming-spec-tasks.md §3.5.
 
-const streamStatus = z.enum(['pending', 'promoted', 'dismissed']);
+const streamStatus = z.enum(['pending', 'proposed', 'promoted', 'dismissed', 'reviewed', 'incubating']);
+
+/** Map query-layer TriageError codes onto the action envelope. */
+function rethrowTriage(err: unknown): never {
+  if (err instanceof TriageError) throw new ActionError(err.code, err.message);
+  throw err;
+}
+
+/**
+ * The disposition chokepoint. Decides propose-vs-execute from autonomy
+ * config and call context, then records + applies (or parks) the decision.
+ */
+function applyStreamDisposition(
+  ctx: { remote?: boolean },
+  input: Omit<TriageDecisionInput, 'actor'>,
+): Record<string, unknown> {
+  const remote = ctx.remote ?? true;
+  const viaSweep = !!input.passId;
+  const autonomy = getStreamAutonomy();
+  const level = effectiveAutonomyLevel(input.disposition);
+  const mustPropose = (viaSweep && level === 'suggest') || (autonomy.killSwitch && remote);
+
+  try {
+    if (mustPropose) {
+      const [decision] = proposeTriageDecisions(
+        [{ ...input, actor: 'agent' }],
+        input.passId ?? null,
+      );
+      return {
+        proposed: true,
+        decisionId: decision.id,
+        note: autonomy.killSwitch
+          ? 'Autonomy kill switch is on: recorded as a proposal for the user to review.'
+          : `Autonomy for ${input.disposition} is 'suggest': recorded as a proposal for the user to review.`,
+      };
+    }
+    const actor: 'agent' | 'user' = viaSweep || remote ? 'agent' : 'user';
+    const result = recordTriageDecisionAndApply(
+      { ...input, actor },
+      viaSweep ? 'executed' : 'accepted',
+    );
+    return {
+      proposed: false,
+      decisionId: result.decision.id,
+      entity: result.entity,
+      created: result.created,
+      streamItems: result.streamItems,
+    };
+  } catch (err) {
+    rethrowTriage(err);
+  }
+}
 
 const list_stream_action = defineAction({
   name: 'list_stream',
   description:
-    'List stream items (quick-capture inbox). Defaults to status=pending, the untriaged queue.',
+    'List stream items (the capture ledger). Defaults to status=pending, the untriaged queue. ' +
+    "Statuses: pending | proposed (awaiting the user's call) | promoted | reviewed (kept as a " +
+    'thought) | dismissed | incubating. pass_id filters to items touched by one triage pass.',
   params: {
     status: streamStatus.optional(),
+    passId: z.string().optional(),
     limit: z.number().int().positive().max(500).optional(),
     offset: z.number().int().nonnegative().optional(),
   },
@@ -344,21 +409,26 @@ const create_stream_item_action = defineAction({
     rawText: z.string().min(1),
   },
   mutating: true,
-  handler: (_ctx, { rawText }) => createStream({ rawText, source: 'chat' }),
+  handler: (_ctx, { rawText }) => {
+    const row = createStream({ rawText, source: 'chat' });
+    onStreamCaptured(row.id);
+    return row;
+  },
 });
 
 const promote_stream_action = defineAction({
   name: 'promote_stream',
   description:
-    'Promote a pending stream item into a task or a note. Creates the entity and stamps the stream ' +
-    "row's promotion links in one step. Shape the title yourself (imperative for tasks). The item's " +
-    'raw text and attachments carry over as the body unless overridden.',
+    'Promote a stream item into a NEW task or note. Shape the title yourself (imperative for ' +
+    "tasks). The item's raw text and attachments carry over unless overridden. Setting " +
+    'hardDeadline or reminderAt REQUIRES evidence quoting the exact source words. Pass pass_id ' +
+    'when working inside a sweep — policy may convert the call into a proposal.',
   params: {
     id: z.string().min(1),
     to: z.enum(['task', 'note']),
     /** Shaped title. Tasks: imperative ("Ship the manifest"). Optional for notes. */
     title: z.string().optional(),
-    /** Override body; defaults to the item's raw text. */
+    /** Override body; defaults to the item's raw text. Clean voice transcripts here. */
     body: z.string().optional(),
     areaId: z.string().nullable().optional(),
     /** Task promotion only: create as a subtask of this task. */
@@ -367,80 +437,308 @@ const promote_stream_action = defineAction({
     taskId: z.string().nullable().optional(),
     energy: taskEnergy.nullable().optional(),
     effort: taskEffort.nullable().optional(),
+    hardDeadline: z.string().nullable().optional(),
+    reminderAt: z.string().nullable().optional(),
+    /** Exact source words supporting any date claim. Required with dates. */
+    evidence: z.string().optional(),
+    rationale: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    passId: z.string().optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, input) => {
+  handler: (ctx, input) => {
     const item = getStream(input.id);
     if (!item) throw new ActionError('not_found', `Stream item not found: ${input.id}`);
-    if (item.status !== 'pending') {
-      throw new ActionError(
-        'conflict',
-        `Stream item is already ${item.status}${item.promotedToType ? ` (→ ${item.promotedToType} ${item.promotedToId})` : ''}.`,
-      );
-    }
-
-    const body = input.body ?? item.rawText;
-    let promotedToType: 'task' | 'note';
-    let created: Record<string, unknown> & { id: string };
-
-    if (input.to === 'task') {
-      promotedToType = 'task';
-      created = createTask({
-        rawInput: item.rawText,
-        title: input.title ?? truncateForTitle(item.rawText),
-        body,
+    return applyStreamDisposition(ctx, {
+      disposition: input.to === 'task' ? 'promote_task' : 'promote_note',
+      streamItemIds: [input.id],
+      draft: {
+        title: input.title ?? (input.to === 'task' ? firstLineTitle(item.rawText) : undefined),
+        body: input.body,
         areaId: input.areaId ?? null,
         parentId: input.parentId ?? null,
+        taskId: input.taskId ?? null,
         energy: input.energy ?? null,
         effort: input.effort ?? null,
-        attachments: item.attachments ?? [],
-      });
-    } else {
-      promotedToType = 'note';
-      created = createNote({
-        title: input.title,
-        body,
-        areaId: input.areaId ?? null,
-        taskId: input.taskId ?? null,
-        attachments: item.attachments ?? [],
-      });
-    }
-
-    const streamRow = updateStream(item.id, {
-      status: 'promoted',
-      promotedToType,
-      promotedToId: created.id,
-      promotedAt: new Date().toISOString(),
+        hardDeadline: input.hardDeadline ?? null,
+        reminderAt: input.reminderAt ?? null,
+        evidence: input.evidence,
+      },
+      rationale: input.rationale ?? null,
+      confidence: input.confidence ?? null,
+      passId: input.passId ?? null,
     });
+  },
+});
 
-    return { stream: streamRow, [promotedToType]: created };
+const merge_stream_action = defineAction({
+  name: 'merge_stream',
+  description:
+    'Append stream item(s) into an EXISTING task or note, atomically and non-destructively ' +
+    '(notes append to the body, tasks under a "## Context" heading, or as a subtask with ' +
+    'as_subtask=true when the fragment is independently actionable). Merge only when the target ' +
+    'is unambiguous — pass expectedTargetUpdatedAt from your candidate list so a stale target is ' +
+    'caught. content overrides the appended text (clean transcripts here).',
+  params: {
+    id: z.string().optional(),
+    ids: z.array(z.string().min(1)).optional(),
+    targetType: z.enum(['task', 'note']),
+    targetId: z.string().min(1),
+    content: z.string().optional(),
+    asSubtask: z.boolean().optional(),
+    /** Subtask title when asSubtask=true. */
+    title: z.string().optional(),
+    expectedTargetUpdatedAt: z.string().optional(),
+    rationale: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    passId: z.string().optional(),
+  },
+  mutating: true,
+  handler: (ctx, input) => {
+    const itemIds = input.ids ?? (input.id ? [input.id] : []);
+    if (itemIds.length === 0) throw new ActionError('invalid_params', 'Provide id or ids.');
+    return applyStreamDisposition(ctx, {
+      disposition: input.targetType === 'task' ? 'merge_task' : 'merge_note',
+      streamItemIds: itemIds,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      draft: {
+        body: input.content,
+        title: input.title,
+        asSubtask: input.asSubtask,
+        expectedTargetUpdatedAt: input.expectedTargetUpdatedAt,
+      },
+      rationale: input.rationale ?? null,
+      confidence: input.confidence ?? null,
+      passId: input.passId ?? null,
+    });
+  },
+});
+
+const combine_stream_action = defineAction({
+  name: 'combine_stream',
+  description:
+    'Fuse two or more stream items into ONE new task or note. Synthesize a coherent title and ' +
+    'body from the fragments — do not concatenate raw text. Every source item stays in the ' +
+    'ledger, linked to the created entity. Combine only tight semantic + temporal clusters.',
+  params: {
+    ids: z.array(z.string().min(1)).min(2),
+    to: z.enum(['task', 'note']),
+    title: z.string().optional(),
+    body: z.string().optional(),
+    areaId: z.string().nullable().optional(),
+    energy: taskEnergy.nullable().optional(),
+    effort: taskEffort.nullable().optional(),
+    hardDeadline: z.string().nullable().optional(),
+    reminderAt: z.string().nullable().optional(),
+    evidence: z.string().optional(),
+    rationale: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    passId: z.string().optional(),
+  },
+  mutating: true,
+  handler: (ctx, input) =>
+    applyStreamDisposition(ctx, {
+      disposition: input.to === 'task' ? 'combine_task' : 'combine_note',
+      streamItemIds: input.ids,
+      draft: {
+        title: input.title,
+        body: input.body,
+        areaId: input.areaId ?? null,
+        energy: input.energy ?? null,
+        effort: input.effort ?? null,
+        hardDeadline: input.hardDeadline ?? null,
+        reminderAt: input.reminderAt ?? null,
+        evidence: input.evidence,
+      },
+      rationale: input.rationale ?? null,
+      confidence: input.confidence ?? null,
+      passId: input.passId ?? null,
+    }),
+});
+
+const mark_stream_reviewed_action = defineAction({
+  name: 'mark_stream_reviewed',
+  description:
+    'The journal disposition: keep item(s) as recorded thoughts. Nothing is created, nothing is ' +
+    'owed, the capture stays searchable forever. This is a SUCCESS outcome and should be common — ' +
+    'most thoughts should not become tasks.',
+  params: {
+    id: z.string().optional(),
+    ids: z.array(z.string().min(1)).optional(),
+    reason: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    passId: z.string().optional(),
+  },
+  mutating: true,
+  handler: (ctx, input) => {
+    const itemIds = input.ids ?? (input.id ? [input.id] : []);
+    if (itemIds.length === 0) throw new ActionError('invalid_params', 'Provide id or ids.');
+    return applyStreamDisposition(ctx, {
+      disposition: 'journal',
+      streamItemIds: itemIds,
+      rationale: input.reason ?? null,
+      confidence: input.confidence ?? null,
+      passId: input.passId ?? null,
+    });
   },
 });
 
 const dismiss_stream_action = defineAction({
   name: 'dismiss_stream',
   description:
-    'Dismiss a pending stream item (noise, duplicates, no-longer-relevant). Dismissed items keep ' +
-    'their text and stay searchable. This is triage, not deletion.',
-  params: { id: z.string().min(1) },
+    'Set aside a stream item (noise, exact duplicates). Dismissed items keep their text and stay ' +
+    'searchable — this is triage, not deletion. For thoughts worth keeping, prefer ' +
+    'mark_stream_reviewed.',
+  params: {
+    id: z.string().min(1),
+    reason: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    passId: z.string().optional(),
+  },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, { id }) => {
-    const item = getStream(id);
-    if (!item) throw new ActionError('not_found', `Stream item not found: ${id}`);
-    if (item.status !== 'pending') {
-      throw new ActionError('conflict', `Stream item is already ${item.status}.`);
+  handler: (ctx, input) =>
+    applyStreamDisposition(ctx, {
+      disposition: 'dismiss',
+      streamItemIds: [input.id],
+      rationale: input.reason ?? null,
+      confidence: input.confidence ?? null,
+      passId: input.passId ?? null,
+    }),
+});
+
+const incubate_stream_action = defineAction({
+  name: 'incubate_stream',
+  description:
+    'Keep a stream item for later: it leaves the queue and returns to pending at resurface_at. ' +
+    'For thoughts that are not actionable now but should not be lost.',
+  params: {
+    id: z.string().min(1),
+    resurfaceAt: z.string().min(1),
+    reason: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    passId: z.string().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (ctx, input) =>
+    applyStreamDisposition(ctx, {
+      disposition: 'incubate',
+      streamItemIds: [input.id],
+      draft: { resurfaceAt: input.resurfaceAt },
+      rationale: input.reason ?? null,
+      confidence: input.confidence ?? null,
+      passId: input.passId ?? null,
+    }),
+});
+
+const propose_stream_triage_action = defineAction({
+  name: 'propose_stream_triage',
+  description:
+    'Batch suggest-mode proposals: decisions are parked for the user to review, nothing mutates. ' +
+    'Each proposal needs a one-sentence rationale the user will read. Use the execute actions ' +
+    '(promote_stream, merge_stream, ...) with pass_id instead when the disposition may auto-apply — ' +
+    'policy downgrades them to proposals automatically when it must.',
+  params: {
+    passId: z.string().min(1),
+    proposals: z.array(triageProposalSchema).min(1),
+  },
+  mutating: true,
+  handler: (_ctx, input) => {
+    try {
+      const decisions = proposeTriageDecisions(
+        input.proposals.map((p) => ({
+          disposition: p.disposition,
+          streamItemIds: p.stream_item_ids,
+          targetType: p.target_type ?? null,
+          targetId: p.target_id ?? null,
+          draft: p.draft ?? null,
+          rationale: p.rationale,
+          confidence: p.confidence ?? null,
+          passId: input.passId,
+          actor: 'agent',
+        })),
+        input.passId,
+      );
+      return { proposed: decisions.length, decisionIds: decisions.map((d) => d.id) };
+    } catch (err) {
+      rethrowTriage(err);
     }
-    return dismissStream(id, 'agent');
   },
 });
 
-/** First line of raw capture text, clipped to a title-sized length. */
-function truncateForTitle(rawText: string): string {
-  const firstLine = rawText.trim().split('\n')[0] ?? '';
-  return firstLine.length <= 200 ? firstLine : firstLine.slice(0, 199).trimEnd() + '…';
-}
+const undo_triage_decision_action = defineAction({
+  name: 'undo_triage_decision',
+  description:
+    'Reverse a triage decision: created entities are removed (archived when the user edited them), ' +
+    'appends are reverted through entity versions when still the latest change, and the source ' +
+    'captures return to pending. Never deletes a stream item.',
+  params: { decisionId: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ['decisionId'] },
+  handler: (_ctx, { decisionId }) => {
+    try {
+      return undoTriageDecision(decisionId);
+    } catch (err) {
+      rethrowTriage(err);
+    }
+  },
+});
+
+const begin_stream_sweep_action = defineAction({
+  name: 'begin_stream_sweep',
+  description:
+    'Open a triage sweep: returns your full instructions, the pending captures with combine/merge ' +
+    'candidates, the user’s recent corrections, and the autonomy config. Call this FIRST when ' +
+    'triaging the stream; conflict means another sweep is already running (stop quietly). Finish ' +
+    'with finish_stream_sweep.',
+  params: {
+    trigger: z.enum(['debounce', 'schedule', 'threshold', 'manual', 'urgency', 'weekly']).optional(),
+  },
+  mutating: true,
+  handler: async (_ctx, input) => {
+    try {
+      return await beginSweep(input.trigger ?? 'manual');
+    } catch (err) {
+      rethrowTriage(err);
+    }
+  },
+});
+
+const finish_stream_sweep_action = defineAction({
+  name: 'finish_stream_sweep',
+  description:
+    'Close a triage sweep with a one-paragraph, user-facing summary of what happened (calm, ' +
+    'concrete, no jargon). Finalizes the digest and evaluates autonomy graduation — relay any ' +
+    'returned graduationLines to the user verbatim.',
+  params: {
+    passId: z.string().min(1),
+    summary: z.string().min(1),
+    itemsSeen: z.number().int().nonnegative().optional(),
+  },
+  mutating: true,
+  handler: (_ctx, input) => {
+    try {
+      return finishSweep(input.passId, input.summary, input.itemsSeen);
+    } catch (err) {
+      rethrowTriage(err);
+    }
+  },
+});
+
+const get_triage_metrics_action = defineAction({
+  name: 'get_triage_metrics',
+  description:
+    'Triage health metrics: acceptance per disposition, time-to-clarity, pending age p95, journal ' +
+    'share, and the over-promotion check (stream-born vs manual task engagement). Powers the ' +
+    'weekly meta-digest.',
+  params: {
+    windowDays: z.number().int().positive().max(365).optional(),
+  },
+  handler: (_ctx, input) => getTriageMetrics(input.windowDays ?? 30),
+});
 
 // ── Areas ─────────────────────────────────────────────────────
 
@@ -767,7 +1065,7 @@ const list_executions_action = defineAction({
           executionId: r.executionId,
           externalSessionId: r.externalSessionId,
           agentHarness,
-          resumeCommand: resumeCommandForSession(agentHarness, r.externalSessionId),
+          resumeCommand: resumeCommandForHarness(agentHarness, r.externalSessionId),
           label: r.label,
           workspace: { id: r.workspaceId, name: r.workspaceName },
           branch: r.execution?.branchName ?? null,
@@ -819,7 +1117,7 @@ const get_session_messages_action = defineAction({
         executionId: session.executionId,
         externalSessionId: session.externalSessionId,
         agentHarness,
-        resumeCommand: resumeCommandForSession(agentHarness, session.externalSessionId),
+        resumeCommand: resumeCommandForHarness(agentHarness, session.externalSessionId),
       },
       /** Null ⇒ server unreachable (live state unknown; nothing can be running while it is down). */
       running: live ? live.runningSessionIds.includes(sessionId) : null,
@@ -1404,7 +1702,16 @@ export const actions = [
   get_stream_item_action,
   create_stream_item_action,
   promote_stream_action,
+  merge_stream_action,
+  combine_stream_action,
+  mark_stream_reviewed_action,
   dismiss_stream_action,
+  incubate_stream_action,
+  propose_stream_triage_action,
+  undo_triage_decision_action,
+  begin_stream_sweep_action,
+  finish_stream_sweep_action,
+  get_triage_metrics_action,
   list_areas_action,
   get_area_action,
   create_area_action,

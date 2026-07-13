@@ -9,6 +9,7 @@ import {
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
+  triagePasses, triageDecisions, streamLinks,
 } from '@/lib/db/schema';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -39,6 +40,12 @@ import type {
   WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
   NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
   AgentHarnessSettingsRecord, UpsertAgentHarnessSettingsInput, AgentHarnessOperationRecord,
+  StreamStatus,
+  TriagePassRecord, TriagePassTrigger,
+  TriageDecisionRecord, TriageDecisionState, TriageActor,
+  StreamLinkRecord, CreateStreamLinkInput,
+  StreamOutcome, StreamRecordWithOutcomes,
+  TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
 } from '@/db/types';
 import type { HarnessId } from '@/lib/agents/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
@@ -50,7 +57,7 @@ import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
-import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
+import { explicitAgentSelection, modelsForProvider, providerIdForHarness } from '@/lib/agent-options';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 
 // ─── Tasks ────────────────────────────────────────────────────
@@ -580,16 +587,30 @@ export function revertEntityTo(
 
 export function listStream(
   filter: {
-    status?: 'pending' | 'promoted' | 'dismissed';
+    status?: StreamStatus | StreamStatus[];
+    passId?: string;
     limit?: number;
     offset?: number;
   } = {},
 ): StreamRecord[] {
   const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.status) {
+    const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
+    conditions.push(statuses.length === 1 ? eq(stream.status, statuses[0]) : inArray(stream.status, statuses));
+  }
+  if (filter.passId) {
+    // Items touched by a pass = items referenced by any of the pass's decisions.
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM ${triageDecisions}
+      WHERE ${triageDecisions.passId} = ${filter.passId}
+        AND EXISTS (SELECT 1 FROM json_each(${triageDecisions.streamItemIds}) WHERE json_each.value = ${stream.id})
+    )`);
+  }
   const rows = db
     .select()
     .from(stream)
-    .where(filter.status ? eq(stream.status, filter.status) : undefined)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(stream.createdAt))
     .limit(filter.limit ?? 100)
     .offset(filter.offset ?? 0)
@@ -646,6 +667,22 @@ export function createStream(input: CreateStreamInput): StreamRecord {
   return row;
 }
 
+/**
+ * Placeholder raw_text values written by the capture route when async
+ * preprocessing (transcription / image extraction) hasn't produced real
+ * content yet. These are the ONLY raw_text values that may be rewritten —
+ * the retry path filling in a real transcript. See the immutability guard
+ * in `updateStream` and docs/streaming-spec-tasks.md §1.2.
+ */
+export function streamRawTextIsPlaceholder(rawText: string): boolean {
+  const head = rawText.trimStart();
+  return (
+    head.startsWith('[Voice memo, transcription failed]') ||
+    head.startsWith('[Voice memo, pending transcription]') ||
+    head.startsWith('[Images, extraction pending]')
+  );
+}
+
 export function updateStream(id: string, input: UpdateStreamInput): StreamRecord | null {
   const db = getDb();
 
@@ -653,6 +690,21 @@ export function updateStream(id: string, input: UpdateStreamInput): StreamRecord
   if (!existing) return null;
 
   const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'rawText');
+
+  // Trust contract: the user's original words are immutable. The one
+  // exception is preprocessing retry replacing a placeholder with the first
+  // successful transcript/extraction.
+  if (
+    bodyChanged &&
+    input.rawText !== existing.rawText &&
+    existing.rawText.trim() !== '' &&
+    !streamRawTextIsPlaceholder(existing.rawText)
+  ) {
+    throw new TriageError(
+      'invalid_params',
+      'Stream raw_text is immutable once captured. Corrections live on the derived task or note.',
+    );
+  }
   const attachmentsHint = input.attachments;
   const attachments =
     bodyChanged || attachmentsHint !== undefined
@@ -679,8 +731,1183 @@ export function updateStream(id: string, input: UpdateStreamInput): StreamRecord
   return row;
 }
 
+/**
+ * Dismiss is triage: it now records a decision (telemetry + undo) instead of
+ * bare-stamping the status. Signature kept for existing callers.
+ */
 export function dismissStream(id: string, dismissedBy = 'user'): StreamRecord | null {
-  return updateStream(id, { status: 'dismissed', dismissedBy });
+  const item = getStream(id);
+  if (!item) return null;
+  recordTriageDecisionAndApply(
+    {
+      disposition: 'dismiss',
+      streamItemIds: [id],
+      actor: dismissedBy === 'agent' ? 'agent' : 'user',
+    },
+    'accepted',
+  );
+  return getStream(id) ?? null;
+}
+
+// ─── Stream Triage ────────────────────────────────────────────
+// The reconciliation layer. Every disposition (agent OR manual UI) flows
+// through recordTriageDecisionAndApply / applyTriageDecision so that:
+//   - provenance lands in stream_links (many-to-many, source of truth)
+//   - acceptance telemetry lands in triage_decisions
+//   - undo has a precise record to reverse
+// See docs/streaming-spec-tasks.md Part 3.
+
+/** Typed error the orchestrator action layer maps to ActionError and API
+ *  routes map to HTTP status codes. */
+export class TriageError extends Error {
+  constructor(
+    public code: 'not_found' | 'invalid_params' | 'conflict',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'TriageError';
+  }
+}
+
+const STALE_PASS_MS = 10 * 60_000;
+/** Executed (auto-applied) decisions settle into "accepted" after this many
+ *  days without a correction or undo. */
+export const EXECUTED_SETTLES_AFTER_DAYS = 7;
+
+export const ENTITY_DISPOSITIONS: TriageDisposition[] = [
+  'promote_task', 'promote_note', 'merge_task', 'merge_note', 'combine_task', 'combine_note',
+];
+
+export const DEFAULT_AUTONOMY_LEVELS: Record<TriageDisposition, StreamAutonomyLevel> = {
+  promote_task: 'suggest',
+  promote_note: 'suggest',
+  merge_task: 'suggest',
+  merge_note: 'suggest',
+  combine_task: 'suggest',
+  combine_note: 'suggest',
+  // A no-op with a record: the cheapest trust to build, auto from day one.
+  journal: 'auto_digest',
+  dismiss: 'suggest',
+  incubate: 'suggest',
+};
+
+// ── Autonomy config ──────────────────────────────────────────
+
+export interface ResolvedStreamAutonomy {
+  killSwitch: boolean;
+  levels: Record<TriageDisposition, StreamAutonomyLevel>;
+}
+
+export function getStreamAutonomy(): ResolvedStreamAutonomy {
+  const config = getUserState()?.streamAutonomy ?? null;
+  const levels = { ...DEFAULT_AUTONOMY_LEVELS, ...(config?.levels ?? {}) };
+  return { killSwitch: config?.killSwitch ?? false, levels };
+}
+
+export function setStreamAutonomy(config: StreamAutonomyConfig): ResolvedStreamAutonomy {
+  const existing = getUserState()?.streamAutonomy ?? {};
+  updateUserState({
+    streamAutonomy: {
+      killSwitch: config.killSwitch ?? existing.killSwitch ?? false,
+      levels: { ...(existing.levels ?? {}), ...(config.levels ?? {}) },
+    },
+  });
+  return getStreamAutonomy();
+}
+
+/** The level policy enforcement actually applies: kill switch wins. */
+export function effectiveAutonomyLevel(disposition: TriageDisposition): StreamAutonomyLevel {
+  const { killSwitch, levels } = getStreamAutonomy();
+  if (killSwitch) return 'suggest';
+  return levels[disposition];
+}
+
+// ── Passes ───────────────────────────────────────────────────
+
+/**
+ * The single-flight lock: at most one live sweep. A `running` pass older
+ * than the staleness window is dead (crashed session, lost run) — mark it
+ * failed so the queue never wedges. Items touched by a failed pass are
+ * still pending/proposed, never half-disposed.
+ */
+export function findRunningTriagePass(): TriagePassRecord | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(triagePasses)
+    .where(eq(triagePasses.status, 'running'))
+    .orderBy(desc(triagePasses.createdAt))
+    .get();
+  if (!row) return null;
+  if (Date.now() - new Date(row.createdAt).getTime() > STALE_PASS_MS) {
+    db.update(triagePasses)
+      .set({ status: 'failed', summary: row.summary ?? 'Sweep did not finish and was marked stale.', completedAt: new Date().toISOString() })
+      .where(eq(triagePasses.id, row.id))
+      .run();
+    return null;
+  }
+  return row;
+}
+
+export function createTriagePass(
+  trigger: TriagePassTrigger,
+  opts: { sessionId?: string | null; itemsSeen?: number } = {},
+): TriagePassRecord {
+  const running = findRunningTriagePass();
+  if (running) {
+    throw new TriageError('conflict', `A sweep is already running (pass ${running.id}, started ${running.createdAt}).`);
+  }
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db
+    .insert(triagePasses)
+    .values({
+      id: uuidv7(),
+      trigger,
+      status: 'running',
+      sessionId: opts.sessionId ?? null,
+      itemsSeen: opts.itemsSeen ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+}
+
+export function getTriagePass(id: string): TriagePassRecord | null {
+  const db = getDb();
+  return db.select().from(triagePasses).where(eq(triagePasses.id, id)).get() ?? null;
+}
+
+export function listTriagePasses(
+  filter: { status?: TriagePassRecord['status']; limit?: number } = {},
+): TriagePassRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(triagePasses)
+    .where(filter.status ? eq(triagePasses.status, filter.status) : undefined)
+    .orderBy(desc(triagePasses.createdAt))
+    .limit(filter.limit ?? 20)
+    .all();
+}
+
+/** Finalize a pass. Counts derive from its decisions unless provided. */
+export function completeTriagePass(
+  id: string,
+  opts: { summary?: string | null; itemsSeen?: number } = {},
+): TriagePassRecord | null {
+  const db = getDb();
+  const pass = getTriagePass(id);
+  if (!pass) return null;
+  const decisions = listTriageDecisions({ passId: id });
+  const itemIds = new Set(decisions.flatMap((d) => d.streamItemIds));
+  return db
+    .update(triagePasses)
+    .set({
+      status: 'completed',
+      summary: opts.summary ?? pass.summary,
+      itemsSeen: opts.itemsSeen ?? Math.max(pass.itemsSeen, itemIds.size),
+      autoApplied: decisions.filter((d) => d.state === 'executed').length,
+      proposed: decisions.filter((d) => d.state === 'proposed').length,
+      completedAt: new Date().toISOString(),
+    })
+    .where(eq(triagePasses.id, id))
+    .returning()
+    .get() ?? null;
+}
+
+export function failTriagePass(id: string, reason?: string): TriagePassRecord | null {
+  const db = getDb();
+  return db
+    .update(triagePasses)
+    .set({ status: 'failed', summary: reason ?? null, completedAt: new Date().toISOString() })
+    .where(eq(triagePasses.id, id))
+    .returning()
+    .get() ?? null;
+}
+
+export function markTriagePassDigestSeen(id: string): TriagePassRecord | null {
+  const db = getDb();
+  return db
+    .update(triagePasses)
+    .set({ digestSeenAt: new Date().toISOString() })
+    .where(eq(triagePasses.id, id))
+    .returning()
+    .get() ?? null;
+}
+
+// ── Links (provenance source of truth) ───────────────────────
+
+export function createStreamLinks(rows: CreateStreamLinkInput[]): StreamLinkRecord[] {
+  if (rows.length === 0) return [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  return db
+    .insert(streamLinks)
+    .values(rows.map((r) => ({ ...r, id: uuidv7(), createdAt: now, updatedAt: now })))
+    .returning()
+    .all();
+}
+
+export function listStreamLinks(streamId: string): StreamLinkRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(streamLinks)
+    .where(eq(streamLinks.streamId, streamId))
+    .orderBy(asc(streamLinks.createdAt))
+    .all();
+}
+
+/** Captures that produced this entity — the reverse lookup shared by the UI
+ *  and the markdown mirror (Sources sections). */
+export function getStreamSources(entityType: 'task' | 'note', entityId: string): StreamRecord[] {
+  const db = getDb();
+  const rows = db
+    .select({ s: stream })
+    .from(streamLinks)
+    .innerJoin(stream, eq(stream.id, streamLinks.streamId))
+    .where(and(eq(streamLinks.entityType, entityType), eq(streamLinks.entityId, entityId)))
+    .orderBy(asc(streamLinks.createdAt))
+    .all();
+  const seen = new Set<string>();
+  const out: StreamRecord[] = [];
+  for (const r of rows) {
+    if (seen.has(r.s.id)) continue;
+    seen.add(r.s.id);
+    out.push(hydrateRow(r.s));
+  }
+  return out;
+}
+
+/** Where a capture went, with entity titles for outcome annotations. */
+export function getStreamOutcomes(streamId: string): StreamOutcome[] {
+  return batchStreamOutcomes([streamId]).get(streamId) ?? [];
+}
+
+function batchStreamOutcomes(streamIds: string[]): Map<string, StreamOutcome[]> {
+  const map = new Map<string, StreamOutcome[]>();
+  if (streamIds.length === 0) return map;
+  const db = getDb();
+  const links = db
+    .select()
+    .from(streamLinks)
+    .where(inArray(streamLinks.streamId, streamIds))
+    .orderBy(asc(streamLinks.createdAt))
+    .all();
+  if (links.length === 0) return map;
+
+  const taskIds = [...new Set(links.filter((l) => l.entityType === 'task').map((l) => l.entityId))];
+  const noteIds = [...new Set(links.filter((l) => l.entityType === 'note').map((l) => l.entityId))];
+  const titles = new Map<string, string | null>();
+  if (taskIds.length > 0) {
+    for (const t of db.select({ id: tasks.id, title: tasks.title }).from(tasks).where(inArray(tasks.id, taskIds)).all()) {
+      titles.set(`task:${t.id}`, t.title);
+    }
+  }
+  if (noteIds.length > 0) {
+    for (const n of db.select({ id: notes.id, title: notes.title }).from(notes).where(inArray(notes.id, noteIds)).all()) {
+      titles.set(`note:${n.id}`, n.title);
+    }
+  }
+  for (const l of links) {
+    const key = `${l.entityType}:${l.entityId}`;
+    if (!titles.has(key)) continue; // entity deleted — stale link, skip in UI
+    const outcome: StreamOutcome = {
+      entityType: l.entityType,
+      entityId: l.entityId,
+      relation: l.relation,
+      entityTitle: titles.get(key) ?? null,
+      decisionId: l.decisionId,
+    };
+    const list = map.get(l.streamId) ?? [];
+    list.push(outcome);
+    map.set(l.streamId, list);
+  }
+  return map;
+}
+
+/** Ledger view: stream rows plus their outcome annotations, one batch. */
+export function listStreamWithOutcomes(
+  filter: Parameters<typeof listStream>[0] = {},
+): StreamRecordWithOutcomes[] {
+  const items = listStream(filter);
+  const outcomes = batchStreamOutcomes(items.map((i) => i.id));
+  return items.map((i) => ({ ...i, outcomes: outcomes.get(i.id) ?? [] }));
+}
+
+// ── Non-destructive appends (T0.1) ───────────────────────────
+
+/**
+ * Append content to a note body, never replacing it. Versioned through the
+ * normal update path so undo has a snapshot to restore. Returns the version
+ * created by the append (the undo handle), null when versioning was a no-op.
+ */
+export function appendToNote(
+  noteId: string,
+  content: string,
+  meta?: EntityVersionMeta,
+): { note: NoteRecord; versionId: string | null } | null {
+  const note = getNote(noteId);
+  if (!note) return null;
+  const trimmed = content.trim();
+  if (!trimmed) return { note, versionId: null };
+  const body = note.body.trim() ? `${note.body.replace(/\s+$/, '')}\n\n${trimmed}` : trimmed;
+  const updated = updateNote(noteId, { body }, meta ?? { source: 'ai', summary: 'Appended from stream capture' });
+  if (!updated) return null;
+  const versions = listEntityVersions('note', noteId, { limit: 1 });
+  return { note: updated, versionId: versions[0]?.id ?? null };
+}
+
+const TASK_CONTEXT_HEADING = '## Context';
+
+/**
+ * Append context to a task body under a `## Context` heading (created when
+ * absent). Same versioning contract as appendToNote.
+ */
+export function appendTaskContext(
+  taskId: string,
+  content: string,
+  meta?: EntityVersionMeta,
+): { task: TaskRecord; versionId: string | null } | null {
+  const task = getTask(taskId);
+  if (!task) return null;
+  const trimmed = content.trim();
+  if (!trimmed) return { task, versionId: null };
+  const existingBody = (task.body ?? '').replace(/\s+$/, '');
+  const body = existingBody
+    ? existingBody.includes(TASK_CONTEXT_HEADING)
+      ? `${existingBody}\n\n${trimmed}`
+      : `${existingBody}\n\n${TASK_CONTEXT_HEADING}\n\n${trimmed}`
+    : `${TASK_CONTEXT_HEADING}\n\n${trimmed}`;
+  const updated = updateTask(taskId, { body }, meta ?? { source: 'ai', summary: 'Added context from stream capture' });
+  if (!updated) return null;
+  const versions = listEntityVersions('task', taskId, { limit: 1 });
+  return { task: updated, versionId: versions[0]?.id ?? null };
+}
+
+// ── Decisions ────────────────────────────────────────────────
+
+export interface TriageDecisionInput {
+  disposition: TriageDisposition;
+  streamItemIds: string[];
+  targetType?: 'task' | 'note' | null;
+  targetId?: string | null;
+  draft?: TriageDraft | null;
+  rationale?: string | null;
+  confidence?: number | null;
+  passId?: string | null;
+  actor: TriageActor;
+}
+
+export interface TriageApplyResult {
+  decision: TriageDecisionRecord;
+  streamItems: StreamRecord[];
+  /** Entity created by promote/combine, or the merge target. Null for
+   *  journal/dismiss/incubate. */
+  entity: { entityType: 'task' | 'note'; entityId: string } | null;
+  created: TaskRecord | NoteRecord | null;
+  entityVersionId: string | null;
+}
+
+export interface TriageUndoResult {
+  decision: TriageDecisionRecord;
+  /** Whether the derived entity's content was actually reversed. False when
+   *  later edits made automatic reversal unsafe — links and statuses are
+   *  still reset, and `reason` explains what to do manually. */
+  entityReverted: boolean;
+  entityRemoved: 'deleted' | 'archived' | null;
+  reason?: string;
+  streamItems: StreamRecord[];
+}
+
+export function getTriageDecision(id: string): TriageDecisionRecord | null {
+  const db = getDb();
+  return db.select().from(triageDecisions).where(eq(triageDecisions.id, id)).get() ?? null;
+}
+
+export function listTriageDecisions(
+  filter: {
+    passId?: string;
+    state?: TriageDecisionState | TriageDecisionState[];
+    disposition?: TriageDisposition;
+    actor?: TriageActor;
+    streamItemId?: string;
+    sinceDays?: number;
+    limit?: number;
+  } = {},
+): TriageDecisionRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.passId) conditions.push(eq(triageDecisions.passId, filter.passId));
+  if (filter.state) {
+    const states = Array.isArray(filter.state) ? filter.state : [filter.state];
+    conditions.push(states.length === 1 ? eq(triageDecisions.state, states[0]) : inArray(triageDecisions.state, states));
+  }
+  if (filter.disposition) conditions.push(eq(triageDecisions.disposition, filter.disposition));
+  if (filter.actor) conditions.push(eq(triageDecisions.actor, filter.actor));
+  if (filter.streamItemId) {
+    conditions.push(sql`EXISTS (SELECT 1 FROM json_each(${triageDecisions.streamItemIds}) WHERE json_each.value = ${filter.streamItemId})`);
+  }
+  if (filter.sinceDays) {
+    const since = new Date(Date.now() - filter.sinceDays * 86_400_000).toISOString();
+    conditions.push(gte(triageDecisions.createdAt, since));
+  }
+  return db
+    .select()
+    .from(triageDecisions)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(triageDecisions.createdAt))
+    .limit(filter.limit ?? 500)
+    .all();
+}
+
+/** Server-side draft validation — the contract the prompt can't bypass. */
+export function validateTriageDecisionInput(input: TriageDecisionInput): void {
+  const { disposition, streamItemIds, draft, targetType, targetId } = input;
+  if (streamItemIds.length === 0) {
+    throw new TriageError('invalid_params', 'A triage decision needs at least one stream item.');
+  }
+  if (new Set(streamItemIds).size !== streamItemIds.length) {
+    throw new TriageError('invalid_params', 'Duplicate stream item ids in one decision.');
+  }
+  if ((disposition === 'combine_task' || disposition === 'combine_note') && streamItemIds.length < 2) {
+    throw new TriageError('invalid_params', 'Combine needs at least two stream items. Use promote for a single item.');
+  }
+  if ((draft?.hardDeadline || draft?.reminderAt) && !draft?.evidence?.trim()) {
+    throw new TriageError(
+      'invalid_params',
+      'Dates require evidence: quote the exact source words that state the deadline or time.',
+    );
+  }
+  if (disposition === 'promote_task' || disposition === 'combine_task') {
+    if (!draft?.title?.trim()) {
+      throw new TriageError('invalid_params', 'Creating a task requires a non-empty draft.title.');
+    }
+  }
+  if (disposition === 'merge_task' || disposition === 'merge_note') {
+    const wanted = disposition === 'merge_task' ? 'task' : 'note';
+    if (!targetId || (targetType ?? wanted) !== wanted) {
+      throw new TriageError('invalid_params', `merge_${wanted} requires targetId of an existing ${wanted}.`);
+    }
+  }
+  if (disposition === 'incubate' && !draft?.resurfaceAt) {
+    throw new TriageError('invalid_params', 'Incubate requires draft.resurfaceAt (when to bring it back).');
+  }
+  if (draft?.resurfaceAt && Number.isNaN(Date.parse(draft.resurfaceAt))) {
+    throw new TriageError('invalid_params', `draft.resurfaceAt is not a parseable date: ${draft.resurfaceAt}`);
+  }
+}
+
+/** Statuses a decision may be applied against. */
+const APPLICABLE_ITEM_STATUSES: StreamStatus[] = ['pending', 'proposed', 'incubating'];
+
+function loadDecisionItems(streamItemIds: string[]): StreamRecord[] {
+  const items = streamItemIds.map((id) => {
+    const item = getStream(id);
+    if (!item) throw new TriageError('not_found', `Stream item not found: ${id}`);
+    return item;
+  });
+  for (const item of items) {
+    if (!APPLICABLE_ITEM_STATUSES.includes(item.status)) {
+      const outcomes = getStreamOutcomes(item.id);
+      const where = outcomes[0] ? ` (→ ${outcomes[0].entityType} ${outcomes[0].entityId})` : '';
+      throw new TriageError('conflict', `Stream item ${item.id} is already ${item.status}${where}.`);
+    }
+  }
+  return items;
+}
+
+function dispositionRelation(d: TriageDisposition): 'created' | 'merged_into' | 'combined_into' {
+  if (d === 'merge_task' || d === 'merge_note') return 'merged_into';
+  if (d === 'combine_task' || d === 'combine_note') return 'combined_into';
+  return 'created';
+}
+
+/** Union of the items' attachments (deduped by fileName) for created entities. */
+function collectItemAttachments(items: StreamRecord[]): Attachment[] {
+  const seen = new Set<string>();
+  const out: Attachment[] = [];
+  for (const item of items) {
+    for (const a of item.attachments ?? []) {
+      if (seen.has(a.fileName)) continue;
+      seen.add(a.fileName);
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+/**
+ * Recompute an item's status (and legacy stamp columns) from its decisions
+ * and links. The ONE place lifecycle state is derived, so multi-decision
+ * splits, undo, and correction all converge on the same rules:
+ *   any proposed decision      → proposed
+ *   any applied entity outcome → promoted
+ *   else applied incubate      → incubating
+ *   else applied journal       → reviewed
+ *   else applied dismiss       → dismissed
+ *   nothing standing           → pending
+ * Items with no decisions at all are left untouched (legacy rows).
+ */
+export function recomputeStreamStatus(streamId: string): StreamRecord | null {
+  const existing = getStream(streamId);
+  if (!existing) return null;
+  const decisions = listTriageDecisions({ streamItemId: streamId });
+  if (decisions.length === 0) return existing;
+
+  const applied = decisions.filter((d) => d.state === 'executed' || d.state === 'accepted');
+  const anyProposed = decisions.some((d) => d.state === 'proposed');
+
+  let status: StreamStatus;
+  if (anyProposed) status = 'proposed';
+  else if (applied.some((d) => ENTITY_DISPOSITIONS.includes(d.disposition))) status = 'promoted';
+  else if (applied.some((d) => d.disposition === 'incubate')) status = 'incubating';
+  else if (applied.some((d) => d.disposition === 'journal')) status = 'reviewed';
+  else if (applied.some((d) => d.disposition === 'dismiss')) status = 'dismissed';
+  else status = 'pending';
+
+  const dismissDecision = [...applied].reverse().find((d) => d.disposition === 'dismiss');
+  const incubateDecision = [...applied].reverse().find((d) => d.disposition === 'incubate');
+
+  const patch: UpdateStreamInput = {
+    status,
+    dismissedBy: status === 'dismissed' ? (dismissDecision?.actor ?? existing.dismissedBy ?? 'user') : null,
+    resurfaceAt: status === 'incubating' ? (incubateDecision?.draft?.resurfaceAt ?? existing.resurfaceAt ?? null) : null,
+  };
+  return updateStream(streamId, patch);
+}
+
+/**
+ * The transactional apply core. Never opens its own transaction — callers
+ * own that — and never leaves a half-applied decision: any throw rolls the
+ * whole thing back.
+ */
+function executeDecisionWithin(
+  decision: TriageDecisionRecord,
+  finalState: 'executed' | 'accepted',
+): TriageApplyResult {
+  const db = getDb();
+  const items = loadDecisionItems(decision.streamItemIds);
+  const draft = decision.draft ?? {};
+  const now = new Date().toISOString();
+  const joinedRaw = items.map((i) => i.rawText).join('\n\n---\n\n');
+
+  let entity: TriageApplyResult['entity'] = null;
+  let created: TaskRecord | NoteRecord | null = null;
+  let entityVersionId: string | null = null;
+
+  switch (decision.disposition) {
+    case 'promote_task':
+    case 'combine_task': {
+      const task = createTask({
+        rawInput: joinedRaw,
+        title: draft.title!.trim(),
+        body: draft.body ?? joinedRaw,
+        description: draft.description ?? undefined,
+        areaId: draft.areaId ?? null,
+        parentId: draft.parentId ?? null,
+        energy: draft.energy ?? null,
+        effort: draft.effort ?? null,
+        hardDeadline: draft.hardDeadline ?? null,
+        reminderAt: draft.reminderAt ?? null,
+        streamItemId: items[0]?.id ?? null,
+        attachments: collectItemAttachments(items),
+      });
+      created = task;
+      entity = { entityType: 'task', entityId: task.id };
+      break;
+    }
+    case 'promote_note':
+    case 'combine_note': {
+      const note = createNote({
+        title: draft.title ?? undefined,
+        body: draft.body ?? joinedRaw,
+        areaId: draft.areaId ?? null,
+        taskId: draft.taskId ?? null,
+        attachments: collectItemAttachments(items),
+      });
+      created = note;
+      entity = { entityType: 'note', entityId: note.id };
+      break;
+    }
+    case 'merge_task': {
+      const target = getTask(decision.targetId!);
+      if (!target) throw new TriageError('not_found', `Merge target task not found: ${decision.targetId}`);
+      if (draft.expectedTargetUpdatedAt && draft.expectedTargetUpdatedAt !== target.updatedAt) {
+        throw new TriageError(
+          'conflict',
+          `Task ${target.id} changed since the proposal was made (expected updated_at ${draft.expectedTargetUpdatedAt}, now ${target.updatedAt}). Re-review with fresh state.`,
+        );
+      }
+      if (draft.asSubtask) {
+        const subtask = createTask({
+          rawInput: joinedRaw,
+          title: draft.title?.trim() || firstLineTitle(joinedRaw),
+          body: draft.body ?? joinedRaw,
+          parentId: target.id,
+          areaId: draft.areaId ?? target.areaId ?? null,
+          energy: draft.energy ?? null,
+          effort: draft.effort ?? null,
+          streamItemId: items[0]?.id ?? null,
+          attachments: collectItemAttachments(items),
+        });
+        created = subtask;
+        entity = { entityType: 'task', entityId: subtask.id };
+      } else {
+        const appended = appendTaskContext(target.id, draft.body ?? joinedRaw, {
+          source: decision.actor === 'agent' ? 'ai' : 'human',
+          summary: 'Merged from stream capture',
+        });
+        if (!appended) throw new TriageError('not_found', `Merge target task not found: ${decision.targetId}`);
+        entityVersionId = appended.versionId;
+        entity = { entityType: 'task', entityId: target.id };
+      }
+      break;
+    }
+    case 'merge_note': {
+      const target = getNote(decision.targetId!);
+      if (!target) throw new TriageError('not_found', `Merge target note not found: ${decision.targetId}`);
+      if (draft.expectedTargetUpdatedAt && draft.expectedTargetUpdatedAt !== target.updatedAt) {
+        throw new TriageError(
+          'conflict',
+          `Note ${target.id} changed since the proposal was made (expected updated_at ${draft.expectedTargetUpdatedAt}, now ${target.updatedAt}). Re-review with fresh state.`,
+        );
+      }
+      const appended = appendToNote(target.id, draft.body ?? joinedRaw, {
+        source: decision.actor === 'agent' ? 'ai' : 'human',
+        summary: 'Merged from stream capture',
+      });
+      if (!appended) throw new TriageError('not_found', `Merge target note not found: ${decision.targetId}`);
+      entityVersionId = appended.versionId;
+      entity = { entityType: 'note', entityId: target.id };
+      break;
+    }
+    case 'journal':
+    case 'dismiss':
+      break;
+    case 'incubate':
+      break;
+  }
+
+  if (entity) {
+    // asSubtask merges CREATE a fresh entity — the link says so, matching
+    // the undo semantics (delete/archive the subtask, not revert an append).
+    const relation =
+      decision.disposition === 'merge_task' && draft.asSubtask
+        ? 'created'
+        : dispositionRelation(decision.disposition);
+    createStreamLinks(
+      items.map((item) => ({
+        streamId: item.id,
+        entityType: entity!.entityType,
+        entityId: entity!.entityId,
+        relation,
+        decisionId: decision.id,
+      })),
+    );
+  }
+
+  const db2 = db
+    .update(triageDecisions)
+    .set({
+      state: finalState,
+      decidedAt: now,
+      targetType: entity?.entityType ?? decision.targetType ?? null,
+      targetId: entity?.entityId ?? decision.targetId ?? null,
+      entityVersionId,
+      updatedAt: now,
+    })
+    .where(eq(triageDecisions.id, decision.id))
+    .returning()
+    .get();
+
+  const streamItems = decision.streamItemIds
+    .map((id) => recomputeStreamStatus(id))
+    .filter((r): r is StreamRecord => r != null);
+
+  return { decision: db2, streamItems, entity, created, entityVersionId };
+}
+
+/**
+ * Create a decision and apply it in one atomic step. The path for manual UI
+ * triage (actor 'user', finalState 'accepted') and for agent execute-actions
+ * that policy allows to run (actor 'agent', finalState 'executed').
+ */
+export function recordTriageDecisionAndApply(
+  input: TriageDecisionInput,
+  finalState: 'executed' | 'accepted',
+): TriageApplyResult {
+  validateTriageDecisionInput(input);
+  const db = getDb();
+  return db.transaction(() => {
+    const now = new Date().toISOString();
+    const decision = db
+      .insert(triageDecisions)
+      .values({
+        id: uuidv7(),
+        passId: input.passId ?? null,
+        streamItemIds: input.streamItemIds,
+        disposition: input.disposition,
+        targetType: input.targetType ?? null,
+        targetId: input.targetId ?? null,
+        draft: input.draft ?? null,
+        confidence: input.confidence ?? null,
+        rationale: input.rationale ?? null,
+        state: 'proposed',
+        actor: input.actor,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    return executeDecisionWithin(decision, finalState);
+  });
+}
+
+/**
+ * Write suggest-mode proposals: decisions in state `proposed`, items flipped
+ * to status `proposed`. Nothing mutates until the user (or policy) applies.
+ */
+export function proposeTriageDecisions(
+  proposals: TriageDecisionInput[],
+  passId: string | null,
+): TriageDecisionRecord[] {
+  for (const p of proposals) validateTriageDecisionInput(p);
+  // Validate item existence/status up front so a batch is all-or-nothing.
+  for (const p of proposals) loadDecisionItems(p.streamItemIds);
+  const db = getDb();
+  return db.transaction(() => {
+    const now = new Date().toISOString();
+    const rows = proposals.map((p) =>
+      db
+        .insert(triageDecisions)
+        .values({
+          id: uuidv7(),
+          passId,
+          streamItemIds: p.streamItemIds,
+          disposition: p.disposition,
+          targetType: p.targetType ?? null,
+          targetId: p.targetId ?? null,
+          draft: p.draft ?? null,
+          confidence: p.confidence ?? null,
+          rationale: p.rationale ?? null,
+          state: 'proposed',
+          actor: p.actor,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get(),
+    );
+    const itemIds = new Set(rows.flatMap((r) => r.streamItemIds));
+    for (const id of itemIds) recomputeStreamStatus(id);
+    return rows;
+  });
+}
+
+/**
+ * Apply a proposed decision. Idempotent: an already-applied decision returns
+ * its prior result shape instead of double-applying.
+ */
+export function applyTriageDecision(
+  id: string,
+  opts: { decidedBy: 'user' | 'policy' },
+): TriageApplyResult {
+  const db = getDb();
+  return db.transaction(() => {
+    const decision = getTriageDecision(id);
+    if (!decision) throw new TriageError('not_found', `Triage decision not found: ${id}`);
+    if (decision.state === 'executed' || decision.state === 'accepted') {
+      return {
+        decision,
+        streamItems: decision.streamItemIds.map((sid) => getStream(sid)).filter((r): r is StreamRecord => r != null),
+        entity: decision.targetType && decision.targetId ? { entityType: decision.targetType, entityId: decision.targetId } : null,
+        created: null,
+        entityVersionId: decision.entityVersionId,
+      };
+    }
+    if (decision.state !== 'proposed') {
+      throw new TriageError('conflict', `Triage decision is already ${decision.state}.`);
+    }
+    return executeDecisionWithin(decision, opts.decidedBy === 'user' ? 'accepted' : 'executed');
+  });
+}
+
+/** Any human edit (version with source 'human') after `sinceIso`? */
+function entityEditedByHumanSince(
+  entityType: 'task' | 'note',
+  entityId: string,
+  sinceIso: string,
+): boolean {
+  return listEntityVersions(entityType, entityId).some(
+    (v) => v.source === 'human' && v.createdAt > sinceIso,
+  );
+}
+
+/** Delete a created-from-stream task when safe, archive when it has grown
+ *  children or completions. Undo must never destroy other work. */
+function removeCreatedTaskForUndo(taskId: string): 'deleted' | 'archived' | null {
+  const db = getDb();
+  const childCount = db.select({ c: sql<number>`count(*)` }).from(tasks).where(eq(tasks.parentId, taskId)).get()?.c ?? 0;
+  const completionCount = db.select({ c: sql<number>`count(*)` }).from(taskCompletions).where(eq(taskCompletions.taskId, taskId)).get()?.c ?? 0;
+  if (childCount > 0 || completionCount > 0) {
+    updateTask(taskId, { status: 'archived' }, { source: 'system', summary: 'Archived by triage undo (task had grown)' });
+    return 'archived';
+  }
+  return deleteTask(taskId) ? 'deleted' : null;
+}
+
+/** Shared effect-reversal used by undo and by correcting an applied decision. */
+function reverseDecisionEffectsWithin(decision: TriageDecisionRecord): {
+  entityReverted: boolean;
+  entityRemoved: 'deleted' | 'archived' | null;
+  reason?: string;
+} {
+  const db = getDb();
+  let entityReverted = false;
+  let entityRemoved: 'deleted' | 'archived' | null = null;
+  let reason: string | undefined;
+
+  const isCreate =
+    decision.disposition === 'promote_task' ||
+    decision.disposition === 'promote_note' ||
+    decision.disposition === 'combine_task' ||
+    decision.disposition === 'combine_note' ||
+    // asSubtask merges created a fresh entity too
+    ((decision.disposition === 'merge_task') && !!decision.draft?.asSubtask);
+
+  if (decision.targetType && decision.targetId && ENTITY_DISPOSITIONS.includes(decision.disposition)) {
+    const appliedAt = decision.decidedAt ?? decision.updatedAt;
+    if (isCreate) {
+      const entityId = decision.targetId;
+      const exists = decision.targetType === 'task' ? !!getTask(entityId) : !!getNote(entityId);
+      if (!exists) {
+        reason = 'The created entity is already gone.';
+      } else if (entityEditedByHumanSince(decision.targetType, entityId, appliedAt)) {
+        // Human work on top: archive, never delete.
+        if (decision.targetType === 'task') {
+          updateTask(entityId, { status: 'archived' }, { source: 'system', summary: 'Archived (not deleted) by undo: you edited it after it was created' });
+        } else {
+          updateNote(entityId, { status: 'archived' }, { source: 'system', summary: 'Archived (not deleted) by undo: you edited it after it was created' });
+        }
+        entityRemoved = 'archived';
+        entityReverted = true;
+        reason = 'Archived instead of deleted because you edited it after it was created.';
+      } else if (decision.targetType === 'task') {
+        entityRemoved = removeCreatedTaskForUndo(entityId);
+        entityReverted = entityRemoved != null;
+      } else {
+        entityRemoved = deleteNote(entityId) ? 'deleted' : null;
+        entityReverted = entityRemoved != null;
+      }
+    } else {
+      // Merge/append: revert through entity versions when ours is still the
+      // latest content change; otherwise refuse the automatic revert.
+      if (!decision.entityVersionId) {
+        reason = 'No version snapshot was recorded for this append, so it must be edited out manually.';
+      } else {
+        const versions = listEntityVersions(decision.targetType, decision.targetId);
+        if (versions[0]?.id !== decision.entityVersionId) {
+          reason = 'The entity was edited after this append. Review its version history to unwind it manually.';
+        } else {
+          const before = versions[1];
+          if (before && revertEntityTo(before.id)) {
+            entityReverted = true;
+          } else {
+            reason = 'No prior version to restore. Review the entity manually.';
+          }
+        }
+      }
+    }
+  }
+
+  // Provenance for a reversed decision goes away regardless.
+  db.delete(streamLinks).where(eq(streamLinks.decisionId, decision.id)).run();
+  return { entityReverted, entityRemoved, reason };
+}
+
+/** For asSubtask merges the created subtask id lives on targetId already. */
+function isCreateSubtask(decision: TriageDecisionRecord): string | null {
+  return decision.disposition === 'merge_task' && decision.draft?.asSubtask ? decision.targetId : null;
+}
+
+/**
+ * Undo a decision per the spec's exact table (3.10). Proposed decisions are
+ * simply rejected. Applied decisions reverse their effects; when reversal is
+ * unsafe (human edits on top) the links and statuses still reset and the
+ * result says why the content was left alone. Never touches stream items'
+ * raw text, never deletes attachments, always returns items toward pending.
+ */
+export function undoTriageDecision(id: string): TriageUndoResult {
+  const db = getDb();
+  return db.transaction(() => {
+    const decision = getTriageDecision(id);
+    if (!decision) throw new TriageError('not_found', `Triage decision not found: ${id}`);
+    if (decision.state === 'undone') {
+      return {
+        decision,
+        entityReverted: false,
+        entityRemoved: null,
+        reason: 'Already undone.',
+        streamItems: decision.streamItemIds.map((sid) => getStream(sid)).filter((r): r is StreamRecord => r != null),
+      };
+    }
+    if (decision.state === 'corrected') {
+      throw new TriageError('conflict', 'This decision was corrected. Undo the correction decision instead.');
+    }
+
+    let effects: { entityReverted: boolean; entityRemoved: 'deleted' | 'archived' | null; reason?: string } = {
+      entityReverted: false,
+      entityRemoved: null,
+    };
+    if (decision.state === 'executed' || decision.state === 'accepted') {
+      effects = reverseDecisionEffectsWithin(decision);
+    }
+
+    const now = new Date().toISOString();
+    const updated = db
+      .update(triageDecisions)
+      .set({ state: 'undone', undoneAt: now, updatedAt: now })
+      .where(eq(triageDecisions.id, id))
+      .returning()
+      .get();
+
+    const streamItems = decision.streamItemIds
+      .map((sid) => recomputeStreamStatus(sid))
+      .filter((r): r is StreamRecord => r != null);
+
+    return { decision: updated, ...effects, streamItems };
+  });
+}
+
+export interface TriageCorrection {
+  disposition: TriageDisposition;
+  targetType?: 'task' | 'note' | null;
+  targetId?: string | null;
+  draft?: TriageDraft | null;
+}
+
+/**
+ * The re-route affordance: the user changes what a decision did (or was
+ * about to do). The original is marked `corrected` (rich telemetry signal),
+ * its effects are reversed if it had applied, and the corrected action runs
+ * as a fresh user decision.
+ */
+export function correctTriageDecision(
+  id: string,
+  correction: TriageCorrection,
+): { original: TriageDecisionRecord; applied: TriageApplyResult } {
+  const db = getDb();
+  return db.transaction(() => {
+    const decision = getTriageDecision(id);
+    if (!decision) throw new TriageError('not_found', `Triage decision not found: ${id}`);
+    if (decision.state === 'undone' || decision.state === 'corrected') {
+      throw new TriageError('conflict', `Triage decision is already ${decision.state}.`);
+    }
+    if (decision.state === 'executed' || decision.state === 'accepted') {
+      reverseDecisionEffectsWithin(decision);
+    }
+    const now = new Date().toISOString();
+    const original = db
+      .update(triageDecisions)
+      .set({ state: 'corrected', correctedDisposition: correction.disposition, decidedAt: decision.decidedAt ?? now, updatedAt: now })
+      .where(eq(triageDecisions.id, id))
+      .returning()
+      .get();
+
+    // Reset items so the corrected action can apply cleanly.
+    for (const sid of decision.streamItemIds) recomputeStreamStatus(sid);
+
+    const applied = recordTriageDecisionAndApplyWithin({
+      disposition: correction.disposition,
+      streamItemIds: decision.streamItemIds,
+      targetType: correction.targetType ?? null,
+      targetId: correction.targetId ?? null,
+      draft: correction.draft ?? decision.draft ?? null,
+      rationale: null,
+      confidence: null,
+      passId: decision.passId,
+      actor: 'user',
+    });
+    return { original, applied };
+  });
+}
+
+/** Same as recordTriageDecisionAndApply but transaction-less — for callers
+ *  already inside one (SQLite has no nested BEGIN). */
+function recordTriageDecisionAndApplyWithin(input: TriageDecisionInput): TriageApplyResult {
+  validateTriageDecisionInput(input);
+  const db = getDb();
+  const now = new Date().toISOString();
+  const decision = db
+    .insert(triageDecisions)
+    .values({
+      id: uuidv7(),
+      passId: input.passId ?? null,
+      streamItemIds: input.streamItemIds,
+      disposition: input.disposition,
+      targetType: input.targetType ?? null,
+      targetId: input.targetId ?? null,
+      draft: input.draft ?? null,
+      confidence: input.confidence ?? null,
+      rationale: input.rationale ?? null,
+      state: 'proposed',
+      actor: input.actor,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+  return executeDecisionWithin(decision, 'accepted');
+}
+
+/**
+ * Return a terminal item to `pending`. For promoted items this DETACHES:
+ * single-item decisions are marked undone and links removed, but derived
+ * entities are left alone (use undoTriageDecision to reverse content).
+ * Items inside a multi-item combine must be unwound via their decision.
+ */
+export function reopenStream(id: string): StreamRecord | null {
+  const db = getDb();
+  return db.transaction(() => {
+    const item = getStream(id);
+    if (!item) return null;
+    if (item.status === 'pending') return item;
+
+    const decisions = listTriageDecisions({ streamItemId: id, state: ['proposed', 'executed', 'accepted'] });
+    for (const d of decisions) {
+      if (d.streamItemIds.length > 1) {
+        throw new TriageError(
+          'conflict',
+          `Stream item ${id} is part of a combined outcome (decision ${d.id}). Undo that decision instead.`,
+        );
+      }
+    }
+    const now = new Date().toISOString();
+    for (const d of decisions) {
+      db.delete(streamLinks).where(eq(streamLinks.decisionId, d.id)).run();
+      db.update(triageDecisions)
+        .set({ state: 'undone', undoneAt: now, updatedAt: now })
+        .where(eq(triageDecisions.id, d.id))
+        .run();
+    }
+    // Rows migrated from the pre-decisions era carry links with a null
+    // decisionId — detach those too.
+    db.delete(streamLinks).where(and(eq(streamLinks.streamId, id), isNull(streamLinks.decisionId))).run();
+
+    if (listTriageDecisions({ streamItemId: id }).length > 0) {
+      return recomputeStreamStatus(id);
+    }
+    return updateStream(id, { status: 'pending', dismissedBy: null, resurfaceAt: null });
+  });
+}
+
+/** Incubating items whose resurface time has arrived → back to pending. */
+export function resurfaceDueStreamItems(now: Date = new Date()): StreamRecord[] {
+  const db = getDb();
+  const due = db
+    .select()
+    .from(stream)
+    .where(and(eq(stream.status, 'incubating'), lte(stream.resurfaceAt, now.toISOString())))
+    .all()
+    .map((r) => hydrateRow(r));
+  const out: StreamRecord[] = [];
+  for (const item of due) {
+    const updated = updateStream(item.id, { status: 'pending', resurfaceAt: null });
+    if (updated) out.push(updated);
+  }
+  return out;
+}
+
+// ── Acceptance telemetry (the moat metric) ───────────────────
+
+export interface AcceptanceStats {
+  disposition: TriageDisposition;
+  accepted: number;
+  corrected: number;
+  undone: number;
+  /** Auto-applied, still inside the settling window — not yet in the rate. */
+  pendingExecuted: number;
+  sample: number;
+  /** accepted / (accepted + corrected + undone), null when sample is 0. */
+  rate: number | null;
+}
+
+function classifyDecided(d: TriageDecisionRecord, nowMs: number): 'accepted' | 'corrected' | 'undone' | 'pendingExecuted' | null {
+  if (d.state === 'accepted') return 'accepted';
+  if (d.state === 'corrected') return 'corrected';
+  if (d.state === 'undone') return 'undone';
+  if (d.state === 'executed') {
+    const decided = d.decidedAt ? new Date(d.decidedAt).getTime() : new Date(d.updatedAt).getTime();
+    return nowMs - decided >= EXECUTED_SETTLES_AFTER_DAYS * 86_400_000 ? 'accepted' : 'pendingExecuted';
+  }
+  return null; // proposed — not decided yet
+}
+
+/**
+ * Acceptance per disposition. Defaults to agent decisions only — the user's
+ * own manual triage is ground truth for few-shot context, not a measure of
+ * agent performance.
+ */
+export function getAcceptanceStats(
+  opts: { actor?: TriageActor; windowDays?: number } = {},
+): AcceptanceStats[] {
+  const decisions = listTriageDecisions({
+    actor: opts.actor ?? 'agent',
+    sinceDays: opts.windowDays,
+    limit: 10_000,
+  });
+  const nowMs = Date.now();
+  const byDisposition = new Map<TriageDisposition, AcceptanceStats>();
+  for (const d of decisions) {
+    const bucket = classifyDecided(d, nowMs);
+    if (!bucket) continue;
+    const stats = byDisposition.get(d.disposition) ?? {
+      disposition: d.disposition,
+      accepted: 0, corrected: 0, undone: 0, pendingExecuted: 0, sample: 0, rate: null,
+    };
+    stats[bucket]++;
+    byDisposition.set(d.disposition, stats);
+  }
+  for (const stats of byDisposition.values()) {
+    stats.sample = stats.accepted + stats.corrected + stats.undone;
+    stats.rate = stats.sample > 0 ? stats.accepted / stats.sample : null;
+  }
+  return [...byDisposition.values()];
+}
+
+/**
+ * Trailing-window acceptance for the demotion rule: the last `n` settled
+ * agent decisions of a disposition. Undos weigh heavier than accepts — one
+ * undo also cancels one accept's worth of credit.
+ */
+export function getTrailingAcceptance(
+  disposition: TriageDisposition,
+  n: number,
+): { rate: number | null; sample: number } {
+  const decisions = listTriageDecisions({ actor: 'agent', disposition, limit: 200 });
+  const nowMs = Date.now();
+  const settled = decisions
+    .map((d) => classifyDecided(d, nowMs))
+    .filter((b): b is 'accepted' | 'corrected' | 'undone' => b === 'accepted' || b === 'corrected' || b === 'undone')
+    .slice(0, n);
+  if (settled.length === 0) return { rate: null, sample: 0 };
+  let credit = 0;
+  for (const b of settled) {
+    if (b === 'accepted') credit += 1;
+    else if (b === 'corrected') credit -= 0.5;
+    else credit -= 1; // undone
+  }
+  const rate = Math.max(0, Math.min(1, credit / settled.length));
+  return { rate, sample: settled.length };
+}
+
+/** First line of raw capture text, clipped to a title-sized length. */
+export function firstLineTitle(rawText: string): string {
+  const firstLine = rawText.trim().split('\n')[0] ?? '';
+  return firstLine.length <= 200 ? firstLine : firstLine.slice(0, 199).trimEnd() + '…';
 }
 
 // ─── Areas ────────────────────────────────────────────────────
@@ -918,6 +2145,33 @@ export function getAgentHarnessSettings(harness: HarnessId): AgentHarnessSetting
 
 export function listAgentHarnessSettings(): AgentHarnessSettingsRecord[] {
   return getDb().select().from(agentHarnessSettings).orderBy(asc(agentHarnessSettings.harness)).all();
+}
+
+/**
+ * Lazily materialize one settings row. Claude and Codex inherit a small,
+ * useful default allowlist from the bundled fallback catalog. Dynamic-only
+ * harnesses intentionally start empty until the user chooses live models.
+ */
+export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSettingsRecord {
+  const existing = getAgentHarnessSettings(harness);
+  if (existing) return existing;
+  const state = getUserState();
+  const bundled = modelsForProvider(harness).map((model) => model.id);
+  const preferred = state?.defaultAgentHarness === harness ? state.defaultAgentModel : null;
+  const enabledModels = [...new Set([
+    ...(preferred ? [preferred] : []),
+    ...bundled.slice(0, harness === 'claude' ? 3 : 4),
+  ])];
+  return upsertAgentHarnessSettings({
+    harness,
+    enabledModels,
+    defaultModel: preferred && enabledModels.includes(preferred) ? preferred : enabledModels[0] ?? null,
+    defaultVariant: null,
+    defaultEffort: state?.defaultAgentHarness === harness && (harness === 'claude' || harness === 'codex')
+      ? state.defaultAgentEffort
+      : null,
+    catalogRefreshedAt: null,
+  });
 }
 
 export function upsertAgentHarnessSettings(
@@ -1916,7 +3170,7 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
   const agent = db.select().from(agents).where(eq(agents.id, input.agentId)).get();
   const selection = explicitAgentSelection(
     providerIdForHarness(agent?.harness),
-    { model: input.model, effort: input.effort },
+    { model: input.model, variant: input.modelVariant, effort: input.effort },
   );
   const row = db
     .insert(chatSessions)
@@ -1925,6 +3179,7 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       // A session owns a concrete provider tuple. Never let nullable legacy
       // defaults or a model from another provider reach the executor.
       model: selection.model,
+      modelVariant: selection.variant,
       effort: selection.effort,
       id: input.id ?? uuidv7(),
       status: input.status ?? 'active',
@@ -1984,6 +3239,8 @@ export function createExecutionWithChat(params: {
   /** Optional preferred model (e.g. propagated from a trigger). Missing or
    *  invalid values are resolved to the provider's explicit fallback. */
   model?: string | null;
+  /** Optional provider-native variant, validated with the model selection. */
+  modelVariant?: string | null;
   /** Optional preferred effort, normalized against the selected model. */
   effort?: ChatSessionRecord['effort'];
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
@@ -1992,7 +3249,7 @@ export function createExecutionWithChat(params: {
   const agent = db.select().from(agents).where(eq(agents.id, params.agentId)).get();
   const selection = explicitAgentSelection(
     providerIdForHarness(agent?.harness),
-    { model: params.model, effort: params.effort },
+    { model: params.model, variant: params.modelVariant, effort: params.effort },
   );
   return db.transaction((tx) => {
     const executionId = uuidv7();
@@ -2028,6 +3285,7 @@ export function createExecutionWithChat(params: {
         // `datetime('now')` default would store the space-format instead).
         startedAt: now,
         model: selection.model,
+        modelVariant: selection.variant,
         effort: selection.effort,
       })
       .returning()
@@ -2077,9 +3335,10 @@ export function createExecutionSession(args: {
  */
 export function createExecutionChat(args: {
   executionId: string;
-  /** Executor harness ('claude_code' | 'codex'); picks the agent. */
+  /** Executor harness key. Picks the provider-specific agent. */
   harness?: string;
   model?: string | null;
+  modelVariant?: string | null;
   effort?: ChatSessionRecord['effort'];
   label?: string | null;
 }): ChatSessionRecord | null {
@@ -2094,6 +3353,7 @@ export function createExecutionChat(args: {
     label: args.label ?? null,
     status: 'active',
     ...(args.model !== undefined ? { model: args.model } : {}),
+    ...(args.modelVariant !== undefined ? { modelVariant: args.modelVariant } : {}),
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
   });
 }
@@ -2436,6 +3696,44 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
 
   publishChatEvent(row);
   return row;
+}
+
+/**
+ * Persist a cumulative provider part. OpenCode emits the same stable part ID
+ * as text grows, so conflict-do-nothing would keep only the first delta.
+ * Insert the first observation, then replace that exact part in place.
+ */
+export function replaceChatEventPart(input: CreateChatEventInput): ChatEventRecord | null {
+  const inserted = insertChatEvent(input);
+  if (inserted || !input.externalEventId) return inserted;
+
+  const sourcePartIndex = input.sourcePartIndex ?? 0;
+  const row = getDb().update(chatEvents).set({
+    role: input.role,
+    source: input.source,
+    content: input.content,
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+    toolIsError: input.toolIsError,
+    toolExitCode: input.toolExitCode,
+    raw: input.raw,
+    externalMessageId: input.externalMessageId,
+    externalTurnId: input.externalTurnId,
+    externalToolCallId: input.externalToolCallId,
+    externalParentToolCallId: input.externalParentToolCallId,
+  }).where(and(
+    eq(chatEvents.sessionId, input.sessionId),
+    eq(chatEvents.externalEventId, input.externalEventId),
+    eq(chatEvents.sourcePartIndex, sourcePartIndex),
+  )).returning().get();
+  if (!row) return null;
+
+  const hydrated = hydrateRow(row);
+  if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
+    bumpSessionOutcome(input.sessionId, input.createdAt ?? new Date().toISOString());
+  }
+  publishChatEvent(hydrated);
+  return hydrated;
 }
 
 /**

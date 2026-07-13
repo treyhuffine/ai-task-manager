@@ -8,12 +8,17 @@ import {
   Loader2,
   Sparkles,
   Code2,
+  TerminalSquare,
+  Braces,
   RefreshCw,
   Package,
   Globe2,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
-import { defaultModelFor, modelsForProvider } from '@/lib/agent-options';
+import { defaultModelFor } from '@/lib/agent-options';
+import { useAgentModels } from '@/hooks/use-agent-models';
+import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
+import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
 import { api, ApiError } from '@/lib/api/client';
 import type {
   WizardState,
@@ -23,6 +28,7 @@ import type {
   AgentVerifyState,
 } from './types';
 import type { AgentVerifyResponse } from '@/app/api/agent/verify/route';
+import { HARNESS_IDS } from '@/lib/agents/registry';
 
 const HARNESSES: Array<{
   id: AgentHarness;
@@ -50,6 +56,24 @@ const HARNESSES: Array<{
     loginCmd: 'codex login',
     envHint: 'OPENAI_API_KEY',
     installHint: 'npm install -g @openai/codex',
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    hint: 'Cursor models, including Grok when available',
+    icon: TerminalSquare,
+    loginCmd: 'agent login',
+    envHint: 'CURSOR_API_KEY',
+    installHint: 'Install the Cursor CLI from cursor.com',
+  },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    hint: 'Models from your OpenCode providers',
+    icon: Braces,
+    loginCmd: 'opencode auth login',
+    envHint: 'Configure a provider below',
+    installHint: 'npm install -g opencode-ai',
   },
 ];
 
@@ -183,7 +207,7 @@ export function StepAgent({
         <div>
           <h2 className="text-xl font-semibold">Pick your agent</h2>
           <p className="text-sm text-muted-foreground">
-            {APP_NAME} runs agent tasks through one of these coding CLIs. Both use their own login.
+            {APP_NAME} runs agent tasks through one of these coding CLIs. Each uses its own authentication.
           </p>
         </div>
       </header>
@@ -191,7 +215,7 @@ export function StepAgent({
       <div className="space-y-2">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Agent</div>
         <div className="grid grid-cols-2 gap-2">
-          {HARNESSES.map((h) => {
+          {HARNESSES.filter((h) => HARNESS_IDS.includes(h.id)).map((h) => {
             const selected = state.agentHarness === h.id;
             const Icon = h.icon;
             return (
@@ -205,9 +229,11 @@ export function StepAgent({
                     : 'border-border bg-card hover:bg-muted/50'
                 }`}
               >
-                <span className="absolute top-2 right-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-400">
-                  Recommended
-                </span>
+                {h.id === 'claude' && (
+                  <span className="absolute top-2 right-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-400">
+                    Recommended
+                  </span>
+                )}
                 <Icon className="size-6" />
                 <span className="text-sm font-medium">{h.name}</span>
                 <span className="text-xs text-muted-foreground">{h.hint}</span>
@@ -223,6 +249,9 @@ export function StepAgent({
         onRecheck={() => void runCheck(state.agentHarness, { fresh: true })}
         onAccept={acceptApiKey}
       />
+
+      {state.agentHarness === 'cursor' && <CursorCredentialPanel />}
+      {state.agentHarness === 'opencode' && <OpenCodeProviderPanel />}
 
       {state.agentAuth.report?.binary.installed && (
         <ModelChoice
@@ -303,12 +332,15 @@ function ModelChoice({
   selected: string;
   onSelect: (id: string) => void;
 }) {
-  const models = modelsForProvider(harness);
-  const options = models;
+  const { models: options, isLoading } = useAgentModels(harness, { catalog: true });
+  useEffect(() => {
+    if (!selected && options[0]) onSelect(options[0].id);
+  }, [onSelect, options, selected]);
   return (
     <div className="space-y-2">
       <div className="text-xs uppercase tracking-wide text-muted-foreground">Default model</div>
-      <div className="grid grid-cols-2 gap-2">
+      {isLoading && <div className="text-xs text-muted-foreground">Loading models…</div>}
+      <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto">
         {options.map((opt) => {
           const active = selected === opt.id;
           return (
@@ -326,6 +358,9 @@ function ModelChoice({
           );
         })}
       </div>
+      {!isLoading && options.length === 0 && (
+        <p className="text-xs text-amber-500">Connect the provider, then recheck to load its models.</p>
+      )}
       <p className="text-xs text-muted-foreground">Change this anytime in settings.</p>
     </div>
   );

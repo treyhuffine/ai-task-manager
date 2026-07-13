@@ -8,6 +8,7 @@
 
 # dependencies
 /node_modules
+/.pnpm-store/
 /.pnp
 .pnp.*
 .yarn/*
@@ -28,6 +29,7 @@ code-archive
 
 # next.js
 /.next/
+/.next-verify/
 /.next-smoke/
 /out/
 .turbo

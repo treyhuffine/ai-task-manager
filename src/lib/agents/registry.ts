@@ -1,5 +1,6 @@
 export type HarnessId = 'claude' | 'codex' | 'cursor' | 'opencode';
 export type AgentHarness = 'claude_code' | 'codex' | 'cursor' | 'opencode';
+export type HarnessIconId = 'sparkles' | 'code' | 'terminal' | 'braces';
 
 export interface HarnessCapabilities {
   sessions: boolean;
@@ -31,10 +32,12 @@ export interface HarnessDefinition {
   agentRecordHarness: AgentHarness;
   name: string;
   description: string;
+  icon: HarnessIconId;
   installHint: string;
   loginCommand: string | null;
   docsUrl: string;
   apiKeyVar: string | null;
+  resumeCommandTemplate: string | null;
   maximumCapabilities: HarnessCapabilities;
 }
 
@@ -69,10 +72,12 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     agentRecordHarness: 'claude_code',
     name: 'Claude Code',
     description: 'Anthropic models through Claude Code',
+    icon: 'sparkles',
     installHint: 'npm install -g @anthropic-ai/claude-code',
     loginCommand: 'claude login',
     docsUrl: 'https://docs.anthropic.com/en/docs/claude-code',
     apiKeyVar: 'ANTHROPIC_API_KEY',
+    resumeCommandTemplate: 'claude --resume {id}',
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -96,10 +101,12 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     agentRecordHarness: 'codex',
     name: 'Codex',
     description: 'OpenAI models through Codex',
+    icon: 'code',
     installHint: 'npm install -g @openai/codex',
     loginCommand: 'codex login',
     docsUrl: 'https://developers.openai.com/codex/',
     apiKeyVar: 'OPENAI_API_KEY',
+    resumeCommandTemplate: 'codex resume {id}',
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -119,10 +126,12 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     agentRecordHarness: 'cursor',
     name: 'Cursor',
     description: 'Cursor models, including Grok when available',
+    icon: 'terminal',
     installHint: 'Install the Cursor CLI from cursor.com',
     loginCommand: 'agent login',
     docsUrl: 'https://cursor.com/cli',
     apiKeyVar: 'CURSOR_API_KEY',
+    resumeCommandTemplate: 'agent --resume {id}',
     maximumCapabilities: {
       ...base,
       modelDiscovery: true,
@@ -136,10 +145,12 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     agentRecordHarness: 'opencode',
     name: 'OpenCode',
     description: 'OpenCode with your configured upstream providers',
+    icon: 'braces',
     installHint: 'npm install -g opencode-ai',
     loginCommand: 'opencode auth login',
     docsUrl: 'https://opencode.ai/docs/',
     apiKeyVar: null,
+    resumeCommandTemplate: null,
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -158,10 +169,21 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
   },
 };
 
-export const HARNESS_IDS = Object.freeze(Object.keys(HARNESS_REGISTRY) as HarnessId[]);
+const ALL_HARNESS_IDS = Object.freeze(Object.keys(HARNESS_REGISTRY) as HarnessId[]);
+
+/** Emergency rollout switches. Both new harnesses ship enabled by default. */
+export function isHarnessEnabled(id: HarnessId): boolean {
+  if (id === 'cursor') return process.env.NEXT_PUBLIC_FLOW_CURSOR_ENABLED !== 'false';
+  if (id === 'opencode') return process.env.NEXT_PUBLIC_FLOW_OPENCODE_ENABLED !== 'false';
+  return true;
+}
+
+export const HARNESS_IDS = Object.freeze(ALL_HARNESS_IDS.filter(isHarnessEnabled));
 
 export function isHarnessId(value: unknown): value is HarnessId {
-  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(HARNESS_REGISTRY, value);
+  return typeof value === 'string'
+    && Object.prototype.hasOwnProperty.call(HARNESS_REGISTRY, value)
+    && HARNESS_IDS.includes(value as HarnessId);
 }
 
 export function harnessDefinition(id: HarnessId): HarnessDefinition {
@@ -169,7 +191,23 @@ export function harnessDefinition(id: HarnessId): HarnessDefinition {
 }
 
 export function harnessIdForAgentRecord(value: string): HarnessId {
-  const found = HARNESS_IDS.find((id) => HARNESS_REGISTRY[id].agentRecordHarness === value);
+  // Accept the provider vocabulary too. Older databases stored `claude`
+  // directly while newer agent rows use the descriptive `claude_code` key.
+  if (isHarnessId(value)) return value;
+  const found = ALL_HARNESS_IDS.find((id) => HARNESS_REGISTRY[id].agentRecordHarness === value);
   if (!found) throw new Error(`Unknown agent harness: ${value}`);
   return found;
+}
+
+export function resumeCommandForHarness(
+  harness: string | null,
+  externalSessionId: string | null,
+): string | null {
+  if (!harness || !externalSessionId) return null;
+  try {
+    const template = HARNESS_REGISTRY[harnessIdForAgentRecord(harness)].resumeCommandTemplate;
+    return template?.replace('{id}', externalSessionId) ?? null;
+  } catch {
+    return null;
+  }
 }

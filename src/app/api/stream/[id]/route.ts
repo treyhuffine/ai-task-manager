@@ -1,20 +1,33 @@
+/**
+ * PATCH /api/stream/:id — deliberately near-empty. Stream items are an
+ * append-only ledger: raw text is immutable (spec §1.2) and every lifecycle
+ * transition flows through the dedicated triage routes (decisions, dismiss,
+ * reopen, retry) so provenance and telemetry are never skipped. The only
+ * generic PATCH left is nothing at all: any field is rejected with a
+ * pointer at the right surface.
+ */
+
 import type { NextRequest } from 'next/server';
-import type { UpdateStreamInput } from '@/db/types';
-import { updateStream } from '@/lib/db/queries';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  await params;
+  let keys: string[] = [];
   try {
-    const { id } = await params;
-    const body: UpdateStreamInput = await request.json();
-
-    const row = updateStream(id, body);
-    if (!row) return Response.json({ error: 'Stream item not found' }, { status: 404 });
-    return Response.json(row);
-  } catch (err) {
-    console.error('[PATCH /api/stream/:id]', err);
-    return Response.json({ error: String(err) }, { status: 400 });
+    keys = Object.keys(await request.json());
+  } catch {
+    // fall through — empty body gets the same explanation
   }
+  return Response.json(
+    {
+      error:
+        'Stream items are immutable. Use POST /api/stream/:id/dismiss, /reopen, /retry, or the ' +
+        'triage decision routes instead.',
+      code: 'invalid_params',
+      rejectedFields: keys,
+    },
+    { status: 400 },
+  );
 }

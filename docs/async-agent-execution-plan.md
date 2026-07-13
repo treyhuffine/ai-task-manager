@@ -183,7 +183,7 @@ export const schedules = sqliteTable('schedules', {
 
   // Model overrides
   model: text('model'),
-  effort: text('effort', { enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+  effort: text('effort', { enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
   timeout_seconds: integer('timeout_seconds').notNull().default(900),
 
   // Lifecycle

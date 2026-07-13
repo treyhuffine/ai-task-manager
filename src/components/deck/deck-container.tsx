@@ -13,6 +13,7 @@ import { DeckQuickAddCard } from './deck-quick-add';
 import { CheckInIntake } from './check-in-intake';
 import { DeckChangeBrief, type DeckVersionSummary } from './deck-change-brief';
 import { DeckInterruptBanner } from './deck-interrupt-banner';
+import { DeckTriagePrompt } from './deck-triage-prompt';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
   DeckPlan,
@@ -712,6 +713,7 @@ export function DeckContainer() {
         {/* ─── The deck ─── */}
         {phase === 'deck' && plan && (
           <div className="px-4 py-3">
+            <DeckTriagePrompt />
             {!interruptDismissed && (
               <DeckInterruptBanner
                 interrupts={interruptChanges}

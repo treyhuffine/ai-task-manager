@@ -11,6 +11,8 @@ import { PERMISSION_MODES, EFFORT_LEVELS, type PermissionMode, type EffortLevel 
 import * as executor from '@/lib/executor/adapter';
 import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
 import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
+import { getHarnessRuntime } from '@/lib/agents/runtime';
+import { getAppRoot } from '@/lib/config/paths';
 
 export async function GET(
   _request: NextRequest,
@@ -43,8 +45,10 @@ interface PatchBody {
   permissionMode?: PermissionMode;
   /** Explicit provider model id. */
   model?: string;
+  /** Provider-native variant, separate from reasoning effort. */
+  modelVariant?: string | null;
   /** Explicit provider reasoning effort. */
-  effort?: EffortLevel;
+  effort?: EffortLevel | null;
   /** Explicit PR link. `null` clears the link. */
   prNumber?: number | null;
 }
@@ -88,6 +92,28 @@ export async function PATCH(
           { status: 400 },
         );
       }
+      const agent = getAgent(existing.agentId);
+      const providerId = providerIdForHarness(agent?.harness);
+      const cwd = executor.resolveCwd(existing) ?? getAppRoot();
+      const runtime = await getHarnessRuntime(providerId, { cwd });
+      if (mode === 'plan' && !runtime.capabilities.planMode.supported) {
+        return Response.json(
+          { error: runtime.capabilities.planMode.reason ?? 'Plan mode is unavailable for this harness' },
+          { status: 409 },
+        );
+      }
+      if ((mode === 'default' || mode === 'accept_edits') && !runtime.capabilities.permissionRequests.supported) {
+        return Response.json(
+          { error: runtime.capabilities.permissionRequests.reason ?? 'Permission prompts are unavailable for this harness' },
+          { status: 409 },
+        );
+      }
+      if (mode === 'accept_edits' && providerId === 'opencode') {
+        return Response.json(
+          { error: 'Accept edits mode is not available for OpenCode' },
+          { status: 409 },
+        );
+      }
       if (mode !== existing.permissionMode) {
         updates.permissionMode = mode;
         executorChanged = true;
@@ -102,10 +128,14 @@ export async function PATCH(
       }
     }
     let nextSelection: ReturnType<typeof explicitAgentSelection> | null = null;
-    if ('model' in body || 'effort' in body) {
+    if ('model' in body || 'modelVariant' in body || 'effort' in body) {
       const agent = getAgent(existing.agentId);
       const providerId = providerIdForHarness(agent?.harness);
-      const catalog = await getAgentModelCatalog(providerId);
+      const cwd = executor.resolveCwd(existing) ?? getAppRoot();
+      const [catalog, runtime] = await Promise.all([
+        getAgentModelCatalog(providerId, { cwd }),
+        getHarnessRuntime(providerId, { cwd }),
+      ]);
       const requestedModel = 'model' in body ? body.model?.trim() : existing.model;
       if ('model' in body && (!requestedModel || !catalog.some((model) => model.id === requestedModel))) {
         return Response.json(
@@ -114,6 +144,9 @@ export async function PATCH(
         );
       }
 
+      const requestedVariant = 'modelVariant' in body
+        ? (typeof body.modelVariant === 'string' ? body.modelVariant.trim() || null : null)
+        : existing.modelVariant;
       const requestedEffort = 'effort' in body ? body.effort : existing.effort;
       if ('effort' in body && (!requestedEffort || !EFFORT_LEVELS.includes(requestedEffort))) {
         return Response.json(
@@ -124,9 +157,15 @@ export async function PATCH(
 
       nextSelection = explicitAgentSelection(
         providerId,
-        { model: requestedModel, effort: requestedEffort },
+        { model: requestedModel, variant: requestedVariant, effort: requestedEffort },
         catalog,
       );
+      if ('modelVariant' in body && nextSelection.variant !== requestedVariant) {
+        return Response.json(
+          { error: `Variant ${requestedVariant ?? 'default'} is not supported by model ${nextSelection.model}.` },
+          { status: 400 },
+        );
+      }
       if ('effort' in body && nextSelection.effort !== requestedEffort) {
         return Response.json(
           { error: `Effort ${requestedEffort} is not supported by model ${nextSelection.model}.` },
@@ -134,10 +173,32 @@ export async function PATCH(
         );
       }
       if (nextSelection.model !== existing.model) {
+        if (!runtime.capabilities.sessionModelChange.supported) {
+          return Response.json({
+            error: 'selection_requires_new_chat',
+            reason: runtime.capabilities.sessionModelChange.reason,
+          }, { status: 409 });
+        }
         updates.model = nextSelection.model;
         executorChanged = true;
       }
+      if (nextSelection.variant !== existing.modelVariant) {
+        if (!runtime.capabilities.sessionVariantChange.supported) {
+          return Response.json({
+            error: 'selection_requires_new_chat',
+            reason: runtime.capabilities.sessionVariantChange.reason,
+          }, { status: 409 });
+        }
+        updates.modelVariant = nextSelection.variant;
+        executorChanged = true;
+      }
       if (nextSelection.effort !== existing.effort) {
+        if (!runtime.capabilities.sessionEffortChange.supported) {
+          return Response.json({
+            error: 'selection_requires_new_chat',
+            reason: runtime.capabilities.sessionEffortChange.reason,
+          }, { status: 409 });
+        }
         updates.effort = nextSelection.effort;
         executorChanged = true;
       }

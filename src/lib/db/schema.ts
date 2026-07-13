@@ -115,6 +115,10 @@ export const userState = sqliteTable('user_state', {
   // 'budget_exceeded'`) and manual sends require an explicit confirm.
   // See docs/async-agents-v1.md §4.7.
   monthlyBudgetUsd: real(),
+  /** Per-disposition stream triage autonomy (see StreamAutonomyConfig).
+   *  Null = spec starting levels. The graduation engine only ever OFFERS a
+   *  raise (the user's acceptance writes it); demotion writes automatically. */
+  streamAutonomy: text({ mode: 'json' }).$type<StreamAutonomyConfig>(),
   onboardedAt: text(),
 });
 
@@ -190,20 +194,192 @@ export const stream = sqliteTable(
     externalId: text(),
     /** Full inbound payload for audit/replay. Null when origin='internal'. */
     externalPayload: text(),
-    status: text({ enum: ['pending', 'promoted', 'dismissed'] })
+    /**
+     * Lifecycle status. Text enums are type-level only in SQLite, so new
+     * values are additive without a migration. Readers must tolerate all six.
+     *   pending    — captured, awaiting triage
+     *   proposed   — one or more suggest-mode triage decisions await the user
+     *   promoted   — produced or joined one or more entities (see stream_links)
+     *   reviewed   — the journal disposition: kept as a thought, nothing owed
+     *   dismissed  — noise / already covered; soft, reversible
+     *   incubating — kept for later; returns to pending at resurface_at
+     */
+    status: text({ enum: ['pending', 'proposed', 'promoted', 'dismissed', 'reviewed', 'incubating'] })
       .notNull()
       .default('pending'),
     dismissedBy: text(),
-    promotedToType: text(),
-    promotedToId: text(),
-    promotedAt: text(),
-    promotionPass: text(),
+    /** Incubation: when an `incubating` item should return to `pending`. */
+    resurfaceAt: text(),
     /** Files attached to this stream item (e.g. raw audio when transcription
      *  failed or no STT provider was available). Derived on write from any
      *  references present in `raw_text`. */
     attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
   },
   (table) => [index('stream_external_id_idx').on(table.externalSource, table.externalId)],
+);
+
+// ─── Stream Triage ────────────────────────────────────────────
+// The reconciliation layer over the stream ledger. One pass = one sweep
+// (agent session or lane-1 urgency check). One decision = one disposition
+// applied to (or proposed for) one or more stream items. `stream_links` is
+// the many-to-many provenance source of truth between captures and the
+// entities they produced. See docs/streaming-spec-tasks.md.
+
+/**
+ * Draft payload carried on a triage decision — everything needed to apply it.
+ * Extraction fields (title, body, dates) are asserted by the agent; judgment
+ * fields (energy, effort) are proposals the human corrects. `evidence` is
+ * REQUIRED whenever hardDeadline/reminderAt is set (enforced in the query
+ * layer): the exact source words, so the agent can never invent a deadline.
+ */
+export interface TriageDraft {
+  title?: string;
+  body?: string;
+  description?: string;
+  areaId?: string | null;
+  parentId?: string | null;
+  taskId?: string | null;
+  energy?: 'deep' | 'light' | null;
+  effort?: 'trivial' | 'small' | 'medium' | 'large' | 'epic' | null;
+  hardDeadline?: string | null;
+  reminderAt?: string | null;
+  /** Exact source words supporting any date/urgency claim. */
+  evidence?: string;
+  /** Optimistic concurrency guard for merges into an existing entity. */
+  expectedTargetUpdatedAt?: string;
+  /** Incubate disposition: when the item should resurface. */
+  resurfaceAt?: string;
+  /** Merge-into-task: create a subtask instead of appending context. */
+  asSubtask?: boolean;
+}
+
+/**
+ * Per-disposition autonomy config stored on `user_state.stream_autonomy`.
+ * Absent keys fall back to the starting levels in the spec (everything
+ * `suggest` except journal, which runs `auto_digest` once Phase 2 ships).
+ * `killSwitch: true` forces every disposition back to suggest instantly.
+ */
+export interface StreamAutonomyConfig {
+  killSwitch?: boolean;
+  levels?: Partial<Record<TriageDisposition, StreamAutonomyLevel>>;
+}
+
+export type StreamAutonomyLevel = 'suggest' | 'auto_digest' | 'silent';
+
+export type TriageDisposition =
+  | 'promote_task'
+  | 'promote_note'
+  | 'merge_task'
+  | 'merge_note'
+  | 'combine_task'
+  | 'combine_note'
+  | 'journal'
+  | 'dismiss'
+  | 'incubate';
+
+export const triagePasses = sqliteTable(
+  'triage_passes',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    /** What started the sweep. `urgency` = lane-1 single-item fast path. */
+    trigger: text({ enum: ['debounce', 'schedule', 'threshold', 'manual', 'urgency', 'weekly'] }).notNull(),
+    /** Doubles as the single-flight lock: a `running` pass younger than the
+     *  staleness window blocks new sweeps. A failed sweep leaves items
+     *  pending, never half-disposed. */
+    status: text({ enum: ['running', 'completed', 'failed'] })
+      .notNull()
+      .default('running'),
+    /** Chat session that ran the sweep, null for lane-1-only passes. */
+    sessionId: text(),
+    itemsSeen: integer().notNull().default(0),
+    autoApplied: integer().notNull().default(0),
+    proposed: integer().notNull().default(0),
+    /** Agent's one-paragraph account of what it did and why — feeds the digest. */
+    summary: text(),
+    completedAt: text(),
+    /** When the user last saw this pass's digest (calm unread handling). */
+    digestSeenAt: text(),
+  },
+  (table) => [index('idx_triage_passes_status').on(table.status, table.createdAt)],
+);
+
+export const triageDecisions = sqliteTable(
+  'triage_decisions',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    /** Null for manual UI triage — the user's own routing is recorded here
+     *  too (actor='user'), which bootstraps acceptance telemetry before the
+     *  agent ever acts. */
+    passId: text().references(() => triagePasses.id),
+    /** Usually one; several for combine. Splitting one capture into many
+     *  outcomes = multiple decision rows sharing the same single item id. */
+    streamItemIds: text({ mode: 'json' }).$type<string[]>().notNull(),
+    disposition: text({
+      enum: [
+        'promote_task',
+        'promote_note',
+        'merge_task',
+        'merge_note',
+        'combine_task',
+        'combine_note',
+        'journal',
+        'dismiss',
+        'incubate',
+      ],
+    }).notNull(),
+    targetType: text({ enum: ['task', 'note'] }),
+    /** Existing entity for merge; the created entity once executed. */
+    targetId: text(),
+    draft: text({ mode: 'json' }).$type<TriageDraft>(),
+    /** Agent self-report. Internal policy signal ONLY — never shown to the
+     *  user, never gates autonomy (measured acceptance does). */
+    confidence: real(),
+    /** One sentence, shown in the review UI. */
+    rationale: text(),
+    /**
+     *   proposed  — suggest mode, awaiting the user
+     *   executed  — applied by policy (auto tier); counts as accepted after
+     *               7 days without correction or undo
+     *   accepted  — user explicitly confirmed
+     *   corrected — user changed disposition/target/draft materially; the
+     *               action that actually ran lives on a new actor='user' row
+     *   undone    — user reversed it
+     */
+    state: text({ enum: ['proposed', 'executed', 'accepted', 'corrected', 'undone'] }).notNull(),
+    correctedDisposition: text(),
+    actor: text({ enum: ['agent', 'user'] }).notNull(),
+    decidedAt: text(),
+    undoneAt: text(),
+    /** Version created by an applied merge/append — the undo handle. */
+    entityVersionId: text(),
+  },
+  (table) => [
+    index('idx_triage_decisions_pass').on(table.passId),
+    index('idx_triage_decisions_state').on(table.state, table.createdAt),
+    index('idx_triage_decisions_disposition').on(table.disposition, table.state),
+  ],
+);
+
+export const streamLinks = sqliteTable(
+  'stream_links',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    streamId: text()
+      .notNull()
+      .references(() => stream.id),
+    entityType: text({ enum: ['task', 'note'] }).notNull(),
+    entityId: text().notNull(),
+    relation: text({ enum: ['created', 'merged_into', 'combined_into'] }).notNull(),
+    /** Null for rows backfilled from the legacy stamp columns. */
+    decisionId: text().references(() => triageDecisions.id),
+  },
+  (table) => [
+    index('idx_stream_links_stream').on(table.streamId),
+    index('idx_stream_links_entity').on(table.entityType, table.entityId),
+  ],
 );
 
 // ─── Tasks ────────────────────────────────────────────────────
@@ -755,6 +931,7 @@ export const chatSessions = sqliteTable(
     externalTranscriptPath: text(),
     externalSyncOffset: integer(),
     externalSyncLastEventId: text(),
+    externalHistoryCheckpoint: text({ mode: 'json' }).$type<{ kind: string; value: unknown }>(),
 
     // How tool permission requests are handled for this session. `bypass` is
     // the default — no flag passed to Claude, callback auto-allows everything.

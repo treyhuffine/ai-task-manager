@@ -12,7 +12,12 @@ import { StepAgent } from './step-agent';
 import { StepImport } from './step-import';
 import { StepLaunch } from './step-launch';
 import { STEPS, type WizardState, type StepId } from './types';
-import { DEFAULT_AGENT_EFFORT, defaultModelFor } from '@/lib/agent-options';
+import {
+  DEFAULT_AGENT_EFFORT,
+  defaultModelFor,
+  harnessSupportsEffort,
+  providerHarnessKey,
+} from '@/lib/agent-options';
 
 const INITIAL_STATE: WizardState = {
   name: '',
@@ -53,6 +58,7 @@ export function Wizard() {
         return state.areas.length > 0;
       case 'agent': {
         if (!state.agentHarness) return false;
+        if (!state.agentModel) return false;
         if (state.globalSkillEnabled === null) return false;
         const a = state.agentAuth;
         if (a.phase !== 'ready' || !a.report) return false;
@@ -123,14 +129,31 @@ export function Wizard() {
         throw new Error('Failed to configure agent skill access');
       }
 
-      // 3. Save user state + mark onboarded
+      // 3. Save the selected model as the first visible model and make this
+      // harness active. More models can be enabled from Settings later.
+      const defaultEffort = harnessSupportsEffort(providerHarnessKey(state.agentHarness))
+        ? DEFAULT_AGENT_EFFORT
+        : null;
+      try {
+        await api.put('/agent/models/enabled', {
+          harness: state.agentHarness,
+          enabledModelIds: [state.agentModel],
+          defaultModel: state.agentModel,
+          defaultEffort,
+          makeActive: true,
+        });
+      } catch {
+        throw new Error('Failed to save the default agent model');
+      }
+
+      // 4. Save user state + mark onboarded
       try {
         await api.patch('/user-state', {
           name: state.name.trim(),
           description: state.description.trim(),
           defaultAgentHarness: state.agentHarness,
           defaultAgentModel: state.agentModel,
-          defaultAgentEffort: DEFAULT_AGENT_EFFORT,
+          defaultAgentEffort: defaultEffort,
           onboardedAt: new Date().toISOString(),
         });
       } catch {

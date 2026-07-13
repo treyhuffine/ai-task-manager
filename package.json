@@ -24,6 +24,7 @@
     "dev:seed-ui": "tsx personal/notion-import/serve.ts",
     "dev:seed-ui:kill": "lsof -ti :3333 | xargs kill -9 2>/dev/null || true",
     "db:embed": "dotenv -e .env.local -- tsx src/lib/embeddings/backfill.ts",
+    "eval:triage": "dotenv -e .env.local -- tsx scripts/eval-triage.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -50,7 +51,7 @@
     "skills"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.27",
+    "@agentex/agent": "^0.0.29",
     "@agentex/github": "^0.0.1",
     "@agentex/workspace": "^0.0.4",
     "@ai-sdk/anthropic": "^3.0.63",
@@ -186,9 +187,6 @@
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "node-pty"
-    ],
-    "overrides": {
-      "@agentex/agent": "file:../../../../private/tmp/agentex-harness-expansion/packages/agent"
-    }
+    ]
   }
 }

@@ -4,6 +4,7 @@ import type {
   PermissionMode, EffortLevel, Attachment,
 } from '@/db/types';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
+import type { HarnessId } from '@/lib/agents/registry';
 
 // ─── Pending-input wire types ─────────────────────────────────
 //
@@ -380,7 +381,8 @@ export const sessionsApi = {
       executionLabel?: string | null;
       permissionMode?: PermissionMode;
       model?: string;
-      effort?: EffortLevel;
+      modelVariant?: string | null;
+      effort?: EffortLevel | null;
       prNumber?: number | null;
     },
   ): Promise<ChatSessionWithExecution> {
@@ -590,7 +592,7 @@ export const sessionsApi = {
    */
   newChat(
     id: string,
-    opts?: { providerId?: 'claude' | 'codex'; model?: string; effort?: EffortLevel },
+    opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel },
   ): Promise<{ session: ChatSessionWithExecution }> {
     return api.post<{ session: ChatSessionWithExecution }>(`/sessions/${id}/new-chat`, opts ?? {});
   },

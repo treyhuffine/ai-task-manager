@@ -356,7 +356,7 @@ export const schedules = sqliteTable('schedules', {
   webhook_secret_hash: text('webhook_secret_hash'),
 
   model: text('model'),
-  effort: text('effort', { enum: ['low', 'medium', 'high', 'xhigh', 'max'] }),
+  effort: text('effort', { enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
   timeout_seconds: integer('timeout_seconds').notNull().default(900),
 
   next_run_at: text('next_run_at'),

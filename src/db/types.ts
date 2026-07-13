@@ -7,9 +7,10 @@ import type {
   workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
+  triagePasses, triageDecisions, streamLinks,
   Attachment,
 } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition } from '@/lib/db/schema';
 
 /**
  * Override the `attachments` column type on a record. Drizzle infers the
@@ -50,6 +51,35 @@ export type CreateStreamInput = WithCamelAttachments<Omit<InferInsertModel<typeo
 export type UpdateStreamInput = Partial<CreateStreamInput>;
 export type StreamSource = StreamRecord['source'];
 export type StreamStatus = StreamRecord['status'];
+
+// ─── Stream Triage ────────────────────────────────────────────
+
+export type TriagePassRecord = InferSelectModel<typeof triagePasses>;
+export type CreateTriagePassInput = Omit<InferInsertModel<typeof triagePasses>, 'id'>;
+export type TriagePassTrigger = TriagePassRecord['trigger'];
+export type TriagePassStatus = TriagePassRecord['status'];
+
+export type TriageDecisionRecord = InferSelectModel<typeof triageDecisions>;
+export type CreateTriageDecisionInput = Omit<InferInsertModel<typeof triageDecisions>, 'id'>;
+export type TriageDecisionState = TriageDecisionRecord['state'];
+export type TriageActor = TriageDecisionRecord['actor'];
+
+export type StreamLinkRecord = InferSelectModel<typeof streamLinks>;
+export type CreateStreamLinkInput = Omit<InferInsertModel<typeof streamLinks>, 'id'>;
+export type StreamLinkRelation = StreamLinkRecord['relation'];
+
+/** A stream link joined with its entity's display title, for outcome
+ *  annotations ("Added to Onboarding UX") without a per-item fetch. */
+export interface StreamOutcome {
+  entityType: 'task' | 'note';
+  entityId: string;
+  relation: StreamLinkRelation;
+  entityTitle: string | null;
+  decisionId: string | null;
+}
+
+/** Stream row plus derived outcome annotations for the ledger UI. */
+export type StreamRecordWithOutcomes = StreamRecord & { outcomes: StreamOutcome[] };
 
 // ─── Tasks ────────────────────────────────────────────────────
 

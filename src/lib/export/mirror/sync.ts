@@ -14,9 +14,10 @@ import {
   notes as notesTbl,
   areas as areasTbl,
   stream as streamTbl,
+  streamLinks as streamLinksTbl,
 } from '@/lib/db/schema';
 import { hydrateRow } from '@/lib/db/hydrate';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type {
   TaskRecord,
   NoteRecord,
@@ -141,10 +142,13 @@ function expandCascades(ctx: MutationContext): MutationContext {
 
   for (const [type, id] of ctx.entries()) {
     if (type === 'stream') {
-      const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
-      if (row?.promotedToType === 'note' && row.promotedToId) {
-        out.add('note', row.promotedToId);
-      }
+      // A capture's derived entities render Sources sections from it.
+      const links = db
+        .select({ entityType: streamLinksTbl.entityType, entityId: streamLinksTbl.entityId })
+        .from(streamLinksTbl)
+        .where(eq(streamLinksTbl.streamId, id))
+        .all();
+      for (const l of links) out.add(l.entityType, l.entityId);
       continue;
     }
 
@@ -161,26 +165,27 @@ function expandCascades(ctx: MutationContext): MutationContext {
       out.addMany('task', childTasks.map((r) => r.id));
       const refNotes = db.select({ id: notesTbl.id }).from(notesTbl).where(eq(notesTbl.taskId, id)).all();
       out.addMany('note', refNotes.map((r) => r.id));
-      const refStreams = db
-        .select({ id: streamTbl.id })
-        .from(streamTbl)
-        .where(and(eq(streamTbl.promotedToId, id), eq(streamTbl.promotedToType, 'task')))
-        .all();
-      out.addMany('stream', refStreams.map((r) => r.id));
+      out.addMany('stream', linkedStreamIds(db, 'task', id));
       continue;
     }
 
     if (type === 'note') {
-      const refStreams = db
-        .select({ id: streamTbl.id })
-        .from(streamTbl)
-        .where(and(eq(streamTbl.promotedToId, id), eq(streamTbl.promotedToType, 'note')))
-        .all();
-      out.addMany('stream', refStreams.map((r) => r.id));
+      out.addMany('stream', linkedStreamIds(db, 'note', id));
       continue;
     }
   }
   return out;
+}
+
+/** Captures linked to an entity (its outcome links reference the entity's
+ *  current slug, so a rename must rewrite them). */
+function linkedStreamIds(db: ReturnType<typeof getDb>, entityType: 'task' | 'note', entityId: string): string[] {
+  return db
+    .select({ id: streamLinksTbl.streamId })
+    .from(streamLinksTbl)
+    .where(and(eq(streamLinksTbl.entityType, entityType), eq(streamLinksTbl.entityId, entityId)))
+    .all()
+    .map((r) => r.id);
 }
 
 async function syncOne(type: EntityType, id: string): Promise<void> {
@@ -266,6 +271,30 @@ function createLinkResolver(): LinkResolver {
 
 // ─── Per-type writers (with denorm lookups) ─────────────────────
 
+/**
+ * Captures an entity derives from, via stream_links (the many-to-many
+ * provenance source of truth). Queried directly — this module can't import
+ * queries.ts (it would close an import cycle: queries → mirror → queries).
+ */
+function mirrorStreamSources(entityType: 'task' | 'note', entityId: string): StreamRecord[] {
+  const db = getDb();
+  const rows = db
+    .select({ s: streamTbl })
+    .from(streamLinksTbl)
+    .innerJoin(streamTbl, eq(streamTbl.id, streamLinksTbl.streamId))
+    .where(and(eq(streamLinksTbl.entityType, entityType), eq(streamLinksTbl.entityId, entityId)))
+    .orderBy(asc(streamLinksTbl.createdAt))
+    .all();
+  const seen = new Set<string>();
+  const out: StreamRecord[] = [];
+  for (const r of rows) {
+    if (seen.has(r.s.id)) continue;
+    seen.add(r.s.id);
+    out.push(hydrateRow(r.s));
+  }
+  return out;
+}
+
 export async function writeTask(task: TaskRecord): Promise<void> {
   const db = getDb();
   const area = task.areaId
@@ -278,6 +307,7 @@ export async function writeTask(task: TaskRecord): Promise<void> {
   const { filename, content } = renderTask(task, {
     areaName: area?.name ?? null,
     parentTitle: parent?.title ?? null,
+    sources: mirrorStreamSources('task', task.id),
     links: createLinkResolver(),
   });
 
@@ -297,25 +327,11 @@ export async function writeNote(note: NoteRecord): Promise<void> {
     ? db.select().from(tasksTbl).where(eq(tasksTbl.id, note.taskId)).get()
     : undefined;
 
-  // Streams promoted into this note — their rawText becomes the Sources section.
-  // Only `promoted` streams count; later-dismissed ones would be misleading to show.
-  const sources = db
-    .select()
-    .from(streamTbl)
-    .where(
-      and(
-        eq(streamTbl.promotedToId, note.id),
-        eq(streamTbl.promotedToType, 'note'),
-        eq(streamTbl.status, 'promoted'),
-      ),
-    )
-    .all()
-    .map((r) => hydrateRow(r));
-
   const { filename, content } = renderNote(note, {
     areaName: area?.name ?? null,
     taskTitle: task?.title ?? null,
-    sources,
+    // Captures merged/promoted into this note, via stream_links.
+    sources: mirrorStreamSources('note', note.id),
     links: createLinkResolver(),
   });
 
@@ -338,19 +354,22 @@ export async function writeArea(area: AreaRecord): Promise<void> {
 
 export async function writeStream(s: StreamRecord): Promise<void> {
   const db = getDb();
-  let promotedToTitle: string | null = null;
-  if (s.promotedToId && s.promotedToType) {
-    if (s.promotedToType === 'note') {
-      const n = db.select().from(notesTbl).where(eq(notesTbl.id, s.promotedToId)).get();
-      promotedToTitle = n?.title ?? null;
-    } else if (s.promotedToType === 'task') {
-      const t = db.select().from(tasksTbl).where(eq(tasksTbl.id, s.promotedToId)).get();
-      promotedToTitle = t?.title ?? null;
-    }
-  }
+  // Where this capture went (stream_links, many-to-many), with titles.
+  const outcomes = db
+    .select()
+    .from(streamLinksTbl)
+    .where(eq(streamLinksTbl.streamId, s.id))
+    .all()
+    .map((l) => {
+      const title =
+        l.entityType === 'task'
+          ? db.select({ t: tasksTbl.title }).from(tasksTbl).where(eq(tasksTbl.id, l.entityId)).get()?.t ?? null
+          : db.select({ t: notesTbl.title }).from(notesTbl).where(eq(notesTbl.id, l.entityId)).get()?.t ?? null;
+      return { entityType: l.entityType, entityId: l.entityId, relation: l.relation, title };
+    });
 
   const { filename, content } = renderStream(s, {
-    promotedToTitle,
+    outcomes,
     links: createLinkResolver(),
   });
 

@@ -153,10 +153,19 @@ function buildFrontmatter(fields: Record<string, unknown>): string {
 export interface RenderTaskOpts {
   areaName?: string | null;
   parentTitle?: string | null;
+  /** Stream items this task was created/merged from. Rendered as a Sources
+   *  section, matching notes — provenance is bidirectional everywhere. */
+  sources?: StreamRecord[];
   links?: LinkResolver;
 }
 
 export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filename: string; content: string } {
+  const sources = opts.sources ?? [];
+  const sourceIds = sources.map((s) => s.id);
+  const sourceLinks = opts.links
+    ? sources.map((s) => opts.links!.linkFor('stream', s.id)).filter((x): x is string => x !== null).map((p) => `[[${p}]]`)
+    : [];
+
   const frontmatter = buildFrontmatter({
     id: task.id,
     type: 'task',
@@ -185,6 +194,8 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
     outcome: task.outcome,
     timesDeferred: task.timesDeferred || null,
     lastProgressAt: task.lastProgressAt,
+    sources: sourceLinks.length > 0 ? sourceLinks : null,
+    sourceIds: sourceIds.length > 0 ? sourceIds : null,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     completedAt: task.completedAt,
@@ -199,11 +210,26 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
   if (description) parts.push('', description);
   if (body) parts.push('', body);
   if (userContext) parts.push('', '## Context', '', userContext);
+  parts.push(...renderSourcesSection(sources, opts.links));
 
   return {
     filename: mirrorFilename(task.title, task.id),
-    content: parts.join('\n') + '\n',
+    content: parts.join('\n').replace(/\n+$/, '') + '\n',
   };
+}
+
+/** Shared Sources section: the raw captures an entity derives from. */
+function renderSourcesSection(sources: StreamRecord[], links?: LinkResolver): string[] {
+  if (sources.length === 0) return [];
+  const parts: string[] = ['', '## Sources', ''];
+  for (const s of sources) {
+    const heading = streamSourceHeading(s, links);
+    parts.push(`### ${heading}`);
+    const rawText = rewriteAttachmentsForMirror(s.rawText ?? '');
+    const quoted = rawText.split('\n').map((line) => `> ${line}`).join('\n');
+    parts.push('', quoted, '');
+  }
+  return parts;
 }
 
 // ─── Note → Markdown ─────────────────────────────────────────
@@ -248,17 +274,7 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
   if (note.title) parts.push('', `# ${note.title}`);
   const body = rewriteAttachmentsForMirror(note.body ?? '').trim();
   if (body) parts.push('', body);
-
-  if (sources.length > 0) {
-    parts.push('', '## Sources', '');
-    for (const s of sources) {
-      const heading = streamSourceHeading(s, opts.links);
-      parts.push(`### ${heading}`);
-      const rawText = rewriteAttachmentsForMirror(s.rawText ?? '');
-      const quoted = rawText.split('\n').map((line) => `> ${line}`).join('\n');
-      parts.push('', quoted, '');
-    }
-  }
+  parts.push(...renderSourcesSection(sources, opts.links));
 
   return {
     filename: mirrorFilename(note.title, note.id),
@@ -316,29 +332,36 @@ export function renderArea(area: AreaRecord, _opts: RenderAreaOpts = {}): { file
 
 // ─── Stream → Markdown ───────────────────────────────────────
 
+export interface RenderStreamOutcome {
+  entityType: 'task' | 'note';
+  entityId: string;
+  relation: string;
+  title: string | null;
+}
+
 export interface RenderStreamOpts {
-  /** Title of the entity this stream was promoted into (if any), for readability. */
-  promotedToTitle?: string | null;
+  /** Entities this capture produced or joined (via stream_links) — the
+   *  many-to-many provenance, rendered as wiki links. */
+  outcomes?: RenderStreamOutcome[];
   links?: LinkResolver;
 }
 
 export function renderStream(s: StreamRecord, opts: RenderStreamOpts = {}): { filename: string; content: string } {
-  const promotedLink =
-    s.promotedToType && s.promotedToId
-      ? wikiLink(opts.links, s.promotedToType as EntityType, s.promotedToId)
-      : null;
+  const outcomes = opts.outcomes ?? [];
+  const outcomeLinks = outcomes
+    .map((o) => wikiLink(opts.links, o.entityType as EntityType, o.entityId))
+    .filter((x): x is string => x !== null);
 
   const frontmatter = buildFrontmatter({
     id: s.id,
     type: 'stream',
     source: s.source,
     status: s.status,
-    promotedTo: promotedLink,
-    promotedToType: s.promotedToType,
-    promotedToId: s.promotedToId,
-    promotedToTitle: opts.promotedToTitle ?? null,
-    promotedAt: s.promotedAt,
+    outcomes: outcomeLinks.length > 0 ? outcomeLinks : null,
+    outcomeIds: outcomes.length > 0 ? outcomes.map((o) => `${o.entityType}:${o.entityId}`) : null,
+    outcomeTitles: outcomes.length > 0 ? outcomes.map((o) => o.title ?? o.entityType) : null,
     dismissedBy: s.dismissedBy,
+    resurfaceAt: s.resurfaceAt,
     attachments: attachmentsForFrontmatter(s.attachments),
     createdAt: s.createdAt,
     managedBy: APP_SHORT_ID,

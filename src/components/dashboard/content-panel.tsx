@@ -20,7 +20,7 @@ import { TaskList } from '@/components/tasks/task-list';
 import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
-import { usePendingStreamCount } from '@/hooks/use-stream';
+import { useNeedsYourCall } from '@/hooks/use-stream';
 import {
   Conversation,
   ConversationContent,
@@ -974,7 +974,7 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
   const moreRef = useRef<HTMLDivElement>(null);
 
   const isMoreTab = MORE_TAB_IDS.has(activeTab);
-  const pendingStreamCount = usePendingStreamCount();
+  const needsYourCall = useNeedsYourCall();
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -1011,10 +1011,11 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
               )}
             >
               {tab.label}
-              {tab.id === 'stream' && pendingStreamCount >= 3 && (
-                <span className="ml-1.5 text-[8.5px] text-muted-foreground/60 font-mono">
-                  {pendingStreamCount}
-                </span>
+              {tab.id === 'stream' && needsYourCall && (
+                <span
+                  className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-primary/70 align-middle"
+                  aria-label="Something needs your call"
+                />
               )}
             </button>
           ))}

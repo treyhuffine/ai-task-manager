@@ -16,6 +16,15 @@
 export const RESERVED_TRIGGER_IDS = {
   /** Overnight deck pre-bake. Owned by src/lib/deck/trigger.ts. */
   morningDeck: '00000000-0000-0000-0000-000000000001',
+  /** Rolling-debounce stream sweep — the capture path bumps its runAt.
+   *  Owned by src/lib/stream-triage/triggers.ts. */
+  streamSweepDebounce: '00000000-0000-0000-0000-000000000002',
+  /** Morning stream triage, before the deck pre-bake so the deck sees
+   *  fresh triage output. Owned by src/lib/stream-triage/triggers.ts. */
+  morningStreamSweep: '00000000-0000-0000-0000-000000000003',
+  /** Weekly stream meta-digest (acceptance stats + graduation offers).
+   *  Owned by src/lib/stream-triage/triggers.ts. */
+  weeklyStreamDigest: '00000000-0000-0000-0000-000000000004',
 } as const;
 
 export type ReservedTriggerId =

@@ -1,4 +1,6 @@
-# Eon Roadmap
+# Eon Roadmap (historical)
+
+> HISTORICAL: this is the original pre-pivot roadmap (Eon era: Mastra, repositories, `~/.eon/`). The architecture it describes was superseded by the current app (orchestrator registry, executions, agentex harness). Current direction lives in `philosophy-and-vision.md`, team plan in `team-product-direction.md`. Kept because several ideas here (radar, avoidance detection, temporal memory, USER.md learning, import agent) remain good candidates for the Triage and Learn stages of the loop.
 
 A condensed view of what we're building and when. See `prd.md` for full details.
 

@@ -6,10 +6,12 @@ import {
   createExecutionChat,
   setExecutionLabel,
   updateUserState,
+  ensureAgentHarnessSettings,
 } from '@/lib/db/queries';
 import { providerIdForHarness, type ProviderId } from '@/lib/agent-options';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { resolveAgentSelection } from '@/lib/agent-model-discovery';
+import { isHarnessId } from '@/lib/agents/registry';
 
 /**
  * Start a fresh chat against the SAME execution as `:id` — a new conversation
@@ -26,13 +28,15 @@ import { resolveAgentSelection } from '@/lib/agent-model-discovery';
 interface ChatOverride {
   providerId?: ProviderId;
   model?: string;
+  variant?: string;
   effort?: EffortLevel;
 }
 
-function parseOverride(src: { providerId?: unknown; model?: unknown; effort?: unknown }): ChatOverride {
+function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown }): ChatOverride {
   const out: ChatOverride = {};
-  if (src.providerId === 'claude' || src.providerId === 'codex') out.providerId = src.providerId;
+  if (isHarnessId(src.providerId)) out.providerId = src.providerId;
   if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
+  if (typeof src.variant === 'string' && src.variant.trim()) out.variant = src.variant.trim();
   if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
     out.effort = src.effort as EffortLevel;
   }
@@ -50,6 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const override = parseOverride((body ?? {}) as {
     providerId?: unknown;
     model?: unknown;
+    variant?: unknown;
     effort?: unknown;
   });
 
@@ -66,10 +71,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const currentHarness = getAgent(current.agentId)?.harness ?? 'claude_code';
     const providerId = override.providerId ?? providerIdForHarness(currentHarness);
     const switchingProvider = providerId !== providerIdForHarness(currentHarness);
+    const harnessSettings = ensureAgentHarnessSettings(providerId);
+    const requestedModel = override.model
+      ?? (switchingProvider ? harnessSettings.defaultModel : current.model);
     const selection = await resolveAgentSelection(providerId, {
-      model: override.model ?? (switchingProvider ? null : current.model),
-      effort: override.effort ?? (switchingProvider ? null : current.effort),
-    });
+      model: requestedModel,
+      variant: override.variant
+        ?? (switchingProvider && requestedModel === harnessSettings.defaultModel
+          ? harnessSettings.defaultVariant
+          : current.modelVariant),
+      effort: override.effort
+        ?? (switchingProvider ? harnessSettings.defaultEffort : current.effort),
+    }, { cwd: current.worktreePath ?? undefined, repairInvalidModel: override.model === undefined });
 
     // The execution's title is what the header shows and must survive this
     // chat rollover. New executions carry it on the execution row, but legacy
@@ -91,6 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       executionId: current.executionId,
       harness: selection.harness,
       model: selection.model,
+      modelVariant: selection.variant,
       effort: selection.effort,
     });
     if (!session) return Response.json({ error: 'Execution not found' }, { status: 404 });

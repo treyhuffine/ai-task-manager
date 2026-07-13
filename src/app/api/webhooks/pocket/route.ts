@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createStream, findStreamByExternalId } from '@/lib/db/queries';
+import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 
 export const runtime = 'nodejs';
 
@@ -134,6 +135,7 @@ export async function POST(request: NextRequest) {
     externalPayload: bodyText,
     status: 'pending',
   });
+  onStreamCaptured(row.id);
 
   return NextResponse.json({ ok: true, item_id: row.id }, { status: 201 });
 }

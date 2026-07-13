@@ -5,6 +5,8 @@ import type { WizardState } from './types';
 const HARNESS_LABEL: Record<WizardState['agentHarness'], string> = {
   claude: 'Claude Code',
   codex: 'Codex',
+  cursor: 'Cursor',
+  opencode: 'OpenCode',
 };
 
 function agentAuthSummary(state: WizardState): string {

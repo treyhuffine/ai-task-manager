@@ -72,7 +72,7 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
   const newChat = useMutation({
     // Optional provider/model = the composer's "switch provider" → fresh chat
     // on the chosen provider. No args (void) = a plain new chat on the default.
-    mutationFn: (opts: { providerId?: ProviderId; model?: string; effort?: EffortLevel } | void) =>
+    mutationFn: (opts: { providerId?: ProviderId; model?: string; variant?: string; effort?: EffortLevel } | void) =>
       api.post<DocumentChatResponse>('/document-chat', {
         entityType: documentType,
         entityId,
@@ -291,6 +291,7 @@ function ChatBody({
         onSwitchProvider={(next) => chat.newChat.mutate({
           providerId: next.harness,
           model: next.model,
+          variant: next.variant,
           effort: next.effort,
         })}
         switchingProvider={chat.newChat.isPending}

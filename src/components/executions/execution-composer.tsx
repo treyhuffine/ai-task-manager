@@ -24,7 +24,7 @@ import {
 import { buildRecallHistory } from '@/components/chat/editor/history-recall';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
-import { PERMISSION_MODE_META, nextPermissionMode } from '@/lib/permission-modes';
+import { PERMISSION_MODE_META } from '@/lib/permission-modes';
 import {
   PERMISSION_MODES,
   type PermissionMode,
@@ -35,6 +35,7 @@ import {
   EFFORT_OPTIONS,
   explicitEffortForModel,
   explicitModelForProvider,
+  explicitVariantForModel,
   effortOptionsForModel,
   harnessSupportsEffort,
   providerHarnessKey,
@@ -50,6 +51,7 @@ import {
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
 import { useSlashCommands } from '@/hooks/use-slash-commands';
+import { useAgentHarnesses } from '@/hooks/use-agent-harnesses';
 import type {
   FileMentionItem,
   TaskMentionItem,
@@ -94,6 +96,8 @@ interface ExecutionComposerProps {
   permissionMode: PermissionMode;
   /** Per-session model id. Null is accepted only for legacy rows and repaired. */
   model: string | null;
+  /** Provider-native variant, separate from reasoning effort. */
+  modelVariant?: string | null;
   /** Per-session effort. Null is accepted only for legacy rows and repaired. */
   effort: EffortLevel | null;
   /** Agent harness, used to choose the model catalog and supported controls. */
@@ -134,7 +138,7 @@ interface ExecutionComposerProps {
    * don't support switching provider (executions keep the model-only picker).
    */
   onSwitchProvider?: (
-    next: { harness: ProviderId; model: string; effort: EffortLevel },
+    next: { harness: ProviderId; model: string; variant?: string; effort?: EffortLevel },
     draft: EditorSnapshot | null,
   ) => void;
   /** A provider switch (new chat) is in flight. */
@@ -160,6 +164,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       sessionId,
       permissionMode,
       model,
+      modelVariant,
       effort,
       harness,
       disabled,
@@ -181,6 +186,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const [modeMenuOpen, setModeMenuOpen] = useState(false);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
     const [effortMenuOpen, setEffortMenuOpen] = useState(false);
+    const [variantMenuOpen, setVariantMenuOpen] = useState(false);
     const [editorFocused, setEditorFocused] = useState(false);
     const editorRef = useRef<ChatInputEditorHandle | null>(null);
 
@@ -325,6 +331,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       ? mapHarnessToProvider(harness) as ProviderId
       : null;
     const { models: harnessModels } = useAgentModels(providerId);
+    const harnesses = useAgentHarnesses();
     const pinnedModelOption = explicitModelForProvider(
       providerId ?? 'claude',
       model,
@@ -332,6 +339,22 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     );
     const explicitModel = pinnedModelOption.id;
     const displayModelLabel = pinnedModelOption.label;
+    const variants = pinnedModelOption.variants?.filter((variant) => !variant.disabled) ?? [];
+    const explicitVariant = explicitVariantForModel(pinnedModelOption, modelVariant);
+    const runtime = harnesses.data?.harnesses.find((entry) => entry.id === providerId)?.runtime;
+    const canChangeModel = runtime?.capabilities.sessionModelChange.supported ?? providerId !== 'cursor';
+    const canChangeVariant = runtime?.capabilities.sessionVariantChange.supported ?? providerId === 'opencode';
+    const supportedPermissionModes = useMemo<PermissionMode[]>(() => {
+      if (providerId === 'cursor') {
+        return runtime?.capabilities.planMode.supported ? ['bypass', 'plan'] : ['bypass'];
+      }
+      if (providerId === 'opencode') {
+        return runtime?.capabilities.planMode.supported
+          ? ['bypass', 'default', 'plan']
+          : ['bypass', 'default'];
+      }
+      return [...PERMISSION_MODES];
+    }, [providerId, runtime?.capabilities.planMode.supported]);
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOptions = effortOptionsForModel(harness, pinnedModelOption);
     const explicitEffort = explicitEffortForModel(
@@ -349,8 +372,10 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     );
 
     const cycleMode = useCallback(() => {
-      setPermissionMode(nextPermissionMode(permissionMode));
-    }, [permissionMode, setPermissionMode]);
+      const currentIndex = supportedPermissionModes.indexOf(permissionMode);
+      const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % supportedPermissionModes.length;
+      setPermissionMode(supportedPermissionModes[nextIndex]!);
+    }, [permissionMode, setPermissionMode, supportedPermissionModes]);
 
     // The session PATCH also stores this provider-bound tuple as the user's
     // next-chat preference on the server.
@@ -367,11 +392,35 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         nextModel,
         explicitEffort,
       );
+      if (!canChangeModel && onSwitchProvider && providerId) {
+        onSwitchProvider({
+          harness: providerId,
+          model: nextModel.id,
+          ...(explicitVariantForModel(nextModel, null) ? { variant: explicitVariantForModel(nextModel, null)! } : {}),
+          ...(harnessSupportsEffort(providerHarnessKey(providerId)) ? { effort: nextEffort } : {}),
+        }, editorRef.current?.snapshot() ?? null);
+        return;
+      }
       updateSession.mutate({
         id: sessionId,
         model: nextModel.id,
         effort: nextEffort,
       });
+    };
+
+    const setVariant = (variant: string) => {
+      setVariantMenuOpen(false);
+      if (variant === explicitVariant) return;
+      if (!canChangeVariant && onSwitchProvider && providerId) {
+        onSwitchProvider({
+          harness: providerId,
+          model: explicitModel,
+          variant,
+          ...(harnessSupportsEffort(providerHarnessKey(providerId)) ? { effort: explicitEffort } : {}),
+        }, editorRef.current?.snapshot() ?? null);
+        return;
+      }
+      updateSession.mutate({ id: sessionId, modelVariant: variant });
     };
 
     const setEffort = (level: EffortLevel) => {
@@ -641,6 +690,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     open={modeMenuOpen}
                     onOpenChange={setModeMenuOpen}
                     current={permissionMode}
+                    options={supportedPermissionModes}
                     onSelect={setMode}
                     disabled={updateSession.isPending}
                   />
@@ -659,6 +709,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       onSwitchProvider={(next) => {
                         onSwitchProvider(next, editorRef.current?.snapshot() ?? null);
                       }}
+                      canChangeModel={canChangeModel}
                       switching={switchingProvider}
                       disabled={updateSession.isPending}
                     />
@@ -674,6 +725,22 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                         disabled={updateSession.isPending}
                       />
                     )
+                  )}
+
+                  {variants.length > 0 && (
+                    <ModelPicker
+                      open={variantMenuOpen}
+                      onOpenChange={setVariantMenuOpen}
+                      options={variants.map((variant) => ({
+                        id: variant.id,
+                        label: variant.name,
+                        hint: variant.description,
+                      }))}
+                      pinnedId={explicitVariant ?? variants[0]!.id}
+                      fallbackLabel={variants.find((variant) => variant.id === explicitVariant)?.name ?? 'Default'}
+                      onSelect={setVariant}
+                      disabled={updateSession.isPending}
+                    />
                   )}
 
                   {showEffort && (
@@ -823,11 +890,12 @@ interface ModePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   current: PermissionMode;
+  options: PermissionMode[];
   onSelect: (mode: PermissionMode) => void;
   disabled?: boolean;
 }
 
-function ModePicker({ open, onOpenChange, current, onSelect, disabled }: ModePickerProps) {
+function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }: ModePickerProps) {
   const meta = PERMISSION_MODE_META[current];
   const Icon = meta.Icon;
   return (
@@ -853,7 +921,7 @@ function ModePicker({ open, onOpenChange, current, onSelect, disabled }: ModePic
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
           Permission mode
         </div>
-        {PERMISSION_MODES.map((m) => {
+        {options.map((m) => {
           const mm = PERMISSION_MODE_META[m];
           const ItemIcon = mm.Icon;
           const active = m === current;

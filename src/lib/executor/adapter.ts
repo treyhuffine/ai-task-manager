@@ -35,6 +35,7 @@ import { uuidv7 } from 'uuidv7';
 import { getProvider, commandInventoryFromEvent } from '@agentex/agent';
 import type {
   AgentSession,
+  ProviderConfig,
   StreamEvent,
   UserInputRequest,
   UserInputResponse,
@@ -85,8 +86,12 @@ import {
 } from '@/lib/db/queries';
 import { notifyNeedsInput, notifyRunTerminal } from '@/lib/notifications/emit';
 import { budgetGate } from '@/lib/runs/budget';
-import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
+import { explicitAgentSelection, providerIdForHarness, type ProviderId } from '@/lib/agent-options';
 import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
+import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/agents/runtime';
+import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
+import { redactAgentRuntimeValue } from '@/lib/agents/redaction';
+import { isHarnessEnabled } from '@/lib/agents/registry';
 
 // ─── Public errors ────────────────────────────────────────────
 
@@ -356,16 +361,42 @@ export async function dispatch(
   const agent = getAgent(session.agentId);
   if (!agent) throw new ExecutorError('not_found', `Agent not found: ${session.agentId}`);
 
-  // Final provider-boundary guard. It repairs nullable legacy sessions and
-  // rejects cross-provider state before config reaches agentex, even if a row
-  // was inserted outside the normal creation APIs.
+  const cwd = resolveCwd(session);
+  if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
+
+  // Final provider-boundary guard. Live discovery is authoritative for new
+  // sends. Historical unavailable selections remain readable, but a missing
+  // or disconnected model cannot silently fall through to another model.
+  const providerId = providerIdForHarness(agent.harness);
+  if (!isHarnessEnabled(providerId)) {
+    throw new ExecutorError('unsupported', `${providerId} is disabled by the rollout configuration`);
+  }
+  const catalog = await getAgentModelCatalog(providerId, { cwd });
+  if (session.model && !catalog.some((model) => model.id === session.model)) {
+    throw new ExecutorError(
+      'invalid_state',
+      `Model ${session.model} is unavailable. Reconnect the provider or choose another enabled model.`,
+    );
+  }
   const selection = explicitAgentSelection(
-    providerIdForHarness(agent.harness),
-    { model: session.model, effort: session.effort },
+    providerId,
+    { model: session.model, variant: session.modelVariant, effort: session.effort },
+    catalog,
   );
-  if (selection.model !== session.model || selection.effort !== session.effort) {
+  if (session.modelVariant && selection.variant !== session.modelVariant) {
+    throw new ExecutorError(
+      'invalid_state',
+      `Variant ${session.modelVariant} is unavailable for model ${selection.model}.`,
+    );
+  }
+  if (
+    selection.model !== session.model
+    || selection.variant !== session.modelVariant
+    || selection.effort !== session.effort
+  ) {
     updateChatSession(session.id, {
       model: selection.model,
+      modelVariant: selection.variant,
       effort: selection.effort,
     });
   }
@@ -383,9 +414,6 @@ export async function dispatch(
       });
     }
   }
-
-  const cwd = resolveCwd(session);
-  if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
 
   // Budget guard. Manual sends past the monthly ceiling require an
   // explicit `overBudget: true` from the UI's confirmation prompt.
@@ -417,9 +445,15 @@ export async function dispatch(
   // never taken today. It's here so a future non-concurrent provider
   // can opt out of overlap without us having to thread a separate
   // flag through the route layer.
-  const provider = getProvider(mapHarnessToProvider(agent.harness));
+  const runtime = await getHarnessRuntime(selection.providerId, { cwd });
+  if (!runtime.capabilities.sessions.supported) {
+    throw new ExecutorError(
+      'unsupported',
+      runtime.capabilities.sessions.reason ?? `${selection.providerId} sessions are unavailable`,
+    );
+  }
   if (
-    !provider.capabilities.concurrentSend &&
+    !runtime.capabilities.concurrentSend.supported &&
     inflightCount.has(chatSessionId)
   ) {
     throw new ExecutorError(
@@ -464,6 +498,7 @@ export async function dispatch(
       existingExternalSessionId: session.externalSessionId,
       permissionMode: session.permissionMode,
       model: selection.model,
+      modelVariant: selection.variant,
       effort: selection.effort,
       writer,
     });
@@ -567,6 +602,26 @@ export async function recycleWorkspaceSessions(workspaceId: string): Promise<voi
   await Promise.all(sessions.map((s) => recycleForModeChange(s.id)));
 }
 
+/**
+ * Close every app-cached session for one harness after its credential store
+ * changes. Agentex retires its runtime generation, while this clears handles
+ * that captured the old environment or retired OpenCode server.
+ */
+export async function recycleHarnessSessions(harness: ProviderId): Promise<void> {
+  const affected: string[] = [];
+  for (const sessionId of agentSessions.keys()) {
+    const session = getChatSession(sessionId);
+    const agent = session ? getAgent(session.agentId) : null;
+    if (!agent) continue;
+    try {
+      if (providerIdForHarness(agent.harness) === harness) affected.push(sessionId);
+    } catch {
+      // Unknown historical harness rows are unrelated to this credential.
+    }
+  }
+  await Promise.all(affected.map((sessionId) => close(sessionId)));
+}
+
 export async function recycleForModeChange(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   if (!handle) return;
@@ -600,6 +655,7 @@ interface EnsureArgs {
   existingExternalSessionId: string | null;
   permissionMode: PermissionMode;
   model: string | null;
+  modelVariant: string | null;
   effort: EffortLevel | null;
   writer: EventWriter;
 }
@@ -639,12 +695,35 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // Build the agentex ProviderConfig from session-level overrides. Each
   // field falls back to the harness default when unset, so a fresh
   // session with all-null overrides produces no extra CLI flags.
-  const claudeMode = claudePermissionFlag(args.permissionMode);
-  const config: Record<string, unknown> = {};
+  const harness = providerIdForHarness(args.harness);
+  const [runtimeContext, runtime] = await Promise.all([
+    runtimeContextForHarness(harness, { cwd: args.cwd }),
+    getHarnessRuntime(harness, { cwd: args.cwd }),
+  ]);
+  if (!runtime.capabilities.sessions.supported) {
+    throw new ExecutorError(
+      'unsupported',
+      runtime.capabilities.sessions.reason ?? `${providerType} sessions are unavailable`,
+    );
+  }
+  const claudeMode = providerType === 'claude' && args.permissionMode !== 'plan'
+    ? claudePermissionFlag(args.permissionMode)
+    : null;
+  const config: ProviderConfig = {
+    ...runtimeContext.config,
+    unattendedPermissionPolicy: 'deny',
+    ...(args.permissionMode === 'bypass' ? { skipPermissions: true } : {}),
+  };
   const extraArgs: string[] = [];
   if (claudeMode) extraArgs.push('--permission-mode', claudeMode);
   if (args.model) config.model = args.model;
-  if (args.effort) config.effort = args.effort;
+  if (args.modelVariant && runtime.capabilities.modelVariants.supported) {
+    config.modelVariant = args.modelVariant;
+  }
+  if (args.effort && runtime.capabilities.reasoningEffort.supported) config.effort = args.effort;
+  if (args.permissionMode === 'plan' && runtime.capabilities.planMode.supported) {
+    config.planMode = true;
+  }
 
   // Orchestration sessions run in the app data root and act through the
   // typed action surface. Install/refresh the on-disk brief (CLAUDE.md /
@@ -693,7 +772,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // workspace-scoped connectors endpoint when the workspace opted in — but ONLY on a harness that
   // actually enforces strict MCP (Claude Code today; Codex ignores these fields). See spec §3/§6c.
   if (args.sessionType === 'execution') {
-    if (providerType === 'claude') {
+    if (runtime.capabilities.strictMcpIsolation.supported) {
       config.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
       const scopes = args.workspaceId ? getWorkspace(args.workspaceId)?.connectorScopes ?? [] : [];
       if (scopes.length > 0 && args.workspaceId) {
@@ -740,6 +819,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
 
   const handle = await provider.createSession({
     cwd: args.cwd,
+    env: runtimeContext.env,
     sessionParams: args.existingExternalSessionId
       ? { sessionId: args.existingExternalSessionId }
       : undefined,
@@ -747,21 +827,29 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
     onUserInputRequest: (req) => handleUserInputRequest(args.chatSessionId, args.writer, req),
     onEvent: async (event) => {
       try {
-        _recordSessionInventory(args.chatSessionId, event);
-        await persistStreamEvent(args.chatSessionId, event, args.writer);
-        capturePromotedSessionId(args.chatSessionId, event);
+        const safeEvent = redactAgentRuntimeValue(event);
+        _recordSessionInventory(args.chatSessionId, safeEvent);
+        await persistStreamEvent(args.chatSessionId, safeEvent, args.writer);
+        capturePromotedSessionId(args.chatSessionId, safeEvent);
         // Run telemetry: cost capture (#13), artifact accumulation (#14),
         // summary extraction (#15). No-op when there's no active run
         // registered for this chat — the manual-dispatch path registers
         // one before sending, scheduled dispatches do it via the
         // dispatcher wrapper.
-        await handleRunStreamEventSafe(args.chatSessionId, event);
+        await handleRunStreamEventSafe(args.chatSessionId, safeEvent);
       } catch (err) {
         // One bad event shouldn't crash the whole turn — log and keep going.
         console.error(`[executor] failed to persist event for ${args.chatSessionId}:`, err);
       }
     },
   });
+
+  // Service-backed providers can assign their session id before emitting any
+  // stream event. Persist it immediately so a host crash during the first turn
+  // still leaves enough identity for durable history recovery.
+  const record = handle.describeHistory?.() ?? handle.describe?.();
+  const promotedId = typeof record?.params.sessionId === 'string' ? record.params.sessionId : handle.sessionId;
+  if (promotedId) updateChatSession(args.chatSessionId, { externalSessionId: promotedId });
 
   agentSessions.set(args.chatSessionId, handle);
   return handle;
@@ -985,7 +1073,6 @@ function formatResetTime(iso: string): string {
  * future resumes work.
  */
 function capturePromotedSessionId(chatSessionId: string, event: StreamEvent): void {
-  if (event.type !== 'system') return;
   if (!event.sessionId) return;
   const session = getChatSession(chatSessionId);
   if (!session || session.externalSessionId === event.sessionId) return;
@@ -1020,9 +1107,14 @@ export async function persistStreamEvent(
   event: StreamEvent,
   writer: EventWriter = localEventWriter,
 ): Promise<void> {
-  const row = parseStreamEvent(chatSessionId, event);
+  const safeEvent = redactAgentRuntimeValue(event);
+  const row = parseStreamEvent(chatSessionId, safeEvent);
   if (!row) return;
-  await writer.write(row);
+  const cumulativeOpenCodePart = safeEvent.providerType === 'opencode'
+    && Boolean(safeEvent.eventId)
+    && (safeEvent.type === 'assistant' || safeEvent.type === 'thinking');
+  if (cumulativeOpenCodePart && writer.replacePart) await writer.replacePart(row);
+  else await writer.write(row);
 }
 
 /**
@@ -1045,11 +1137,19 @@ export function parseStreamEvent(
 ): CreateChatEventInput | null {
   const externalEventId = event.eventId ?? uuidv7();
   const createdAt = event.timestamp || new Date().toISOString();
+  const isOpenCodePart = event.providerType === 'opencode' && Boolean(event.eventId);
+  const cumulativeText = isOpenCodePart
+    && event.raw
+    && typeof event.raw === 'object'
+    && typeof (event.raw as Record<string, unknown>).text === 'string'
+    ? (event.raw as Record<string, unknown>).text as string
+    : null;
   const base = {
     sessionId: chatSessionId,
     externalEventId: externalEventId,
     raw: event as unknown as Record<string, unknown>,
     createdAt,
+    ...(isOpenCodePart ? { sourcePartIndex: event.type === 'tool_result' ? 1 : 0 } : {}),
   };
 
   switch (event.type) {
@@ -1065,14 +1165,14 @@ export function parseStreamEvent(
         ...base,
         role: 'assistant',
         source: 'agent' satisfies ChatEventSource,
-        content: event.text ?? null,
+        content: cumulativeText ?? event.text ?? null,
       };
     case 'thinking':
       return {
         ...base,
         role: 'assistant',
         source: 'thinking' satisfies ChatEventSource,
-        content: event.text ?? null,
+        content: cumulativeText ?? event.text ?? null,
       };
     case 'tool_call':
       return {

@@ -1,5 +1,7 @@
 # Team/Enterprise Product Direction
 
+> Operational build plan. The full reasoning, paths considered, and zoomed-out framework live in `philosophy-and-vision.md`.
+
 ## Model
 - **Personal instance** = your AI assistant. Where you live and execute. Pulls in only YOUR tasks from connected sources.
 - **Team instance** = one per company/org. Same codebase, deployed in "team mode." Holds shared state — all tasks, all people, projects, assignment.

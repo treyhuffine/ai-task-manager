@@ -12,11 +12,13 @@
  * insertChatEvent inline: rewriting the executor's inner loop.
  */
 
-import { insertChatEvent } from '@/lib/db/queries';
+import { insertChatEvent, replaceChatEventPart } from '@/lib/db/queries';
 import type { CreateChatEventInput } from '@/db/types';
 
 export interface EventWriter {
   write(event: CreateChatEventInput): Promise<void>;
+  /** Replace one cumulative provider part when the same stable part id advances. */
+  replacePart?(event: CreateChatEventInput): Promise<void>;
 }
 
 /**
@@ -28,5 +30,8 @@ export interface EventWriter {
 export const localEventWriter: EventWriter = {
   async write(event) {
     insertChatEvent(event);
+  },
+  async replacePart(event) {
+    replaceChatEventPart(event);
   },
 };

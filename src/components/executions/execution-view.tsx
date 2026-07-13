@@ -1,5 +1,6 @@
 'use client';
 
+import type { HarnessId } from '@/lib/agents/registry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -91,8 +92,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // the composer's provider switcher), then navigate to it. Provider switch
   // passes { providerId, model }; a plain new chat passes nothing.
   const startNewChat = (opts?: {
-    providerId?: 'claude' | 'codex';
+    providerId?: HarnessId;
     model?: string;
+    variant?: string;
     effort?: EffortLevel;
   }, draft?: EditorSnapshot | null) => {
     newExecutionChat
@@ -110,7 +112,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         }
         setActiveView(r.session.id);
       })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   // Conductor-style auto-resume: opening an archived execution is the
@@ -531,6 +533,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           sessionId={session.id}
           permissionMode={session.permissionMode}
           model={session.model}
+          modelVariant={session.modelVariant}
           effort={session.effort}
           harness={session.agentHarness ?? null}
           disabled={composerDisabled}
@@ -540,6 +543,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           onSwitchProvider={(next, draft) => startNewChat({
             providerId: next.harness,
             model: next.model,
+            variant: next.variant,
             effort: next.effort,
           }, draft)}
           switchingProvider={newExecutionChat.isPending}
@@ -613,162 +617,162 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         />
         <TakeoverBanner session={session} />
         <div className="flex flex-1 min-w-0 min-h-0 relative">
-        <ResizablePanelGroup
-          orientation="horizontal"
-          defaultLayout={horizontal}
-          onLayoutChanged={setHorizontal}
-          className="h-full w-full"
-        >
-          {/* Chat column. Min ~20% (≈360px on a 1800px viewport). The
+          <ResizablePanelGroup
+            orientation="horizontal"
+            defaultLayout={horizontal}
+            onLayoutChanged={setHorizontal}
+            className="h-full w-full"
+          >
+            {/* Chat column. Min ~20% (≈360px on a 1800px viewport). The
               header is hoisted to the full-width row above, so here we
               just render the chat body (transcript + composer). */}
-          <ResizablePanel
-            id={HORIZONTAL_PANEL_IDS.chat}
-            defaultSize={horizontal[HORIZONTAL_PANEL_IDS.chat]}
-            minSize={20}
-          >
-            <div className="flex h-full flex-col min-w-0 bg-background">
-              {/* Desktop: Enter submits (Shift+Enter for a newline). */}
-              {renderChatBody(true)}
-            </div>
-          </ResizablePanel>
+            <ResizablePanel
+              id={HORIZONTAL_PANEL_IDS.chat}
+              defaultSize={horizontal[HORIZONTAL_PANEL_IDS.chat]}
+              minSize={20}
+            >
+              <div className="flex h-full flex-col min-w-0 bg-background">
+                {/* Desktop: Enter submits (Shift+Enter for a newline). */}
+                {renderChatBody(true)}
+              </div>
+            </ResizablePanel>
 
-          <ResizableHandle withHandle />
+            <ResizableHandle withHandle />
 
-          {/* File tree column. Min ~12% (≈200px on a 1800px viewport). */}
-          <ResizablePanel
-            id={HORIZONTAL_PANEL_IDS.tree}
-            defaultSize={horizontal[HORIZONTAL_PANEL_IDS.tree]}
-            minSize={12}
-          >
-            {isSettingUp ? (
-              <SetupPlaceholder
-                variant="tree"
-                animated={!session.setupError}
-                label={
-                  session.setupError
-                    ? 'Setup failed, see chat to retry'
-                    : 'Preparing environment…'
-                }
-              />
-            ) : (
-              <FileTree
-                sessionId={session.id}
-                selectedPath={selectedPath}
-                onSelect={handleFilePicked}
-                worktreePath={session.worktreePath}
-                onReferenceInChat={handleReferenceFileInChat}
-              />
-            )}
-          </ResizablePanel>
+            {/* File tree column. Min ~12% (≈200px on a 1800px viewport). */}
+            <ResizablePanel
+              id={HORIZONTAL_PANEL_IDS.tree}
+              defaultSize={horizontal[HORIZONTAL_PANEL_IDS.tree]}
+              minSize={12}
+            >
+              {isSettingUp ? (
+                <SetupPlaceholder
+                  variant="tree"
+                  animated={!session.setupError}
+                  label={
+                    session.setupError
+                      ? 'Setup failed, see chat to retry'
+                      : 'Preparing environment…'
+                  }
+                />
+              ) : (
+                <FileTree
+                  sessionId={session.id}
+                  selectedPath={selectedPath}
+                  onSelect={handleFilePicked}
+                  worktreePath={session.worktreePath}
+                  onReferenceInChat={handleReferenceFileInChat}
+                />
+              )}
+            </ResizablePanel>
 
-          <ResizableHandle withHandle />
+            <ResizableHandle withHandle />
 
-          {/* Viewer + terminal column. Min ~24% (≈400px on a 1800px viewport).
+            {/* Viewer + terminal column. Min ~24% (≈400px on a 1800px viewport).
               The references / scratchpad overlay (rendered below the
               ResizablePanelGroup) spans tree + this column when open
               so the panes cover everything except the chat. */}
-          <ResizablePanel
-            id={HORIZONTAL_PANEL_IDS.right}
-            defaultSize={horizontal[HORIZONTAL_PANEL_IDS.right]}
-            minSize={24}
-          >
-            <ResizablePanelGroup
-              orientation="vertical"
-              defaultLayout={vertical}
-              onLayoutChanged={handleVerticalLayoutChanged}
-              className="h-full w-full"
+            <ResizablePanel
+              id={HORIZONTAL_PANEL_IDS.right}
+              defaultSize={horizontal[HORIZONTAL_PANEL_IDS.right]}
+              minSize={24}
             >
-              <ResizablePanel
-                id={VERTICAL_PANEL_IDS.viewer}
-                defaultSize={vertical[VERTICAL_PANEL_IDS.viewer]}
-                minSize={15}
+              <ResizablePanelGroup
+                orientation="vertical"
+                defaultLayout={vertical}
+                onLayoutChanged={handleVerticalLayoutChanged}
+                className="h-full w-full"
               >
-                {isSettingUp ? (
-                  <SetupPlaceholder
-                    variant="viewer"
-                    animated={!session.setupError}
-                    label={
-                      session.setupError
-                        ? 'Setup failed, see chat to retry'
-                        : 'Preparing environment…'
-                    }
-                  />
-                ) : (
-                  <ViewerArea
-                    sessionId={session.id}
-                    workspaceId={session.workspaceId ?? null}
-                    executionId={session.executionId ?? null}
-                    selectedPath={selectedPath}
-                    onCloseFile={() => setSelectedPath(null)}
-                    filePickSignal={filePickSignal}
-                    fileHistory={fileHistory}
-                    onReferenceInChat={handleReferenceFileInChat}
-                    active
-                  />
-                )}
-              </ResizablePanel>
+                <ResizablePanel
+                  id={VERTICAL_PANEL_IDS.viewer}
+                  defaultSize={vertical[VERTICAL_PANEL_IDS.viewer]}
+                  minSize={15}
+                >
+                  {isSettingUp ? (
+                    <SetupPlaceholder
+                      variant="viewer"
+                      animated={!session.setupError}
+                      label={
+                        session.setupError
+                          ? 'Setup failed, see chat to retry'
+                          : 'Preparing environment…'
+                      }
+                    />
+                  ) : (
+                    <ViewerArea
+                      sessionId={session.id}
+                      workspaceId={session.workspaceId ?? null}
+                      executionId={session.executionId ?? null}
+                      selectedPath={selectedPath}
+                      onCloseFile={() => setSelectedPath(null)}
+                      filePickSignal={filePickSignal}
+                      fileHistory={fileHistory}
+                      onReferenceInChat={handleReferenceFileInChat}
+                      active
+                    />
+                  )}
+                </ResizablePanel>
 
-              <ResizableHandle withHandle />
+                <ResizableHandle withHandle />
 
-              <ResizablePanel
-                id={VERTICAL_PANEL_IDS.terminal}
-                panelRef={terminalPanelRef}
-                defaultSize={vertical[VERTICAL_PANEL_IDS.terminal]}
-                minSize="32px"
-                onResize={(size) => {
-                  // 32px = the tab strip; anything under ~40px reads as
-                  // "collapsed". Pixel-based so a short right column
-                  // can't collapse below the strip's visible height.
-                  setTerminalCollapsed(size.inPixels <= 40);
-                }}
-              >
-                {session.workspaceId && (
-                  <ExecutionTerminalPanel
-                    sessionId={session.id}
-                    disabled={terminalNotReady}
-                    disabledReason={terminalNotReady ? 'Setting up worktree…' : undefined}
-                    collapsed={terminalCollapsed}
-                    onToggleCollapsed={handleToggleTerminal}
-                  />
-                )}
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+                <ResizablePanel
+                  id={VERTICAL_PANEL_IDS.terminal}
+                  panelRef={terminalPanelRef}
+                  defaultSize={vertical[VERTICAL_PANEL_IDS.terminal]}
+                  minSize="32px"
+                  onResize={(size) => {
+                    // 32px = the tab strip; anything under ~40px reads as
+                    // "collapsed". Pixel-based so a short right column
+                    // can't collapse below the strip's visible height.
+                    setTerminalCollapsed(size.inPixels <= 40);
+                  }}
+                >
+                  {session.workspaceId && (
+                    <ExecutionTerminalPanel
+                      sessionId={session.id}
+                      disabled={terminalNotReady}
+                      disabledReason={terminalNotReady ? 'Setting up worktree…' : undefined}
+                      collapsed={terminalCollapsed}
+                      onToggleCollapsed={handleToggleTerminal}
+                    />
+                  )}
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </ResizablePanel>
+          </ResizablePanelGroup>
 
-        {/* References / scratchpad overlay. Positioned to start at the
+          {/* References / scratchpad overlay. Positioned to start at the
             right edge of the chat column so the pane covers both the
             file tree and the viewer+terminal columns. Chat stays
             interactive on the left. The left offset follows
             `horizontal[chat]` (a percentage), so dragging the chat
             divider moves the overlay's edge with it. */}
-        {activePane !== null && (
-          <div
-            className="absolute top-0 right-0 bottom-0 z-30"
-            style={{ left: `${horizontal[HORIZONTAL_PANEL_IDS.chat]}%` }}
-          >
-            {activePane === 'references' && (
-              <ReferencesPane
-                sessionId={session.id}
-                workspaceId={session.workspaceId ?? null}
-                open
-                onClose={closePane}
-                onInsertChip={handleInsertChip}
-              />
-            )}
-            {activePane === 'scratchpad' && (
-              <ScratchpadPane
-                sessionId={session.id}
-                workspaceId={session.workspaceId ?? null}
-                open
-                onClose={closePane}
-                onInsertText={handleInsertText}
-                onInsertChip={handleInsertChip}
-              />
-            )}
-          </div>
-        )}
+          {activePane !== null && (
+            <div
+              className="absolute top-0 right-0 bottom-0 z-30"
+              style={{ left: `${horizontal[HORIZONTAL_PANEL_IDS.chat]}%` }}
+            >
+              {activePane === 'references' && (
+                <ReferencesPane
+                  sessionId={session.id}
+                  workspaceId={session.workspaceId ?? null}
+                  open
+                  onClose={closePane}
+                  onInsertChip={handleInsertChip}
+                />
+              )}
+              {activePane === 'scratchpad' && (
+                <ScratchpadPane
+                  sessionId={session.id}
+                  workspaceId={session.workspaceId ?? null}
+                  open
+                  onClose={closePane}
+                  onInsertText={handleInsertText}
+                  onInsertChip={handleInsertChip}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

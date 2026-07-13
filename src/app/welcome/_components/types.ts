@@ -1,8 +1,9 @@
 import type { AgentAuthResponse } from '@/app/api/agent/auth/route';
 import type { AgentVerifyResponse } from '@/app/api/agent/verify/route';
 import type { Attachment } from '@/db/types';
+import type { HarnessId } from '@/lib/agents/registry';
 
-export type AgentHarness = 'claude' | 'codex';
+export type AgentHarness = HarnessId;
 
 /** Wire shape returned by /api/agent/auth — imported so client and server
  *  share a single source of truth. */

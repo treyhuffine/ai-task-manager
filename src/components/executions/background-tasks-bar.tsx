@@ -22,7 +22,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { useSessionEvents, useStopBackgroundTask } from '@/hooks/use-execution';
+import { useSession, useSessionEvents, useStopBackgroundTask } from '@/hooks/use-execution';
+import { useAgentHarnesses } from '@/hooks/use-agent-harnesses';
+import { providerIdForHarness } from '@/lib/agent-options';
 import {
   useBackgroundTasks,
   deriveTaskDetail,
@@ -282,7 +284,15 @@ function TaskDetail({
 
 function StopButton({ sessionId, taskId }: { sessionId: string; taskId: string }) {
   const stop = useStopBackgroundTask(sessionId);
+  const { data: session } = useSession(sessionId);
+  const harnesses = useAgentHarnesses();
+  const providerId = session?.agentHarness ? providerIdForHarness(session.agentHarness) : null;
+  const canStop = providerId
+    ? harnesses.data?.harnesses.find((entry) => entry.id === providerId)?.runtime.capabilities.stopTask.supported
+      ?? providerId === 'claude'
+    : false;
   const couldntStop = !stop.isPending && stop.data?.stopped === false;
+  if (!canStop) return null;
   return (
     <button
       type="button"

@@ -152,28 +152,41 @@ relevant rather than assuming it's already in context.
 
 ## Stream triage
 
-The stream is the user's zero-friction capture inbox. Your job is to keep it
-empty without losing anything:
+The stream is the user's zero-friction capture ledger: raw thoughts, never
+deleted, always searchable. Triage compresses captures into fewer coherent
+outcomes without ever losing the source.
 
-- \`list_stream\` (defaults to pending) → for each item decide:
-  - **Actionable** → \`promote_stream\` with \`to=task\` and a shaped
-    imperative title ("Ship the manifest", not the raw dump). Use
-    \`parentId\` when it's clearly a step of an existing task.
-  - **Worth keeping, not actionable** → \`promote_stream\` with \`to=note\`
-    (link \`taskId\`/\`areaId\` when context is clear).
-  - **Noise / duplicate / stale** → \`dismiss_stream\`.
-- Promotion preserves the user's raw text as the body and carries
-  attachments. Shape the *title*, don't rewrite their words.
-- When the right shape is genuinely ambiguous, ask the user instead of
-  guessing, or leave it pending. An unforced wrong file is worse than an
-  untriaged item.
-- Reference what you created with entity markers so the user can inspect.
-- \`create_stream_item\` works the other way: when the user gives you
-  something that should be kept but isn't clearly a task or note yet, file
-  it into the stream rather than force-fitting it.
+**To triage the stream, call \`begin_stream_sweep\` and follow the
+instructions it returns.** It opens a pass, hands you the pending captures
+with combine/merge candidates, the user's recent corrections, and which
+dispositions may auto-apply. Work the dispositions, then close with
+\`finish_stream_sweep\` and a calm one-paragraph summary. If it reports a
+conflict, another sweep is running: stop quietly.
 
-"Triage my stream every morning" is a one-liner trigger
-(\`create_trigger\`, \`target_kind=orchestrator\`).
+The dispositions (all accept \`pass_id\`; policy converts anything the user
+hasn't delegated into a proposal automatically):
+
+- \`promote_stream\`: capture → NEW task or note (shaped imperative title,
+  the user's raw text preserved).
+- \`merge_stream\`: capture → appended into an EXISTING task/note,
+  non-destructively. Only onto candidates from your sweep context.
+- \`combine_stream\`: several captures → ONE new entity, body synthesized.
+- \`mark_stream_reviewed\`: kept as a thought. A SUCCESS outcome — most
+  thoughts should not become tasks. Prefer this when torn.
+- \`dismiss_stream\`: noise/duplicates. \`incubate_stream\`: bring back later.
+- \`propose_stream_triage\`: batch pure suggestions.
+- \`undo_triage_decision\`: reverse any of the above safely.
+
+Never invent deadlines: dates require \`evidence\` quoting the user's exact
+words. Never rewrite \`raw_text\` — clean transcripts in the derived entity's
+body. Reference what you created with entity markers so the user can inspect.
+
+One-off asks outside a sweep ("make this a task") use the same actions
+without \`pass_id\`. \`create_stream_item\` works the other way: when the user
+gives you something not clearly a task or note yet, file it into the stream.
+
+The sweep runs on app-managed triggers (debounce after captures, a morning
+pass, a weekly digest) — visible and adjustable in the Triggers UI.
 
 ## Execution oversight
 
@@ -270,7 +283,10 @@ The \`${ORCHESTRATOR_MCP_SERVER_NAME}\` MCP server is attached to this session, 
 tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`complete_task\`, \`list_notes\`, \`get_note\`, \`create_note\`, \`update_note\`,
 \`list_stream\`, \`get_stream_item\`, \`create_stream_item\`, \`promote_stream\`,
-\`dismiss_stream\`, \`list_areas\`, \`get_area\`, \`create_area\`, \`update_area\`, \`get_deck\`,
+\`merge_stream\`, \`combine_stream\`, \`mark_stream_reviewed\`, \`dismiss_stream\`,
+\`incubate_stream\`, \`propose_stream_triage\`, \`undo_triage_decision\`,
+\`begin_stream_sweep\`, \`finish_stream_sweep\`, \`get_triage_metrics\`,
+\`list_areas\`, \`get_area\`, \`create_area\`, \`update_area\`, \`get_deck\`,
 \`update_deck\`, \`regenerate_deck\`, \`reconcile_deck\`, \`search\`, \`get_user_state\`,
 \`update_user_state\`. Execution oversight via \`list_executions\`,
 \`get_session_messages\`, \`send_session_message\`, \`get_pending_input\`,
@@ -438,7 +454,7 @@ export async function installOrchestratorSurface(mode: OrchestratorMode): Promis
   await installInstructions(brief, {
     location: 'workspace',
     cwd: root,
-    runtimes: ['claude', 'codex'],
+    runtimes: ['claude', 'codex', 'cursor', 'opencode'],
     managedTag: FLOW_MANAGED_TAG,
   });
   removeStaleMcpConfig(root);

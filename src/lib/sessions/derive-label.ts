@@ -26,6 +26,9 @@
 
 import { getProvider } from '@agentex/agent';
 import { CHEAPEST_MODEL, mapHarnessToProvider } from '@/lib/executor/harness';
+import { providerIdForHarness } from '@/lib/agent-options';
+import { runtimeContextForHarness } from '@/lib/agents/runtime';
+import { getAppRoot } from '@/lib/config/paths';
 import {
   updateChatSession,
   listChatEvents,
@@ -71,17 +74,25 @@ export function truncateLabel(content: string): string {
  * a one-shot summarization and we don't want it spending more than a
  * few seconds.
  */
-async function summarizeViaHarness(content: string, harness: string): Promise<string | null> {
+async function summarizeViaHarness(
+  content: string,
+  harness: string,
+  selectedModel?: string | null,
+): Promise<string | null> {
   const providerType = mapHarnessToProvider(harness);
-  const model = CHEAPEST_MODEL[providerType];
+  const model = selectedModel ?? CHEAPEST_MODEL[providerType];
   if (!model) return null;
 
   try {
     const provider = getProvider(providerType);
+    const runtime = await runtimeContextForHarness(providerIdForHarness(harness), { cwd: getAppRoot() });
     const result = await provider.execute({
       prompt: TITLE_PROMPT(content),
       model,
+      cwd: getAppRoot(),
+      env: runtime.env,
       config: {
+        ...runtime.config,
         timeoutSec: 30,
         maxTurns: 1,
         skipPermissions: true,
@@ -118,7 +129,7 @@ export async function deriveAndSetSessionLabel(
   content: string,
   harness: string,
 ): Promise<void> {
-  const aiTitle = await summarizeViaHarness(content, harness);
+  const aiTitle = await summarizeViaHarness(content, harness, getChatSession(sessionId)?.model);
   const label = aiTitle ?? truncateLabel(content);
   try {
     updateChatSession(sessionId, { label });
@@ -189,14 +200,17 @@ export async function deriveRetrospectiveLabel(sessionId: string): Promise<void>
     const harness = getAgent(session.agentId)?.harness ?? 'claude_code';
 
     const providerType = mapHarnessToProvider(harness);
-    const model = CHEAPEST_MODEL[providerType];
+    const model = session.model ?? CHEAPEST_MODEL[providerType];
     if (!model) return;
 
     const provider = getProvider(providerType);
+    const runtime = await runtimeContextForHarness(providerIdForHarness(harness), { cwd: getAppRoot() });
     const result = await provider.execute({
       prompt: RETROSPECTIVE_PROMPT(sample),
       model,
-      config: { timeoutSec: 30, maxTurns: 1, skipPermissions: true },
+      cwd: getAppRoot(),
+      env: runtime.env,
+      config: { ...runtime.config, timeoutSec: 30, maxTurns: 1, skipPermissions: true },
     });
     if (result.status !== 'completed' || !result.summary) return;
 

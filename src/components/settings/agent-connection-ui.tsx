@@ -1,6 +1,6 @@
 'use client';
 
-import { Sparkles, Code2, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
+import { Sparkles, Code2, AlertTriangle, Loader2, RefreshCw, SquareTerminal, Braces } from 'lucide-react';
 import { findProvider, type ProviderId } from '@/lib/agent-options';
 import {
   useAgentConnection,
@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
  */
 
 export function ProviderIcon({ id, size = 15 }: { id: ProviderId; size?: number }) {
-  const Icon = id === 'codex' ? Code2 : Sparkles;
+  const Icon = id === 'codex' ? Code2 : id === 'cursor' ? SquareTerminal : id === 'opencode' ? Braces : Sparkles;
   return (
     <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
       <Icon size={size} className="text-primary" />
@@ -57,6 +57,8 @@ function badgeMeta(c: AgentConnection): { text: string; cls: string; dot: string
       return { text: 'Bedrock', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' };
     case 'api_key':
       return { text: 'API key', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' };
+    case 'configured':
+      return { text: 'Connected', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' };
     case 'not_installed':
       return { text: 'Not installed', cls: 'bg-muted text-muted-foreground', dot: 'bg-muted-foreground/50' };
     default:
@@ -98,6 +100,7 @@ export function ConnectionPanel({
 
   const notInstalled = connection.status === 'not_installed';
   const metered = connection.metered;
+  const apiKeyVar = connection.apiKeyVar ?? provider.apiKeyVar;
 
   return (
     <div
@@ -117,16 +120,18 @@ export function ConnectionPanel({
       <p className="text-muted-foreground/85">
         {notInstalled ? (
           <>Install the CLI, then check again:</>
+        ) : harness === 'opencode' ? (
+          <>Connect at least one upstream provider below, then check again.</>
         ) : metered ? (
           <>
-            {provider.apiKeyVar} is set, so turns bill the API directly. Run{' '}
+            {apiKeyVar} is set, so turns bill the API directly. Run{' '}
             <span className="font-mono text-foreground/80">{provider.loginCmd}</span> to use your subscription
             instead.
           </>
         ) : (
           <>
             Sign in to use your subscription, then check again. Or set{' '}
-            <span className="font-mono text-foreground/80">{provider.apiKeyVar}</span> to bill the API.
+            <span className="font-mono text-foreground/80">{apiKeyVar}</span> to bill the API.
           </>
         )}
       </p>

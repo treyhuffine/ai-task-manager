@@ -22,6 +22,7 @@ import { ResyncMenuItem } from './resync-menu-item';
 import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
 import { ExecutionChatControls } from './execution-chat-controls';
+import { resumeCommandForHarness } from '@/lib/agents/registry';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
 
@@ -302,7 +303,7 @@ export function ExecutionHeader({
     !!workspace?.isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   const liveBadge = isLive ? <LiveBadge branch={session.branchName} /> : null;
   const providerResumeCommand = session.externalSessionId
-    ? resumeCommand(session.agentHarness, session.externalSessionId)
+    ? resumeCommandForHarness(session.agentHarness, session.externalSessionId)
     : null;
 
   return (
@@ -889,14 +890,11 @@ function CopyableDetailRow({
 function resumeIdLabel(harness: string | null): string {
   if (harness === 'claude' || harness === 'claude_code') return 'Claude id';
   if (harness === 'codex') return 'Codex id';
+  if (harness === 'cursor') return 'Cursor id';
+  if (harness === 'opencode') return 'OpenCode id';
   return 'Resume id';
 }
 
-function resumeCommand(harness: string | null, id: string): string | null {
-  if (harness === 'claude' || harness === 'claude_code') return `claude --resume ${id}`;
-  if (harness === 'codex') return `codex resume ${id}`;
-  return null;
-}
 
 interface LinkPrSectionProps {
   sessionId: string;

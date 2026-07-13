@@ -33,6 +33,24 @@ export interface ModelOption {
   supportedEfforts?: EffortLevel[];
   /** Provider-recommended effort when no per-session override is selected. */
   defaultEffort?: EffortLevel;
+  provider?: string;
+  providerName?: string;
+  variants?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    isDefault?: boolean;
+    disabled?: boolean;
+  }>;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  inputCostPerMillion?: number;
+  outputCostPerMillion?: number;
+  supportsImages?: boolean;
+  supportsTools?: boolean;
+  availability?: 'available' | 'unavailable';
+  availabilityReason?: string;
+  enabled?: boolean;
 }
 
 /**
@@ -73,6 +91,11 @@ export type AgentModelSource = 'provider' | 'cli' | 'config';
 export interface AgentModelsResponse {
   models: ModelOption[];
   source: AgentModelSource;
+  enabledModelIds?: string[];
+  defaultModel?: string | null;
+  defaultVariant?: string | null;
+  defaultEffort?: EffortLevel | null;
+  catalogRefreshedAt?: string | null;
 }
 
 export interface EffortOption {
@@ -101,22 +124,31 @@ export const EFFORT_OPTIONS: EffortOption[] = [
   },
 ];
 
+const FALLBACK_EFFORTS: Partial<Record<HarnessId, readonly EffortLevel[]>> = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['low', 'medium', 'high', 'xhigh'],
+};
+
+const PRESERVE_EXTERNALLY_VALIDATED_EFFORT = new Set<HarnessId>(['codex']);
+
 export function effortOptionsForModel(
   harness: string | null,
   model: ModelOption | null,
 ): EffortOption[] {
-  if (harness === 'claude_code') {
-    return EFFORT_OPTIONS.filter((option) => option.id !== 'ultra');
+  let providerId: HarnessId;
+  try {
+    providerId = providerIdForHarness(harness);
+  } catch {
+    return [];
   }
-  if (harness !== 'codex') return [];
+  if (!HARNESS_REGISTRY[providerId].maximumCapabilities.reasoningEffort) return [];
 
-  // Custom/default Codex models may not have catalog metadata. Keep that
-  // fallback conservative so the UI never offers max or ultra to a model that
-  // could reject them. Selecting a catalog model unlocks its exact levels.
+  // A live model catalog wins. Static fallback ranges remain provider data,
+  // while visibility is controlled by the registry capability above.
   const supported = new Set<EffortLevel>(
     model?.supportedEfforts?.length
       ? model.supportedEfforts
-      : ['low', 'medium', 'high', 'xhigh'],
+      : FALLBACK_EFFORTS[providerId] ?? [],
   );
   return EFFORT_OPTIONS.filter((option) => supported.has(option.id));
 }
@@ -162,7 +194,13 @@ export function explicitModelForProvider(
 ): ModelOption {
   const catalog = models.length > 0 ? models : modelsForProvider(providerId);
   const modelId = preferred?.trim();
-  if (modelId && modelBelongsToProvider(providerId, modelId, catalog)) {
+  // Cursor and OpenCode have no bundled catalog. This branch preserves a
+  // tuple already validated by async `resolveAgentSelection`, or one that the
+  // executor's live-catalog preflight will reject before provider launch.
+  // It is deliberately not standalone validation for user input.
+  const externallyValidatedDynamicModel =
+    modelId && catalog.length === 0 && (providerId === 'cursor' || providerId === 'opencode');
+  if (modelId && (modelBelongsToProvider(providerId, modelId, catalog) || externallyValidatedDynamicModel)) {
     return catalog.find((model) => model.id === modelId) ?? { id: modelId, label: modelId };
   }
 
@@ -183,10 +221,18 @@ export function explicitEffortForModel(
 ): EffortLevel {
   const options = effortOptionsForModel(harness, model);
   const supported = new Set(options.map((option) => option.id));
-  // Without model capability metadata, an explicit Codex value may have
-  // already been validated against live discovery by the server. Preserve it
-  // here so the synchronous DB creation guard does not downgrade that tuple.
-  if (harness === 'codex' && preferred && !model.supportedEfforts?.length) {
+  let providerId: HarnessId | null = null;
+  try {
+    providerId = providerIdForHarness(harness);
+  } catch {
+    // Unknown harnesses have no supported effort values.
+  }
+  // Some dynamic catalogs validate effort before reaching the synchronous DB
+  // boundary but do not carry model metadata into that boundary.
+  if (providerId
+    && PRESERVE_EXTERNALLY_VALIDATED_EFFORT.has(providerId)
+    && preferred
+    && !model.supportedEfforts?.length) {
     return preferred;
   }
   if (preferred && supported.has(preferred)) return preferred;
@@ -199,7 +245,21 @@ export interface ExplicitAgentSelection {
   providerId: ProviderId;
   harness: AgentHarness;
   model: string;
-  effort: EffortLevel;
+  variant: string | null;
+  effort: EffortLevel | null;
+}
+
+export function explicitVariantForModel(
+  model: ModelOption,
+  preferred: string | null | undefined,
+): string | null {
+  const variants = model.variants?.filter((variant) => !variant.disabled) ?? [];
+  // Dynamic-only providers are validated against their live catalog before
+  // reaching this synchronous boundary. The executor repeats validation before
+  // launch, which also protects scheduled and internal creation paths.
+  if (preferred && variants.length === 0) return preferred;
+  if (preferred && variants.some((variant) => variant.id === preferred)) return preferred;
+  return variants.find((variant) => variant.isDefault)?.id ?? null;
 }
 
 /** Resolve the atomic provider + model + effort tuple stored on a chat. */
@@ -207,6 +267,7 @@ export function explicitAgentSelection(
   providerId: ProviderId,
   preferred: {
     model?: string | null;
+    variant?: string | null;
     effort?: EffortLevel | null;
   } = {},
   models: readonly ModelOption[] = modelsForProvider(providerId),
@@ -217,7 +278,10 @@ export function explicitAgentSelection(
     providerId,
     harness,
     model: model.id,
-    effort: explicitEffortForModel(harness, model, preferred.effort),
+    variant: explicitVariantForModel(model, preferred.variant),
+    effort: harnessSupportsEffort(harness)
+      ? explicitEffortForModel(harness, model, preferred.effort)
+      : null,
   };
 }
 
@@ -234,7 +298,11 @@ export function findModelOption(harness: string, modelId: string | null): ModelO
 }
 
 export function harnessSupportsEffort(harness: string): boolean {
-  return harness === 'claude_code' || harness === 'codex';
+  try {
+    return HARNESS_REGISTRY[providerIdForHarness(harness)].maximumCapabilities.reasoningEffort;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Providers ────────────────────────────────────────────────

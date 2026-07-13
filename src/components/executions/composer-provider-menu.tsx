@@ -5,6 +5,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Sparkles, MessageSquarePlus, Loader2 } from 'lucide-react';
 import {
   explicitEffortForModel,
+  explicitVariantForModel,
+  harnessSupportsEffort,
   findProvider,
   providerHarnessKey,
   type ModelOption,
@@ -14,6 +16,7 @@ import type { EffortLevel } from '@/db/types';
 import { useAgentModels } from '@/hooks/use-agent-models';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
 import { ProviderIcon } from '@/components/settings/agent-connection-ui';
+import { openSettings } from '@/components/settings/settings-store';
 import { cn } from '@/lib/utils';
 
 interface ComposerProviderMenuProps {
@@ -27,7 +30,9 @@ interface ComposerProviderMenuProps {
   /** Pick a model within the *current* provider — updates this session. */
   onSelectModel: (id: string) => void;
   /** Switch to a *different* provider — starts a fresh chat on it. */
-  onSwitchProvider: (next: { harness: ProviderId; model: string; effort: EffortLevel }) => void;
+  onSwitchProvider: (next: { harness: ProviderId; model: string; variant?: string; effort?: EffortLevel }) => void;
+  /** False when this harness requires a fresh chat for model changes. */
+  canChangeModel?: boolean;
   /** A provider switch (new chat) is in flight. */
   switching?: boolean;
   disabled?: boolean;
@@ -53,6 +58,7 @@ export function ComposerProviderMenu({
   fallbackLabel,
   onSelectModel,
   onSwitchProvider,
+  canChangeModel = true,
   switching,
   disabled,
 }: ComposerProviderMenuProps) {
@@ -64,7 +70,7 @@ export function ComposerProviderMenu({
   };
 
   const handlePick = (harness: ProviderId, modelOption: ModelOption) => {
-    if (harness === currentProvider) {
+    if (harness === currentProvider && canChangeModel) {
       onSelectModel(modelOption.id);
       reset(false);
     } else {
@@ -80,6 +86,7 @@ export function ComposerProviderMenu({
     ? pendingModels.find((candidate) => candidate.id === pending.model) ?? null
     : null;
   const pendingModelLabel = pendingModel?.label ?? pending?.model ?? null;
+  const changingWithinProvider = pending?.harness === currentProvider;
 
   return (
     <Popover open={open} onOpenChange={reset}>
@@ -110,7 +117,7 @@ export function ComposerProviderMenu({
                 <ProviderIcon id={pending.harness} size={20} />
               </span>
               <span className="text-[13px] font-semibold text-foreground">
-                Switch to {pendingProvider.name}?
+                {changingWithinProvider ? 'Start a new chat?' : `Switch to ${pendingProvider.name}?`}
               </span>
               <p className="text-[11px] leading-snug text-muted-foreground">
                 Starts a fresh chat on {pendingProvider.name}
@@ -123,13 +130,16 @@ export function ComposerProviderMenu({
                 type="button"
                 onClick={() => {
                   const modelOption = pendingModel ?? { id: pending.model, label: pending.model };
+                  const harnessKey = providerHarnessKey(pending.harness);
+                  const effort = harnessSupportsEffort(harnessKey)
+                    ? explicitEffortForModel(harnessKey, modelOption, null)
+                    : null;
                   onSwitchProvider({
                     ...pending,
-                    effort: explicitEffortForModel(
-                      providerHarnessKey(pending.harness),
-                      modelOption,
-                      null,
-                    ),
+                    ...(explicitVariantForModel(modelOption, null)
+                      ? { variant: explicitVariantForModel(modelOption, null)! }
+                      : {}),
+                    ...(effort ? { effort } : {}),
                   });
                   reset(false);
                 }}
@@ -151,7 +161,15 @@ export function ComposerProviderMenu({
           </div>
         ) : (
           <div className="max-h-[440px] overflow-y-auto">
-            <ModelList selected={selected} onPick={handlePick} switchHintProvider={currentProvider} />
+            <ModelList
+              selected={selected}
+              onPick={handlePick}
+              switchHintProvider={currentProvider}
+              onManageModels={() => {
+                reset(false);
+                openSettings('models');
+              }}
+            />
           </div>
         )}
       </PopoverContent>

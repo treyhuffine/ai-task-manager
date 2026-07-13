@@ -7,6 +7,7 @@ import {
   type ResolvePendingBody,
   type WipApplyResult,
 } from '@/lib/api/sessions';
+import type { HarnessId } from '@/lib/agents/registry';
 import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -435,8 +436,9 @@ export function useNewExecutionChat(id: string) {
     // `| void` keeps the no-arg "new chat" button working alongside the
     // composer's `{ providerId, model }` switch.
     mutationFn: (opts: {
-      providerId?: 'claude' | 'codex';
+      providerId?: HarnessId;
       model?: string;
+      variant?: string;
       effort?: EffortLevel;
     } | void) =>
       sessionsApi.newChat(id, opts ?? undefined),
@@ -676,7 +678,8 @@ export function useUpdateSession() {
       executionLabel?: string | null;
       permissionMode?: PermissionMode;
       model?: string;
-      effort?: EffortLevel;
+      modelVariant?: string | null;
+      effort?: EffortLevel | null;
       prNumber?: number | null;
     }) => sessionsApi.update(id, input),
     onSuccess: (data) => {

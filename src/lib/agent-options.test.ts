@@ -60,7 +60,40 @@ describe('agent effort options', () => {
       providerId: 'claude',
       harness: 'claude_code',
       model: 'opus',
+      variant: null,
       effort: 'medium',
+    });
+  });
+
+  it('keeps model variants independent from reasoning effort', () => {
+    const catalog: ModelOption[] = [{
+      id: 'anthropic/claude',
+      label: 'Claude',
+      variants: [
+        { id: 'fast', name: 'Fast' },
+        { id: 'deep', name: 'Deep', isDefault: true },
+      ],
+    }];
+    expect(explicitAgentSelection('opencode', {
+      model: 'anthropic/claude',
+      variant: 'fast',
+    }, catalog)).toMatchObject({
+      model: 'anthropic/claude',
+      variant: 'fast',
+      effort: null,
+    });
+    expect(explicitAgentSelection('opencode', {
+      model: 'anthropic/claude',
+    }, catalog).variant).toBe('deep');
+  });
+
+  it('preserves a server-validated dynamic model and variant at the DB boundary', () => {
+    expect(explicitAgentSelection('opencode', {
+      model: 'custom/model',
+      variant: 'provider-native',
+    })).toMatchObject({
+      model: 'custom/model',
+      variant: 'provider-native',
     });
   });
 

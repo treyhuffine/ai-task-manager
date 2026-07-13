@@ -38,6 +38,7 @@ import {
   archiveExecution,
   unarchiveExecution,
   getOrCreateDefaultExecutor,
+  ensureAgentHarnessSettings,
 } from '@/lib/db/queries';
 import {
   createWorktreeForSession,
@@ -52,6 +53,7 @@ import { killAllForSession } from '@/lib/terminal/pty-manager';
 import { invalidateAgentSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { providerHarnessKey, providerIdForHarness } from '@/lib/agent-options';
+import { resolveAgentSelection } from '@/lib/agent-model-discovery';
 
 const execFileAsync = promisify(execFile);
 
@@ -133,10 +135,16 @@ export async function dispatchExecutionSession(
 
   const userState = getUserState();
   const harness = args.harness
-    ?? providerHarnessKey(userState?.defaultAgentHarness === 'codex' ? 'codex' : 'claude');
+    ?? providerHarnessKey(userState?.defaultAgentHarness ?? 'claude');
   const providerId = providerIdForHarness(harness);
+  const harnessSettings = ensureAgentHarnessSettings(providerId);
   const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
-  const agent = getOrCreateDefaultExecutor(harness);
+  const selection = await resolveAgentSelection(providerId, {
+    model: (savedTupleMatchesProvider ? userState?.defaultAgentModel : null) ?? harnessSettings.defaultModel,
+    variant: harnessSettings.defaultVariant,
+    effort: (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null) ?? harnessSettings.defaultEffort,
+  }, { cwd: ws.cwd, repairInvalidModel: true });
+  const agent = getOrCreateDefaultExecutor(selection.harness);
   const sessionId = uuidv7();
   const label = args.label?.trim() || null;
   const prNumber = normalizePrNumber(args.prNumber);
@@ -165,8 +173,9 @@ export async function dispatchExecutionSession(
     chatSessionId: sessionId,
     // The three saved values are one tuple. Reuse model + effort only when
     // their saved provider matches this execution's provider.
-    model: savedTupleMatchesProvider ? userState?.defaultAgentModel : null,
-    effort: savedTupleMatchesProvider ? userState?.defaultAgentEffort : null,
+    model: selection.model,
+    modelVariant: selection.variant,
+    effort: selection.effort,
     label,
     worktreePath: liveMode ? ws.cwd : null,
     branchName: liveBranch,

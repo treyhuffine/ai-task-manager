@@ -6,6 +6,8 @@ import { Switch } from '@/components/ui/switch';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { useMorningDeck, useUpdateMorningDeck } from '@/hooks/use-morning-deck';
+import { useStreamAutonomy, useSetStreamAutonomy } from '@/hooks/use-stream';
+import type { StreamAutomationMode } from '@/lib/api/stream';
 import {
   useEditorPreference,
   EDITOR_CHOICE_LABELS,
@@ -16,6 +18,25 @@ import { useTranscriptDensity, type TranscriptDensity } from '@/lib/client/trans
 
 const DEFAULT_START = '09:00';
 const DEFAULT_END = '18:00';
+
+/** The single capture-triage control (no per-disposition toggle wall). */
+const AUTOMATION_MODES: Array<{ id: StreamAutomationMode; label: string; description: string }> = [
+  {
+    id: 'handle_obvious',
+    label: 'Let it handle the obvious',
+    description: 'Applies what you have delegated, suggests the rest. The digest shows everything.',
+  },
+  {
+    id: 'review_everything',
+    label: 'Review everything',
+    description: 'Triage still runs, but every outcome waits for your call.',
+  },
+  {
+    id: 'manual_only',
+    label: 'Manual only',
+    description: 'No automatic triage. It runs only when you tap Triage.',
+  },
+];
 
 function browserTimezone(): string {
   try {
@@ -69,6 +90,8 @@ export function GeneralSection() {
 
   const { data: morning } = useMorningDeck();
   const updateMorning = useUpdateMorningDeck();
+  const { data: autonomyState } = useStreamAutonomy();
+  const setAutonomy = useSetStreamAutonomy();
   const [morningTime, setMorningTime] = useState('04:00');
   useEffect(() => {
     if (morning) setMorningTime(morning.time);
@@ -165,6 +188,36 @@ export function GeneralSection() {
               onChange={(v) => { setMorningTime(v); updateMorning.mutate({ time: v }); }}
             />
           )}
+        </div>
+      </section>
+
+      {/* Stream triage automation */}
+      <section className="space-y-2">
+        <h3 className="text-[12px] font-medium text-foreground">Capture triage</h3>
+        <p className="text-[11px] text-muted-foreground/85">
+          How much the assistant handles on its own when you capture thoughts. It earns more
+          autonomy over time by asking, and everything it does can be undone in one tap.
+        </p>
+        <div className="space-y-1 rounded-lg border border-border bg-background p-3">
+          {AUTOMATION_MODES.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setAutonomy.mutate({ mode: m.id })}
+              className={`w-full flex items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors ${
+                autonomyState?.mode === m.id ? 'bg-primary/10' : 'hover:bg-muted'
+              }`}
+            >
+              <span
+                className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
+                  autonomyState?.mode === m.id ? 'bg-primary' : 'bg-muted-foreground/30'
+                }`}
+              />
+              <span className="min-w-0">
+                <span className="block text-sm text-foreground">{m.label}</span>
+                <span className="block text-[11px] text-muted-foreground/85">{m.description}</span>
+              </span>
+            </button>
+          ))}
         </div>
       </section>
 

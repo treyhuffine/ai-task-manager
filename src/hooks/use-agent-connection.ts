@@ -18,6 +18,7 @@ interface AgentAuthApiResponse {
   hasApiKey?: boolean;
   hasBedrock?: boolean;
   apiKeyVar?: string | null;
+  hasConfiguredUpstream?: boolean;
 }
 
 export type AgentConnectionStatus =
@@ -25,6 +26,7 @@ export type AgentConnectionStatus =
   | 'subscription'
   | 'bedrock'
   | 'api_key'
+  | 'configured'
   | 'none';
 
 export interface AgentConnection {
@@ -47,6 +49,7 @@ function deriveConnection(r: AgentAuthApiResponse | undefined): AgentConnection 
   else if (r?.hasSubscription) status = 'subscription';
   else if (r?.hasBedrock) status = 'bedrock';
   else if (r?.hasApiKey) status = 'api_key';
+  else if (r?.hasConfiguredUpstream) status = 'configured';
   else status = 'none';
   return {
     installed,

@@ -5,22 +5,26 @@ import {
   getOrCreateDefaultOrchestrator,
   getUserState,
   updateUserState,
+  ensureAgentHarnessSettings,
 } from '@/lib/db/queries';
 import type { ProviderId } from '@/lib/agent-options';
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
 import { resolveAgentSelection } from '@/lib/agent-model-discovery';
+import { isHarnessId } from '@/lib/agents/registry';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
   providerId?: ProviderId;
   model?: string;
+  variant?: string;
   effort?: EffortLevel;
 }
 
-function parseOverride(src: { providerId?: unknown; model?: unknown; effort?: unknown }): ChatOverride {
+function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown }): ChatOverride {
   const out: ChatOverride = {};
-  if (src.providerId === 'claude' || src.providerId === 'codex') out.providerId = src.providerId;
+  if (isHarnessId(src.providerId)) out.providerId = src.providerId;
   if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
+  if (typeof src.variant === 'string' && src.variant.trim()) out.variant = src.variant.trim();
   if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
     out.effort = src.effort as EffortLevel;
   }
@@ -51,19 +55,27 @@ function findCurrent(): ChatSessionWithExecution | null {
 async function createInteractiveSession(override: ChatOverride = {}) {
   const userState = getUserState();
   const providerId = override.providerId
-    ?? (userState?.defaultAgentHarness === 'codex' ? 'codex' : 'claude');
+    ?? userState?.defaultAgentHarness
+    ?? 'claude';
   const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
+  const harnessSettings = ensureAgentHarnessSettings(providerId);
+  const requestedModel = override.model
+    ?? (savedTupleMatchesProvider ? userState?.defaultAgentModel : null)
+    ?? harnessSettings.defaultModel;
   const selection = await resolveAgentSelection(providerId, {
-    model: override.model
-      ?? (savedTupleMatchesProvider ? userState?.defaultAgentModel : null),
+    model: requestedModel,
+    variant: override.variant
+      ?? (requestedModel === harnessSettings.defaultModel ? harnessSettings.defaultVariant : null),
     effort: override.effort
-      ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null),
-  });
+      ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null)
+      ?? harnessSettings.defaultEffort,
+  }, { repairInvalidModel: override.model === undefined });
   const agent = getOrCreateDefaultOrchestrator(selection.harness);
   const session = createChatSession({
     type: 'orchestration',
     agentId: agent.id,
     model: selection.model,
+    modelVariant: selection.variant,
     effort: selection.effort,
     // Label stays null until the first send — the messages route's
     // `deriveAndSetSessionLabel` (haiku-via-harness, same pipeline that
@@ -100,6 +112,7 @@ export async function POST(req: Request) {
   const override = parseOverride((body ?? {}) as {
     providerId?: unknown;
     model?: unknown;
+    variant?: unknown;
     effort?: unknown;
   });
   try {

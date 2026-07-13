@@ -36,6 +36,9 @@ import {
   peekCodexTranscript,
   readCodexTranscript,
   type CodexTranscriptLocation,
+  createSessionRecord,
+  getProvider,
+  type HistoryCheckpoint,
 } from '@agentex/agent';
 import {
   getChatSessionWithExecution,
@@ -54,6 +57,7 @@ import type { ChatSessionRecord, ChatSessionWithExecution } from '@/db/types';
 import { mapHarnessToProvider } from './harness';
 import { persistStreamEvent, resolveCwd, isRunning } from './adapter';
 import { mapCodexLineToInput } from './codex-on-disk';
+import { runtimeContextForHarness } from '@/lib/agents/runtime';
 
 export interface ReconcileResult {
   /** Whether the on-disk transcript was ahead of our chat_events. */
@@ -126,10 +130,83 @@ export async function reconcileSession(sessionId: string): Promise<ReconcileResu
     const provider = agent ? mapHarnessToProvider(agent.harness) : null;
     if (provider === 'claude') return await reconcileClaudeSession(session);
     if (provider === 'codex') return await reconcileCodexSession(session);
+    if (provider === 'opencode') return await reconcileOpenCodeSession(session);
     return { drift: false, replayed: 0, skipped: 'unsupported_provider' };
   } finally {
     state.inFlight.delete(sessionId);
   }
+}
+
+// ─── OpenCode service history ─────────────────────────────────
+
+function isCheckpointNotFound(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && error.code === 'history_checkpoint_not_found',
+  );
+}
+
+async function reconcileOpenCodeSession(
+  session: ChatSessionWithExecution,
+): Promise<ReconcileResult> {
+  if (!session.externalSessionId) {
+    return { drift: false, replayed: 0, skipped: 'no_external_session' };
+  }
+  const cwd = resolveCwd(session);
+  if (!cwd) return { drift: false, replayed: 0, skipped: 'no_cwd' };
+  if (isRunning(session.id)) {
+    return { drift: false, replayed: 0, skipped: 'running' };
+  }
+
+  const provider = getProvider('opencode');
+  if (!provider.attachHistory) {
+    return { drift: false, replayed: 0, skipped: 'unsupported_provider' };
+  }
+  const runtime = await runtimeContextForHarness('opencode', { cwd });
+  const record = createSessionRecord({
+    providerType: 'opencode',
+    params: { sessionId: session.externalSessionId, cwd },
+    cwd,
+    displayId: session.externalSessionId,
+  });
+  const attachment = await provider.attachHistory(record, {
+    env: runtime.env,
+    config: runtime.config,
+  });
+  publishReconcileStarted(session.id);
+  let replayed = 0;
+
+  const consume = async (
+    after: HistoryCheckpoint | undefined,
+    mode: 'incremental' | 'bounded_full_resync',
+  ) => {
+    for await (const yielded of attachment.catchUp({ after, mode })) {
+      const event = yielded.eventId && !yielded.event.eventId
+        ? { ...yielded.event, eventId: yielded.eventId }
+        : yielded.event;
+      await persistStreamEvent(session.id, event);
+      replayed++;
+      // Advance only after persistence. A crash can replay the last event, but
+      // stable OpenCode event ids make that retry an idempotent insert.
+      updateChatSession(session.id, { externalHistoryCheckpoint: yielded.checkpoint });
+    }
+  };
+
+  try {
+    try {
+      await consume(session.externalHistoryCheckpoint ?? undefined, 'incremental');
+    } catch (error) {
+      if (!isCheckpointNotFound(error)) throw error;
+      await consume(undefined, 'bounded_full_resync');
+    }
+  } finally {
+    await attachment.close?.();
+    publishReconcileDone(session.id, replayed);
+  }
+
+  return { drift: replayed > 0, replayed };
 }
 
 // ─── Shared helpers ───────────────────────────────────────────
