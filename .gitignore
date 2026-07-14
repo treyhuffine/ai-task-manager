@@ -6,8 +6,8 @@
 # Removing this line risks leaking personal content into git history.
 /personal/
 
-# dependencies
-/node_modules
+# dependencies at any directory depth
+node_modules/
 /.pnpm-store/
 /.pnp
 .pnp.*
