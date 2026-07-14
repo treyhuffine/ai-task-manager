@@ -1130,15 +1130,19 @@ CREATE INDEX idx_goals_area ON goals(area_id);
 CREATE INDEX idx_temporal_memory_date ON temporal_memory(date);
 
 -- Embeddings (via sqlite-vec)
--- Stores vector embeddings for semantic search, duplicate detection, and clustering.
--- All entities that need similarity search get an embedding row.
--- temporal_memory embeddings enable semantic retrieval of relevant past context.
-CREATE VIRTUAL TABLE vec_embeddings USING vec0(
-  entity_type TEXT NOT NULL,              -- 'task', 'note', 'decision', 'area', 'temporal_memory'
+-- Metadata lives in a regular table; embeddings_vec uses the same integer rowid.
+CREATE TABLE embeddings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_type TEXT NOT NULL,              -- 'task', 'note', or 'stream'
   entity_id TEXT NOT NULL,
-  embedding float[1536],                  -- dimension matches model (1536 for text-embedding-3-small)
-  +model TEXT NOT NULL,                   -- which embedding model generated this
-  +updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  content_hash TEXT NOT NULL,
+  text_content TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_embeddings_entity ON embeddings(entity_type, entity_id);
+
+CREATE VIRTUAL TABLE embeddings_vec USING vec0(
+  embedding float[1536] distance_metric=cosine
 );
 ```
 

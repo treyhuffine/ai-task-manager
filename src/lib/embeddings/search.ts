@@ -21,12 +21,16 @@ export async function vectorSearch(query: string, limit = 20): Promise<SearchHit
 
   const rows = db
     .prepare(
-      `SELECT e.entity_type AS entityType, e.entity_id AS entityId, v.distance
-       FROM embeddings_vec v
-       JOIN embeddings e ON e.id = v.rowid
-       WHERE v.embedding MATCH ?
-       ORDER BY v.distance
-       LIMIT ?`,
+      `WITH nearest AS (
+         SELECT rowid, distance
+         FROM embeddings_vec
+         WHERE embedding MATCH ?
+           AND k = ?
+       )
+       SELECT e.entity_type AS entityType, e.entity_id AS entityId, nearest.distance
+       FROM nearest
+       JOIN embeddings e ON e.id = nearest.rowid
+       ORDER BY nearest.distance`,
     )
     .all(queryEmbedding, limit) as Array<{
     entityType: 'task' | 'note' | 'stream';
