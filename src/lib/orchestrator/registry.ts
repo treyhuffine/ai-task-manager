@@ -42,6 +42,7 @@ import {
   createWorkspace,
   archiveWorkspace,
   listChatSessions,
+  searchChatSessions,
   listRailSessions,
   getChatSession,
   getAgent,
@@ -69,6 +70,7 @@ import {
   TriageError,
   type TriageDecisionInput,
 } from '@/lib/db/queries';
+import { stripHighlight } from '@/lib/search/highlight';
 import { beginSweep, finishSweep } from '@/lib/stream-triage/sweep';
 import { triageProposalSchema } from '@/lib/stream-triage/schema';
 import { getTriageMetrics } from '@/lib/stream-triage/metrics';
@@ -1033,6 +1035,37 @@ const list_workspace_sessions_action = defineAction({
     listChatSessions({ workspaceId, status: status ?? 'active' }),
 });
 
+const search_sessions_action = defineAction({
+  name: 'search_sessions',
+  description:
+    'Full-text search across chat + execution transcripts (the message content of user and agent ' +
+    'turns, including imported Claude, Codex, and OpenCode history). Returns matching sessions, each with the best-' +
+    'matching passage as a snippet, ranked by relevance — use it to find "the chat where we discussed ' +
+    'X". Searches active AND archived by default. Follow up with get_session_messages(sessionId) to ' +
+    'read a match in full.',
+  params: {
+    query: z.string().min(1),
+    status: workspaceStatus.optional(),
+    workspaceId: z.string().optional(),
+    source: z.enum(['native', 'imported', 'claude', 'codex', 'opencode']).optional(),
+    limit: z.number().int().positive().max(50).optional(),
+  },
+  cli: { positional: ['query'] },
+  handler: (_ctx, { query, status, workspaceId, source, limit }) =>
+    searchChatSessions({ query, status, workspaceId, source, limit }).map((r) => ({
+      sessionId: r.id,
+      label: r.label ?? r.execution?.label ?? null,
+      workspaceId: r.workspaceId,
+      workspaceName: r.workspaceName,
+      status: r.status,
+      imported: r.surfaceKind === 'imported_agent',
+      source: r.surfaceRef,
+      snippet: stripHighlight(r.snippet),
+      score: r.score,
+      lastActivityAt: r.lastOutcomeEventAt ?? r.startedAt,
+    })),
+});
+
 // ── Execution oversight ───────────────────────────────────────
 //
 // The orchestrator watching + steering the executing agents. Live state
@@ -1728,6 +1761,7 @@ export const actions = [
   create_workspace_action,
   archive_workspace_action,
   list_workspace_sessions_action,
+  search_sessions_action,
   list_executions_action,
   get_session_messages_action,
   get_pending_input_action,

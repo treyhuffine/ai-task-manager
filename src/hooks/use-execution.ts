@@ -863,6 +863,27 @@ export function useResyncSession(id: string) {
   });
 }
 
+/**
+ * User-pressable Restart — recycle the agent's CLI subprocess without
+ * losing the conversation. Force-closes the cached process so the next
+ * send spawns a fresh one that `--resume`s the transcript. Use to pick up
+ * an in-place CLI upgrade or clear a process's working memory. Unlike
+ * Resync it neither replays the transcript nor re-fires messages.
+ *
+ * Invalidate runtime-status so the "working" pill clears immediately (the
+ * close flips the in-memory running flag off).
+ */
+export function useRestartSession(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.restart(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id, 'runtime-status'] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'pending-input'] });
+    },
+  });
+}
+
 export function useInterruptSession(id: string) {
   return useMutation({
     mutationFn: () => sessionsApi.interrupt(id),

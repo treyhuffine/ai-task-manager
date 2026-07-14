@@ -69,6 +69,7 @@ describe('readAuthConfig', () => {
       voiceEnabled: null,
       globalSkillEnabled: null,
       lastPort: null,
+      autoTunnel: null,
     });
   });
 
@@ -83,6 +84,7 @@ describe('readAuthConfig', () => {
       voiceEnabled: null,
       globalSkillEnabled: null,
       lastPort: null,
+      autoTunnel: null,
     });
   });
 });
@@ -110,6 +112,7 @@ describe('writeAuthConfig', () => {
       voiceEnabled: null,
       globalSkillEnabled: true,
       lastPort: null,
+      autoTunnel: null,
     });
   });
 
@@ -124,6 +127,7 @@ describe('writeAuthConfig', () => {
       voiceEnabled: null,
       globalSkillEnabled: null,
       lastPort: null,
+      autoTunnel: null,
     });
   });
 

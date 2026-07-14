@@ -56,7 +56,7 @@ function evt(over: Partial<NotificationEvent> = {}): NotificationEvent {
     dedupeKey: 'execution.finished:run1',
     title: 'Fix auth',
     body: 'Tests pass.',
-    url: '/executions/1',
+    url: '/?session=chat1',
     ...over,
   };
 }

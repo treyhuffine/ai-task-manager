@@ -25,8 +25,36 @@ import type {
 
 const DISCOVERY_KEY = ['imports', 'external-agents'] as const;
 
+const SOURCES: readonly ExternalAgentSource[] = ['claude', 'codex', 'opencode'];
+
+const SOURCE_META: Record<ExternalAgentSource, {
+  label: string;
+  mark: string;
+  cardClassName: string;
+  pillClassName: string;
+}> = {
+  claude: {
+    label: 'Claude Code',
+    mark: 'C',
+    cardClassName: 'bg-orange-500/10 text-orange-500',
+    pillClassName: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  },
+  codex: {
+    label: 'Codex',
+    mark: 'O',
+    cardClassName: 'bg-emerald-500/10 text-emerald-500',
+    pillClassName: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  },
+  opencode: {
+    label: 'OpenCode',
+    mark: 'OC',
+    cardClassName: 'bg-sky-500/10 text-sky-500',
+    pillClassName: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
+  },
+};
+
 function sourceLabel(source: ExternalAgentSource): string {
-  return source === 'claude' ? 'Claude Code' : 'Codex';
+  return SOURCE_META[source].label;
 }
 
 function formatDate(value: string): string {
@@ -40,7 +68,48 @@ function formatDate(value: string): string {
 }
 
 function selectableSessions(project: ExternalAgentProjectCandidate): ExternalAgentSessionCandidate[] {
-  return project.sessions.filter((session) => !session.imported);
+  return project.sessions;
+}
+
+export function formatImportResultSummary(result: ExternalAgentImportResult): string {
+  const outcomes: string[] = [];
+  if (result.importedSessions > 0) {
+    outcomes.push(
+      `Imported ${result.importedSessions} ${result.importedSessions === 1 ? 'chat' : 'chats'} and ${result.importedEvents.toLocaleString()} events${result.createdWorkspaces > 0
+        ? ` into ${result.createdWorkspaces} new ${result.createdWorkspaces === 1 ? 'project' : 'projects'}`
+        : ''}`,
+    );
+  }
+  if (result.syncedSessions > 0) {
+    outcomes.push(
+      `Synced ${result.syncedSessions} ${result.syncedSessions === 1 ? 'chat' : 'chats'} with ${result.syncedEvents.toLocaleString()} new events`,
+    );
+  }
+  if (outcomes.length === 0) outcomes.push('No chats needed updating');
+  if (result.skippedSessions > 0) {
+    outcomes.push(`${result.skippedSessions} ${result.skippedSessions === 1 ? 'chat was' : 'chats were'} skipped`);
+  }
+  if (result.failures.length > 0) {
+    outcomes.push(`${result.failures.length} could not be updated`);
+  }
+  return `${outcomes.join('. ')}.`;
+}
+
+export function hasExternalAgentDiscoveryRows(
+  discovery: ExternalAgentDiscovery | undefined,
+): boolean {
+  return discovery?.projects.some((project) => project.sessions.length > 0) ?? false;
+}
+
+function importStatusLabel(session: ExternalAgentSessionCandidate): string {
+  switch (session.importStatus) {
+    case 'importing': return 'Updating';
+    case 'changed': return 'Updates found';
+    case 'missing': return 'Source missing';
+    case 'error': return 'Sync failed';
+    case 'current': return 'Imported';
+    default: return formatDate(session.updatedAt);
+  }
 }
 
 export function ExternalAgentImportPanel() {
@@ -59,6 +128,7 @@ export function ExternalAgentImportPanel() {
       { sessionKeys },
       { timeoutMs: 10 * 60_000 },
     ),
+    onMutate: () => setLastResult(null),
     onSuccess: async (result) => {
       setLastResult(result);
       setSelected(new Set());
@@ -74,6 +144,19 @@ export function ExternalAgentImportPanel() {
   const selectedProjects = useMemo(() => {
     if (!discovery.data) return 0;
     return discovery.data.projects.filter((project) => project.sessions.some((session) => selected.has(session.key))).length;
+  }, [discovery.data, selected]);
+
+  const selectedBreakdown = useMemo(() => {
+    let imports = 0;
+    let syncs = 0;
+    for (const project of discovery.data?.projects ?? []) {
+      for (const session of project.sessions) {
+        if (!selected.has(session.key)) continue;
+        if (session.imported) syncs += 1;
+        else imports += 1;
+      }
+    }
+    return { imports, syncs };
   }, [discovery.data, selected]);
 
   const toggleSession = (key: string) => {
@@ -114,20 +197,29 @@ export function ExternalAgentImportPanel() {
     void discovery.refetch();
   };
 
-  const found = (discovery.data?.sources.claude.found ?? 0) + (discovery.data?.sources.codex.found ?? 0);
+  const hasRows = hasExternalAgentDiscoveryRows(discovery.data);
+
+  const submitLabel = importMutation.isPending
+    ? 'Updating...'
+    : selectedBreakdown.imports > 0 && selectedBreakdown.syncs > 0
+      ? `Import and sync ${selected.size} chats`
+      : selectedBreakdown.syncs > 0
+        ? `Sync ${selected.size} chats`
+        : `Import ${selected.size || ''} chats`.replace('  ', ' ');
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-2 sm:grid-cols-2">
-        {(['claude', 'codex'] as const).map((source) => {
+      <div className="grid gap-2 sm:grid-cols-3">
+        {SOURCES.map((source) => {
           const summary = discovery.data?.sources[source];
+          const meta = SOURCE_META[source];
           return (
             <div key={source} className="flex items-center gap-3 rounded-lg border border-border bg-background p-3">
               <div className={cn(
                 'flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold',
-                source === 'claude' ? 'bg-orange-500/10 text-orange-500' : 'bg-emerald-500/10 text-emerald-500',
+                meta.cardClassName,
               )}>
-                {source === 'claude' ? 'C' : 'O'}
+                {meta.mark}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground">{sourceLabel(source)}</p>
@@ -135,7 +227,7 @@ export function ExternalAgentImportPanel() {
                   {!summary
                     ? 'Checking local history'
                     : !summary.available
-                      ? 'Local folder not found'
+                      ? 'Local history unavailable'
                       : `${summary.found} chats found${summary.imported ? `, ${summary.imported} imported` : ''}`}
                 </p>
               </div>
@@ -149,12 +241,12 @@ export function ExternalAgentImportPanel() {
         <div>
           <h3 className="text-[12px] font-medium text-foreground">Local projects and chats</h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground/85">
-            Flow reads the source folders without changing them. Imported chats remain available in History.
+            Flow reads local agent history without changing it. Select imported chats to sync newer messages.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={discovery.isFetching}>
           <RefreshCw className={cn(discovery.isFetching && 'animate-spin')} />
-          Scan again
+          Refresh list
         </Button>
       </div>
 
@@ -166,12 +258,12 @@ export function ExternalAgentImportPanel() {
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           Could not scan local agent history. {discovery.error instanceof Error ? discovery.error.message : ''}
         </div>
-      ) : found === 0 ? (
+      ) : !hasRows ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <MessageSquare className="mx-auto size-5 text-muted-foreground" />
           <p className="mt-2 text-sm font-medium text-foreground">No local chats found</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Flow checks the configured Claude and Codex home folders on this machine.
+            Flow checks Claude Code, Codex, and OpenCode history on this machine.
           </p>
         </div>
       ) : (
@@ -184,7 +276,12 @@ export function ExternalAgentImportPanel() {
               expanded={expanded.has(project.id)}
               onToggleProject={() => toggleProject(project)}
               onToggleSession={toggleSession}
+              onSyncSession={(key) => importMutation.mutate([key])}
               onToggleExpanded={() => toggleExpanded(project.id)}
+              syncDisabled={importMutation.isPending}
+              syncingSessionKey={importMutation.isPending && importMutation.variables?.length === 1
+                ? importMutation.variables[0]
+                : null}
             />
           ))}
         </div>
@@ -197,24 +294,21 @@ export function ExternalAgentImportPanel() {
             ? 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300'
             : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300',
         )}>
-          Imported {lastResult.importedSessions} chats and {lastResult.importedEvents.toLocaleString()} events
-          {lastResult.createdWorkspaces > 0 ? ` into ${lastResult.createdWorkspaces} new projects` : ''}.
-          {lastResult.skippedSessions > 0 ? ` ${lastResult.skippedSessions} were already imported.` : ''}
-          {lastResult.failures.length > 0 ? ` ${lastResult.failures.length} could not be imported.` : ''}
+          {formatImportResultSummary(lastResult)}
         </div>
       )}
 
       {importMutation.isError && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-[12px] text-destructive">
-          Import failed. {importMutation.error instanceof Error ? importMutation.error.message : ''}
+          Update failed. {importMutation.error instanceof Error ? importMutation.error.message : ''}
         </div>
       )}
 
       <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background/95 pt-4 backdrop-blur">
         <p className="text-[11px] text-muted-foreground">
           {selected.size > 0
-            ? `${selected.size} chats selected from ${selectedProjects} projects`
-            : 'Select a project or individual chats to import.'}
+            ? `${selected.size} ${selected.size === 1 ? 'chat' : 'chats'} selected from ${selectedProjects} ${selectedProjects === 1 ? 'project' : 'projects'}. ${selectedBreakdown.imports} new, ${selectedBreakdown.syncs} to sync.`
+            : 'Select a project or individual chats to import or sync.'}
         </p>
         <Button
           type="button"
@@ -222,7 +316,7 @@ export function ExternalAgentImportPanel() {
           disabled={selected.size === 0 || importMutation.isPending}
         >
           <Download />
-          {importMutation.isPending ? 'Importing...' : `Import ${selected.size || ''} chats`.replace('  ', ' ')}
+          {submitLabel}
         </Button>
       </div>
     </div>
@@ -235,14 +329,20 @@ function ProjectRow({
   expanded,
   onToggleProject,
   onToggleSession,
+  onSyncSession,
   onToggleExpanded,
+  syncDisabled,
+  syncingSessionKey,
 }: {
   project: ExternalAgentProjectCandidate;
   selected: Set<string>;
   expanded: boolean;
   onToggleProject: () => void;
   onToggleSession: (key: string) => void;
+  onSyncSession: (key: string) => void;
   onToggleExpanded: () => void;
+  syncDisabled: boolean;
+  syncingSessionKey: string | null;
 }) {
   const selectable = selectableSessions(project);
   const selectedCount = selectable.filter((session) => selected.has(session.key)).length;
@@ -271,7 +371,7 @@ function ProjectRow({
           <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground/70">{project.cwd}</span>
           {!project.pathExists && (
             <span className="mt-1 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
-              <AlertTriangle size={10} /> Folder missing. The transcript can still be imported.
+              <AlertTriangle size={10} /> Folder missing. The chat can still be imported or synced.
             </span>
           )}
         </button>
@@ -281,35 +381,61 @@ function ProjectRow({
       </div>
 
       <div className="border-t border-border/70 bg-muted/10">
-        {visibleSessions.map((session) => (
-          <label key={session.key} className={cn(
-            'flex items-center gap-3 border-b border-border/50 px-3 py-2 last:border-b-0',
-            session.imported ? 'opacity-55' : 'cursor-pointer hover:bg-muted/30',
-          )}>
-            <Checkbox
-              checked={session.imported || selected.has(session.key)}
-              onCheckedChange={() => onToggleSession(session.key)}
-              disabled={session.imported}
-              aria-label={`Select ${session.label}`}
-            />
-            <MessageSquare size={13} className="shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12px] text-foreground">{session.label}</span>
-              <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className={cn(
-                  'rounded-full px-1.5 py-0.5 font-medium',
-                  session.source === 'claude'
-                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
-                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                )}>
-                  {sourceLabel(session.source)}
+        {visibleSessions.map((session) => {
+          const isSyncing = syncingSessionKey === session.key;
+          return (
+            <div
+              key={session.key}
+              className="flex items-center gap-3 border-b border-border/50 px-3 py-2 last:border-b-0 hover:bg-muted/30"
+            >
+              <Checkbox
+                checked={selected.has(session.key)}
+                onCheckedChange={() => onToggleSession(session.key)}
+                disabled={syncDisabled}
+                aria-label={`Select ${session.label} to ${session.imported ? 'sync' : 'import'}`}
+              />
+              <MessageSquare size={13} className="shrink-0 text-muted-foreground" />
+              <button
+                type="button"
+                onClick={() => onToggleSession(session.key)}
+                disabled={syncDisabled}
+                className="min-w-0 flex-1 text-left"
+              >
+                <span className="block truncate text-[12px] text-foreground">{session.label}</span>
+                <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <span className={cn(
+                    'rounded-full px-1.5 py-0.5 font-medium',
+                    SOURCE_META[session.source].pillClassName,
+                  )}>
+                    {sourceLabel(session.source)}
+                  </span>
+                  {session.branchName && <span className="max-w-36 truncate">{session.branchName}</span>}
                 </span>
-                {session.branchName && <span className="max-w-36 truncate">{session.branchName}</span>}
+              </button>
+              <span className={cn(
+                'shrink-0 text-[10px] text-muted-foreground',
+                session.importStatus === 'changed' && 'text-amber-600 dark:text-amber-400',
+                session.importStatus === 'error' && 'text-destructive',
+              )}>
+                {importStatusLabel(session)}
               </span>
-            </span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">{session.imported ? 'Imported' : formatDate(session.updatedAt)}</span>
-          </label>
-        ))}
+              {session.imported && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSyncSession(session.key)}
+                  disabled={syncDisabled}
+                  className="h-7 gap-1 px-2 text-[10px]"
+                  aria-label={`Sync ${session.label}`}
+                >
+                  <RefreshCw className={cn('size-3', isSyncing && 'animate-spin')} />
+                  {isSyncing ? 'Syncing' : session.importStatus === 'error' || session.importStatus === 'missing' ? 'Retry' : 'Sync'}
+                </Button>
+              )}
+            </div>
+          );
+        })}
         {!expanded && project.sessions.length > 3 && (
           <button type="button" onClick={onToggleExpanded} className="w-full px-3 py-2 text-[11px] font-medium text-primary hover:bg-muted/30">
             Show {project.sessions.length - 3} more chats

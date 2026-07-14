@@ -579,18 +579,6 @@ export async function close(chatSessionId: string): Promise<void> {
 }
 
 /**
- * Drop the cached AgentSession without closing pending requests. Used
- * when the user changes `permissionMode` mid-session: the next dispatch
- * spawns a fresh CLI process with the new `--permission-mode` flag,
- * resuming the conversation via `externalSessionId`. The Claude SDK
- * only reads the flag at startup — there's no in-protocol way to swap
- * modes without restarting the process.
- *
- * Best-effort close on the existing handle; we don't await it in case
- * the user is mid-stream (the runningSessions check at the route layer
- * already rejects send-while-running).
- */
-/**
  * Recycle every live agent session for a workspace (spec §6f). Called after a workspace's connector
  * scopes change so a removed service takes effect immediately rather than next session — the harness
  * caches its tool list otherwise. A no-op for sessions that aren't currently live.
@@ -622,6 +610,15 @@ export async function recycleHarnessSessions(harness: ProviderId): Promise<void>
   await Promise.all(affected.map((sessionId) => close(sessionId)));
 }
 
+/**
+ * Drop the cached AgentSession without closing pending requests. Used when
+ * selection changes require the next dispatch to spawn a fresh CLI process
+ * and resume the conversation through `externalSessionId`.
+ *
+ * Best-effort close on the existing handle. Selection-changing routes reject
+ * changes during an active turn before reaching this function. Other callers
+ * use it for lifecycle invalidation where closing the old handle is expected.
+ */
 export async function recycleForModeChange(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   if (!handle) return;

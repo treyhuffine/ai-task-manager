@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 const CLAUDE_ID = '11111111-1111-4111-8111-111111111111';
-const CODEX_ID = '22222222-2222-4222-8222-222222222222';
+// Provider-owned ids can collide. The ledger must qualify identity by source.
+const CODEX_ID = CLAUDE_ID;
 
 describe('external agent imports', () => {
   let root: string;
@@ -134,6 +135,7 @@ describe('external agent imports', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     const dbModule = await import('@/lib/db');
     dbModule.resetDb();
     for (const key of Object.keys(savedEnv)) {
@@ -170,7 +172,9 @@ describe('external agent imports', () => {
     expect(sessions.every((session) => session.status === 'archived')).toBe(true);
     expect(sessions.every((session) => session.surfaceKind === 'imported_agent')).toBe(true);
 
-    const claudeSession = sessions.find((session) => session.externalSessionId === CLAUDE_ID)!;
+    const claudeSession = sessions.find((session) => session.surfaceRef === 'claude')!;
+    expect(claudeSession.externalSessionId).toBeNull();
+    expect(claudeSession.externalProviderType).toBeNull();
     const claudeEvents = q.listChatEvents(claudeSession.id, { limit: 50 });
     expect(claudeEvents.map((event) => event.source)).toEqual([
       'user',
@@ -181,16 +185,188 @@ describe('external agent imports', () => {
     ]);
     expect(claudeEvents[0]?.content).toBe('Build the import screen');
 
-    const codexSession = sessions.find((session) => session.externalSessionId === CODEX_ID)!;
+    const codexSession = sessions.find((session) => session.surfaceRef === 'codex')!;
     expect(q.listChatEvents(codexSession.id, { limit: 50 }).map((event) => event.source)).toEqual(['user', 'agent']);
 
     const second = await importer.importExternalAgentSessions(candidates.map((candidate) => candidate.key));
-    expect(second).toMatchObject({ importedSessions: 0, skippedSessions: 2, failures: [] });
+    expect(second).toMatchObject({
+      importedSessions: 0,
+      syncedSessions: 2,
+      syncedEvents: 0,
+      skippedSessions: 0,
+      failures: [],
+    });
     expect(q.listChatSessions({ type: 'execution' })).toHaveLength(2);
+
+    fs.appendFileSync(path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`), `${JSON.stringify({
+      type: 'assistant',
+      uuid: 'claude-assistant-3',
+      sessionId: CLAUDE_ID,
+      cwd: projectOne,
+      timestamp: '2026-01-01T10:00:04.000Z',
+      message: {
+        id: 'msg_claude_3',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Synced after the initial import.' }],
+      },
+    })}\n`);
+    const sync = await importer.importExternalAgentSessions([
+      candidates.find((candidate) => candidate.source === 'claude')!.key,
+    ]);
+    expect(sync).toMatchObject({ syncedSessions: 1, syncedEvents: 1, failures: [] });
+    expect(q.listChatEvents(claudeSession.id, { limit: 50 }).at(-1)?.content)
+      .toBe('Synced after the initial import.');
+
+    const claudeTranscriptPath = path.join(
+      claudeHome,
+      'projects',
+      '-project-one',
+      `${CLAUDE_ID}.jsonl`,
+    );
+    fs.appendFileSync(claudeTranscriptPath, `${JSON.stringify({
+      type: 'ai-title',
+      sessionId: CLAUDE_ID,
+      aiTitle: 'Filtered bookkeeping tail',
+    })}\n`);
+    const filteredTailSync = await importer.importExternalAgentSessions([
+      candidates.find((candidate) => candidate.source === 'claude')!.key,
+    ]);
+    expect(filteredTailSync).toMatchObject({ syncedSessions: 1, syncedEvents: 0, failures: [] });
+    expect(q.getExternalSessionImportBySource('claude', CLAUDE_ID)?.syncOffset)
+      .toBe(fs.statSync(claudeTranscriptPath).size);
 
     const secondScan = await importer.discoverExternalAgentSessions();
     expect(secondScan.sources.claude.imported).toBe(1);
     expect(secondScan.sources.codex.imported).toBe(1);
+    expect(secondScan.sources.opencode).toMatchObject({ available: false, found: 0, imported: 0 });
+  }, 15_000);
+
+  it('replays a same-or-larger rewrite when the imported prefix changed', async () => {
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    await importer.importExternalAgentSessions([claude.key]);
+
+    const q = await import('@/lib/db/queries');
+    const session = q.listChatSessions({ type: 'execution' })
+      .find((candidate) => candidate.surfaceRef === 'claude')!;
+    q.insertChatEvent({
+      sessionId: session.id,
+      role: 'user',
+      source: 'user',
+      content: 'Flow-only note',
+    });
+
+    const transcriptPath = path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`);
+    const records = fs.readFileSync(transcriptPath, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const first = records[0] as { message: { content: string } };
+    first.message.content = 'Rewritten source prompt';
+    records.push({
+      type: 'assistant',
+      uuid: 'claude-rewrite-assistant',
+      sessionId: CLAUDE_ID,
+      cwd: projectOne,
+      timestamp: '2026-01-01T10:00:05.000Z',
+      message: {
+        id: 'msg_claude_rewrite',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Replacement transcript complete.' }],
+      },
+    });
+    writeJsonl(transcriptPath, records);
+
+    const result = await importer.importExternalAgentSessions([claude.key]);
+    expect(result).toMatchObject({ syncedSessions: 1, syncedEvents: 6, failures: [] });
+    const contents = q.listChatEvents(session.id, { limit: 50 }).map((event) => event.content);
+    expect(contents).toContain('Rewritten source prompt');
+    expect(contents).not.toContain('Build the import screen');
+    expect(contents).toContain('Replacement transcript complete.');
+    expect(contents).toContain('Flow-only note');
+  });
+
+  it('does not commit staged file events when the source changes during the read', async () => {
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    await importer.importExternalAgentSessions([claude.key]);
+
+    const q = await import('@/lib/db/queries');
+    const session = q.listChatSessions({ type: 'execution' })
+      .find((candidate) => candidate.surfaceRef === 'claude')!;
+    const beforeContents = q.listChatEvents(session.id, { limit: 50 }).map((event) => event.content);
+    fs.appendFileSync(path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`), `${JSON.stringify({
+      type: 'assistant',
+      uuid: 'claude-unstable-assistant',
+      sessionId: CLAUDE_ID,
+      cwd: projectOne,
+      timestamp: '2026-01-01T10:00:06.000Z',
+      message: {
+        id: 'msg_claude_unstable',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Must not commit yet.' }],
+      },
+    })}\n`);
+
+    const agentex = await import('@agentex/agent');
+    const history = agentex.getProvider('claude').localHistory!;
+    const fingerprint = history.fingerprint.bind(history);
+    let calls = 0;
+    vi.spyOn(history, 'fingerprint').mockImplementation(async (...args) => {
+      const value = await fingerprint(...args);
+      calls++;
+      return calls === 2
+        ? { ...value, modifiedAtNs: `${BigInt(value.modifiedAtNs) + BigInt(1)}` }
+        : value;
+    });
+
+    const result = await importer.importExternalAgentSessions([claude.key]);
+    expect(result.syncedSessions).toBe(0);
+    expect(result.failures).toHaveLength(1);
+    expect(q.listChatEvents(session.id, { limit: 50 }).map((event) => event.content))
+      .toEqual(beforeContents);
+    expect(q.getExternalSessionImportBySource('claude', CLAUDE_ID)?.status).toBe('error');
+  });
+
+  it('fully verifies a legacy file checkpoint that has no prefix hash', async () => {
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    await importer.importExternalAgentSessions([claude.key]);
+
+    const q = await import('@/lib/db/queries');
+    const ledger = q.getExternalSessionImportBySource('claude', CLAUDE_ID)!;
+    q.updateExternalSessionImport(ledger.id, { sourceContentSha256: null });
+
+    const result = await importer.importExternalAgentSessions([claude.key]);
+    expect(result).toMatchObject({ syncedSessions: 1, syncedEvents: 5, failures: [] });
+    expect(q.getExternalSessionImportBySource('claude', CLAUDE_ID)?.sourceContentSha256)
+      .toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('cleans up a new workspace and skeleton when the first read fails', async () => {
+    const agentex = await import('@agentex/agent');
+    const history = agentex.getProvider('claude').localHistory!;
+    vi.spyOn(history, 'read').mockImplementation(async function* () {
+      throw new Error('broken transcript');
+    });
+
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    const result = await importer.importExternalAgentSessions([claude.key]);
+    expect(result).toMatchObject({ importedSessions: 0, createdWorkspaces: 0 });
+    expect(result.failures).toHaveLength(1);
+
+    const q = await import('@/lib/db/queries');
+    expect(q.listChatSessions({ type: 'execution' })).toHaveLength(0);
+    expect(q.listExternalSessionImports()).toHaveLength(0);
+    expect(q.listWorkspaces({ status: 'active' })).toHaveLength(0);
+    expect(q.listWorkspaces({ status: 'archived' })).toHaveLength(0);
   });
 });
 

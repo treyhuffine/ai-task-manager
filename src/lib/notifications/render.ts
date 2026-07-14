@@ -3,7 +3,7 @@
  * concern here is the deep-link base: external channels (Telegram, email) need an absolute,
  * phone-reachable URL; same-origin channels (web push) keep it relative. We reuse the app's
  * existing base-url resolution (remote tunnel → LAN), and OMIT the link when only localhost is
- * available rather than ship a dead `/executions/…` a phone can't open.
+ * available rather than ship a dead `/?session=…` a phone can't open.
  */
 import type { NotificationChannelRecord } from '@/db/types';
 import { getRemoteBaseUrl, getLanBaseUrl } from '@/lib/auth/bootstrap';

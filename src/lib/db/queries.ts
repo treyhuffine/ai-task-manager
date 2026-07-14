@@ -6,7 +6,7 @@
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
-  workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
+  workspaces, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks,
@@ -15,6 +15,7 @@ import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, notExi
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
+import { toFtsMatchQuery, normalizeFtsRank } from '@/lib/embeddings/fts-query';
 import { syncEntity, syncDeletion } from '@/lib/export/mirror';
 import type {
   TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter,
@@ -30,6 +31,7 @@ import type {
   ExecutionRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
+  ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
   TriggerRecord, CreateTriggerInput, UpdateTriggerInput,
@@ -3168,8 +3170,9 @@ export function getChatSession(id: string): ChatSessionRecord | undefined {
 export function createChatSession(input: CreateChatSessionInput & { id?: string }): ChatSessionRecord {
   const db = getDb();
   const agent = db.select().from(agents).where(eq(agents.id, input.agentId)).get();
+  const providerId = providerIdForHarness(agent?.harness);
   const selection = explicitAgentSelection(
-    providerIdForHarness(agent?.harness),
+    providerId,
     { model: input.model, variant: input.modelVariant, effort: input.effort },
   );
   const row = db
@@ -3181,6 +3184,8 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      externalProviderType: input.externalProviderType
+        ?? (input.externalSessionId ? providerId : null),
       id: input.id ?? uuidv7(),
       status: input.status ?? 'active',
       // Store ISO (UTC) rather than the SQLite `datetime('now')` default's
@@ -3195,13 +3200,88 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
 
 export function updateChatSession(id: string, input: UpdateChatSessionInput): ChatSessionRecord | null {
   const db = getDb();
+  let normalized = input;
+  if (Object.hasOwn(input, 'externalSessionId') && !Object.hasOwn(input, 'externalProviderType')) {
+    if (input.externalSessionId === null) {
+      normalized = { ...input, externalProviderType: null };
+    } else if (input.externalSessionId) {
+      const sessionAgent = db
+        .select({ harness: agents.harness })
+        .from(chatSessions)
+        .innerJoin(agents, eq(chatSessions.agentId, agents.id))
+        .where(eq(chatSessions.id, id))
+        .get();
+      normalized = {
+        ...input,
+        externalProviderType: providerIdForHarness(sessionAgent?.harness),
+      };
+    }
+  }
   const row = db
     .update(chatSessions)
-    .set(input)
+    .set(normalized)
     .where(eq(chatSessions.id, id))
     .returning()
     .get();
   return row ?? null;
+}
+
+export function getExternalSessionImportBySource(
+  providerType: string,
+  externalSessionId: string,
+): ExternalSessionImportRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(externalSessionImports)
+    .where(and(
+      eq(externalSessionImports.providerType, providerType),
+      eq(externalSessionImports.externalSessionId, externalSessionId),
+    ))
+    .get();
+}
+
+export function getExternalSessionImportForChat(
+  chatSessionId: string,
+): ExternalSessionImportRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(externalSessionImports)
+    .where(eq(externalSessionImports.chatSessionId, chatSessionId))
+    .get();
+}
+
+export function listExternalSessionImports(): ExternalSessionImportRecord[] {
+  return getDb().select().from(externalSessionImports).all();
+}
+
+export function createExternalSessionImport(
+  input: CreateExternalSessionImportInput & { id?: string },
+): ExternalSessionImportRecord {
+  const now = new Date().toISOString();
+  return getDb()
+    .insert(externalSessionImports)
+    .values({
+      ...input,
+      id: input.id ?? uuidv7(),
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    })
+    .returning()
+    .get();
+}
+
+export function updateExternalSessionImport(
+  id: string,
+  input: UpdateExternalSessionImportInput,
+): ExternalSessionImportRecord | null {
+  return getDb()
+    .update(externalSessionImports)
+    .set({ ...input, updatedAt: new Date().toISOString() })
+    .where(eq(externalSessionImports.id, id))
+    .returning()
+    .get() ?? null;
 }
 
 export function archiveChatSession(id: string): ChatSessionRecord | null {
@@ -3645,6 +3725,152 @@ function hydrateRailRow(
     ...flat,
     workspaceAttachments: workspaceAttachments ? camelizeKeys(workspaceAttachments) : null,
   } as RailSessionRow;
+}
+
+// ─── Chat / session search ────────────────────────────────────
+//
+// Full-text search over chat transcripts, backed by the `chat_events_fts`
+// index (see EXTRA_SQL in src/lib/db/index.ts). Only message-bearing events
+// (source IN ('user','agent')) are indexed. The result unit is a *session*:
+// event hits are grouped to their session, keeping the best-ranked hit's
+// snippet, so the UI lands on the conversation with the matching passage.
+//
+// Scoped to `type='execution'` chats (native + imported). Orchestration and
+// content chats have no workspace/execution and render differently, so folding
+// them into this rail-shaped result would be misleading — a separate surface
+// can search those later if wanted.
+
+/** Filter for native vs. imported (and which importer) chats. */
+export type ChatSearchSource = 'native' | 'imported' | 'claude' | 'codex' | 'opencode';
+
+/** A rail session row plus the FTS snippet + relevance that matched it. */
+export interface ChatSearchResult extends RailSessionRow {
+  /** FTS `snippet()` of the best-matching event. Matched terms are wrapped in
+   *  the sentinels from `@/lib/search/highlight` (CHAT_SEARCH_HL_START/END);
+   *  render with `splitHighlight`, or `stripHighlight` for plain text. */
+  snippet: string;
+  /** The event whose content produced the snippet — for future deep-linking. */
+  matchedEventId: string;
+  /** Normalized 0-1 BM25 relevance (higher = better). */
+  score: number;
+}
+
+interface ChatSearchScanRow {
+  sessionId: string;
+  matchedEventId: string;
+  snippet: string;
+  rank: number;
+}
+
+export function searchChatSessions(opts: {
+  query: string;
+  status?: 'active' | 'archived';
+  workspaceId?: string;
+  source?: ChatSearchSource;
+  /** Max sessions to return. Default 30. */
+  limit?: number;
+}): ChatSearchResult[] {
+  const match = toFtsMatchQuery(opts.query);
+  if (!match) return [];
+  const limit = opts.limit ?? 30;
+
+  // Named params so MATCH and the filters can't get transposed. The snippet()
+  // highlight markers are emitted as char(2)/char(3) literals in SQL (== the
+  // exported CHAT_SEARCH_HL_* sentinels) rather than bound, sidestepping any
+  // FTS aux-function bind-arg quirks. Source clauses use constant literals.
+  const params: Record<string, unknown> = {
+    match,
+    // Scan more events than sessions: many events collapse to one session.
+    scanLimit: limit * 20,
+  };
+  const conds: string[] = ["cs.type = 'execution'"];
+  if (opts.status) {
+    conds.push('cs.status = :status');
+    params.status = opts.status;
+  }
+  if (opts.workspaceId) {
+    conds.push('cs.workspace_id = :workspaceId');
+    params.workspaceId = opts.workspaceId;
+  }
+  if (opts.source === 'imported') {
+    conds.push("cs.surface_kind = 'imported_agent'");
+  } else if (opts.source === 'native') {
+    conds.push("(cs.surface_kind IS NULL OR cs.surface_kind <> 'imported_agent')");
+  } else if (opts.source === 'claude' || opts.source === 'codex' || opts.source === 'opencode') {
+    conds.push(`(cs.surface_kind = 'imported_agent' AND cs.surface_ref = '${opts.source}')`);
+  }
+
+  const raw = getRawDb();
+  const scanRows = raw
+    .prepare(
+      `SELECT f.session_id AS sessionId,
+              f.event_id AS matchedEventId,
+              snippet(chat_events_fts, 2, char(2), char(3), '…', 12) AS snippet,
+              rank
+       FROM chat_events_fts f
+       JOIN chat_sessions cs ON cs.id = f.session_id
+       WHERE chat_events_fts MATCH :match
+         AND ${conds.join(' AND ')}
+       ORDER BY rank
+       LIMIT :scanLimit`,
+    )
+    .all(params) as ChatSearchScanRow[];
+
+  // Collapse to one hit per session. scanRows is rank-ascending (best first),
+  // so the first time a session appears is its best hit, and Map insertion
+  // order preserves best-rank ordering across sessions.
+  const bySession = new Map<string, ChatSearchScanRow>();
+  for (const r of scanRows) {
+    if (!bySession.has(r.sessionId)) bySession.set(r.sessionId, r);
+  }
+  const orderedIds = Array.from(bySession.keys()).slice(0, limit);
+  if (orderedIds.length === 0) return [];
+
+  // Hydrate the matched sessions with the same joins as listHistorySessions
+  // (workspace identity + flattened execution state), then re-attach the
+  // snippet/score and restore FTS rank order (SQL IN () doesn't preserve it).
+  const db = getDb();
+  const hydrated = db
+    .select({
+      ...getTableColumns(chatSessions),
+      execution: getTableColumns(executions),
+      workspaceName: workspaces.name,
+      workspaceEmoji: workspaces.emoji,
+      workspaceAttachments: workspaces.attachments,
+      workspaceAreaId: workspaces.areaId,
+      workspaceIsGit: workspaces.isGit,
+    })
+    .from(chatSessions)
+    .leftJoin(workspaces, eq(workspaces.id, chatSessions.workspaceId))
+    .leftJoin(executions, eq(chatSessions.executionId, executions.id))
+    .where(inArray(chatSessions.id, orderedIds))
+    .all();
+
+  const rowById = new Map(
+    hydrated.map((r) => [
+      r.id,
+      hydrateRailRow(
+        r as ChatSessionRecord & {
+          execution: ExecutionRecord | null;
+          workspaceAttachments: StoredAttachment[] | null;
+        },
+      ),
+    ]),
+  );
+
+  return orderedIds
+    .map((id): ChatSearchResult | null => {
+      const row = rowById.get(id);
+      const hit = bySession.get(id);
+      if (!row || !hit) return null;
+      return {
+        ...row,
+        snippet: hit.snippet,
+        matchedEventId: hit.matchedEventId,
+        score: normalizeFtsRank(hit.rank),
+      };
+    })
+    .filter((r): r is ChatSearchResult => r !== null);
 }
 
 // ─── Chat Events ──────────────────────────────────────────────

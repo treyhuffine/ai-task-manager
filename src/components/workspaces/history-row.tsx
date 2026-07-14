@@ -5,6 +5,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
+import { splitHighlight } from '@/lib/search/highlight';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { DiffStatsPair } from './diff-stats';
@@ -13,6 +14,10 @@ import { useSessionRowHover } from './session-hover-context';
 
 interface HistoryRowProps {
   session: RailSession;
+  /** When set (search results), renders a highlighted transcript snippet
+   *  beneath the workspace/branch line. Match terms are wrapped in the
+   *  `@/lib/search/highlight` sentinels. */
+  snippet?: string | null;
   onOpenWorkspaceSettings?: (workspaceId: string) => void;
   onCreateExecution?: (workspaceId: string) => void;
   onOpenCreateFrom?: (workspaceId: string) => void;
@@ -36,6 +41,7 @@ interface HistoryRowProps {
  */
 export function HistoryRow({
   session,
+  snippet,
   onOpenWorkspaceSettings,
   onCreateExecution,
   onOpenCreateFrom,
@@ -113,6 +119,7 @@ export function HistoryRow({
           )}
           <DiffStatsPair stats={diffStats} className="ml-auto flex-shrink-0" />
         </div>
+        {snippet && <SearchSnippet snippet={snippet} />}
       </div>
 
       <SessionRowMenu
@@ -127,6 +134,31 @@ export function HistoryRow({
         className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
       />
     </div>
+  );
+}
+
+/**
+ * Transcript snippet line for search results. Splits on the highlight
+ * sentinels and wraps matched terms so the reason this row matched is obvious
+ * at a glance. Two-line clamp keeps rows scannable.
+ */
+function SearchSnippet({ snippet }: { snippet: string }) {
+  const segments = splitHighlight(snippet);
+  return (
+    <p className="mt-0.5 text-[9.5px] leading-snug text-muted-foreground/75 line-clamp-2">
+      {segments.map((seg, i) =>
+        seg.highlighted ? (
+          <mark
+            key={i}
+            className="rounded-[2px] bg-primary/20 px-0.5 text-foreground/90"
+          >
+            {seg.text}
+          </mark>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        ),
+      )}
+    </p>
   );
 }
 

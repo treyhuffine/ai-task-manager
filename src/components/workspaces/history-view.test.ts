@@ -34,6 +34,7 @@ function s(id: string, iso: string): RailSession {
     lastViewedAt: null,
     unreadMarkerAt: null,
     externalSessionId: null,
+    externalProviderType: null,
     externalTranscriptPath: null,
     externalSyncOffset: null,
     externalSyncLastEventId: null,

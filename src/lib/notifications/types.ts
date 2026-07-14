@@ -14,7 +14,7 @@ export interface NotificationEvent {
   title: string;
   /** Human detail; for execution.finished this is the run summary. */
   body: string;
-  /** Relative app deep link ("/executions/<id>"); `render()` resolves an absolute base for external channels. */
+  /** Relative app deep link ("/?session=<chatSessionId>"); `render()` resolves an absolute base for external channels. */
   url: string;
   /** Optional structured extras a richer channel could format from. */
   [key: string]: unknown;

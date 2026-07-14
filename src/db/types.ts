@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
-  workspaces, agents, executions, chatSessions, chatEvents, chatRefs,
+  workspaces, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks,
@@ -171,6 +171,10 @@ export type CreateChatSessionInput = Omit<InferInsertModel<typeof chatSessions>,
 export type UpdateChatSessionInput = Partial<Omit<CreateChatSessionInput, 'startedAt'>>;
 export type ChatSessionType = ChatSessionRecord['type'];
 export type ChatSessionStatus = ChatSessionRecord['status'];
+
+export type ExternalSessionImportRecord = InferSelectModel<typeof externalSessionImports>;
+export type CreateExternalSessionImportInput = Omit<InferInsertModel<typeof externalSessionImports>, 'id'>;
+export type UpdateExternalSessionImportInput = Partial<Omit<CreateExternalSessionImportInput, 'createdAt'>>;
 
 /**
  * A chat_session joined to its execution, with the execution's durable

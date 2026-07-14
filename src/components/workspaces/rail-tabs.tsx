@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Clock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Clock, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
 import { cn } from '@/lib/utils';
 import { WorkspaceNav } from './workspace-nav';
 import { StatusView } from './status-view';
 import { HistoryView } from './history-view';
+import { SessionSearchResults } from './session-search-results';
 import { SkinnyView } from './skinny-view';
 import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
@@ -67,7 +68,12 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
   } = useDashboard();
   const [tab, setTab] = useState<RailTab>(DEFAULT_TAB);
   const [triggersOpen, setTriggersOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const collapsed = !!forceCollapsed || railCollapsed;
+  // Persistent transcript search overrides the active tab's body whenever it
+  // has a query — so finding a chat never means tabbing to History. Hidden in
+  // skinny mode (no room); the query is preserved for when the rail expands.
+  const searching = !collapsed && search.trim().length > 0;
   const onToggle =
     toggleTarget === 'execution' ? toggleExecutionRailOpen : toggleRailCollapsed;
 
@@ -81,6 +87,9 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
 
   const select = (next: RailTab) => {
     setTab(next);
+    // Selecting a tab is an explicit "show me this" — clear any active search
+    // so the tab body actually appears instead of staying under results.
+    setSearch('');
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(STORAGE_KEY, next);
     }
@@ -93,6 +102,7 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
           collapsed={collapsed}
           onClick={() => setTriggersOpen(true)}
         />
+        {!collapsed && <RailSearchInput value={search} onChange={setSearch} />}
         <RailHeader
           collapsed={collapsed}
           tab={tab}
@@ -107,6 +117,8 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
         >
           {collapsed ? (
             <SkinnyView tab={tab} />
+          ) : searching ? (
+            <SessionSearchResults query={search} />
           ) : tab === 'status' ? (
             <StatusView />
           ) : tab === 'history' ? (
@@ -180,6 +192,59 @@ function TriggersButton({
           </span>
         )}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Always-visible transcript search box, above the tab switcher. Typing here
+ * searches the full text of every chat/execution transcript (native + imported)
+ * and swaps the rail body for ranked results — regardless of which tab is
+ * active. Escape clears it and returns to the tab.
+ */
+function RailSearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="px-2 pt-1.5 pb-1 border-b border-border/40">
+      <div className="relative">
+        <Search
+          size={12}
+          className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none"
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && value) {
+              e.preventDefault();
+              onChange('');
+            }
+          }}
+          placeholder="Search chats…"
+          aria-label="Search chat transcripts"
+          className={cn(
+            'w-full pl-7 pr-7 py-1.5 rounded-md text-[11px]',
+            'bg-muted/40 border border-transparent',
+            'placeholder:text-muted-foreground/50',
+            'focus:outline-none focus:border-border focus:bg-background',
+          )}
+        />
+        {value && (
+          <button
+            onClick={() => onChange('')}
+            aria-label="Clear search"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground/50 hover:text-foreground"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

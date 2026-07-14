@@ -6,6 +6,7 @@ import {
   getLocalBaseUrl,
   getRunningPort,
   setRunningPort,
+  getAutoTunnel,
 } from '@/lib/auth/bootstrap';
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
@@ -18,6 +19,7 @@ function snapshot() {
     tunnel: getRemoteBaseUrl(),
     lan: getLanBaseUrl(),
     local: getLocalBaseUrl(),
+    autoTunnel: getAutoTunnel(),
   };
 }
 

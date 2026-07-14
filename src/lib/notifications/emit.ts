@@ -45,7 +45,11 @@ export async function notifyRunTerminal(runId: string): Promise<void> {
     dedupeKey: `execution.finished:${runId}`,
     title: `${ok ? '✅' : '❌'} ${execution.label ?? 'Execution'}`,
     body: run.summary ?? (ok ? 'Execution completed.' : 'Execution failed.'),
-    url: `/executions/${execution.id}`,
+    // Deep-link opens the chat where the transcript lives. The home route is
+    // the only surface that renders a session (`?session=<chatSessionId>`);
+    // there is no `/executions/<id>` page. `runs.chatSessionId` is the exact
+    // chat that ran (null for orchestration/content chats → fall back to home).
+    url: run.chatSessionId ? `/?session=${run.chatSessionId}` : '/',
   });
 }
 
@@ -64,6 +68,8 @@ export async function notifyNeedsInput(args: {
     dedupeKey: `execution.needs_input:${args.requestId}`,
     title: args.title,
     body: args.body,
-    url: session.executionId ? `/executions/${session.executionId}` : '/',
+    // `?session=` opens the chat that needs input; `args.sessionId` is already
+    // that chat's id (there is no `/executions/<id>` page).
+    url: `/?session=${args.sessionId}`,
   });
 }

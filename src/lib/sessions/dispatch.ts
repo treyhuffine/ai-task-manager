@@ -50,7 +50,7 @@ import {
 } from '@/lib/workspaces';
 import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForSession } from '@/lib/terminal/pty-manager';
-import { invalidateAgentSession } from '@/lib/executor/adapter';
+import { invalidateAgentSession, close as closeAgentSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { providerHarnessKey, providerIdForHarness } from '@/lib/agent-options';
 import { resolveAgentSelection } from '@/lib/agent-model-discovery';
@@ -457,16 +457,21 @@ export async function archiveExecutionSession(
     archiveChatSession(args.sessionId);
   }
 
-  // Reap any PTYs that belonged to this execution's chats. Terminals are
-  // keyed by chat-session id, and archiving an execution cascades to every
-  // chat under it (takeover chats included) — so enumerate the execution's
-  // chats and kill each one's terminals. Without this, node-pty processes
-  // leak until the server restarts. killAllForSession is a no-op for ids
-  // with no live terminals, so the orphan-chat fallback is safe too.
+  // Reap every process that belonged to this execution's chats. Two kinds,
+  // both keyed by chat-session id, and archiving an execution cascades to
+  // every chat under it (takeover chats included) — so enumerate the
+  // execution's chats and reap each:
+  //   - node-pty terminals (killAllForSession)
+  //   - the cached agent CLI subprocess (closeAgentSession)
+  // We just tore down the worktree above; without closing the agent, its
+  // Claude/Codex subprocess keeps running against a now-deleted cwd until
+  // the server restarts. Both reapers are no-ops for ids with nothing live,
+  // so the orphan-chat fallback is safe too.
   const reapSessionIds = session.executionId
     ? listChatSessions({ executionId: session.executionId }).map((s) => s.id)
     : [args.sessionId];
   for (const sessionId of reapSessionIds) killAllForSession(sessionId);
+  await Promise.all(reapSessionIds.map((id) => closeAgentSession(id)));
 
   return getChatSessionWithExecution(args.sessionId);
 }

@@ -926,7 +926,11 @@ export const chatSessions = sqliteTable(
     lastViewedAt: text(),
     unreadMarkerAt: text(),
 
-    // CLI-backed tracking; null for in-app sessions.
+    // CLI-backed tracking; null for in-app sessions. Provider type is stored
+    // alongside the provider-owned id because those ids are only unique
+    // within one harness. Historical imports use externalSessionImports
+    // instead of these live-session binding fields.
+    externalProviderType: text(),
     externalSessionId: text(),
     externalTranscriptPath: text(),
     externalSyncOffset: integer(),
@@ -967,9 +971,9 @@ export const chatSessions = sqliteTable(
     archivedAt: text(),
   },
   (table) => [
-    uniqueIndex('chat_sessions_external_session_id_uq')
-      .on(table.externalSessionId)
-      .where(sql`${table.externalSessionId} IS NOT NULL`),
+    uniqueIndex('chat_sessions_external_provider_session_uq')
+      .on(table.externalProviderType, table.externalSessionId)
+      .where(sql`${table.externalProviderType} IS NOT NULL AND ${table.externalSessionId} IS NOT NULL`),
     index('idx_chat_sessions_workspace_status').on(
       table.workspaceId,
       table.status,
@@ -987,11 +991,53 @@ export const chatSessions = sqliteTable(
   ],
 );
 
-// ─── Chat Events ──────────────────────────────────────────────
+// ─── External Session Imports ───────────────────────────────
+// Provider-qualified provenance and synchronization state for immutable
+// imported chats. File providers use offsets and fingerprints. Service
+// providers use opaque checkpoints.
+
+export const externalSessionImports = sqliteTable(
+  'external_session_imports',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    chatSessionId: text()
+      .notNull()
+      .unique()
+      .references(() => chatSessions.id, { onDelete: 'cascade' }),
+    providerType: text().notNull(),
+    externalSessionId: text().notNull(),
+    sourceKind: text({ enum: ['file', 'service'] }).notNull(),
+    sourcePath: text(),
+    sourceSize: integer(),
+    sourceModifiedAtNs: text(),
+    sourceContentSha256: text(),
+    sourceUpdatedAt: text(),
+    syncOffset: integer().notNull().default(0),
+    syncLastEventId: text(),
+    historyCheckpoint: text({ mode: 'json' }).$type<{ kind: string; value: unknown }>(),
+    status: text({
+      enum: ['importing', 'current', 'changed', 'missing', 'error'],
+    })
+      .notNull()
+      .default('importing'),
+    lastScannedAt: text(),
+    lastSyncedAt: text(),
+    lastError: text(),
+  },
+  (table) => [
+    uniqueIndex('external_session_imports_source_uq').on(
+      table.providerType,
+      table.externalSessionId,
+    ),
+    index('external_session_imports_status_idx').on(table.status),
+  ],
+);
+
+// ─── Chat Events ─────────────────────────────────────────────
 // One row per atomic thing that happened in a chat. Source enum
 // distinguishes user/agent/thinking/tool_call/tool_result/system/result/etc.
 // External_event_id makes idempotent upsert possible across retries.
-
 export const chatEvents = sqliteTable(
   'chat_events',
   {

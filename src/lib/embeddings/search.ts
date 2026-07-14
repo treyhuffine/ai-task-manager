@@ -1,5 +1,8 @@
 import { getRawDb } from '@/lib/db';
 import { generateEmbedding } from './embed';
+import { toFtsMatchQuery, normalizeFtsRank } from './fts-query';
+
+export { toFtsMatchQuery, normalizeFtsRank };
 
 export interface SearchHit {
   entityType: 'task' | 'note' | 'stream';
@@ -45,12 +48,7 @@ export async function vectorSearch(query: string, limit = 20): Promise<SearchHit
 export function ftsSearch(query: string, limit = 20): SearchHit[] {
   const db = getRawDb();
   // Escape FTS5 special chars and add prefix matching
-  const searchTerm = query
-    .trim()
-    .replace(/['"]/g, '')
-    .split(/\s+/)
-    .map((t) => `"${t}"*`)
-    .join(' ');
+  const searchTerm = toFtsMatchQuery(query);
 
   const hits: SearchHit[] = [];
 
@@ -71,7 +69,7 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
       hits.push({
         entityType: 'task',
         entityId: r.id,
-        score: Math.abs(r.rank) / (1 + Math.abs(r.rank)),
+        score: normalizeFtsRank(r.rank),
       });
     }
   } catch {
@@ -95,7 +93,7 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
       hits.push({
         entityType: 'note',
         entityId: r.id,
-        score: Math.abs(r.rank) / (1 + Math.abs(r.rank)),
+        score: normalizeFtsRank(r.rank),
       });
     }
   } catch {
@@ -119,7 +117,7 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
       hits.push({
         entityType: 'stream',
         entityId: r.id,
-        score: Math.abs(r.rank) / (1 + Math.abs(r.rank)),
+        score: normalizeFtsRank(r.rank),
       });
     }
   } catch {

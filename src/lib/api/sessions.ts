@@ -211,6 +211,10 @@ export interface ResyncResult {
   fixes: string[];
 }
 
+export interface RestartResult {
+  ok: true;
+}
+
 export interface WipDetection {
   modified: string[];
   untracked: string[];
@@ -295,6 +299,30 @@ export interface RailResponse {
 
 export interface HistoryResponse {
   sessions: RailSession[];
+}
+
+// ─── Chat / session search ────────────────────────────────────
+
+/** Native vs. imported (and which importer) filter for chat search. */
+export type ChatSearchSource = 'native' | 'imported' | 'claude' | 'codex' | 'opencode';
+
+/**
+ * One chat-search hit: a rail session row plus the matched snippet + score.
+ * Wire mirror of the server's `ChatSearchResult` (src/lib/db/queries.ts). The
+ * snippet's matched terms are wrapped in the sentinels from
+ * `@/lib/search/highlight` — render with `splitHighlight`.
+ */
+export interface ChatSearchResult extends RailSession {
+  snippet: string;
+  matchedEventId: string;
+  score: number;
+}
+
+export interface SessionSearchFilters {
+  status?: 'active' | 'archived';
+  workspaceId?: string;
+  source?: ChatSearchSource;
+  limit?: number;
 }
 
 // ─── Picker / References / Scratchpad wire types ─────────────
@@ -573,6 +601,22 @@ export const sessionsApi = {
     return api.get<HistoryResponse>('/sessions/history');
   },
 
+  /**
+   * Full-text search across chat/execution transcripts. Ranked, one result
+   * per session, with a highlighted snippet. Blank query returns [].
+   */
+  search(query: string, filters?: SessionSearchFilters): Promise<ChatSearchResult[]> {
+    return api.get<ChatSearchResult[]>('/sessions/search', {
+      query: {
+        q: query,
+        status: filters?.status,
+        workspaceId: filters?.workspaceId,
+        source: filters?.source,
+        limit: filters?.limit,
+      },
+    });
+  },
+
   pendingInputGlobal(): Promise<{ sessionIds: string[] }> {
     return api.get<{ sessionIds: string[] }>('/sessions/pending-input');
   },
@@ -686,6 +730,10 @@ export const sessionsApi = {
 
   resync(id: string): Promise<ResyncResult> {
     return api.post<ResyncResult>(`/sessions/${id}/resync`);
+  },
+
+  restart(id: string): Promise<RestartResult> {
+    return api.post<RestartResult>(`/sessions/${id}/restart`);
   },
 
   wip(id: string): Promise<WipDetection | null> {

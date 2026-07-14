@@ -17,6 +17,7 @@ import {
   clearRemoteBaseUrl,
   getLanBaseUrl,
   getLocalBaseUrl,
+  getAutoTunnel,
 } from '@/lib/auth/bootstrap';
 
 export const runtime = 'nodejs';
@@ -26,6 +27,7 @@ function snapshot() {
     tunnel: getRemoteBaseUrl(),
     lan: getLanBaseUrl(),
     local: getLocalBaseUrl(),
+    autoTunnel: getAutoTunnel(),
   };
 }
 

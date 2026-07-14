@@ -177,6 +177,17 @@ export async function register() {
     console.warn('[preview] shutdown hook init failed', err);
   }
 
+  // "Keep Flow reachable": when the user opted in, re-open the app's own beamd
+  // tunnel at boot and keep it alive, so a headless/remote box stays reachable
+  // across restarts without a manual settings click. No-op unless opted in and
+  // beamd is logged in. Background; never blocks startup.
+  try {
+    const { startAutoTunnel } = await import('@/lib/auth/auto-tunnel');
+    startAutoTunnel();
+  } catch (err) {
+    console.warn('[auto-tunnel] init failed', err);
+  }
+
   // Seed the app-managed morning-deck trigger (create-if-absent, adopts any
   // legacy name-linked row once). Must run before the scheduler tick so the
   // row is present for the first pass. See src/lib/deck/trigger.ts.

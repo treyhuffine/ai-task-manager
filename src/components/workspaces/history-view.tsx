@@ -1,7 +1,7 @@
 'use client';
 
-import { useDeferredValue, useMemo, useState } from 'react';
-import { Search, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { X } from 'lucide-react';
 import { useHistorySessions, useCreateExecution } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
@@ -23,23 +23,21 @@ const PILL_SCROLL_PRESETS = {
  * here even though they're invisible in the other two tabs.
  *
  * Controls:
- *   - Free-text search across label, workspace name, and branch.
  *   - Workspace pill row for multi-select scoping. Pills derive from
  *     the sessions actually present in the history feed (not the
  *     workspaces table) so an empty workspace never gets a chip.
+ *
+ * Full-text search over transcripts lives in the always-visible rail search
+ * box (see `RailTabs` / `SessionSearchResults`), not here — it searches every
+ * chat's content, not just this feed's labels.
  */
 export function HistoryView() {
   const { data, isLoading } = useHistorySessions();
   const { setActiveView } = useDashboard();
-  const [filter, setFilter] = useState('');
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [createFromId, setCreateFromId] = useState<string | null>(null);
   const createExecution = useCreateExecution();
-  // Defer the filter input so typing stays smooth even when the
-  // history feed is at its 200-row cap — the filter pass over the
-  // session list runs on every keystroke otherwise.
-  const deferredFilter = useDeferredValue(filter);
 
   // Workspaces represented in this feed. Order by first-appearance
   // (which the server already sorted by recency) so the most-recently
@@ -60,20 +58,12 @@ export function HistoryView() {
   }, [data?.sessions]);
 
   const filtered = useMemo(() => {
-    const q = deferredFilter.trim().toLowerCase();
     const wsScope = selectedWs.size > 0 ? selectedWs : null;
-    return (data?.sessions ?? []).filter((s) => {
-      if (wsScope && (!s.workspaceId || !wsScope.has(s.workspaceId))) return false;
-      if (!q) return true;
-      const haystack = [
-        s.label ?? '',
-        s.execution?.label ?? '',
-        s.workspaceName ?? '',
-        s.branchName ?? '',
-      ].join(' ').toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [data?.sessions, deferredFilter, selectedWs]);
+    if (!wsScope) return data?.sessions ?? [];
+    return (data?.sessions ?? []).filter(
+      (s) => s.workspaceId && wsScope.has(s.workspaceId),
+    );
+  }, [data?.sessions, selectedWs]);
 
   const grouped = useMemo(() => groupByDateBucket(filtered), [filtered]);
 
@@ -101,9 +91,8 @@ export function HistoryView() {
 
   return (
     <>
-      <div className="flex flex-col gap-1.5 px-2 pt-1.5 pb-2 border-b border-border/40">
-        <SearchInput value={filter} onChange={setFilter} />
-        {workspacePills.length > 0 && (
+      {workspacePills.length > 0 && (
+        <div className="flex flex-col gap-1.5 px-2 pt-1.5 pb-2 border-b border-border/40">
           <div className={PILL_SCROLL_PRESETS.bar}>
             {workspacePills.map((ws) => (
               <WorkspacePill
@@ -125,8 +114,8 @@ export function HistoryView() {
               </button>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {isLoading && !data ? (
         <div className="flex flex-col gap-1 px-1 pt-1">
@@ -171,40 +160,6 @@ export function HistoryView() {
         onClose={() => setCreateFromId(null)}
       />
     </>
-  );
-}
-
-// ─── Search input ─────────────────────────────────────────────
-
-function SearchInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="relative">
-      <Search
-        size={11}
-        className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none"
-      />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Filter executions…"
-        className={cn(
-          'w-full pl-6 pr-6 py-1 rounded-md text-[10.5px]',
-          'bg-muted/40 border border-transparent',
-          'placeholder:text-muted-foreground/50',
-          'focus:outline-none focus:border-border focus:bg-background',
-        )}
-      />
-      {value && (
-        <button
-          onClick={() => onChange('')}
-          aria-label="Clear search"
-          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground/50 hover:text-foreground"
-        >
-          <X size={11} />
-        </button>
-      )}
-    </div>
   );
 }
 

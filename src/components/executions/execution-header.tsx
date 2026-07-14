@@ -19,6 +19,7 @@ import type { ChatSessionWithAgent } from '@/lib/api/sessions';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverButton } from './takeover/takeover-button';
 import { ResyncMenuItem } from './resync-menu-item';
+import { RestartMenuItem } from './restart-menu-item';
 import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
 import { ExecutionChatControls } from './execution-chat-controls';
@@ -434,6 +435,8 @@ export function ExecutionHeader({
                 <div className="h-px bg-border" />
                 <div className="p-1">{takeoverMenuItem}</div>
                 <div className="h-px bg-border" />
+                <div className="p-1"><RestartMenuItem sessionId={session.id} /></div>
+                <div className="h-px bg-border" />
                 <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>
                 {archiveMenuItem && (
                   <>
@@ -625,6 +628,9 @@ export function ExecutionHeader({
 
               <div className="h-px bg-border" />
               <div className="p-1">{takeoverMenuItem}</div>
+
+              <div className="h-px bg-border" />
+              <div className="p-1"><RestartMenuItem sessionId={session.id} /></div>
 
               <div className="h-px bg-border" />
               <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>

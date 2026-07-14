@@ -7,6 +7,8 @@ export interface PairBaseUrls {
   lan: string | null;
   /** Always-present localhost URL. */
   local: string;
+  /** Whether the app re-opens its beamd tunnel at boot to stay reachable. */
+  autoTunnel: boolean;
 }
 
 export interface BeamdBaseUrlResponse extends PairBaseUrls {
@@ -28,5 +30,9 @@ export const settingsApi = {
 
   useBeamdTunnelUrl(): Promise<BeamdBaseUrlResponse> {
     return api.post<BeamdBaseUrlResponse>('/settings/base-url/beamd');
+  },
+
+  setAutoTunnel(enabled: boolean): Promise<PairBaseUrls> {
+    return api.post<PairBaseUrls>('/settings/base-url/auto-tunnel', { enabled });
   },
 };

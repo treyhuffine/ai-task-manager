@@ -88,6 +88,18 @@ export function clearRemoteBaseUrl(): void {
   writeAuthConfig({ tunnelUrl: null });
 }
 
+/**
+ * Whether the app should auto-open (and keep alive) its beamd tunnel at boot
+ * so this machine stays reachable across restarts. Opt-in; null = off.
+ */
+export function getAutoTunnel(): boolean {
+  return readAuthConfig()?.autoTunnel ?? false;
+}
+
+export function setAutoTunnel(enabled: boolean): void {
+  writeAuthConfig({ autoTunnel: enabled });
+}
+
 function normalizeBaseUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, '');
   if (!trimmed) throw new Error('Base URL cannot be empty');

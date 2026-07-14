@@ -1,4 +1,12 @@
-export type ExternalAgentSource = 'claude' | 'codex';
+export type ExternalAgentSource = 'claude' | 'codex' | 'opencode';
+
+export type ExternalAgentImportStatus =
+  | 'not_imported'
+  | 'importing'
+  | 'current'
+  | 'changed'
+  | 'missing'
+  | 'error';
 
 export interface ExternalAgentSessionCandidate {
   /** Stable selection key. The server resolves it against trusted local roots. */
@@ -11,6 +19,9 @@ export interface ExternalAgentSessionCandidate {
   updatedAt: string;
   branchName: string | null;
   imported: boolean;
+  importStatus: ExternalAgentImportStatus;
+  /** Present after import. Used by the explicit refresh endpoint. */
+  chatSessionId?: string;
 }
 
 export interface ExternalAgentProjectCandidate {
@@ -37,6 +48,10 @@ export interface ExternalAgentImportRequest {
   sessionKeys: string[];
 }
 
+export interface ExternalAgentRefreshRequest {
+  chatSessionIds: string[];
+}
+
 export interface ExternalAgentImportFailure {
   key: string;
   error: string;
@@ -45,6 +60,8 @@ export interface ExternalAgentImportFailure {
 export interface ExternalAgentImportResult {
   importedSessions: number;
   importedEvents: number;
+  syncedSessions: number;
+  syncedEvents: number;
   createdWorkspaces: number;
   skippedSessions: number;
   failures: ExternalAgentImportFailure[];

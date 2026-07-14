@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Globe, Check, Loader2, Trash2, CheckCircle2, AlertCircle, WandSparkles, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { usePreviewSettings } from '@/hooks/use-preview';
 import { ApiError } from '@/lib/api/client';
 import { settingsApi } from '@/lib/api/settings';
@@ -100,6 +102,7 @@ async function runTest(rawUrl: string): Promise<TestResult> {
 
 export function RemoteBaseUrlSection() {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'base-url'],
     queryFn: () => settingsApi.getBaseUrls(),
@@ -129,18 +132,45 @@ export function RemoteBaseUrlSection() {
     },
   });
 
+  const autoTunnelMutation = useMutation({
+    mutationFn: (enabled: boolean) => settingsApi.setAutoTunnel(enabled),
+    onSuccess: (res) => {
+      queryClient.setQueryData(['settings', 'base-url'], res);
+      if (res.tunnel) setTestResult({ status: 'ok', url: res.tunnel });
+    },
+  });
+
   const beamdMutation = useMutation({
     mutationFn: () => settingsApi.useBeamdTunnelUrl(),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       queryClient.setQueryData(['settings', 'base-url'], {
         tunnel: res.tunnel,
         lan: res.lan,
         local: res.local,
+        autoTunnel: res.autoTunnel,
       });
       setDraftOverride(null);
       setTestResult({ status: 'ok', url: res.beamd.url });
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 1500);
+      // Prompt hard: a tunnel that vanishes on restart is the #1 footgun for
+      // a remote box. If auto-reconnect isn't already on, push for it now
+      // while the URL is fresh in their mind.
+      if (!res.autoTunnel) {
+        const yes = await confirm({
+          title: 'Keep Flow reachable automatically?',
+          description: (
+            <>
+              Turn on auto-reconnect so Flow re-opens this Beamd tunnel every time it
+              starts. Without it, a restart or reboot leaves this machine unreachable
+              until you reconnect by hand.
+            </>
+          ),
+          confirmLabel: 'Turn on auto-reconnect',
+          cancelLabel: 'Not now',
+        });
+        if (yes) autoTunnelMutation.mutate(true);
+      }
     },
   });
 
@@ -148,7 +178,11 @@ export function RemoteBaseUrlSection() {
   const testTarget = draft.trim();
   const canTest = !!testTarget && testResult.status !== 'testing';
   const checkingBeamd = previewSettingsLoading || previewSettingsFetching;
-  const busy = isLoading || saveMutation.isPending || beamdMutation.isPending;
+  const busy =
+    isLoading ||
+    saveMutation.isPending ||
+    beamdMutation.isPending ||
+    autoTunnelMutation.isPending;
 
   const handleTest = async () => {
     if (!canTest) return;
@@ -210,6 +244,39 @@ export function RemoteBaseUrlSection() {
             <RefreshCw size={11} className={checkingBeamd ? 'animate-spin' : ''} />
             Re-check
           </Button>
+        </div>
+      </div>
+
+      {/* Keep Flow reachable: re-open the Beamd tunnel on every startup so a
+          headless/remote box stays accessible across restarts without a manual
+          reconnect. Only meaningful for the Beamd tunnel — external tunnels
+          (Tailscale, ngrok, Cloudflare) are managed outside Flow. */}
+      <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+        <div className="min-w-0">
+          <div className="text-[12px] font-medium text-foreground">
+            Reconnect automatically on startup
+          </div>
+          <p className="text-[11px] text-muted-foreground/70">
+            {beamdConnected
+              ? 'Flow re-opens this Beamd tunnel every time it starts, so this machine stays reachable after restarts and reboots.'
+              : 'Connect Beamd first, then Flow can keep the tunnel up on every startup.'}
+          </p>
+          {autoTunnelMutation.isError && (
+            <p className="mt-1 text-[11px] text-destructive">
+              {beamdErrorMessage(autoTunnelMutation.error)}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 pt-0.5">
+          {autoTunnelMutation.isPending && (
+            <Loader2 size={12} className="animate-spin text-muted-foreground" />
+          )}
+          <Switch
+            checked={data?.autoTunnel ?? false}
+            disabled={!beamdConnected || busy}
+            onCheckedChange={(v) => autoTunnelMutation.mutate(v)}
+            aria-label="Reconnect automatically on startup"
+          />
         </div>
       </div>
 

@@ -1,10 +1,10 @@
 # Agent Harness Expansion: OpenCode and Cursor
 
-Status: implemented in Agentex 0.0.28 and Flow, pending supported-binary UI smoke verification
+Status: live harness support implemented, OpenCode saved-history import implemented locally and pending Agentex 0.0.31 publication
 
 Date: 2026-07-10
 
-Revision: 2026-07-13 Flow implementation and release review reconciliation
+Revision: 2026-07-14 OpenCode saved-history import and Cursor scope reconciliation
 
 Repositories:
 
@@ -37,7 +37,22 @@ Review reconciliation:
 - Effort visibility derives from the registry reasoning-effort capability. Harness-specific fallback levels remain data rather than UI conditions
 - Dynamic model and variant preservation is explicitly bounded by async catalog validation and the executor's repeated pre-launch validation
 
-### Implementation status, 2026-07-13
+### Saved-history implementation status, 2026-07-14
+
+Agentex 0.0.31 adds the provider-neutral `savedHistory` contract and an OpenCode implementation. Flow uses it to discover, import, and explicitly synchronize archived or active root OpenCode chats. Claude and Codex historical imports continue to use Agentex `localHistory`.
+
+Cursor remains live execution only. Its CLI support, resume behavior, model discovery, and Cursor-routed Grok models are unchanged. Flow does not inspect Cursor's private saved-history state or advertise Cursor history import without a stable supported source contract.
+
+The historical import boundary is:
+
+- Agentex owns provider discovery, OpenCode service authentication, provider history reads, normalization, stable event identity, and opaque checkpoints.
+- Flow owns explicit user selection, the provider-qualified import ledger, archived chat persistence, synchronization status, transactional replacement, and Settings UI.
+- Imported history sync is explicit in Settings in this pass. Background, startup, imported-chat-open sync, and an existing-user release prompt are deferred.
+- Agentex 0.0.31 is complete on local `main`. Flow is tested against that local build, but its package and lockfile must move from 0.0.30 to the published 0.0.31 before release.
+
+The full implemented contract and task list are in `docs/external-agent-history-import-spec.md`.
+
+### Live harness implementation status, 2026-07-13
 
 Agentex 0.0.28 is installed from the registry with no workspace override. Flow now contains the four-harness registry, effective runtime probing, model discovery and allowlists, Cursor encrypted credentials, OpenCode provider configuration, executor integration, durable OpenCode history reconciliation, onboarding, settings, and composer support described by this specification.
 

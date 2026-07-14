@@ -25,6 +25,11 @@ export interface AuthConfig {
    *  via portless). Written by `start --portless`, cleared by `start` without it.
    *  When set, `getLocalBaseUrl()` prefers it over `http://localhost:<port>`. */
   staticUrl: string | null;
+  /** Opt-in: re-open the app's beamd tunnel at boot (and keep it alive) so
+   *  this machine stays reachable across restarts/reboots without a manual
+   *  settings click. Null = never chosen (treated as off). See
+   *  `src/lib/auth/auto-tunnel.ts`. */
+  autoTunnel: boolean | null;
 }
 
 export function getAuthConfigDir(): string {
@@ -50,6 +55,7 @@ export function readAuthConfig(): AuthConfig | null {
       globalSkillEnabled: parsed.globalSkillEnabled ?? null,
       lastPort: parsed.lastPort ?? null,
       staticUrl: parsed.staticUrl ?? null,
+      autoTunnel: parsed.autoTunnel ?? null,
     };
   } catch (err) {
     console.error('[auth] failed to read config.json:', err);
@@ -77,6 +83,7 @@ export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
     globalSkillEnabled: pick('globalSkillEnabled'),
     lastPort: pick('lastPort'),
     staticUrl: pick('staticUrl'),
+    autoTunnel: pick('autoTunnel'),
   };
 
   const p = getAuthConfigPath();

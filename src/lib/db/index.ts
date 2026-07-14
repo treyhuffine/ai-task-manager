@@ -70,6 +70,48 @@ CREATE TRIGGER IF NOT EXISTS stream_au AFTER UPDATE ON stream BEGIN
   INSERT INTO stream_fts(rowid, raw_text) VALUES (NEW.rowid, NEW.raw_text);
 END;
 
+-- FTS for chat transcripts. Deliberately a REGULAR fts5 table (not a
+-- content='chat_events' external-content one): we index only message-bearing
+-- events (source IN ('user','agent')), and external-content mode requires the
+-- 'delete' command to exactly mirror prior inserts — a footgun with conditional
+-- indexing. A regular table lets the delete trigger drop by rowid
+-- unconditionally (a no-op for rows we never indexed), so the index can never
+-- drift. session_id/event_id ride along UNINDEXED so a hit carries enough to
+-- group-by-session and deep-link without joining back to chat_events.
+-- tool_summary is reserved (empty for now) so indexing tool-call names/args
+-- later is additive and needs no reindex of the message rows.
+CREATE VIRTUAL TABLE IF NOT EXISTS chat_events_fts USING fts5(
+  session_id UNINDEXED,
+  event_id UNINDEXED,
+  content,
+  tool_summary
+);
+
+CREATE TRIGGER IF NOT EXISTS chat_events_fts_ai AFTER INSERT ON chat_events
+WHEN NEW.source IN ('user', 'agent') AND NEW.content IS NOT NULL AND NEW.content <> ''
+BEGIN
+  INSERT INTO chat_events_fts(rowid, session_id, event_id, content, tool_summary)
+  VALUES (NEW.rowid, NEW.session_id, NEW.id, NEW.content, '');
+END;
+CREATE TRIGGER IF NOT EXISTS chat_events_fts_ad AFTER DELETE ON chat_events BEGIN
+  DELETE FROM chat_events_fts WHERE rowid = OLD.rowid;
+END;
+CREATE TRIGGER IF NOT EXISTS chat_events_fts_au AFTER UPDATE ON chat_events BEGIN
+  DELETE FROM chat_events_fts WHERE rowid = OLD.rowid;
+  INSERT INTO chat_events_fts(rowid, session_id, event_id, content, tool_summary)
+  SELECT NEW.rowid, NEW.session_id, NEW.id, NEW.content, ''
+  WHERE NEW.source IN ('user', 'agent') AND NEW.content IS NOT NULL AND NEW.content <> '';
+END;
+
+-- One-shot idempotent backfill: fills only when the index is empty, so it runs
+-- once for pre-existing + imported history and never duplicates on later boots
+-- (triggers keep it in sync from here on).
+INSERT INTO chat_events_fts(rowid, session_id, event_id, content, tool_summary)
+SELECT rowid, session_id, id, content, ''
+FROM chat_events
+WHERE source IN ('user', 'agent') AND content IS NOT NULL AND content <> ''
+  AND NOT EXISTS (SELECT 1 FROM chat_events_fts LIMIT 1);
+
 -- Embeddings metadata
 CREATE TABLE IF NOT EXISTS embeddings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -53,6 +53,13 @@ interface PatchBody {
   prNumber?: number | null;
 }
 
+function selectionChangeWhileRunningResponse(): Response {
+  return Response.json({
+    error: 'selection_change_while_running',
+    reason: 'Wait for the active turn to finish before changing its model, variant, effort, or mode.',
+  }, { status: 409 });
+}
+
 /**
  * Updates a small whitelist of session fields. Label is freeform; other
  * mutations have dedicated routes (`/view`, `/archive`, etc.) so this is
@@ -91,6 +98,9 @@ export async function PATCH(
           { error: `Invalid permissionMode. Expected one of ${PERMISSION_MODES.join(', ')}.` },
           { status: 400 },
         );
+      }
+      if (mode !== existing.permissionMode && executor.isRunning(id)) {
+        return selectionChangeWhileRunningResponse();
       }
       const agent = getAgent(existing.agentId);
       const providerId = providerIdForHarness(agent?.harness);
@@ -171,6 +181,16 @@ export async function PATCH(
           { error: `Effort ${requestedEffort} is not supported by model ${nextSelection.model}.` },
           { status: 400 },
         );
+      }
+      if (
+        executor.isRunning(id)
+        && (
+          nextSelection.model !== existing.model
+          || nextSelection.variant !== existing.modelVariant
+          || nextSelection.effort !== existing.effort
+        )
+      ) {
+        return selectionChangeWhileRunningResponse();
       }
       if (nextSelection.model !== existing.model) {
         if (!runtime.capabilities.sessionModelChange.supported) {

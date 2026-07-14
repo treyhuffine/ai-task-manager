@@ -1,1101 +1,642 @@
-# External Agent History Import
+# External Agent History Import and Sync
 
-Status: implementation-ready specification
+Status: implemented, pending Agentex 0.0.31 publication and final Flow dependency update
 
-Date: 2026-07-10
+Date: 2026-07-14
 
 Repositories:
 
-- App: `~/dynamism/ai-task-manager`
+- Flow: `~/dynamism/ai-task-manager`
 - Agent runtime: `~/dynamism/agentex`
 
-Implementation contract:
+This document is both the implementation specification and the task list. It replaces the earlier Claude and Codex only draft. The status markers below describe the code as of 2026-07-14.
 
-> This specification requires coordinated changes in both repositories. Phase 1 is implemented, tested, and released as `@agentex/agent` `0.0.29` from `~/dynamism/agentex`. Later phases are implemented in `~/dynamism/ai-task-manager` against `0.0.29` or newer. Flow must not replace the Agentex phase with another provider-specific parser.
+## 1. Outcome
 
-## 1. Executive summary
+Flow lets a person discover, import, and explicitly synchronize useful saved conversations from:
 
-Flow should let a person discover and import projects and chat history created by local agent tools, beginning with Claude Code and Codex.
+- Claude Code
+- Codex CLI and Codex Desktop rollouts
+- OpenCode
 
-The source data already exists on disk:
+Cursor remains a supported live execution harness, including Cursor-routed Grok models, but it is not a saved-history import source. Cursor does not currently expose a stable public saved-history interface that Agentex can support honestly.
 
-- Claude Code stores project-scoped JSONL transcripts under `~/.claude/projects`
-- Codex stores active and archived JSONL rollouts under `~/.codex/sessions` and `~/.codex/archived_sessions`
-- Codex also maintains local indexes that may contain titles and other thread metadata
+The external tool remains the source of truth. Flow stores a normalized, read-only projection so imported history is searchable and remains readable if the original source later disappears.
 
-The product experience should resemble Codex's Claude Code import flow:
+The ownership boundary is strict:
 
-1. Detect supported local agent stores
-2. Show recognizable projects and recent chats
-3. Let the user select whole projects or individual chats
-4. Import without modifying the source stores
-5. Preserve provenance and transcript fidelity
-6. Keep imported history available and updateable when the source transcript grows
+- Agentex owns provider-specific discovery, history reads, event normalization, stable event identity, source fingerprints or opaque checkpoints, runtime authentication, and compatibility with provider format changes.
+- Flow owns user selection, workspace mapping, the import ledger, transactional persistence, synchronization policy, status, API routes, and UI.
+- Flow does not walk provider directories or call OpenCode history endpoints directly.
+- Neither repository writes to an imported source session.
 
-The implementation boundary is:
+## 2. Release state
 
-- Agentex owns provider-specific discovery, metadata extraction, transcript normalization, stable event identity, source fingerprinting, and compatibility with provider format changes
-- Flow owns project grouping, user selection, database persistence, workspace mapping, synchronization policy, import status, history navigation, and UI
+| Area | State | Release note |
+| --- | --- | --- |
+| Claude local history API | Complete | Uses Agentex `localHistory` |
+| Codex local history API | Complete | Uses Agentex `localHistory` |
+| OpenCode saved history API | Complete locally | Added in Agentex 0.0.31 |
+| Cursor saved history import | Excluded | No stable supported source contract |
+| Flow import ledger and migration | Complete | Migration `0004_broad_rachel_grey.sql` |
+| Flow Claude, Codex, and OpenCode discovery | Complete | Provider failures stay isolated |
+| Initial import | Complete | Explicit selection only |
+| Repeatable manual sync | Complete | Settings sync actions and refresh API |
+| Background or on-open sync | Deferred | Existing live-session reconciliation is separate |
+| Existing-user release prompt | Deferred | No prompt-version persistence in this pass |
+| Agentex publication | Blocked on release action | Publish 0.0.31 from Agentex |
+| Flow registry dependency | Blocked on publication | Update package and lockfile from 0.0.30 to 0.0.31 |
 
-The existing Flow prototype is valuable and should be refactored, not discarded. Its UI, API shape, database mapping, transaction logic, and integration tests are the starting point. The provider filesystem knowledge currently embedded in Flow moves into Agentex.
-
-## 2. Final product vision
-
-### 2.1 One local work history
-
-Flow is the durable index of a person's work across agents. A project may have chats created by Claude Code, Codex, Flow, and future supported harnesses. The user should not need to remember which agent created a conversation or where that agent stored it.
-
-Imported chats appear in Flow's History with clear provider provenance. They use the same transcript renderer, search, references, and project context as Flow-created chats.
-
-The external agent remains the source of truth for its local transcript. Flow stores a normalized projection so history stays fast, searchable, and available even if the source file later disappears.
-
-### 2.2 Import is deliberate
-
-Flow never silently imports every detected chat. Discovery is automatic when the import surface opens, but persistence requires an explicit user selection.
-
-This avoids:
-
-- Flooding Flow with short probes, empty sessions, subagents, and abandoned experiments
-- Creating workspaces for every temporary worktree ever used
-- Pulling sensitive history into Flow without user intent
-- Making a background scan feel like an unexplained mutation
-
-### 2.3 Imported history is linked, not frozen
-
-An imported chat keeps a read-only link to its source transcript.
-
-If the source grows after import, Flow can ingest the appended events. The imported chat remains a historical projection and is never treated as a live Flow-owned CLI session.
-
-If the source is deleted or moved, the imported Flow history remains intact and is marked as detached from its source.
-
-If the user chooses to continue imported work, Flow starts a new Flow-owned chat against the same workspace or execution context. Flow does not begin writing into the imported source session.
-
-### 2.4 Projects remain simple
-
-An external project is initially identified by the literal absolute working directory recorded by the provider.
-
-Flow reuses an existing workspace when its normalized `cwd` matches. When no workspace exists:
-
-- An existing directory becomes an active workspace after the user imports at least one chat from it
-- A missing directory becomes an archived placeholder workspace so its history remains labeled without creating a broken active project
-
-Flow does not automatically merge different worktrees or directories merely because they share a Git remote. Their code state may differ. A later explicit consolidation feature may use Git metadata to suggest merges.
-
-### 2.5 History scales beyond the first import
-
-Importing hundreds of chats must not make older chats unreachable. History requires cursor pagination or equivalent incremental loading before the UI permits imports beyond the current fixed history limit.
-
-Recent chats are the default import view. All detected history remains available behind project expansion, search, or a Show all action.
+Agentex 0.0.31 is implemented on local `main`. Flow is validated against that local build. A clean Flow install still resolves 0.0.30 until 0.0.31 is published and the lockfile is refreshed.
 
 ## 3. Product decisions
 
-These decisions are binding for the first production version.
+### 3.1 Import is deliberate
 
-### 3.1 Supported sources
+Opening Settings performs discovery. Flow persists nothing until the person selects chats and chooses Import.
 
-Initial sources:
+Imported chats can later be selected again and synchronized. The UI also provides a per-chat Sync or Retry action.
 
-- Claude Code
-- Codex CLI and Codex Desktop local rollouts
+This pass does not:
 
-Not included:
+- Auto-import every conversation
+- Run a periodic background synchronizer
+- Sync an imported chat merely because it was opened
+- Show a one-time upgrade prompt
+- Continue writing into the imported external session
 
-- Standard Claude web or desktop conversations
-- ChatGPT web conversation history
-- Cloud-only agent tasks without a local durable transcript
-- Subagent transcripts as standalone chats
-- Agent configuration, skills, plugins, hooks, or MCP migration
+### 3.2 Supported source behavior
 
-Configuration migration may be designed separately. This specification is only for projects and chat history.
+Claude and Codex are file-backed sources. Agentex discovers and reads their local transcript stores through `provider.localHistory`.
 
-### 3.2 Main sessions only
+OpenCode is a service-backed source. Agentex starts or reuses an authenticated local OpenCode service and uses `provider.savedHistory`. Flow receives provider-neutral session metadata and normalized events. It does not receive OpenCode storage paths or database details.
 
-Discovery includes only sessions that contain at least one meaningful human message.
+Cursor is excluded from saved-history discovery. Flow can start, resume, and live-capture Cursor sessions through Agentex, but it does not inspect Cursor's private local state for archived conversations.
 
-Exclude by default:
+### 3.3 Main useful sessions only
 
-- Claude sidechains and nested subagent transcripts
-- Codex subagent-only threads
-- Probe sessions
-- Metadata-only sessions
-- Sessions containing only developer instructions or environment context
-- Empty or unreadable transcripts
+Discovery requests:
 
-Agentex may expose an advanced option for hosts that need these records, but Flow does not request them.
+- Root sessions only
+- At least one meaningful human message
+- Archived sessions included
 
-### 3.3 Source stores are read-only
-
-Flow and Agentex must not mutate, rename, archive, delete, compact, or append to source transcripts during discovery or import.
-
-The only writes occur in Flow's own database and content stores.
-
-Tests must fingerprint fixture source files before and after discovery and import to prove this invariant.
+Provider bookkeeping, probes, empty sessions, and subagent-only records are excluded by Agentex.
 
 ### 3.4 Imported chats are historical
 
-Imported chats and their executions are archived after the initial import. They appear in History, not in active work queues.
+Initial import creates an archived execution and an archived execution chat with `surface_kind = 'imported_agent'`.
 
-They are considered read when first imported, so an old agent response does not appear as a new unread result.
+The transcript is read-only in Flow. A future Continue action may create a new Flow-owned chat with a handoff, but it must not append to the imported source session.
 
-Source synchronization may append events to an imported archived chat without changing its active or read state.
+Imported events preserve provider timestamps and useful raw payloads. Flow renders them through the normal transcript view and indexes message-bearing rows through its existing database search path.
 
-### 3.5 No permanent dedupe by session ID alone
+### 3.5 Provider-qualified identity
 
-Provider type and external session ID form the source identity:
+External session IDs are only unique within one provider. The durable source identity is:
 
 ```text
 (provider_type, external_session_id)
 ```
 
-Source modification time, size, and content hash describe a particular observed version.
+The browser receives an opaque selection key containing the provider and a base64url encoded external ID. It never receives a trusted transcript path.
 
-A previously imported source session may be updated when its fingerprint changes. It must not be permanently skipped merely because its session ID already exists.
+Live CLI bindings use the same provider qualification in `chat_sessions`:
 
-### 3.6 Full useful transcript fidelity
+```text
+(external_provider_type, external_session_id)
+```
 
-Import these event kinds when present:
+Historical imports do not occupy the live binding columns. Their provenance and synchronization state live in `external_session_imports`.
 
-- Human messages
-- Assistant messages
-- Readable thinking or reasoning summaries
-- Tool calls
-- Tool results
-- Meaningful system markers such as compaction, interruption, errors, and terminal results
+### 3.6 Missing source behavior
 
-Drop provider bookkeeping that does not help a person understand the conversation:
+If an imported source disappears, Flow keeps the imported transcript and marks the ledger `missing` only after that provider completed a successful enumeration.
 
-- Titles duplicated into metadata
-- Last-prompt mirrors
-- File-history snapshots
-- Permission-mode snapshots
-- Mode snapshots
-- Queue bookkeeping
-- Token counters
-- Duplicate event envelopes
-- Encrypted reasoning without a readable summary
+If discovery fails because authentication, the provider service, or its response is broken, Flow preserves the prior status. A failed enumeration is not evidence that every old source was deleted.
 
-Raw provider payloads remain attached to normalized events for audit and future migrations.
+If a source working directory no longer exists, initial import creates an archived placeholder workspace. It does not create a broken active project.
 
-### 3.7 Imported history is never a second writer
+## 4. Agentex contract
 
-Flow may read appended source events, but it never sends a prompt to an imported external session.
+### 4.1 Capabilities and provider surfaces
 
-Continue creates a new Flow-owned chat. This prevents two applications from writing to the same Claude or Codex session and avoids ambiguous ownership of permissions, pending input, and process state.
-
-### 3.8 Existing-user discovery is optional and non-blocking
-
-Onboarding performs full discovery when the Import step opens. If no supported history is available, the step shows a simple empty state and allows immediate continuation.
-
-For a person upgrading an existing Flow installation, Flow performs one cheap, bounded provider-store presence probe after the first dashboard load for the release that introduces this feature.
-
-The upgrade probe:
-
-- Runs asynchronously after normal dashboard data has loaded
-- Checks only for supported provider homes and plausible main-session files
-- Does not parse transcript content, derive titles, or persist imported history
-- Always runs on the machine hosting the Flow runtime
-- May be initiated from a remote browser, but never inspects or implies access to the browser device's filesystem
-- Labels remote results as data found on the Flow host
-- Never blocks normal app use
-
-When the probe finds plausible provider data, Flow may show one dismissible, non-modal card such as `Claude Code or Codex data was found on your Flow host` with an `Import history` action. The presence probe may produce false positives because it does not open transcript contents. Do not claim that eligible history exists and do not show an exact chat count until full discovery runs through explicit user navigation.
-
-The card opens the normal import surface, where full discovery begins. Prompt handling is persisted in `user_state.externalHistoryPromptVersion` and prevents the release prompt from appearing again. Settings remains the permanent import route.
-
-Flow never auto-imports history, opens a modal, or blocks the dashboard for this upgrade experience.
-
-## 4. Current implementation assessment
-
-The uncommitted Flow implementation already provides:
-
-- Claude and Codex home resolution through Agentex
-- Local transcript discovery
-- Project grouping by normalized `cwd`
-- Project and individual-chat selection
-- Settings and onboarding surfaces
-- Server-side resolution of trusted session keys
-- No source path exposure in the browser response
-- Archived execution and chat creation
-- Original timestamp preservation
-- User, assistant, thinking, tool call, tool result, and result ingestion
-- Duplicate import prevention
-- An end-to-end fixture test
-
-Keep these pieces.
-
-The current implementation also contains responsibilities that belong in Agentex:
-
-- Walking Claude and Codex storage layouts
-- Filtering Claude sidechains
-- Parsing provider session IDs
-- Extracting Claude titles and user messages
-- Extracting Codex titles, cwd, branch, and user messages
-- Reading Codex indexes
-- Deciding which provider records are duplicates or bookkeeping
-- Normalizing provider transcript lines
-
-Known product gaps to correct during the refactor:
-
-1. History is capped at 200 rows while import accepts up to 1,000 chats
-2. Real local stores include sessions without human messages, currently 43 on the inspected machine
-3. Imported sessions never receive events appended after import
-4. Claude imports currently surface file-history, mode, and permission bookkeeping
-5. A failed import can leave an empty active workspace
-6. Missing source directories become broken active workspaces
-7. The integration test exceeds Vitest's default five-second timeout on a cold run
-
-Spike validation completed before this specification:
-
-- The fixture integration test discovers Claude and Codex sessions, imports both, preserves expected event order, and skips a repeated import
-- A read-only scan of the real local stores found 496 candidate transcript files before eligibility filtering across 71 cwd groups
-- One real Codex transcript with 101 source events imported successfully into a temporary Flow database
-- One real Claude transcript with 158 source events imported successfully into a temporary Flow database
-
-This evidence proves that the storage locations, metadata recovery, event mapping, and Flow persistence model are viable. It does not make the current provider-specific Flow implementation the final architecture.
-
-## 5. Ownership boundary
-
-| Concern | Agentex | Flow |
-| --- | --- | --- |
-| Locate provider home directories | Owns | Consumes |
-| Understand provider directory layout | Owns | Must not duplicate |
-| Enumerate local sessions | Owns | Requests and filters product view |
-| Parse provider metadata | Owns | Displays normalized metadata |
-| Identify main session versus subagent | Owns | Requests main sessions |
-| Determine whether a session has human input | Owns | Requires true |
-| Normalize transcript events | Owns | Maps normalized events to `chat_events` |
-| Stable event identity and cursors | Owns | Persists and deduplicates |
-| Cheap and strong source fingerprints | Owns | Persists and compares |
-| Tolerate provider format versions | Owns | Receives typed errors and warnings |
-| Group sessions into projects | Provides cwd and Git metadata | Owns |
-| Select projects and chats | No | Owns |
-| Create workspaces and executions | No | Owns |
-| Decide active versus archived state | No | Owns |
-| Store import provenance and sync state | No | Owns |
-| Schedule rescan and synchronization | No | Owns |
-| History UI and pagination | No | Owns |
-| Search and embeddings | No | Owns |
-| Continue imported work | Provides normal session creation | Owns product flow |
-
-## 6. Agentex specification
-
-### 6.1 New capability
-
-Add an optional local history capability to `ProviderModule`:
+Agentex exposes two history surfaces because file storage details do not belong in the service-backed contract.
 
 ```ts
-export interface ProviderCapabilities {
+interface ProviderCapabilities {
   localHistory?: boolean
+  savedHistory?: boolean
 }
 
-export interface ProviderModule {
+interface ProviderModule {
   localHistory?: LocalHistoryOps
+  savedHistory?: SavedHistoryOps
 }
 ```
 
-Set `localHistory: true` for Claude and Codex only after their implementations and fixtures pass.
+Provider support is:
 
-Do not add discovery to `TranscriptOps`. `TranscriptOps` starts from a known session identity and serves durable reattachment. Local history starts without known IDs and includes human messages that are intentionally absent from live `StreamEvent` handling. These are related but distinct contracts.
+| Provider | `localHistory` | `savedHistory` |
+| --- | --- | --- |
+| Claude | Yes | No |
+| Codex | Yes | No |
+| OpenCode | No | Yes |
+| Cursor | No | No |
 
-Agentex `0.0.29` also exposes `durableHistory` and `attachHistory()` for a known persisted `SessionRecord`, including service-backed OpenCode history. That API remains intact. `localHistory` is the separate unknown-session discovery surface used by import and migration tools. Implementations may reuse transcript and attachment internals, but callers must not need a `SessionRecord` before discovery.
+`attachHistory()` remains separate. It attaches to a known host-owned `SessionRecord` for crash recovery. Saved-history discovery begins without known session IDs and includes human prompts for import.
 
-### 6.2 Discovery types
+### 4.2 Service-backed saved history
 
-Add provider-neutral history types under `packages/agent/src/history`:
-
-```ts
-export interface LocalHistoryDiscoverOptions {
-  includeArchived?: boolean
-  mainSessionsOnly?: boolean
-  requireUserMessage?: boolean
-  cwd?: string
-  limit?: number
-  env?: Record<string, string>
-}
-
-export interface LocalHistoryProbeOptions {
-  /** Maximum plausible session files to inspect before returning. */
-  limit?: number
-  env?: Record<string, string>
-}
-
-export interface LocalHistoryProbeResult {
-  providerType: string
-  homeAvailable: boolean
-  historyAvailable: boolean
-  /** File-count estimate only. It is not an eligible-session count. */
-  approximateCount?: number
-}
-
-export type LocalHistoryArchiveState = 'active' | 'archived' | 'unknown'
-
-export interface LocalHistorySourceFingerprint {
-  size: number
-  modifiedAtNs: string
-  sha256?: string
-}
-
-export interface LocalHistorySession {
-  version: 1
-  providerType: string
-  externalSessionId: string
-  transcriptPath: string
-  cwd: string | null
-  title: string | null
-  startedAt: string | null
-  updatedAt: string
-  branch: string | null
-  gitOriginUrl: string | null
-  archiveState: LocalHistoryArchiveState
-  hasUserMessage: boolean
-  source: LocalHistorySourceFingerprint
-}
-```
-
-`modifiedAtNs` is a string because nanosecond values may exceed JavaScript's safe integer range.
-
-Discovery returns literal absolute paths. Agentex is a local runtime library. A network host such as Flow must never serialize `transcriptPath` to an untrusted client.
-
-### 6.3 Normalized history events
-
-Reuse the existing `StreamEvent` vocabulary and add only the human-message variant that live agent streams intentionally omit:
+The public Agentex 0.0.31 contract is:
 
 ```ts
-export type LocalHistoryUserEvent = {
-  type: 'user'
-  text: string
-} & BaseStreamEventFields
-
-export type LocalHistoryEvent = StreamEvent | LocalHistoryUserEvent
-
-export interface LocalHistoryYield {
-  event: LocalHistoryEvent & { eventId: string }
-  lineStartOffset: number
-  nextOffset: number
-  partIndex: number
-}
-```
-
-Do not maintain a second reduced normalization vocabulary. Reusing `StreamEvent` preserves fields such as tool exit code, cost, token usage, terminal reason, background-task details, goal state, and future additive event variants.
-
-`LocalHistoryYield.event.eventId` is the canonical source-record identity. It must be non-null and deterministic for the same source transcript version. The normalized-event import identity is `(providerType, externalSessionId, event.eventId, partIndex)`. There is no second envelope-level event ID that can drift from the normalized event.
-
-Recommended identities:
-
-- Claude: provider event UUID, with `partIndex` disambiguating several events from one line
-- Codex: provider type, external session ID, and line-start byte offset, with `partIndex` disambiguating several events from one line
-- Synthetic user events: the provider record identity when available, otherwise provider type, external session ID, and line-start byte offset
-
-The host checkpoints only after all parts sharing `nextOffset` have committed.
-
-### 6.4 Local history operations
-
-```ts
-export interface LocalHistoryReadOptions {
-  fromOffset?: number
-}
-
-export interface LocalHistoryFingerprintOptions {
-  sha256?: boolean
-}
-
-export interface LocalHistoryOps {
-  probe(
-    options?: LocalHistoryProbeOptions,
-  ): Promise<LocalHistoryProbeResult>
-
-  discover(
-    options?: LocalHistoryDiscoverOptions,
-  ): AsyncIterable<LocalHistorySession>
-
+interface SavedHistoryOps {
+  probe(options?: SavedHistoryProbeOptions): Promise<SavedHistoryProbeResult>
+  discover(options?: SavedHistoryDiscoverOptions): AsyncIterable<SavedHistorySession>
   read(
-    session: LocalHistorySession,
-    options?: LocalHistoryReadOptions,
-  ): AsyncIterable<LocalHistoryYield>
-
-  fingerprint(
-    session: LocalHistorySession,
-    options?: LocalHistoryFingerprintOptions,
-  ): Promise<LocalHistorySourceFingerprint>
+    session: SavedHistorySession,
+    options?: SavedHistoryReadOptions,
+  ): AsyncIterable<SavedHistoryYield>
 }
 ```
 
-`probe()` is the upgrade-notice primitive. It performs a bounded filesystem presence check without opening transcript contents, deriving titles, or claiming that every plausible file is an eligible session. It must be materially cheaper than `discover()`.
+Discovery options include:
 
-Discovery uses bounded filesystem concurrency and must not read whole transcripts into memory.
+- `directory` as an optional provider-session directory filter
+- `cwd` as runtime context only
+- `includeArchived`
+- `mainSessionsOnly`
+- `requireUserMessage`
+- `limit`
+- derived environment and configuration overlays
 
-The cheap discovery fingerprint includes size and modification time. SHA-256 is optional and computed only for selected or previously imported sessions that require a strong comparison.
+`SavedHistorySession` exposes provider-neutral metadata only:
 
-### 6.5 Claude implementation
+- Provider type
+- External session ID
+- Working directory
+- Title
+- Start and update timestamps
+- Branch and Git origin when known
+- Archive state
+- Whether a human message exists
 
-Add `packages/agent/src/providers/claude/history.ts`.
+`SavedHistoryYield` contains:
 
-Responsibilities:
+- A normalized event with a stable `eventId`
+- An opaque provider-owned `HistoryCheckpoint`
+- A `partIndex` for multiple normalized rows from one source part
 
-- Resolve `CLAUDE_CONFIG_DIR` and the normal Claude home
-- Enumerate top-level UUID JSONL files under project directories
-- Exclude nested subagent files and sidechains by default
-- Recover literal cwd from provider-controlled envelope fields
-- Require an absolute cwd for Flow-compatible candidates
-- Extract `ai-title` metadata when available
-- Fall back to the first meaningful human prompt for the title
-- Extract branch metadata when present
-- Preserve original timestamps
-- Normalize user, assistant, thinking, tool call, tool result, result, error, recap, away-summary, and bridge-status events
-- Drop file-history snapshots, mode snapshots, permission-mode snapshots, title records, last-prompt mirrors, attachment bookkeeping, queue operations, progress records, and pure timing telemetry
-- Tolerate malformed lines without hiding the rest of a valid transcript
+Hosts use `(provider, session id, event id, part index)` for idempotency. A checkpoint is persisted only after the corresponding event transaction commits.
 
-The existing Claude transcript parser and helpers should be reused internally. Do not create a second independent parser when shared lower-level functions can serve both durable attachment and history import.
+### 4.3 OpenCode implementation
 
-### 6.6 Codex implementation
+Agentex:
 
-Add `packages/agent/src/providers/codex/history.ts`.
+1. Acquires an authenticated OpenCode runtime using the caller's environment and configuration overlays.
+2. Uses the global `/experimental/session` catalog when supported.
+3. Falls back to the older `GET /session` list for compatible active-session discovery.
+4. Reads `/session/:id/message` with bounded backward pagination.
+5. Filters nested sessions and sessions without a human message.
+6. Normalizes user, assistant, thinking, tool, tool-result, error, and terminal events.
+7. Releases the runtime after probe, discovery, or read.
 
-Responsibilities:
+Discovery and reading have hard limits on pages, sessions, messages, and response bytes. A candidate that is concurrently deleted or individually malformed may be skipped. Authentication failures, service failures, invalid systemic responses, and global safety-limit failures abort discovery.
 
-- Resolve `CODEX_HOME`
-- Use rollout JSONL files as the canonical v1 source for history, byte offsets, fingerprints, and incremental reads
-- Use `session_index.jsonl` and Codex SQLite indexes opened read-only as optional metadata sources
-- Keep Codex App Server outside the v1 import path because initialization and listing may reconcile or write Codex state even when the requested operation appears read-only
-- Reconsider App Server history only after Agentex introduces opaque source handles and provider-neutral cursors that do not require file paths, fingerprints, or byte offsets
-- Enumerate active date-sharded rollouts and archived rollouts
-- Deduplicate a thread briefly present in both locations
-- Read session ID, cwd, timestamps, Git metadata, source kind, and archive state from `session_meta`
-- Support documented legacy formats defensively
-- Read titles from `session_index.jsonl` when present
-- Read titles from the current Codex SQLite thread index when available
-- Fall back to the first meaningful human prompt
-- Exclude developer instructions, environment context, and metadata-only threads
-- Reuse `codexLineToStreamEvents` for assistant, thinking, tool, and result normalization
-- Add normalized user-message extraction for history reads
-- Drop duplicate `event_msg` mirrors and token telemetry
-- Open SQLite indexes read-only and tolerate a missing, locked, or schema-incompatible index
+### 4.4 Checkpoint behavior
 
-Codex's internal format changes frequently. Flow must not know these details.
+OpenCode checkpoints are opaque to Flow. The current checkpoint version includes a canonical SHA-256 revision for the source message represented by the checkpoint.
 
-### 6.7 Required Codex event identity correction
+This matters for active sessions. OpenCode can mutate the tail message after an earlier sync. An incremental read rejects a checkpoint whose source revision no longer matches. Flow then requests `bounded_full_resync` and replaces only the imported external projection after the replacement has been staged successfully.
 
-Agentex currently creates a replay-stable synthetic `eventId` in `readCodexTranscript()`, but `codexLineToStreamEvents()` resets the normalized event field to `null`. `attachCodexSession().catchUp()` also returns `eventId: null` unconditionally.
+A deleted session produces a stable `source_missing` error for saved-history reads. Existing attachment behavior remains backward compatible.
 
-Before Flow adopts Agentex local history:
+### 4.5 Derived providers
 
-- `codexLineToStreamEvents()` must propagate `CodexTranscriptLine.eventId`
-- File-backed Codex catch-up must return the deterministic transcript identity
-- Comments and changelog text that claim Codex transcript events never have IDs must be corrected
-- Tests must prove that two reads of the same rollout produce identical event identities
+Derived providers wrap saved-history options with their environment and configuration overlays. OpenCode provider authentication therefore uses the derived provider's isolated credential store rather than the default store.
 
-The local history wrapper still owns `partIndex` because one provider source record may normalize into multiple events.
+### 4.6 Public exports
 
-### 6.8 Agentex error model
+Agentex exports all saved-history types, `HistoryCheckpoint`, and `CapabilityStatus` from the package root. Public type tests protect those exports.
 
-Provider history failures should be typed and recoverable:
+## 5. Flow data model
 
-```ts
-export type LocalHistoryErrorCode =
-  | 'home_missing'
-  | 'permission_denied'
-  | 'source_missing'
-  | 'unsupported_format'
-  | 'source_changed_during_read'
-  | 'invalid_session'
-  | 'io_error'
-```
+### 5.1 `external_session_imports`
 
-One damaged session must not fail discovery of all other sessions.
-
-Discovery may yield warnings through an optional diagnostic field or callback, but Flow's normal UI only needs provider availability, counts, and per-session import failures.
-
-### 6.9 Agentex packaging and documentation
-
-Add:
-
-- `packages/agent/src/history/types.ts`
-- `packages/agent/src/history/index.ts`
-- Claude and Codex history implementations
-- Barrel exports from `packages/agent/src/index.ts`
-- A `./history` package export if subpath exports are used for other leaf modules
-- Unit fixtures for every supported provider format
-- README documentation showing discovery and incremental reads
-- CHANGELOG entry
-
-The feature ships in a new Agentex package version before Flow removes its fallback implementation.
-
-## 7. Flow specification
-
-### 7.1 Import provenance table
-
-Add a dedicated table. Do not overload the live CLI binding fields on `chat_sessions` as the only import ledger.
-
-```ts
-export const externalSessionImports = sqliteTable(
-  'external_session_imports',
-  {
-    id: text().primaryKey(),
-    ...timestamps,
-    chatSessionId: text()
-      .notNull()
-      .unique()
-      .references(() => chatSessions.id, { onDelete: 'cascade' }),
-    providerType: text().notNull(),
-    externalSessionId: text().notNull(),
-    sourcePath: text().notNull(),
-    sourceSize: integer().notNull(),
-    sourceModifiedAtNs: text().notNull(),
-    sourceContentSha256: text(),
-    syncOffset: integer().notNull().default(0),
-    syncLastEventId: text(),
-    status: text({
-      enum: ['importing', 'current', 'changed', 'missing', 'error'],
-    })
-      .notNull()
-      .default('importing'),
-    lastScannedAt: text(),
-    lastSyncedAt: text(),
-    lastError: text(),
-  },
-  (table) => [
-    uniqueIndex('external_session_imports_source_uq').on(
-      table.providerType,
-      table.externalSessionId,
-    ),
-    index('external_session_imports_status_idx').on(table.status),
-  ],
-)
-```
-
-All types derive from the Drizzle schema in `src/db/types.ts`.
-
-Live Flow-created sessions continue to use `chat_sessions.externalSessionId`, `externalTranscriptPath`, and live reconciliation fields. Imported historical sessions use `external_session_imports` as their authoritative source link.
-
-New imported chats do not populate the live CLI binding fields on `chat_sessions`. They retain `surfaceKind = 'imported_agent'` and provider-facing `surfaceRef` for presentation, while the import table owns source identity and synchronization.
-
-During migration, existing `surfaceKind = 'imported_agent'` rows are backfilled into the new table from their current external fields. After a successful backfill, clear `externalSessionId`, `externalTranscriptPath`, `externalSyncOffset`, and `externalSyncLastEventId` on those imported chat rows. This releases the old global external-session uniqueness constraint and prevents the live-session reconciler from treating historical imports as writable CLI bindings.
-
-### 7.2 Flow import service after refactor
-
-`src/lib/import/external-agents.ts` remains, but it becomes a product service rather than a provider parser.
-
-It owns:
-
-- Calling Agentex history discovery for supported providers
-- Comparing descriptors to `external_session_imports`
-- Grouping by normalized cwd
-- Reusing or creating Flow workspaces
-- Mapping Agentex `LocalHistoryEvent` values to `chat_events`
-- Import transactions and checkpoints
-- Resuming failed or interrupted imports
-- Synchronizing changed imported sources
-- Returning browser-safe discovery data
-
-It must not import `node:fs`, `node:readline`, or provider transcript parsers.
-
-Delete or move from Flow:
-
-- `readJsonlPrefix`
-- `listJsonlFiles`
-- `listClaudeFiles`
-- `claudeUserText`
-- `codexUserText`
-- `loadCodexTitles`
-- `claudeCandidate`
-- `codexCandidate`
-- `codexCwdFromRecords`
-- `readRawJsonl`
-- `parseClaudeTranscript`
-- `parseCodexTranscript`
-
-The Flow mapper from `LocalHistoryEvent` to `CreateChatEventInput` remains small and provider-neutral.
-
-For imported events, map `LocalHistoryYield.event.eventId` to `chat_events.external_event_id` and `LocalHistoryYield.partIndex` to `chat_events.source_part_index`. The existing unique index on `(session_id, external_event_id, source_part_index)` is the idempotency boundary. Do not synthesize a second Flow-only event identity.
-
-### 7.3 Import transaction and resumability
-
-Do not load an arbitrarily large transcript fully into memory before writing.
-
-Per selected session:
-
-1. Revalidate the descriptor through Agentex
-2. Reject a descriptor without a meaningful human message
-3. Resolve an existing workspace or decide the new workspace status
-4. In one transaction, create any workspace, archived execution, archived chat, and `external_session_imports` row with status `importing`
-5. Stream normalized history in line-aligned batches
-6. Insert events idempotently using Agentex `(eventId, partIndex)` identity within the provider session
-7. Commit `syncOffset` only after every part for a source line commits
-8. Compute a strong source fingerprint after the read
-9. If the source changed during the read, continue from the committed offset or mark `changed`
-10. Mark the import `current` only when the stored fingerprint matches the completed read
-
-If a batch fails:
-
-- Preserve successfully committed batches
-- Mark the import `error`
-- Store a safe error summary
-- Let Retry continue from `syncOffset`
-
-Do not leave an untracked empty active workspace. Any created workspace is tied to an import ledger row in the initial transaction.
-
-### 7.4 Workspace mapping
-
-Workspace lookup compares normalized absolute cwd across active and archived workspaces.
-
-Rules:
-
-- Reuse an exact existing workspace regardless of workspace status
-- Do not create a duplicate active workspace for an archived match
-- Create an active workspace only when the directory currently exists
-- Create an archived placeholder workspace when the directory is missing
-- Preserve literal cwd even when missing so future restoration can reconnect it
-- Do not auto-collapse separate worktrees by Git remote
-- Do not run setup scripts or create worktrees during import
-
-Imported execution rows remain archived and carry available branch metadata. They do not claim a worktree that Flow did not create.
-
-### 7.5 Source synchronization
-
-Flow checks imported source fingerprints:
-
-- When the import surface opens
-- When an imported chat opens
-- On an explicit Scan again action
-- During a bounded cold-start sweep for imports previously marked `changed` or `error`
-
-Do not scan every provider transcript every minute.
-
-State transitions:
+The import ledger has one row per imported source:
 
 ```text
-not imported -> importing -> current
-                    |           |
-                    v           v
-                  error <---- changed
-                                |
-                                v
-                              current
-
-current -> missing
-missing -> current       when the source returns
+id
+created_at
+updated_at
+chat_session_id
+provider_type
+external_session_id
+source_kind                  file | service
+source_path                  server only, file sources only
+source_size
+source_modified_at_ns
+source_content_sha256
+source_updated_at
+sync_offset
+sync_last_event_id
+history_checkpoint           opaque JSON, service sources only
+status                       importing | current | changed | missing | error
+last_scanned_at
+last_synced_at
+last_error
 ```
 
-Append-only growth reads from `syncOffset`.
+Required constraints:
 
-If the source shrinks, changes before the checkpoint, or produces a different strong hash for the already-imported prefix, mark it `changed`. Rebuilding must delete only events owned by that import and then replay them idempotently. It must not delete user-authored Flow events.
+- Unique `chat_session_id`
+- Unique `(provider_type, external_session_id)`
+- Cascade ledger deletion when the imported chat is deleted
+- Index `status`
 
-### 7.6 API
+The ledger owns historical import state. `chat_sessions.external_*` fields remain reserved for the current live CLI binding.
 
-Keep `/api/imports/agents`, but extend it deliberately.
+### 5.2 Migration 0004
 
-#### Discovery
+Migration `0004_broad_rachel_grey.sql`:
 
-```http
-GET /api/imports/agents?limit=50&provider=all&cursor=...
+1. Creates `external_session_imports` and its indexes.
+2. Replaces global live-session ID uniqueness with provider-qualified uniqueness.
+3. Adds `chat_sessions.external_provider_type`.
+4. Moves legacy `surface_kind = 'imported_agent'` rows into the new ledger.
+5. Clears live binding fields from those imported chats.
+6. Backfills provider type for existing live Claude, Codex, Cursor, and OpenCode bindings.
+
+Legacy file imports have no trusted content hash. Their first later sync performs a full staged replay rather than assuming the old byte offset is safe.
+
+### 5.3 Event identity
+
+Imported events use the existing unique key:
+
+```text
+(chat_session_id, external_event_id, source_part_index)
 ```
 
-Response includes:
+`ON CONFLICT DO NOTHING` makes incremental replay idempotent. Replacement sync deletes only rows with an external event ID in that imported chat. It does not delete unrelated app-owned rows.
 
-- Provider availability and totals
-- Recent project groups
-- Per-session import status
-- A browser-safe opaque selection key
-- Pagination cursor or `hasMore`
+## 6. Flow workflows
 
-Never return transcript paths.
+### 6.1 Discovery
 
-#### Import
+`discoverExternalAgentSessions()` runs all supported providers concurrently.
 
-```http
-POST /api/imports/agents
+For Claude and Codex it calls:
+
+```ts
+provider.localHistory.probe()
+provider.localHistory.discover(...)
+```
+
+For OpenCode it calls:
+
+```ts
+provider.savedHistory.probe(runtime)
+provider.savedHistory.discover({
+  ...runtime,
+  includeArchived: true,
+  mainSessionsOnly: true,
+  requireUserMessage: true,
+})
+```
+
+Flow then:
+
+1. Validates absolute working directories and bounded external IDs.
+2. Deduplicates by provider-qualified source identity.
+3. Joins discovered candidates with the ledger.
+4. Reports `current` or `changed` from the source fingerprint or update timestamp.
+5. Adds ledger-only missing rows so an imported chat does not vanish from Settings.
+6. Marks a ledger missing only when its provider enumeration completed.
+7. Groups chats by literal normalized working directory.
+
+Different worktrees are not merged merely because they share a Git remote.
+
+### 6.2 Initial import
+
+For each selected source Flow:
+
+1. Resolves the opaque key against a fresh trusted server-side discovery result.
+2. Reuses a workspace whose normalized `cwd` matches.
+3. Creates an active workspace for an existing directory or an archived placeholder for a missing directory.
+4. Creates an archived execution, archived chat, and `importing` ledger row in one transaction.
+5. Reads and normalizes the complete source into bounded staging memory.
+6. Commits all staged events and final ledger state in one database transaction.
+7. Removes the new skeleton and any unused newly created workspace if import fails.
+
+Each selected chat is an independent unit. One failed source does not roll back successful imports of other selected chats.
+
+### 6.3 File synchronization
+
+Claude and Codex synchronization uses Agentex fingerprints and reads.
+
+Before treating source growth as append-only, Flow verifies the SHA-256 hash of the previously synchronized prefix. It forces a full staged replay when:
+
+- The path changed
+- The source shrank
+- The same-sized content changed
+- The old prefix hash changed
+- A legacy row has an offset but no verified hash
+
+Flow fingerprints before and after reading. Size, nanosecond mtime, and full SHA must remain stable. If the source changes during the read, the staged result is discarded and the old projection remains intact.
+
+The committed offset advances to stable EOF, including provider records that normalize to no Flow event.
+
+### 6.4 OpenCode synchronization
+
+OpenCode synchronization starts from the ledger's opaque checkpoint.
+
+- A valid checkpoint performs an incremental read.
+- No checkpoint performs a bounded full read.
+- `history_checkpoint_not_found` triggers a bounded full resync.
+- A no-op incremental read preserves the existing checkpoint.
+- `source_missing`, malformed history, a provider error, or a size-limit error preserves the old transcript.
+
+The replacement transcript is staged before the database deletes any old external rows.
+
+### 6.5 Concurrency
+
+Flow serializes import or sync work by provider-qualified ledger identity. Two requests for the same source cannot stage from the same old state and commit out of order.
+
+Requests for different imported sources may run concurrently. Database transactions remain the final atomic boundary for transcript and checkpoint updates.
+
+### 6.6 Status
+
+Public UI status is:
+
+- `not_imported`
+- `importing`
+- `current`
+- `changed`
+- `missing`
+- `error`
+
+`not_imported` is a discovery-only status and is not stored in the ledger.
+
+Failed synchronization stores a bounded safe error string. It does not expose secrets or transcript content in normal logs.
+
+## 7. Flow API and UI
+
+### 7.1 API
+
+`GET /api/imports/agents`
+
+- Probes and discovers Claude, Codex, and OpenCode on the Flow host
+- Returns source summaries, projects, sessions, import status, and opaque keys
+- Does not expose transcript paths or credentials
+
+`POST /api/imports/agents`
+
+```json
 {
-  "sessionKeys": ["opaque-key"]
+  "sessionKeys": ["opencode:opaque-id"]
 }
 ```
 
-The server resolves opaque keys against a fresh Agentex discovery result. It never accepts a caller-provided source path.
+- Imports new selections
+- Synchronizes already imported selections
+- Accepts at most 1,000 unique keys
+- Returns separate imported, synchronized, skipped, workspace, event, and failure counts
 
-#### Refresh
+`POST /api/imports/agents/refresh`
 
-```http
-POST /api/imports/agents/refresh
+```json
 {
-  "chatSessionIds": ["..."]
+  "chatSessionIds": ["flow-chat-id"]
 }
 ```
 
-Refresh is idempotent and may return per-session progress or failures.
+- Resolves imported chats through the ledger
+- Reuses the same trusted discovery and synchronization pipeline
+- Supports explicit callers without exposing provider source identity to the browser
 
-Large imports may begin synchronously for v1, but the database model and API result must support later background progress without schema redesign.
+### 7.2 Settings experience
 
-### 7.7 UI
+Settings shows source cards for Claude Code, Codex, and OpenCode.
 
-Retain the existing Settings and onboarding import panel.
+The import panel:
 
-Onboarding behavior:
+- Groups chats by project directory
+- Shows up to three chats until a project is expanded
+- Supports project and individual selection
+- Keeps already imported chats selectable
+- Labels current, changed, missing, and failed sources
+- Offers per-chat Sync or Retry
+- Offers bulk Import, Sync, or Import and sync
+- Refreshes discovery separately through Refresh list
+- Keeps missing-only imported chats visible
+- Reports imported and synchronized outcomes separately
 
-- Start full discovery when the Import step opens
-- Show a lightweight empty state when no supported history exists
-- Allow immediate continuation whether discovery is empty, unavailable, or skipped
-- Never make import a prerequisite for finishing onboarding
+The panel text states that Flow reads local history without changing it.
 
-Existing-user upgrade behavior:
+## 8. Safety invariants
 
-- Schedule one Agentex `localHistory.probe()` call after the first normal dashboard load for this feature release
-- Show one dismissible, non-modal import card only when the probe reports plausible provider data and the prompt has not been handled
-- Use provider availability wording rather than an exact eligible-chat count unless full discovery has already run through explicit user navigation
-- Open the standard import panel from the card action
-- Persist handled state so the card does not return on later launches
-- Run discovery and import against the Flow runtime host, including when the viewer is remote
-- Tell remote viewers that the data is on the Flow host and never imply that the browser device was scanned
-- Do not auto-import, open a modal, or block dashboard interaction
+The implementation must preserve all of these:
 
-Prompt persistence:
+1. Provider source stores are read-only.
+2. Flow never appends a prompt to an imported source session.
+3. Browser responses never reveal trusted transcript paths or credentials.
+4. Source identity includes provider type.
+5. Missing status requires a completed provider enumeration.
+6. A failed initial import leaves no empty chat, execution, ledger, or unused workspace.
+7. A failed replacement leaves the prior transcript and checkpoint intact.
+8. A source that changes during read is retried later, not partially committed.
+9. Concurrent syncs for one source cannot commit out of order.
+10. Checkpoints and offsets advance only with the event transaction.
+11. Staging is bounded at 25 MiB in Flow.
+12. Raw payloads and errors are handled without logging secrets by default.
 
-```ts
-externalHistoryPromptVersion: integer().notNull().default(0)
-```
+## 9. Verification requirements
 
-Add this field to `user_state`. Keep a code constant such as `EXTERNAL_HISTORY_PROMPT_VERSION = 1`. The dashboard schedules the release probe only when the stored version is lower than the current constant.
+### 9.1 Agentex
 
-Set the stored version to the current constant when the person:
+Required unit and contract coverage:
 
-- Dismisses the card
-- Opens the import surface from the card
-- Opens the import surface independently through Settings
-- Completes or skips the onboarding import step
-- Successfully imports history
-- Completes the release probe and no plausible provider data is present
+- Root export and public type tests
+- Saved-history capability parity
+- Global OpenCode project discovery
+- Archived and root-session filtering
+- Human-message eligibility
+- Directory filter separate from runtime cwd
+- Authenticated runtime acquisition and release
+- Derived environment and credential overlays
+- Bounded session and message pagination
+- Stable event IDs and part indexes
+- User, assistant, thinking, tool, result, and terminal normalization
+- Incremental checkpoint reads
+- Mutable tail invalidation
+- Bounded full resync
+- Stable `source_missing`
+- Isolation of deleted or candidate-local malformed sessions
+- Propagation of systemic authentication, service, and invalid-response failures
+- Backward compatibility for `attachHistory`, Claude `localHistory`, and Codex `localHistory`
 
-Opening the importer is enough to count as handled. A person should not be prompted again merely because they reviewed the available data and chose not to import it.
+Release gate:
 
-Existing-user card placement:
+- Typecheck passes
+- Build passes
+- Focused saved-history tests pass
+- Full Agentex suite passes
 
-- Desktop: inside `WorkspaceNav`, after `NeedsReviewSection` and before the Workspaces heading
-- Mobile: inside `MobileAgentsView`, after `NeedsReviewBlock` and before the Workspaces heading
-- Hide the card in the collapsed desktop rail
-- Never place the card in the global HUD or a modal
+### 9.2 Flow
 
-Actionable work remains above the import prompt on both desktop and mobile.
+Required coverage:
 
-Required refinements:
+- Claude, Codex, and OpenCode discovery
+- Provider-qualified same-ID behavior
+- Opaque selection keys
+- Existing and missing-directory workspace mapping
+- Initial import event order and timestamps
+- Repeat import becomes synchronization
+- Incremental file growth
+- Stable EOF after filtered records
+- Truncation and same-sized rewrite full replay
+- Prefix rewrite with larger source full replay
+- Legacy unverified hash full replay
+- Source mutation during read rollback
+- OpenCode incremental checkpoint synchronization
+- Mutable or stale checkpoint full replacement
+- No-op checkpoint preservation
+- Deleted or malformed source transcript preservation
+- Failed full-resync transcript preservation
+- Failed first-import cleanup
+- Concurrent same-ledger synchronization serialization
+- Provider enumeration failure does not mark imports missing
+- Missing-only UI state
+- Migration from 0003 with legacy imported and live-bound rows
+- Cross-provider same external ID allowed
+- Same-provider duplicate external ID rejected
 
-- Show recent unimported chats first
-- Keep project rows collapsed by default
-- Support project and individual-chat selection
-- Hide empty sessions
-- Show Current, Update available, Missing source, Importing, and Error states
-- Provide Retry for failed imports
-- Provide Update for changed sources
-- Show provider, date, branch, and project path
-- Keep imported rows disabled for initial import selection unless an update is available
-- Explain that source files are read without modification
-- Explain that Continue starts a new Flow chat
-- Keep failure details available without dumping raw provider payloads
+Release gate:
 
-The panel must remain usable with hundreds of projects and thousands of chats. Use pagination, search, or virtualized lists as needed.
+- Focused Vitest suites pass
+- TypeScript passes
+- Scoped ESLint has no errors
+- Full test suite passes or every unrelated failure is documented
+- Production build passes
 
-### 7.8 History navigation
+## 10. Combined implementation task list
 
-Replace the fixed 200-row history ceiling with cursor pagination before bulk import is enabled.
+### Agentex 0.0.31
 
-History ordering uses:
+- [x] Add `savedHistory` capability and provider surface.
+- [x] Add and export provider-neutral saved-history types.
+- [x] Export `CapabilityStatus` from the package root.
+- [x] Wrap saved history with derived provider environment and configuration.
+- [x] Implement authenticated OpenCode global discovery.
+- [x] Separate provider `directory` filtering from runtime `cwd`.
+- [x] Include archived root sessions with meaningful user messages.
+- [x] Implement normalized OpenCode history reads with user messages.
+- [x] Implement stable event identity and opaque checkpoints.
+- [x] Detect mutable tail revisions.
+- [x] Implement bounded full resync and stable missing-source errors.
+- [x] Bound catalog and message inspection.
+- [x] Keep Claude and Codex local-history behavior compatible.
+- [x] Keep OpenCode attachment behavior compatible.
+- [x] Abort discovery on systemic auth, server, and response failures.
+- [x] Add focused regression coverage.
+- [x] Pass typecheck, build, focused tests, and full suite.
+- [ ] Publish `@agentex/agent` 0.0.31.
+
+### Flow schema and migration
+
+- [x] Add `external_session_imports`.
+- [x] Add provider-qualified ledger uniqueness.
+- [x] Add `chat_sessions.external_provider_type`.
+- [x] Replace global live external-ID uniqueness with provider-qualified uniqueness.
+- [x] Backfill legacy imported chats into the ledger.
+- [x] Clear historical import state from live binding columns.
+- [x] Backfill provider type for existing live bindings.
+- [x] Add a 0003 to 0004 migration fixture covering imported and live rows.
+
+### Flow service and API
+
+- [x] Use Agentex `localHistory` for Claude and Codex.
+- [x] Use Agentex `savedHistory` for OpenCode.
+- [x] Remove provider storage parsing from Flow import code.
+- [x] Add provider-qualified opaque selection keys.
+- [x] Add ledger-aware discovery and missing rows.
+- [x] Add explicit initial import.
+- [x] Add explicit repeatable synchronization.
+- [x] Add staged and atomic replacement.
+- [x] Verify file prefix and stable full fingerprint.
+- [x] Preserve service checkpoints on no-op reads.
+- [x] Preserve existing transcripts on failed sync.
+- [x] Clean up failed initial import skeletons.
+- [x] Serialize concurrent work for one ledger.
+- [x] Add the refresh-by-chat endpoint.
+- [x] Enforce selection and staging bounds.
+
+### Flow UI
+
+- [x] Add OpenCode to the import source cards.
+- [x] Keep imported chats selectable.
+- [x] Add current, changed, missing, and error labels.
+- [x] Add per-chat Sync and Retry.
+- [x] Add bulk Import, Sync, and mixed actions.
+- [x] Keep missing-only rows visible.
+- [x] Report imported and synchronized counts separately.
+- [x] Add focused UI tests.
+
+### Documentation and release
+
+- [x] Update this implementation spec and task list.
+- [x] Update chat-session architecture ownership notes.
+- [x] Update the harness expansion spec with OpenCode history and Cursor scope.
+- [ ] Publish Agentex 0.0.31.
+- [ ] Update Flow `package.json` to `@agentex/agent: ^0.0.31`.
+- [ ] Refresh `pnpm-lock.yaml` from the registry package.
+- [ ] Perform a clean install validation.
+- [ ] Run final Flow full suite and production build against the registry package.
+- [ ] Smoke test Settings discovery, OpenCode import, OpenCode sync, Claude import, and Codex import with real supported binaries.
+
+## 11. Deferred task list
+
+These are not hidden launch requirements for this pass:
+
+- [ ] Add background, startup, or imported-chat-open synchronization if product usage warrants it.
+- [ ] Add a one-time existing-user discovery prompt and persisted dismissal version.
+- [ ] Add search, pagination, or virtualization inside the import catalog for unusually large stores.
+- [ ] Add a Continue action that creates a new Flow-owned chat with an explicit handoff.
+- [ ] Add cross-process database compare-and-swap if Flow moves from one local server process to multiple concurrent writers.
+- [ ] Add Cursor saved-history import only after Cursor exposes a stable supported history API or Agentex can define a durable compatibility contract with acceptable maintenance risk.
+- [ ] Add provider-specific diagnostics UI without exposing transcript content or secrets.
+
+## 12. Acceptance criteria
+
+This implementation is ready to ship when:
+
+1. A clean Flow install resolves published Agentex 0.0.31 or newer.
+2. Settings discovers eligible Claude, Codex, and OpenCode chats on the Flow host.
+3. A person can import selected chats without changing any provider source.
+4. Imported chats appear archived with provider provenance and useful event fidelity.
+5. A person can explicitly sync one or several imported chats.
+6. File append, rewrite, truncation, and concurrent mutation paths cannot corrupt the prior projection.
+7. OpenCode incremental and full-resync paths cannot corrupt the prior projection.
+8. A missing source remains readable in Flow.
+9. Provider discovery failure does not falsely mark all prior imports missing.
+10. Concurrent sync requests for one source cannot roll history or checkpoints backward.
+11. Legacy prototype imports migrate without losing their transcripts.
+12. Cursor is presented honestly as live execution only, not as an import source.
+13. Agentex and Flow release gates pass against the published dependency.
+
+## 13. Final architecture
 
 ```text
-COALESCE(last_outcome_event_at, started_at) DESC, id DESC
+Claude files ----> Agentex localHistory ----+
+                                             |
+Codex files -----> Agentex localHistory -----+--> Flow discovery/import service
+                                             |      |
+OpenCode API ----> Agentex savedHistory -----+      +--> external_session_imports
+                                                    +--> archived execution/chat
+                                                    +--> normalized chat_events
+
+Cursor ----------> Agentex live execution only
 ```
 
-The API returns a stable composite cursor. The client incrementally loads older rows.
-
-Workspace history must include archived imported executions even when the workspace is archived or missing locally.
-
-### 7.9 Continue imported work
-
-Opening an imported chat offers Continue in Flow.
-
-Continue:
-
-1. Resolves the workspace
-2. Starts a new Flow-owned execution or chat according to the normal product rules
-3. Uses the selected default harness unless the user chooses another
-4. Provides a bounded handoff containing the imported chat's recent useful context
-5. Never resumes or writes to the imported external session
-
-The original imported chat remains immutable except for source synchronization.
-
-## 8. Refactor map
-
-### 8.1 Agentex additions
-
-| File or area | Change |
-| --- | --- |
-| `packages/agent/src/types.ts` | Add optional `localHistory` capability and matching `localHistory` surface |
-| `packages/agent/src/history/*` | Add provider-neutral types and exports |
-| `packages/agent/src/providers/claude/history.ts` | Add discovery and normalized history reads |
-| `packages/agent/src/providers/codex/history.ts` | Add discovery, index metadata, and normalized history reads |
-| Provider index modules | Advertise capability and lazily expose history implementation |
-| Package exports | Export history types and operations |
-| Provider fixtures | Cover current and legacy disk formats |
-| README and CHANGELOG | Document local history discovery and import use |
-
-### 8.2 Flow changes retained
-
-| File or area | Keep |
-| --- | --- |
-| `src/components/settings/sections/imports-section.tsx` | Selection and status UI |
-| `src/app/api/imports/agents/route.ts` | Authenticated browser-safe API boundary |
-| `src/lib/import/types.ts` | Flow API view models |
-| Settings navigation | Imports section |
-| Welcome import step | Reuse the import panel |
-| Import integration test | End-to-end Flow persistence coverage |
-
-### 8.3 Flow changes refactored
-
-| File or area | Refactor |
-| --- | --- |
-| `src/lib/import/external-agents.ts` | Replace filesystem parsing with Agentex history calls |
-| `src/lib/executor/adapter.ts` | Keep live event mapping, remove import-only provider noise responsibility |
-| `src/lib/executor/codex-on-disk.ts` | Replace remaining duplicated Codex normalization with Agentex normalization |
-| `src/lib/executor/reconcile.ts` | Continue owning Flow checkpoints and DB writes, consume Agentex events |
-| `src/lib/db/schema.ts` | Add `external_session_imports` and `user_state.externalHistoryPromptVersion` |
-| `src/lib/db/queries.ts` | Add import ledger and paginated history queries |
-| `/api/sessions/history` | Add stable pagination |
-| `docs/chat-sessions.md` | Replace the claim that imported transcripts bypass Agentex |
-
-### 8.4 Unrelated concurrent changes
-
-The current worktree contains changes outside external history import, including realtime session streaming and morning-deck review behavior. They should be reviewed and committed separately so the import change has a coherent diff and rollback boundary.
-
-## 9. Delivery sequence
-
-### Phase 1: Agentex local history API
-
-1. Add provider-neutral history types and capability
-2. Add the bounded, content-free provider history probe
-3. Implement Claude discovery and reads
-4. Implement Codex discovery and reads
-5. Populate stable Codex event IDs during history normalization
-6. Add fixtures for real observed formats
-7. Add strong fingerprint support
-8. Document and release a new Agentex version
-
-Gate:
-
-- Flow can list the same eligible Claude and Codex sessions without knowing either provider's disk layout
-- Empty, subagent, and bookkeeping-only sessions are absent
-- Normalized event fixtures contain no known bookkeeping noise
-
-### Phase 2: Flow refactor and ledger
-
-1. Upgrade Agentex
-2. Add the `external_session_imports` migration, `user_state.externalHistoryPromptVersion`, and derived types
-3. Replace Flow discovery and parsing with Agentex history calls
-4. Add normalized event mapper
-5. Make import streaming, checkpointed, and resumable
-6. Backfill any existing imported rows created by the prototype
-
-Gate:
-
-- Existing import UI behavior remains recognizable
-- A real Claude and Codex sample import with original timestamps and useful event fidelity
-- Reimport is idempotent
-- A changed source becomes updateable
-- A missing source does not destroy imported history
-
-### Phase 3: Product completeness
-
-1. Add paginated History
-2. Add recent-first discovery and Show all
-3. Add the versioned existing-user presence probe and dismissible import card
-4. Add import status, Retry, and Update UI
-5. Add missing-workspace handling
-6. Add Continue in Flow
-7. Update product documentation
-
-Gate:
-
-- Importing more than 200 chats leaves every chat discoverable
-- No failed import leaves an unexplained active workspace
-- The import panel remains usable with at least 5,000 synthetic sessions
-
-### Phase 4: Cleanup
-
-1. Remove Flow's provider-specific discovery helpers
-2. Remove duplicated Codex on-disk normalization
-3. Remove transitional import fields only if no live-session path needs them
-4. Split unrelated concurrent changes into separate commits
-
-## 10. Testing requirements
-
-### 10.1 Agentex unit fixtures
-
-Claude fixtures:
-
-- Simple user and assistant chat
-- Thinking, tool call, and tool result on shared lines
-- AI title metadata
-- Sidechain and nested subagent exclusion
-- File-history, mode, and permission-mode noise exclusion
-- Compaction and away summary retention
-- Malformed line recovery
-- Missing cwd
-- Non-absolute cwd
-- Transcript appended during read
-
-Codex fixtures:
-
-- Current wrapped rollout format
-- Archived rollout
-- Active and archived duplicate
-- `session_index.jsonl` title
-- SQLite title fallback
-- Missing and locked SQLite index
-- Environment-context filtering
-- User, assistant, reasoning, tool, and result events
-- Metadata-only and probe session exclusion
-- Legacy rollout where still supported
-- Malformed line recovery
-
-Shared assertions:
-
-- Presence probes are bounded and do not open transcript contents
-- Presence probes distinguish a missing home from a present home with no plausible sessions
-- Codex v1 discovery and reads do not start or call App Server
-- Source files are byte-identical before and after
-- Event IDs and `(eventId, partIndex)` normalized-event identities are stable across repeated reads
-- History events reuse `StreamEvent` fields without dropping exit code, cost, terminal reason, usage, or other supported metadata
-- Checkpoint resume produces no gaps or duplicates
-- Strong fingerprints change when content changes
-
-### 10.2 Flow integration tests
-
-- Discovery response contains no transcript path
-- Onboarding starts discovery only when the Import step opens
-- An empty or unavailable onboarding scan allows immediate continuation
-- The existing-user presence probe runs after normal dashboard loading and does not block it
-- The existing-user probe does not open or parse transcript content
-- Provider history presence produces one non-modal import card
-- No card appears when supported provider homes or plausible sessions are absent
-- Dismissing the card persists and prevents it from returning on later launches
-- Opening the importer from the card, Settings, or onboarding persists the current prompt version
-- Completing a no-data release probe persists the current prompt version
-- The card action opens the standard import surface without importing anything
-- Desktop renders the card after Needs Review and before the Workspaces heading, and hides it in the collapsed rail
-- Mobile renders the card after Needs Review and before the Workspaces heading
-- Remote browser use scans only the Flow runtime host and labels results as host data
-- Remote browser use never implies or attempts a scan of the browser device's filesystem
-- Invalid or forged selection keys cannot read arbitrary files
-- Existing workspace is reused by normalized cwd
-- Archived workspace is reused rather than duplicated
-- Missing cwd creates an archived placeholder
-- Claude and Codex imports create archived executions and chats
-- Imported chat starts read
-- Full useful event ordering is preserved
-- Duplicate import does not create duplicate rows
-- Appended source lines update the existing imported chat
-- Missing source retains prior events and marks status
-- Failed import resumes from the committed line boundary
-- Empty sessions cannot be imported
-- Concurrent imports of the same source converge on one ledger row
-- Workspace and chat creation cannot split across a failed initial transaction
-- More than 200 imported chats remain discoverable through pagination
-
-Use a test timeout appropriate for SQLite initialization or reduce fixture setup cost. The committed test command must pass without an undocumented CLI override.
-
-### 10.3 Real-store diagnostics
-
-Provide a read-only diagnostic script that prints only counts and structural metadata:
-
-- Provider availability
-- Eligible and excluded session counts
-- Project count
-- Archive-state count
-- Format warnings
-- Discovery duration
-
-Do not print prompts, titles, cwd values, tool inputs, or transcript content by default.
-
-## 11. Security and privacy invariants
-
-1. API clients never provide a source filesystem path
-2. API responses never reveal transcript paths
-3. Import routes remain behind normal Flow authentication
-4. Agentex opens source stores read-only
-5. The existing-user upgrade probe does not read transcript contents or persist transcript metadata
-6. A remote browser may initiate a scan of the Flow runtime host, but Flow never claims that the browser device's local agent history was inspected
-7. Discovery ignores symlinks unless explicitly supported and tested
-8. Cwd must come from provider-controlled metadata, not arbitrary human prompt text, whenever the provider format offers such metadata
-9. Legacy cwd recovery is marked lower confidence and cannot silently grant a workspace broader filesystem access
-10. Raw transcript payloads never enter logs or error responses
-11. Source content hashes are stored, but source content is not duplicated outside normalized Flow events
-12. Deleting an import from Flow never deletes the provider source
-
-## 12. Observability
-
-Record structured local metrics without transcript content:
-
-- Discovery duration by provider
-- Sessions examined, eligible, excluded, imported, updated, missing, and failed
-- Events imported by normalized kind
-- Bytes read
-- Retry count
-- Source-changed-during-read count
-- Import and synchronization duration
-
-Logs may include provider type, Flow session ID, external session ID, status, and safe error code. Avoid cwd and transcript path in normal logs.
-
-## 13. Acceptance criteria
-
-The feature is complete when:
-
-1. Agentex exposes provider-neutral local history presence, discovery, and reads for Claude and Codex
-2. Flow contains no Claude or Codex directory walking or title parsing
-3. Flow imports selected projects and chats without modifying source stores
-4. Empty, subagent, probe, and bookkeeping-only sessions are not offered
-5. Useful user, assistant, thinking, tool, error, and result events render in original order
-6. Known provider bookkeeping does not render as chat events
-7. Imported provenance uses provider type plus external session ID
-8. Changed source transcripts update existing imported chats idempotently
-9. Missing source transcripts do not remove imported history
-10. Missing project directories do not create broken active workspaces
-11. Failed imports are resumable and do not leave unexplained workspace rows
-12. Every imported chat remains discoverable even after more than 200 imports
-13. Continue in Flow starts a new Flow-owned chat and never writes to the imported source session
-14. Default test, typecheck, and lint commands pass
-15. Existing users receive at most one dismissible, non-blocking import prompt for the feature release when plausible provider data is present
-16. No provider transcript content is read before the person explicitly opens the import surface, and no history is imported before the person selects it
-17. Prompt handling is persisted through `user_state.externalHistoryPromptVersion` for dismissal, import-surface review, onboarding completion, successful import, and a completed no-data probe
-18. Codex v1 uses rollout files as the canonical history and synchronization source and does not invoke App Server
-19. `provider.localHistory` matches `provider.capabilities.localHistory`, and normalized history reuses `StreamEvent` plus one user-event variant
-20. `docs/chat-sessions.md` and Agentex documentation describe the same ownership boundary
-
-## 14. Final architecture
-
-```text
-Claude Code store             Codex store
-        |                          |
-        +-----------+--------------+
-                    |
-                    v
-          Agentex local history API
-          - provider discovery
-          - metadata normalization
-          - event normalization
-          - stable cursors and IDs
-          - source fingerprinting
-                    |
-                    v
-             Flow import service
-          - user selection
-          - workspace mapping
-          - import ledger
-          - batch persistence
-          - incremental synchronization
-                    |
-                    v
-        Flow workspaces and chat history
-          - one searchable history
-          - provider provenance
-          - source remains untouched
-          - continue through a new Flow chat
-```
-
-The durable principle is simple:
-
-> Agentex understands agents. Flow understands the person's work.
+Agentex knows provider history formats. Flow knows product persistence and synchronization policy. The browser sees projects, chats, status, and opaque keys. It never becomes a provider transcript parser or a credential boundary.

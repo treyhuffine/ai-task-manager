@@ -5,9 +5,9 @@
  * their list at runtime. Keeping a complete fallback means settings still work
  * when a CLI is missing, offline, or too old to expose model discovery.
  *
- * Effort levels mirror Claude's `--effort` flag (extended thinking
- * budget). Codex doesn't accept `--effort` in agentex — the dropdown
- * hides on Codex sessions to avoid promising behavior we can't deliver.
+ * Effort levels mirror provider reasoning controls. Claude receives the
+ * selected value through `--effort`. Codex receives it through Agentex's
+ * per-turn app-server request.
  */
 
 import type { EffortLevel } from '@/db/types';

@@ -2,6 +2,8 @@
 
 Decision doc for how chat works in this app. Written for future-me and anyone wondering why there's no thread sidebar.
 
+Implementation note, 2026-07-14: historical imports now use the provider-neutral Agentex history APIs and the `external_session_imports` ledger. Claude and Codex use Agentex `localHistory`. OpenCode uses Agentex `savedHistory`. The `chat_sessions.external_*` fields described below are live CLI bindings only. Imported transcript synchronization is explicit in Settings in this pass. It is not part of the live-session startup and on-open reconciler. See `docs/external-agent-history-import-spec.md` for the authoritative import contract.
+
 ## TL;DR
 
 **There are three distinct kinds of chat, not one model with variants.** Each serves a different purpose and gets the UX that purpose deserves:
@@ -16,7 +18,7 @@ Other principles that hold across all three:
 - **Full transcripts always.** No summaries replacing messages. Search/retrieval runs over transcripts; memory is a future index over them, not a precondition.
 - **Two resets:** undo last turn, `+` to archive current and start fresh.
 - **Background/cron/agent-initiated activity goes to notifications**, not into any active chat. Notifications are the entry point to cron-spawned executions.
-- **Source of truth follows execution.** For in-app sessions (orchestration, content) our DB is authoritative. For CLI-backed executor sessions, the CLI's on-disk transcript is the durable record and `chat_events` projects from it. App-spawned sessions get rows via two writers — agentex stdio in real time, and a transcript reconciler as a drift-recovery backup for crashes or missed events — deduped at the DB level (see `docs/realtime.md`). Externally-spawned sessions use only the transcript-reading path.
+- **Source of truth follows execution.** For in-app sessions (orchestration, content) our DB is authoritative. For CLI-backed executor sessions, provider-owned history is the durable record and `chat_events` projects from it. App-spawned sessions get rows through Agentex live events and the live-session reconciler. Explicitly imported Claude and Codex chats use Agentex file-backed `localHistory`. Explicitly imported OpenCode chats use service-backed `savedHistory`.
 - **No DB-enforced uniqueness on partition.** You decide how many sessions exist and how they overlap. The app picks sensible defaults; schema doesn't constrain.
 
 Internally in the data model: call them `chat_sessions` with a `type` discriminator. Externally in the UI: the word "session" doesn't appear to users.
@@ -131,26 +133,37 @@ chat_sessions
   archived_at
 
   external_session_id       // current CLI session id; mutable; null for in-app sessions
+  external_provider_type    // provider owning the current live CLI session id
   external_transcript_path  // observed path where the CLI wrote the transcript; null for in-app
   external_sync_offset      // bytes read through; for incremental transcript sync; null for in-app
   external_sync_last_event_id   // last external_event_id upserted; defensive check; null for in-app
 
-  UNIQUE (external_session_id) WHERE external_session_id IS NOT NULL
+  UNIQUE (external_provider_type, external_session_id)
+    WHERE external_provider_type IS NOT NULL AND external_session_id IS NOT NULL
+
+external_session_imports
+  id, chat_session_id, provider_type, external_session_id, source_kind,
+  source_path, source_size, source_modified_at_ns, source_content_sha256,
+  source_updated_at, sync_offset, sync_last_event_id, history_checkpoint,
+  status, last_scanned_at, last_synced_at, last_error
+
+  UNIQUE (chat_session_id)
+  UNIQUE (provider_type, external_session_id)
 ```
 
 **`type` discriminates the three kinds.** Each type has its own behavior:
 
 - `orchestration` — main thread with orchestrator agent. App convention: one active session per user; `+` archives and starts new. `external_*` null. `surface_kind` null or `"main"`.
 - `content` — scoped chat about a task or note. `surface_kind` and `surface_ref` point to it. `external_*` null. App convention: one active per `(user, agent, surface)` by default, but not DB-enforced — multiple is fine if the user wants it.
-- `execution` — CLI-backed work session. `external_*` populated. Many can be active simultaneously. `surface_kind` is null; the session's connection to content is via `refs`, not partition. `label` carries a human-readable execution title.
+- `execution` — CLI-backed work session. Live sessions populate `external_*`. Historical imports use `surface_kind = "imported_agent"` and keep source state in `external_session_imports`. Many execution chats can exist simultaneously. `label` carries a human-readable execution title.
 
-**No DB-enforced uniqueness on partition.** The only uniqueness in this table is `external_session_id` (so we don't double-mirror one CLI session). Everything else — how many orchestration sessions, how many content sessions per task, how many concurrent executions of the same agent — is the user's call, with app-level defaults picking sensible behavior (show most-recent-active for a context; `+` to make a new one).
+**No DB-enforced uniqueness on partition.** The only source uniqueness in this table is the provider-qualified current live binding. Historical source uniqueness is enforced in `external_session_imports`. Everything else about how many orchestration, content, or execution chats exist remains an app-level choice.
 
 **`external_session_id` is mutable.** One `chat_session` can span multiple CLI sessions over its lifetime — if the CLI session rolls or dies, we update `external_session_id` on the same row and append a visible divider message. One DB session, continuing user-facing conversation, rotating CLI state underneath. That's what keeps the UI honest about what actually happened without fragmenting the user's view of "this execution."
 
 We deliberately do **not** cache an "alive" boolean. Liveness is a runtime question — "can I resume this session right now?" — not a stored fact. We check **on send attempt only**: user hits send, we try `resumeSession`, if it fails we rollover. No background polling.
 
-**`external_transcript_path` stores observed truth, not derived truth.** We could compute the path from `(cwd, external_session_id)` but that makes us dependent on our mental model of the CLI's internal naming, which could drift (escape rules, base dir moves, symlink resolution). For Codex, the path isn't even cleanly derivable — filenames embed the ISO creation timestamp. Storing what the CLI actually wrote makes the file reference robust. Derivation is kept only as a bootstrap fallback for migrations/imports and as a drift sanity check.
+**`external_transcript_path` stores observed truth for the current live binding.** Historical file imports keep their server-only source path and fingerprints in `external_session_imports`. OpenCode historical imports have no source path because Agentex reads them through the authenticated service and returns opaque checkpoints.
 
 **`refs` is session-level.** JSON column with task/note/area ids the session has touched. Maintained as messages reference new things. Used for:
 - Surfacing "executions that touched this task" on the task view
@@ -161,7 +174,7 @@ Session-level is the right granularity — the primary queries are "what session
 
 **Task/note deletion: sessions orphan, don't cascade.** `surface_ref` and `refs` entries are loose references, not foreign keys. When a task is deleted, any session pointing at it stays in the DB; it becomes unreachable through surface navigation but the transcript is preserved (the work may have produced decisions worth retrieving later via search).
 
-**`external_sync_offset` is a performance field** — bytes already mirrored. On any sync trigger we `stat` the file and compare size against this offset. Equal → nothing new; skip. Greater → read new bytes from offset to EOF. `external_sync_last_event_id` is defensive: if the file shrinks or its head changes, we detect mismatch and full-rescan.
+**Historical synchronization state belongs to the import ledger.** File sources store a byte offset plus size, nanosecond mtime, and SHA-256 fingerprint. Service sources store an opaque checkpoint. The live-session `external_sync_*` columns are not reused as historical import provenance.
 
 Examples:
 
@@ -267,6 +280,16 @@ Idempotency within a path is guaranteed by the unique constraint — re-reading 
 | `recap` | system | content (summary text), raw | Claude Code `away_summary` (idle-timer recap) |
 | `unknown` | system | raw only | Forward-compat for new provider event types |
 
+### Full-text search (transcripts)
+
+Transcripts are searchable by content — principle §3 ("transcripts are the record") extended to retrieval, so you can find "the chat where we discussed X" including imported Claude/Codex history. A regular FTS5 table `chat_events_fts` (in `EXTRA_SQL`, alongside `tasks_fts`/`notes_fts`/`stream_fts`) indexes the **message-bearing** events only: `content` where `source IN ('user','agent')`. Tool calls/results, thinking, and system plumbing are excluded on purpose, so a keyword like "auth" surfaces conversations, not tool-output noise.
+
+- **Index maintenance** is trigger-driven (insert/update/delete on `chat_events`). It's a *regular* fts5 table, not a `content='chat_events'` external-content one: because indexing is conditional (only user/agent rows), the delete trigger drops by `rowid` unconditionally — a no-op for never-indexed rows — so the index can't drift. `session_id`/`event_id` ride along `UNINDEXED`, so a hit carries enough to group-by-session and deep-link without joining back to `chat_events`.
+- **Backfill** is a one-shot idempotent `INSERT … WHERE NOT EXISTS (SELECT 1 FROM chat_events_fts)` in `EXTRA_SQL`. Existing + imported history becomes searchable the first time the index is created (i.e. the next server start after this ships, when `getDb()` re-runs `EXTRA_SQL`), and it never re-runs after that.
+- **Query** — `searchChatSessions()` (queries.ts) scans the index, groups event hits to one result per session keeping the best-ranked hit's snippet, then hydrates via the `listHistorySessions` join. Scoped to `type='execution'` chats (native + imported); searches active + archived by default; filters by status/workspace/source. `snippet()` wraps matched terms in the control-char sentinels from `@/lib/search/highlight`.
+- **Surfaces** — the always-visible rail search box (`RailTabs` → `SessionSearchResults`), the `GET /api/sessions/search` endpoint, and the orchestrator `search_sessions` action (which strips the highlight sentinels for plain-text tool output). Deliberately **not** in the ⌘K palette, to keep that launcher high-precision.
+- **Reserved / deferred** — a `tool_summary` FTS column exists but is empty; indexing tool-call names/args is an additive follow-up needing no reindex of message rows. Semantic/vector search over chats is likewise deferred (FTS-only today; the entity search stack already degrades to FTS-only without an OpenAI key). Orchestration and content chats aren't searched yet — the surface is the execution rail.
+
 ### Attachments (multimodal content)
 
 Chat reuses the **same generic attachment system** that tasks, notes, and areas use — files live on disk under `<brain>/attachments/<file_name>` and are referenced by an `Attachment[]` JSON column on the owning entity. No separate `chat_attachments` table.
@@ -369,7 +392,7 @@ The runtime flow, for an app-spawned session:
 
 The CLI also writes the same events to its JSONL/rollout file on disk. The reconciler reads that file on cold start (sweep) and on session open (lazy) and replays any events stdio missed through the same `insertChatEvent` chokepoint. See `docs/realtime.md` for the cursor model and per-provider dedup story.
 
-For **externally-spawned** sessions the user imports into the app (user ran `claude -r {id}` in their terminal, cron ran `codex exec`), we take the opposite path: no stdio, file-sync only. We parse the on-disk transcript and write to `chat_events`. That session's `external_writer` is effectively "file-sync"; stdio is never attempted.
+For **externally-spawned** sessions the user imports into the app, there is no stdio writer. Agentex discovers and normalizes provider-owned history. Claude and Codex use file-backed `localHistory`. OpenCode uses service-backed `savedHistory`. Flow stages the normalized events, writes them to `chat_events`, and records source state in `external_session_imports`.
 
 UI renders from `chat_events` throughout — the source of the rows is invisible to the UI layer.
 
@@ -386,17 +409,17 @@ UI renders from `chat_events` throughout — the source of the rows is invisible
 
 **What happens if both the UI and a terminal try to write to the same CLI session concurrently.** Don't allow it. A per-`external_session_id` lock on our side serializes UI invocations. If the user is actively using the terminal, our UI shows "active elsewhere — waiting" rather than interleaving. Correct behavior is more important than parallel convenience here.
 
-**The adapter layer is built on agentex.** We use [`@agentex/agent`](https://www.npmjs.com/package/@agentex/agent) as the transport for app-spawned sessions — it already provides provider implementations for Claude, Codex, Cursor, Gemini, and others. Our adapter wraps agentex with this app's persistence: translating StreamEvents into `chat_events` rows, handling rollovers, tracking observed transcript paths. For externally-spawned sessions (user imported), our adapter parses the CLI's on-disk transcript directly without agentex involvement. We don't reimplement CLI wrapping for app-spawned; we don't ask agentex to read arbitrary on-disk transcripts.
+**The adapter layer is built on Agentex.** We use [`@agentex/agent`](https://www.npmjs.com/package/@agentex/agent) for app-spawned sessions and imported provider history. Flow translates normalized Agentex events into `chat_events`, manages live rollovers, and owns historical import persistence. Provider file formats, OpenCode service calls, stable event identity, fingerprints, and checkpoints stay in Agentex.
 
 Adapter responsibilities (on top of agentex):
 
 - `startSession(cwd, initialMessage) → { external_session_id, external_transcript_path, events }` — **app-spawned path.** Spawn via agentex; return the session id, observed transcript path (stored for reference, not read), and the stdio event stream.
 - `sendMessage(external_session_id, message) → events` — **app-spawned path.** Continue a running session via agentex stdio; returns an event stream. Fails if session is gone (triggers rollover).
-- `importExternalSession(transcript_path) → chat_session` — **externally-spawned path.** User points us at an existing CLI transcript; we create a `chat_session` row marked for file-sync ingestion and do an initial catch-up read.
-- `syncTranscript(session) → new chat_events[]` — **externally-spawned path only.** Reads `external_transcript_path` from `external_sync_offset`, parses new entries, idempotent upsert. Used for on-open, startup, and periodic passes on imported sessions.
-- `deriveTranscriptPath(agent, external_session_id) → string` — pure function, no I/O; useful for displaying the expected path to users during import and as a sanity check against stored paths.
+- `discoverExternalAgentSessions() → ExternalAgentDiscovery` discovers provider-neutral candidates through Agentex and joins them with the Flow import ledger.
+- `importExternalAgentSessions(sessionKeys) → ExternalAgentImportResult` imports new candidates and explicitly synchronizes already imported candidates.
+- `refreshExternalAgentSessions(chatSessionIds) → ExternalAgentImportResult` resolves ledger rows by Flow chat ID and runs the same trusted synchronization path.
 - `parseStreamEvent(event) → chat_event | null` — maps agentex StreamEvents to `chat_events` rows (app-spawned path).
-- `parseFileEntry(raw) → chat_event | null` — maps on-disk transcript entries to `chat_events` rows (externally-imported path). Different input shape from StreamEvents (see Claude/Codex adapter sections for the per-provider mapping tables).
+- Agentex `localHistory.read()` and `savedHistory.read()` normalize imported history. Flow has no provider-specific file parser.
 
 v1 ships one adapter: Claude Code. Codex is the next adapter and its spec is documented below so we know the interface survives it. In-app sessions (orchestration, content) skip the adapter layer entirely — those are direct API calls whose events we write to `chat_events` directly.
 
@@ -420,7 +443,7 @@ This is the v1 adapter. Everything here is verified by inspecting real transcrip
             └── agent-{id}.meta.json { "agentType": "Explore" }
 ```
 
-The cwd escape is trivial: replace every `/` with `-`. Path is derivable from `(cwd, session_id)` — but we still **store** it on `chat_sessions` as observed truth, so our file reference doesn't depend on our model of Claude Code's internal naming staying stable (escape rules, base directory moves, symlink resolution). Derivation is kept as a bootstrap fallback when we're importing a session we didn't spawn and as a drift sanity check against the stored value.
+For live Claude sessions, the observed path can be retained with the live binding. Historical import does not derive this path in Flow. Agentex owns Claude home resolution, path discovery, and transcript normalization. Flow stores the trusted server-side source path and fingerprints in `external_session_imports`.
 
 **Entry shape (JSONL, one event per line):**
 
@@ -509,19 +532,9 @@ Since agentex splits assistant `message.content` arrays into one StreamEvent per
 - `external_parent_tool_call_id` = entry's `parent_tool_use_id` (populated on sub-agent rows)
 - `source_part_index` = position within `message.content` when splitting a multi-block entry (0 for the common single-block case)
 
-**Subagents.** For v1 we mirror subagent entries too (they live in the `subagents/` subdirectory, same JSONL format) but render them collapsed in the main transcript as a single "subagent ran → N steps, summary" node. We have the data; we hide by default for readability. A future version can elevate long-running subagents to real `agents` rows if that pattern emerges.
+**Historical-import filtering.** Agentex returns root sessions with meaningful human messages. Nested subagent-only transcripts are not imported as standalone chats.
 
-**Sync loop specifics:**
-
-1. `stat(path).size` → compare to `external_sync_offset`
-   - equal → nothing new, done
-   - greater → read from offset to EOF as buffer, split on `\n`, parse each line as JSON
-   - less → defensive: `external_sync_last_event_id` check; full rescan if the file was truncated
-2. For each valid entry: filter, map to one or more `chat_events` rows, upsert with `ON CONFLICT DO NOTHING` (file-sync is the sole writer for externally-imported sessions; re-reading the same bytes is a no-op)
-3. Update `external_sync_offset` and `external_sync_last_event_id` atomically after the batch
-4. Partial-write handling: a line that fails JSON parse at the end of the buffer is treated as "still being written" — we back off one line and wait for the next event. Don't advance the offset past an unparseable line.
-
-**Reliability verdict:** append-only, stable UUIDs, ISO timestamps, clear type discriminators, a `version` field on every entry for forward-compat detection, and a format that's been stable across months of real usage. The only realistic failure mode is a Claude Code format bump; tolerant parsing plus version-field logging handles that gracefully.
+**Historical-import sync.** Agentex reads and normalizes the file. Flow verifies the previously synchronized SHA-256 prefix, stages bounded normalized events, fingerprints the complete source again, and commits events plus ledger state atomically only if the source stayed stable. Truncation, path movement, changed prefixes, and legacy unverified offsets trigger a full staged replay.
 
 ### The Codex adapter, concretely
 
@@ -535,7 +548,7 @@ This is the v-next adapter. Agentex v2 provider ships with `turnId: string | nul
 
 **Agentex hides #1 and #2** — its auto-detecting parser emits the same `StreamEvent` shape for either. Our code consuming agentex stdio only sees one normalized stream.
 
-**#3 is our problem** — both for importing externally-spawned Codex sessions and as a drift-recovery backup for app-spawned ones. Externally-spawned: file-sync is the sole writer. App-spawned: the reconciler reads the rollout file in addition to stdio, but defers entirely while the executor's `isRunning` flag is set — so the two paths never write concurrently for the same Codex session (no rollout-id collisions to worry about). See the Reconciling section.
+**#3 is an Agentex boundary for historical import.** Agentex `localHistory` owns rollout discovery, provider-format parsing, stable source identity, and normalized reads. Flow owns staged persistence, ledger checkpoints, and explicit sync policy. The separate live-session reconciler still handles drift recovery for app-spawned sessions.
 
 **File layout:**
 
@@ -571,12 +584,12 @@ Session ids look like UUIDv7 (`019db0e8-...`) — time-ordered, which happens to
 **Two parse paths, one adapter.** The Codex adapter handles two different event streams through one shared mapper:
 
 - **stdio events** (what agentex emits at runtime, from `codex exec`): `thread.started`, `item.started`, `item.completed` for each atomic piece (`agent_message`, `command_execution`, `function_call`, `reasoning`), `turn.completed`, `turn.failed`, `error`, `token_count`. This is the realtime path.
-- **rollout file** at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (what Codex writes to disk): wrapped in `session_meta`, `turn_context`, `response_item`, `event_msg` envelopes. This is the file-sync path, used **only for externally-spawned sessions** the user imports into our app. App-spawned sessions never read this file — see the Reconciling section for why.
+- **rollout file** at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (what Codex writes to disk): wrapped in `session_meta`, `turn_context`, `response_item`, `event_msg` envelopes. Agentex `localHistory` owns this format for explicit historical import. Flow never parses these envelopes directly.
 
 Both ultimately represent the same items. The adapter normalizes either stream into the same `chat_events` rows.
 
 **ID derivation for Codex rows:**
-- `external_event_id` = the item's `id`. In v2 app-server (what agentex uses for sessions), this is globally unique (`msg_*` / `rs_*` / userMessage UUID). In the rollout file format, message items have no id — the file-sync path synthesizes from byte offset or line number for those. Either way, the compound unique key scopes via `external_turn_id` too.
+- `external_event_id` = the item's stable provider ID for live events. For rollout imports, Agentex supplies a deterministic identity derived from the provider session and source position. Flow combines it with `source_part_index` inside the imported chat's unique key.
 - `external_message_id` = null (Codex doesn't have a separate "message id" concept — each item is atomic)
 - `external_turn_id` = the native UUIDv7 turn id that v2 app-server emits on every turn-scoped notification (`params.turnId` or `params.turn.id`). Attached to every turn-scoped row; null on system/rate_limit rows that aren't part of a turn.
 - `external_tool_call_id` = the tool item's `id` (or `call_id` for function_calls) on both `tool_call` and `tool_result` rows, linking the pair
@@ -613,39 +626,33 @@ No byte-offset synthesis needed — agentex surfaces `item.id` directly. Older d
 
 `created_at` = parsed `timestamp`. `raw` = the full event payload. Content fields are extracted into typed columns (`content`, `tool_name`, `tool_input`, `tool_is_error`, `tool_exit_code`) — no nested JSON in `content`.
 
-**Session discovery.** Because rollout paths are date-sharded, we don't walk the whole tree at startup. For each `chat_session` with a stored `external_transcript_path` we `stat` directly — O(1) per session. For orphan/import flows, `session_index.jsonl` is a cheap lookup of existing sessions.
+**Session discovery.** Agentex `localHistory` owns the date-sharded walk, indexes, eligibility filtering, and metadata fallbacks. Flow asks Agentex only when the explicit import surface or sync path needs a trusted catalog.
 
 **Reliability verdict:** append-only, ISO timestamps, clear event types, `cli_version` for forward-compat detection. Weaker than Claude in two ways: no compaction summary (we proactively rollover), no message-level grouping (but the atomic-items design means we don't need it). Stronger in one way: exit codes surface for `command_execution`. Proactive rollover is the only meaningful Codex-specific behavior beyond mapping; everything else is event translation.
 
 ### Reconciling chats that happen outside the app
 
-Users can create CLI sessions outside our app (`claude -r {id}` in a terminal, a cron-spawned `codex exec`, etc.). These sessions aren't visible to agentex stdio because we didn't spawn them. The only way to observe them is to read the CLI's on-disk transcript.
+Users can create agent sessions outside Flow. These sessions are not visible to Agentex live events because Flow did not spawn them. Explicit historical import discovers them through Agentex. Claude and Codex are file-backed. OpenCode is service-backed.
 
 Writer pairings by spawn origin:
 
 - **App-spawned sessions (the default):** stdio via agentex is the primary writer; a transcript reconciler is the secondary writer that fills events stdio missed (crash mid-turn, missed stream event). Per-provider dedup keeps this safe — see Write paths above and `docs/realtime.md`.
-- **Externally-spawned sessions that the user imports into our app:** the on-disk transcript is the sole writer. We never try to spawn stdio against them.
+- **Externally-spawned sessions that the user imports into Flow:** provider-owned history is the sole source. Flow never starts a live writer for them.
 
 The original cross-ingest concern was that stdio and rollout-file identifiers don't always match (Codex rollout `response_item` entries have no `id`). That's why Codex reconcile defers while `isRunning` instead of trying to dedup — the two paths never write the same session concurrently, so there's nothing to correlate. Claude's wire `uuid` does match between stdio and disk, so its two paths can run concurrently and the partial unique index drops the dupes.
 
-**File-sync triggers:**
+**Synchronization triggers:**
 
-- **External-spawned sessions:** all three triggers below apply.
-- **App-spawned sessions:** the same three triggers apply to the reconciler, scoped to drift detection (a single `fs.stat`/`peek` is enough to no-op when in sync).
-
-1. **On-demand, when the user opens a session.** Byte-offset catch-up from `external_sync_offset` picks up any new entries since last view. Currently wired for both spawn origins via `useSessionReconcile`.
-2. **Startup catch-up.** On app launch, for every active execution session with an `external_session_id`, read to EOF and upsert missing entries. Currently wired in `instrumentation.ts`.
-3. **Periodic background pass.** Not yet wired. Easy to add when search/notifications start depending on freshness for sessions the user hasn't opened in a while.
-
-App-spawned sessions go through the same triggers as externally-spawned — they just typically no-op at the `fs.stat` step because stdio kept the DB in sync.
+- **Imported historical chats:** explicit Sync or Retry in Settings, bulk synchronization from the same panel, or an explicit call to the refresh API. There is no startup, on-open, or periodic imported-history sync in this pass.
+- **App-spawned live sessions:** the existing live-session startup and on-open reconciler remains independent. It uses live binding fields on `chat_sessions`, not `external_session_imports`.
 
 **What this does not try to do:**
 
-- **Auto-import orphan sessions.** CLI sessions not linked to any `chat_session` row are ignored. Auto-scanning `~/.claude/projects/` or `~/.codex/sessions/` would flood the DB with sessions the user never asked for. Importing is a deliberate user action.
+- **Auto-import orphan sessions.** Discovery may show eligible saved sessions in Settings, but persistence always requires an explicit user selection.
 - **Cross-device file sync.** Transcript files are local to the machine that ran the CLI. If the user chats on their laptop terminal and opens our app on a desktop, the desktop can't see the laptop's file. The rollover path handles this honestly: resume fails → handoff summary → fresh CLI session on the new machine.
 - **Hooks-based sync.** Claude Code has a hook system that could fire on message events. Possibly useful later, but it means asking users to install config into their CLI. stdio + file-sync covers the needs without that.
 
-**The integrity invariant:** within a session's chosen ingestion path, the compound unique on `chat_events` — `(session_id, COALESCE(external_turn_id, ''), external_event_id, source_part_index) WHERE external_event_id IS NOT NULL` — makes repeated reads idempotent. Re-reading a file from an earlier byte offset, or processing the same stdio event twice (shouldn't happen, but), both hit `ON CONFLICT DO NOTHING` and move on. If the upstream file is rewritten or rotated, new ids get inserted; old ones don't duplicate. If a row is ever removed from the upstream file (shouldn't happen with append-only behavior, but in theory), we keep our mirror row — the DB can be forgiving in ways the CLI transcript cannot.
+**The imported-history integrity invariant:** `(session_id, external_event_id, source_part_index)` makes replay idempotent. File sync verifies the prior prefix and a stable before-and-after fingerprint. Service sync uses an opaque provider checkpoint. Any required replacement is staged before old external rows are deleted, and same-source sync requests are serialized so a stale request cannot roll the transcript or checkpoint backward.
 
 ## UX rules
 
@@ -721,7 +728,7 @@ let me check":
 - **Multi-surface routing beyond task/note/main for v1.** Slack, Discord, email integrations — the schema supports them (add a new `surface_kind`), but none are built in v1.
 - **A cached `alive` flag on CLI sessions.** Liveness is a runtime property. Caching it means the DB can claim "alive" when the transcript file has been deleted, or "dead" when the user just reopened the app. We ask the CLI at the moment we need to know.
 - **`continued_from_session_id` lineage links between DB sessions.** Considered for tracking "new DB session replacing a dead one," rejected because `external_session_id` is mutable on the same row — the DB session persists across CLI rollovers. One DB session = one continuing conversation; divider messages record the rollovers within it.
-- **A file content hash for change detection.** Hashing a multi-MB JSONL on every tick is wasteful. `stat().size` compared to `external_sync_offset` is a single syscall and tells us exactly what we need: "is there new content past where I've read?" Correctness is guaranteed by the idempotent upsert regardless.
+- **Using only file size for imported-history change detection.** Rejected after integrity review. Historical file sync stores a SHA-256 fingerprint and verifies the previously synchronized prefix before accepting growth as append-only. It also compares size, nanosecond mtime, and full hash before and after a staged read. Live-session reconciliation can still use cheaper probes for its separate path.
 - **Our own summarizer for Claude Code's *in-session* compaction.** Claude Code auto-compacts when context overflows and writes the summary into the transcript as an `isCompactSummary: true` entry. We mirror that; we don't duplicate the work *for this case*. We **do** need our own handoff summarizer for `+`, dead-session, and cross-device rollovers — see the rollover section.
 
 ## The tradeoffs we are accepting
@@ -754,11 +761,21 @@ agents
 
 chat_sessions
   id, user_id, agent_id, type, surface_kind, surface_ref, status, label, refs,
-  external_session_id, external_transcript_path,
+  external_provider_type, external_session_id, external_transcript_path,
   external_sync_offset, external_sync_last_event_id,
   permission_mode, pre_plan_mode, model, effort,
   started_at, archived_at
-  UNIQUE (external_session_id) WHERE external_session_id IS NOT NULL
+  UNIQUE (external_provider_type, external_session_id)
+    WHERE external_provider_type IS NOT NULL AND external_session_id IS NOT NULL
+
+external_session_imports
+  id, chat_session_id, provider_type, external_session_id, source_kind,
+  source_path, source_size, source_modified_at_ns, source_content_sha256,
+  source_updated_at, sync_offset, sync_last_event_id, history_checkpoint,
+  status, last_scanned_at, last_synced_at, last_error,
+  created_at, updated_at
+  UNIQUE (chat_session_id)
+  UNIQUE (provider_type, external_session_id)
 
 chat_events
   id, session_id, role, source, content,
@@ -769,7 +786,7 @@ chat_events
   source_part_index,
   attachments,  -- JSON: Attachment[], same shape as tasks/notes/areas
   created_at
-  UNIQUE (session_id, COALESCE(external_turn_id, ''), external_event_id, source_part_index)
+  UNIQUE (session_id, external_event_id, source_part_index)
     WHERE external_event_id IS NOT NULL
 ```
 
@@ -781,12 +798,12 @@ Files referenced by `chat_events.attachments` live under `<brain>/attachments/<f
 
 For in-app sessions (orchestration, content), `external_*` fields are null and our DB is authoritative.
 
-For execution sessions, `external_session_id` points to the current live CLI session (mutable; rotates on rollover), and `external_transcript_path` stores the actual path the CLI wrote to — observed, not derived. `chat_events` rows reach the table via one of two writers per session: stdio (via agentex) for app-spawned sessions, and file-sync (parsing the on-disk transcript) for both externally-spawned sessions and as a drift-recovery backup for app-spawned ones. Incremental file-sync tracked by `external_sync_offset` and validated by `external_sync_last_event_id`. Idempotency via the compound unique on `event_id + turn + part_index`; per-provider dedup keeps stdio + file-sync co-existing safely (Claude via wire-uuid in the index; Codex via runtime-deferral so they never interleave). See `docs/realtime.md` for the full pipeline.
+For live execution sessions, `external_provider_type` and `external_session_id` identify the current provider binding, which can rotate on rollover. Historical imports keep their provider-qualified source identity, file fingerprint or service checkpoint, and synchronization status in `external_session_imports`. Agentex owns provider history normalization. Flow owns the read-only projection and explicit sync transaction.
 
-The only uniqueness the DB enforces: session PK, event PK, `external_session_id`, and the compound event-uniqueness on `chat_events`. How many sessions exist per user/agent/surface is the user's call; app defaults pick sensible behavior without the schema fighting alternate patterns.
+Source uniqueness is provider-qualified for both current live bindings and historical imports. Event replay is idempotent within a Flow chat through the compound external-event unique key. How many sessions exist per user, agent, or surface remains the user's call.
 
 Memory, if it becomes a distinct store, sits next to these tables rather than inside them — explicitly out of scope for this doc.
 
 ## The one-line version
 
-Three distinct kinds of chat — orchestration, content, execution — share a schema but not a UX. Agents are definitions; sessions are instances; same agent → many concurrent sessions is normal. `chat_events` stores one row per atomic thing that happened (user messages, assistant text, thinking, tool calls, tool results, system markers, run results, rate limits) with typed columns for tool metadata and full `raw` for audit. Multimodal content (images, audio, files) lives on `chat_events.attachments` as JSON, sharing the generic `Attachment` shape and serve route with tasks/notes/areas. No DB-enforced partition constraints. Full transcripts. Two explicit resets. Retrieval (FTS5 now, embeddings later) runs over `chat_events`, not JSONL files. For execution sessions (CLI-backed, via agentex), app-spawned sessions get rows from agentex stdio in real time plus a transcript reconciler that backstops crashes and missed events (deduped via wire-uuid for Claude, run-time deferral for Codex); externally-imported sessions use file-sync of the CLI's on-disk transcript as the sole writer. Rollovers are visible, compaction is mirrored (Claude Code) or proactive (Codex), paths are observed not derived, state is never faked. The word "session" lives in the database and nowhere in the UI.
+Three distinct kinds of chat share a schema but not a UX. App-spawned execution sessions use Agentex live events plus the live reconciler. Explicit historical imports use Agentex `localHistory` for Claude and Codex or `savedHistory` for OpenCode, then Flow stores a read-only projection and synchronization ledger. Cursor remains live execution only. Retrieval runs over `chat_events`, not provider files or services. Source identity is provider-qualified, rollovers stay visible, and the UI does not pretend an imported chat is a writable live provider session.

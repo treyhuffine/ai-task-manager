@@ -344,6 +344,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const runtime = harnesses.data?.harnesses.find((entry) => entry.id === providerId)?.runtime;
     const canChangeModel = runtime?.capabilities.sessionModelChange.supported ?? providerId !== 'cursor';
     const canChangeVariant = runtime?.capabilities.sessionVariantChange.supported ?? providerId === 'opencode';
+    const canChangeEffort = runtime?.capabilities.sessionEffortChange.supported
+      ?? (providerId === 'claude' || providerId === 'codex');
+    const selectionControlsDisabled = updateSession.isPending || Boolean(isRunning);
     const supportedPermissionModes = useMemo<PermissionMode[]>(() => {
       if (providerId === 'cursor') {
         return runtime?.capabilities.planMode.supported ? ['bypass', 'plan'] : ['bypass'];
@@ -365,10 +368,14 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const setPermissionMode = useCallback(
       (next: PermissionMode) => {
+        if (isRunning) {
+          setModeMenuOpen(false);
+          return;
+        }
         if (next === permissionMode) return;
         updateSession.mutate({ id: sessionId, permissionMode: next });
       },
-      [permissionMode, sessionId, updateSession],
+      [isRunning, permissionMode, sessionId, updateSession],
     );
 
     const cycleMode = useCallback(() => {
@@ -381,6 +388,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // next-chat preference on the server.
     const setModel = (id: string) => {
       setModelMenuOpen(false);
+      if (isRunning) return;
       if (id === explicitModel) return;
       const nextModel = explicitModelForProvider(
         providerId ?? 'claude',
@@ -410,6 +418,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const setVariant = (variant: string) => {
       setVariantMenuOpen(false);
+      if (isRunning) return;
       if (variant === explicitVariant) return;
       if (!canChangeVariant && onSwitchProvider && providerId) {
         onSwitchProvider({
@@ -425,7 +434,17 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const setEffort = (level: EffortLevel) => {
       setEffortMenuOpen(false);
+      if (isRunning) return;
       if (level === explicitEffort) return;
+      if (!canChangeEffort && onSwitchProvider && providerId) {
+        onSwitchProvider({
+          harness: providerId,
+          model: explicitModel,
+          ...(explicitVariant ? { variant: explicitVariant } : {}),
+          effort: level,
+        }, editorRef.current?.snapshot() ?? null);
+        return;
+      }
       updateSession.mutate({ id: sessionId, effort: level });
     };
 
@@ -531,7 +550,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // also work but binding here keeps the responsibility inside the
     // composer module).
     const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === 'Tab' && e.shiftKey) {
+      if (e.key === 'Tab' && e.shiftKey && !isRunning) {
         e.preventDefault();
         cycleMode();
       }
@@ -692,7 +711,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     current={permissionMode}
                     options={supportedPermissionModes}
                     onSelect={setMode}
-                    disabled={updateSession.isPending}
+                    disabled={selectionControlsDisabled}
                   />
 
                   <div className="flex-1" />
@@ -709,7 +728,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       onSwitchProvider={(next) => {
                         onSwitchProvider(next, editorRef.current?.snapshot() ?? null);
                       }}
-                      canChangeModel={canChangeModel}
+                      canChangeModel={canChangeModel && !isRunning}
                       switching={switchingProvider}
                       disabled={updateSession.isPending}
                     />
@@ -722,7 +741,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                         pinnedId={explicitModel}
                         fallbackLabel={displayModelLabel}
                         onSelect={setModel}
-                        disabled={updateSession.isPending}
+                        disabled={selectionControlsDisabled}
                       />
                     )
                   )}
@@ -739,7 +758,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       pinnedId={explicitVariant ?? variants[0]!.id}
                       fallbackLabel={variants.find((variant) => variant.id === explicitVariant)?.name ?? 'Default'}
                       onSelect={setVariant}
-                      disabled={updateSession.isPending}
+                      disabled={selectionControlsDisabled}
                     />
                   )}
 
@@ -750,7 +769,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       current={explicitEffort}
                       options={effortOptions}
                       onSelect={setEffort}
-                      disabled={updateSession.isPending}
+                      disabled={selectionControlsDisabled}
                     />
                   )}
 
