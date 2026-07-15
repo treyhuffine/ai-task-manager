@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { archiveWorkspace, listChatSessions } from '@/lib/db/queries';
-import { killAllForSession } from '@/lib/terminal/pty-manager';
+import { killAllForOwner } from '@/lib/terminal/pty-manager';
+import { terminalOwnerId } from '@/lib/terminal/owner';
 import { close as closeAgentSession } from '@/lib/executor/adapter';
 
 export const runtime = 'nodejs';
@@ -15,12 +16,13 @@ export async function POST(
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
     // Reap every process tied to this workspace's sessions — archiving the
     // workspace orphans them otherwise (they outlive it until the server
-    // restarts). Both are safe no-ops for sessions with nothing live:
-    //   - node-pty terminals (killAllForSession)
-    //   - the cached agent CLI subprocess (closeAgentSession)
-    const sessionIds = listChatSessions({ workspaceId: id }).map((s) => s.id);
-    for (const sid of sessionIds) killAllForSession(sid);
-    await Promise.all(sessionIds.map((sid) => closeAgentSession(sid)));
+    // restarts). Both are safe no-ops when nothing's live:
+    //   - node-pty terminals, owned per execution (deduped — many chats
+    //     share one execution, and killing an owner twice is wasted work)
+    //   - the cached agent CLI subprocess, one per chat
+    const sessions = listChatSessions({ workspaceId: id });
+    for (const ownerId of new Set(sessions.map(terminalOwnerId))) killAllForOwner(ownerId);
+    await Promise.all(sessions.map((s) => closeAgentSession(s.id)));
     return Response.json(row);
   } catch (err) {
     console.error('[POST /api/workspaces/:id/archive]', err);

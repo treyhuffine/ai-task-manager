@@ -9,6 +9,8 @@ import {
   usePullBase,
   useRetrySetup,
   useSessionStatus,
+  useWorktreeScope,
+  worktreeScopeFromCache,
 } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution } from '@/db/types';
 
@@ -63,10 +65,12 @@ export type ActionState =
  * mutations also invalidate.
  */
 export function useSessionPr(id: string | null) {
+  // The PR tracks the execution's branch, so sibling chats share one entry.
+  const scope = useWorktreeScope(id);
   return useQuery({
-    queryKey: ['session', id, 'pr'],
+    queryKey: [...(scope ?? ['session', id ?? '__none__']), 'pr'],
     queryFn: () => sessionsApi.pr(id!),
-    enabled: !!id,
+    enabled: !!id && !!scope,
     staleTime: 5_000,
     refetchInterval: 20_000,
   });
@@ -79,9 +83,9 @@ export function useOpenPr(id: string) {
     onSuccess: () => {
       // The agent will start drafting + pushing; the PR appears on the
       // next refresh. Invalidate eagerly so the bar reflects the new
-      // state once the agent finishes its turn.
-      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
-      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
+      // state once the agent finishes its turn. `pr` and `status` both
+      // sit under the worktree scope, so one prefix covers them.
+      qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
     },
   });
 }
@@ -91,8 +95,7 @@ export function useMergePr(id: string) {
   return useMutation({
     mutationFn: (body?: MergeRequestBody) => sessionsApi.mergePr(id, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
-      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
+      qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
       qc.invalidateQueries({ queryKey: ['session', id] });
     },
   });
@@ -107,7 +110,7 @@ export function useSetAutoMerge(id: string) {
   return useMutation({
     mutationFn: (body: AutoMergeRequestBody) => sessionsApi.setAutoMerge(id, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
+      qc.invalidateQueries({ queryKey: [...worktreeScopeFromCache(qc, id), 'pr'] });
     },
   });
 }
@@ -123,8 +126,7 @@ export function useResolveConflicts(id: string) {
     mutationFn: (scenario: 'pr_vs_base' | 'local_vs_remote') =>
       sessionsApi.resolveConflicts(id, scenario),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
-      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
+      qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
     },
   });
 }

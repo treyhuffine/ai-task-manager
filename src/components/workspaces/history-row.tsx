@@ -47,7 +47,10 @@ export function HistoryRow({
   onOpenCreateFrom,
 }: HistoryRowProps) {
   const { activeView, setActiveView } = useDashboard();
-  const { data: diffStats } = useDiffStats(session.worktreePath ? session.id : null);
+  const { data: diffStats } = useDiffStats(
+    session.worktreePath ? session.id : null,
+    session.executionId,
+  );
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   const isActive = activeView === session.id;

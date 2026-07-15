@@ -51,9 +51,11 @@ const TAB_STORAGE_KEY_PREFIX = 'flow.viewer.tab.';
 
 /**
  * Top half of the right column. Tab-switch between the file viewer and
- * the workspace preview. The choice is per-session in localStorage so
+ * the workspace preview. The choice is per-execution in localStorage so
  * users who never use preview don't see it again on the next visit, and
- * users who do don't have to re-pick on every open.
+ * users who do don't have to re-pick on every open. Per-execution rather
+ * than per-chat because both tabs show the execution's worktree — sitting
+ * on Preview and starting a new chat shouldn't bounce you back to Files.
  *
  * Status indicator on the Preview tab: a small coloured dot reflects
  * the supervised process's state — green/running, amber/starting,
@@ -67,17 +69,18 @@ export function ViewerArea({
   sessionId, workspaceId, executionId, selectedPath, onCloseFile, onOpenWorkspaceSettings, active,
   filePickSignal, fileHistory, onReferenceInChat,
 }: ViewerAreaProps) {
-  const [tab, setTab] = useState<Tab>(() => readPersistedTab(sessionId));
+  const worktreeId = executionId ?? sessionId;
+  const [tab, setTab] = useState<Tab>(() => readPersistedTab(worktreeId));
 
-  // Reset/load when session changes.
+  // Reset/load when the execution changes.
   useEffect(() => {
-    setTab(readPersistedTab(sessionId));
-  }, [sessionId]);
+    setTab(readPersistedTab(worktreeId));
+  }, [worktreeId]);
 
   const setTabAndPersist = (next: Tab) => {
     setTab(next);
     try {
-      window.localStorage.setItem(TAB_STORAGE_KEY_PREFIX + sessionId, next);
+      window.localStorage.setItem(TAB_STORAGE_KEY_PREFIX + worktreeId, next);
     } catch {
       /* ignore */
     }
@@ -226,10 +229,10 @@ function renderStatusDot(state: PreviewServerStatus | undefined): { node: React.
   }
 }
 
-function readPersistedTab(sessionId: string): Tab {
+function readPersistedTab(worktreeId: string): Tab {
   if (typeof window === 'undefined') return 'files';
   try {
-    const raw = window.localStorage.getItem(TAB_STORAGE_KEY_PREFIX + sessionId);
+    const raw = window.localStorage.getItem(TAB_STORAGE_KEY_PREFIX + worktreeId);
     if (raw === 'preview') return 'preview';
   } catch {
     /* ignore */

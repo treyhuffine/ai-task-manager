@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { ChatEventRecord } from '@/db/types';
 import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
+import { worktreeScopeFromCache } from '@/hooks/use-execution';
 import { hot } from '@/lib/_debug/hot-path';
 
 /**
@@ -42,7 +43,11 @@ export function useSessionStream(sessionId: string | null): void {
     const runtimeKey = ['session', sessionId, 'runtime-status'] as const;
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
-    const treeKey = ['session', sessionId, 'tree'] as const;
+    // Tier-1 tree refresh. Resolved at fire time rather than closed over,
+    // because the tree is cached per *execution* and the scope depends on
+    // the session row being in cache — which it is by the time any frame
+    // arrives, but isn't guaranteed when this effect first runs.
+    const treeKey = () => [...worktreeScopeFromCache(queryClient, sessionId), 'tree'] as const;
 
     // Any state change for this session that the rail cares about —
     // turn finished, runtime flipped, pending request changed — is a
@@ -99,7 +104,7 @@ export function useSessionStream(sessionId: string | null): void {
       // file column repaints in the same frame as the edit. False
       // positives just trigger a cheap refetch.
       if (isMutatingToolUse(event)) {
-        queryClient.invalidateQueries({ queryKey: treeKey });
+        queryClient.invalidateQueries({ queryKey: treeKey() });
       }
     };
 

@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { resizeTerminal } from '@/lib/terminal/pty-manager';
+import { terminalOwnerForSession } from '@/lib/terminal/owner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,9 @@ export async function POST(
     ) {
       return Response.json({ error: 'cols and rows must be positive numbers' }, { status: 400 });
     }
-    const ok = resizeTerminal(id, terminalId, Math.floor(body.cols), Math.floor(body.rows));
+    const ownerId = terminalOwnerForSession(id);
+    if (!ownerId) return Response.json({ error: 'Session not found' }, { status: 404 });
+    const ok = resizeTerminal(ownerId, terminalId, Math.floor(body.cols), Math.floor(body.rows));
     if (!ok) return Response.json({ error: 'Terminal not found or exited' }, { status: 404 });
     return Response.json({ ok: true });
   } catch (err) {

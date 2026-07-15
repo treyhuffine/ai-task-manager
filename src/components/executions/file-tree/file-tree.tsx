@@ -47,7 +47,16 @@ import { TreeSearchBar } from './tree-search-bar';
 import { OpenWorktreeButton } from '../open-worktree-button';
 
 interface FileTreeProps {
+  /** Addresses the API (routes are session-scoped) and the file mutations. */
   sessionId: string;
+  /**
+   * Identity of the worktree being browsed — the execution id, or the
+   * chat's own id when it has no execution. Persisted view mode and
+   * expand/collapse state key off this, not `sessionId`: the tree shows
+   * the execution's files, so starting a new chat on the same worktree
+   * must not collapse everything the user had opened.
+   */
+  worktreeId: string;
   selectedPath: string | null;
   /**
    * `null` clears the viewer's selection (used after deleting the file
@@ -121,6 +130,7 @@ interface DeleteTarget {
  */
 export function FileTree({
   sessionId,
+  worktreeId,
   selectedPath,
   onSelect,
   worktreePath,
@@ -129,33 +139,33 @@ export function FileTree({
   const { data: tree, isFetching } = useSessionTree(sessionId);
   const entries = useMemo(() => tree?.entries ?? [], [tree?.entries]);
 
-  const [mode, setModeState] = useState<TreeViewMode>(() => readPersistedMode(sessionId));
+  const [mode, setModeState] = useState<TreeViewMode>(() => readPersistedMode(worktreeId));
   // Explicit user expand/collapse intent per dir. See `./expand-state`.
   const [overrides, setOverridesState] = useState<ExpandOverrides>(() =>
-    readPersistedOverrides(sessionId),
+    readPersistedOverrides(worktreeId),
   );
   // Search query is intentionally ephemeral — not persisted. Different
-  // sessions are different mental contexts; carrying a stale filter
+  // worktrees are different mental contexts; carrying a stale filter
   // across them would mostly confuse rather than help.
   const [query, setQuery] = useState('');
 
-  // Re-read persisted state when navigating between sessions.
+  // Re-read persisted state when navigating between worktrees.
   useEffect(() => {
-    setModeState(readPersistedMode(sessionId));
-    setOverridesState(readPersistedOverrides(sessionId));
+    setModeState(readPersistedMode(worktreeId));
+    setOverridesState(readPersistedOverrides(worktreeId));
     setQuery('');
-  }, [sessionId]);
+  }, [worktreeId]);
 
   const setMode = useCallback(
     (next: TreeViewMode) => {
       setModeState(next);
       try {
-        window.localStorage.setItem(VIEW_MODE_KEY(sessionId), next);
+        window.localStorage.setItem(VIEW_MODE_KEY(worktreeId), next);
       } catch {
         /* ignore */
       }
     },
-    [sessionId],
+    [worktreeId],
   );
 
   const writeExpandedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,7 +177,7 @@ export function FileTree({
         if (writeExpandedTimer.current) clearTimeout(writeExpandedTimer.current);
         writeExpandedTimer.current = setTimeout(() => {
           try {
-            window.localStorage.setItem(EXPANDED_KEY(sessionId), serializeOverrides(next));
+            window.localStorage.setItem(EXPANDED_KEY(worktreeId), serializeOverrides(next));
           } catch {
             /* ignore */
           }
@@ -175,7 +185,7 @@ export function FileTree({
         return next;
       });
     },
-    [sessionId],
+    [worktreeId],
   );
 
   // Ancestors of every changed file default to expanded so the user sees

@@ -18,12 +18,21 @@ interface ExecutionTerminalInstanceProps {
 /**
  * One xterm.js instance bound to a server-side PTY.
  *
- * The component intentionally mounts once per (sessionId, terminalId)
- * and stays mounted while its tab is hidden — switching tabs uses CSS
+ * The component intentionally mounts once per `terminalId` and stays
+ * mounted while its tab is hidden — switching tabs uses CSS
  * `display: none`, not unmount, so scrollback survives. Output flows in
  * via SSE; keystrokes go out via POST. The fit addon adapts to the
  * container, and we re-fit whenever the tab becomes active because
  * `ResizeObserver` doesn't fire on `display:none → block` transitions.
+ *
+ * Keyed on `terminalId` alone, deliberately. The PTY is owned by the
+ * execution, so hopping between chats on one execution leaves the same
+ * terminal on screen — and `sessionId` is only an address for reaching
+ * it, not part of its identity. Including it in the effect deps would
+ * dispose and rebuild xterm on every chat switch, throwing away
+ * scrollback for a PTY that never went anywhere. Terminal ids are
+ * unique per execution, so a genuinely different execution brings
+ * different ids and remounts naturally.
  */
 export function ExecutionTerminalInstance({
   sessionId,
@@ -39,6 +48,13 @@ export function ExecutionTerminalInstance({
   // Keep the latest onExit without retriggering the main effect — that
   // would dispose and recreate the terminal, losing scrollback.
   useEffect(() => { onExitRef.current = onExit; }, [onExit]);
+
+  // Same trick for the session address: reads stay current, but a chat
+  // switch doesn't tear the terminal down. Any sibling chat's id routes
+  // to the same execution-owned PTY, so the already-open SSE connection
+  // stays valid even though its URL pins the id we mounted with.
+  const sessionIdRef = useRef(sessionId);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -126,7 +142,7 @@ export function ExecutionTerminalInstance({
 
     // SSE: stdout. EventSource auto-reconnects; the server replays the
     // recent buffer on each connect so refreshes don't blank the screen.
-    const es = new EventSource(terminalsApi.streamUrl(sessionId, terminalId));
+    const es = new EventSource(terminalsApi.streamUrl(sessionIdRef.current, terminalId));
 
     const onData = (ev: MessageEvent<string>) => {
       try { term.write(JSON.parse(ev.data)); } catch { /* */ }
@@ -141,12 +157,12 @@ export function ExecutionTerminalInstance({
 
     // stdin
     const dataDisp = term.onData((data) => {
-      void terminalsApi.input(sessionId, terminalId, data).catch(() => { /* */ });
+      void terminalsApi.input(sessionIdRef.current, terminalId, data).catch(() => { /* */ });
     });
 
     // resize → tell the pty
     const resizeDisp = term.onResize(({ cols, rows }) => {
-      void terminalsApi.resize(sessionId, terminalId, { cols, rows }).catch(() => { /* */ });
+      void terminalsApi.resize(sessionIdRef.current, terminalId, { cols, rows }).catch(() => { /* */ });
     });
 
     // refit when the container changes size (panel resize, viewport
@@ -165,7 +181,9 @@ export function ExecutionTerminalInstance({
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [sessionId, terminalId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionId is
+    // read through a ref on purpose; see the note on this component.
+  }, [terminalId]);
 
   // Re-fit + focus when this tab becomes active. Skipping the fit on
   // hidden→visible would leave the pty thinking we're still 80x24.

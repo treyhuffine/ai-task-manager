@@ -6,6 +6,7 @@ import { Popover as PopoverPrimitive } from 'radix-ui';
 import { Plus, History as HistoryIcon, Loader2, Check, Pencil } from 'lucide-react';
 import { useExecutionChatHistory, useUpdateSession } from '@/hooks/use-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 
 function formatWhen(iso: string | null): string {
@@ -18,8 +19,12 @@ function formatWhen(iso: string | null): string {
 /**
  * Execution chat controls: a "New chat" button (fresh conversation on the same
  * worktree — provider switching posts here too) and a history dropdown listing
- * every chat this execution has hosted. Selecting a past chat navigates to it;
- * the execution view auto-resumes it if it's archived.
+ * every chat this execution has hosted, hottest first. Selecting a past chat
+ * navigates to it; the execution view auto-resumes it if it's archived.
+ *
+ * Rows carry the rail's unread treatment (`isSessionUnread`) so a sibling chat
+ * that the agent has moved on since you last looked reads as unread here too.
+ * The server sorts by the same hotness key the rail uses.
  *
  * Each chat carries its own title (`chat_sessions.label`), editable inline here
  * via the pencil affordance. This is distinct from the execution's title (edited
@@ -111,6 +116,10 @@ export function ExecutionChatControls({
             ) : (
               sessions.map((s) => {
                 const isEditing = editingId === s.id;
+                // The chat you're looking at can't be unread — opening it is
+                // the read receipt, and the mark-read write lands a beat later
+                // than this render, so trust `isCurrent` over `lastViewedAt`.
+                const unread = !s.isCurrent && isSessionUnread(s);
                 return (
                   <div
                     key={s.id}
@@ -150,11 +159,25 @@ export function ExecutionChatControls({
                         }}
                         className="min-w-0 flex-1 text-left"
                       >
-                        <div className="truncate text-[12px] font-medium text-foreground">
-                          {s.label ?? 'Untitled chat'}
+                        <div className="flex items-center gap-1.5">
+                          {unread && (
+                            <span
+                              aria-hidden
+                              className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary"
+                            />
+                          )}
+                          <span
+                            className={cn(
+                              'truncate text-[12px] text-foreground',
+                              unread ? 'font-semibold' : 'font-medium',
+                            )}
+                          >
+                            {s.label ?? 'Untitled chat'}
+                          </span>
                         </div>
                         <div className="text-[10.5px] text-muted-foreground/75">
-                          {s.status === 'archived' ? 'Archived' : 'Active'} · {formatWhen(s.lastOutcomeEventAt ?? s.startedAt)}
+                          {unread && <span className="text-primary">Unread · </span>}
+                          {s.status === 'archived' ? 'Archived' : 'Active'} · {formatWhen(latestActivityAt(s) ?? s.startedAt)}
                         </div>
                       </button>
                     )}

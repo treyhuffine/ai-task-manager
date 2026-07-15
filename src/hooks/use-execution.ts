@@ -15,6 +15,92 @@ import { CHAT_PAGE_SIZE } from '@/constants/chat';
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
 /**
+ * Cache scope for anything derived from the worktree.
+ *
+ * The worktree hangs off the **execution**, not the chat. Every worktree
+ * route (`tree`, `status`, `file`, `diff`, `terminals`) takes a session id
+ * but immediately resolves it through `getChatSessionWithExecution` and
+ * reads `execution.worktreePath` — so sibling chats on one execution
+ * produce byte-identical results. Keying them by session id meant that
+ * hopping between chats (or switching provider, which rolls a new chat
+ * onto the same execution) cold-refetched an identical tree, diff, and
+ * every open file. Keying by execution lets siblings share one cache
+ * entry, so the hop is instant and only the transcript changes.
+ *
+ * Chats with no execution (orchestration / content sessions) keep session
+ * scope — they have no worktree, but the hooks stay usable either way.
+ *
+ * Mirrors `usePreviewState`, which already keys on `['execution', id, …]`
+ * for exactly this reason.
+ */
+export function worktreeScopeFor(
+  executionId: string | null | undefined,
+  sessionId: string,
+): readonly [string, string] {
+  return executionId ? ['execution', executionId] : ['session', sessionId];
+}
+
+function worktreeScope(
+  session: { executionId?: string | null } | undefined,
+  sessionId: string,
+): readonly [string, string] {
+  return worktreeScopeFor(session?.executionId, sessionId);
+}
+
+/**
+ * Hook form of {@link worktreeScope}. Returns null while the session row
+ * is still loading — callers stay disabled for that beat rather than
+ * fetching under a provisional session-scoped key and throwing the result
+ * away. Reads the same `['session', id]` entry the view already loads, so
+ * this is a cache hit rather than an extra request.
+ */
+export function useWorktreeScope(sessionId: string | null): readonly [string, string] | null {
+  const { data, isPending } = useSession(sessionId);
+  if (!sessionId || isPending) return null;
+  return worktreeScope(data, sessionId);
+}
+
+/**
+ * Build a worktree-derived query key, tolerating an unresolved scope.
+ *
+ * Callers gate fetching on `!!scope`, but the key still has to be *built*
+ * on every render. Spreading a bare `?? []` would collapse the key to
+ * something like `['tree']` — global, and shared by every session on
+ * screen. Falling back to the session's own scope keeps each unresolved
+ * key distinct, so a disabled query can never read another session's
+ * cache entry if someone later loosens the `enabled` gate.
+ */
+function worktreeKey(
+  scope: readonly [string, string] | null,
+  sessionId: string | null,
+  ...parts: readonly (string | null)[]
+): readonly (string | null)[] {
+  return [...(scope ?? worktreeScopeFor(null, sessionId ?? '__none__')), ...parts];
+}
+
+/**
+ * Non-hook form for mutation `onSuccess` handlers, which know the session
+ * id but can't call hooks. The session row is always in cache by the time
+ * a mutation on it resolves.
+ */
+export function worktreeScopeFromCache(
+  qc: ReturnType<typeof useQueryClient>,
+  sessionId: string,
+): readonly [string, string] {
+  return worktreeScope(qc.getQueryData<{ executionId?: string | null }>(SESSION_KEY(sessionId)), sessionId);
+}
+
+/** Cache key for one file read, under whatever scope the session resolves to.
+ *  Must match `useSessionFile`'s key or the post-save seed silently misses. */
+function worktreeFileKey(
+  qc: ReturnType<typeof useQueryClient>,
+  sessionId: string,
+  path: string,
+): readonly [string, string, string, string] {
+  return [...worktreeScopeFromCache(qc, sessionId), 'file', path] as const;
+}
+
+/**
  * Canonical transcript ordering: `(createdAt ASC, id ASC)` — the same
  * order `listChatEvents` returns and `useSessionStream` inserts under.
  * Shared by the snapshot merge and the scroll-up prepend so every writer
@@ -146,19 +232,21 @@ export function useLoadOlderEvents(
 }
 
 export function useSessionStatus(id: string | null) {
+  const scope = useWorktreeScope(id);
   return useQuery({
-    queryKey: ['session', id, 'status'],
+    queryKey: worktreeKey(scope, id, 'status'),
     queryFn: () => sessionsApi.status(id!),
-    enabled: !!id,
+    enabled: !!id && !!scope,
     staleTime: 2_000,
   });
 }
 
 export function useSessionDiff(id: string | null, file?: string) {
+  const scope = useWorktreeScope(id);
   return useQuery({
-    queryKey: ['session', id, 'diff', file ?? null],
+    queryKey: worktreeKey(scope, id, 'diff', file ?? null),
     queryFn: () => sessionsApi.diff(id!, file),
-    enabled: !!id,
+    enabled: !!id && !!scope,
     staleTime: 2_000,
   });
 }
@@ -171,10 +259,11 @@ export function useSessionDiff(id: string | null, file?: string) {
  * invalidated on running→idle by `ExecutionView`.
  */
 export function useSessionTree(id: string | null) {
+  const scope = useWorktreeScope(id);
   return useQuery({
-    queryKey: ['session', id, 'tree'],
+    queryKey: worktreeKey(scope, id, 'tree'),
     queryFn: () => sessionsApi.tree(id!),
-    enabled: !!id,
+    enabled: !!id && !!scope,
     refetchInterval: 30_000,
     staleTime: 5_000,
   });
@@ -187,10 +276,11 @@ export function useSessionTree(id: string | null) {
  * the user is currently looking at; this hook just caches per-path.
  */
 export function useSessionFile(id: string | null, path: string | null) {
+  const scope = useWorktreeScope(id);
   return useQuery({
-    queryKey: ['session', id, 'file', path],
+    queryKey: worktreeKey(scope, id, 'file', path),
     queryFn: () => sessionsApi.file(id!, path!),
-    enabled: !!id && !!path,
+    enabled: !!id && !!path && !!scope,
     staleTime: 30_000,
   });
 }
@@ -200,10 +290,11 @@ export function useSessionFile(id: string | null, path: string | null) {
  * cache key shape as `useSessionFile` but with a `base` discriminator.
  */
 export function useSessionBaseFile(id: string | null, path: string | null) {
+  const scope = useWorktreeScope(id);
   return useQuery({
-    queryKey: ['session', id, 'file', path, 'base'],
+    queryKey: worktreeKey(scope, id, 'file', path, 'base'),
     queryFn: () => sessionsApi.file(id!, path!, { base: true }),
-    enabled: !!id && !!path,
+    enabled: !!id && !!path && !!scope,
     staleTime: 60_000,
   });
 }
@@ -212,9 +303,20 @@ export function useSessionBaseFile(id: string | null, path: string | null) {
  * Invalidate every read cache that depends on the worktree's filesystem
  * state — diff, status, files, shortstat — so the UI repaints after a
  * mutation that changes git state (commit, push, pull, etc.).
+ *
+ * One prefix invalidation over the worktree scope covers everything read
+ * off the worktree — tree / status / file / diff / pr / wip / diff-stats.
+ * That only works because those all now share the scope; `diff-stats` and
+ * `prs` used to hang off a **plural** `['sessions', id, …]` key that no
+ * invalidation here ever matched, which is why the rail's diff-stat badge
+ * went stale after a commit.
+ *
+ * The session row is invalidated separately (and exactly) because git
+ * state reaches it via the execution join — `prNumber`, `branchName`.
  */
 function invalidateWorktree(qc: ReturnType<typeof useQueryClient>, id: string) {
-  qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+  qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
+  qc.invalidateQueries({ queryKey: SESSION_KEY(id), exact: true });
   qc.invalidateQueries({ queryKey: ['workspaces'] });
 }
 
@@ -226,6 +328,11 @@ function invalidateWorktree(qc: ReturnType<typeof useQueryClient>, id: string) {
  * bar's shortstat, and any sibling viewer that happens to be reading
  * the touched file. The `tree` cache is the visible signal — the user
  * sees rows appear/disappear right after the mutation resolves.
+ *
+ * None of these re-list the touched path explicitly: `invalidateWorktree`
+ * invalidates the whole worktree scope by prefix, and per-file reads live
+ * under it (`[...scope, 'file', path]`). Only the post-save *seed* needs
+ * the exact key, via `worktreeFileKey`.
  *
  * Optimistic updates would feel snappier, but the tree carries M/A/D
  * status flags + mtime that we'd have to synthesize correctly to match
@@ -252,11 +359,10 @@ export function useWriteFile(sessionId: string) {
       // The invalidation below still triggers a background refetch for
       // correctness — it should land identically and produce no flicker.
       qc.setQueryData<FileResponse>(
-        ['session', sessionId, 'file', vars.path],
+        worktreeFileKey(qc, sessionId, vars.path),
         (prev) => (prev ? { ...prev, content: vars.content } : prev),
       );
       invalidateWorktree(qc, sessionId);
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.path] });
     },
   });
 }
@@ -275,12 +381,10 @@ export function useResolveFileConflict(sessionId: string) {
       sessionsApi.resolveFileConflict(sessionId, path, content),
     onSuccess: (_data, vars) => {
       qc.setQueryData<FileResponse>(
-        ['session', sessionId, 'file', vars.path],
+        worktreeFileKey(qc, sessionId, vars.path),
         (prev) => (prev ? { ...prev, content: vars.content } : prev),
       );
       invalidateWorktree(qc, sessionId);
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.path] });
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'status'] });
     },
   });
 }
@@ -289,9 +393,8 @@ export function useDeletePath(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (path: string) => sessionsApi.deleteFile(sessionId, path),
-    onSuccess: (_data, path) => {
+    onSuccess: () => {
       invalidateWorktree(qc, sessionId);
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', path] });
     },
   });
 }
@@ -300,9 +403,8 @@ export function useCreateFile(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (path: string) => sessionsApi.createFile(sessionId, path),
-    onSuccess: (_data, path) => {
+    onSuccess: () => {
       invalidateWorktree(qc, sessionId);
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', path] });
     },
   });
 }
@@ -312,10 +414,8 @@ export function useRenamePath(sessionId: string) {
   return useMutation({
     mutationFn: ({ from, to }: { from: string; to: string }) =>
       sessionsApi.renamePath(sessionId, from, to),
-    onSuccess: (_data, vars) => {
+    onSuccess: () => {
       invalidateWorktree(qc, sessionId);
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.from] });
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'file', vars.to] });
     },
   });
 }
@@ -347,11 +447,9 @@ export function useCommit(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (opts?: { andPush?: boolean }) => sessionsApi.commit(id, opts),
-    onSuccess: () => {
-      invalidateWorktree(qc, id);
-      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
-      qc.invalidateQueries({ queryKey: ['session', id, 'status'] });
-    },
+    // `pr` and `status` live under the worktree scope, so invalidateWorktree
+    // already covers them by prefix.
+    onSuccess: () => invalidateWorktree(qc, id),
   });
 }
 
@@ -359,11 +457,9 @@ export function usePush(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => sessionsApi.push(id),
-    onSuccess: () => {
-      invalidateWorktree(qc, id);
-      // PR head may have just moved — let the action bar re-query gh.
-      qc.invalidateQueries({ queryKey: ['session', id, 'pr'] });
-    },
+    // Covers `pr` too — the PR head may have just moved, and the action bar
+    // re-queries gh off that key.
+    onSuccess: () => invalidateWorktree(qc, id),
   });
 }
 
@@ -386,6 +482,9 @@ export function useRetrySetup(id: string) {
     mutationFn: () => sessionsApi.retrySetup(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+      // Provisioning replaces the worktree the scope's reads are derived
+      // from, and that scope no longer sits under the session prefix.
+      qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
@@ -399,6 +498,8 @@ export function useRetrySetupScript(id: string) {
     mutationFn: () => sessionsApi.retrySetupScript(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+      // The script installs deps / writes files into the worktree.
+      qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
     },
   });
 }
@@ -419,6 +520,9 @@ export function useContinueSession(id: string) {
       sessionsApi.continueWork(id, opts),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+      // Re-provisioning swaps in a whole new worktree, so the execution's
+      // cached tree/diff/files describe a directory that no longer exists.
+      qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
@@ -442,7 +546,14 @@ export function useNewExecutionChat(id: string) {
       effort?: EffortLevel;
     } | void) =>
       sessionsApi.newChat(id, opts ?? undefined),
-    onSuccess: () => {
+    onSuccess: (r) => {
+      // Seed the new chat's row before the view repoints to it. Worktree
+      // reads resolve their cache scope through this entry, so without the
+      // seed every panel would sit disabled for a beat waiting on a fetch
+      // of a row we were just handed — and the switch would flash empty
+      // even though the tree/terminal are already cached under the
+      // (unchanged) execution.
+      qc.setQueryData(SESSION_KEY(r.session.id), r.session);
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       qc.invalidateQueries({ queryKey: ['session', id, 'history'] });
@@ -683,8 +794,14 @@ export function useUpdateSession() {
       prNumber?: number | null;
     }) => sessionsApi.update(id, input),
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['session', data.id] });
-      qc.invalidateQueries({ queryKey: ['session', data.id, 'pr'] });
+      // `exact` matters here. Without it this prefix-matches every
+      // `['session', id, …]` key, so renaming a chat or nudging the model
+      // refetched the transcript, the file tree, the diff, the terminal
+      // list, and every open file. This endpoint only ever writes columns
+      // on the session row itself, so the row is all that needs refreshing.
+      qc.invalidateQueries({ queryKey: SESSION_KEY(data.id), exact: true });
+      // `prNumber` is patchable here and the PR read is worktree-scoped.
+      qc.invalidateQueries({ queryKey: [...worktreeScopeFromCache(qc, data.id), 'pr'] });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
     },
   });
@@ -821,10 +938,11 @@ export function useRuntimeStatus(id: string | null) {
  * surfaces whatever's there now.
  */
 export function useSessionWip(id: string | null, enabled: boolean) {
+  const scope = useWorktreeScope(id);
   return useQuery({
-    queryKey: ['session', id, 'wip'],
+    queryKey: worktreeKey(scope, id, 'wip'),
     queryFn: () => sessionsApi.wip(id!),
-    enabled: !!id && enabled,
+    enabled: !!id && !!scope && enabled,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
@@ -836,7 +954,7 @@ export function useApplyWip(id: string) {
     mutationFn: (action) => sessionsApi.applyWip(id, action),
     onSuccess: () => {
       // The worktree's working tree just changed — repaint diff/status.
-      qc.invalidateQueries({ queryKey: ['session', id] });
+      invalidateWorktree(qc, id);
     },
   });
 }

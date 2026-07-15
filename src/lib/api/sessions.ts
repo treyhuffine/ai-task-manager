@@ -392,6 +392,8 @@ export interface ExecutionChatHistoryEntry {
   status: 'active' | 'archived';
   startedAt: string;
   lastOutcomeEventAt: string | null;
+  unreadMarkerAt: string | null;
+  lastViewedAt: string | null;
   /** The chat currently being viewed. */
   isCurrent: boolean;
 }
@@ -637,8 +639,8 @@ export const sessionsApi = {
   newChat(
     id: string,
     opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel },
-  ): Promise<{ session: ChatSessionWithExecution }> {
-    return api.post<{ session: ChatSessionWithExecution }>(`/sessions/${id}/new-chat`, opts ?? {});
+  ): Promise<{ session: ChatSessionWithAgent }> {
+    return api.post<{ session: ChatSessionWithAgent }>(`/sessions/${id}/new-chat`, opts ?? {});
   },
 
   /** Past + current chats for this execution, newest first. */

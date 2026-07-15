@@ -49,7 +49,8 @@ import {
   fetchPrHead,
 } from '@/lib/workspaces';
 import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
-import { killAllForSession } from '@/lib/terminal/pty-manager';
+import { killAllForOwner } from '@/lib/terminal/pty-manager';
+import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateAgentSession, close as closeAgentSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { providerHarnessKey, providerIdForHarness } from '@/lib/agent-options';
@@ -457,20 +458,21 @@ export async function archiveExecutionSession(
     archiveChatSession(args.sessionId);
   }
 
-  // Reap every process that belonged to this execution's chats. Two kinds,
-  // both keyed by chat-session id, and archiving an execution cascades to
-  // every chat under it (takeover chats included) — so enumerate the
-  // execution's chats and reap each:
-  //   - node-pty terminals (killAllForSession)
-  //   - the cached agent CLI subprocess (closeAgentSession)
+  // Reap every process this execution's work spun up. The two kinds have
+  // different owners:
+  //   - node-pty terminals belong to the execution, so one call covers
+  //     every shell any of its chats opened
+  //   - the cached agent CLI subprocess is per chat, and archiving an
+  //     execution cascades to all of them (takeover chats included), so
+  //     enumerate and close each
   // We just tore down the worktree above; without closing the agent, its
   // Claude/Codex subprocess keeps running against a now-deleted cwd until
-  // the server restarts. Both reapers are no-ops for ids with nothing live,
-  // so the orphan-chat fallback is safe too.
+  // the server restarts. Both reapers are no-ops when nothing's live, so
+  // the orphan-chat fallback is safe too.
+  killAllForOwner(terminalOwnerId(session));
   const reapSessionIds = session.executionId
     ? listChatSessions({ executionId: session.executionId }).map((s) => s.id)
     : [args.sessionId];
-  for (const sessionId of reapSessionIds) killAllForSession(sessionId);
   await Promise.all(reapSessionIds.map((id) => closeAgentSession(id)));
 
   return getChatSessionWithExecution(args.sessionId);

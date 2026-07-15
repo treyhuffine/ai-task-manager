@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { writeInput } from '@/lib/terminal/pty-manager';
+import { terminalOwnerForSession } from '@/lib/terminal/owner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,9 @@ export async function POST(
     if (!body || typeof body.data !== 'string') {
       return Response.json({ error: 'data must be a string' }, { status: 400 });
     }
-    const ok = writeInput(id, terminalId, body.data);
+    const ownerId = terminalOwnerForSession(id);
+    if (!ownerId) return Response.json({ error: 'Session not found' }, { status: 404 });
+    const ok = writeInput(ownerId, terminalId, body.data);
     if (!ok) return Response.json({ error: 'Terminal not found or exited' }, { status: 404 });
     return Response.json({ ok: true });
   } catch (err) {

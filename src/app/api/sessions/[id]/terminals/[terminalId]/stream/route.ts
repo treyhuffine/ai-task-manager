@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { subscribe } from '@/lib/terminal/pty-manager';
+import { terminalOwnerForSession } from '@/lib/terminal/owner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,14 @@ export async function GET(
         try { controller.enqueue(chunk); } catch { /* closed */ }
       };
 
-      const result = subscribe(id, terminalId, (chunk) => {
+      const ownerId = terminalOwnerForSession(id);
+      if (!ownerId) {
+        enqueue(sse('error', { message: 'Session not found' }));
+        try { controller.close(); } catch { /* */ }
+        return;
+      }
+
+      const result = subscribe(ownerId, terminalId, (chunk) => {
         if (chunk.type === 'data') {
           enqueue(sse('data', chunk.data));
         } else {

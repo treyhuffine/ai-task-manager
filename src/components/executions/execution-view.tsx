@@ -4,7 +4,7 @@ import type { HarnessId } from '@/lib/agents/registry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession, useContinueSession, useNewExecutionChat } from '@/hooks/use-execution';
+import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession, useContinueSession, useNewExecutionChat, useWorktreeScope } from '@/hooks/use-execution';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { useSessionReconcile } from '@/hooks/use-session-reconcile';
 import { useWorkspace, useMarkSessionRead } from '@/hooks/use-workspaces';
@@ -88,6 +88,23 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const newExecutionChat = useNewExecutionChat(sessionId);
   const isRunning = runtime?.running ?? false;
 
+  // Cache scope for everything read off the worktree. Execution-keyed, so
+  // it holds steady while the user hops between this execution's chats.
+  const worktreeScope = useWorktreeScope(sessionId);
+
+  // The execution, not the chat, is what "which code am I looking at"
+  // means. Every reset below keys off this: a new chat on the same
+  // execution is the same worktree, the same files, the same terminal —
+  // so selection, panes, and layout must survive it. A genuinely
+  // different execution still resets, which is what the guards were
+  // always for.
+  const executionId = session?.executionId ?? null;
+
+  // Stable id for per-worktree UI state (layout, file-open history).
+  // Falls back to the chat's own id for execution-less sessions, matching
+  // how the query scope resolves.
+  const worktreeId = executionId ?? sessionId;
+
   // Start a fresh chat on this execution's worktree (the "New chat" button and
   // the composer's provider switcher), then navigate to it. Provider switch
   // passes { providerId, model }; a plain new chat passes nothing.
@@ -142,7 +159,10 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status, sessionId]);
 
-  // Persisted resizable column / row sizes — per-session in localStorage.
+  // Persisted resizable column / row sizes — per-execution in
+  // localStorage. Keyed off the execution because the layout describes
+  // how you're looking at this *code*: dragging the tree wider and then
+  // starting a new chat on the same worktree shouldn't snap it back.
   const {
     horizontal,
     vertical,
@@ -150,7 +170,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     setHorizontal,
     setVertical,
     setTerminalOpenPct,
-  } = useExecutionLayoutSizes(sessionId);
+  } = useExecutionLayoutSizes(worktreeId);
 
   // Setting-up state: dispatch creates the chat_session row immediately
   // and provisions the worktree in the background (~2-5s for `git
@@ -203,14 +223,18 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const prevRunningRef = useRef(isRunning);
   useEffect(() => {
     hot('effect ExecutionView.running-edge');
-    if (!sessionId) return;
+    if (!sessionId || !worktreeScope) return;
     if (prevRunningRef.current && !isRunning) {
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'diff'] });
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'tree'] });
-      qc.invalidateQueries({ queryKey: ['session', sessionId] });
+      // One prefix covers diff / tree / status / pr — everything the turn
+      // may have moved on disk.
+      qc.invalidateQueries({ queryKey: worktreeScope });
+      // Plus the row itself for its derived metadata. `exact` keeps this
+      // off the transcript: events arrive over SSE, and refetching the
+      // whole conversation on every turn boundary is pure waste.
+      qc.invalidateQueries({ queryKey: ['session', sessionId], exact: true });
     }
     prevRunningRef.current = isRunning;
-  }, [isRunning, sessionId, qc]);
+  }, [isRunning, sessionId, worktreeScope, qc]);
 
   // Worktree just landed (provisioning finished) → pull the file tree + diff
   // immediately. The tree was fetched empty while `worktreePath` was null, and
@@ -220,17 +244,20 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   useEffect(() => {
     hot('effect ExecutionView.worktree-edge');
     const has = !!session?.worktreePath;
-    const justLanded = !prevWorktreeRef.current && has && !!sessionId;
+    const justLanded = !prevWorktreeRef.current && has && !!sessionId && !!worktreeScope;
     prevWorktreeRef.current = has;
     if (!justLanded) return;
-    qc.invalidateQueries({ queryKey: ['session', sessionId, 'tree'] });
-    qc.invalidateQueries({ queryKey: ['session', sessionId, 'diff'] });
+    qc.invalidateQueries({ queryKey: [...worktreeScope!, 'tree'] });
+    qc.invalidateQueries({ queryKey: [...worktreeScope!, 'diff'] });
     // The background copy (.env etc.) lands a beat after the worktree itself —
     // pull the tree again so those files appear without waiting out the 30s
     // poll. (The setup-script poll covers slower, longer-running output.)
-    const t = setTimeout(() => qc.invalidateQueries({ queryKey: ['session', sessionId, 'tree'] }), 2500);
+    const t = setTimeout(
+      () => qc.invalidateQueries({ queryKey: [...worktreeScope!, 'tree'] }),
+      2500,
+    );
     return () => clearTimeout(t);
-  }, [session?.worktreePath, sessionId, qc]);
+  }, [session?.worktreePath, sessionId, worktreeScope, qc]);
 
   // Voice-sent event ids tracked in client memory for this open session.
   // Lost on reload by design — same model the orchestrator uses. The
@@ -242,15 +269,19 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // the tree and viewer can render in different columns and still share
   // selection state.
   //
-  // Reset on session change. ExecutionView is mounted once and just
+  // Reset on execution change. ExecutionView is mounted once and just
   // re-renders when sessionId changes (no `key={sessionId}` upstream),
   // so without this reset, a file picked in execution A would leak
   // into execution B — and useInitialSelectedFile's "already selected"
   // early-return would suppress picking a fresh default for B.
+  //
+  // Guarded on executionId rather than sessionId: sibling chats share a
+  // worktree, so clearing the open file when you switch chats would be
+  // throwing away a selection that's still perfectly valid.
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const lastSelectedSessionRef = useRef(sessionId);
-  if (lastSelectedSessionRef.current !== sessionId) {
-    lastSelectedSessionRef.current = sessionId;
+  const lastSelectedExecutionRef = useRef(executionId);
+  if (lastSelectedExecutionRef.current !== executionId) {
+    lastSelectedExecutionRef.current = executionId;
     setSelectedPath(null);
   }
 
@@ -261,12 +292,13 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // does NOT bump it — closing isn't a request to view files.
   const [filePickSignal, setFilePickSignal] = useState(0);
 
-  // Per-session LRU of files opened in the viewer, surfaced by the
+  // Per-execution LRU of files opened in the viewer, surfaced by the
   // history menu in the viewer's tab strip. Recorded here because this is
   // the one place every "open a file" path converges (tree pick below and
-  // the transcript-chip listener), keyed on the same sessionId the
-  // selection reset uses.
-  const { history: fileHistory, recordOpen: recordFileOpen } = useFileHistory(sessionId);
+  // the transcript-chip listener), keyed on the same execution the
+  // selection reset uses — the list is about files in this worktree, so
+  // it outlives any one chat.
+  const { history: fileHistory, recordOpen: recordFileOpen } = useFileHistory(worktreeId);
 
   const handleFilePicked = (path: string | null) => {
     setSelectedPath(path);
@@ -316,11 +348,13 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   );
   const closePane = useCallback(() => setActivePane(null), []);
 
-  // Reset pane when session changes so a pane left open on session A
-  // doesn't leak into session B's viewer column.
-  const lastPaneSessionRef = useRef(sessionId);
-  if (lastPaneSessionRef.current !== sessionId) {
-    lastPaneSessionRef.current = sessionId;
+  // Reset pane when the execution changes so a pane left open on
+  // execution A doesn't leak into execution B's viewer column. Chat hops
+  // within one execution leave it alone — the pane's contents (references,
+  // scratchpad) are still about the same work.
+  const lastPaneExecutionRef = useRef(executionId);
+  if (lastPaneExecutionRef.current !== executionId) {
+    lastPaneExecutionRef.current = executionId;
     if (activePane !== null) setActivePane(null);
   }
 
@@ -658,6 +692,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
               ) : (
                 <FileTree
                   sessionId={session.id}
+                  worktreeId={worktreeId}
                   selectedPath={selectedPath}
                   onSelect={handleFilePicked}
                   worktreePath={session.worktreePath}

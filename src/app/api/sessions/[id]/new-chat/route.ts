@@ -115,7 +115,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       defaultAgentEffort: selection.effort,
     });
 
-    return Response.json({ session });
+    // Return the same shape as `GET /api/sessions/:id` — execution state
+    // flattened on, `agentHarness` sidecar'd — rather than the bare insert
+    // result. The client seeds this straight into the `['session', id]`
+    // cache so the view can repoint without a refetch, and a bare row
+    // would land there missing `worktreePath` (the view would fall into
+    // its "setting up" state on a worktree that's right there) and
+    // `agentHarness` (the composer would lose its model catalog).
+    const full = getChatSessionWithExecution(session.id);
+    if (!full) return Response.json({ error: 'Chat not found after create' }, { status: 500 });
+    const newAgent = getAgent(full.agentId);
+    return Response.json({ session: { ...full, agentHarness: newAgent?.harness ?? null } });
   } catch (err) {
     console.error('[POST /api/sessions/:id/new-chat]', err);
     return Response.json({ error: String(err) }, { status: 500 });

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import { sessionsApi, type RailResponse } from '@/lib/api/sessions';
+import { worktreeScopeFor } from '@/hooks/use-execution';
 import { ApiError } from '@/lib/api/client';
 import type {
   ChatSessionRecord,
@@ -57,9 +58,22 @@ export function useNeedsReviewSessions() {
   });
 }
 
-export function useDiffStats(sessionId: string | null) {
+/**
+ * Shortstat badge for a session's worktree.
+ *
+ * Takes `executionId` explicitly rather than resolving it through the
+ * session cache: this runs once per rail row, and looking each one up
+ * would fire a session fetch per row. Rail rows already carry the field.
+ *
+ * Scoped to the execution because the diff belongs to the worktree — that
+ * also puts it under the same prefix `invalidateWorktree` sweeps, which is
+ * what makes the badge repaint after a commit. It previously sat under a
+ * `['sessions', …]` (plural) key that no invalidation ever matched.
+ */
+export function useDiffStats(sessionId: string | null, executionId: string | null) {
+  const scope = sessionId ? worktreeScopeFor(executionId, sessionId) : null;
   return useQuery({
-    queryKey: ['sessions', sessionId, 'diff-stats'],
+    queryKey: [...(scope ?? ['session', '__none__']), 'diff-stats'],
     queryFn: () => sessionsApi.diffStats(sessionId!),
     enabled: !!sessionId,
     staleTime: 5_000,

@@ -2,12 +2,13 @@ import type { NextRequest } from 'next/server';
 import * as fs from 'node:fs';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { createTerminal, listTerminals, TerminalSpawnError } from '@/lib/terminal/pty-manager';
+import { terminalOwnerId } from '@/lib/terminal/owner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type ResolvedCwd =
-  | { ok: true; cwd: string }
+  | { ok: true; cwd: string; ownerId: string }
   | { ok: false; error: string; status: number };
 
 /** Does this path resolve to an existing directory on disk? */
@@ -42,8 +43,10 @@ function resolveCwd(sessionId: string): ResolvedCwd {
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return { ok: false, error: 'Session not found', status: 404 };
 
+  const ownerId = terminalOwnerId(session);
+
   if (isExistingDir(session.worktreePath)) {
-    return { ok: true, cwd: session.worktreePath };
+    return { ok: true, cwd: session.worktreePath, ownerId };
   }
 
   const ws = session.workspaceId ? getWorkspace(session.workspaceId) : undefined;
@@ -68,7 +71,7 @@ function resolveCwd(sessionId: string): ResolvedCwd {
 
   // Non-git workspace: no worktree concept — the agent runs in ws.cwd.
   if (isExistingDir(ws?.cwd)) {
-    return { ok: true, cwd: ws.cwd };
+    return { ok: true, cwd: ws.cwd, ownerId };
   }
 
   return {
@@ -86,7 +89,10 @@ export async function GET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    return Response.json(listTerminals(id));
+    // Terminals belong to the execution, so every chat under it lists the
+    // same shells — that's what keeps your terminal alive across a chat
+    // switch instead of stranding it.
+    return Response.json(listTerminals(terminalOwnerId(session)));
   } catch (err) {
     console.error('[GET /api/sessions/:id/terminals]', err);
     return Response.json({ error: String(err) }, { status: 500 });
@@ -116,7 +122,7 @@ export async function POST(
     let descriptor;
     try {
       descriptor = createTerminal({
-        sessionId: id,
+        ownerId: resolved.ownerId,
         cwd: resolved.cwd,
         cols,
         rows,

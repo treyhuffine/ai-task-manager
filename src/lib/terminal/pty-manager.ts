@@ -1,10 +1,16 @@
 /**
  * PTY lifecycle for in-app terminals.
  *
- * Each execution session can host many terminals — the user opens them
- * with the `+` button in the terminal panel. Each terminal is a real
- * `node-pty` child running the user's `$SHELL` rooted at the session's
- * worktree (or the workspace cwd if there's no worktree).
+ * Each execution can host many terminals — the user opens them with the
+ * `+` button in the terminal panel. Each terminal is a real `node-pty`
+ * child running the user's `$SHELL` rooted at the execution's worktree
+ * (or the workspace cwd if there's no worktree).
+ *
+ * Terminals are owned by the **execution**, not by the chat session that
+ * happened to open them — see `terminalOwnerId`. Every chat on an
+ * execution therefore shares one set of shells, which is what makes
+ * hopping between chats (or switching provider) leave your terminal
+ * alone.
  *
  * Terminals are server-side state. They survive page reloads and
  * Next.js HMR (we stash the registry on `globalThis`) so a long
@@ -32,7 +38,8 @@ export type TerminalListener = (chunk: TerminalChunk) => void;
 
 interface ManagedTerminal {
   id: string;
-  sessionId: string;
+  /** Execution that owns this shell — see `terminalOwnerId`. */
+  ownerId: string;
   cwd: string;
   shell: string;
   cols: number;
@@ -49,7 +56,7 @@ interface ManagedTerminal {
 
 export interface TerminalDescriptor {
   id: string;
-  sessionId: string;
+  ownerId: string;
   cwd: string;
   shell: string;
   cols: number;
@@ -126,7 +133,7 @@ export class TerminalSpawnError extends Error {
 function describe(t: ManagedTerminal): TerminalDescriptor {
   return {
     id: t.id,
-    sessionId: t.sessionId,
+    ownerId: t.ownerId,
     cwd: t.cwd,
     shell: t.shell,
     cols: t.cols,
@@ -147,7 +154,8 @@ function appendBuffer(t: ManagedTerminal, data: string) {
 }
 
 export interface CreateTerminalInput {
-  sessionId: string;
+  /** Execution that owns this shell — resolve with `terminalOwnerId`. */
+  ownerId: string;
   cwd: string;
   cols?: number;
   rows?: number;
@@ -219,7 +227,7 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
 
   const t: ManagedTerminal = {
     id,
-    sessionId: input.sessionId,
+    ownerId: input.ownerId,
     cwd: input.cwd,
     shell,
     cols,
@@ -255,31 +263,31 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   return describe(t);
 }
 
-export function listTerminals(sessionId: string): TerminalDescriptor[] {
+export function listTerminals(ownerId: string): TerminalDescriptor[] {
   const out: TerminalDescriptor[] = [];
   for (const t of terminals.values()) {
-    if (t.sessionId === sessionId) out.push(describe(t));
+    if (t.ownerId === ownerId) out.push(describe(t));
   }
   out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return out;
 }
 
-export function getTerminal(sessionId: string, id: string): TerminalDescriptor | null {
+export function getTerminal(ownerId: string, id: string): TerminalDescriptor | null {
   const t = terminals.get(id);
-  if (!t || t.sessionId !== sessionId) return null;
+  if (!t || t.ownerId !== ownerId) return null;
   return describe(t);
 }
 
-export function writeInput(sessionId: string, id: string, data: string): boolean {
+export function writeInput(ownerId: string, id: string, data: string): boolean {
   const t = terminals.get(id);
-  if (!t || t.sessionId !== sessionId || t.exited) return false;
+  if (!t || t.ownerId !== ownerId || t.exited) return false;
   t.proc.write(data);
   return true;
 }
 
-export function resizeTerminal(sessionId: string, id: string, cols: number, rows: number): boolean {
+export function resizeTerminal(ownerId: string, id: string, cols: number, rows: number): boolean {
   const t = terminals.get(id);
-  if (!t || t.sessionId !== sessionId || t.exited) return false;
+  if (!t || t.ownerId !== ownerId || t.exited) return false;
   if (cols < 1 || rows < 1) return false;
   t.cols = cols;
   t.rows = rows;
@@ -291,9 +299,9 @@ export function resizeTerminal(sessionId: string, id: string, cols: number, rows
   return true;
 }
 
-export function killTerminal(sessionId: string, id: string): boolean {
+export function killTerminal(ownerId: string, id: string): boolean {
   const t = terminals.get(id);
-  if (!t || t.sessionId !== sessionId) return false;
+  if (!t || t.ownerId !== ownerId) return false;
   if (!t.exited) {
     try { t.proc.kill(); } catch { /* */ }
   }
@@ -301,10 +309,15 @@ export function killTerminal(sessionId: string, id: string): boolean {
   return true;
 }
 
-export function killAllForSession(sessionId: string): number {
+/**
+ * Reap every shell an execution owns. Called when the worktree goes away
+ * (execution archived, workspace archived) — the PTYs would otherwise
+ * keep running against a deleted cwd until the server restarts.
+ */
+export function killAllForOwner(ownerId: string): number {
   let n = 0;
   for (const [id, t] of terminals.entries()) {
-    if (t.sessionId !== sessionId) continue;
+    if (t.ownerId !== ownerId) continue;
     if (!t.exited) {
       try { t.proc.kill(); } catch { /* */ }
     }
@@ -330,12 +343,12 @@ export interface SubscribeResult {
 }
 
 export function subscribe(
-  sessionId: string,
+  ownerId: string,
   id: string,
   listener: TerminalListener,
 ): SubscribeResult | null {
   const t = terminals.get(id);
-  if (!t || t.sessionId !== sessionId) return null;
+  if (!t || t.ownerId !== ownerId) return null;
   const replay = t.buffer.join('');
   if (!t.exited) t.listeners.add(listener);
   return {

@@ -61,7 +61,10 @@ export function SessionRow({
   onOpenCreateFrom,
 }: SessionRowProps) {
   const { activeView, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
-  const { data: diffStats } = useDiffStats(session.worktreePath ? session.id : null);
+  const { data: diffStats } = useDiffStats(
+    session.worktreePath ? session.id : null,
+    session.executionId,
+  );
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   // Multi-select for bulk archive lives only on the canonical tree row;
