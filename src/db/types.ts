@@ -222,13 +222,18 @@ export type CreateChatEventInput = WithCamelAttachments<Omit<InferInsertModel<ty
 export type ChatEventSource =
   | 'user' | 'agent' | 'thinking' | 'tool_call' | 'tool_result'
   | 'system' | 'result' | 'rate_limit' | 'error' | 'recap'
+  | 'background_task'
   | 'permission_request' | 'permission_response'
   | 'question_request' | 'question_response'
   | 'auth_required'
   | 'cron' | 'unknown';
 
 /** Outcome events bump `chat_sessions.last_outcome_event_at`. */
-export const OUTCOME_SOURCES: ReadonlySet<ChatEventSource> = new Set(['agent', 'result']);
+export const OUTCOME_SOURCES: ReadonlySet<ChatEventSource> = new Set([
+  'agent',
+  'result',
+  'background_task',
+]);
 
 /**
  * Permission modes for execution sessions.

@@ -77,7 +77,7 @@ an HTTP POST and nothing else moves.
 
 ## StreamEvent → chat_events mapping
 
-`@agentex/agent`'s `StreamEvent` union has 6 variants. Each maps to one
+`@agentex/agent`'s `StreamEvent` union maps each provider event to one
 `chat_events` row:
 
 | `StreamEvent.type` | `source`     | `role`      | `content`        | tool fields                                               | `raw` |
@@ -88,6 +88,8 @@ an HTTP POST and nothing else moves.
 | `tool_call`        | `tool_call`  | `assistant` | —                | `tool_name = name`, `tool_input = input`, `external_tool_call_id = callId` | full event |
 | `tool_result`      | `tool_result`| `tool`      | `content`        | `tool_is_error = isError`, `external_tool_call_id = toolCallId` | full event |
 | `result`           | `result`     | `system`    | `text`           | —                                                          | full event (carries cost, isError) |
+| `background_task` (active) | `system` | `system` | `background_task` | — | full normalized lifecycle event |
+| `background_task` (terminal) | `background_task` | `system` | summary or description | `tool_is_error = status === 'failed'` | full normalized lifecycle event |
 
 `created_at` comes from the StreamEvent's `timestamp` (provider-supplied,
 monotonic within a turn). `external_event_id` we'll synthesize per event
@@ -96,7 +98,8 @@ since agentex StreamEvents don't carry a stable id — we use
 single turn are still idempotent under the partial unique constraint.
 
 The bump-outcome logic stays as it is in `insertChatEvent`: rows with
-`source IN ('agent', 'result')` advance `last_outcome_event_at`.
+`source IN ('agent', 'result', 'background_task')` advance
+`last_outcome_event_at`.
 
 ## Adapter responsibilities
 

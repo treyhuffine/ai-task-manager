@@ -15,7 +15,7 @@
  * their owner modules, so we read the exact same live objects here WITHOUT
  * importing them. This module imports nothing, so callers stay off the heavy
  * graph. Keys + shapes are mirrored from the owners — keep in sync if they change:
- *   - `adapter.ts`        `Symbol.for('@flow/executor-state')`      → `runningSessions: Set<string>`
+ *   - `adapter.ts`        `Symbol.for('@flow/executor-state')`      → runtime/background task state
  *   - `pending-input.ts`  `Symbol.for('@flow/pending-input-state')` → `bySession: Map<string, Set<string>>`
  *
  * Returns empty when an owner hasn't initialized its global yet — which only
@@ -27,7 +27,10 @@ const EXECUTOR_STATE_KEY = Symbol.for('@flow/executor-state');
 // Mirror of pending-input.ts's STATE_KEY (bySession slice only).
 const PENDING_STATE_KEY = Symbol.for('@flow/pending-input-state');
 
-type ExecutorStateSlice = { runningSessions?: Set<string> };
+type ExecutorStateSlice = {
+  runningSessions?: Set<string>;
+  backgroundTasks?: Map<string, Set<string>>;
+};
 type PendingStateSlice = { bySession?: Map<string, Set<string>> };
 
 function readGlobal<T>(key: symbol): T | undefined {
@@ -38,6 +41,12 @@ function readGlobal<T>(key: symbol): T | undefined {
 export function listRunningSessions(): string[] {
   const running = readGlobal<ExecutorStateSlice>(EXECUTOR_STATE_KEY)?.runningSessions;
   return running ? Array.from(running) : [];
+}
+
+/** Session ids with one or more active provider background tasks. */
+export function listBackgroundTaskSessions(): string[] {
+  const tasks = readGlobal<ExecutorStateSlice>(EXECUTOR_STATE_KEY)?.backgroundTasks;
+  return tasks ? Array.from(tasks.keys()) : [];
 }
 
 /** Session ids with >=1 pending input request. Mirrors `pending-input.listSessionsWithPending`. */

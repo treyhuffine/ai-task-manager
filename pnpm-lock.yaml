@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@agentex/agent':
-        specifier: ^0.0.32
-        version: 0.0.32(zod@3.25.76)
+        specifier: ^0.0.34
+        version: 0.0.34(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -430,8 +430,8 @@ packages:
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
-  '@agentex/agent@0.0.32':
-    resolution: {integrity: sha512-dtkR6lkoIBW+HAR8RTaLD3nKq9yCVVBylmSm/koNhdJytAd3F321xZddL2z4XWYgKsb01pjqqTKHGjJ6UBbx4g==}
+  '@agentex/agent@0.0.34':
+    resolution: {integrity: sha512-CO+8BbOAy64FR+ouqlznrQVnruXkJGgjK2MXbM5eWFzX/StVytniCirVtjv9+w014EnYBOtKhrYCOxetfO+VRg==}
     engines: {node: '>=20.19.0'}
 
   '@agentex/github@0.0.1':
@@ -8728,7 +8728,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@agentex/agent@0.0.32(zod@3.25.76)':
+  '@agentex/agent@0.0.34(zod@3.25.76)':
     dependencies:
       '@agentclientprotocol/sdk': 0.24.0(zod@3.25.76)
     transitivePeerDependencies:

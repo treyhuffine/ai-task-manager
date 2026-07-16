@@ -31,17 +31,31 @@ import {
   type BackgroundTask,
   type BackgroundTaskStatus,
 } from '@/hooks/use-background-tasks';
+import { selectVisibleBackgroundTasks } from './background-task-visibility';
 
 /**
  * Thin background-task strip above the composer. Renders only while something
  * is running (finished jobs already appear inline in the transcript as the
  * Bash/Task tool call that launched them). Click to open a sheet with the
- * running list, per-task detail (command/output/updates — all from existing
+ * running list, per-task detail (command/output/updates from existing
  * events, no file watcher), and a Stop button (agentex 0.0.22 `stopTask`).
  */
-export function BackgroundTasksBar({ sessionId }: { sessionId: string }) {
+export function BackgroundTasksBar({
+  sessionId,
+  runtimeHasBackgroundTasks,
+  runtimeBackgroundTaskIds,
+}: {
+  sessionId: string;
+  runtimeHasBackgroundTasks?: boolean;
+  runtimeBackgroundTaskIds?: string[];
+}) {
   const { data: events } = useSessionEvents(sessionId);
-  const tasks = useBackgroundTasks(events);
+  const transcriptTasks = useBackgroundTasks(events);
+  const tasks = selectVisibleBackgroundTasks(
+    transcriptTasks,
+    runtimeHasBackgroundTasks,
+    runtimeBackgroundTaskIds,
+  );
   const running = tasks.filter((t) => t.isActive);
   const [open, setOpen] = useState(false);
 
@@ -172,7 +186,6 @@ function TaskListRow({
   onSelect: () => void;
   muted?: boolean;
 }) {
-  const TypeIcon = typeIcon(task.taskType);
   return (
     <li className="border-b last:border-b-0">
       <div className={cn('flex items-center gap-2.5 pr-2 text-xs', muted && 'opacity-70')}>
@@ -181,7 +194,10 @@ function TaskListRow({
           onClick={onSelect}
           className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-3 text-left transition-colors hover:bg-muted/60"
         >
-          <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <TaskTypeIcon
+            taskType={task.taskType}
+            className="size-3.5 shrink-0 text-muted-foreground"
+          />
           <div className="min-w-0 flex-1">
             <div className="truncate font-mono text-[11px] text-foreground/90">
               {task.description ?? task.taskId}
@@ -190,7 +206,13 @@ function TaskListRow({
           </div>
           <StatusBadge status={task.status} active={task.isActive} />
         </button>
-        {task.isActive && <StopButton sessionId={sessionId} taskId={task.taskId} />}
+        {task.isActive && (
+          <StopButton
+            sessionId={sessionId}
+            taskId={task.taskId}
+            providerType={task.providerType}
+          />
+        )}
         <ChevronRight className="size-3 shrink-0 text-muted-foreground/40" />
       </div>
     </li>
@@ -209,8 +231,6 @@ function TaskDetail({
   onBack: () => void;
 }) {
   const detail = deriveTaskDetail(events, task);
-  const TypeIcon = typeIcon(task.taskType);
-
   return (
     <>
       <SheetHeader className="gap-2 border-b">
@@ -222,14 +242,20 @@ function TaskDetail({
           <ChevronLeft className="size-3.5" /> All tasks
         </button>
         <SheetTitle className="flex items-center gap-2 text-sm">
-          <TypeIcon className="size-4 text-muted-foreground" />
+          <TaskTypeIcon taskType={task.taskType} className="size-4 text-muted-foreground" />
           <span className="truncate">{task.description ?? task.taskId}</span>
         </SheetTitle>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-muted-foreground">{metaLine(task)}</span>
           <div className="flex items-center gap-2">
             <StatusBadge status={task.status} active={task.isActive} />
-            {task.isActive && <StopButton sessionId={sessionId} taskId={task.taskId} />}
+            {task.isActive && (
+              <StopButton
+                sessionId={sessionId}
+                taskId={task.taskId}
+                providerType={task.providerType}
+              />
+            )}
           </div>
         </div>
       </SheetHeader>
@@ -240,6 +266,14 @@ function TaskDetail({
             <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2 font-mono text-[11px] text-foreground/90">
               {detail.command}
             </pre>
+          </Section>
+        )}
+
+        {task.summary && (
+          <Section label="Summary">
+            <p className="whitespace-pre-wrap break-words text-[11px] text-foreground/90">
+              {task.summary}
+            </p>
           </Section>
         )}
 
@@ -255,7 +289,7 @@ function TaskDetail({
             </pre>
           ) : task.isActive ? (
             <p className="text-[11px] italic text-muted-foreground/70">
-              Still running. Captured output appears when it finishes; live stdout isn’t streamed
+              Still running. Captured output appears when it finishes. Live stdout isn’t streamed
               here yet.
             </p>
           ) : (
@@ -282,7 +316,15 @@ function TaskDetail({
   );
 }
 
-function StopButton({ sessionId, taskId }: { sessionId: string; taskId: string }) {
+function StopButton({
+  sessionId,
+  taskId,
+  providerType,
+}: {
+  sessionId: string;
+  taskId: string;
+  providerType?: string;
+}) {
   const stop = useStopBackgroundTask(sessionId);
   const { data: session } = useSession(sessionId);
   const harnesses = useAgentHarnesses();
@@ -292,7 +334,7 @@ function StopButton({ sessionId, taskId }: { sessionId: string; taskId: string }
       ?? providerId === 'claude'
     : false;
   const couldntStop = !stop.isPending && stop.data?.stopped === false;
-  if (!canStop) return null;
+  if (!canStop || providerType === 'codex') return null;
   return (
     <button
       type="button"
@@ -354,15 +396,19 @@ function StatusBadge({ status, active }: { status: BackgroundTaskStatus; active:
   );
 }
 
-function typeIcon(taskType?: string) {
-  if (taskType === 'local_bash') return Terminal;
-  if (taskType === 'local_agent' || taskType === 'remote_agent') return Bot;
-  return Boxes;
+function TaskTypeIcon({ taskType, className }: { taskType?: string; className?: string }) {
+  if (taskType === 'local_bash' || taskType === 'process') {
+    return <Terminal className={className} />;
+  }
+  if (taskType === 'local_agent' || taskType === 'remote_agent' || taskType === 'subagent') {
+    return <Bot className={className} />;
+  }
+  return <Boxes className={className} />;
 }
 
 function metaLine(t: BackgroundTask): string {
   const parts: string[] = [];
-  if (t.taskType === 'local_bash') parts.push('shell');
+  if (t.taskType === 'local_bash' || t.taskType === 'process') parts.push('process');
   else if (t.taskType) parts.push(t.taskType.replace(/_/g, ' '));
   if (typeof t.totalTokens === 'number') parts.push(`${formatTokens(t.totalTokens)} tok`);
   if (typeof t.durationMs === 'number') parts.push(formatDuration(t.durationMs));

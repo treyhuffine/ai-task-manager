@@ -1,34 +1,33 @@
 import { useMemo } from 'react';
-import type { ClaudeTaskDetails, ClaudeTaskStatus } from '@agentex/agent';
 import type { ChatEventRecord } from '@/db/types';
+import {
+  decodeBackgroundTaskEvent,
+  TERMINAL_BACKGROUND_TASK_STATUSES,
+  type BackgroundTaskPhase,
+  type BackgroundTaskStatus,
+} from '@/lib/executor/background-task-event';
 
 /**
- * Read-only view of Claude Code's background tasks, derived from events we
- * already store (see docs/claude-code-background-tasks-and-subagents.md). No new
- * storage, no file watching.
- *
- * Decode: agentex 0.0.22 ships `getClaudeTaskDetails(event)` plus the typed
- * `ClaudeTaskDetails`. We use those **types** (`import type`, erased at build),
- * but NOT the runtime function — `@agentex/agent` is a Node SDK that only
- * exports its root, so importing the function would drag the whole SDK into the
- * browser bundle. `decodeClaudeTask` below is a thin client-safe mirror of
- * agentex's decoder, kept field-for-field in sync with it. Server code (the
- * executor adapter) should prefer the real `getClaudeTaskDetails`.
+ * Provider-neutral read-only view of background tasks, derived from lifecycle
+ * metadata already stored in chat_events. No extra persistence or file watching.
  */
 
-export type BackgroundTaskStatus = ClaudeTaskStatus;
+export type { BackgroundTaskStatus } from '@/lib/executor/background-task-event';
 
-/** `local_bash` = a backgrounded shell/server, `local_agent` = a subagent. */
+/** Legacy Claude task kinds plus provider-neutral `process` and `subagent`. */
 export type BackgroundTaskType = 'local_bash' | 'local_agent' | 'remote_agent' | string;
 
 export interface BackgroundTask {
   taskId: string;
+  providerType?: string;
   /** tool_call id that launched it — links back to the Task/Bash tool row. */
   toolUseId?: string;
   taskType?: BackgroundTaskType;
   /** The command (for a shell) or the subagent's description. */
   description?: string;
-  status: ClaudeTaskStatus;
+  summary?: string;
+  parentTaskId?: string;
+  status: BackgroundTaskStatus;
   totalTokens?: number;
   toolUses?: number;
   durationMs?: number;
@@ -40,20 +39,6 @@ export interface BackgroundTask {
   isActive: boolean;
 }
 
-const TERMINAL: ReadonlySet<ClaudeTaskStatus> = new Set([
-  'completed',
-  'failed',
-  'killed',
-  'stopped',
-]);
-
-const CLAUDE_TASK_PHASES: Record<string, ClaudeTaskDetails['phase']> = {
-  task_started: 'started',
-  task_progress: 'progress',
-  task_updated: 'updated',
-  task_notification: 'notification',
-};
-
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === 'object' && !Array.isArray(v)
     ? (v as Record<string, unknown>)
@@ -62,92 +47,44 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 function str(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
-function num(v: unknown): number | undefined {
-  return typeof v === 'number' ? v : undefined;
-}
-function asTaskStatus(v: unknown): ClaudeTaskStatus | null {
-  return v === 'pending' ||
-    v === 'running' ||
-    v === 'paused' ||
-    v === 'completed' ||
-    v === 'failed' ||
-    v === 'killed' ||
-    v === 'stopped'
-    ? v
-    : null;
-}
-
-/**
- * Client-safe mirror of `@agentex/agent`'s `getClaudeTaskDetails`. Stateless
- * per-event decode of a stored agentex StreamEvent (`chat_events.raw`): Claude
- * emits task lifecycle as `type:"system"` on the wire, but agentex surfaces it
- * as `type:"unknown"` (only `system`+`init` gets a typed variant), payload on
- * `event.raw`. Returns `null` for anything that isn't a Claude task event.
- */
-function decodeClaudeTask(raw: unknown): ClaudeTaskDetails | null {
-  const ev = asRecord(raw);
-  if (!ev || ev.type !== 'unknown' || ev.providerType !== 'claude') return null;
-  const r = asRecord(ev.raw);
-  if (!r) return null;
-  const phase = CLAUDE_TASK_PHASES[str(r.subtype) ?? ''];
-  if (!phase) return null;
-
-  // `task_updated` is a sparse patch: status/description/end_time under `patch`.
-  const patch = phase === 'updated' ? asRecord(r.patch) : null;
-  const usage = asRecord(r.usage);
-  return {
-    phase,
-    taskId: str(r.task_id) ?? '',
-    toolUseId: str(r.tool_use_id) ?? null,
-    taskType: str(r.task_type) ?? null,
-    subagentType: str(r.subagent_type) ?? null,
-    workflowName: str(r.workflow_name) ?? null,
-    description: patch ? str(patch.description) ?? null : str(r.description) ?? null,
-    status: patch ? asTaskStatus(patch.status) : asTaskStatus(r.status),
-    usage: usage
-      ? {
-          totalTokens: num(usage.total_tokens) ?? null,
-          toolUses: num(usage.tool_uses) ?? null,
-          durationMs: num(usage.duration_ms) ?? null,
-        }
-      : null,
-    outputFile: str(r.output_file) ?? null,
-    summary: str(r.summary) ?? null,
-    endTime: patch ? num(patch.end_time) ?? null : null,
-  };
-}
-
 /**
  * Reduce the raw chat-event list into the current set of background tasks,
- * keyed by `task_id`, latest-event-wins for mutable fields. Pure — exported
+ * keyed by task id, latest-event-wins for mutable fields. Pure — exported
  * for testing.
  */
 export function deriveBackgroundTasks(events: ChatEventRecord[]): BackgroundTask[] {
   const byId = new Map<string, BackgroundTask>();
 
   for (const e of events) {
-    const d = decodeClaudeTask(e.raw);
+    const d = decodeBackgroundTaskEvent(e.raw);
     if (!d || !d.taskId) continue;
     const prev = byId.get(d.taskId);
 
     // status precedence: this event's explicit status > implied "running" on
     // start/progress > whatever we had.
-    const status: ClaudeTaskStatus =
+    const status: BackgroundTaskStatus =
       d.status ??
-      (d.phase === 'started' || d.phase === 'progress' ? 'running' : prev?.status ?? 'running');
+      (d.phase === 'completed'
+        ? 'completed'
+        : d.phase === 'started' || d.phase === 'progress'
+          ? 'running'
+          : prev?.status ?? 'running');
 
     const next: BackgroundTask = {
       taskId: d.taskId,
+      providerType: d.providerType ?? prev?.providerType,
       toolUseId: d.toolUseId ?? prev?.toolUseId,
       taskType: d.taskType ?? prev?.taskType,
       description: d.description ?? prev?.description,
+      summary: d.summary ?? prev?.summary,
+      parentTaskId: d.parentTaskId ?? prev?.parentTaskId,
       status,
       totalTokens: d.usage?.totalTokens ?? prev?.totalTokens,
       toolUses: d.usage?.toolUses ?? prev?.toolUses,
       durationMs: d.usage?.durationMs ?? prev?.durationMs,
       startedAt: d.phase === 'started' ? e.createdAt : prev?.startedAt,
       updatedAt: e.createdAt,
-      isActive: !TERMINAL.has(status),
+      isActive: !TERMINAL_BACKGROUND_TASK_STATUSES.has(status),
     };
     byId.set(d.taskId, next);
   }
@@ -166,8 +103,8 @@ export function useBackgroundTasks(events: ChatEventRecord[] | undefined): Backg
 /** One lifecycle update for a task — drives the detail timeline. */
 export interface BackgroundTaskUpdate {
   at: string;
-  phase: ClaudeTaskDetails['phase'];
-  status?: ClaudeTaskStatus;
+  phase: BackgroundTaskPhase;
+  status?: BackgroundTaskStatus;
   description?: string;
 }
 
@@ -205,7 +142,7 @@ export function deriveTaskDetail(
       }
     }
 
-    const d = decodeClaudeTask(e.raw);
+    const d = decodeBackgroundTaskEvent(e.raw);
     if (!d || d.taskId !== task.taskId) continue;
     detail.updates.push({
       at: e.createdAt,

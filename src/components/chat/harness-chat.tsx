@@ -19,6 +19,7 @@ import {
   type ExecutionComposerHandle,
 } from '@/components/executions/execution-composer';
 import { PendingInputArea } from '@/components/executions/pending-input-overlay';
+import { BackgroundTasksBar } from '@/components/executions/background-tasks-bar';
 import { SyncingPill } from '@/components/executions/syncing-pill';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { ApiError } from '@/lib/api/client';
@@ -135,7 +136,9 @@ export function HarnessChatSession({
   // anyway, but future surfaces (a Chat-tab unread badge) read this field.
   const markRead = useMarkSessionRead();
   const markReadRef = useRef(markRead);
-  markReadRef.current = markRead;
+  useEffect(() => {
+    markReadRef.current = markRead;
+  }, [markRead]);
   useEffect(() => {
     markReadRef.current.mutate(sessionId);
   }, [sessionId]);
@@ -171,6 +174,11 @@ export function HarnessChatSession({
         voiceSentIds={voiceSentIds}
       />
       <div className="flex-shrink-0 border-t border-border bg-background">
+        <BackgroundTasksBar
+          sessionId={session.id}
+          runtimeHasBackgroundTasks={runtime?.backgroundTasks}
+          runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
+        />
         <PendingInputArea sessionId={session.id} />
         <ExecutionComposer
           ref={composerHandleRef}

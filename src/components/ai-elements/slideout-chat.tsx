@@ -7,6 +7,7 @@ import { api, ApiError } from '@/lib/api/client'
 import { useRuntimeStatus } from '@/hooks/use-execution'
 import { HarnessChatSession } from '@/components/chat/harness-chat'
 import { cn } from '@/lib/utils'
+import { hasRuntimeActivity } from '@/lib/executor/runtime-status'
 import type { TaskRecord, NoteRecord, ChatSessionRecord, EffortLevel } from '@/db/types'
 import type { ProviderId } from '@/lib/agent-options'
 
@@ -50,15 +51,14 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
 
   const sessionId = query.data?.session.id ?? null
   const runtime = useRuntimeStatus(sessionId)
-  const isRunning = runtime.data?.running ?? false
+  const isActive = hasRuntimeActivity(runtime.data)
 
-  // When a harness turn completes, the agent may have edited this entity
-  // through update_task/update_note (MCP) — refetch so the editor reflects
-  // it. Edge-triggered on running→idle; the session stream keeps
-  // runtime-status live while the panel is mounted.
-  const prevRunning = useRef(isRunning)
+  // Root and detached child work can both edit this entity. Keep the editor
+  // guarded until both axes are idle, then refetch once so late child edits
+  // are visible.
+  const prevActive = useRef(isActive)
   useEffect(() => {
-    if (prevRunning.current && !isRunning) {
+    if (prevActive.current && !isActive) {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['notes'] })
       if (entityId) {
@@ -66,8 +66,8 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
         qc.invalidateQueries({ queryKey: ['deck'] })
       }
     }
-    prevRunning.current = isRunning
-  }, [isRunning, qc, documentType, entityId])
+    prevActive.current = isActive
+  }, [isActive, qc, documentType, entityId])
 
   const newChat = useMutation({
     // Optional provider/model = the composer's "switch provider" → fresh chat
@@ -87,7 +87,7 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
     // `aiBusy` check still compares against 'submitted'. The harness model
     // collapses submitted+streaming into a single "running" state, so only
     // 'streaming'/'ready' are ever produced.
-    status: (isRunning ? 'streaming' : 'ready') as DocumentChatStatus,
+    status: (isActive ? 'streaming' : 'ready') as DocumentChatStatus,
     isLoading: query.isLoading,
     error: query.error as unknown,
     refetch: query.refetch,

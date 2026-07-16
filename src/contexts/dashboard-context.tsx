@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef, type ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useRef, type ReactNode, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Agent, Task, StreamEvent } from '@/types/dashboard';
 import { hot } from '@/lib/_debug/hot-path';
@@ -64,12 +64,12 @@ interface DashboardState {
   mobileCreateOpen: boolean;
   // Quick capture modal
   quickCaptureOpen: boolean;
-  // Sessions currently streaming live agentex stdio. Filtered out of the
-  // Needs Review surface and used for the workspace-row "● working" badge.
-  // Populated by both the executor pipe (per-session) and the global rail
-  // SSE stream (snapshot + flips), so the rail stays accurate even when no
-  // execution view is open.
+  // Sessions with live root work or active background work. This composite
+  // set drives every generic "working" surface.
   streamingSessionIds: ReadonlySet<string>;
+  // Background source set. It keeps the composite working state active when
+  // a root turn ends before its detached child work.
+  backgroundSessionIds: ReadonlySet<string>;
   // Sessions with at least one pending input (permission prompt /
   // AskUserQuestion blocking the agent). Drives the rail's "Needs
   // Approval" bucket. Sourced from the global SSE stream — `notify()` in
@@ -140,6 +140,8 @@ interface DashboardActions {
   /** Replace the full streaming set in one call — used by the rail
    *  hydrate hook on each poll. */
   setStreamingSessions: (sessionIds: string[]) => void;
+  /** Replace the full background-work set from the rail snapshot. */
+  setBackgroundSessions: (sessionIds: string[]) => void;
   /** Replace the full pending-input set in one call — same usage. */
   setPendingInputSessions: (sessionIds: string[]) => void;
   /** Flip the rail between full and skinny renderings. */
@@ -227,10 +229,26 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const toggleQuickCapture = useCallback(() => setQuickCaptureOpen((prev) => !prev), []);
 
-  // ─── Streaming sessions ──────────────────────────────────
-  const [streamingSessionIds, setStreamingSessionIds] = useState<Set<string>>(() => new Set());
+  // ─── Foreground and background agent activity ─────────────
+  const [directStreamingSessionIds, setDirectStreamingSessionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [railStreamingSessionIds, setRailStreamingSessionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [backgroundSessionIds, setBackgroundSessionIds] = useState<Set<string>>(() => new Set());
+  const streamingSessionIds = useMemo(() => {
+    if (directStreamingSessionIds.size === 0 && backgroundSessionIds.size === 0) {
+      return railStreamingSessionIds;
+    }
+    return new Set([
+      ...railStreamingSessionIds,
+      ...directStreamingSessionIds,
+      ...backgroundSessionIds,
+    ]);
+  }, [directStreamingSessionIds, railStreamingSessionIds, backgroundSessionIds]);
   const setSessionStreaming = useCallback((sessionId: string, isStreaming: boolean) => {
-    setStreamingSessionIds((prev) => {
+    setDirectStreamingSessionIds((prev) => {
       const has = prev.has(sessionId);
       if (isStreaming === has) return prev;
       const next = new Set(prev);
@@ -241,11 +259,19 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, []);
   const setStreamingSessions = useCallback((sessionIds: string[]) => {
     hot('call setStreamingSessions');
-    setStreamingSessionIds((prev) => {
+    setRailStreamingSessionIds((prev) => {
       if (sessionIds.length === prev.size && sessionIds.every((id) => prev.has(id))) {
         return prev;
       }
       hot('change setStreamingSessions (set replaced)');
+      return new Set(sessionIds);
+    });
+  }, []);
+  const setBackgroundSessions = useCallback((sessionIds: string[]) => {
+    setBackgroundSessionIds((prev) => {
+      if (sessionIds.length === prev.size && sessionIds.every((id) => prev.has(id))) {
+        return prev;
+      }
       return new Set(sessionIds);
     });
   }, []);
@@ -531,8 +557,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setQuickCaptureOpen,
       toggleQuickCapture,
       streamingSessionIds,
+      backgroundSessionIds,
       setSessionStreaming,
       setStreamingSessions,
+      setBackgroundSessions,
       pendingInputSessionIds,
       setPendingInputSessions,
       railCollapsed,

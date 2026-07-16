@@ -5,7 +5,7 @@ import {
   ChevronRight, AlertTriangle, RefreshCw, Sparkles,
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
   FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
-  ClipboardList, SquareTerminal, ArrowUpRight,
+  ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash,
 } from 'lucide-react';
 import { describeToolCall, describeToolResult, fileTargetPath, type ToolGlyph } from '@/lib/executions/tool-display';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
@@ -33,6 +33,8 @@ import { dispatchOpenReference } from '@/lib/entity-refs/open-event';
 import { hot } from '@/lib/_debug/hot-path';
 import { cn } from '@/lib/utils';
 import type { ChatEventRecord, Attachment } from '@/db/types';
+import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
+import { backgroundTaskOutcomePresentation } from './background-task-presentation';
 
 interface ExecutionEventProps {
   event: ChatEventRecord;
@@ -75,7 +77,7 @@ interface ExecutionEventProps {
  *     bubble styling as the rest of the app.
  *   - thinking — collapsed dim italic with expand affordance.
  *   - tool_call / tool_result — collapsible cards, paired visually.
- *   - system / result / recap / rate_limit / error / unknown — bespoke.
+ *   - system / result / background_task / recap / rate_limit / error / unknown — bespoke.
  */
 export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
@@ -302,6 +304,59 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             <pre className="mt-2 ml-5 text-[10.5px] text-muted-foreground whitespace-pre-wrap wrap-anywhere font-mono">
               {text}
             </pre>
+          )}
+        </button>
+      );
+    }
+
+    case 'background_task': {
+      const task = decodeBackgroundTaskEvent(event.raw);
+      const taskType = task?.taskType;
+      const outcome = backgroundTaskOutcomePresentation(task?.status);
+      const isSubagent = taskType === 'subagent'
+        || taskType === 'local_agent'
+        || taskType === 'remote_agent';
+      const label = `${isSubagent ? 'Subagent' : 'Background task'} ${outcome.label}`;
+      const summary = task?.summary ?? event.content ?? '';
+      const description = task?.description ?? '';
+      const TaskIcon = isSubagent
+        ? Bot
+        : taskType === 'process' || taskType === 'local_bash'
+          ? Terminal
+          : Boxes;
+      const OutcomeIcon = outcome.tone === 'failure'
+        ? XCircle
+        : outcome.tone === 'stopped'
+          ? CircleSlash
+          : CheckCircle2;
+      const outcomeColor = outcome.tone === 'failure'
+        ? 'text-red-500'
+        : outcome.tone === 'stopped' || outcome.tone === 'neutral'
+          ? 'text-muted-foreground'
+          : 'text-emerald-500';
+
+      return (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="group/row w-full text-left text-[11px]"
+        >
+          <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground/80">
+            <RowDisclosure expanded={expanded}>
+              <TaskIcon size={11} className={outcomeColor} />
+            </RowDisclosure>
+            <span className="shrink-0 font-medium text-foreground/80">{label}</span>
+            {description && (
+              <span className="truncate text-muted-foreground/60">{description}</span>
+            )}
+            <span className="ml-auto shrink-0">
+              <OutcomeIcon size={11} className={outcomeColor} />
+            </span>
+          </div>
+          {expanded && summary && (
+            <div className="mt-1.5 ml-5 whitespace-pre-wrap break-words border-l border-border/50 pl-3 text-muted-foreground/80">
+              {summary}
+            </div>
           )}
         </button>
       );

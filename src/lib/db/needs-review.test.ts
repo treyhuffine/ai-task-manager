@@ -109,4 +109,72 @@ describe('listNeedsReviewSessionCandidates', () => {
     expect(ids).toContain(scheduled.id);
     expect(ids).not.toContain(morning.id);
   });
+
+  it('surfaces a detached background outcome once without replaying it as unread', async () => {
+    const q = await setup();
+    const { getDb } = await import('@/lib/db');
+    const { workspaces } = await import('@/lib/db/schema');
+    const { uuidv7 } = await import('uuidv7');
+
+    const workspaceId = uuidv7();
+    getDb().insert(workspaces).values({
+      id: workspaceId,
+      name: 'Background outcome workspace',
+      slug: `background-outcome-${Date.now()}`,
+      cwd: '/tmp/background-outcome',
+      isGit: false,
+    }).run();
+    const executor = q.getOrCreateDefaultExecutor('codex');
+    const { session } = q.createExecutionWithChat({
+      workspaceId,
+      agentId: executor.id,
+      label: 'Detached child',
+    });
+
+    q.insertChatEvent({
+      sessionId: session.id,
+      role: 'system',
+      source: 'result',
+      content: null,
+      externalEventId: 'root-result',
+      createdAt: past(2),
+    });
+    q.updateChatSession(session.id, { lastViewedAt: past(1), unreadMarkerAt: null });
+    expect(q.listNeedsReviewSessionCandidates().map((row) => row.id)).not.toContain(session.id);
+
+    const terminalAt = new Date().toISOString();
+    q.insertChatEvent({
+      sessionId: session.id,
+      role: 'system',
+      source: 'background_task',
+      content: 'Detached inspection complete',
+      externalEventId: 'background-terminal',
+      createdAt: terminalAt,
+      raw: {
+        type: 'background_task',
+        phase: 'completed',
+        taskId: 'child-1',
+        taskType: 'subagent',
+        status: 'completed',
+        summary: 'Detached inspection complete',
+      },
+    });
+    expect(q.listNeedsReviewSessionCandidates().map((row) => row.id)).toContain(session.id);
+
+    q.updateChatSession(session.id, {
+      lastViewedAt: new Date(Date.parse(terminalAt) + 1_000).toISOString(),
+      unreadMarkerAt: null,
+    });
+    expect(q.listNeedsReviewSessionCandidates().map((row) => row.id)).not.toContain(session.id);
+
+    expect(q.insertChatEvent({
+      sessionId: session.id,
+      role: 'system',
+      source: 'background_task',
+      content: 'Detached inspection complete',
+      externalEventId: 'background-terminal',
+      createdAt: new Date(Date.now() + 2_000).toISOString(),
+    })).toBeNull();
+    expect(q.listNeedsReviewSessionCandidates().map((row) => row.id)).not.toContain(session.id);
+  });
 });

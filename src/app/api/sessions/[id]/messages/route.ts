@@ -214,6 +214,10 @@ export async function POST(
     // Skip on retry — the health check already decided whether to
     // redispatch via the orphan path.
     if (!isRetry) {
+      // Cover the accepted-message -> worktree/provider preparation gap. The
+      // nested dispatch takes its own reference, so the runtime flag remains
+      // true until both preparation and the actual root turn have settled.
+      const preparationRef = executor.beginDispatchPreparation(id);
       // Self-heal a missing worktree before dispatching. A git execution
       // can outlive its worktree directory (out-of-band `git worktree
       // remove`/`prune`, a multi-device home where `.work` wasn't synced,
@@ -224,15 +228,19 @@ export async function POST(
       // message lands in an isolated tree, never the main repo. The
       // existsSync fast-path inside makes this a no-op on the hot path.
       void (async () => {
-        const execution = session.executionId ? getExecution(session.executionId) : undefined;
-        const ready = await ensureWorktreeReady(id, execution ?? null);
-        if (!ready.ok) {
-          console.error(
-            `[POST /api/sessions/:id/messages] worktree not ready for ${id}: ${ready.error}`,
-          );
-          return;
+        try {
+          const execution = session.executionId ? getExecution(session.executionId) : undefined;
+          const ready = await ensureWorktreeReady(id, execution ?? null);
+          if (!ready.ok) {
+            console.error(
+              `[POST /api/sessions/:id/messages] worktree not ready for ${id}: ${ready.error}`,
+            );
+            return;
+          }
+          await executor.dispatch(id, expanded);
+        } finally {
+          executor.endDispatchPreparation(id, preparationRef);
         }
-        await executor.dispatch(id, expanded);
       })().catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);

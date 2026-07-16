@@ -30,6 +30,25 @@ function otherEvent(source: string, createdAt: string): ChatEventRecord {
   return { source, content: 'hi', raw: {}, createdAt } as unknown as ChatEventRecord;
 }
 
+function backgroundTaskEvent(
+  providerType: string,
+  phase: 'started' | 'progress' | 'completed',
+  fields: Record<string, unknown>,
+  createdAt: string,
+): ChatEventRecord {
+  return {
+    source: 'system',
+    content: 'background_task',
+    raw: {
+      type: 'background_task',
+      providerType,
+      phase,
+      ...fields,
+    },
+    createdAt,
+  } as unknown as ChatEventRecord;
+}
+
 describe('deriveBackgroundTasks', () => {
   it('tracks a running background shell (server) as active', () => {
     const tasks = deriveBackgroundTasks([
@@ -61,6 +80,66 @@ describe('deriveBackgroundTasks', () => {
       totalTokens: 1200,
       startedAt: '2026-06-23T00:00:00.000Z',
     });
+  });
+
+  it('tracks a normalized Codex subagent until its terminal lifecycle event', () => {
+    const started = backgroundTaskEvent(
+      'codex',
+      'started',
+      {
+        taskId: 'child-thread-1',
+        taskType: 'subagent',
+        status: 'running',
+        description: 'Review provider status handling',
+        summary: null,
+        parentTaskId: null,
+      },
+      '2026-07-15T20:00:00.000Z',
+    );
+
+    expect(deriveBackgroundTasks([started])[0]).toMatchObject({
+      taskId: 'child-thread-1',
+      providerType: 'codex',
+      taskType: 'subagent',
+      status: 'running',
+      isActive: true,
+    });
+
+    const completed = backgroundTaskEvent(
+      'codex',
+      'completed',
+      {
+        taskId: 'child-thread-1',
+        taskType: 'subagent',
+        status: 'completed',
+        description: null,
+        summary: 'Found the stale rail hydration path.',
+        parentTaskId: null,
+      },
+      '2026-07-15T20:01:00.000Z',
+    );
+    expect(deriveBackgroundTasks([started, completed])[0]).toMatchObject({
+      status: 'completed',
+      summary: 'Found the stale rail hydration path.',
+      isActive: false,
+    });
+  });
+
+  it('keeps child work active after a root result until child completion arrives', () => {
+    const started = backgroundTaskEvent(
+      'claude',
+      'started',
+      { taskId: 'child-2', taskType: 'subagent', status: 'running' },
+      '2026-07-15T20:00:00.000Z',
+    );
+    const rootResult = {
+      source: 'result',
+      content: null,
+      raw: { type: 'result', providerType: 'claude' },
+      createdAt: '2026-07-15T20:00:10.000Z',
+    } as unknown as ChatEventRecord;
+
+    expect(deriveBackgroundTasks([started, rootResult])[0]?.isActive).toBe(true);
   });
 
   it('marks a task completed via task_notification and parses usage', () => {

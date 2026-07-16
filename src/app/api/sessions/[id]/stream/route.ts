@@ -76,6 +76,9 @@ export async function GET(
         switch (message.kind) {
           case 'chat_event': writeChatEvent(message.event); break;
           case 'runtime': enqueue(sse('runtime', { running: message.running })); break;
+          case 'background_tasks':
+            enqueue(sse('background_tasks', { active: message.active, taskIds: message.taskIds }));
+            break;
           case 'pending_input': enqueue(sse('pending_input', { pending: message.pending })); break;
           case 'reconcile':
             enqueue(sse('reconcile', { status: message.status, replayed: message.replayed }));
@@ -104,6 +107,10 @@ export async function GET(
       // snapshot fetches just to hydrate the runtime indicator and
       // pending-input overlay.
       enqueue(sse('runtime', { running: executor.isRunning(sessionId) }));
+      enqueue(sse('background_tasks', {
+        active: executor.hasBackgroundTasks(sessionId),
+        taskIds: executor.listBackgroundTaskIds(sessionId),
+      }));
       enqueue(sse('pending_input', { pending: listPendingForSession(sessionId) }));
       enqueue(sse('ready', { sessionId }));
 

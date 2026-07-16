@@ -5,6 +5,7 @@ import type {
 } from '@/db/types';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import type { HarnessId } from '@/lib/agents/registry';
+import type { SessionRuntimeStatus } from '@/lib/executor/runtime-status';
 
 // ─── Pending-input wire types ─────────────────────────────────
 //
@@ -295,6 +296,7 @@ export interface RailResponse {
   sessions: RailSession[];
   pendingSessionIds: string[];
   runningSessionIds: string[];
+  backgroundSessionIds: string[];
 }
 
 export interface HistoryResponse {
@@ -712,8 +714,8 @@ export const sessionsApi = {
     });
   },
 
-  runtimeStatus(id: string): Promise<{ running: boolean }> {
-    return api.get<{ running: boolean }>(`/sessions/${id}/runtime-status`);
+  runtimeStatus(id: string): Promise<SessionRuntimeStatus> {
+    return api.get<SessionRuntimeStatus>(`/sessions/${id}/runtime-status`);
   },
 
   interrupt(id: string): Promise<{ ok: true }> {

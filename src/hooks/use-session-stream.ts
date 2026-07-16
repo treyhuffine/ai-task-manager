@@ -7,6 +7,11 @@ import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 import { worktreeScopeFromCache } from '@/hooks/use-execution';
 import { hot } from '@/lib/_debug/hot-path';
+import {
+  withBackgroundTaskStatus,
+  withRunningStatus,
+  type SessionRuntimeStatus,
+} from '@/lib/executor/runtime-status';
 
 /**
  * Subscribes to the per-session SSE stream and folds every frame into
@@ -14,6 +19,7 @@ import { hot } from '@/lib/_debug/hot-path';
  *
  *   - `chat_event`   → appends-with-dedup into `['session', id, 'events']`
  *   - `runtime`      → replaces `['session', id, 'runtime-status']`
+ *   - `background_tasks` → updates the detached-work axis of runtime status
  *   - `pending_input`→ replaces `['session', id, 'pending-input']`
  *
  * Replaces the three independent polls (3s/2s/1.5s) those caches used
@@ -94,7 +100,7 @@ export function useSessionStream(sessionId: string | null): void {
       // "this session moved buckets" signal — invalidate the rail so
       // its snapshot picks up the new lastOutcomeEventAt and the
       // server-side running/pending lists.
-      if (event.source === 'result') {
+      if (event.source === 'result' || event.source === 'background_task') {
         invalidateRail();
       }
 
@@ -112,11 +118,23 @@ export function useSessionStream(sessionId: string | null): void {
       hot('sse runtime');
       try {
         const data = JSON.parse(raw.data) as { running: boolean };
-        queryClient.setQueryData(runtimeKey, { running: data.running });
+        queryClient.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) =>
+          withRunningStatus(prev, data.running));
         // Working bucket membership just flipped — re-fetch the rail.
         invalidateRail();
       } catch (err) {
         console.error('[useSessionStream] malformed runtime frame:', err);
+      }
+    };
+
+    const handleBackgroundTasks = (raw: MessageEvent) => {
+      try {
+        const data = JSON.parse(raw.data) as { active: boolean; taskIds: string[] };
+        queryClient.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) =>
+          withBackgroundTaskStatus(prev, data.active, data.taskIds));
+        invalidateRail();
+      } catch (err) {
+        console.error('[useSessionStream] malformed background_tasks frame:', err);
       }
     };
 
@@ -144,6 +162,7 @@ export function useSessionStream(sessionId: string | null): void {
 
     source.addEventListener('chat_event', handleChatEvent);
     source.addEventListener('runtime', handleRuntime);
+    source.addEventListener('background_tasks', handleBackgroundTasks);
     source.addEventListener('pending_input', handlePendingInput);
     source.addEventListener('reconcile', handleReconcile);
 
@@ -170,6 +189,7 @@ export function useSessionStream(sessionId: string | null): void {
     return () => {
       source.removeEventListener('chat_event', handleChatEvent);
       source.removeEventListener('runtime', handleRuntime);
+      source.removeEventListener('background_tasks', handleBackgroundTasks);
       source.removeEventListener('pending_input', handlePendingInput);
       source.removeEventListener('reconcile', handleReconcile);
       source.close();

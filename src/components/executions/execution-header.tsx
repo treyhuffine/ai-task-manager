@@ -23,6 +23,7 @@ import { RestartMenuItem } from './restart-menu-item';
 import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
 import { ExecutionChatControls } from './execution-chat-controls';
+import { deriveExecutionHeaderStatus } from './execution-header-status';
 import { resumeCommandForHarness } from '@/lib/agents/registry';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
@@ -59,13 +60,16 @@ interface ExecutionHeaderProps {
   onNewChat?: () => void;
   /** A new-chat / provider-switch is in flight. */
   newChatPending?: boolean;
+  /** Live runtime state from this session's dedicated status stream. */
+  isRunning: boolean;
+  /** Authoritative active child/process state from this session's runtime stream. */
+  hasBackgroundTasks: boolean;
 }
 
 /**
  * Top strip of the execution view: workspace + label, branch + base sha,
- * status pill, action affordances. Status comes from the runtime
- * streaming map (live), the session's archived state, or just "idle"
- * when neither.
+ * status pill, action affordances. The open execution's dedicated runtime
+ * status is passed directly so a slower rail snapshot cannot overwrite it.
  */
 export function ExecutionHeader({
   session,
@@ -77,8 +81,10 @@ export function ExecutionHeader({
   scratchpadOpen,
   onNewChat,
   newChatPending,
+  isRunning,
+  hasBackgroundTasks,
 }: ExecutionHeaderProps) {
-  const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
+  const { pendingInputSessionIds, setActiveView } = useDashboard();
   const { confirmArchive } = useArchiveWithConfirm();
   const updateSession = useUpdateSession();
 
@@ -138,7 +144,6 @@ export function ExecutionHeader({
     setDraft(displayLabel ?? '');
   };
 
-  const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
   const isArchived = session.status === 'archived';
   const isSetupFailed = !!session.setupError;
@@ -148,45 +153,21 @@ export function ExecutionHeader({
   const isSettingUp =
     !!workspace && workspace.isGit === true && !session.worktreePath && !isSetupFailed;
 
-  // "Needs response" = the agent has produced an outcome the user
-  // hasn't seen since their last view. Distinguishing this from plain
-  // "idle" (which is "agent finished, user already saw it") makes the
-  // pill actionable rather than ambient.
-  const needsResponse =
-    !isStreaming &&
-    !isArchived &&
-    !!session.lastOutcomeEventAt &&
-    session.lastOutcomeEventAt > (session.lastViewedAt ?? '1970-01-01');
-
   // Single tagged state — keeps label, dot color, and pill chrome from
   // drifting out of sync. Order matters: archived/failed/setup are
-  // terminal-ish blockers; pending wins over streaming because the
+  // terminal-ish blockers; pending wins over running because the
   // agent process is still alive but blocked on the user, so "working"
   // would be misleading; needsResponse > idle > ready.
-  type StatusKind =
-    | 'archived'
-    | 'setup-failed'
-    | 'setting-up'
-    | 'pending'
-    | 'working'
-    | 'respond'
-    | 'idle'
-    | 'ready';
-  const statusKind: StatusKind = isArchived
-    ? 'archived'
-    : isSetupFailed
-      ? 'setup-failed'
-      : isSettingUp
-        ? 'setting-up'
-        : isPending
-          ? 'pending'
-          : isStreaming
-            ? 'working'
-            : needsResponse
-              ? 'respond'
-              : session.lastOutcomeEventAt
-                ? 'idle'
-                : 'ready';
+  const statusKind = deriveExecutionHeaderStatus({
+    isArchived,
+    isSetupFailed,
+    isSettingUp,
+    isPending,
+    isRunning,
+    hasBackgroundTasks,
+    lastOutcomeEventAt: session.lastOutcomeEventAt,
+    lastViewedAt: session.lastViewedAt,
+  });
 
   const statusLabel = statusKind === 'setting-up'
     ? 'setting up'
@@ -199,15 +180,17 @@ export function ExecutionHeader({
   const statusColor =
     statusKind === 'working'
       ? 'bg-emerald-500'
-      : statusKind === 'setup-failed'
-        ? 'bg-rose-500'
-        : statusKind === 'setting-up'
-          ? 'bg-blue-500'
-          : statusKind === 'pending' || statusKind === 'respond'
-            ? 'bg-amber-500'
-            : statusKind === 'ready'
-              ? 'bg-blue-500'
-              : 'bg-zinc-400';
+      : statusKind === 'background'
+        ? 'bg-amber-500'
+        : statusKind === 'setup-failed'
+          ? 'bg-rose-500'
+          : statusKind === 'setting-up'
+            ? 'bg-blue-500'
+            : statusKind === 'pending' || statusKind === 'respond'
+              ? 'bg-amber-500'
+              : statusKind === 'ready'
+                ? 'bg-blue-500'
+                : 'bg-zinc-400';
 
   const handleArchive = () => {
     void confirmArchive({
@@ -244,7 +227,11 @@ export function ExecutionHeader({
 
   // Pulse for live activity: agent working, setup in progress, or
   // blocking on a user response that the user should notice.
-  const dotPulses = statusKind === 'working' || statusKind === 'setting-up' || statusKind === 'pending';
+  const dotPulses =
+    statusKind === 'working'
+    || statusKind === 'background'
+    || statusKind === 'setting-up'
+    || statusKind === 'pending';
   const statusDot = (
     <span className={cn('w-1.5 h-1.5 rounded-full', statusColor, dotPulses && 'animate-pulse')} />
   );
@@ -255,15 +242,17 @@ export function ExecutionHeader({
   const statusPillBg =
     statusKind === 'working'
       ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-400'
-      : statusKind === 'setup-failed'
-        ? 'bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-400'
-        : statusKind === 'setting-up'
-          ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
-          : statusKind === 'pending' || statusKind === 'respond'
-            ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
-            : statusKind === 'ready'
-              ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
-              : 'bg-muted/60 border-border text-muted-foreground';
+      : statusKind === 'background'
+        ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
+        : statusKind === 'setup-failed'
+          ? 'bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-400'
+          : statusKind === 'setting-up'
+            ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
+            : statusKind === 'pending' || statusKind === 'respond'
+              ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
+              : statusKind === 'ready'
+                ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
+                : 'bg-muted/60 border-border text-muted-foreground';
 
   const statusPill = (
     <span

@@ -11,6 +11,11 @@ import type { HarnessId } from '@/lib/agents/registry';
 import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
+import {
+  hasRuntimeActivity,
+  withRunningStatus,
+  type SessionRuntimeStatus,
+} from '@/lib/executor/runtime-status';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
@@ -584,6 +589,7 @@ interface InternalSendInput extends SendMessageInput {
 export function useSendMessage(id: string) {
   const qc = useQueryClient();
   const eventsKey = ['session', id, 'events'] as const;
+  const runtimeKey = ['session', id, 'runtime-status'] as const;
 
   const mutation = useMutation<ChatEventRecord, Error, InternalSendInput>({
     mutationFn: (input) =>
@@ -634,6 +640,12 @@ export function useSendMessage(id: string) {
         return next;
       });
       clearClientStatus(qc, eventsKey, input.eventId);
+
+      // The messages route acknowledges the persisted user row before its
+      // fire-and-forget dispatch reaches the executor. Mark the turn as
+      // starting immediately so the header/composer cannot flash idle in that
+      // gap. The next authoritative runtime SSE frame replaces this value.
+      qc.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) => withRunningStatus(prev, true));
     },
     onSuccess: (realEvent) => {
       // The persisted row carries the same id as the placeholder, so
@@ -660,6 +672,9 @@ export function useSendMessage(id: string) {
         status: 'failed',
         error: err instanceof Error ? err.message : String(err),
       });
+      // The optimistic start may not have reached the executor. Refetch instead
+      // of forcing false because another overlapping dispatch can still be live.
+      qc.invalidateQueries({ queryKey: runtimeKey });
     },
   });
 
@@ -920,13 +935,16 @@ function deriveSessionMeta(events: ChatEventRecord[]): SessionMeta {
  *
  * Survives reloads: if a turn was running when the user closed the tab
  * and they reopen mid-stream, the SSE connect-time `runtime` frame
- * seeds the indicator immediately.
+ * seeds the indicator immediately. While either runtime axis is active,
+ * a low-frequency poll provides a fallback if SSE disconnects after an
+ * optimistic send or before a terminal edge.
  */
 export function useRuntimeStatus(id: string | null) {
   return useQuery({
     queryKey: ['session', id, 'runtime-status'],
     queryFn: () => sessionsApi.runtimeStatus(id!),
     enabled: !!id,
+    refetchInterval: (query) => hasRuntimeActivity(query.state.data) ? 5_000 : false,
   });
 }
 

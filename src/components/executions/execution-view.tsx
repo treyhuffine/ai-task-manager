@@ -65,6 +65,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const { data: session, isLoading, error } = useSession(sessionId);
   const { data: workspace } = useWorkspace(session?.workspaceId ?? null);
   const { data: runtime } = useRuntimeStatus(sessionId);
+  const hasBackgroundTasks = runtime?.backgroundTasks ?? false;
   // Live chat-event stream: appends rows into the events cache as the
   // executor (or any other write path) inserts them. Replaces the 3s
   // poll that used to live in `useSessionEvents`.
@@ -210,31 +211,34 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // so the rail's "● working" badge and other consumers stay in sync.
   useEffect(() => {
     hot('effect ExecutionView.mirror-streaming');
-    if (!sessionId) return;
     setSessionStreaming(sessionId, isRunning);
+    return () => setSessionStreaming(sessionId, false);
   }, [sessionId, isRunning, setSessionStreaming]);
 
   // Events and runtime-status come through the SSE stream in order, so
   // the thinking-vs-message race is gone. Diff state, though, isn't
-  // streamed — it's computed on-demand from git. Kick diff (and the
-  // session row, which carries derived metadata) on the running → idle
-  // transition so a turn ending repaints the changed-files panel
-  // without waiting for the user to touch anything.
+  // streamed. Refresh it and the session metadata whenever either the root
+  // turn or detached child work ends. A child can keep editing after the
+  // root result, so the background edge needs its own refresh.
   const prevRunningRef = useRef(isRunning);
+  const prevBackgroundTasksRef = useRef(hasBackgroundTasks);
   useEffect(() => {
-    hot('effect ExecutionView.running-edge');
-    if (!sessionId || !worktreeScope) return;
-    if (prevRunningRef.current && !isRunning) {
-      // One prefix covers diff / tree / status / pr — everything the turn
-      // may have moved on disk.
-      qc.invalidateQueries({ queryKey: worktreeScope });
-      // Plus the row itself for its derived metadata. `exact` keeps this
-      // off the transcript: events arrive over SSE, and refetching the
-      // whole conversation on every turn boundary is pure waste.
-      qc.invalidateQueries({ queryKey: ['session', sessionId], exact: true });
-    }
+    hot('effect ExecutionView.runtime-edge');
+    const rootEnded = prevRunningRef.current && !isRunning;
+    const backgroundEnded = prevBackgroundTasksRef.current && !hasBackgroundTasks;
     prevRunningRef.current = isRunning;
-  }, [isRunning, sessionId, worktreeScope, qc]);
+    prevBackgroundTasksRef.current = hasBackgroundTasks;
+
+    if (!sessionId || (!rootEnded && !backgroundEnded)) return;
+    if (worktreeScope) {
+      // One prefix covers diff / tree / status / pr — everything the turn
+      // or detached child may have moved on disk.
+      qc.invalidateQueries({ queryKey: worktreeScope });
+    }
+    // Plus the row itself for its derived metadata. `exact` keeps this off
+    // the transcript, whose events already arrive over SSE.
+    qc.invalidateQueries({ queryKey: ['session', sessionId], exact: true });
+  }, [isRunning, hasBackgroundTasks, sessionId, worktreeScope, qc]);
 
   // Worktree just landed (provisioning finished) → pull the file tree + diff
   // immediately. The tree was fetched empty while `worktreePath` was null, and
@@ -560,7 +564,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           null when nothing's pending, in which case the composer is
           the sole child and the wrapper is just a thin border. */}
       <div className="flex-shrink-0 border-t border-border bg-background">
-        <BackgroundTasksBar sessionId={session.id} />
+        <BackgroundTasksBar
+          sessionId={session.id}
+          runtimeHasBackgroundTasks={runtime?.backgroundTasks}
+          runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
+        />
         <PendingInputArea sessionId={session.id} />
         <ExecutionComposer
           ref={composerHandleRef}
@@ -616,6 +624,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         scratchpadOpen={activePane === 'scratchpad'}
         onNewChat={() => startNewChat()}
         newChatPending={newExecutionChat.isPending}
+        isRunning={isRunning}
+        hasBackgroundTasks={hasBackgroundTasks}
       />
       <TakeoverBanner session={session} />
       {workspace?.isGit && !!session.worktreePath && (
@@ -648,6 +658,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           scratchpadOpen={activePane === 'scratchpad'}
           onNewChat={() => startNewChat()}
           newChatPending={newExecutionChat.isPending}
+          isRunning={isRunning}
+          hasBackgroundTasks={hasBackgroundTasks}
         />
         <TakeoverBanner session={session} />
         <div className="flex flex-1 min-w-0 min-h-0 relative">

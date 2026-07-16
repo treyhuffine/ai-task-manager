@@ -222,6 +222,7 @@ chat_events
 - `tool_result` — tool returning a result
 - `system` — session init, meta, compaction boundary markers
 - `result` — run / turn completion (ExecutionResult lives here; full object in `raw`)
+- `background_task` — terminal subagent or background process outcome, with the normalized lifecycle event in `raw`
 - `rate_limit` — throttling signals
 - `error` — API or harness errors
 - `recap` — idle-timer summary the CLI emits when the user has been away (Claude Code `away_summary`); distinct from compaction, it doesn't replace context — it's a chat-visible "here's where we left off" note
@@ -275,6 +276,7 @@ Idempotency within a path is guaranteed by the unique constraint — re-reading 
 | `tool_result` | tool | content, tool_is_error, tool_exit_code (Codex), external_tool_call_id | Tool returning |
 | `system` | system | content, raw | session_meta, init markers |
 | `result` | system | raw carries full ExecutionResult | turn.completed / run completion |
+| `background_task` | system | content (summary), tool_is_error, raw | Detached subagent or process completion |
 | `rate_limit` | system | content (summary), raw | token_count / rate_limit events |
 | `error` | system | content (error message), raw | API or harness errors |
 | `recap` | system | content (summary text), raw | Claude Code `away_summary` (idle-timer recap) |

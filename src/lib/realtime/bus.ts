@@ -25,13 +25,14 @@ import type { PendingInput } from '@/lib/executor/pending-input';
 export type GlobalSessionStreamMessage = {
   kind: 'session_updated';
   sessionId: string;
-  reason: 'outcome' | 'runtime' | 'pending_input' | 'reconcile';
+  reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile';
 };
 
 /** Payload variants carried by the in-process realtime bus. */
 export type SessionStreamMessage =
   | { kind: 'chat_event'; event: ChatEventRecord }
   | { kind: 'runtime'; running: boolean }
+  | { kind: 'background_tasks'; active: boolean; taskIds: string[] }
   | { kind: 'pending_input'; pending: PendingInput[] }
   /**
    * Reconcile lifecycle. Server-side replay of Claude's on-disk JSONL
@@ -103,9 +104,10 @@ function publishGlobal(message: GlobalSessionStreamMessage): void {
  */
 export function publishChatEvent(event: ChatEventRecord): void {
   publish(sessionChannel(event.sessionId), { kind: 'chat_event', event });
-  // Result is the durable turn boundary. Agent/tool activity can be very
-  // frequent and the runtime edge below already covers live bucket changes.
-  if (event.source === 'result') {
+  // Root results and detached background outcomes are durable review boundaries.
+  // Agent/tool activity can be very frequent, and runtime edges already cover
+  // live bucket changes.
+  if (event.source === 'result' || event.source === 'background_task') {
     publishGlobal({ kind: 'session_updated', sessionId: event.sessionId, reason: 'outcome' });
   }
 }
@@ -113,6 +115,16 @@ export function publishChatEvent(event: ChatEventRecord): void {
 export function publishRuntime(sessionId: string, running: boolean): void {
   publish(sessionChannel(sessionId), { kind: 'runtime', running });
   publishGlobal({ kind: 'session_updated', sessionId, reason: 'runtime' });
+}
+
+/** Publish the authoritative per-session background state and refresh the rail. */
+export function publishBackgroundTaskActivity(
+  sessionId: string,
+  active: boolean,
+  taskIds: string[],
+): void {
+  publish(sessionChannel(sessionId), { kind: 'background_tasks', active, taskIds });
+  publishGlobal({ kind: 'session_updated', sessionId, reason: 'background_task' });
 }
 
 export function publishPendingInput(sessionId: string, pending: PendingInput[]): void {

@@ -73,7 +73,11 @@ import {
   rejectAllForSession,
   type PendingInput,
 } from './pending-input';
-import { publishRuntime } from '@/lib/realtime/bus';
+import { publishBackgroundTaskActivity, publishRuntime } from '@/lib/realtime/bus';
+import {
+  decodeBackgroundTaskEvent,
+  isActiveBackgroundTaskEvent,
+} from './background-task-event';
 import { handleRunStreamEvent, registerToolCallName } from '@/lib/runs/event-hooks';
 import { resolveSkillDirsForSession } from './skills';
 import { beginRun, endRun } from '@/lib/runs/artifact-bucket';
@@ -144,8 +148,8 @@ interface ExecutorState {
   agentSessions: Map<string, AgentSession>;
   runningSessions: Set<string>;
   /**
-   * Number of in-flight `dispatch()` calls per chat_session. With
-   * concurrent send (Claude / Codex), multiple sends can overlap —
+   * Number of in-flight preparation and provider-send references per
+   * chat_session. With concurrent send (Claude / Codex), multiple sends can overlap:
    * the user types a follow-up while a turn is still in flight, the
    * second dispatch enters while the first is awaiting `result`. A
    * plain `runningSessions: Set` flips off the moment any one
@@ -156,6 +160,18 @@ interface ExecutorState {
    * sees clean edges.
    */
   inflightCount: Map<string, number>;
+  /** Active provider sends only, excluding pre-dispatch preparation. */
+  activeDispatchCount: Map<string, number>;
+  /**
+   * Current accounting generation for each chat session. Recovery and close
+   * advance this value before clearing counts, so finalizers from the retired
+   * generation cannot consume replacement-dispatch references.
+   */
+  dispatchGenerations: Map<string, number>;
+  /** Monotonic source for dispatch generations, retained across HMR resets. */
+  nextDispatchGeneration: number;
+  /** Active provider-neutral background task ids, grouped by chat session. */
+  backgroundTasks: Map<string, Set<string>>;
   /**
    * Skill command inventory reported by the provider's session at boot
    * (via `system/init` for Claude — see `commandInventoryFromEvent`).
@@ -174,6 +190,10 @@ if (!globalRef[STATE_KEY]) {
     agentSessions: new Map(),
     runningSessions: new Set(),
     inflightCount: new Map(),
+    activeDispatchCount: new Map(),
+    dispatchGenerations: new Map(),
+    nextDispatchGeneration: 0,
+    backgroundTasks: new Map(),
     sessionInventories: new Map(),
   };
 } else {
@@ -184,9 +204,29 @@ if (!globalRef[STATE_KEY]) {
   if (!globalRef[STATE_KEY].inflightCount) {
     globalRef[STATE_KEY].inflightCount = new Map();
   }
+  if (!globalRef[STATE_KEY].activeDispatchCount) {
+    globalRef[STATE_KEY].activeDispatchCount = new Map();
+  }
+  if (!globalRef[STATE_KEY].dispatchGenerations) {
+    globalRef[STATE_KEY].dispatchGenerations = new Map();
+  }
+  if (typeof globalRef[STATE_KEY].nextDispatchGeneration !== 'number') {
+    globalRef[STATE_KEY].nextDispatchGeneration = 0;
+  }
+  if (!globalRef[STATE_KEY].backgroundTasks) {
+    globalRef[STATE_KEY].backgroundTasks = new Map();
+  }
 }
 
-const { agentSessions, runningSessions, inflightCount, sessionInventories } = globalRef[STATE_KEY]!;
+const {
+  agentSessions,
+  runningSessions,
+  inflightCount,
+  activeDispatchCount,
+  dispatchGenerations,
+  backgroundTasks,
+  sessionInventories,
+} = globalRef[STATE_KEY]!;
 
 /**
  * Mutate the running flag and notify any SSE subscribers. Only publishes
@@ -204,11 +244,64 @@ function setRunning(chatSessionId: string, running: boolean): void {
 }
 
 /**
+ * Fold one provider-neutral or legacy Claude lifecycle event into the active
+ * background-task snapshot. Returns true when task-id membership changed.
+ *
+ * Exported as a test seam. The chat-event row remains the durable record while
+ * this in-memory index keeps rail snapshots cheap.
+ */
+export function _recordBackgroundTaskEvent(chatSessionId: string, event: unknown): boolean {
+  const task = decodeBackgroundTaskEvent(event);
+  if (!task) return false;
+
+  let ids = backgroundTasks.get(chatSessionId);
+  let membershipChanged = false;
+  if (isActiveBackgroundTaskEvent(task)) {
+    if (!ids) {
+      ids = new Set();
+      backgroundTasks.set(chatSessionId, ids);
+    }
+    if (!ids.has(task.taskId)) {
+      ids.add(task.taskId);
+      membershipChanged = true;
+    }
+  } else if (ids) {
+    membershipChanged = ids.delete(task.taskId);
+    if (ids.size === 0) backgroundTasks.delete(chatSessionId);
+  }
+
+  if (!membershipChanged) return false;
+  const isActive = backgroundTasks.has(chatSessionId);
+  publishBackgroundTaskActivity(chatSessionId, isActive, listBackgroundTaskIds(chatSessionId));
+  return true;
+}
+
+function clearBackgroundTasks(chatSessionId: string): void {
+  if (!backgroundTasks.delete(chatSessionId)) return;
+  publishBackgroundTaskActivity(chatSessionId, false, []);
+}
+
+/**
  * Snapshot of every session that's currently running. Used by the rail's
  * `Working` bucket to seed its set on first connect.
  */
 export function listRunningSessions(): string[] {
   return Array.from(runningSessions);
+}
+
+/** Snapshot of sessions that still have one or more active background tasks. */
+export function listBackgroundTaskSessions(): string[] {
+  return Array.from(backgroundTasks.keys());
+}
+
+/** Whether this session currently has one or more active background tasks. */
+export function hasBackgroundTasks(chatSessionId: string): boolean {
+  return backgroundTasks.has(chatSessionId);
+}
+
+/** Active provider background task ids for one chat session. */
+export function listBackgroundTaskIds(chatSessionId: string): string[] {
+  return Array.from(backgroundTasks.get(chatSessionId) ?? []);
 }
 
 /**
@@ -239,9 +332,15 @@ export function _recordSessionInventory(chatSessionId: string, event: StreamEven
 
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
+  // Retire every token handed out before the reset. The monotonic allocator is
+  // deliberately not reset, so a late finalizer can never match new work.
+  globalRef[STATE_KEY]!.nextDispatchGeneration++;
   agentSessions.clear();
   runningSessions.clear();
   inflightCount.clear();
+  activeDispatchCount.clear();
+  dispatchGenerations.clear();
+  backgroundTasks.clear();
   sessionInventories.clear();
 }
 
@@ -290,6 +389,7 @@ export function isAgentSessionAlive(chatSessionId: string): boolean {
 export function invalidateAgentSession(chatSessionId: string): void {
   agentSessions.delete(chatSessionId);
   sessionInventories.delete(chatSessionId);
+  clearBackgroundTasks(chatSessionId);
 }
 
 /**
@@ -299,7 +399,9 @@ export function invalidateAgentSession(chatSessionId: string): void {
  * cleared, so we force it back to zero.
  */
 export function forceClearInflight(chatSessionId: string): void {
+  advanceDispatchGeneration(chatSessionId);
   inflightCount.delete(chatSessionId);
+  activeDispatchCount.delete(chatSessionId);
   setRunning(chatSessionId, false);
 }
 
@@ -315,13 +417,37 @@ export function forceClearInflight(chatSessionId: string): void {
 // `runningSessions` Set only transitions on 0→1 (start) and N→0
 // (everyone's done), so SSE subscribers see clean edges.
 
-function startInflight(chatSessionId: string): void {
+export interface DispatchLifecycleRef {
+  readonly generation: number;
+  readonly kind: 'preparation' | 'active';
+}
+
+function currentDispatchGeneration(chatSessionId: string): number {
+  const existing = dispatchGenerations.get(chatSessionId);
+  if (existing !== undefined) return existing;
+  const next = ++globalRef[STATE_KEY]!.nextDispatchGeneration;
+  dispatchGenerations.set(chatSessionId, next);
+  return next;
+}
+
+function advanceDispatchGeneration(chatSessionId: string): number {
+  const next = ++globalRef[STATE_KEY]!.nextDispatchGeneration;
+  dispatchGenerations.set(chatSessionId, next);
+  return next;
+}
+
+function startInflight(
+  chatSessionId: string,
+  kind: DispatchLifecycleRef['kind'],
+): DispatchLifecycleRef {
   const next = (inflightCount.get(chatSessionId) ?? 0) + 1;
   inflightCount.set(chatSessionId, next);
   if (next === 1) setRunning(chatSessionId, true);
+  return { generation: currentDispatchGeneration(chatSessionId), kind };
 }
 
-function endInflight(chatSessionId: string): void {
+function endInflight(chatSessionId: string, ref: DispatchLifecycleRef): void {
+  if (dispatchGenerations.get(chatSessionId) !== ref.generation) return;
   const cur = inflightCount.get(chatSessionId) ?? 0;
   const next = cur - 1;
   if (next <= 0) {
@@ -330,6 +456,57 @@ function endInflight(chatSessionId: string): void {
   } else {
     inflightCount.set(chatSessionId, next);
   }
+}
+
+/**
+ * Hold the public runtime flag across asynchronous preparation that happens
+ * before `dispatch()` enters its own lifecycle. The messages route persists and
+ * acknowledges a user event before worktree repair and provider checks finish.
+ * Counting this preparation prevents a false idle gap and balances safely with
+ * the nested dispatch count, including concurrent sends.
+ */
+export function beginDispatchPreparation(chatSessionId: string): DispatchLifecycleRef {
+  return startInflight(chatSessionId, 'preparation');
+}
+
+export function endDispatchPreparation(
+  chatSessionId: string,
+  ref: DispatchLifecycleRef,
+): void {
+  if (ref.kind !== 'preparation') return;
+  endInflight(chatSessionId, ref);
+}
+
+/**
+ * Enter the provider-send portion of a dispatch. Preparation references are
+ * intentionally excluded from the concurrency check. The messages route owns
+ * one before it calls `dispatch()`, so treating preparation as an active send
+ * would reject every first request for providers without concurrent send.
+ *
+ * Exported as a narrow test seam for the accounting invariant.
+ */
+export function _beginActiveDispatch(
+  chatSessionId: string,
+  concurrentSendSupported: boolean,
+): DispatchLifecycleRef {
+  if (!concurrentSendSupported && activeDispatchCount.has(chatSessionId)) {
+    throw new ExecutorError(
+      'already_running',
+      'This provider does not support concurrent send.',
+    );
+  }
+  activeDispatchCount.set(chatSessionId, (activeDispatchCount.get(chatSessionId) ?? 0) + 1);
+  return startInflight(chatSessionId, 'active');
+}
+
+/** Complete one provider send while preserving any preparation references. */
+export function _endActiveDispatch(chatSessionId: string, ref: DispatchLifecycleRef): void {
+  if (ref.kind !== 'active' || dispatchGenerations.get(chatSessionId) !== ref.generation) return;
+  const current = activeDispatchCount.get(chatSessionId) ?? 0;
+  if (current <= 0) return;
+  if (current === 1) activeDispatchCount.delete(chatSessionId);
+  else activeDispatchCount.set(chatSessionId, current - 1);
+  endInflight(chatSessionId, ref);
 }
 
 /**
@@ -344,8 +521,8 @@ function endInflight(chatSessionId: string): void {
  * same turn. Either way the agent's response addresses the new
  * messages without us having to do anything special.
  *
- * Non-concurrent providers (none ship today, but the capability flag
- * leaves room): the second overlapping dispatch throws
+ * Non-concurrent providers such as Cursor and OpenCode reject a second
+ * overlapping provider send with
  * `already_running`. Listed in `ExecutorError`'s union so the route
  * can surface it as 409 if it ever fires.
  */
@@ -440,11 +617,8 @@ export async function dispatch(
   // path dispatches with `internalCall: true` and never reached this
   // check anyway.
 
-  // Provider capability gate. Both currently-shipped providers
-  // (claude, codex) set `concurrentSend: true`, so this branch is
-  // never taken today. It's here so a future non-concurrent provider
-  // can opt out of overlap without us having to thread a separate
-  // flag through the route layer.
+  // Provider capability gate. Claude and Codex support overlapping sends,
+  // while providers such as Cursor and OpenCode allow only one active send.
   const runtime = await getHarnessRuntime(selection.providerId, { cwd });
   if (!runtime.capabilities.sessions.supported) {
     throw new ExecutorError(
@@ -452,41 +626,34 @@ export async function dispatch(
       runtime.capabilities.sessions.reason ?? `${selection.providerId} sessions are unavailable`,
     );
   }
-  if (
-    !runtime.capabilities.concurrentSend.supported &&
-    inflightCount.has(chatSessionId)
-  ) {
-    throw new ExecutorError(
-      'already_running',
-      'This provider does not support concurrent send.',
-    );
-  }
-
   // Run-row instrumentation (task #12). Every dispatch creates a run row
   // — manual, scheduled, or webhook — so cost tracking and budget
   // guards are honest. The scheduled wrapper sets `internalCall: true`
   // because it has already created the row + registered the run; we
   // only spawn a `triggerKind='manual'` row for top-level callers.
   let manualRun: { runId: string; ownsLifecycle: boolean } | null = null;
-  if (!options.internalCall) {
-    const created = createRunRow({
-      triggerId: null,
-      workspaceId: session.workspaceId ?? null,
-      executionId: session.executionId ?? null,
-      chatSessionId,
-      agentId: session.agentId,
-      triggerKind: 'manual',
-      triggerPayload: null,
-      scheduledFor: null,
-      status: 'queued',
-    });
-    markRunStartedRow(created.id);
-    beginRun(created.id, chatSessionId);
-    manualRun = { runId: created.id, ownsLifecycle: true };
-  }
-
-  startInflight(chatSessionId);
+  const activeDispatchRef = _beginActiveDispatch(
+    chatSessionId,
+    runtime.capabilities.concurrentSend.supported,
+  );
   try {
+    if (!options.internalCall) {
+      const created = createRunRow({
+        triggerId: null,
+        workspaceId: session.workspaceId ?? null,
+        executionId: session.executionId ?? null,
+        chatSessionId,
+        agentId: session.agentId,
+        triggerKind: 'manual',
+        triggerPayload: null,
+        scheduledFor: null,
+        status: 'queued',
+      });
+      markRunStartedRow(created.id);
+      beginRun(created.id, chatSessionId);
+      manualRun = { runId: created.id, ownsLifecycle: true };
+    }
+
     const agentSession = await ensureAgentSession({
       chatSessionId,
       harness: agent.harness,
@@ -525,7 +692,7 @@ export async function dispatch(
     }
     throw err;
   } finally {
-    endInflight(chatSessionId);
+    _endActiveDispatch(chatSessionId, activeDispatchRef);
     if (manualRun?.ownsLifecycle) {
       endRun(manualRun.runId, chatSessionId);
     }
@@ -570,8 +737,11 @@ export async function close(chatSessionId: string): Promise<void> {
   const handle = agentSessions.get(chatSessionId);
   agentSessions.delete(chatSessionId);
   sessionInventories.delete(chatSessionId);
+  advanceDispatchGeneration(chatSessionId);
   inflightCount.delete(chatSessionId);
+  activeDispatchCount.delete(chatSessionId);
   setRunning(chatSessionId, false);
+  clearBackgroundTasks(chatSessionId);
   rejectAllForSession(chatSessionId, 'Session closed');
   if (handle) {
     try { await handle.close(); } catch { /* best-effort */ }
@@ -627,6 +797,7 @@ export async function recycleForModeChange(chatSessionId: string): Promise<void>
   // system/init with potentially different available skills (e.g. plan
   // mode restricts the toolset).
   sessionInventories.delete(chatSessionId);
+  clearBackgroundTasks(chatSessionId);
   // Don't reject pending requests — a mode change shouldn't blow up
   // an in-flight permission prompt the user is about to answer.
   try { await handle.close(); } catch { /* best-effort */ }
@@ -826,7 +997,9 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
       try {
         const safeEvent = redactAgentRuntimeValue(event);
         _recordSessionInventory(args.chatSessionId, safeEvent);
-        await persistStreamEvent(args.chatSessionId, safeEvent, args.writer);
+        await persistStreamEvent(args.chatSessionId, safeEvent, args.writer, {
+          trackBackgroundTaskRuntime: true,
+        });
         capturePromotedSessionId(args.chatSessionId, safeEvent);
         // Run telemetry: cost capture (#13), artifact accumulation (#14),
         // summary extraction (#15). No-op when there's no active run
@@ -1103,6 +1276,7 @@ export async function persistStreamEvent(
   chatSessionId: string,
   event: StreamEvent,
   writer: EventWriter = localEventWriter,
+  options: { trackBackgroundTaskRuntime?: boolean } = {},
 ): Promise<void> {
   const safeEvent = redactAgentRuntimeValue(event);
   const row = parseStreamEvent(chatSessionId, safeEvent);
@@ -1110,8 +1284,17 @@ export async function persistStreamEvent(
   const cumulativeOpenCodePart = safeEvent.providerType === 'opencode'
     && Boolean(safeEvent.eventId)
     && (safeEvent.type === 'assistant' || safeEvent.type === 'thinking');
-  if (cumulativeOpenCodePart && writer.replacePart) await writer.replacePart(row);
-  else await writer.write(row);
+  try {
+    if (cumulativeOpenCodePart && writer.replacePart) await writer.replacePart(row);
+    else await writer.write(row);
+  } finally {
+    // Durable transcript replay shares this persistence path but must never
+    // mutate ephemeral runtime state. It can interleave with a live provider
+    // callback and otherwise replay an older start after a newer terminal edge.
+    if (options.trackBackgroundTaskRuntime) {
+      _recordBackgroundTaskEvent(chatSessionId, safeEvent);
+    }
+  }
 }
 
 /**
@@ -1148,6 +1331,25 @@ export function parseStreamEvent(
     createdAt,
     ...(isOpenCodePart ? { sourcePartIndex: event.type === 'tool_result' ? 1 : 0 } : {}),
   };
+
+  // Agentex 0.0.33+ lifecycle metadata. Active updates stay as filtered system
+  // rows. Terminal updates become compact, visible outcomes so a detached
+  // child's summary remains discoverable and reaches Needs Review.
+  if ((event as { type: string }).type === 'background_task') {
+    const backgroundTask = decodeBackgroundTaskEvent(event);
+    const terminal = backgroundTask !== null && !isActiveBackgroundTaskEvent(backgroundTask);
+    return {
+      ...base,
+      role: 'system',
+      source: (terminal ? 'background_task' : 'system') satisfies ChatEventSource,
+      content: terminal
+        ? backgroundTask.summary
+          ?? backgroundTask.description
+          ?? 'Background task finished'
+        : 'background_task',
+      ...(terminal ? { toolIsError: backgroundTask.status === 'failed' } : {}),
+    };
+  }
 
   switch (event.type) {
     case 'system':

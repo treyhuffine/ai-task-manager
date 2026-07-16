@@ -7,8 +7,8 @@ import { hot } from '@/lib/_debug/hot-path';
 
 /**
  * Bridge from the rail GET response into the dashboard context's
- * pending-input + streaming sets. The rail endpoint snapshots both
- * lists server-side on every fetch — much cheaper than a long-lived
+ * pending-input, root runtime, and background-work sets. The rail endpoint
+ * snapshots all lists server-side on every fetch — much cheaper than a long-lived
  * cross-session SSE, and the per-session stream's result/runtime
  * frames invalidate the rail so we re-fetch as soon as anything
  * meaningful changes.
@@ -20,12 +20,17 @@ import { hot } from '@/lib/_debug/hot-path';
  */
 export function useRailContextHydrate(): void {
   const { data } = useRailSessions();
-  const { setPendingInputSessions, setStreamingSessions } = useDashboard();
+  const {
+    setBackgroundSessions,
+    setPendingInputSessions,
+    setStreamingSessions,
+  } = useDashboard();
 
   useEffect(() => {
     hot('effect useRailContextHydrate');
     if (!data) return;
     setPendingInputSessions(data.pendingSessionIds);
     setStreamingSessions(data.runningSessionIds);
-  }, [data, setPendingInputSessions, setStreamingSessions]);
+    setBackgroundSessions(data.backgroundSessionIds ?? []);
+  }, [data, setBackgroundSessions, setPendingInputSessions, setStreamingSessions]);
 }
