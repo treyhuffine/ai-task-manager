@@ -20,6 +20,7 @@ import { TaskList } from '@/components/tasks/task-list';
 import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
+import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { useNeedsYourCall } from '@/hooks/use-stream';
 import {
   Conversation,
@@ -1077,7 +1078,8 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
         {activeTab === 'tasks' && <TaskList />}
         {activeTab === 'stream' && <StreamList />}
         {activeTab === 'notes' && <NoteList />}
-        {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
+        {activeTab === 'calendar' && <CalendarPanel />}
+        {isMoreTab && activeTab !== 'calendar' && <MoreTabContent tab={activeTab as MorePanelTab} />}
       </div>
 
     </div>

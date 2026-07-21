@@ -408,7 +408,6 @@ export const tasks = sqliteTable(
     lastProgressAt: text(),
     energy: text({ enum: ['deep', 'light'] }),
     effort: text({ enum: ['trivial', 'small', 'medium', 'large', 'epic'] }),
-    estimatedMinutes: integer(),
     contextTags: text({ mode: 'json' }).$type<string[]>().default([]),
     hardDeadline: text(),
     reminderAt: text(),
@@ -510,11 +509,10 @@ export interface DeckItem {
   rationale: string;
   continuityContext: string | null;
   source: 'ai' | 'user';
-  // ─── Phase 2 (calendar) slotting — optional, unpopulated in Phase 1 ───
-  /** Where this task sits in the real day, once calendar slotting lands. */
-  slotStart?: string | null;
-  slotEnd?: string | null;
-  slotReason?: string | null;
+  // NOTE: per-item calendar slots (slotStart/slotEnd/...) were removed in the
+  // calendar retrenchment — the deck is a ranked stack, not a schedule. Old
+  // rows may still carry the JSON keys; they're ignored. See
+  // docs/calendar-view-spec.md "Retrenchment".
 }
 
 export interface DeckAlternative {

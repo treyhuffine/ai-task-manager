@@ -6,7 +6,7 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import {
   Search, Target, FileText, MessageSquare, X, Loader2,
   Plus, Sun, Moon, LayoutDashboard, ListTodo, StickyNote,
-  Radio, MessagesSquare, Mic, Settings,
+  Radio, MessagesSquare, Mic, Settings, Calendar,
   type LucideIcon,
 } from 'lucide-react';
 import { NoteIcon } from '@/components/shared/note-icon';
@@ -27,7 +27,7 @@ import type { AnyPanelTab } from '@/types/dashboard';
 // ── Icon lookup for palette commands ─────────────────────────
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings,
+  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings, Calendar,
 };
 
 function CommandIcon({ name, size = 14 }: { name: string; size?: number }) {

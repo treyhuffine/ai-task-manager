@@ -13,18 +13,46 @@ interface RawEvent {
   end?: { dateTime?: string; timeZone?: string };
   location?: { displayName?: string };
   webLink?: string;
+  isAllDay?: boolean;
+  /** free | tentative | busy | oof | workingElsewhere | unknown */
+  showAs?: string;
+  responseStatus?: { response?: string };
+  isCancelled?: boolean;
+  isOnlineMeeting?: boolean;
+  onlineMeeting?: { joinUrl?: string };
+}
+
+/**
+ * Graph returns naive dateTimes in the requested zone (UTC unless a
+ * `Prefer: outlook.timezone` header is sent, which we don't). Stamp the zone
+ * back on so callers get a real instant.
+ */
+function toInstant(t?: { dateTime?: string; timeZone?: string }): string | undefined {
+  if (!t?.dateTime) return undefined;
+  const hasOffset = /(?:Z|[+-]\d{2}:\d{2})$/.test(t.dateTime);
+  if (hasOffset || (t.timeZone && t.timeZone !== 'UTC')) return t.dateTime;
+  return `${t.dateTime}Z`;
 }
 
 function eventSummary(e: RawEvent) {
   return {
     id: e.id,
     subject: e.subject,
-    start: e.start?.dateTime,
-    end: e.end?.dateTime,
+    start: toInstant(e.start),
+    end: toInstant(e.end),
     location: e.location?.displayName,
     webLink: e.webLink,
+    isAllDay: e.isAllDay,
+    showAs: e.showAs,
+    /** organizer | accepted | declined | tentativelyAccepted | notResponded | none */
+    responseStatus: e.responseStatus?.response,
+    isCancelled: e.isCancelled,
+    joinUrl: e.onlineMeeting?.joinUrl,
   };
 }
+
+const EVENT_SELECT =
+  'id,subject,start,end,location,webLink,isAllDay,showAs,responseStatus,isCancelled,onlineMeeting,isOnlineMeeting';
 
 export const outlookCalendar = defineToolkit({
   id: 'outlook_calendar',
@@ -33,14 +61,33 @@ export const outlookCalendar = defineToolkit({
   actions: [
     httpAction({
       id: 'outlook_calendar.list_events',
-      description: 'List events on the connected Outlook calendar.',
+      description:
+        'List events on the connected Outlook calendar. Pass startDateTime/endDateTime (ISO 8601) ' +
+        'to query a window via calendarView, which expands recurring events into instances.',
       scopes: [MICROSOFT_SCOPES.calendarsRead],
-      input: z.object({ top: z.number().int().positive().max(100).default(25) }),
-      request: (i) => ({
-        method: 'GET',
-        path: '/me/events',
-        query: { $top: i.top, $select: 'id,subject,start,end,location,webLink', $orderby: 'start/dateTime' },
+      input: z.object({
+        top: z.number().int().positive().max(500).default(25),
+        startDateTime: z.string().optional().describe('ISO 8601 window start, e.g. 2026-07-20T00:00:00Z'),
+        endDateTime: z.string().optional().describe('ISO 8601 window end'),
       }),
+      request: (i) =>
+        i.startDateTime && i.endDateTime
+          ? {
+              method: 'GET',
+              path: '/me/calendarView',
+              query: {
+                startDateTime: i.startDateTime,
+                endDateTime: i.endDateTime,
+                $top: i.top,
+                $select: EVENT_SELECT,
+                $orderby: 'start/dateTime',
+              },
+            }
+          : {
+              method: 'GET',
+              path: '/me/events',
+              query: { $top: i.top, $select: EVENT_SELECT, $orderby: 'start/dateTime' },
+            },
       output: (raw) => {
         const r = raw as { value?: RawEvent[] };
         return { events: (r.value ?? []).map(eventSummary) };

@@ -51,13 +51,13 @@ async function setup() {
   };
 }
 
-async function seedDeck(snapshot: CalendarBlock[] = []) {
+async function seedDeck(snapshot: CalendarBlock[] = [], deckItems: DeckItem[] = items(5)) {
   const { q } = await setup();
   return {
     q,
     deck: q.supersedeAndInsertDeck({
       forDate: DATE,
-      items: items(5),
+      items: deckItems,
       alternatives: [],
       changes: [],
       origin: 'first_open',
@@ -112,4 +112,5 @@ describe('reconcileDeckWithExternalChanges', () => {
     expect(result.changed).toBe(false);
     expect(result.summary).toMatch(/still fits/i);
   });
+
 });

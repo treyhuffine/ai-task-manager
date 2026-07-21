@@ -264,7 +264,6 @@ export async function generateDeck(
     areaName: t.areaId ? areaMap.get(t.areaId) : undefined,
     energy: t.energy,
     effort: t.effort,
-    estimatedMinutes: t.estimatedMinutes,
     hardDeadline: t.hardDeadline,
     lastProgressAt: t.lastProgressAt,
     timesDeferred: t.timesDeferred,
@@ -286,7 +285,7 @@ export async function generateDeck(
     areaName: c.areaId ? areaMap.get(c.areaId) : undefined,
   }));
 
-  // ─── Today's time — sizing + slotting context ───
+  // ─── Today's time — sizing context ───
   // Calendar is empty until a connector registers a provider; until then this
   // degrades to "a full workday", and an explicit time budget (context or
   // user_state) still drives sizing.
@@ -331,7 +330,7 @@ export async function generateDeck(
   // Reuse today's already-fetched blocks; fetch fresh for other dates.
   const get_day_shape = tool({
     description:
-      "The user's available work time for a date: busy calendar blocks, free gaps, and total free minutes — already computed. Use for anything about how much time they have or when to slot work; never do free/busy math yourself.",
+      "The user's available work time for a date: busy calendar blocks, free gaps, and total free minutes — already computed. Use for anything about how much time they have; never do free/busy math yourself.",
     inputSchema: z.object({
       date: z.string().optional().describe('YYYY-MM-DD; defaults to today'),
     }),
@@ -412,9 +411,6 @@ export async function generateDeck(
     rationale: item.rationale,
     continuityContext: item.continuityContext,
     source: 'ai' as const,
-    slotStart: item.slot?.start ?? null,
-    slotEnd: item.slot?.end ?? null,
-    slotReason: item.slot?.reason ?? null,
   }));
 
   const prevIdSet = new Set(previousDeckItems.map((p) => p.taskId));

@@ -41,16 +41,6 @@ export const deckResponseSchema = z.object({
           .describe(
             'If the task has recent progress or subtask completion, a brief note like "Last session: got OAuth working, error handling next". Null if not applicable.',
           ),
-        slot: z
-          .object({
-            start: z.string().describe('Start time label, e.g. "9:00 AM"'),
-            end: z.string().describe('End time label, e.g. "10:30 AM"'),
-            reason: z.string().describe('Why here, e.g. "your only 90-min open block"'),
-          })
-          .nullable()
-          .describe(
-            'Where this task sits in the real day. ONLY set when the calendar has meaningful open gaps to place work into. Null otherwise (including when there is no calendar).',
-          ),
       }),
     )
     .min(DECK_MIN_ITEMS)
@@ -101,7 +91,7 @@ export const CONTEXT_GATHERING_PROMPT = `You are the context-gathering step in a
 
 Tools available to you:
 - searchKnowledgeBase: the user's own notes, stream entries, and tasks (semantic + keyword search).
-- get_day_shape: the user's available work time for a date — busy calendar blocks, free gaps, and total free minutes, ALREADY COMPUTED. Use this for anything about how much time they have or when to slot work. NEVER compute free/busy from raw calendar events yourself; call get_day_shape.
+- get_day_shape: the user's available work time for a date — busy calendar blocks, free gaps, and total free minutes, ALREADY COMPUTED. Use this for anything about how much time they have. NEVER compute free/busy from raw calendar events yourself; call get_day_shape.
 - You may also have READ-ONLY tools for the user's connected services (calendars, task/issue trackers, docs, messaging, etc.). Only ever read/list/get — never create, send, or modify anything.
 
 How much to consult:
@@ -149,9 +139,9 @@ WHEN SOMETHING HAS TO GIVE (light guidance, use judgment, not a rigid rule):
 - Treat a hard deadline, or an item the user explicitly prioritized, as expensive to defer. Only defer it if truly forced, and say so plainly in the reason.
 - Every defer/drop is visible and one-tap reversible to the user, so make the honest call rather than hedging by keeping too much on the deck.
 
-SIZING & SLOTTING (when [Today's Time] is provided):
-- Size the deck to the available minutes. Don't pile on more estimated work than fits the day. A deck the user can actually finish beats an aspirational pile.
-- If the calendar shows open gaps, place each item with a "slot" (start/end label + reason): deep/heavy work in the largest gaps, light/quick tasks in short ones. Leave slot null if there's no calendar or no clean fit.
+SIZING (when [Today's Time] is provided):
+- Size the deck to the day: on a packed day deal fewer items, on an open day a few more. Rough effort labels are guidance, not arithmetic — a deck the user can actually finish beats an aspirational pile.
+- Never assign times to tasks. The deck is a ranked stack the user works top-down; the calendar stays the calendar.
 - Honest deadlines: if a hard-deadline task's remaining days are mostly consumed by meetings/commitments, treat it as effectively more urgent and rank it up. Say so in the rationale.`;
 
 // ─── Prompt builder ─────────────────────────────────────────────
@@ -167,7 +157,6 @@ interface PromptData {
     areaName?: string;
     energy?: string | null;
     effort?: string | null;
-    estimatedMinutes?: number | null;
     hardDeadline?: string | null;
     lastProgressAt?: string | null;
     timesDeferred: number;
@@ -192,7 +181,7 @@ interface PromptData {
     title: string;
     status: 'done' | 'active' | 'gone';
   }[];
-  /** The shape of today's real time — drives sizing and slotting. */
+  /** The shape of today's real time — drives sizing only. */
   timeContext?: {
     availableMinutes: number;
     workdayStart: string;
@@ -235,7 +224,6 @@ export function buildDeckPrompt(data: PromptData): string {
     if (t.areaName) meta.push(`area: ${t.areaName}`);
     if (t.effort) meta.push(`effort: ${t.effort}`);
     if (t.energy) meta.push(`energy: ${t.energy}`);
-    if (t.estimatedMinutes) meta.push(`~${t.estimatedMinutes}m`);
     if (t.hardDeadline) meta.push(`deadline: ${t.hardDeadline}`);
     if (t.lastProgressAt) meta.push(`last progress: ${t.lastProgressAt}`);
     if (t.timesDeferred > 0) meta.push(`deferred: ${t.timesDeferred}x`);
@@ -285,9 +273,9 @@ export function buildDeckPrompt(data: PromptData): string {
     if (tc.hasCalendar && tc.gaps.length > 0) {
       lines.push('Open gaps between meetings:');
       for (const g of tc.gaps) lines.push(`  - ${g.label}`);
-      lines.push('Slot deep work into the largest gaps. Fit light/quick tasks into short ones.');
+      lines.push('Use the gaps to judge how much fits today, not to schedule anything.');
     } else {
-      lines.push('No calendar connected. Size the deck to the available minutes, leave slots null.');
+      lines.push('No calendar connected. Size the deck to the available minutes.');
     }
     sections.push(`[Today's Time]\n${lines.join('\n')}`);
   }

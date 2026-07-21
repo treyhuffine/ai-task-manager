@@ -51,7 +51,6 @@ function taskToDeckItem(
     rationale: task.description || task.outcome || '',
     energy: task.energy ?? undefined,
     effort: task.effort ? EFFORT_SHORT[task.effort] ?? task.effort : undefined,
-    estimatedMinutes: task.estimatedMinutes ?? undefined,
     hardDeadline: task.hardDeadline ?? undefined,
     taskId: task.id,
   };
@@ -84,9 +83,6 @@ function hydrateDeckRecord(
     item.rationale = dbItem.rationale;
     if (dbItem.continuityContext) item.continuityContext = dbItem.continuityContext;
     if (dbItem.source === 'user') item.manuallyAdded = true;
-    if (dbItem.slotStart) item.slotStart = dbItem.slotStart;
-    if (dbItem.slotEnd) item.slotEnd = dbItem.slotEnd;
-    if (dbItem.slotReason) item.slotReason = dbItem.slotReason;
 
     const childTasks = tasks.filter(t => t.parentId === task.id);
     if (childTasks.length > 0) {
@@ -258,6 +254,7 @@ export function DeckContainer() {
       .catch(err => console.error('Failed to load deck:', err))
       .finally(() => setInitialLoadDone(true));
   }, [tasks, areaMap, parentMap, initialLoadDone, loadVersions]);
+
 
   // ─── Load specific deck when navigated from chat ────────────
 
@@ -663,6 +660,7 @@ export function DeckContainer() {
             generatedAt={plan.generatedAt}
           />
           <DeckDayBar
+            items={plan.items}
             completedItems={completedItems}
             routines={routines}
             onRoutineComplete={handleRoutineComplete}

@@ -58,6 +58,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'go-notes', label: 'Go to Notes', keywords: 'navigate notes', icon: 'FileText', group: 'navigate' },
   { id: 'go-stream', label: 'Go to Stream', keywords: 'navigate stream capture', icon: 'Radio', group: 'navigate' },
   { id: 'go-chat', label: 'Go to Chat', keywords: 'navigate chat ai', icon: 'MessagesSquare', group: 'navigate' },
+  { id: 'go-calendar', label: 'Go to Calendar', keywords: 'navigate calendar day week schedule meetings agenda', icon: 'Calendar', group: 'navigate' },
 
   // Settings
   { id: 'open-settings', label: 'Settings', keywords: 'settings preferences config profile account voice notifications billing devices', icon: 'Settings', group: 'settings' },

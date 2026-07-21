@@ -88,15 +88,11 @@ export interface DeckItem {
   rationale: string;          // Why this task, why this position
   energy?: 'deep' | 'light'; // Metadata, not structural
   effort?: string;            // XS/S/M/L/XL
-  estimatedMinutes?: number;
   hardDeadline?: string;      // ISO date
   taskId: string;
   subtasks?: SubtaskItem[];
   continuityContext?: string; // "Last session: got OAuth working"
   manuallyAdded?: boolean;    // True when user added via quick-add
-  slotStart?: string;         // Time-of-day label, e.g. "9:00 AM" (calendar slotting)
-  slotEnd?: string;           // e.g. "10:30 AM"
-  slotReason?: string;        // Why this slot
 }
 
 /** An item the AI surfaced on radar */
@@ -132,44 +128,6 @@ export interface AlternativeItem {
   taskId: string;
 }
 
-// ─── Legacy deck types (used by plan-review / plan-deep-work / plan-light-tasks) ──
-
-/** A deep-work item in the legacy split-deck format */
-export interface DeepWorkItem {
-  id: string;
-  projectTitle: string;
-  taskTitle: string;
-  areaName?: string;
-  continuityContext: string;
-  rationale: string;
-  energy: 'deep' | 'light';
-  effort?: string;
-  estimatedMinutes?: number;
-  hardDeadline?: string;
-  taskId: string;
-  sortPosition?: number;
-  subtasks?: SubtaskItem[];
-}
-
-/** A light task in the legacy split-deck format */
-export interface LightTaskItem {
-  id: string;
-  title: string;
-  areaName?: string;
-  energy: 'deep' | 'light';
-  effort?: string;
-  estimatedMinutes?: number;
-  hardDeadline?: string;
-  isNew?: boolean;
-  taskId: string;
-  sortPosition?: number;
-}
-
-/** Deck metadata in the legacy format */
-export interface DeckMeta {
-  workingSetSize: number;
-}
-
 /**
  * A resolved entry from a deck version's change log — what happened to a task
  * when the deck was (re)dealt. Drives the "what changed" brief and the bumped
@@ -198,12 +156,4 @@ export interface DeckPlan {
   changes?: DeckChangeView[];   // What changed when this version was dealt
   radarItems?: RadarItem[];     // Radar items to surface in "more options"
   generatedAt: string;          // ISO timestamp
-
-  // Legacy split-deck properties (used by plan-review variants)
-  deepWork?: DeepWorkItem[];
-  lightTasks?: LightTaskItem[];
-  meta?: DeckMeta;
-  summary?: string;
-  routines?: RoutineItem[];
-  worthNoting?: string;
 }

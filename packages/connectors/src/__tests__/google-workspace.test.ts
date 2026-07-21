@@ -95,3 +95,53 @@ describe('google_sheets (absolute-URL host)', () => {
     expect(url).toContain('valueInputOption=USER_ENTERED');
   });
 });
+
+describe('google_calendar (event enrichment)', () => {
+  it('maps transparency, location, join url, and the self attendee rsvp', async () => {
+    const h = makeHarness();
+    await h.connect({ scopes: CALENDAR_ONLY });
+    h.env.action = (c: FakeHttpCall) => {
+      expect(c.url).toContain('/calendar/v3/calendars/primary/events');
+      return {
+        json: {
+          items: [
+            {
+              id: 'ev1',
+              summary: 'Focus block',
+              status: 'confirmed',
+              htmlLink: 'https://cal.example/ev1',
+              start: { dateTime: '2026-07-20T09:00:00-04:00' },
+              end: { dateTime: '2026-07-20T10:00:00-04:00' },
+              transparency: 'transparent',
+              location: 'Cafe',
+              hangoutLink: 'https://meet.example/abc',
+              attendees: [
+                { self: false, responseStatus: 'accepted' },
+                { self: true, responseStatus: 'declined' },
+              ],
+            },
+            {
+              id: 'ev2',
+              summary: 'No frills',
+              start: { dateTime: '2026-07-20T11:00:00-04:00' },
+              end: { dateTime: '2026-07-20T11:30:00-04:00' },
+              conferenceData: { entryPoints: [{ entryPointType: 'video', uri: 'https://meet.example/xyz' }] },
+            },
+          ],
+        },
+      };
+    };
+    const out = await h.runtime.runAction('google_calendar.list_events', { calendarId: 'primary' });
+    expect(out.ok).toBe(true);
+    const events = (out as { result: { events: Array<Record<string, unknown>> } }).result.events;
+    expect(events[0]).toMatchObject({
+      id: 'ev1',
+      transparency: 'transparent',
+      location: 'Cafe',
+      joinUrl: 'https://meet.example/abc',
+      responseStatus: 'declined',
+    });
+    expect(events[1]).toMatchObject({ id: 'ev2', joinUrl: 'https://meet.example/xyz' });
+    expect(events[1].responseStatus).toBeUndefined();
+  });
+});

@@ -10,6 +10,7 @@ import { openSettings } from '@/components/settings/settings-store';
 import { CreateMenu } from './create-menu';
 import { RailStatusPills } from './rail-status-pills';
 import { BudgetWarningPill } from './budget-warning-pill';
+import { HudDayButton } from '@/components/calendar/hud-day-button';
 
 // Flip to false to hide (not yet launched)
 const SHOW_INBOX = true;
@@ -66,6 +67,10 @@ export function TopHud() {
       ) : null}
 
       <div className="flex-1" />
+
+      <div className="hidden md:block">
+        <HudDayButton />
+      </div>
 
       <BudgetWarningPill />
 

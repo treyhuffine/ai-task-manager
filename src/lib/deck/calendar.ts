@@ -91,7 +91,7 @@ export function formatMinutes(min: number): string {
  * midnight, or null if the block doesn't overlap that day. Multi-day / all-day
  * blocks are clamped to the day's bounds.
  */
-function blockBusyMinutes(block: CalendarBlock, date: string): [number, number] | null {
+export function blockBusyMinutes(block: CalendarBlock, date: string): [number, number] | null {
   const dayStart = new Date(`${date}T00:00:00`);
   if (Number.isNaN(dayStart.getTime())) return null;
   const dayEnd = new Date(dayStart);

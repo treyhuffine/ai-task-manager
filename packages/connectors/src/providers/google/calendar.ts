@@ -19,9 +19,17 @@ interface RawEvent {
   status?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
+  /** 'transparent' = shows as free; absent/'opaque' = shows as busy. */
+  transparency?: string;
+  location?: string;
+  hangoutLink?: string;
+  attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+  conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
 }
 
 function eventSummary(e: RawEvent) {
+  const self = e.attendees?.find((a) => a.self);
+  const video = e.conferenceData?.entryPoints?.find((p) => p.entryPointType === 'video');
   return {
     id: e.id,
     summary: e.summary,
@@ -29,6 +37,11 @@ function eventSummary(e: RawEvent) {
     end: e.end?.dateTime ?? e.end?.date,
     status: e.status,
     htmlLink: e.htmlLink,
+    transparency: e.transparency,
+    location: e.location,
+    joinUrl: e.hangoutLink ?? video?.uri,
+    /** The user's own RSVP: needsAction | declined | tentative | accepted. */
+    responseStatus: self?.responseStatus,
   };
 }
 

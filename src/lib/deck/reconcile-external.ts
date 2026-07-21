@@ -33,9 +33,8 @@ import {
   availableMinutes,
 } from './calendar';
 import { routeChanges, type ProposedChange, type RoutedChange } from './change-router';
+import { effortMinutes } from './effort';
 
-/** Default per-task time when a task has no estimate. */
-const DEFAULT_TASK_MINUTES = 30;
 
 export interface ReconcileResult {
   changed: boolean;
@@ -94,7 +93,8 @@ export async function reconcileDeckWithExternalChanges(
 
   const items = deck.items as DeckItem[];
 
-  // Task estimates / titles / deadlines for the deck's items.
+  // Task effort bands / titles / deadlines for the deck's items. Rough
+  // bands, not estimates — see src/lib/deck/effort.ts.
   const ids = items.map((i) => i.taskId);
   const estById = new Map<string, number>();
   const titleById = new Map<string, string>();
@@ -104,7 +104,7 @@ export async function reconcileDeckWithExternalChanges(
     const rows = db
       .select({
         id: tasks.id,
-        est: tasks.estimatedMinutes,
+        effort: tasks.effort,
         title: tasks.title,
         deadline: tasks.hardDeadline,
       })
@@ -112,12 +112,12 @@ export async function reconcileDeckWithExternalChanges(
       .where(inArray(tasks.id, ids))
       .all();
     for (const r of rows) {
-      estById.set(r.id, r.est ?? DEFAULT_TASK_MINUTES);
+      estById.set(r.id, effortMinutes(r.effort));
       titleById.set(r.id, r.title);
       deadlineById.set(r.id, r.deadline ?? null);
     }
   }
-  const itemMinutes = (i: DeckItem) => estById.get(i.taskId) ?? DEFAULT_TASK_MINUTES;
+  const itemMinutes = (i: DeckItem) => estById.get(i.taskId) ?? effortMinutes(null);
 
   // Over capacity → bump from the end (lowest priority) until it fits or one left.
   const keep: DeckItem[] = [...items];
@@ -131,7 +131,7 @@ export async function reconcileDeckWithExternalChanges(
     proposals.push({
       kind: 'bumped',
       taskId: victim.taskId,
-      reason: `A new commitment shrank today to ~${nowAvailable}m of task time. Moved off to keep the day realistic.`,
+      reason: `A new commitment shrank today to roughly ${nowAvailable}m of task time. Moved off to keep the day realistic.`,
       source: 'calendar',
       touchesPriority: hasDeadline,
       // A hard-deadline item forced off the deck is a real conflict only the

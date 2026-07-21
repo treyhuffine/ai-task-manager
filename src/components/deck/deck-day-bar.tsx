@@ -4,8 +4,11 @@ import { useState } from 'react';
 import { Plus, Check, Circle, CheckCircle2, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { DeckItem, RoutineItem } from '@/types/dashboard';
+import { DayShapeStrip } from '@/components/calendar/day-shape-strip';
 
 interface DeckDayBarProps {
+  /** Today's active deck items — slotted ones render on the day strip. */
+  items: DeckItem[];
   completedItems: DeckItem[];
   routines: RoutineItem[];
   onRoutineComplete: (id: string) => void;
@@ -13,7 +16,7 @@ interface DeckDayBarProps {
   onToggleQuickAdd: () => void;
 }
 
-export function DeckDayBar({ completedItems, routines, onRoutineComplete, quickAddOpen, onToggleQuickAdd }: DeckDayBarProps) {
+export function DeckDayBar({ items, completedItems, routines, onRoutineComplete, quickAddOpen, onToggleQuickAdd }: DeckDayBarProps) {
   const [openDropdown, setOpenDropdown] = useState<'completed' | 'routines' | null>(null);
 
   const toggle = (which: 'completed' | 'routines') => {
@@ -25,6 +28,7 @@ export function DeckDayBar({ completedItems, routines, onRoutineComplete, quickA
 
   return (
     <div className="relative">
+      <DayShapeStrip items={items} />
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-border/50">
         {/* Left side — add task button + completed count */}
         <div className="flex items-center gap-3">

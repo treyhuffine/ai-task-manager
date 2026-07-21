@@ -2,16 +2,17 @@
 
 import { useState } from 'react';
 import {
-  CheckSquare, FileText, Activity, Layers, Sun, Moon, Settings, ChevronLeft,
+  CheckSquare, FileText, Activity, Layers, Calendar, Sun, Moon, Settings, ChevronLeft,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { TaskList } from '@/components/tasks/task-list';
 import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
+import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { openSettings } from '@/components/settings/settings-store';
 import { cn } from '@/lib/utils';
 
-type MoreSubView = 'menu' | 'tasks' | 'notes' | 'stream';
+type MoreSubView = 'menu' | 'tasks' | 'notes' | 'stream' | 'calendar';
 
 export function MobileMoreView() {
   const { theme, toggleTheme, openAreasList } = useDashboard();
@@ -20,7 +21,7 @@ export function MobileMoreView() {
 
   // Sub-view rendering
   if (subView !== 'menu') {
-    const labels: Record<MoreSubView, string> = { menu: '', tasks: 'Tasks', notes: 'Notes', stream: 'Stream' };
+    const labels: Record<MoreSubView, string> = { menu: '', tasks: 'Tasks', notes: 'Notes', stream: 'Stream', calendar: 'Calendar' };
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
@@ -33,6 +34,7 @@ export function MobileMoreView() {
           {subView === 'tasks' && <TaskList />}
           {subView === 'notes' && <NoteList />}
           {subView === 'stream' && <StreamList />}
+          {subView === 'calendar' && <CalendarPanel />}
         </div>
       </div>
     );
@@ -42,6 +44,7 @@ export function MobileMoreView() {
     { id: 'tasks' as const, label: 'Tasks', icon: CheckSquare, action: () => setSubView('tasks') },
     { id: 'notes' as const, label: 'Notes', icon: FileText, action: () => setSubView('notes') },
     { id: 'stream' as const, label: 'Stream', icon: Activity, action: () => setSubView('stream') },
+    { id: 'calendar' as const, label: 'Calendar', icon: Calendar, action: () => setSubView('calendar') },
     { id: 'areas' as const, label: 'Areas', icon: Layers, action: () => openAreasList() },
   ];
 

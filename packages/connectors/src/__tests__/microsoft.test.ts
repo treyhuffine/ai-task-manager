@@ -108,4 +108,50 @@ describe('microsoft 365 connector', () => {
     const listed = await s.runtime.runAction('outlook_calendar.list_events', {});
     expect(listed.ok).toBe(true);
   });
+
+  it('routes ranged list_events through calendarView and maps the richer event fields', async () => {
+    const s = setup();
+    await connect(s);
+    let url: string | undefined;
+    s.env.action = (c) => {
+      url = c.url;
+      return {
+        status: 200,
+        json: {
+          value: [
+            {
+              id: 'e2',
+              subject: 'Design review',
+              // Graph returns naive dateTimes in the requested zone (UTC by default).
+              start: { dateTime: '2026-07-20T15:00:00.0000000', timeZone: 'UTC' },
+              end: { dateTime: '2026-07-20T16:00:00.0000000', timeZone: 'UTC' },
+              location: { displayName: 'HQ' },
+              webLink: 'https://outlook.example/e2',
+              isAllDay: false,
+              showAs: 'tentative',
+              responseStatus: { response: 'tentativelyAccepted' },
+              isCancelled: false,
+              onlineMeeting: { joinUrl: 'https://teams.example/j' },
+            },
+          ],
+        },
+      };
+    };
+    const out = await s.runtime.runAction('outlook_calendar.list_events', {
+      startDateTime: '2026-07-20T00:00:00Z',
+      endDateTime: '2026-07-21T00:00:00Z',
+    });
+    expect(out.ok).toBe(true);
+    expect(url).toContain('/me/calendarView');
+    expect(url).toContain('startDateTime=');
+    const ev = (out as { result: { events: Array<Record<string, unknown>> } }).result.events[0];
+    expect(ev).toMatchObject({
+      id: 'e2',
+      start: '2026-07-20T15:00:00.0000000Z', // UTC zone stamped back on
+      showAs: 'tentative',
+      responseStatus: 'tentativelyAccepted',
+      joinUrl: 'https://teams.example/j',
+      isAllDay: false,
+    });
+  });
 });

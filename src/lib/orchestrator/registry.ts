@@ -122,7 +122,6 @@ const taskCreateShape = {
   status: taskStatus.optional(),
   energy: taskEnergy.nullable().optional(),
   effort: taskEffort.nullable().optional(),
-  estimatedMinutes: z.number().int().positive().nullable().optional(),
   hardDeadline: z.string().nullable().optional(),
   reminderAt: z.string().nullable().optional(),
   recurrence: z.string().nullable().optional(),
@@ -898,6 +897,44 @@ const reconcile_deck_action = defineAction({
     ensureCalendarProvider();
     const { reconcileDeckWithExternalChanges } = await import('@/lib/deck/reconcile-external');
     return reconcileDeckWithExternalChanges({ inFocus: input.in_focus });
+  },
+});
+
+const get_day_shape_action = defineAction({
+  name: 'get_day_shape',
+  description:
+    "The user's day shape for a date or range: calendar commitments, free gaps, and free " +
+    'minutes, already computed. Use this for anything about time or availability. Never ' +
+    'compute free/busy from raw calendar events yourself.',
+  params: {
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .describe('YYYY-MM-DD, defaults to today'),
+    days: z.number().int().min(1).max(7).optional().describe('Range length, defaults to 1'),
+  },
+  handler: async (_ctx, { date, days }) => {
+    // Lazy: the day-shape service reaches the connectors runtime — keep it out
+    // of the CLI boot graph (same pattern as the deck actions above).
+    const { getCalendarRange } = await import('@/lib/calendar/service');
+    const { formatGap } = await import('@/lib/deck/calendar');
+    const r = await getCalendarRange({ start: date, days: days ?? 1 });
+    return {
+      status: r.status,
+      asOf: r.asOf,
+      workday: `${r.workday.start}-${r.workday.end}`,
+      days: r.days.map((d) => ({
+        date: d.date,
+        allDay: d.allDay.map((e) => ({ title: e.title, start: e.start, end: e.end })),
+        busy: d.events
+          .filter((e) => e.countsAsBusy)
+          .map((e) => ({ title: e.title, start: e.start, end: e.end, source: e.providerId })),
+        freeGaps: d.gaps.map(formatGap),
+        freeMinutes: d.freeMinutes,
+        largestGapMinutes: d.largestGapMinutes,
+      })),
+    };
   },
 });
 
@@ -1753,6 +1790,7 @@ export const actions = [
   update_deck_action,
   regenerate_deck_action,
   reconcile_deck_action,
+  get_day_shape_action,
   search_action,
   get_user_state_action,
   update_user_state_action,
