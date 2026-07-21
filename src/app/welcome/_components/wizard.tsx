@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
@@ -10,6 +10,7 @@ import { StepYou } from './step-you';
 import { StepAreas } from './step-areas';
 import { StepAgent } from './step-agent';
 import { StepImport } from './step-import';
+import { StepConnect } from './step-connect';
 import { StepLaunch } from './step-launch';
 import { STEPS, type WizardState, type StepId } from './types';
 import {
@@ -33,12 +34,40 @@ const INITIAL_STATE: WizardState = {
   importSkipped: true,
 };
 
+/** Wizard state survives full-page round trips (the Connect step's OAuth
+ *  redirect leaves and re-enters the app) via sessionStorage. */
+const STORAGE_KEY = 'flow.welcome.wizard';
+
 export function Wizard() {
   const router = useRouter();
   const [current, setCurrent] = useState<StepId>('you');
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as { state?: WizardState; current?: StepId };
+        if (saved.state) setState({ ...INITIAL_STATE, ...saved.state });
+        if (saved.current && STEPS.some((s) => s.id === saved.current)) setCurrent(saved.current);
+      }
+    } catch {
+      // corrupt or unavailable storage — start fresh
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ state, current }));
+    } catch {
+      // storage unavailable — the wizard still works, minus OAuth resilience
+    }
+  }, [state, current, hydrated]);
 
   const index = STEPS.findIndex((s) => s.id === current);
   const step = STEPS[index];
@@ -160,6 +189,11 @@ export function Wizard() {
         throw new Error('Failed to save setup');
       }
 
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // ignore
+      }
       router.replace('/');
       router.refresh();
     } catch (err) {
@@ -167,6 +201,8 @@ export function Wizard() {
       setLaunching(false);
     }
   };
+
+  if (!hydrated) return null;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-xl flex-col px-6 py-10">
@@ -207,6 +243,7 @@ export function Wizard() {
         {current === 'areas' && <StepAreas state={state} update={update} />}
         {current === 'agent' && <StepAgent state={state} update={update} />}
         {current === 'import' && <StepImport />}
+        {current === 'connect' && <StepConnect />}
         {current === 'launch' && <StepLaunch state={state} />}
       </main>
 

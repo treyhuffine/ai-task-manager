@@ -795,3 +795,16 @@ event, not an empty morning), and the end of the day. The 9:00-18:00 defaults in
 `user_state.workdayStart/End` remain the deliberately-deferred deck-sizing
 placeholder from deck-proactive-spec — surfacing them as a user setting is a
 small follow-up when wanted.
+
+**Follow-up 4 (no calendar connected):** honest degradation was already
+right (surfaces hide, deck sizes to manual minutes, `get_day_shape` returns
+`no_providers`) — the gap was discovery. The rule: **invite once, where the
+value would appear, dismiss forever; chrome never nags.** Three pieces: a
+dismissible one-line invite in the deck strip's slot (`flow.calendar.inviteDismissed`,
+permanent), a skippable Connect step in the onboarding wizard (calendar-only
+scopes, Google + Microsoft), and the HUD stays silent until a calendar
+exists. Supporting mechanics: `POST /connectors/connect` accepts a
+same-origin `returnTo` parked in a short-lived HttpOnly cookie the callback
+honors and clears (so onboarding OAuth returns to `/welcome`), and the
+wizard persists state + step in sessionStorage to survive the OAuth
+round trip.

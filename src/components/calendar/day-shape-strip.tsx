@@ -12,8 +12,8 @@
  * deck, so deck and calendar end up side by side).
  */
 
-import { useMemo } from 'react';
-import { Sparkles } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { CalendarPlus, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDayShape } from '@/hooks/use-day-shape';
@@ -21,6 +21,7 @@ import { todayLocalDate } from '@/lib/deck/date';
 import { formatMinutes, minutesToLabel, parseHhMm } from '@/lib/deck/calendar';
 import { eventWindowOnDate, stripSegments } from '@/lib/calendar/layout';
 import { pickPairing, type PairableItem } from '@/lib/calendar/pairing';
+import { openSettings } from '@/components/settings/settings-store';
 import {
   Tooltip,
   TooltipContent,
@@ -39,6 +40,19 @@ interface DayShapeStripProps {
   className?: string;
 }
 
+/** The invite shows exactly once per browser: dismissing it is permanent.
+ *  Chrome never nags — the surfaces simply appear when a calendar exists. */
+const INVITE_DISMISSED_KEY = 'flow.calendar.inviteDismissed';
+
+function readInviteDismissed(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(INVITE_DISMISSED_KEY) === 'true';
+  } catch {
+    return true;
+  }
+}
+
 export function DayShapeStrip({
   items,
   showPairing = true,
@@ -48,6 +62,7 @@ export function DayShapeStrip({
   const today = todayLocalDate();
   const { data } = useDayShape(today, 1);
   const { panelATab, panelBTab, setPanelTab } = useDashboard();
+  const [inviteDismissed, setInviteDismissed] = useState(readInviteDismissed);
 
   const day = data?.days[0];
   const segments = useMemo(
@@ -62,7 +77,44 @@ export function DayShapeStrip({
     [showPairing, day, items, now.getMinutes()],
   );
 
-  if (!data || data.status === 'no_providers') return null;
+  if (!data) return null;
+
+  // No calendar yet: one quiet, dismissible invitation in the place the day
+  // shape would live — the self-demonstrating pitch. Only in the deck
+  // placement (showPairing), never in the peek.
+  if (data.status === 'no_providers') {
+    if (!showPairing || inviteDismissed) return null;
+    return (
+      <div className={cn('flex items-center gap-2 px-4 py-1.5 border-b border-border/50', className)}>
+        <CalendarPlus className="size-3 shrink-0 text-muted-foreground/60" />
+        <span className="flex-1 truncate text-[10px] text-muted-foreground">
+          Connect your calendar to see your day here
+        </span>
+        <button
+          type="button"
+          onClick={() => openSettings('connectors')}
+          className="shrink-0 text-[10px] font-medium text-primary hover:underline"
+        >
+          Connect
+        </button>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={() => {
+            try {
+              window.localStorage.setItem(INVITE_DISMISSED_KEY, 'true');
+            } catch {
+              // storage unavailable — dismiss for this session only
+            }
+            setInviteDismissed(true);
+          }}
+          className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+    );
+  }
 
   const wdStart = parseHhMm(data.workday.start);
   const wdEnd = parseHhMm(data.workday.end);
