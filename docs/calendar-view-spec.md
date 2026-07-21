@@ -808,3 +808,13 @@ same-origin `returnTo` parked in a short-lived HttpOnly cookie the callback
 honors and clears (so onboarding OAuth returns to `/welcome`), and the
 wizard persists state + step in sessionStorage to survive the OAuth
 round trip.
+
+**Follow-up 5 (revises follow-up 4):** the HUD no longer stays silent when
+no calendar is connected — decided this is a key feature people would never
+discover otherwise. The button renders as a dashed invitation ("Connect
+your calendar") opening a small pitch popover with Connect and "Don't show
+this again". Dismissal is ONE shared concept (`src/components/calendar/invite.ts`):
+declining the invitation anywhere (HUD popover or deck strip X) hides it
+everywhere, permanently, with a window event syncing mounted surfaces.
+After dismissal the connect paths remain: onboarding, the calendar tab CTA,
+and Settings.

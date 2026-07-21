@@ -5,20 +5,26 @@
  * every surface including ExecutionView. The label IS the glance ("Standup in
  * 40m"); clicking opens a peek popover with two doors: Day view (navigates to
  * the calendar tab) and Week view (opens the large overlay in place, so a
- * look-ahead never yanks you out of an execution). Hidden entirely when no
- * calendar is connected.
+ * look-ahead never yanks you out of an execution).
+ *
+ * With no calendar connected it shows a dismissible invitation instead of
+ * hiding — this is a key feature people would otherwise never discover. One
+ * "Don't show this again" and it stays gone (shared flag with the deck
+ * strip's invite).
  */
 
 import { useEffect, useState } from 'react';
 import { Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { openSettings } from '@/components/settings/settings-store';
 import { useDayShape, usePrefetchDayShape } from '@/hooks/use-day-shape';
 import { hudLabel } from '@/lib/calendar/hud';
 import { todayLocalDate } from '@/lib/deck/date';
 import { mondayOf } from '@/lib/calendar/dates';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { requestCalendarDate } from './calendar-store';
+import { dismissCalendarInvite, readInviteDismissed, subscribeInviteDismissed } from './invite';
 import { HudDayPeek } from './hud-day-peek';
 import { WeekOverlay } from './week-overlay';
 
@@ -32,6 +38,9 @@ export function HudDayButton() {
   const { setActiveView, setPanelTab, openTask } = useDashboard();
   const [open, setOpen] = useState(false);
   const [weekOpen, setWeekOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteDismissed, setInviteDismissed] = useState(readInviteDismissed);
+  useEffect(() => subscribeInviteDismissed(() => setInviteDismissed(true)), []);
 
   // The countdown re-derives from cached data on a local tick — no refetch.
   const [, setTick] = useState(0);
@@ -40,7 +49,56 @@ export function HudDayButton() {
     return () => clearInterval(timer);
   }, []);
 
-  if (!data || data.status === 'no_providers') return null;
+  if (!data) return null;
+
+  // No calendar yet: the button becomes the invitation, until connected or
+  // explicitly declined.
+  if (data.status === 'no_providers') {
+    if (inviteDismissed) return null;
+    return (
+      <Popover open={inviteOpen} onOpenChange={setInviteOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 h-7 px-2 rounded-lg border border-dashed border-border text-[11px] font-medium text-muted-foreground hover:text-foreground transition-all"
+          >
+            <Calendar size={12} />
+            <span>Connect your calendar</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" sideOffset={6} className="w-72 p-3">
+          <p className="text-sm font-medium text-foreground">Your day, at a glance</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Connect a calendar and this becomes a live glance: your next event, a
+            countdown when one is close, and full day and week views from anywhere.
+            Read-only.
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setInviteOpen(false);
+                openSettings('connectors');
+              }}
+              className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity"
+            >
+              Connect
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setInviteOpen(false);
+                dismissCalendarInvite();
+              }}
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Don't show this again
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
+  }
 
   const { text, tone } = hudLabel(data.days[0], data.status, new Date());
   const stale = Date.now() - Date.parse(data.asOf) > STALE_MS;
