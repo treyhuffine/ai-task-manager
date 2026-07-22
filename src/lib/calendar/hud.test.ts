@@ -38,6 +38,29 @@ describe('hudLabel', () => {
     expect(hudLabel(day([standup]), 'ok', at(10, 10)).text).toBe('Standup ends 10:30 AM');
   });
 
+  it('over an hour away → hours and minutes, not raw minutes', () => {
+    const late = ev('Eng Sync', `${DATE}T10:27:00`, `${DATE}T11:00:00`);
+    expect(hudLabel(day([late]), 'ok', at(9)).text).toBe('Eng Sync in 1h 27m');
+    const exact = ev('Review', `${DATE}T10:00:00`, `${DATE}T11:00:00`);
+    expect(hudLabel(day([exact]), 'ok', at(9)).text).toBe('Review in 1h');
+  });
+
+  it('overlapping meetings → the soonest end wins, with a marker for the rest', () => {
+    const long = ev('Eng Sync', `${DATE}T10:00:00`, `${DATE}T11:30:00`);
+    const short = ev('Standup 2', `${DATE}T10:00:00`, `${DATE}T10:30:00`);
+    expect(hudLabel(day([long, short]), 'ok', at(10, 10)).text).toBe(
+      'Standup 2 ends 10:30 AM · +1 now',
+    );
+  });
+
+  it('an upcoming start beats a later ongoing end (a meeting you could miss)', () => {
+    const offsite = ev('Offsite', `${DATE}T09:00:00`, `${DATE}T12:00:00`);
+    const incoming = ev('Design review', `${DATE}T10:00:00`, `${DATE}T10:30:00`);
+    const s = hudLabel(day([offsite, incoming]), 'ok', at(9, 52));
+    expect(s.text).toBe('Design review in 8m');
+    expect(s.tone).toBe('warning');
+  });
+
   it('next within 90 minutes → countdown', () => {
     const s = hudLabel(day([standup]), 'ok', at(9, 20));
     expect(s.text).toBe('Standup in 40m');

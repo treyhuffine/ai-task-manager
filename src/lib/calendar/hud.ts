@@ -3,7 +3,7 @@
  * feeds it the cached day shape and the current time, and re-evaluates on a
  * local timer. Copy rules: no em dashes, no semicolons in output strings.
  */
-import { minutesToLabel } from '@/lib/deck/calendar';
+import { formatMinutes, minutesToLabel } from '@/lib/deck/calendar';
 import { eventWindowOnDate } from './layout';
 import type { CalendarDay, CalendarReadStatus } from './types';
 
@@ -39,14 +39,27 @@ export function hudLabel(
 
   if (windows.length === 0) return { text: 'Nothing scheduled today', tone: 'default' };
 
-  const ongoing = windows.find(
+  const ongoing = windows.filter(
     (w) => w.window.startMinute <= nowMinute && nowMinute < w.window.endMinute,
   );
-  if (ongoing) {
-    return { text: `${ongoing.title} ends ${minutesToLabel(ongoing.window.endMinute)}`, tone: 'default' };
-  }
-
   const next = windows.find((w) => w.window.startMinute > nowMinute);
+
+  // The label tracks the NEXT BOUNDARY — the earliest moment anything
+  // changes. Overlapping meetings: the soonest END wins, with a marker for
+  // the rest. And an upcoming start beats a later ongoing end — a meeting
+  // you could miss matters more than when the current one wraps.
+  if (ongoing.length > 0) {
+    const soonest = ongoing.reduce((min, w) =>
+      w.window.endMinute < min.window.endMinute ? w : min,
+    );
+    if (!next || soonest.window.endMinute <= next.window.startMinute) {
+      const more = ongoing.length - 1;
+      return {
+        text: `${soonest.title} ends ${minutesToLabel(soonest.window.endMinute)}${more > 0 ? ` · +${more} now` : ''}`,
+        tone: 'default',
+      };
+    }
+  }
   // Status, not an instruction ('Clear rest of day' read like a command to
   // empty the calendar), and 'scheduled' not 'meetings' — events aren't all
   // meetings.
@@ -54,8 +67,10 @@ export function hudLabel(
 
   const minutesUntil = next.window.startMinute - nowMinute;
   if (minutesUntil <= SOON_MINUTES) {
+    // Past the hour, raw minutes stop being readable ("in 87m") — formatMinutes
+    // renders "1h 27m".
     return {
-      text: `${next.title} in ${minutesUntil}m`,
+      text: `${next.title} in ${minutesUntil >= 60 ? formatMinutes(minutesUntil) : `${minutesUntil}m`}`,
       tone: minutesUntil <= IMMINENT_MINUTES ? 'warning' : 'default',
     };
   }
