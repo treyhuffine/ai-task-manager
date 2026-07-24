@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, listChatSessions } from '@/lib/db/queries';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
+import { isRunning } from '@/lib/executor/adapter';
 
 /**
  * Past + current chats for the execution that `:id` belongs to, hottest first.
@@ -17,6 +18,10 @@ import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
  *
  * `unreadMarkerAt` / `lastViewedAt` ride along so the dropdown can run
  * `isSessionUnread` client-side without a second round trip.
+ *
+ * `running` is the executor's in-memory turn state (same source as
+ * `/runtime-status`) so the tab strip can mark which parallel chats have
+ * an agent actively working. Free — no DB read, no subprocess poke.
  */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -35,6 +40,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       unreadMarkerAt: s.unreadMarkerAt,
       lastViewedAt: s.lastViewedAt,
       isCurrent: s.id === id,
+      running: isRunning(s.id),
+      tabSortKey: s.tabSortKey,
     }));
     return Response.json({ sessions });
   } catch (err) {

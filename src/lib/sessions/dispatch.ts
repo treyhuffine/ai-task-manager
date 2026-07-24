@@ -20,12 +20,14 @@
  */
 
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { uuidv7 } from 'uuidv7';
 import {
   getWorkspace,
   getExecution,
   archiveChatSession,
+  unarchiveChatSession,
   getChatSessionWithExecution,
   getUserState,
   listChatSessions,
@@ -527,6 +529,29 @@ export async function continueExecutionSession(
   // Live-mode sessions never tore down their "worktree" (it's ws.cwd) so
   // there's nothing to re-provision. Treat Continue as a plain unarchive.
   const isLive = session.worktreePath != null && session.worktreePath === ws.cwd;
+
+  // Sibling-chat resume: the execution is still active and its worktree is
+  // right there on disk — the user just navigated to an archived chat of a
+  // live execution (chat tab strip, history dropdown). Only the chat row
+  // needs reactivating, and only that one row. Falling through to the
+  // reprovision path here would be destructive: `resetExecutionForReprovision`
+  // nulls the live worktree pointer, and `resumeWorktreeForSession` refuses
+  // a path that already exists, so the fallthrough would mint a fresh
+  // worktree off base and abandon whatever in-flight work the live worktree
+  // holds. The `unarchiveExecution` cascade is also wrong for this case —
+  // it would resurrect every archived sibling, not just the one opened.
+  const worktreeAlive =
+    session.worktreePath != null && (isLive || existsSync(session.worktreePath));
+  if (session.execution?.status === 'active' && worktreeAlive) {
+    if (session.status === 'archived') {
+      unarchiveChatSession(args.sessionId);
+      // The chat's harness process was torn down when it was archived.
+      // Dropping any stale in-memory handle guarantees the next dispatch
+      // fresh-spawns (and resumes off the persisted external session id).
+      invalidateAgentSession(args.sessionId);
+    }
+    return getChatSessionWithExecution(args.sessionId);
+  }
 
   if (session.status === 'archived') {
     unarchiveExecution(session.executionId);

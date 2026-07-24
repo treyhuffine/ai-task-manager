@@ -963,6 +963,13 @@ export const chatSessions = sqliteTable(
       enum: ['bypass', 'default', 'accept_edits', 'plan'],
     }),
 
+    // Manual chat-tab order within an execution. Fractional index string
+    // (same scheme as `tasks.sort_key`) so a tab can be dragged between two
+    // neighbors without renumbering the rest. Nullable: unset tabs fall
+    // back to `startedAt` (creation) order, and the first drag backfills
+    // keys for the visible set. Only meaningful for execution chats.
+    tabSortKey: text(),
+
     startedAt: text()
       .notNull()
       .default(sql`(datetime('now'))`),

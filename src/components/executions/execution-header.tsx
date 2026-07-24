@@ -22,7 +22,6 @@ import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
-import { ExecutionChatControls } from './execution-chat-controls';
 import { deriveExecutionHeaderStatus } from './execution-header-status';
 import { resumeCommandForHarness } from '@/lib/agents/registry';
 
@@ -56,10 +55,6 @@ interface ExecutionHeaderProps {
   referencesOpen?: boolean;
   /** True when the scratchpad pane is currently visible. */
   scratchpadOpen?: boolean;
-  /** Start a fresh chat on this execution's worktree. */
-  onNewChat?: () => void;
-  /** A new-chat / provider-switch is in flight. */
-  newChatPending?: boolean;
   /** Live runtime state from this session's dedicated status stream. */
   isRunning: boolean;
   /** Authoritative active child/process state from this session's runtime stream. */
@@ -79,8 +74,6 @@ export function ExecutionHeader({
   onToggleScratchpad,
   referencesOpen,
   scratchpadOpen,
-  onNewChat,
-  newChatPending,
   isRunning,
   hasBackgroundTasks,
 }: ExecutionHeaderProps) {
@@ -485,11 +478,8 @@ export function ExecutionHeader({
 
         {statusPill}
 
-        <ExecutionChatControls
-          sessionId={session.id}
-          onNewChat={onNewChat}
-          newChatPending={newChatPending}
-        />
+        {/* Chat management (tabs, new chat, history) lives in the chat
+            tab strip below the header — see ExecutionChatTabs. */}
 
         {/* Session menu — sits adjacent to the label so all the
             "passive info + meta actions" live in one spot. Details

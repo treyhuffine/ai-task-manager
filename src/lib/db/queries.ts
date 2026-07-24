@@ -3288,6 +3288,43 @@ export function archiveChatSession(id: string): ChatSessionRecord | null {
   return updateChatSession(id, { status: 'archived', archivedAt: new Date().toISOString() });
 }
 
+/**
+ * Reactivate a single archived chat without touching its siblings or the
+ * execution row. This is the sibling-chat resume primitive: opening an
+ * archived chat of a still-active execution flips just that one chat back
+ * on. The execution-wide cascade (which resurrects EVERY archived chat)
+ * lives in `unarchiveExecution` and is only right when the whole execution
+ * was archived.
+ */
+export function unarchiveChatSession(id: string): ChatSessionRecord | null {
+  return updateChatSession(id, { status: 'active', archivedAt: null });
+}
+
+/**
+ * Hard-delete a chat that never received a single event. Used when the
+ * user opens a new chat while sitting on a blank one — the blank chat was
+ * almost certainly accidental, so we remove it outright rather than leave
+ * an empty tab (and empty history entry) behind. Returns false and leaves
+ * the row untouched the moment there's any transcript to preserve, so this
+ * can never destroy real work.
+ *
+ * Safe as a hard delete: FK enforcement is ON, so the only children an
+ * empty chat could have (chat_events, chat_refs, external_session_imports)
+ * cascade, and the SET-NULL refs (execution takeover pointer, runs,
+ * entity_versions) detach cleanly. Chat sessions carry no embedding or
+ * markdown mirror, so there's nothing else to reap.
+ */
+export function deleteChatSessionIfEmpty(id: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ n: sql<number>`count(*)` })
+    .from(chatEvents)
+    .where(eq(chatEvents.sessionId, id))
+    .get();
+  if ((row?.n ?? 0) > 0) return false;
+  return db.delete(chatSessions).where(eq(chatSessions.id, id)).run().changes > 0;
+}
+
 // Takeover lifecycle moved to the execution: see `startExecutionTakeover`,
 // `clearExecutionTakeover`, and `findChatSessionByTakeoverToken` in the
 // Executions section above. The token + branch + baseSha now live on the
@@ -3409,9 +3446,10 @@ export function createExecutionSession(args: {
  * `createExecutionWithChat` (which mints a *new* execution): here the artifact
  * is reused, so the agent picks up the existing code in place. This is the
  * "new chat" / "switch provider" primitive for the execution view, mirroring
- * the scheduled-fire pattern (one execution hosts many chats). The caller is
- * responsible for archiving + tearing down the prior chat. Returns null if the
- * execution is gone.
+ * the scheduled-fire pattern (one execution hosts many chats). Prior chats
+ * stay open — parallel chats on one worktree are the normal mode, and
+ * closing one is an explicit user action (`close-chat`), never a side
+ * effect here. Returns null if the execution is gone.
  */
 export function createExecutionChat(args: {
   executionId: string;

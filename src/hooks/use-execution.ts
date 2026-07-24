@@ -6,6 +6,7 @@ import {
   type FileResponse,
   type ResolvePendingBody,
   type WipApplyResult,
+  type ExecutionChatHistoryEntry,
 } from '@/lib/api/sessions';
 import type { HarnessId } from '@/lib/agents/registry';
 import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
@@ -561,18 +562,80 @@ export function useNewExecutionChat(id: string) {
       qc.setQueryData(SESSION_KEY(r.session.id), r.session);
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
-      qc.invalidateQueries({ queryKey: ['session', id, 'history'] });
+      // Refresh the execution's chat-tab list (new sibling appears; an
+      // accidental empty chat may have been deleted server-side). Keyed by
+      // execution, so invalidate by shape.
+      qc.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'execution' && q.queryKey[2] === 'chats',
+      });
     },
   });
 }
 
-/** Past + current chats for an execution (history dropdown). */
-export function useExecutionChatHistory(id: string | null, enabled = true) {
+/** True for any chat tab strip's chat-list query, regardless of execution. */
+const isExecutionChatsQuery = (q: { queryKey: readonly unknown[] }) =>
+  q.queryKey[0] === 'execution' && q.queryKey[2] === 'chats';
+
+type ChatHistoryData = { sessions: ExecutionChatHistoryEntry[] };
+
+/**
+ * The chats of an execution (chat tab strip), keyed by EXECUTION not by
+ * the chat being viewed. One stable cache entry per execution shared
+ * across all its chats — switching chats reuses it (no blank refetch, no
+ * duplicate per-chat entries), and `isCurrent` is recomputed client-side
+ * from whichever chat is on screen. `representativeSessionId` is any live
+ * chat of the execution (the viewed one) used only to hit the endpoint;
+ * every sibling returns the same list.
+ */
+export function useExecutionChats(
+  executionId: string | null,
+  representativeSessionId: string | null,
+  opts?: { refetchInterval?: number },
+) {
   return useQuery({
-    queryKey: ['session', id, 'history'],
-    queryFn: () => sessionsApi.chatHistory(id!),
-    enabled: enabled && !!id,
+    queryKey: ['execution', executionId, 'chats'],
+    queryFn: () => sessionsApi.chatHistory(representativeSessionId!),
+    enabled: !!executionId && !!representativeSessionId,
     staleTime: 10_000,
+    // Belt-and-suspenders poll for the executor's in-memory `running`
+    // flag; the global session stream drives the common-case refresh.
+    refetchInterval: opts?.refetchInterval,
+  });
+}
+
+/**
+ * Close (archive) a single chat of an execution — the tab strip's X.
+ * Optimistic: the server tears the harness down in the background but the
+ * tab must vanish on click, so we flip the chat to archived across every
+ * execution chat-list cache immediately and roll back on error.
+ */
+export function useCloseExecutionChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chatId: string) => sessionsApi.closeChat(chatId),
+    onMutate: async (chatId) => {
+      await qc.cancelQueries({ predicate: isExecutionChatsQuery });
+      const prev = qc.getQueriesData<ChatHistoryData>({ predicate: isExecutionChatsQuery });
+      qc.setQueriesData<ChatHistoryData>({ predicate: isExecutionChatsQuery }, (old) =>
+        old
+          ? {
+              sessions: old.sessions.map((s) =>
+                s.id === chatId ? { ...s, status: 'archived', running: false } : s,
+              ),
+            }
+          : old,
+      );
+      return { prev };
+    },
+    onError: (_e, _chatId, ctx) => {
+      ctx?.prev?.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: (_r, _e, chatId) => {
+      qc.invalidateQueries({ queryKey: SESSION_KEY(chatId) });
+      qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
+      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      qc.invalidateQueries({ predicate: isExecutionChatsQuery });
+    },
   });
 }
 

@@ -51,6 +51,8 @@ interface PatchBody {
   effort?: EffortLevel | null;
   /** Explicit PR link. `null` clears the link. */
   prNumber?: number | null;
+  /** Manual chat-tab order (fractional index). `null` resets to creation order. */
+  tabSortKey?: string | null;
 }
 
 function selectionChangeWhileRunningResponse(): Response {
@@ -86,6 +88,11 @@ export async function PATCH(
     if ('label' in body) {
       const trimmed = typeof body.label === 'string' ? body.label.trim() : null;
       updates.label = trimmed || null;
+    }
+    // Pure ordering field — no executor recycle, no running-guard.
+    // Reordering tabs mid-turn is harmless.
+    if ('tabSortKey' in body) {
+      updates.tabSortKey = typeof body.tabSortKey === 'string' ? body.tabSortKey : null;
     }
     // Track whether any executor-relevant field changed; if so, recycle
     // the cached AgentSession so the next dispatch spawns a fresh CLI
