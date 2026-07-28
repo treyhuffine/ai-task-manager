@@ -92,6 +92,10 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
       case 'hardDeadline':  return [sql`${tasks.hardDeadline} ASC NULLS LAST`, desc(tasks.createdAt)];
       case 'createdAt':     return [desc(tasks.createdAt)];
       case 'updatedAt':     return [desc(tasks.updatedAt)];
+      // Named explicitly, not just the fallback: callers that specifically want
+      // the user's drag order (the launcher does) shouldn't silently change
+      // behavior if this default is ever repointed.
+      case 'sortKey':       return [sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt)];
       default:               return [sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt)];
     }
   })();

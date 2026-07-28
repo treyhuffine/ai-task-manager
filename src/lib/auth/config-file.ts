@@ -30,6 +30,12 @@ export interface AuthConfig {
    *  settings click. Null = never chosen (treated as off). See
    *  `src/lib/auth/auto-tunnel.ts`. */
   autoTunnel: boolean | null;
+  /** Custom beamd tunnel name (a single DNS label) for THIS machine's app
+   *  tunnel. Null = derive it from the app short id. Needed whenever one
+   *  beamd account runs the app on more than one machine — the default name
+   *  is identical everywhere, so the second machine gets `name_taken`. See
+   *  `src/lib/auth/beamd-base-url.ts`. */
+  tunnelName: string | null;
 }
 
 export function getAuthConfigDir(): string {
@@ -56,6 +62,7 @@ export function readAuthConfig(): AuthConfig | null {
       lastPort: parsed.lastPort ?? null,
       staticUrl: parsed.staticUrl ?? null,
       autoTunnel: parsed.autoTunnel ?? null,
+      tunnelName: parsed.tunnelName ?? null,
     };
   } catch (err) {
     console.error('[auth] failed to read config.json:', err);
@@ -84,6 +91,7 @@ export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
     lastPort: pick('lastPort'),
     staticUrl: pick('staticUrl'),
     autoTunnel: pick('autoTunnel'),
+    tunnelName: pick('tunnelName'),
   };
 
   const p = getAuthConfigPath();

@@ -27,14 +27,13 @@ import { NeedsReviewSection } from './needs-review-section';
 import { WorkspaceRow } from './workspace-row';
 import { WorkspaceCreateModal } from './workspace-create-modal';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
-import { CreateFromModal } from './create-from-modal';
-import { LiveModeModal } from './live-mode-modal';
 import { useCreateExecution, useBulkArchiveSessions } from '@/hooks/use-workspaces';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
   WorkspaceSelectionProvider,
   useWorkspaceSelection,
 } from './workspace-selection-context';
+import { openLauncher } from './launcher/launcher-store';
 
 /**
  * Top-level container for the workspace tree in the left rail. Owns the
@@ -59,14 +58,6 @@ function WorkspaceNavInner() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsId, setSettingsId] = useState<string | null>(null);
-  const [createFromId, setCreateFromId] = useState<string | null>(null);
-  const [liveModeId, setLiveModeId] = useState<string | null>(null);
-  const createFromName = createFromId
-    ? workspaces?.find((w) => w.id === createFromId)?.name ?? null
-    : null;
-  const liveModeName = liveModeId
-    ? workspaces?.find((w) => w.id === liveModeId)?.name ?? null
-    : null;
   const { setActiveView } = useDashboard();
   const createExecution = useCreateExecution();
 
@@ -124,22 +115,6 @@ function WorkspaceNavInner() {
         },
       },
     );
-  };
-
-  const handleLiveMode = (workspaceId: string) => {
-    const ws = workspaces?.find((w) => w.id === workspaceId);
-    // Workspaces the user has already acknowledged skip the explainer and
-    // start a Live execution directly. Everyone else gets the modal, which
-    // owns the create + the "don't ask again" opt-in.
-    if (ws?.skipLiveConfirm) {
-      if (createExecution.isPending) return;
-      createExecution.mutate(
-        { workspaceId, liveMode: true },
-        { onSuccess: (session) => setActiveView(session.id) },
-      );
-      return;
-    }
-    setLiveModeId(workspaceId);
   };
 
   const sensors = useSensors(
@@ -261,8 +236,7 @@ function WorkspaceNavInner() {
                   workspace={ws}
                   onOpenSettings={setSettingsId}
                   onCreateExecution={handleCreateExecution}
-                  onOpenCreateFrom={setCreateFromId}
-                  onOpenLiveMode={handleLiveMode}
+                  onOpenLauncher={openLauncher}
                 />
               ))}
             </SortableContext>
@@ -272,16 +246,6 @@ function WorkspaceNavInner() {
 
       <WorkspaceCreateModal open={createOpen} onOpenChange={setCreateOpen} />
       <WorkspaceSettingsSheet workspaceId={settingsId} onClose={() => setSettingsId(null)} />
-      <CreateFromModal
-        workspaceId={createFromId}
-        workspaceName={createFromName}
-        onClose={() => setCreateFromId(null)}
-      />
-      <LiveModeModal
-        workspaceId={liveModeId}
-        workspaceName={liveModeName}
-        onClose={() => setLiveModeId(null)}
-      />
     </div>
   );
 }

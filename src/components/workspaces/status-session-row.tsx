@@ -15,8 +15,7 @@ interface StatusSessionRowProps {
   bucket: 'needsApproval' | 'working' | 'unread' | 'waiting';
   isUnread: boolean;
   onOpenWorkspaceSettings?: (workspaceId: string) => void;
-  onCreateExecution?: (workspaceId: string) => void;
-  onOpenCreateFrom?: (workspaceId: string) => void;
+  onOpenLauncher?: (workspaceId: string) => void;
 }
 
 /**
@@ -30,8 +29,7 @@ export function StatusSessionRow({
   bucket,
   isUnread,
   onOpenWorkspaceSettings,
-  onCreateExecution,
-  onOpenCreateFrom,
+  onOpenLauncher,
 }: StatusSessionRowProps) {
   const { activeView, setActiveView } = useDashboard();
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
@@ -107,12 +105,10 @@ export function StatusSessionRow({
         <SessionRowMenu
           sessionId={session.id}
           workspaceId={session.workspaceId ?? null}
-          workspaceIsGit={session.workspaceIsGit ?? false}
-          isUnread={isUnread}
+            isUnread={isUnread}
           label={label}
           onOpenWorkspaceSettings={onOpenWorkspaceSettings}
-          onCreateExecution={onCreateExecution}
-          onOpenCreateFrom={onOpenCreateFrom}
+          onOpenLauncher={onOpenLauncher}
           className="absolute right-0 top-1/2 -translate-y-1/2"
         />
       </div>

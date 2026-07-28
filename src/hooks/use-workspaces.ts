@@ -9,6 +9,7 @@ import type {
   CreateWorkspaceInput,
   UpdateWorkspaceInput,
   WorkspaceStatus,
+  EffortLevel,
 } from '@/db/types';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
@@ -129,14 +130,31 @@ export function useCreateExecution() {
       baseBranch,
       prNumber,
       liveMode,
+      harness,
+      model,
+      modelVariant,
+      effort,
     }: {
       workspaceId: string;
       label?: string | null;
       baseBranch?: string | null;
       prNumber?: number | null;
       liveMode?: boolean;
+      harness?: string | null;
+      model?: string | null;
+      modelVariant?: string | null;
+      effort?: EffortLevel | null;
     }) =>
-      workspacesApi.createSession(workspaceId, { label, baseBranch, prNumber, liveMode }),
+      workspacesApi.createSession(workspaceId, {
+        label,
+        baseBranch,
+        prNumber,
+        liveMode,
+        harness,
+        model,
+        modelVariant,
+        effort,
+      }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, vars.workspaceId, 'sessions'] });
       qc.invalidateQueries({ queryKey: WORKSPACES_KEY });

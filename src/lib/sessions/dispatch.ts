@@ -54,7 +54,7 @@ import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateAgentSession, close as closeAgentSession } from '@/lib/executor/adapter';
-import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord } from '@/db/types';
 import { providerHarnessKey, providerIdForHarness } from '@/lib/agent-options';
 import { resolveAgentSelection } from '@/lib/agent-model-discovery';
 
@@ -87,11 +87,21 @@ export interface DispatchExecutionSessionArgs {
    *  label is later derived from the first user message. */
   label?: string | null;
   harness?: string;
-  /** Override the workspace's default base branch. Used by "Create
-   *  from → Branch" (e.g. `origin/feat-foo`) and "Create from → Issue"
-   *  (workspace default). Falls back to `workspace.baseBranch` when
-   *  null/empty. Ignored when `prNumber` is set — that path resolves
-   *  the base via a deterministic PR head fetch. */
+  /**
+   * Explicit agent selection from the launcher's model control. When
+   * omitted, the saved global default tuple is used (the historical
+   * behavior). `model` is only meaningful alongside a matching `harness`
+   * — the launcher always sends the pair, and `resolveAgentSelection`
+   * repairs a mismatch rather than dispatching an invalid model.
+   */
+  model?: string | null;
+  modelVariant?: string | null;
+  effort?: EffortLevel | null;
+  /** Override the workspace's default base branch. Used when the launcher
+   *  has a `base` chip attached from a branch pick (e.g. `origin/feat-foo`).
+   *  Falls back to `workspace.baseBranch` when null/empty. Ignored when
+   *  `prNumber` is set — that path resolves the base via a deterministic
+   *  PR head fetch. */
   baseBranch?: string | null;
   /** When set, this session was started from a GitHub PR. Server fetches
    *  `refs/pull/<N>/head` from the workspace remote and uses that SHA as
@@ -142,10 +152,16 @@ export async function dispatchExecutionSession(
   const providerId = providerIdForHarness(harness);
   const harnessSettings = ensureAgentHarnessSettings(providerId);
   const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
+  // Explicit args (the launcher's model control) beat the saved default
+  // tuple, which in turn beats the provider's own default.
   const selection = await resolveAgentSelection(providerId, {
-    model: (savedTupleMatchesProvider ? userState?.defaultAgentModel : null) ?? harnessSettings.defaultModel,
-    variant: harnessSettings.defaultVariant,
-    effort: (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null) ?? harnessSettings.defaultEffort,
+    model: args.model
+      ?? (savedTupleMatchesProvider ? userState?.defaultAgentModel : null)
+      ?? harnessSettings.defaultModel,
+    variant: args.modelVariant ?? harnessSettings.defaultVariant,
+    effort: args.effort
+      ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null)
+      ?? harnessSettings.defaultEffort,
   }, { cwd: ws.cwd, repairInvalidModel: true });
   const agent = getOrCreateDefaultExecutor(selection.harness);
   const sessionId = uuidv7();

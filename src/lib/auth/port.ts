@@ -37,3 +37,23 @@ export function getRunningPort(fallback: number = DEFAULT_PORT): number {
 export function setRunningPort(port: number): void {
   writeAuthConfig({ lastPort: port });
 }
+
+/**
+ * The port an inbound request was served on — what a tunnel must point at.
+ * Explicit $PORT wins, then the port in the request URL (right even when the
+ * server was started without $PORT), then the persisted/default port.
+ */
+export function portFromRequestUrl(url: string): number {
+  const envPort = Number(process.env.PORT);
+  if (Number.isFinite(envPort) && envPort > 0) return envPort;
+
+  let urlPort = NaN;
+  try {
+    urlPort = Number(new URL(url).port);
+  } catch {
+    // Fall through to the persisted port.
+  }
+  if (Number.isFinite(urlPort) && urlPort > 0) return urlPort;
+
+  return getRunningPort(process.env.NODE_ENV === 'development' ? DEV_PORT : DEFAULT_PORT);
+}

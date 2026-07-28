@@ -1,7 +1,7 @@
 /**
  * Pair base URLs.
  *
- *   GET     → { tunnel, lan, local }   // server-side-known base URLs
+ *   GET     → BaseUrlSnapshot          // server-side-known base URLs
  *   PATCH   { baseUrl } → same shape   // set/clear the tunnel URL
  *   DELETE  → clears tunnel URL
  *
@@ -11,25 +11,10 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import {
-  getRemoteBaseUrl,
-  setRemoteBaseUrl,
-  clearRemoteBaseUrl,
-  getLanBaseUrl,
-  getLocalBaseUrl,
-  getAutoTunnel,
-} from '@/lib/auth/bootstrap';
+import { setRemoteBaseUrl, clearRemoteBaseUrl } from '@/lib/auth/bootstrap';
+import { baseUrlSnapshot as snapshot } from '@/lib/auth/base-url-snapshot';
 
 export const runtime = 'nodejs';
-
-function snapshot() {
-  return {
-    tunnel: getRemoteBaseUrl(),
-    lan: getLanBaseUrl(),
-    local: getLocalBaseUrl(),
-    autoTunnel: getAutoTunnel(),
-  };
-}
 
 export function GET() {
   return NextResponse.json(snapshot());

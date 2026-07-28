@@ -18,11 +18,37 @@
 
 import { getAutoTunnel } from '@/lib/auth/bootstrap';
 import { getRunningPort, DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
-import { appBeamdTunnelName, openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
-import { beamdConnectedServer, beamdList } from '@/lib/preview/beamd/cli';
+import {
+  appBeamdTunnelName,
+  openAndSaveBeamdBaseUrl,
+  TUNNEL_NAME_ENV,
+} from '@/lib/auth/beamd-base-url';
+import { beamdConnectedServer, beamdList, BeamdCliError } from '@/lib/preview/beamd/cli';
 
 const KEEPALIVE_MS = 60_000;
 let started = false;
+/** Last failure kind logged, so a persistent problem isn't reprinted every tick. */
+let lastFailureCode: string | null = null;
+
+/**
+ * Log a failed bring-up once per distinct cause. A name collision is the one
+ * failure the user has to act on (two machines, one beamd account, same
+ * default name), so it gets the fix inline instead of a raw 502.
+ */
+function reportFailure(err: unknown): void {
+  const code = err instanceof BeamdCliError ? err.code : 'unknown';
+  if (code === lastFailureCode) return;
+  lastFailureCode = code;
+  const message = err instanceof Error ? err.message : String(err);
+  if (code === 'beamd_name_taken') {
+    console.warn(
+      `[auto-tunnel] ${message} Give this machine its own name in Settings > Devices > Remote base URL > Advanced, ` +
+        `or start it with ${TUNNEL_NAME_ENV}=<name>.`,
+    );
+    return;
+  }
+  console.warn(`[auto-tunnel] open failed (${code}): ${message}`);
+}
 
 /**
  * The port Flow is actually listening on at boot. Mirrors the base-url route:
@@ -61,8 +87,9 @@ async function ensureTunnelUp(): Promise<void> {
     );
     return;
   }
-  const { url } = await openAndSaveBeamdBaseUrl(resolvePort());
-  console.log(`[auto-tunnel] Flow reachable at ${url}`);
+  const { url, name } = await openAndSaveBeamdBaseUrl(resolvePort());
+  lastFailureCode = null;
+  console.log(`[auto-tunnel] Flow reachable at ${url} (tunnel "${name}")`);
 }
 
 /**
@@ -75,13 +102,13 @@ export function startAutoTunnel(): void {
   started = true;
 
   // Immediate bring-up when already opted in at boot (no-op otherwise).
-  void ensureTunnelUp().catch((err) => console.warn('[auto-tunnel] initial open failed', err));
+  void ensureTunnelUp().catch(reportFailure);
 
   const interval = setInterval(() => {
     if (!getAutoTunnel()) return;
     void (async () => {
       if (await tunnelIsHealthy()) return;
-      await ensureTunnelUp().catch((err) => console.warn('[auto-tunnel] reopen failed', err));
+      await ensureTunnelUp().catch(reportFailure);
     })();
   }, KEEPALIVE_MS);
   interval.unref?.();

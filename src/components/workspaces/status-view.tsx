@@ -1,10 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useRailSessions, useCreateExecution } from '@/hooks/use-workspaces';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
-import { CreateFromModal } from './create-from-modal';
 import { BucketSection } from './bucket-section';
 import { StatusSessionRow } from './status-session-row';
 import { BUCKET_CONFIG, BUCKET_ORDER, classifySession, type BucketId } from './bucket-config';
@@ -17,15 +17,7 @@ export function StatusView() {
   const { data, isLoading } = useRailSessions();
   const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
   const [settingsId, setSettingsId] = useState<string | null>(null);
-  const [createFromId, setCreateFromId] = useState<string | null>(null);
   const createExecution = useCreateExecution();
-
-  // Workspace name lookup for the CreateFromModal header. The rail
-  // already carries the join, so we read the name off the same data —
-  // no extra fetch.
-  const createFromName = createFromId
-    ? data?.sessions.find((s) => s.workspaceId === createFromId)?.workspaceName ?? null
-    : null;
 
   const handleCreateExecution = (workspaceId: string) => {
     if (createExecution.isPending) return;
@@ -111,8 +103,7 @@ export function StatusView() {
                   bucket={bucketId}
                   isUnread={bucketId === 'unread' || bucketId === 'needsApproval'}
                   onOpenWorkspaceSettings={setSettingsId}
-                  onCreateExecution={handleCreateExecution}
-                  onOpenCreateFrom={setCreateFromId}
+                  onOpenLauncher={openLauncher}
                 />
               ))}
             </BucketSection>
@@ -121,11 +112,6 @@ export function StatusView() {
       </div>
 
       <WorkspaceSettingsSheet workspaceId={settingsId} onClose={() => setSettingsId(null)} />
-      <CreateFromModal
-        workspaceId={createFromId}
-        workspaceName={createFromName}
-        onClose={() => setCreateFromId(null)}
-      />
     </>
   );
 }

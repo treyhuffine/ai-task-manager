@@ -2,14 +2,27 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Globe, Check, Loader2, Trash2, CheckCircle2, AlertCircle, WandSparkles, RefreshCw } from 'lucide-react';
+import {
+  Globe,
+  Check,
+  Loader2,
+  Trash2,
+  CheckCircle2,
+  AlertCircle,
+  WandSparkles,
+  RefreshCw,
+  ChevronRight,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { usePreviewSettings } from '@/hooks/use-preview';
 import { ApiError } from '@/lib/api/client';
-import { settingsApi } from '@/lib/api/settings';
+import { settingsApi, type PairBaseUrls } from '@/lib/api/settings';
+import { isValidPreviewLabel, MAX_LABEL_LENGTH } from '@/lib/preview/preview-name';
+import { tunnelHostPreview } from '@/lib/auth/tunnel-host';
 import { APP_SHORT_ID } from '@/constants/app';
+import { cn } from '@/lib/utils';
 import { setSettingsSection } from './settings-store';
 
 /**
@@ -120,6 +133,9 @@ export function RemoteBaseUrlSection() {
   const [draftOverride, setDraftOverride] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>({ status: 'idle' });
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [nameDraftOverride, setNameDraftOverride] = useState<string | null>(null);
+  const [nameNotice, setNameNotice] = useState<string | null>(null);
   const draft = draftOverride ?? saved ?? '';
 
   const saveMutation = useMutation({
@@ -138,17 +154,48 @@ export function RemoteBaseUrlSection() {
       queryClient.setQueryData(['settings', 'base-url'], res);
       if (res.tunnel) setTestResult({ status: 'ok', url: res.tunnel });
     },
+    onError: (err) => {
+      // A second machine on one beamd account collides on the default name —
+      // open Advanced so the fix is already on screen.
+      if (beamdErrorCode(err) === 'beamd_name_taken') setAdvancedOpen(true);
+    },
+  });
+
+  // Custom tunnel name (Advanced). The default is derived from the app id and
+  // is therefore identical on every machine, so anyone running a second
+  // instance on the same beamd account needs their own name here.
+  const nameSaved = data?.tunnelName ?? '';
+  const nameDraft = nameDraftOverride ?? nameSaved;
+  const nameNormalized = nameDraft.trim().toLowerCase();
+  const nameDirty = nameNormalized !== nameSaved;
+  const nameValid = nameNormalized === '' || isValidPreviewLabel(nameNormalized);
+  const nameLocked = data?.tunnelNameLocked ?? false;
+
+  const nameMutation = useMutation({
+    mutationFn: (value: string | null) => settingsApi.setTunnelName(value),
+    onSuccess: (res) => {
+      queryClient.setQueryData<PairBaseUrls>(['settings', 'base-url'], res);
+      setNameDraftOverride(null);
+      if (res.reopened) {
+        setTestResult({ status: 'ok', url: res.reopened.url });
+        setNameNotice(`Tunnel re-opened at ${res.reopened.url}`);
+      } else {
+        setTestResult({ status: 'idle' });
+        setNameNotice(
+          `Saved. Choose "${beamdConnected ? 'Use Beamd URL' : 'Connect Beamd'}" to open the tunnel under this name.`,
+        );
+      }
+    },
+    onError: () => setNameNotice(null),
   });
 
   const beamdMutation = useMutation({
     mutationFn: () => settingsApi.useBeamdTunnelUrl(),
+    onError: (err) => {
+      if (beamdErrorCode(err) === 'beamd_name_taken') setAdvancedOpen(true);
+    },
     onSuccess: async (res) => {
-      queryClient.setQueryData(['settings', 'base-url'], {
-        tunnel: res.tunnel,
-        lan: res.lan,
-        local: res.local,
-        autoTunnel: res.autoTunnel,
-      });
+      queryClient.setQueryData<PairBaseUrls>(['settings', 'base-url'], res);
       setDraftOverride(null);
       setTestResult({ status: 'ok', url: res.beamd.url });
       setJustSaved(true);
@@ -174,6 +221,12 @@ export function RemoteBaseUrlSection() {
     },
   });
 
+  const nameHostPreview = tunnelHostPreview(
+    saved,
+    data?.effectiveTunnelName ?? null,
+    nameNormalized || data?.defaultTunnelName || '',
+  );
+
   const dirty = (draft.trim() || null) !== saved;
   const testTarget = draft.trim();
   const canTest = !!testTarget && testResult.status !== 'testing';
@@ -182,7 +235,8 @@ export function RemoteBaseUrlSection() {
     isLoading ||
     saveMutation.isPending ||
     beamdMutation.isPending ||
-    autoTunnelMutation.isPending;
+    autoTunnelMutation.isPending ||
+    nameMutation.isPending;
 
   const handleTest = async () => {
     if (!canTest) return;
@@ -374,6 +428,12 @@ export function RemoteBaseUrlSection() {
         )}
       </div>
 
+      {beamdMutation.isError && (
+        <p className="text-[11px] text-destructive">
+          {beamdErrorMessage(beamdMutation.error)}
+        </p>
+      )}
+
       {testResult.status === 'error' && (
         <div className="mt-1 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 space-y-1.5">
           <div className="flex items-start gap-2">
@@ -390,6 +450,107 @@ export function RemoteBaseUrlSection() {
         </div>
       )}
 
+      {/* Advanced: the Beamd tunnel name. Collapsed by default, auto-opened
+          when Beamd rejects the name as taken — which is exactly what happens
+          when a second machine on the same account uses the default. */}
+      <div className="border-t border-border/60 pt-2">
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight size={11} className={cn('transition-transform', advancedOpen && 'rotate-90')} />
+          Advanced: Beamd tunnel name
+          {!advancedOpen && data?.effectiveTunnelName && (
+            <span className="font-mono text-foreground/70">({data.effectiveTunnelName})</span>
+          )}
+        </button>
+
+        {advancedOpen && (
+          <div className="mt-2 space-y-2">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Beamd names are unique per edge, and the default is the same on every install. If
+              another machine of yours already holds{' '}
+              <span className="font-mono text-foreground/80">{data?.defaultTunnelName ?? APP_SHORT_ID}</span>, give this
+              one its own name.
+            </p>
+
+            <div className="flex items-center gap-2">
+              <input
+                value={nameDraft}
+                onChange={(e) => {
+                  setNameDraftOverride(e.target.value);
+                  setNameNotice(null);
+                }}
+                placeholder={data?.defaultTunnelName ?? APP_SHORT_ID}
+                spellCheck={false}
+                autoCapitalize="none"
+                autoCorrect="off"
+                maxLength={MAX_LABEL_LENGTH}
+                disabled={busy || nameLocked}
+                className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[12px] focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && nameDirty && nameValid) {
+                    nameMutation.mutate(nameNormalized || null);
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => nameMutation.mutate(nameNormalized || null)}
+                disabled={!nameDirty || !nameValid || busy || nameLocked}
+              >
+                {nameMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
+                Save name
+              </Button>
+              {nameSaved && !nameLocked && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => nameMutation.mutate(null)}
+                  disabled={busy}
+                  title={`Revert to the default name (${data?.defaultTunnelName ?? APP_SHORT_ID})`}
+                  aria-label="Revert to the default tunnel name"
+                >
+                  <Trash2 size={12} />
+                </Button>
+              )}
+            </div>
+
+            {nameLocked && (
+              <p className="text-[11px] text-muted-foreground">
+                <span className="font-mono text-foreground/80">{data?.tunnelNameEnvVar}</span> is set on this server, so
+                it decides the name. Unset it to edit the name here.
+              </p>
+            )}
+
+            {!nameValid && (
+              <p className="text-[11px] text-destructive">
+                Letters, numbers and hyphens only, up to {MAX_LABEL_LENGTH} characters, no leading or trailing hyphen.
+              </p>
+            )}
+
+            {nameValid && nameHostPreview && (
+              <p className="text-[11px] text-muted-foreground/70">
+                Opens at <span className="font-mono text-foreground/80 break-all">{nameHostPreview}</span>
+              </p>
+            )}
+
+            {nameMutation.isError && (
+              <p className="text-[11px] text-destructive">{beamdErrorMessage(nameMutation.error)}</p>
+            )}
+
+            {nameNotice && !nameMutation.isError && (
+              <p className="inline-flex items-start gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 size={12} className="mt-0.5 shrink-0" />
+                <span className="break-all">{nameNotice}</span>
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="pt-1 space-y-0.5">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50">Examples</p>
         <ul className="text-[11px] text-muted-foreground/60 font-mono space-y-0.5">
@@ -404,13 +565,17 @@ export function RemoteBaseUrlSection() {
           {saveMutation.error instanceof Error ? saveMutation.error.message : 'Failed to save.'}
         </p>
       )}
-      {beamdMutation.isError && (
-        <p className="text-[11px] text-destructive">
-          {beamdErrorMessage(beamdMutation.error)}
-        </p>
-      )}
     </div>
   );
+}
+
+/** Stable error code from an API error body, for branching on failure kind. */
+function beamdErrorCode(err: unknown): string | null {
+  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+    const body = err.body as { error?: unknown };
+    if (typeof body.error === 'string') return body.error;
+  }
+  return null;
 }
 
 function beamdErrorMessage(err: unknown): string {

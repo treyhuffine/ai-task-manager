@@ -6,6 +6,7 @@ import type {
   UpdateWorkspaceInput,
   ChatSessionWithExecution,
   WorkspaceStatus,
+  EffortLevel,
 } from '@/db/types';
 
 export const workspacesApi = {
@@ -52,6 +53,12 @@ export const workspacesApi = {
        *  workspace's actual folder on whatever branch is checked out.
        *  Caller is opting into shared mutable state. */
       liveMode?: boolean;
+      /** Explicit agent selection (the launcher's model control). Sent as
+       *  a tuple; omitting them falls back to the saved global default. */
+      harness?: string | null;
+      model?: string | null;
+      modelVariant?: string | null;
+      effort?: EffortLevel | null;
     } = {},
   ): Promise<ChatSessionWithExecution> {
     return api.post<ChatSessionWithExecution>(`/workspaces/${id}/sessions`, {
@@ -59,6 +66,10 @@ export const workspacesApi = {
       baseBranch: options.baseBranch ?? null,
       prNumber: options.prNumber ?? null,
       liveMode: options.liveMode ?? false,
+      harness: options.harness ?? undefined,
+      model: options.model ?? null,
+      modelVariant: options.modelVariant ?? null,
+      effort: options.effort ?? null,
     });
   },
 
@@ -72,6 +83,16 @@ export const workspacesApi = {
 
   listBranches(id: string): Promise<string[]> {
     return api.get<string[]>(`/workspaces/${id}/branches`);
+  },
+
+  /** Full PR detail including `body`. Fetched on demand by the launcher. */
+  getPR(id: string, number: number): Promise<PRDetail> {
+    return api.get<PRDetail>(`/workspaces/${id}/github/prs/${number}`);
+  },
+
+  /** Full issue detail including `body`. Fetched on demand by the launcher. */
+  getIssue(id: string, number: number): Promise<IssueDetail> {
+    return api.get<IssueDetail>(`/workspaces/${id}/github/issues/${number}`);
   },
 
   previewFilesToCopy(cwd: string, globs: string[]): Promise<PreviewFilesToCopyResponse> {
@@ -127,4 +148,13 @@ export interface IssueSummary {
   assignees: Array<{ login: string }>;
   createdAt: string;
   updatedAt: string;
+}
+
+/** List rows omit `body` (it would bloat every row); the per-item routes add it. */
+export interface PRDetail extends PRSummary {
+  body: string;
+}
+
+export interface IssueDetail extends IssueSummary {
+  body: string;
 }

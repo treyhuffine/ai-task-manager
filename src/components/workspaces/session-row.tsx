@@ -28,10 +28,8 @@ interface SessionRowProps {
   workspaceIsGit?: boolean;
   /** Open the workspace settings sheet from the kebab menu. */
   onOpenWorkspaceSettings?: (id: string) => void;
-  /** Create a new execution in this row's workspace. */
-  onCreateExecution?: (workspaceId: string) => void;
   /** Open the "create from PR/branch/issue" modal for this row's workspace. */
-  onOpenCreateFrom?: (workspaceId: string) => void;
+  onOpenLauncher?: (workspaceId: string) => void;
 }
 
 /**
@@ -57,8 +55,7 @@ export function SessionRow({
   variant = 'tree',
   workspaceIsGit,
   onOpenWorkspaceSettings,
-  onCreateExecution,
-  onOpenCreateFrom,
+  onOpenLauncher,
 }: SessionRowProps) {
   const { activeView, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
@@ -230,12 +227,10 @@ export function SessionRow({
         <SessionRowMenu
           sessionId={session.id}
           workspaceId={session.workspaceId ?? null}
-          workspaceIsGit={workspaceIsGit ?? false}
           isUnread={isUnread || isPending}
           label={label}
           onOpenWorkspaceSettings={onOpenWorkspaceSettings}
-          onCreateExecution={onCreateExecution}
-          onOpenCreateFrom={onOpenCreateFrom}
+          onOpenLauncher={onOpenLauncher}
           className="absolute right-1 top-1/2 -translate-y-1/2"
         />
       )}
