@@ -207,7 +207,7 @@ export function Wizard() {
   if (!hydrated) return null;
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-xl flex-col px-6 py-10">
+    <div className="mx-auto flex h-dvh max-w-xl flex-col px-6 py-10">
       <header className="mb-8 space-y-4">
         <div className="text-sm font-medium text-muted-foreground">Welcome to {APP_NAME}</div>
         <nav className="flex items-center gap-2 text-sm">
@@ -240,7 +240,7 @@ export function Wizard() {
         </div>
       </header>
 
-      <main className="flex-1">
+      <main className="min-h-0 flex-1 overflow-y-auto">
         {current === 'you' && <StepYou state={state} update={update} />}
         {current === 'areas' && <StepAreas state={state} update={update} />}
         {current === 'agent' && <StepAgent state={state} update={update} />}

@@ -234,7 +234,9 @@ export function StepAreas({
       </div>
 
       {state.areas.length === 0 && (
-        <p className="text-sm text-muted-foreground">Select at least one to continue.</p>
+        <p className="text-sm text-muted-foreground">
+          Optional. Add a few now, or skip and let them form as you work.
+        </p>
       )}
     </div>
   );
