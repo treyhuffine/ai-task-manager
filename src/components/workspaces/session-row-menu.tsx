@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  MoreVertical, Archive, Eye, EyeOff, Settings, Plus, GitFork,
+  MoreVertical, Archive, Eye, EyeOff, Settings, Plus,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -22,7 +22,6 @@ interface SessionRowMenuProps {
   workspaceId: string | null;
   /** True when the parent workspace is git-backed. Gates the
    *  "Execution from git…" item. */
-  workspaceIsGit?: boolean;
   /**
    * Pre-classified read state. The menu hides Mark unread / Mark read
    * based on which one is the current state.
@@ -31,11 +30,8 @@ interface SessionRowMenuProps {
   label: string;
   /** Open the workspace settings sheet. Hidden when omitted. */
   onOpenWorkspaceSettings?: (id: string) => void;
-  /** Create a new execution in the row's workspace. Hidden when omitted. */
-  onCreateExecution?: (workspaceId: string) => void;
-  /** Open the "Create from PR/branch/issue" modal. Also gated by
-   *  workspaceIsGit. Hidden when omitted. */
-  onOpenCreateFrom?: (workspaceId: string) => void;
+  /** Open the launcher seeded with the row's workspace. Hidden when omitted. */
+  onOpenLauncher?: (workspaceId: string) => void;
   className?: string;
 }
 
@@ -55,12 +51,10 @@ interface SessionRowMenuProps {
 export function SessionRowMenu({
   sessionId,
   workspaceId,
-  workspaceIsGit,
   isUnread,
   label,
   onOpenWorkspaceSettings,
-  onCreateExecution,
-  onOpenCreateFrom,
+  onOpenLauncher,
   className,
 }: SessionRowMenuProps) {
   const { confirmArchive } = useArchiveWithConfirm();
@@ -72,7 +66,7 @@ export function SessionRowMenu({
   };
 
   const showWorkspaceGroup =
-    !!workspaceId && (!!onCreateExecution || !!onOpenCreateFrom || !!onOpenWorkspaceSettings);
+    !!workspaceId && (!!onOpenLauncher || !!onOpenWorkspaceSettings);
 
   return (
     <DropdownMenu>
@@ -119,14 +113,9 @@ export function SessionRowMenu({
         {showWorkspaceGroup && (
           <>
             <DropdownMenuSeparator />
-            {onCreateExecution && workspaceId && (
-              <DropdownMenuItem onSelect={() => onCreateExecution(workspaceId)}>
-                <Plus size={12} /> New execution
-              </DropdownMenuItem>
-            )}
-            {onOpenCreateFrom && workspaceId && workspaceIsGit && (
-              <DropdownMenuItem onSelect={() => onOpenCreateFrom(workspaceId)}>
-                <GitFork size={12} /> Execution from git…
+            {onOpenLauncher && workspaceId && (
+              <DropdownMenuItem onSelect={() => onOpenLauncher(workspaceId)}>
+                <Plus size={12} /> Start work here…
               </DropdownMenuItem>
             )}
             {onOpenWorkspaceSettings && workspaceId && (

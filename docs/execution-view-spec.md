@@ -574,9 +574,74 @@ unblock later ones.
       Reviewed — the doc covers session semantics, not UI layout. No
       update required.
 
-## Future scope: multi-chat per worktree
+## Multi-chat per worktree
 
-Not in v1, but worth capturing the analysis so the future port is cheap.
+### Shipped: chat tab strip (parallel chats)
+
+What actually shipped diverged from the sketch below (kept for the
+`role: ask` analysis, which is still future scope). The shipped model:
+
+- **Parallel chats are the normal mode.** "New chat"
+  (`POST /:id/new-chat`) creates a sibling and leaves the current chat
+  open — it never archives anything. Multiple agents can be working the
+  same worktree at once (the executor's per-chat session map already
+  supports this). Closing a conversation is always an explicit user X.
+  One cleanup exception: if the chat you opened the new one FROM never
+  received a single event, it was almost certainly an accidental blank,
+  so it's hard-deleted (`deleteChatSessionIfEmpty` — FK-safe, no-op the
+  instant there's any transcript). No empty tab left behind.
+- **Tab strip** (`src/components/executions/execution-chat-tabs.tsx`)
+  is THE chat-management surface — always visible for execution chats,
+  at the top of the chat column in both the mobile and desktop
+  subtrees. One tab per open chat plus the chat being viewed. Click
+  switches (`setActiveView`), double-click renames the chat label
+  (never the execution title), X closes, and tabs **drag to reorder**
+  (`@dnd-kit` horizontal sortable + `MouseSensor` 5px activation so
+  click/double-click still pass through). Per tab: primary dot +
+  semibold = unread, emerald pulse = agent actively working (executor
+  `running` state, enriched onto the history rows). The old header
+  `ExecutionChatControls` (New chat button + history dropdown) was
+  deleted — one surface, not two.
+- **Manual order** persists on `chat_sessions.tab_sort_key` — a
+  fractional index (same scheme as `tasks.sort_key`), so a tab drops
+  between two neighbors without renumbering the rest. Unset tabs fall
+  back to `startedAt` (creation) order; the first drag backfills keys
+  for the visible set (`backfillSortKeys` + `generateKeyBetween`), fires
+  one PATCH per changed tab, and optimistically re-sorts the shared
+  execution chat-list cache. Reorder is allowed mid-turn (pure ordering,
+  no executor recycle).
+- **Closing a tab** posts `POST /api/sessions/:id/close-chat`: the row
+  is archived FIRST (fast, and the source of truth the strip refetches),
+  then the harness process is torn down in the BACKGROUND — awaiting it
+  blocked the response for seconds and made the X look dead. The close
+  is also optimistic client-side (`useCloseExecutionChat` flips the chat
+  to archived in cache on click, rolls back on error), so the tab
+  vanishes instantly. Execution, worktree, and siblings untouched. The
+  route 409s on the last open chat, and the strip hides the X on a lone
+  tab to match. Closing the current tab switches to the most recent open
+  sibling first.
+- **Closed chats** collapse into a trailing history chip (history icon
+  + count + unread rollup dot) with a popover list. Opening one
+  navigates to it, and the view's auto-resume reactivates it via
+  `continueExecutionSession`'s sibling-resume path: execution active +
+  worktree on disk means only that one chat row flips back to active
+  (`unarchiveChatSession`). The reprovision path and the
+  execution-wide `unarchiveExecution` cascade are reserved for genuinely
+  archived executions — running either against a live worktree would
+  respectively abandon it or resurrect every archived sibling at once.
+- **Freshness + stable switching**: the chat list is keyed by
+  EXECUTION, not the viewed chat (`useExecutionChats` →
+  `['execution', <id>, 'chats']`). One cache entry per execution shared
+  across all its chats, so switching reuses it (no blank refetch, no
+  per-chat duplicate queries) and `isCurrent` is recomputed client-side.
+  The strip also prefetches each open sibling's full session row so a tab
+  click switches instantly instead of dropping ExecutionView to a
+  full-view skeleton while the cold `['session', id]` loads. The global
+  session stream invalidates the list on any session change, with a 30s
+  poll as belt-and-suspenders for the in-memory `running` flag.
+
+### Future scope: ask threads
+
 Use case: user wants to ask a side question ("how does this util work?")
 without polluting the main execution thread.
 
@@ -621,6 +686,8 @@ above gets cramped.
 
 - Existing view: `src/components/executions/execution-view.tsx`
 - Existing header: `src/components/executions/execution-header.tsx`
+- Chat tab strip: `src/components/executions/execution-chat-tabs.tsx`
+- Chat close route: `src/app/api/sessions/[id]/close-chat/route.ts`
 - Existing terminal panel: `src/components/executions/execution-terminal-panel.tsx`
 - Existing composer: `src/components/executions/execution-composer.tsx`
 - Existing transcript: `src/components/executions/execution-transcript.tsx`

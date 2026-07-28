@@ -22,7 +22,13 @@ function adf(text: string) {
 interface RawIssue {
   id?: string;
   key?: string;
-  fields?: { summary?: string; status?: { name?: string } };
+  fields?: {
+    summary?: string;
+    status?: { name?: string };
+    duedate?: string | null;
+    priority?: { name?: string } | null;
+    updated?: string | null;
+  };
 }
 
 export const jiraToolkit = defineToolkit({
@@ -52,6 +58,11 @@ export const jiraToolkit = defineToolkit({
             key: is.key,
             summary: is.fields?.summary,
             status: is.fields?.status?.name,
+            // Surfaced for ranking. `/search` returns the full field set by
+            // default, so these cost nothing extra on the wire.
+            dueDate: is.fields?.duedate ?? null,
+            priority: is.fields?.priority?.name ?? null,
+            updatedAt: is.fields?.updated ?? null,
           })),
         };
       },

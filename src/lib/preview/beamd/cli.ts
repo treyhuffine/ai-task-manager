@@ -157,7 +157,7 @@ export class BeamdCliError extends Error {
   }
 }
 
-interface RunResult {
+export interface RunResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
@@ -190,8 +190,9 @@ function run(args: string[], timeoutMs: number, cwd?: string): Promise<RunResult
   });
 }
 
-/** Map a failed beamd run to a stable, actionable error code. */
-function classifyError(res: RunResult): BeamdCliError {
+/** Map a failed beamd run to a stable, actionable error code. Exported so the
+ *  mapping table can be unit-tested without a beamd binary. */
+export function classifyError(res: RunResult): BeamdCliError {
   const text = `${res.stdout}\n${res.stderr}`.toLowerCase();
   let code = 'beamd_error';
   let message = (res.stderr || res.stdout || 'beamd command failed').trim();
@@ -224,8 +225,27 @@ function classifyError(res: RunResult): BeamdCliError {
   } else if (text.includes('max_tunnels') || text.includes('tunnel cap') || text.includes('too many tunnels')) {
     code = 'beamd_tunnel_cap';
     message = 'The beamd tunnel cap was hit. Close some previews and try again.';
+  } else if (text.includes('name_taken') || text.includes('is taken')) {
+    // Tunnel names are unique per edge, so a second machine opening the same
+    // name loses. Name the host in the message — that's the thing the user has
+    // to change, and the raw beamd error buries it behind a 502.
+    code = 'beamd_name_taken';
+    const host = takenHostname(`${res.stdout}\n${res.stderr}`);
+    message = host
+      ? `${host} is already in use on this beamd edge. Another machine or app is holding that name, so pick a different one.`
+      : 'That tunnel name is already in use on this beamd edge. Another machine or app is holding it, so pick a different one.';
   }
   return new BeamdCliError(code, message, res.stderr, res.exitCode);
+}
+
+/**
+ * Pull the contested hostname out of a beamd name-collision error, e.g.
+ * `open failed: 502 Bad Gateway: name_taken: flow.beamd.run is taken`.
+ * Returns null when the wording doesn't carry one.
+ */
+function takenHostname(text: string): string | null {
+  const m = text.match(/([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\s+is\s+taken/i);
+  return m ? m[1] : null;
 }
 
 function parseJson<T>(res: RunResult): T {

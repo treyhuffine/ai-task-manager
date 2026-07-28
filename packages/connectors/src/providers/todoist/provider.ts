@@ -10,9 +10,12 @@ export function todoist(): Provider {
   return defineProvider({
     id: 'todoist',
     displayName: 'Todoist',
-    baseUrl: 'https://api.todoist.com/rest/v2',
+    // Todoist's unified API. The old `rest/v2` host this used to point at now
+    // answers 410 Gone for every path, which took the whole connector down —
+    // not just one action. Verified: `rest/v2/tasks` → 410, `api/v1/tasks` → 401.
+    baseUrl: 'https://api.todoist.com/api/v1',
     auth: apiKey({ prefix: 'Bearer ' }),
-    // Todoist REST v2 exposes no clean identity endpoint, so we omit identify(): connectDirect
+    // Todoist exposes no clean identity endpoint, so we omit identify(): connectDirect
     // assigns accountId 'todoist:default' (one Todoist connection per owner — the common case).
   });
 }

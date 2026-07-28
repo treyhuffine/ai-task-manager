@@ -47,7 +47,15 @@ export const asanaToolkit = defineToolkit({
       request: (i) => ({
         method: 'GET',
         path: '/tasks',
-        query: { assignee: i.assignee, workspace: i.workspace, project: i.project, limit: i.limit },
+        query: {
+          assignee: i.assignee,
+          workspace: i.workspace,
+          project: i.project,
+          limit: i.limit,
+          // Asana returns ONLY gid/name/resource_type unless opt_fields asks
+          // for more — without this, every other field reads as undefined.
+          opt_fields: 'name,notes,due_on,due_at,completed,modified_at',
+        },
       }),
       output: (raw) => ({ tasks: data(raw) }),
     }),

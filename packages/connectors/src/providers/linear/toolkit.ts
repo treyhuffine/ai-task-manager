@@ -36,9 +36,12 @@ export const linearToolkit = defineToolkit({
         method: 'POST',
         path: '/graphql',
         body: {
+          // `priority` + `dueDate` are selected so callers can rank issues;
+          // GraphQL returns only what is asked for, so omitting them here
+          // silently yields undefined rather than an error downstream.
           query: i.query
-            ? 'query($first:Int!,$q:String!){ issues(first:$first, filter:{ title:{ containsIgnoreCase:$q } }){ nodes { id identifier title state { name } assignee { name } } } }'
-            : 'query($first:Int!){ issues(first:$first){ nodes { id identifier title state { name } assignee { name } } } }',
+            ? 'query($first:Int!,$q:String!){ issues(first:$first, filter:{ title:{ containsIgnoreCase:$q } }){ nodes { id identifier title priority dueDate updatedAt state { name } assignee { name } } } }'
+            : 'query($first:Int!){ issues(first:$first){ nodes { id identifier title priority dueDate updatedAt state { name } assignee { name } } } }',
           variables: i.query ? { first: i.first, q: i.query } : { first: i.first },
         },
       }),

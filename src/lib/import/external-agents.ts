@@ -878,6 +878,7 @@ function emptyImportResult(): ExternalAgentImportResult {
     createdWorkspaces: 0,
     skippedSessions: 0,
     failures: [],
+    sessions: [],
   };
 }
 
@@ -926,6 +927,7 @@ export async function importExternalAgentSessions(sessionKeys: string[]): Promis
           const inserted = await synchronizeCandidate(candidate, existing);
           result.syncedSessions++;
           result.syncedEvents += inserted;
+          result.sessions.push({ key, chatSessionId: existing.chatSessionId });
         } catch (error) {
           result.failures.push({ key, error: safeError(error) });
         }
@@ -950,6 +952,7 @@ export async function importExternalAgentSessions(sessionKeys: string[]): Promis
         const inserted = await synchronizeCandidate(candidate, created.ledger);
         result.importedSessions++;
         result.importedEvents += inserted;
+        result.sessions.push({ key, chatSessionId: created.chatSessionId });
       } catch (error) {
         if (createdSkeleton) {
           cleanupFailedInitialImport(

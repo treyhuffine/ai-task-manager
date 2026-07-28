@@ -2,8 +2,8 @@ import { NextRequest } from 'next/server';
 import {
   getChatSessionWithExecution,
   getAgent,
-  archiveChatSession,
   createExecutionChat,
+  deleteChatSessionIfEmpty,
   setExecutionLabel,
   updateUserState,
   ensureAgentHarnessSettings,
@@ -21,9 +21,11 @@ import { isHarnessId } from '@/lib/agents/registry';
  *
  *   POST { providerId?: 'claude'|'codex', model?: string, effort?: EffortLevel }
  *
- * The current chat is archived + its harness process torn down (the execution
- * itself stays active — only the conversation rolls over). The new chat becomes
- * the execution's active/primary chat; the client repoints to it.
+ * The current chat stays OPEN — parallel chats on one execution are the
+ * normal working mode (ask a side question while the main agent runs, fire
+ * two independent threads on the same worktree). The chat tab strip is the
+ * management surface; closing a conversation is an explicit X there
+ * (`POST /:id/close-chat`), never a side effect of opening a new one.
  */
 interface ChatOverride {
   providerId?: ProviderId;
@@ -84,21 +86,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         ?? (switchingProvider ? harnessSettings.defaultEffort : current.effort),
     }, { cwd: current.worktreePath ?? undefined, repairInvalidModel: override.model === undefined });
 
-    // The execution's title is what the header shows and must survive this
-    // chat rollover. New executions carry it on the execution row, but legacy
-    // ones (named before the title moved off chat_sessions) only have it on
-    // the chat — promote it now so the new, blank chat doesn't leave the
-    // header "Untitled".
+    // The execution's title is what the header shows and must not depend on
+    // which chat is being viewed. New executions carry it on the execution
+    // row, but legacy ones (named before the title moved off chat_sessions)
+    // only have it on the chat — promote it now so a blank sibling doesn't
+    // leave the header "Untitled".
     if (!current.execution?.label && current.label) {
       setExecutionLabel(current.executionId, current.label);
     }
-
-    // Archive + tear down the current chat (keeps the execution + worktree).
-    const { close } = await import('@/lib/executor/adapter');
-    await close(current.id).catch(() => {});
-    archiveChatSession(current.id);
-    const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
-    void deriveRetrospectiveLabel(current.id);
 
     const session = createExecutionChat({
       executionId: current.executionId,
@@ -108,6 +103,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       effort: selection.effort,
     });
     if (!session) return Response.json({ error: 'Execution not found' }, { status: 404 });
+
+    // Clean up an accidental blank chat: if the chat we started from never
+    // received a single event, opening a new one almost certainly means
+    // the blank was a misfire — delete it rather than strand an empty tab.
+    // No-op the instant there's any transcript, so parallel chats with
+    // real work are never touched. Guarded so we can't delete the chat we
+    // just created (a fresh execution's first chat is momentarily empty).
+    if (session.id !== current.id) {
+      deleteChatSessionIfEmpty(current.id);
+    }
 
     updateUserState({
       defaultAgentHarness: selection.providerId,

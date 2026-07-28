@@ -398,6 +398,10 @@ export interface ExecutionChatHistoryEntry {
   lastViewedAt: string | null;
   /** The chat currently being viewed. */
   isCurrent: boolean;
+  /** Executor in-memory turn state — an agent is actively working this chat. */
+  running: boolean;
+  /** Manual chat-tab order (fractional index); null = fall back to creation order. */
+  tabSortKey: string | null;
 }
 
 export const sessionsApi = {
@@ -416,6 +420,8 @@ export const sessionsApi = {
       modelVariant?: string | null;
       effort?: EffortLevel | null;
       prNumber?: number | null;
+      /** Manual chat-tab order (fractional index). `null` resets to creation order. */
+      tabSortKey?: string | null;
     },
   ): Promise<ChatSessionWithExecution> {
     return api.patch<ChatSessionWithExecution>(`/sessions/${id}`, input);
@@ -635,8 +641,9 @@ export const sessionsApi = {
 
   /**
    * Start a fresh chat against the SAME execution (new conversation on the
-   * existing worktree), optionally switching provider. Archives the current
-   * chat; returns the new active one to navigate to.
+   * existing worktree), optionally switching provider. The current chat
+   * stays open — parallel chats are the normal mode. Returns the new chat
+   * to navigate to.
    */
   newChat(
     id: string,
@@ -648,6 +655,15 @@ export const sessionsApi = {
   /** Past + current chats for this execution, newest first. */
   chatHistory(id: string): Promise<{ sessions: ExecutionChatHistoryEntry[] }> {
     return api.get<{ sessions: ExecutionChatHistoryEntry[] }>(`/sessions/${id}/history`);
+  },
+
+  /**
+   * Close (archive) one chat of an execution without touching the
+   * execution, its worktree, or sibling chats. Powers the X on the chat
+   * tab strip. 409s when it's the execution's last open chat.
+   */
+  closeChat(id: string): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/close-chat`, {});
   },
 
   /**

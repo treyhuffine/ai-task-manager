@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/resizable';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { ExecutionHeader } from './execution-header';
+import { ExecutionChatTabs } from './execution-chat-tabs';
 import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionComposer, type ExecutionComposerHandle } from './execution-composer';
 import { BackgroundTasksBar } from './background-tasks-bar';
@@ -149,12 +150,19 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // and the cache refetches (status will be 'active' on the next render,
   // so the gate would self-clear anyway; the ref is belt-and-suspenders
   // against transient errors that leave status='archived').
+  //
+  // The ref is consumed only when the resume actually FIRES. Consuming it
+  // on first sight of the session would defeat the resume whenever the
+  // first render serves a stale cached row: reopening a just-closed chat
+  // from the tab strip's "older" chip mounts with the cached
+  // status='active' (marked stale, refetch in flight), and by the time
+  // the fresh 'archived' lands the guard would already be spent.
   const resumedSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!session || !sessionId) return;
     if (resumedSessionIdRef.current === sessionId) return;
-    resumedSessionIdRef.current = sessionId;
     if (session.status === 'archived') {
+      resumedSessionIdRef.current = sessionId;
       continueWork.mutate(undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -544,6 +552,18 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       }}
       disabled={composerDisabled}
     >
+      {/* Sibling-chat tabs. Sits at the top of the chat column (directly
+          under the HUD on desktop, under the action bar on mobile) and
+          renders nothing for single-chat executions. Chat-scoped, so it
+          belongs in-column rather than spanning the tree/viewer panes. */}
+      {!!session.executionId && (
+        <ExecutionChatTabs
+          sessionId={session.id}
+          executionId={session.executionId}
+          onNewChat={() => startNewChat()}
+          newChatPending={newExecutionChat.isPending}
+        />
+      )}
       {workspace?.isGit &&
         !!session.worktreePath &&
         session.worktreePath !== workspace.cwd && (
@@ -622,8 +642,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         onToggleScratchpad={toggleScratchpad}
         referencesOpen={activePane === 'references'}
         scratchpadOpen={activePane === 'scratchpad'}
-        onNewChat={() => startNewChat()}
-        newChatPending={newExecutionChat.isPending}
         isRunning={isRunning}
         hasBackgroundTasks={hasBackgroundTasks}
       />
@@ -656,8 +674,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           onToggleScratchpad={toggleScratchpad}
           referencesOpen={activePane === 'references'}
           scratchpadOpen={activePane === 'scratchpad'}
-          onNewChat={() => startNewChat()}
-          newChatPending={newExecutionChat.isPending}
           isRunning={isRunning}
           hasBackgroundTasks={hasBackgroundTasks}
         />

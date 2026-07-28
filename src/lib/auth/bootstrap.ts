@@ -100,6 +100,20 @@ export function setAutoTunnel(enabled: boolean): void {
   writeAuthConfig({ autoTunnel: enabled });
 }
 
+/**
+ * Machine-local override for the app's beamd tunnel name (a single DNS label).
+ * Null = fall back to the name derived from the app short id. Resolution and
+ * validation live in `src/lib/auth/beamd-base-url.ts`.
+ */
+export function getTunnelName(): string | null {
+  const stored = readAuthConfig()?.tunnelName;
+  return stored?.trim() ? stored.trim() : null;
+}
+
+export function setTunnelName(name: string | null): void {
+  writeAuthConfig({ tunnelName: name?.trim() ? name.trim() : null });
+}
+
 function normalizeBaseUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, '');
   if (!trimmed) throw new Error('Base URL cannot be empty');

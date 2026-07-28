@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ChevronRight, Folder, Settings, Plus, GitFork, Zap } from 'lucide-react';
+import { ChevronRight, Folder, Settings, Plus } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -17,9 +17,10 @@ import { SessionRow } from './session-row';
 interface WorkspaceRowProps {
   workspace: WorkspaceWithCounts;
   onOpenSettings: (id: string) => void;
+  /** Express lane — start immediately on remembered settings (shift-click). */
   onCreateExecution: (id: string) => void;
-  onOpenCreateFrom: (id: string) => void;
-  onOpenLiveMode: (id: string) => void;
+  /** Open the launcher seeded with this workspace. */
+  onOpenLauncher: (id: string) => void;
 }
 
 /**
@@ -41,8 +42,7 @@ export function WorkspaceRow({
   workspace,
   onOpenSettings,
   onCreateExecution,
-  onOpenCreateFrom,
-  onOpenLiveMode,
+  onOpenLauncher,
 }: WorkspaceRowProps) {
   const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const updateWs = useUpdateWorkspace();
@@ -178,43 +178,19 @@ export function WorkspaceRow({
           >
             <Settings size={13} />
           </button>
-          {workspace.isGit && (
-            <button
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenLiveMode(workspace.id);
-              }}
-              className="p-1 text-muted-foreground/40 hover:text-amber-500 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-              aria-label="Start Live session (no worktree)"
-              title="Start Live session (no worktree)"
-            >
-              <Zap size={13} />
-            </button>
-          )}
-          {workspace.isGit && (
-            <button
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenCreateFrom(workspace.id);
-              }}
-              className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-              aria-label="Create from PR, branch, or issue"
-              title="Create from PR, branch, or issue"
-            >
-              <GitFork size={13} />
-            </button>
-          )}
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              onCreateExecution(workspace.id);
+              // Express lane: shift-click skips the modal and starts an
+              // execution on this workspace's remembered settings, which
+              // is what the bare ➕ used to do on every click.
+              if (e.shiftKey) onCreateExecution(workspace.id);
+              else onOpenLauncher(workspace.id);
             }}
             className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-            aria-label="New execution"
-            title="New execution"
+            aria-label="Start work"
+            title="Start work (shift-click to skip the setup)"
           >
             <Plus size={13} />
           </button>
@@ -242,8 +218,7 @@ export function WorkspaceRow({
                 session={s}
                 workspaceIsGit={workspace.isGit}
                 onOpenWorkspaceSettings={onOpenSettings}
-                onCreateExecution={onCreateExecution}
-                onOpenCreateFrom={workspace.isGit ? onOpenCreateFrom : undefined}
+                onOpenLauncher={onOpenLauncher}
               />
             ))
           )}

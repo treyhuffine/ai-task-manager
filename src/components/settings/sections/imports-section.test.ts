@@ -17,6 +17,7 @@ function result(overrides: Partial<ExternalAgentImportResult> = {}): ExternalAge
     createdWorkspaces: 0,
     skippedSessions: 0,
     failures: [],
+    sessions: [],
     ...overrides,
   };
 }

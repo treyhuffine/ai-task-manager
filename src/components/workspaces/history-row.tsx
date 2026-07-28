@@ -19,8 +19,7 @@ interface HistoryRowProps {
    *  `@/lib/search/highlight` sentinels. */
   snippet?: string | null;
   onOpenWorkspaceSettings?: (workspaceId: string) => void;
-  onCreateExecution?: (workspaceId: string) => void;
-  onOpenCreateFrom?: (workspaceId: string) => void;
+  onOpenLauncher?: (workspaceId: string) => void;
 }
 
 /**
@@ -43,8 +42,7 @@ export function HistoryRow({
   session,
   snippet,
   onOpenWorkspaceSettings,
-  onCreateExecution,
-  onOpenCreateFrom,
+  onOpenLauncher,
 }: HistoryRowProps) {
   const { activeView, setActiveView } = useDashboard();
   const { data: diffStats } = useDiffStats(
@@ -128,12 +126,10 @@ export function HistoryRow({
       <SessionRowMenu
         sessionId={session.id}
         workspaceId={session.workspaceId ?? null}
-        workspaceIsGit={session.workspaceIsGit ?? false}
         isUnread={false}
         label={label}
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}
-        onCreateExecution={onCreateExecution}
-        onOpenCreateFrom={onOpenCreateFrom}
+        onOpenLauncher={onOpenLauncher}
         className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
       />
     </div>

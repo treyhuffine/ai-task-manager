@@ -14,16 +14,9 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
-import {
-  getRemoteBaseUrl,
-  getLanBaseUrl,
-  getLocalBaseUrl,
-  getAutoTunnel,
-  setAutoTunnel,
-  getRunningPort,
-  setRunningPort,
-} from '@/lib/auth/bootstrap';
-import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
+import { setAutoTunnel, setRunningPort } from '@/lib/auth/bootstrap';
+import { baseUrlSnapshot as snapshot } from '@/lib/auth/base-url-snapshot';
+import { portFromRequestUrl } from '@/lib/auth/port';
 import { openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
 import { beamdConnectedServer, BeamdCliError } from '@/lib/preview/beamd/cli';
 import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
@@ -31,24 +24,6 @@ import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
 export const runtime = 'nodejs';
 
 const bodySchema = z.object({ enabled: z.boolean() });
-
-function snapshot() {
-  return {
-    tunnel: getRemoteBaseUrl(),
-    lan: getLanBaseUrl(),
-    local: getLocalBaseUrl(),
-    autoTunnel: getAutoTunnel(),
-  };
-}
-
-function requestPort(request: NextRequest): number {
-  const envPort = Number(process.env.PORT);
-  if (Number.isFinite(envPort) && envPort > 0) return envPort;
-  const urlPort = Number(new URL(request.url).port);
-  if (Number.isFinite(urlPort) && urlPort > 0) return urlPort;
-  const fallback = process.env.NODE_ENV === 'development' ? DEV_PORT : DEFAULT_PORT;
-  return getRunningPort(fallback);
-}
 
 export async function POST(request: NextRequest) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
@@ -78,7 +53,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const port = requestPort(request);
+    const port = portFromRequestUrl(request.url);
     setRunningPort(port);
     await openAndSaveBeamdBaseUrl(port);
     // The tunnel is now the externally-reachable URL the connector OAuth

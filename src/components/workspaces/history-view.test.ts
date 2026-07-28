@@ -51,6 +51,7 @@ function s(id: string, iso: string): RailSession {
     takeoverTokenExpiresAt: null,
     startedAt: iso,
     archivedAt: null,
+    tabSortKey: null,
     workspaceName: 'Workspace',
     workspaceEmoji: null,
     workspaceAttachments: null,

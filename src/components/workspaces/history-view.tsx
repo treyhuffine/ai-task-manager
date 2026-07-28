@@ -3,12 +3,12 @@
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { useHistorySessions, useCreateExecution } from '@/hooks/use-workspaces';
+import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
-import { CreateFromModal } from './create-from-modal';
 import { HistoryRow } from './history-row';
 
 const PILL_SCROLL_PRESETS = {
@@ -36,7 +36,6 @@ export function HistoryView() {
   const { setActiveView } = useDashboard();
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
   const [settingsId, setSettingsId] = useState<string | null>(null);
-  const [createFromId, setCreateFromId] = useState<string | null>(null);
   const createExecution = useCreateExecution();
 
   // Workspaces represented in this feed. Order by first-appearance
@@ -76,9 +75,6 @@ export function HistoryView() {
     });
   };
 
-  const createFromName = createFromId
-    ? data?.sessions.find((s) => s.workspaceId === createFromId)?.workspaceName ?? null
-    : null;
   const handleCreateExecution = (workspaceId: string) => {
     if (createExecution.isPending) return;
     createExecution.mutate(
@@ -143,8 +139,7 @@ export function HistoryView() {
                     key={s.id}
                     session={s}
                     onOpenWorkspaceSettings={setSettingsId}
-                    onCreateExecution={handleCreateExecution}
-                    onOpenCreateFrom={s.workspaceIsGit ? setCreateFromId : undefined}
+                    onOpenLauncher={openLauncher}
                   />
                 ))}
               </div>
@@ -154,11 +149,6 @@ export function HistoryView() {
       )}
 
       <WorkspaceSettingsSheet workspaceId={settingsId} onClose={() => setSettingsId(null)} />
-      <CreateFromModal
-        workspaceId={createFromId}
-        workspaceName={createFromName}
-        onClose={() => setCreateFromId(null)}
-      />
     </>
   );
 }

@@ -16,6 +16,12 @@ export function useGlobalSessionStream(): void {
       queryClient.invalidateQueries({ queryKey: ['sessions', 'rail'] });
       queryClient.invalidateQueries({ queryKey: ['sessions', 'needs-review'] });
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      // Execution chat-tab strips read `['execution', <id>, 'chats']` for
+      // sibling unread/running dots. Sweep by key shape so any open strip
+      // refreshes regardless of which of its chats changed.
+      queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'execution' && q.queryKey[2] === 'chats',
+      });
     };
 
     source.addEventListener('session_updated', refresh);

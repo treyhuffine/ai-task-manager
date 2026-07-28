@@ -57,6 +57,12 @@ export interface ExternalAgentImportFailure {
   error: string;
 }
 
+/** Which Flow chat a requested key ended up as, imported or already present. */
+export interface ExternalAgentImportedSession {
+  key: string;
+  chatSessionId: string;
+}
+
 export interface ExternalAgentImportResult {
   importedSessions: number;
   importedEvents: number;
@@ -65,4 +71,11 @@ export interface ExternalAgentImportResult {
   createdWorkspaces: number;
   skippedSessions: number;
   failures: ExternalAgentImportFailure[];
+  /**
+   * Key → chat mapping for everything that landed. The bulk settings panel
+   * ignores this and renders counts, but the launcher's single-session
+   * adopt path needs the id so it can navigate into the chat it just
+   * pulled in without re-running a full provider scan.
+   */
+  sessions: ExternalAgentImportedSession[];
 }

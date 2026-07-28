@@ -11,6 +11,32 @@ Most browser APIs that touch hardware (microphone, camera, clipboard, notificati
 
 If you only access the app on the machine it's running on (`http://localhost:4224`), you don't need any of this. LAN and remote access from other devices is where HTTPS becomes the gate.
 
+## Built in: the Beamd tunnel
+
+The app can open its own tunnel, no external service to wire up. Connect the machine once (`beamd login`, or Settings > Devices > Connect Beamd), then choose **Use Beamd URL** under Remote base URL. That opens a tunnel to this server and saves the returned URL as the remote base URL, so pairing links and notification deep links all point at it.
+
+Turn on **Reconnect automatically on startup** to have the app re-open that tunnel every time it boots. Headless boxes need this: without it, a reboot leaves the machine unreachable until someone opens the UI, which is the thing that just became unreachable.
+
+### Tunnel names and collisions
+
+A Beamd tunnel is reached at `https://<name>.<beamd domain>`, and the name is unique per edge. The default name comes from the app id (`flow`, or `flow-dev` in development), which is identical on every install. So the second machine you run the app on gets:
+
+```
+open failed: 502 Bad Gateway: name_taken: flow.beamd.run is taken
+```
+
+That is not a bug, it means your other machine already holds the name. Give each machine its own under **Remote base URL > Advanced: Beamd tunnel name**. Names are single DNS labels: lowercase letters, numbers and hyphens, up to 63 characters, no dots.
+
+Renaming is safe to do while a tunnel is live. The new name is opened first, then the setting is saved, then the old tunnel is closed, so a name that is also taken fails with nothing changed and the current tunnel still up.
+
+For headless installs where there is no UI to click, set the name at launch instead:
+
+```bash
+FLOW_TUNNEL_NAME=flow-vps flow start
+```
+
+The env var wins over the saved setting and makes the settings field read-only, so the running config is never a lie.
+
 ## Options ranked by effort
 
 **The overall best pick for most people is Cloudflare Tunnel** — option 2 below. The only reason it's not option 1 is the one-time domain purchase (~$10/yr at Cloudflare Registrar, at-cost). Everything else about it is free, permanent, and unlimited. If you're not buying a domain, start with option 1 instead.

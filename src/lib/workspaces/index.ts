@@ -430,7 +430,12 @@ export async function listWorkspaceBranches(ws: WorkspaceRecord): Promise<string
       .filter((line) => line.length > 0)
       // Drop the symbolic HEAD pointer (e.g., "origin/HEAD") — a duplicate
       // of whatever main is.
-      .filter((line) => !line.endsWith('/HEAD'));
+      .filter((line) => !line.endsWith('/HEAD'))
+      // `%(refname:short)` collapses `refs/remotes/origin/HEAD` all the way
+      // down to a bare `origin` when that symref is the only thing
+      // disambiguating it, which slips past the check above. A short name
+      // with no slash is a remote, never a branch.
+      .filter((line) => line.includes('/'));
   } catch (err) {
     console.error('[workspaces] listWorkspaceBranches failed:', err);
     return [];
