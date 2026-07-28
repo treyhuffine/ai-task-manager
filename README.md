@@ -122,7 +122,9 @@ Every handler dispatches through `src/lib/db/queries.ts` — never raw SQL. The 
 
 ### Skills
 
-`skills/orchestrator/SKILL.md` teaches Claude Code, Codex, and compatible harnesses how to use the action surface. The CLI installs it in the app data root during bootstrap. Onboarding offers an explicit opt-in to install the same skill in `~/.claude/skills/` and `~/.agents/skills/`, making it available across projects without writing into individual repositories.
+`skills/orchestrator/SKILL.md` teaches Claude Code, Codex, and compatible harnesses how to use the action surface. It ships as a template: the installed skill name is composed from `APP_SHORT_ID` (`AGENT_SKILL_NAME` in `src/constants/app.ts`, currently `agent-work-tasks-notes_flow`), materialized into `.work/skills/` with the name substituted, so a rebrand propagates from one constant. The `{{SKILL_NAME}}` placeholder in the template is the only source of the name — nothing hardcodes the short id.
+
+By default the skill installs into `~/.claude/skills/` and `~/.agents/skills/`, so agents can manage your tasks and notes from any project. This is the default because it removes an onboarding decision most users can't meaningfully answer. Individual repositories are never written into either way. To scope it back to sessions the app launches from its own directory, use **Settings → Agents → Task and note access** (the app-root install is always present regardless). The CLI installs the app-root copy during bootstrap; the global copy is toggled via `PUT /api/agent/skills/global`.
 
 ### Device pairing
 
@@ -189,7 +191,7 @@ src/
     mcp/               # NL MCP agent (query/update tools)
     embeddings/        # sqlite-vec backfill + helpers
     config/paths.ts    # canonical brain-path resolution
-skills/orchestrator/   # Cross-agent skill with app-root and opt-in global installs
+skills/orchestrator/   # Cross-agent skill template; installed name composed from APP_SHORT_ID, global by default
 modules/parakeet-stt/  # voice submodule (Docker sidecar)
 docs/                  # PRD, specs, architecture notes
 scripts/               # smoke tests, seed-dev, backups

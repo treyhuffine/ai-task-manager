@@ -26,6 +26,7 @@ import {
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
 import { beamdConnectedServer, BeamdCliError } from '@/lib/preview/beamd/cli';
+import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
 
 export const runtime = 'nodejs';
 
@@ -80,6 +81,9 @@ export async function POST(request: NextRequest) {
     const port = requestPort(request);
     setRunningPort(port);
     await openAndSaveBeamdBaseUrl(port);
+    // The tunnel is now the externally-reachable URL the connector OAuth
+    // redirect derives from — rebuild the runtime so it picks it up.
+    invalidateConnectorRuntime();
     setAutoTunnel(true);
     return NextResponse.json(snapshot());
   } catch (err) {

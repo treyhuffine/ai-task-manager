@@ -15,7 +15,7 @@
  * is just the base-brief content + the shared tag.
  */
 
-import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { AGENT_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
 
 /**
  * Managed-region marker tag. Shared between the first-init write here and
@@ -45,13 +45,13 @@ silent and only surfaces later.
   areas, deck, search, user state, workspaces, triggers, runs).
 - **CLI fallback**: \`${APP_SHORT_ID} agent <action> [params]\`. Output is JSON.
 
-The \`orchestrator\` skill has the full conventions (status values, energy,
-effort, task-vs-note, title style, error envelope). Load it before acting if
-you haven't already.
+The \`${AGENT_SKILL_NAME}\` skill has the full conventions (status values,
+energy, effort, task-vs-note, title style, error envelope). Load it before
+acting if you haven't already.
 
 ## This is an orchestrator session, not a dev session
 
-Reasoning about what ${APP_NAME} can do → use the orchestrator skill. If a
+Reasoning about what ${APP_NAME} can do → use the \`${AGENT_SKILL_NAME}\` skill. If a
 capability you need isn't exposed, say so. Don't invent a workaround by
 reaching into the filesystem.
 

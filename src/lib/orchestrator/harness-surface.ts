@@ -38,7 +38,7 @@ import path from 'node:path';
 // import inside the async installer below. Matches the lazy-load convention
 // in registry.ts / skills.ts.
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
-import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { AGENT_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { renderBaseBrief, FLOW_MANAGED_TAG } from '@/lib/config/claude-md-template';
 import {
   APP_ROOT_ENV,
@@ -354,9 +354,9 @@ ${modeSection(mode, cliCommand)}
 
 ${DOMAIN_BRIEF}
 
-The \`orchestrator\` skill carries the deeper writing conventions (title
-style, energy/effort defaults, task-vs-note, error envelope). Load it when
-you start doing real work.
+The \`${AGENT_SKILL_NAME}\` skill carries the deeper writing conventions
+(title style, energy/effort defaults, task-vs-note, error envelope). Load it
+when you start doing real work.
 
 Debugging or extending ${APP_NAME} itself is a different role: that happens
 in the source repo, not here.`;

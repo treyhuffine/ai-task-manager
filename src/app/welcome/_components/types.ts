@@ -42,7 +42,7 @@ export interface WizardState {
   importSkipped: boolean;
 }
 
-export type StepId = 'you' | 'areas' | 'agent' | 'import' | 'connect' | 'launch';
+export type StepId = 'you' | 'areas' | 'agent' | 'import' | 'launch';
 
 export type WizardUpdate = (
   patch: Partial<WizardState> | ((s: WizardState) => Partial<WizardState>),
@@ -53,6 +53,5 @@ export const STEPS: Array<{ id: StepId; label: string }> = [
   { id: 'agent', label: 'Agent' },
   { id: 'import', label: 'Import' },
   { id: 'areas', label: 'Areas' },
-  { id: 'connect', label: 'Connect' },
   { id: 'launch', label: 'Launch' },
 ];

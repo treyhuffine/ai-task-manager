@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { AGENT_SKILL_NAME } from '@/constants/app';
 import {
   configureGlobalSkill,
   getGlobalSkillPreference,
@@ -39,7 +40,7 @@ export async function PUT(request: NextRequest) {
     if (result.enabled && result.install.conflicts > 0) {
       return Response.json(
         {
-          error: 'A user-level skill named orchestrator already exists and was left unchanged',
+          error: `A user-level skill named ${AGENT_SKILL_NAME} already exists and was left unchanged`,
           result,
           projectCleanup,
         },

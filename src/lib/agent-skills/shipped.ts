@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SkillInstallResult, SkillRemoveResult } from '@agentex/agent';
-import { getAppRoot } from '@/lib/config/paths';
+import { AGENT_SKILL_NAME } from '@/constants/app';
+import { getAppRoot, getWorkDir } from '@/lib/config/paths';
 import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 
 async function loadAgentex() {
@@ -29,10 +30,67 @@ function findPackageRoot(startDir: string): string {
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILLS_ROOT = path.join(findPackageRoot(MODULE_DIR), 'skills');
-const SHIPPED_SKILL_NAMES = ['orchestrator'] as const;
+
+/**
+ * Shipped skills: a committed content template folder → the installed name.
+ * The template folder name is incidental; the installed name is composed from
+ * APP_SHORT_ID (see AGENT_SKILL_NAME) so a rebrand propagates from one place.
+ * agentex names an installed skill after the source directory's basename, so
+ * the source we hand it must already carry the composed name — hence the
+ * materialization step below.
+ */
+const SHIPPED_SKILLS = [{ template: 'orchestrator', name: AGENT_SKILL_NAME }] as const;
+
+/** Regenerable materialization root — never synced, safe to delete (self-heals). */
+function generatedSkillsRoot(): string {
+  return path.join(getWorkDir(), 'skills');
+}
+
+/** Read a committed skill template and substitute the composed installed name. */
+function renderSkillMarkdown(templateDir: string, name: string): string {
+  const src = path.join(SKILLS_ROOT, templateDir, 'SKILL.md');
+  return fs.readFileSync(src, 'utf8').replaceAll('{{SKILL_NAME}}', name);
+}
+
+/** Installed names of the shipped skills (what shows in an agent's skill list). */
+export function shippedSkillNames(): string[] {
+  return SHIPPED_SKILLS.map((s) => s.name);
+}
+
+/**
+ * Materialize each shipped skill into `.work/skills/<installed-name>/`, with the
+ * `name:` frontmatter substituted from the template placeholder so the on-disk
+ * name matches the directory (a Claude Code requirement). Lives in `.work`
+ * (regenerable, gitignored, never synced) and outside the user-authored skill
+ * roots the executor scans, so it stays "shipped" not "user-owned". Idempotent:
+ * the write is skipped when content is unchanged. Returns the source dirs to
+ * hand to agentex's install/remove. An in-place skill rename should go through
+ * remove-then-install so stale symlinks don't linger.
+ */
+export function ensureShippedSkills(): string[] {
+  const root = generatedSkillsRoot();
+  const dirs: string[] = [];
+  for (const skill of SHIPPED_SKILLS) {
+    const outDir = path.join(root, skill.name);
+    const outFile = path.join(outDir, 'SKILL.md');
+    const rendered = renderSkillMarkdown(skill.template, skill.name);
+    let current: string | null = null;
+    try {
+      current = fs.readFileSync(outFile, 'utf8');
+    } catch {
+      // Not materialized yet — fall through to write.
+    }
+    if (current !== rendered) {
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(outFile, rendered);
+    }
+    dirs.push(outDir);
+  }
+  return dirs;
+}
 
 export function shippedSkillDirs(): string[] {
-  return SHIPPED_SKILL_NAMES.map((name) => path.join(SKILLS_ROOT, name));
+  return ensureShippedSkills();
 }
 
 export function getGlobalSkillPreference(): boolean | null {

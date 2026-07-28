@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { AGENT_SKILL_NAME } from '@/constants/app';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import {
   configureGlobalSkill,
@@ -39,10 +40,16 @@ describe('shipped agent skills', () => {
 
     expect(result.installed).toBe(2);
     for (const channel of ['.agents', '.claude']) {
-      const link = path.join(appRoot, channel, 'skills', 'orchestrator');
+      const link = path.join(appRoot, channel, 'skills', AGENT_SKILL_NAME);
       expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
       expect(fs.realpathSync(link)).toBe(fs.realpathSync(shippedSkillDirs()[0]));
     }
+
+    // The materialized skill's frontmatter name is composed from the constant,
+    // with no placeholder left behind — this is what a rebrand propagates.
+    const materialized = fs.readFileSync(path.join(shippedSkillDirs()[0], 'SKILL.md'), 'utf8');
+    expect(materialized).toContain(`name: ${AGENT_SKILL_NAME}`);
+    expect(materialized).not.toContain('{{SKILL_NAME}}');
   });
 
   it('persists an explicit global opt-in and installs both user-level channels', async () => {
@@ -51,7 +58,7 @@ describe('shipped agent skills', () => {
     expect(result.enabled).toBe(true);
     expect(getGlobalSkillPreference()).toBe(true);
     for (const channel of ['.agents', '.claude']) {
-      const link = path.join(tmpHome, channel, 'skills', 'orchestrator');
+      const link = path.join(tmpHome, channel, 'skills', AGENT_SKILL_NAME);
       expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     }
   });
@@ -63,8 +70,8 @@ describe('shipped agent skills', () => {
     expect(result.enabled).toBe(false);
     expect(result.remove.removed).toBe(2);
     expect(getGlobalSkillPreference()).toBe(false);
-    expect(fs.existsSync(path.join(tmpHome, '.agents', 'skills', 'orchestrator'))).toBe(false);
-    expect(fs.existsSync(path.join(tmpHome, '.claude', 'skills', 'orchestrator'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpHome, '.agents', 'skills', AGENT_SKILL_NAME))).toBe(false);
+    expect(fs.existsSync(path.join(tmpHome, '.claude', 'skills', AGENT_SKILL_NAME))).toBe(false);
   });
 
   it('removes only project links that point to the shipped skill', async () => {
@@ -80,14 +87,14 @@ describe('shipped agent skills', () => {
     const result = await removeOwnedProjectSkillLinks(project);
 
     expect(result.removed).toBe(2);
-    expect(fs.existsSync(path.join(project, '.agents', 'skills', 'orchestrator'))).toBe(false);
-    expect(fs.existsSync(path.join(project, '.claude', 'skills', 'orchestrator'))).toBe(false);
+    expect(fs.existsSync(path.join(project, '.agents', 'skills', AGENT_SKILL_NAME))).toBe(false);
+    expect(fs.existsSync(path.join(project, '.claude', 'skills', AGENT_SKILL_NAME))).toBe(false);
     expect(fs.existsSync(path.join(unrelated, 'SKILL.md'))).toBe(true);
   });
 
-  it('leaves a conflicting project skill named orchestrator untouched', async () => {
+  it('leaves a conflicting project skill with the shipped name untouched', async () => {
     const project = path.join(tmpHome, 'project');
-    const conflict = path.join(project, '.agents', 'skills', 'orchestrator');
+    const conflict = path.join(project, '.agents', 'skills', AGENT_SKILL_NAME);
     fs.mkdirSync(conflict, { recursive: true });
     fs.writeFileSync(path.join(conflict, 'SKILL.md'), 'user-owned');
 

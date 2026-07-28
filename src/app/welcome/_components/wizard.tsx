@@ -10,7 +10,6 @@ import { StepYou } from './step-you';
 import { StepAreas } from './step-areas';
 import { StepAgent } from './step-agent';
 import { StepImport } from './step-import';
-import { StepConnect } from './step-connect';
 import { StepLaunch } from './step-launch';
 import { STEPS, type WizardState, type StepId } from './types';
 import {
@@ -30,7 +29,9 @@ const INITIAL_STATE: WizardState = {
   agentHarness: 'claude',
   agentModel: defaultModelFor('claude'),
   agentAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
-  globalSkillEnabled: null,
+  // Global by default: agents can manage tasks and notes from any project.
+  // No onboarding decision — the scope is adjustable later in Settings.
+  globalSkillEnabled: true,
   importSkipped: true,
 };
 
@@ -84,11 +85,13 @@ export function Wizard() {
       case 'you':
         return state.name.trim().length > 0;
       case 'areas':
-        return state.areas.length > 0;
+        // Areas are optional — the app works with none, and the agent can
+        // propose them from usage. Don't force organizational structure on a
+        // user who doesn't yet know the product.
+        return true;
       case 'agent': {
         if (!state.agentHarness) return false;
         if (!state.agentModel) return false;
-        if (state.globalSkillEnabled === null) return false;
         const a = state.agentAuth;
         if (a.phase !== 'ready' || !a.report) return false;
         if (!a.report.binary.installed) return false;
@@ -145,14 +148,13 @@ export function Wizard() {
         }
       }
 
-      // 2. Apply the explicit user-level skill choice. This also cleans old
-      // app-owned project symlinks without touching unrelated skill entries.
-      if (state.globalSkillEnabled === null) {
-        throw new Error('Choose where agents can use task and note actions');
-      }
+      // 2. Install the shipped skill for every project by default so agents can
+      // manage tasks and notes from anywhere. Scope is adjustable in Settings.
+      // This also cleans old app-owned project symlinks without touching
+      // unrelated skill entries.
       try {
         await api.put('/agent/skills/global', {
-          enabled: state.globalSkillEnabled,
+          enabled: state.globalSkillEnabled ?? true,
         });
       } catch {
         throw new Error('Failed to configure agent skill access');
@@ -243,7 +245,6 @@ export function Wizard() {
         {current === 'areas' && <StepAreas state={state} update={update} />}
         {current === 'agent' && <StepAgent state={state} update={update} />}
         {current === 'import' && <StepImport />}
-        {current === 'connect' && <StepConnect />}
         {current === 'launch' && <StepLaunch state={state} />}
       </main>
 

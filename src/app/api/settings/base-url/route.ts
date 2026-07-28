@@ -19,6 +19,7 @@ import {
   getLocalBaseUrl,
   getAutoTunnel,
 } from '@/lib/auth/bootstrap';
+import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
 
 export const runtime = 'nodejs';
 
@@ -45,6 +46,9 @@ export async function PATCH(request: NextRequest) {
     } else {
       return NextResponse.json({ error: 'baseUrl must be a string or null' }, { status: 400 });
     }
+    // The connector OAuth redirect derives from this URL and is baked into the
+    // cached runtime's auth configs — rebuild so it reflects the new value.
+    invalidateConnectorRuntime();
     return NextResponse.json(snapshot());
   } catch (err) {
     return NextResponse.json(
@@ -56,5 +60,6 @@ export async function PATCH(request: NextRequest) {
 
 export function DELETE() {
   clearRemoteBaseUrl();
+  invalidateConnectorRuntime();
   return NextResponse.json(snapshot());
 }

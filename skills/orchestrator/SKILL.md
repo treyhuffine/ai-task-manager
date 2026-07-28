@@ -1,5 +1,5 @@
 ---
-name: orchestrator
+name: {{SKILL_NAME}}
 description: Use when the user references tasks, notes, or their daily deck — or says things like "add to my list", "what am I working on", "remind me later", "capture this", "triage my inbox", "what's on my plate". Also when they mention their productivity system (an AI-native tasks + notes + deck app). Invoke BEFORE reading or writing files manually — the app owns the source of truth.
 ---
 

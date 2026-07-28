@@ -34,12 +34,14 @@ import { connectMcpClient, ingestMcpServer, type ConnectedMcpClient } from '@con
 import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getConfigDir } from '@/lib/config/paths';
+import { getStaticUrl, getRemoteBaseUrl } from '@/lib/auth/bootstrap';
+import { getRunningPort } from '@/lib/auth/port';
 import { mcpServerStore, type McpServerStore, type McpServerAuth } from './mcp-servers';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
 
-const DEFAULT_REDIRECT = 'http://localhost:4224/api/connectors/callback';
+const CONNECTOR_CALLBACK_PATH = '/api/connectors/callback';
 
 /** Parse a comma-separated env var into a trimmed, non-empty list (or undefined). */
 function parseEnvList(value: string | undefined): string[] | undefined {
@@ -51,9 +53,25 @@ function parseEnvList(value: string | undefined): string[] | undefined {
   return items.length ? items : undefined;
 }
 
-/** The shared OAuth callback every provider redirects back to. */
+/**
+ * The shared OAuth callback every provider redirects back to. Must be an
+ * absolute, externally-reachable URL the user has registered with the provider.
+ * Resolution (first hit wins):
+ *   1. `CONNECTORS_REDIRECT_URI` — explicit full-URI override (operator pins it)
+ *   2. the tunnel URL — how external/remote devices reach this host
+ *   3. the stable portless hostname (e.g. `https://flow.localhost`)
+ *   4. loopback on the running port — local-only fallback
+ *
+ * Previously this hardcoded `localhost:4224`, so a user accessing the app via a
+ * device/tunnel URL saw (and registered) the wrong callback. Because the URL is
+ * baked into the cached runtime's auth configs, base-URL changes call
+ * `invalidateConnectorRuntime()` so the redirect updates without a restart.
+ */
 export function getConnectorRedirectUri(): string {
-  return process.env.CONNECTORS_REDIRECT_URI ?? DEFAULT_REDIRECT;
+  const explicit = process.env.CONNECTORS_REDIRECT_URI;
+  if (explicit) return explicit;
+  const base = getRemoteBaseUrl() ?? getStaticUrl() ?? `http://localhost:${getRunningPort()}`;
+  return `${base.replace(/\/+$/, '')}${CONNECTOR_CALLBACK_PATH}`;
 }
 
 /**

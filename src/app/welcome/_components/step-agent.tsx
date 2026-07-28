@@ -12,7 +12,6 @@ import {
   Braces,
   RefreshCw,
   Package,
-  Globe2,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import { defaultModelFor } from '@/lib/agent-options';
@@ -260,63 +259,6 @@ export function StepAgent({
           onSelect={(id) => update({ agentModel: id })}
         />
       )}
-
-      <div className="space-y-3 rounded-lg border p-4">
-        <div className="flex gap-3">
-          <Globe2 className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-          <div>
-            <div className="text-sm font-medium">Where should agents use task and note actions?</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Individual repositories stay untouched with either choice.
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            {
-              enabled: true,
-              label: 'Every project',
-              hint: 'Install one user-level skill',
-              recommended: true,
-            },
-            {
-              enabled: false,
-              label: 'Only inside the app',
-              hint: 'Keep agent access scoped',
-              recommended: false,
-            },
-          ].map((option) => {
-            const selected = state.globalSkillEnabled === option.enabled;
-            return (
-              <button
-                key={String(option.enabled)}
-                type="button"
-                onClick={() => update({ globalSkillEnabled: option.enabled })}
-                className={`relative rounded-md border p-3 text-left transition-colors ${
-                  selected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
-                }`}
-              >
-                {option.recommended && (
-                  <span className="absolute top-2 right-2 text-[10px] text-muted-foreground">
-                    Recommended
-                  </span>
-                )}
-                <div className="flex items-center gap-2 pr-16 text-sm font-medium">
-                  <span
-                    className={`flex size-4 items-center justify-center rounded-full border ${
-                      selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
-                    }`}
-                  >
-                    {selected && <Check className="size-3" />}
-                  </span>
-                  {option.label}
-                </div>
-                <div className="mt-1 pl-6 text-xs text-muted-foreground">{option.hint}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }

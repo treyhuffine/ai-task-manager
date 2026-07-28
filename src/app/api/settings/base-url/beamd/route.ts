@@ -11,6 +11,7 @@ import {
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
 import { BeamdCliError } from '@/lib/preview/beamd/cli';
+import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
 
 export const runtime = 'nodejs';
 
@@ -39,6 +40,9 @@ export async function POST(request: NextRequest) {
     const port = requestPort(request);
     setRunningPort(port);
     const beamd = await openAndSaveBeamdBaseUrl(port);
+    // Opening the tunnel changes the externally-reachable URL the connector
+    // OAuth redirect derives from — rebuild the runtime so it picks it up.
+    invalidateConnectorRuntime();
     return NextResponse.json({ ...snapshot(), beamd });
   } catch (err) {
     if (err instanceof BeamdCliError) {

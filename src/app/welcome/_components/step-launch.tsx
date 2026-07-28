@@ -42,11 +42,9 @@ export function StepLaunch({ state }: { state: WizardState }) {
       icon: Globe2,
       label: 'Agent skill access',
       sub:
-        state.globalSkillEnabled === null
-          ? 'Not selected'
-          : state.globalSkillEnabled
-            ? 'Available in every project'
-            : 'Available only inside the app',
+        state.globalSkillEnabled === false
+          ? 'Available only inside the app'
+          : 'Available in every project',
     },
     {
       icon: Upload,
@@ -84,6 +82,10 @@ export function StepLaunch({ state }: { state: WizardState }) {
           );
         })}
       </div>
+
+      <p className="text-center text-xs text-muted-foreground/80">
+        Agents can manage your tasks and notes from any project. You can change this anytime in Settings.
+      </p>
     </div>
   );
 }
