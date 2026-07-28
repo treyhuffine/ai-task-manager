@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { Plus, X, History as HistoryIcon, Loader2 } from 'lucide-react';
+import { Plus, X, History as HistoryIcon, Loader2, Check } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -77,9 +77,11 @@ function byTabOrder(a: ExecutionChatHistoryEntry, b: ExecutionChatHistoryEntry):
  *   lands on the most recent open sibling first. A lone tab has no X.
  * - Double-click a tab to rename the chat (`chat_sessions.label` — never
  *   the execution's title, which is edited in the header).
- * - Closed chats collapse into the trailing history chip (count + any
- *   unread rollup). Opening one navigates to it and the view's
- *   auto-resume reactivates it, graduating it back into a tab.
+ * - The trailing history chip opens a COMPLETE jump-list of every chat on
+ *   this execution (open tabs included, current one marked), so navigating
+ *   from it never removes a chat from the list. Opening an archived chat
+ *   there reactivates it via the view's auto-resume, graduating it back
+ *   into a tab.
  *
  * Freshness: the chat list is keyed by EXECUTION, so switching chats reuses
  * one stable cache entry (no blank flash, no per-chat duplicate queries) and
@@ -125,17 +127,22 @@ export function ExecutionChatTabs({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // Warm each open sibling's full session row so clicking a tab switches
-  // instantly. Without this, `useSession` for the target chat loads cold
-  // and ExecutionView drops to a full-view skeleton for a beat — the strip
-  // (and everything else) blinks out mid-switch. Prefetch dedupes by key,
+  // Warm EVERY sibling chat's full session row on mount so navigating to
+  // one — a tab click or a pick from the history menu — switches instantly.
+  // A cold session row makes ExecutionView drop to its full-view skeleton
+  // AND makes the worktree-scoped panels (file tree, viewer, terminal)
+  // blank to their "no scope yet" state until `useSession` resolves the
+  // execution id — which reads as the whole session reloading. Archived
+  // chats are prefetched here too (not lazily on menu-open) so a dropdown
+  // pick gets the same generous lead time a tab does; warming only on
+  // menu-open raced the click on slower machines. Prefetch dedupes by key,
   // so the double mount and repeated renders are harmless.
-  const openIds = (data?.sessions ?? [])
-    .filter((s) => s.status === 'active' && s.id !== sessionId)
-    .map((s) => s.id);
+  const prefetchIds = [
+    ...new Set((data?.sessions ?? []).filter((s) => s.id !== sessionId).map((s) => s.id)),
+  ];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    for (const cid of openIds) {
+    for (const cid of prefetchIds) {
       void qc.prefetchQuery({
         queryKey: ['session', cid],
         queryFn: () => sessionsApi.get(cid),
@@ -143,7 +150,7 @@ export function ExecutionChatTabs({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openIds.join(','), sessionId]);
+  }, [prefetchIds.join(','), sessionId]);
 
   if (!data) return null;
 
@@ -153,11 +160,16 @@ export function ExecutionChatTabs({
   // but whichever chat happened to fetch it.
   const entries = data.sessions.map((s) => ({ ...s, isCurrent: s.id === sessionId }));
   const open = entries.filter((s) => s.status === 'active' || s.isCurrent);
-  const closed = entries.filter((s) => s.status === 'archived' && !s.isCurrent);
-
   const tabs = [...open].sort(byTabOrder);
-  const closedUnread = closed.some(isSessionUnread);
   const dragEnabled = tabs.length > 1;
+
+  // The dropdown is a COMPLETE jump-list of every chat on this execution —
+  // open tabs included — so navigating to one never drops it from the list
+  // (the prior version listed only archived chats, and opening one made it
+  // vanish). Server order is hotness, which reads as a "recent chats" menu.
+  // Shown whenever there's more than one chat to jump between.
+  const showMenu = entries.length > 1;
+  const menuUnread = entries.some((s) => !s.isCurrent && isSessionUnread(s));
 
   const handleClose = (entry: ExecutionChatHistoryEntry) => {
     if (entry.isCurrent) {
@@ -290,18 +302,18 @@ export function ExecutionChatTabs({
         )}
       </div>
 
-      {closed.length > 0 && (
+      {showMenu && (
         <PopoverPrimitive.Root open={historyOpen} onOpenChange={setHistoryOpen}>
           <PopoverPrimitive.Trigger asChild>
             <button
               type="button"
-              title="Chat history"
-              aria-label="Chat history"
+              title="All chats"
+              aria-label="All chats"
               className="ml-1 flex h-7 flex-shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
               <HistoryIcon size={11} />
-              <span>{closed.length}</span>
-              {closedUnread && (
+              <span>{entries.length}</span>
+              {menuUnread && (
                 <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
               )}
             </button>
@@ -315,37 +327,58 @@ export function ExecutionChatTabs({
               className="z-50 max-h-[320px] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl outline-none"
             >
               <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                Chat history
+                All chats
               </div>
-              {closed.map((s) => {
-                const unread = isSessionUnread(s);
+              {entries.map((s) => {
+                const unread = !s.isCurrent && isSessionUnread(s);
                 return (
                   <button
                     key={s.id}
                     type="button"
                     onClick={() => {
-                      setActiveView(s.id);
+                      if (!s.isCurrent) setActiveView(s.id);
                       setHistoryOpen(false);
                     }}
-                    className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50"
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+                      s.isCurrent ? 'bg-primary/10' : 'hover:bg-muted/50',
+                    )}
                   >
-                    <span className="flex w-full items-center gap-1.5">
-                      {unread && (
-                        <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
-                      )}
-                      <span
-                        className={cn(
-                          'min-w-0 flex-1 truncate text-[12px] text-foreground',
-                          unread ? 'font-semibold' : 'font-medium',
+                    <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                      <span className="flex w-full items-center gap-1.5">
+                        {unread && (
+                          <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
                         )}
-                      >
-                        {s.label ?? 'Untitled chat'}
+                        <span
+                          className={cn(
+                            'min-w-0 flex-1 truncate text-[12px] text-foreground',
+                            unread ? 'font-semibold' : 'font-medium',
+                          )}
+                        >
+                          {s.label ?? 'Untitled chat'}
+                        </span>
+                        {s.running && (
+                          <span
+                            aria-hidden
+                            className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
+                          />
+                        )}
+                      </span>
+                      <span className="text-[10.5px] text-muted-foreground/75">
+                        {s.isCurrent ? (
+                          'Current'
+                        ) : (
+                          <>
+                            {unread && <span className="text-primary">Unread · </span>}
+                            {s.status === 'archived' && 'Archived · '}
+                            {formatWhen(latestActivityAt(s) ?? s.startedAt)}
+                          </>
+                        )}
                       </span>
                     </span>
-                    <span className="text-[10.5px] text-muted-foreground/75">
-                      {unread && <span className="text-primary">Unread · </span>}
-                      {formatWhen(latestActivityAt(s) ?? s.startedAt)}
-                    </span>
+                    {s.isCurrent && (
+                      <Check size={12} className="flex-shrink-0 text-primary" strokeWidth={3} />
+                    )}
                   </button>
                 );
               })}

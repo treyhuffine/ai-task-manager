@@ -620,25 +620,43 @@ What actually shipped diverged from the sketch below (kept for the
   route 409s on the last open chat, and the strip hides the X on a lone
   tab to match. Closing the current tab switches to the most recent open
   sibling first.
-- **Closed chats** collapse into a trailing history chip (history icon
-  + count + unread rollup dot) with a popover list. Opening one
-  navigates to it, and the view's auto-resume reactivates it via
-  `continueExecutionSession`'s sibling-resume path: execution active +
-  worktree on disk means only that one chat row flips back to active
-  (`unarchiveChatSession`). The reprovision path and the
-  execution-wide `unarchiveExecution` cascade are reserved for genuinely
-  archived executions — running either against a live worktree would
-  respectively abandon it or resurrect every archived sibling at once.
+- **History chip = complete jump-list.** The trailing chip (history
+  icon + total count + unread rollup dot) opens a popover listing EVERY
+  chat on the execution — open tabs included — in hotness order. The
+  current chat is marked "Current" with a check; open non-current chats
+  show their last activity; archived ones are tagged "Archived · <when>".
+  Navigating from the list never removes an entry (the earlier version
+  listed only archived chats, so opening one made it vanish). Shown
+  whenever the execution has more than one chat. Opening an archived
+  entry reactivates it via `continueExecutionSession`'s sibling-resume
+  path: execution active + worktree on disk means only that one chat row
+  flips back to active (`unarchiveChatSession`). The reprovision path and
+  the execution-wide `unarchiveExecution` cascade are reserved for
+  genuinely archived executions — running either against a live worktree
+  would respectively abandon it or resurrect every archived sibling at
+  once.
 - **Freshness + stable switching**: the chat list is keyed by
   EXECUTION, not the viewed chat (`useExecutionChats` →
   `['execution', <id>, 'chats']`). One cache entry per execution shared
   across all its chats, so switching reuses it (no blank refetch, no
   per-chat duplicate queries) and `isCurrent` is recomputed client-side.
-  The strip also prefetches each open sibling's full session row so a tab
-  click switches instantly instead of dropping ExecutionView to a
-  full-view skeleton while the cold `['session', id]` loads. The global
-  session stream invalidates the list on any session change, with a 30s
-  poll as belt-and-suspenders for the in-memory `running` flag.
+  The global session stream invalidates the list on any session change,
+  with a 30s poll as belt-and-suspenders for the in-memory `running` flag.
+- **Switching never reloads the execution.** Navigating between chats
+  (tab click OR history-menu pick, active OR archived) must swap only the
+  transcript — the header, file tree, viewer, and terminal are
+  execution-scoped and stay put. Two things had to hold for that:
+  1. The strip prefetches EVERY sibling chat's full `['session', id]` row
+     on mount (archived included). A cold row makes ExecutionView drop to
+     its full-view skeleton and makes the worktree panels blank to their
+     "no scope yet" state (`useWorktreeScope` returns null until the row
+     resolves the execution id) — which reads as the whole session
+     reloading. Prefetching on mount gives dropdown picks the same lead
+     time tab clicks already had.
+  2. The auto-resume of an archived chat (`useContinueSession`) only
+     invalidates the worktree-scoped caches on a genuine re-provision
+     (`worktreePath: null` in the response). A sibling-chat resume keeps
+     the live worktree, so tree/diff/files/terminal are left untouched.
 
 ### Future scope: ask threads
 

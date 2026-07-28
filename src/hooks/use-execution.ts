@@ -524,11 +524,19 @@ export function useContinueSession(id: string) {
   return useMutation({
     mutationFn: (opts?: { baseBranch?: string | null }) =>
       sessionsApi.continueWork(id, opts),
-    onSuccess: () => {
+    onSuccess: (row) => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
-      // Re-provisioning swaps in a whole new worktree, so the execution's
-      // cached tree/diff/files describe a directory that no longer exists.
-      qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
+      // Only a genuine re-provision — the worktree was torn down and is
+      // being rebuilt — should blow away the execution's cached tree/diff/
+      // files/terminal. `continueExecutionSession` signals that by
+      // returning `worktreePath: null`. A sibling-chat resume of a live
+      // execution (opening an archived chat from the tab strip or the
+      // history menu) keeps the same worktree on disk, so those caches
+      // must stay put — reloading them is exactly the "whole session
+      // reloaded" flash the user sees when jumping between chats.
+      if (!row?.worktreePath) {
+        qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
+      }
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
