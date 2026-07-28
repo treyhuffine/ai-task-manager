@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2, RotateCw } from 'lucide-react';
+import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2, RotateCw, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
@@ -34,6 +34,9 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   if (!workspace) return null;
 
   const isGit = workspace.isGit;
+  // Same detection the execution header uses for its LIVE badge: a git
+  // workspace whose session points at the workspace's own directory.
+  const isLive = isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   const hasError = isGit && !session.worktreePath && !!session.setupError;
   // Treat error state as terminal — drop the spinner row so the user
   // doesn't see "creating worktree…" next to a "setup failed" row.
@@ -60,8 +63,26 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
         }
       />
 
+      {/* Live: no branch was created, so "Branched X from Y" would be a
+          fabrication. It runs in the workspace folder on whatever was already
+          checked out. */}
+      {isLive && session.branchName && (
+        <SetupRow
+          icon={<Zap size={11} className="text-amber-500/80" />}
+          text={
+            <span className="font-mono">
+              <span className="text-muted-foreground/80">Running in your workspace on </span>
+              <span className="text-foreground/90">{session.branchName}</span>
+              {session.baseSha && (
+                <span className="text-muted-foreground/60">{' @'}{session.baseSha.slice(0, 7)}</span>
+              )}
+            </span>
+          }
+        />
+      )}
+
       {/* Git-ready: branch + base SHA + worktree path */}
-      {isGit && session.branchName && (
+      {isGit && !isLive && session.branchName && (
         <SetupRow
           icon={<GitBranch size={11} />}
           text={
@@ -69,7 +90,14 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
               <span className="text-muted-foreground/80">Branched </span>
               <span className="text-foreground/90">{session.branchName}</span>
               <span className="text-muted-foreground/80"> from </span>
-              <span className="text-foreground/90">{workspace.baseBranch ?? 'main'}</span>
+              {/* The ACTUAL fork point, not the workspace default. This used to
+                  print `workspace.baseBranch` unconditionally, so an execution
+                  started from a pull request reported "from develop" while its
+                  worktree sat on the PR head — the card contradicting the
+                  launcher's own header, which correctly read "from pr/318". */}
+              <span className="text-foreground/90">
+                {session.prNumber != null ? `PR #${session.prNumber}` : workspace.baseBranch ?? 'main'}
+              </span>
               {session.baseSha && (
                 <span className="text-muted-foreground/60">
                   {' @'}
@@ -119,6 +147,22 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
           sessionId={session.id}
           error={session.setupError ?? 'Unknown error'}
           prNumber={session.prNumber ?? null}
+        />
+      )}
+
+      {/* Non-fatal provisioning caveat — the worktree exists and is usable,
+          but something about how it was rooted is worth knowing. In practice
+          this is "couldn't reach the remote, so this started from your local
+          branch." Silently working from stale code is the failure mode worth
+          a row of its own. */}
+      {session.worktreePath && session.setupWarning && (
+        <SetupRow
+          icon={<AlertCircle size={11} className="text-amber-500/80" />}
+          text={
+            <span className="text-amber-600/90 dark:text-amber-400/90">
+              {session.setupWarning}
+            </span>
+          }
         />
       )}
 

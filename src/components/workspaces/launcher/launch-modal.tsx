@@ -21,7 +21,7 @@ import {
   SquareCheckBig,
   X,
 } from 'lucide-react';
-import { useWorkspaces, useCreateExecution } from '@/hooks/use-workspaces';
+import { useWorkspaces, useCreateExecution, useWorkspacePRs } from '@/hooks/use-workspaces';
 import { useUserState } from '@/hooks/use-user-state';
 import { useAgentModels } from '@/hooks/use-agent-models';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -50,12 +50,22 @@ import {
   type LaunchSourceKind,
 } from '@/lib/executions/launch-draft';
 import type { EffortLevel } from '@/db/types';
+import {
+  readProviderEffort,
+  readProviderEfforts,
+  writeProviderEffort,
+} from '@/lib/executions/provider-effort';
 import type { ExternalAgentImportResult } from '@/lib/import/types';
 import { cn } from '@/lib/utils';
+import {
+  ChatInputEditor,
+  type ChatInputEditorHandle,
+} from '@/components/chat/editor/chat-input-editor';
 import { LaunchBrowse } from './launch-browse';
 import {
   BaseControl,
   EffortControl,
+  LiveFreshnessControl,
   LiveModeNotice,
   ModeControl,
   ModelControl,
@@ -115,12 +125,15 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
   const workspace = workspaces?.find((w) => w.id === workspaceId) ?? null;
   const isGit = !!workspace?.isGit;
 
-  const [text, setText] = useState('');
+  // The editor owns its own document; we only mirror "is there anything to
+  // send" for the Start button. Pulling the text out happens once, at launch.
+  const [hasText, setHasText] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(false);
   const [chips, setChips] = useState<LaunchChip[]>([]);
   const [browseOpen, setBrowseOpen] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<ChatInputEditorHandle>(null);
 
   // ─── Sticky per-workspace settings ──────────────────────────
   // Read lazily off the workspace so switching the workspace chip swaps in
@@ -140,14 +153,14 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
     prefsWorkspaceRef.current = workspaceId;
     const prefs = readLaunchPrefs(workspaceId);
     setMode(prefs.mode);
-    setEfforts(prefs.efforts);
+    setEfforts(readProviderEfforts());
     setAgent(
       prefs.harness && prefs.model
         ? {
             harness: prefs.harness as ProviderId,
             model: prefs.model,
             variant: null,
-            effort: prefs.efforts[prefs.harness] ?? null,
+            effort: readProviderEffort(prefs.harness),
           }
         : null,
     );
@@ -190,8 +203,20 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
         )
       : null);
 
+  // The launcher already fetches this workspace's open PRs for browse; the
+  // editor's `#` menu takes the same shape, so it costs nothing extra.
+  const { data: workspacePrs } = useWorkspacePRs(isGit ? workspaceId : null);
+  const prMentions = useMemo(() => workspacePrs ?? [], [workspacePrs]);
+
   const base = resolveBase(chips);
   const continuation = continuationOf(chips);
+  // A base chip is meaningless in Live mode, and showing one the launch will
+  // ignore is worse than showing nothing. Hidden rather than deleted, so
+  // toggling back to Worktree restores the fork point you picked.
+  const visibleChips = useMemo(
+    () => (mode === 'live' ? chips.filter((c) => c.chipKind !== 'base') : chips),
+    [chips, mode],
+  );
   const suggestions = useLaunchSuggestions({ workspaceId, isGit, enabled: !browseOpen });
 
   // ─── Warm: fold a picked PR/issue's body into its context chip ──
@@ -227,7 +252,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
       setChips((prev) => applyPick(prev, item));
       setError(null);
       void warm(item);
-      promptRef.current?.focus();
+      editorRef.current?.focus({ end: true });
     },
     [warm],
   );
@@ -248,7 +273,6 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
         mode: LaunchMode;
         harness: string;
         model: string;
-        efforts: Record<string, EffortLevel>;
       }> = {},
     ) => {
       writeLaunchPrefs(workspaceId, {
@@ -256,10 +280,9 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
         baseBranch: resolveBase(chips).baseBranch,
         harness: overrides.harness ?? selection.harness,
         model: overrides.model ?? selection.model,
-        efforts: overrides.efforts ?? efforts,
       });
     },
-    [workspaceId, mode, chips, selection.harness, selection.model, efforts],
+    [workspaceId, mode, chips, selection.harness, selection.model],
   );
 
   // Mode and model stick the moment they change, not only on a successful
@@ -278,14 +301,13 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
     (next: LaunchAgentSelection) => {
       setAgent(next);
       // `next.effort` already resolved this provider's remembered value against
-      // what the picked model supports (see ModelControl), so record it back.
-      const nextEfforts = next.effort
-        ? { ...efforts, [next.harness]: next.effort }
-        : efforts;
-      setEfforts(nextEfforts);
-      persistPrefs({ harness: next.harness, model: next.model, efforts: nextEfforts });
+      // what the picked model supports (see ModelControl), so record it back to
+      // the shared store the composer also reads.
+      writeProviderEffort(next.harness, next.effort);
+      setEfforts(readProviderEfforts());
+      persistPrefs({ harness: next.harness, model: next.model });
     },
-    [persistPrefs, efforts],
+    [persistPrefs],
   );
 
   const handleEffortChange = useCallback(
@@ -297,25 +319,30 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
         variant: prev?.variant ?? null,
         effort: next,
       }));
-      const nextEfforts = { ...efforts, [harness]: next };
-      setEfforts(nextEfforts);
-      persistPrefs({ efforts: nextEfforts });
+      writeProviderEffort(harness, next);
+      setEfforts(readProviderEfforts());
     },
-    [persistPrefs, efforts, agent?.harness, fallbackProvider, fallbackModel],
+    [efforts, agent?.harness, fallbackProvider, fallbackModel],
   );
 
   // ─── Commit ─────────────────────────────────────────────────
-  const launch = async () => {
+  const launch = async ({ send = true }: { send?: boolean } = {}) => {
     if (launching) return;
     if (!workspaceId) {
       setError('Pick a workspace first.');
       return;
     }
-    if (!canLaunch(text, chips)) return;
+    // Opening without a prompt is a legitimate destination — you often want
+    // the worktree, file tree and terminal before you know what to ask for.
+    // Only the send path needs something to actually say.
+    // One read of the editor: plain text plus any file chips resolved into
+    // real Attachment records. Both travel with the first message.
+    const output = editorRef.current?.getMarkerOutput() ?? { text: '', attachments: [] };
+    if (send && !canLaunch(output.text, chips)) return;
 
     setLaunching(true);
     setError(null);
-    const content = composePrompt(text, chips);
+    const content = composePrompt(output.text, chips);
 
     try {
       let targetSessionId: string;
@@ -360,11 +387,17 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
           await sessionsApi.continueWork(targetSessionId);
         }
       } else {
+        // Live has no fork point — the agent runs in the checkout as it
+        // stands. Sending a base anyway stamped `prNumber` on a session that
+        // never branched from it, which then read back as "Branched main from
+        // PR #90". The controls already hide in Live; this makes the payload
+        // agree with them.
+        const live = mode === 'live';
         const session = await createExecution.mutateAsync({
           workspaceId,
-          baseBranch: base.baseBranch,
-          prNumber: base.prNumber,
-          liveMode: mode === 'live',
+          baseBranch: live ? null : base.baseBranch,
+          prNumber: live ? null : base.prNumber,
+          liveMode: live,
           harness: selection.harness,
           model: selection.model,
           modelVariant: agent?.variant ?? null,
@@ -379,8 +412,11 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
       setActiveView(targetSessionId);
       closeLauncher();
 
-      if (content.trim().length > 0) {
-        await sessionsApi.sendMessage(targetSessionId, content, { eventId: uuidv7() });
+      if (send && content.trim().length > 0) {
+        await sessionsApi.sendMessage(targetSessionId, content, {
+          eventId: uuidv7(),
+          attachments: output.attachments,
+        });
       }
     } catch (err) {
       let message: string;
@@ -395,23 +431,23 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
     }
   };
 
-  const ready = canLaunch(text, chips) && !!workspaceId;
+  // `hasText` mirrors the editor; context chips alone are also launchable.
+  // Pending uploads block Start so a chip can't be sent half-resolved.
+  const ready =
+    (hasText || chips.some((c) => c.chipKind === 'context'))
+    && !!workspaceId
+    && !pendingUploads;
 
-  const handlePromptKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && (e.altKey || e.metaKey)) {
-      // ⌥⏎ / ⌘⏎ opens browse. Checked before the plain-Enter branch below.
+  // The editor owns Enter (submit), Shift+Enter (newline) and
+  // Backspace-on-empty now. Only ⌥⏎ is ours, and it's caught in the capture
+  // phase so it lands before Tiptap sees it. ⌘⏎ is deliberately NOT bound
+  // here — the editor treats it as "submit regardless", and stealing it for
+  // browse would break the hardware-keyboard escape hatch chat users rely on.
+  const handleEditorKeyDownCapture = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && e.altKey && !e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation();
       setBrowseOpen(true);
-      return;
-    }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      void launch();
-      return;
-    }
-    if (e.key === 'Backspace' && text.length === 0 && chips.length > 0) {
-      e.preventDefault();
-      setChips((prev) => prev.slice(0, -1));
     }
   };
 
@@ -435,19 +471,26 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
             // Land in the prompt, not on the first focusable (the workspace
             // chip). This is the whole express lane: open, type, Enter.
             e.preventDefault();
-            promptRef.current?.focus();
+            editorRef.current?.focus({ end: true });
           }}
           onEscapeKeyDown={(e) => {
-            // Escape peels one layer at a time. With browse open it collapses
-            // the panel and returns to the prompt; only a second Escape
-            // dismisses the modal. This has to live here rather than on the
-            // panel's own handler because Radix's dismissable layer binds
-            // Escape on the document, out of reach of React's synthetic
-            // event propagation.
-            if (!browseOpen) return;
+            // Escape backs out of whatever you're *in*, which is not the same
+            // as "whatever is open". Browse stays open after a pick so you can
+            // grab several things, so keying off `browseOpen` alone meant that
+            // once you'd used it, every Escape from then on hit an invisible
+            // extra step before the modal would close — which reads as Escape
+            // being broken. Focus is the honest signal: inside the search
+            // panel, Escape leaves the panel; anywhere else (typically the
+            // prompt, where `handlePick` returns you), it closes the modal.
+            //
+            // Lives here rather than on the panel because Radix's dismissable
+            // layer binds Escape on the document, out of reach of React's
+            // synthetic event propagation.
+            const inBrowse = document.activeElement?.closest('[data-launcher-browse]');
+            if (!browseOpen || !inBrowse) return;
             e.preventDefault();
             setBrowseOpen(false);
-            promptRef.current?.focus();
+            editorRef.current?.focus({ end: true });
           }}
         >
           <VisuallyHidden.Root>
@@ -482,6 +525,12 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
                   disabled={launching}
                 />
               )}
+              {/* Live has no fork point to pick, so the same slot answers the
+                  same question a different way: is the code you're about to
+                  work in current, and pull it if not. */}
+              {!continuation && isGit && mode === 'live' && (
+                <LiveFreshnessControl workspaceId={workspaceId} disabled={launching} />
+              )}
               <DialogPrimitive.Close asChild>
                 <button
                   className="ml-auto rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -493,19 +542,33 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pb-2">
-              <textarea
-                ref={promptRef}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={handlePromptKeyDown}
-                rows={3}
-                placeholder="What are we working on?"
-                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
-              />
+              {/* The SAME editor the chat composer uses. Brings auto-grow
+                  (20px → 200px then scrolls), image paste/drop as attachments,
+                  long-paste-becomes-a-file, and `#` PR mentions for free.
+                  File `@`-mentions and slash commands are deliberately absent:
+                  both are sourced from a worktree/harness that doesn't exist
+                  until this modal creates one. */}
+              <div
+                onKeyDownCapture={handleEditorKeyDownCapture}
+                className="rounded-lg border border-border bg-background px-3 py-2.5 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/30"
+              >
+                <ChatInputEditor
+                  ref={editorRef}
+                  placeholder="What are we working on?"
+                  disabled={launching}
+                  prs={prMentions}
+                  draftKey={workspaceId ? `launcher:${workspaceId}` : undefined}
+                  onContentChange={setHasText}
+                  onPendingUploadsChange={setPendingUploads}
+                  onSubmit={() => void launch()}
+                  onBackspaceOnEmpty={() => setChips((prev) => prev.slice(0, -1))}
+                  onUploadError={(err: Error) => setError(err.message)}
+                />
+              </div>
 
-              {chips.length > 0 && (
+              {visibleChips.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {chips.map((chip) => (
+                  {visibleChips.map((chip) => (
                     <Chip
                       key={chip.id}
                       chip={chip}
@@ -523,7 +586,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
                   onPick={handlePick}
                   onClose={() => {
                     setBrowseOpen(false);
-                    promptRef.current?.focus();
+                    editorRef.current?.focus({ end: true });
                   }}
                 />
               ) : (
@@ -596,7 +659,20 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
                 </>
               )}
 
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-1.5">
+                {/* Create the session and go there WITHOUT sending anything —
+                    for when you want the checkout, file tree and terminal in
+                    front of you before you've decided what to ask. Enabled
+                    with an empty prompt, which is the whole point. */}
+                <button
+                  type="button"
+                  onClick={() => void launch({ send: false })}
+                  disabled={!workspaceId || launching}
+                  title="Create the session and open it without sending a message"
+                  className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40"
+                >
+                  Open only
+                </button>
                 <button
                   type="button"
                   onClick={() => void launch()}

@@ -41,6 +41,7 @@ import {
   providerHarnessKey,
   type ProviderId,
 } from '@/lib/agent-options';
+import { writeProviderEffort } from '@/lib/executions/provider-effort';
 import { mapHarnessToProvider } from '@/lib/executor/harness';
 import { ComposerProviderMenu } from './composer-provider-menu';
 import {
@@ -436,6 +437,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       setEffortMenuOpen(false);
       if (isRunning) return;
       if (level === explicitEffort) return;
+      // An explicit pick, so it's worth remembering for this provider — both
+      // for later chats here and for the launcher.
+      writeProviderEffort(providerId ?? harness ?? null, level);
       if (!canChangeEffort && onSwitchProvider && providerId) {
         onSwitchProvider({
           harness: providerId,

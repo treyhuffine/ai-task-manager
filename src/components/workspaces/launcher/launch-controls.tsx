@@ -1,7 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { GitBranch, Gauge, Search, Sparkles, Zap, Check, X } from 'lucide-react';
+import { GitBranch, Gauge, Loader2, RefreshCw, Search, Sparkles, Zap, Check, X } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { workspacesApi } from '@/lib/api/workspaces';
+import { ApiError } from '@/lib/api/client';
 import { Popover, PopoverTrigger } from '@/components/ui/popover';
 import { LauncherPopoverContent } from './launcher-popover';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
@@ -386,5 +390,102 @@ export function EffortControl({
         ))}
       </LauncherPopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * "Is my checkout current" for Live mode, and one click to fix it.
+ *
+ * Live runs the agent in the workspace directory on whatever branch is checked
+ * out, so unlike a worktree there's no fetch-and-fork step to guarantee
+ * freshness — you get exactly the code you have. That's the correct contract
+ * (it IS your working tree), but it shouldn't be silent: this occupies the slot
+ * where the fork-point control sits in worktree mode and answers the same
+ * question that control answers there.
+ *
+ * Refuses on a dirty tree, surfaced as a disabled state with the reason,
+ * because merging over uncommitted work to solve a problem the user didn't
+ * raise is how you lose someone's afternoon.
+ */
+export function LiveFreshnessControl({
+  workspaceId,
+  disabled,
+}: {
+  workspaceId: string | null;
+  disabled?: boolean;
+}) {
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const key = ['workspace', workspaceId, 'base-status'] as const;
+
+  const status = useQuery({
+    queryKey: key,
+    queryFn: () => workspacesApi.baseStatus(workspaceId!),
+    enabled: !!workspaceId,
+    staleTime: 30_000,
+  });
+
+  const pull = useMutation({
+    mutationFn: () => workspacesApi.pullBase(workspaceId!),
+    onSuccess: () => {
+      setError(null);
+      void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (err) => {
+      const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
+      setError(body?.message ?? (err instanceof Error ? err.message : String(err)));
+    },
+  });
+
+  if (!workspaceId) return null;
+
+  const s = status.data;
+  const behind = s?.behind ?? 0;
+  const current = !!s && behind === 0;
+  const blocked = !!s?.dirty && behind > 0;
+
+  const label = status.isLoading
+    ? 'Checking…'
+    : !s
+      ? 'Base unknown'
+      : behind === 0
+        ? `Up to date with ${s.base}`
+        : `Pull ${s.base} (${behind} behind)`;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled || status.isLoading || pull.isPending || current || blocked}
+          onClick={() => pull.mutate()}
+          className={cn(
+            TRIGGER_CLASS,
+            behind > 0 && !blocked && 'border-amber-500/40 text-amber-600 dark:text-amber-400',
+            blocked && 'border-border',
+          )}
+        >
+          {pull.isPending || status.isLoading ? (
+            <Loader2 size={11} className="animate-spin" />
+          ) : current ? (
+            <Check size={11} className="text-emerald-500" />
+          ) : (
+            <RefreshCw size={11} />
+          )}
+          <span className="max-w-[13rem] truncate">{label}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={4} className="max-w-[280px]">
+        {error
+          ? error
+          : blocked
+            ? `You have uncommitted changes in this folder. Commit or stash them before pulling ${s?.base}.`
+            : current
+              ? `This checkout matches ${s?.base}. Live sessions will use the latest code.`
+              : s?.warning
+                ? s.warning
+                : `Live runs in this folder as-is. Merge ${s?.base ?? 'the base branch'} in so the agent starts from current code.`}
+      </TooltipContent>
+    </Tooltip>
   );
 }

@@ -361,7 +361,12 @@ export function useLaunchSources({
         label: 'Not in Flow yet',
         isLoading: discovery.isLoading,
         error: errorMessage(discovery.error),
-        items: externalItems.slice(0, 5),
+        // NOT truncated here. The shared row budget caps what's rendered and
+        // emits a "+N more" affordance; slicing at the source hid 42 of 47
+        // available transcripts with no indication they existed, which reads
+        // as "there's nothing here" — the exact failure this group exists to
+        // avoid.
+        items: externalItems,
       });
     }
 

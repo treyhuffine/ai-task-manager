@@ -85,6 +85,20 @@ export const workspacesApi = {
     return api.get<string[]>(`/workspaces/${id}/branches`);
   },
 
+  /** How far the workspace's own checkout is behind its base. Fetches first. */
+  baseStatus(id: string): Promise<WorkspaceBaseStatus | null> {
+    return api.get<WorkspaceBaseStatus | null>(`/workspaces/${id}/base-status`, {
+      timeoutMs: 30_000,
+    });
+  },
+
+  /** Merge the base branch into the workspace's own checkout (Live mode). */
+  pullBase(id: string, strategy: 'merge' | 'rebase' = 'merge'): Promise<{ ok: true; behind: number }> {
+    return api.post<{ ok: true; behind: number }>(`/workspaces/${id}/pull-base`, { strategy }, {
+      timeoutMs: 60_000,
+    });
+  },
+
   /** Full PR detail including `body`. Fetched on demand by the launcher. */
   getPR(id: string, number: number): Promise<PRDetail> {
     return api.get<PRDetail>(`/workspaces/${id}/github/prs/${number}`);
@@ -151,6 +165,14 @@ export interface IssueSummary {
 }
 
 /** List rows omit `body` (it would bloat every row); the per-item routes add it. */
+export interface WorkspaceBaseStatus {
+  branch: string | null;
+  base: string;
+  behind: number;
+  dirty: boolean;
+  warning: string | null;
+}
+
 export interface PRDetail extends PRSummary {
   body: string;
 }

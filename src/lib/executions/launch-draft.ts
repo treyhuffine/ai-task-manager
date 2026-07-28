@@ -20,7 +20,6 @@
  * read/write, which is localStorage-guarded for SSR.
  */
 
-import type { EffortLevel } from '@/db/types';
 import type { ExternalAgentSource } from '@/lib/import/types';
 
 export type LaunchSourceKind =
@@ -318,15 +317,10 @@ export interface LaunchPrefs {
   baseBranch: string | null;
   harness: string | null;
   model: string | null;
-  /**
-   * Reasoning effort keyed by provider.
-   *
-   * A single value per workspace is wrong because effort only means anything
-   * relative to a provider: Codex's ladder and Claude's aren't the same scale,
-   * and "I run Codex hot but Claude at medium" is a normal preference. Flipping
-   * providers would otherwise clobber whichever value you set last.
-   */
-  efforts: Record<string, EffortLevel>;
+  // Effort deliberately does NOT live here. It's global per provider rather
+  // than per workspace, and shared with the in-execution composer — see
+  // `provider-effort.ts`. Keeping a second copy here would let the two
+  // surfaces disagree about the same preference.
 }
 
 export const DEFAULT_LAUNCH_PREFS: LaunchPrefs = {
@@ -334,7 +328,6 @@ export const DEFAULT_LAUNCH_PREFS: LaunchPrefs = {
   baseBranch: null,
   harness: null,
   model: null,
-  efforts: {},
 };
 
 const PREFS_KEY = 'flow.launcher.prefs.v1';
@@ -363,10 +356,6 @@ export function readLaunchPrefs(workspaceId: string | null): LaunchPrefs {
     baseBranch: typeof stored.baseBranch === 'string' ? stored.baseBranch : null,
     harness: typeof stored.harness === 'string' ? stored.harness : null,
     model: typeof stored.model === 'string' ? stored.model : null,
-    efforts:
-      stored.efforts && typeof stored.efforts === 'object' && !Array.isArray(stored.efforts)
-        ? (stored.efforts as Record<string, EffortLevel>)
-        : {},
   };
 }
 

@@ -736,6 +736,13 @@ export const executions = sqliteTable(
     // anchors the "creating worktree… Ns" counter to the current attempt.
     setupError: text(),
     setupStartedAt: text(),
+    // Non-fatal provisioning note. Distinct from `setup_error`, which is
+    // terminal and blocks the session: this records that setup SUCCEEDED but
+    // with a caveat worth showing — the common one being "couldn't reach the
+    // remote, so this worktree started from your local branch and may be
+    // behind." Silently rooting at stale code is the failure mode this exists
+    // to prevent. Cleared on each provisioning attempt.
+    setupWarning: text(),
 
     // Setup *script* state (the workspace's `setupCommand`). Runs in the
     // BACKGROUND once the worktree is ready, so chat is available immediately —

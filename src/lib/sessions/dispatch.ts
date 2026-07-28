@@ -42,6 +42,7 @@ import {
   getOrCreateDefaultExecutor,
   ensureAgentHarnessSettings,
 } from '@/lib/db/queries';
+import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
 import {
   createWorktreeForSession,
   resumeWorktreeForSession,
@@ -309,7 +310,7 @@ export interface ProvisionArgs {
 export async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
   const { ws, executionId, sessionId, label, baseBranchOverride, prNumber, resume } = args;
   try {
-    let worktree: { path: string; branch: string; baseSha: string } | null = null;
+    let worktree: CreateWorktreeForSessionResult | null = null;
 
     if (resume) {
       worktree = await resumeWorktreeForSession({
@@ -345,6 +346,10 @@ export async function provisionWorktreeForSession(args: ProvisionArgs): Promise<
       worktreePath: worktree.path,
       branchName: worktree.branch,
       baseSha: worktree.baseSha,
+      // Non-fatal: set when the remote was unreachable and the worktree was
+      // rooted at the local ref. The SetupCard surfaces it so "started from
+      // possibly-stale code" is visible rather than silent.
+      warning: worktree.warning,
     });
 
     // Worktree is ready → chat + file tree are usable NOW. Copy the ignored

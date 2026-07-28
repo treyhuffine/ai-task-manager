@@ -2711,19 +2711,29 @@ export function markExecutionSetupStarted(executionId: string): ExecutionRecord 
   return updateExecution(executionId, {
     setupStartedAt: new Date().toISOString(),
     setupError: null,
+    // A warning describes the attempt that produced it, so a retry starts
+    // clean rather than showing a stale "couldn't reach origin" note.
+    setupWarning: null,
   });
 }
 
 /** Record a successful worktree provision. */
 export function markExecutionSetupComplete(
   executionId: string,
-  params: { worktreePath: string; branchName: string; baseSha: string },
+  params: {
+    worktreePath: string;
+    branchName: string;
+    baseSha: string;
+    /** Non-fatal caveat, e.g. the remote was unreachable. Null clears it. */
+    warning?: string | null;
+  },
 ): ExecutionRecord | null {
   return updateExecution(executionId, {
     worktreePath: params.worktreePath,
     branchName: params.branchName,
     baseSha: params.baseSha,
     setupError: null,
+    setupWarning: params.warning ?? null,
   });
 }
 
@@ -2992,6 +3002,7 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
     prNumber: e?.prNumber ?? null,
     setupError: e?.setupError ?? null,
     setupStartedAt: e?.setupStartedAt ?? null,
+    setupWarning: e?.setupWarning ?? null,
     setupScriptStatus: e?.setupScriptStatus ?? null,
     setupScriptError: e?.setupScriptError ?? null,
     takeoverStartedAt: e?.takeoverStartedAt ?? null,

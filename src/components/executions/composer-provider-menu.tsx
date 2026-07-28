@@ -17,6 +17,7 @@ import { useAgentModels } from '@/hooks/use-agent-models';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
 import { ProviderIcon } from '@/components/settings/agent-connection-ui';
 import { openSettings } from '@/components/settings/settings-store';
+import { readProviderEffort } from '@/lib/executions/provider-effort';
 import { cn } from '@/lib/utils';
 
 interface ComposerProviderMenuProps {
@@ -132,7 +133,15 @@ export function ComposerProviderMenu({
                   const modelOption = pendingModel ?? { id: pending.model, label: pending.model };
                   const harnessKey = providerHarnessKey(pending.harness);
                   const effort = harnessSupportsEffort(harnessKey)
-                    ? explicitEffortForModel(harnessKey, modelOption, null)
+                    // Remembered effort for the DESTINATION provider, validated
+                    // against the picked model. Passing null here reset you to
+                    // the model's default on every switch, which is what made
+                    // provider round-trips lose your setting.
+                    ? explicitEffortForModel(
+                        harnessKey,
+                        modelOption,
+                        readProviderEffort(pending.harness),
+                      )
                     : null;
                   onSwitchProvider({
                     ...pending,

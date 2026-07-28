@@ -168,6 +168,12 @@ export interface CreateWorktreeForSessionResult {
   path: string;
   branch: string;
   baseSha: string;
+  /**
+   * Non-fatal caveat about how the base was resolved — set when the remote
+   * couldn't be reached and the worktree was rooted at the local ref instead.
+   * The worktree is usable; it may just be behind.
+   */
+  warning: string | null;
 }
 
 export interface FetchPrHeadResult {
@@ -219,18 +225,39 @@ export async function fetchPrHead(args: {
  * fall back to the local branch name so worktree creation still
  * succeeds. The caller logs a warning; the worktree may end up behind.
  */
+/** Remote names configured on the repo. Empty on failure — callers fall back. */
+async function listRemotes(cwd: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync('git', ['remote'], { cwd });
+    return stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** First meaningful line of a git error — the rest is command echo. */
+function firstLine(message: string): string {
+  const line = message
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('Command failed'))[0];
+  return line ?? '';
+}
+
 async function refreshBaseFromRemote(args: {
   ws: WorkspaceRecord;
   baseBranch: string;
 }): Promise<{ ref: string; fetched: boolean; warning: string | null }> {
   const { ws, baseBranch } = args;
-  const remote = ws.remoteName ?? 'origin';
-  // Strip an existing `<remote>/` prefix so we send a clean upstream
-  // branch name to `git fetch`.
-  const remoteSlashed = `${remote}/`;
-  const branchName = baseBranch.startsWith(remoteSlashed)
-    ? baseBranch.slice(remoteSlashed.length)
-    : baseBranch;
+  // Resolve the remote from the ref itself rather than assuming the
+  // workspace default. A repo with a second remote (`public/main` alongside
+  // `origin/main`) would otherwise fall through the `origin/` check and skip
+  // the refresh entirely, silently rooting the worktree at a stale ref.
+  const configured = ws.remoteName ?? 'origin';
+  const [maybeRemote, ...rest] = baseBranch.split('/');
+  const known = rest.length > 0 && (await listRemotes(ws.cwd)).includes(maybeRemote!);
+  const remote = known ? maybeRemote! : configured;
+  const branchName = known ? rest.join('/') : baseBranch;
   // `+src:dst` force-updates the remote-tracking ref so a force-push
   // upstream doesn't make subsequent fetches fail with "non-fast-forward."
   const refspec = `+refs/heads/${branchName}:refs/remotes/${remote}/${branchName}`;
@@ -242,7 +269,11 @@ async function refreshBaseFromRemote(args: {
     return {
       ref: branchName,
       fetched: false,
-      warning: `Could not fetch ${remote}/${branchName}; using local branch (may be behind): ${msg}`,
+      // User-facing: names the consequence, not the git invocation. The full
+      // command + stderr still goes to the server log via the caller's warn.
+      warning:
+        `Couldn't reach ${remote} to refresh ${branchName}, so this started from your `
+        + `local copy and may be behind. ${firstLine(msg)}`,
     };
   }
 }
@@ -253,12 +284,16 @@ async function refreshBaseFromRemote(args: {
  * branch already exists. Worktree path uses the session id (not the slug)
  * so two sessions sharing a label can't collide on disk.
  *
- * When no `baseBranchOverride` is provided (the default "+" flow), we
- * first fetch the workspace's base branch from the configured remote and
- * root the worktree at the remote-tracking ref, so it always starts at
- * the latest upstream commit regardless of how stale the user's local
- * branch is. The override path (PR head, picked remote branch) skips the
- * fetch — the caller already resolved the exact ref they want.
+ * The base branch is fetched from the configured remote before the worktree
+ * is rooted, so a new execution always starts at the latest upstream commit
+ * regardless of how stale the user's local clone is. That applies to the
+ * default "+" flow AND to an explicitly picked branch — see the refresh
+ * comment inline for why the latter can't be trusted as-is.
+ *
+ * The exception is a PR head (`refs/agentex/pr/<N>`), which `fetchPrHead`
+ * has already fetched. A failed fetch is non-fatal: the worktree is rooted
+ * at the local ref and a warning is logged, so being offline degrades to
+ * "possibly behind" rather than "can't start work."
  */
 export async function createWorktreeForSession(args: {
   ws: WorkspaceRecord;
@@ -278,16 +313,28 @@ export async function createWorktreeForSession(args: {
   if (!requestedBase) {
     throw new Error(`Workspace ${ws.slug} has no baseBranch`);
   }
-  // Only refresh from remote on the default "+" path. When the caller
-  // passed an explicit override we trust it as-is — for PRs that's the
-  // already-fetched `refs/agentex/pr/<N>` ref, for "Create from branch"
-  // it's a remote-tracking branch the user explicitly picked.
+  // Refresh from the remote before rooting the worktree, so a new execution
+  // starts at the latest upstream commit however stale the local clone is.
+  //
+  // The one override we DON'T refresh is a PR head: `fetchPrHead` just fetched
+  // `refs/agentex/pr/<N>` moments ago, and re-fetching a branch by that name
+  // would fail. Every other override still needs the fetch — a remote-tracking
+  // ref like `origin/main` is only as fresh as the last `git fetch`, and the
+  // launcher re-attaches a remembered base branch on every open, so trusting
+  // overrides wholesale meant one branch pick silently disabled the refresh
+  // for that workspace from then on, drifting further behind every day.
+  // Anything except an already-fetched PR ref gets refreshed. Deciding WHICH
+  // remote is `refreshBaseFromRemote`'s job — it reads the ref's own prefix, so
+  // a second remote is handled rather than silently skipped.
+  const alreadyFetchedRef = !!trimmedOverride && trimmedOverride.startsWith('refs/');
   let baseBranch = requestedBase;
-  if (!trimmedOverride) {
+  let warning: string | null = null;
+  if (!alreadyFetchedRef) {
     const refreshed = await refreshBaseFromRemote({ ws, baseBranch: requestedBase });
     baseBranch = refreshed.ref;
     if (refreshed.warning) {
       console.warn(`[workspaces] ${refreshed.warning}`);
+      warning = refreshed.warning;
     }
   }
   const lib = await loadLib();
@@ -329,6 +376,7 @@ export async function createWorktreeForSession(args: {
         path: handle.path,
         branch: handle.git.branch,
         baseSha: handle.git.baseSha,
+        warning,
       };
     } catch (err) {
       if (err instanceof lib.BranchExistsError) continue;
@@ -400,6 +448,9 @@ export async function resumeWorktreeForSession(args: {
       path: handle.path,
       branch: handle.git.branch,
       baseSha: handle.git.baseSha,
+      // Resume recreates the ORIGINAL branch at its original base — there is
+      // no remote refresh to caveat.
+      warning: null,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -548,4 +599,94 @@ export async function archiveSessionWorktree(args: {
     if (err instanceof lib.WorkspaceNotFoundError) return;
     throw err;
   }
+}
+
+// ─── Source-checkout freshness (Live mode) ────────────────────
+
+export interface WorkspaceBaseStatus {
+  /** Branch currently checked out in the workspace directory. */
+  branch: string | null;
+  /** The workspace's configured base branch, e.g. `main`. */
+  base: string;
+  /** Commits the base has that this checkout doesn't. */
+  behind: number;
+  /** Uncommitted changes present — a pull would refuse. */
+  dirty: boolean;
+  /** Set when the remote couldn't be reached, so `behind` may be understated. */
+  warning: string | null;
+}
+
+/**
+ * Measure the workspace's own checkout against its base branch.
+ *
+ * Fetches first, because ahead/behind is computed against the local
+ * remote-tracking ref: on a clone that hasn't fetched in days, git reports
+ * "0 behind" with total confidence. A fetch failure still returns counts,
+ * flagged — stale numbers plus a caveat beat a blank panel.
+ *
+ * `dirty` comes from the library. `behind` does NOT: `status().behind` measures
+ * distance from the current branch's own upstream, which is only the base
+ * branch when you happen to be sitting on it. The button next to this pulls the
+ * BASE, so the number beside it has to measure the same thing.
+ */
+export async function getWorkspaceBaseStatus(ws: WorkspaceRecord): Promise<WorkspaceBaseStatus> {
+  const base = ws.baseBranch ?? 'main';
+  const refreshed = await refreshBaseFromRemote({ ws, baseBranch: base });
+
+  const lib = await loadLib();
+  const handle = await lib.workspace.open(ws.cwd);
+  const dirty = handle.kind === 'git' ? (await handle.git.status()).dirty : false;
+  const branch = handle.kind === 'git' ? handle.git.branch : null;
+
+  let behind = 0;
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-list', '--count', `HEAD..${refreshed.ref}`],
+      { cwd: ws.cwd },
+    );
+    behind = parseInt(stdout.trim(), 10) || 0;
+  } catch {
+    // Base ref unresolvable (fresh clone, renamed default) — report 0 rather
+    // than failing the whole panel.
+  }
+
+  return { branch, base, behind, dirty, warning: refreshed.warning };
+}
+
+/**
+ * Merge the base branch into the workspace's own checkout.
+ *
+ * Delegates the actual fetch+merge to the library's `pullLatestBase`, the same
+ * call the per-session pull route uses, so both paths behave identically.
+ *
+ * Guarded on a clean tree first. Live mode's contract is that the agent works
+ * in the directory the user is looking at, so merging on top of uncommitted
+ * work would risk their changes to solve a problem they didn't raise.
+ */
+export async function pullWorkspaceBase(
+  ws: WorkspaceRecord,
+  opts: { strategy?: 'merge' | 'rebase' } = {},
+): Promise<
+  { ok: true; behind: number } | { ok: false; code: 'dirty_worktree' | 'error'; message: string }
+> {
+  if (!ws.isGit) return { ok: false, code: 'error', message: 'Not a git workspace' };
+
+  const status = await getWorkspaceBaseStatus(ws);
+  if (status.dirty) {
+    return {
+      ok: false,
+      code: 'dirty_worktree',
+      message:
+        'You have uncommitted changes here. Commit or stash them first — pulling would merge on top of your work.',
+    };
+  }
+
+  const lib = await loadLib();
+  const handle = await lib.workspace.open(ws.cwd);
+  if (handle.kind !== 'git') return { ok: false, code: 'error', message: 'Not a git workspace' };
+  // MergeConflictError propagates to the route, which maps it to a 409 the
+  // same way the per-session pull does.
+  await handle.git.pullLatestBase({ strategy: opts.strategy ?? 'merge' });
+  return { ok: true, behind: status.behind };
 }

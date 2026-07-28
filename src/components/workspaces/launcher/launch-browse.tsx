@@ -235,14 +235,19 @@ export function LaunchBrowse({
     // Escape is deliberately NOT handled here. Radix's dismissable layer
     // listens for it on the document, so stopping the React synthetic event
     // wouldn't prevent the whole modal from closing. The modal owns it via
-    // `onEscapeKeyDown` and collapses this panel first.
+    // `onEscapeKeyDown`, which collapses this panel only when focus is inside.
   };
 
   const anyLoading = groups.some((g) => g.isLoading);
   let rowIndex = -1;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-background/60">
+    <div
+      // Marks the panel so the modal can tell whether focus is inside it when
+      // Escape fires — see the dialog's `onEscapeKeyDown`.
+      data-launcher-browse=""
+      className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-background/60"
+    >
       <div className="relative flex-shrink-0 border-b border-border/70">
         <Search
           size={12}
