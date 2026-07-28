@@ -89,6 +89,8 @@ import { EntityChipNode, ENTITY_CHIP_NAME, type EntityChipAttrs } from './entity
  */
 export interface EditorSnapshot {
   readonly doc: unknown;
+  /** Carries the `#`-menu dismissal across a failed-send rollback. */
+  readonly literalPrRefs?: boolean;
 }
 
 export interface ChatInputEditorHandle {
@@ -139,7 +141,16 @@ export interface ChatInputEditorHandle {
    * markers where chips were, plus the attachments referenced. The server
    * resolves the markers into absolute disk paths before dispatching.
    */
-  getMarkerOutput(): { text: string; attachments: Attachment[] };
+  getMarkerOutput(): {
+    text: string;
+    attachments: Attachment[];
+    /**
+     * True once the user has dismissed the `#` menu with Escape in this
+     * message. The composer skips `expandPrRefs` so a typed `#1` reaches
+     * the agent as the literal two characters the user meant.
+     */
+    literalPrRefs: boolean;
+  };
   /**
    * Orchestrator-chat output: ai-sdk parts in document order. Text
    * runs and chip atoms interleave so a sentence like
@@ -378,6 +389,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     mentionNotesRef.current = mentionNotes;
     const prsRef = useRef(prs);
     prsRef.current = prs;
+    // Set when the user Escapes out of the `#` menu: they want the
+    // number as plain text, so the composer skips PR expansion for this
+    // message. Cleared on send (and on any draft swap), carried across a
+    // failed-send rollback by snapshot/restore.
+    const literalPrRefsRef = useRef(false);
     onFocusRef.current = onFocus;
     // Mirror the recall ring in a ref so the keymap (built once) always
     // reads the latest sent-message list without re-creating the editor.
@@ -722,6 +738,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         }),
         PrMenuExtension.configure({
           getPrs: () => prsRef.current ?? [],
+          onDismiss: () => {
+            literalPrRefsRef.current = true;
+          },
         }),
         KeymapExtension,
       ],
@@ -778,6 +797,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       // above (which still needs the stash) so history state doesn't leak
       // across a session switch.
       resetHistoryNav();
+      if (previousKey !== draftKey) {
+        // Same reasoning for the `#`-literal flag: it describes the
+        // message being composed, and that message just changed.
+        literalPrRefsRef.current = false;
+      }
       if (!draftKey) return;
       // Mark this key hydrated *before* reading: from here on an empty
       // editor genuinely means "user cleared it", so saves/removes are
@@ -864,6 +888,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           // A send/clear ends any recall navigation — the stashed draft is
           // intentionally discarded (the user committed the recalled text).
           resetHistoryNav();
+          // The "I meant `#1` literally" flag is scoped to one message.
+          literalPrRefsRef.current = false;
           editor.commands.clearContent(true);
         },
         insertTextAtCursor: (text) => {
@@ -881,13 +907,14 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         },
         snapshot: () => {
           if (!editor || editor.isEmpty) return null;
-          return { doc: editor.getJSON() };
+          return { doc: editor.getJSON(), literalPrRefs: literalPrRefsRef.current };
         },
         restore: (snap) => {
           if (!editor) return;
           // A failed-send rollback puts the real draft back — end any recall
           // navigation so the restored text is treated as the live draft.
           resetHistoryNav();
+          literalPrRefsRef.current = snap.literalPrRefs ?? false;
           // `setContent` with `emitUpdate: true` so `onUpdate` runs and
           // the parent's `hasContent` flips back to true after a
           // failed-send rollback. Focus to the end matches what the
@@ -895,7 +922,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           editor.chain().setContent(snap.doc as never, { emitUpdate: true }).focus('end').run();
         },
         uploadFile: (file, name) => uploadAndInsert(file, name ?? (file as File).name ?? 'upload'),
-        getMarkerOutput: () => buildMarkerOutput(editor),
+        getMarkerOutput: () => ({
+          ...buildMarkerOutput(editor),
+          literalPrRefs: literalPrRefsRef.current,
+        }),
         getUiMessageParts: () => buildUiMessageParts(editor),
       }),
       [editor, uploadAndInsert, editorHasPendingChip, resetHistoryNav],

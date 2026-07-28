@@ -9,6 +9,7 @@ import {
   forwardRef,
 } from 'react'
 import type { SuggestionKeyDownProps } from '@tiptap/suggestion'
+import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
 import type { SkillCommandDescriptor } from './types'
 
 export interface SlashMenuListRef {
@@ -51,21 +52,17 @@ export const SlashMenuList = forwardRef<SlashMenuListRef, SlashMenuListProps>(
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }: SuggestionKeyDownProps) => {
-        if (event.key === 'ArrowUp') {
-          setSelectedIndex((prev) => (prev + items.length - 1) % items.length)
+        if (items.length === 0) return false
+        const delta = suggestionNavDelta(event)
+        if (delta !== 0) {
+          setSelectedIndex((prev) => (prev + delta + items.length) % items.length)
           return true
         }
-        if (event.key === 'ArrowDown') {
-          setSelectedIndex((prev) => (prev + 1) % items.length)
-          return true
-        }
-        if (event.key === 'Enter' || event.key === 'Tab') {
+        if (isSuggestionCommitKey(event)) {
           selectItem(selectedIndex)
           return true
         }
-        if (event.key === 'Escape') {
-          return true
-        }
+        // Modified Enter (newline / send) belongs to the composer.
         return false
       },
     }))

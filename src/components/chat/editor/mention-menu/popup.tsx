@@ -11,6 +11,7 @@ import {
 import { Folder, Square, CheckSquare, StickyNote, Notebook } from 'lucide-react'
 import { FileIcon } from '@/components/file-icon'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
+import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
 import type { MentionItem } from './types'
 
 interface MentionMenuListProps {
@@ -74,21 +75,16 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
         if (items.length === 0) return false
-        if (event.key === 'ArrowUp') {
-          setSelectedIndex((prev) => (prev + items.length - 1) % items.length)
+        const delta = suggestionNavDelta(event)
+        if (delta !== 0) {
+          setSelectedIndex((prev) => (prev + delta + items.length) % items.length)
           return true
         }
-        if (event.key === 'ArrowDown') {
-          setSelectedIndex((prev) => (prev + 1) % items.length)
-          return true
-        }
-        if (event.key === 'Enter' || event.key === 'Tab') {
+        if (isSuggestionCommitKey(event)) {
           selectItem(selectedIndex)
           return true
         }
-        if (event.key === 'Escape') {
-          return true
-        }
+        // Modified Enter (newline / send) belongs to the composer.
         return false
       },
     }))

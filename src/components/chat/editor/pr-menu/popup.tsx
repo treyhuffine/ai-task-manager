@@ -11,6 +11,7 @@ import {
 import { GitPullRequest, GitMerge, GitPullRequestClosed } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
+import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
 import type { PrMentionItem } from './types'
 
 interface PrMenuListProps {
@@ -68,21 +69,17 @@ export const PrMenuList = forwardRef<SuggestionPopupRef, PrMenuListProps>(
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
         if (items.length === 0) return false
-        if (event.key === 'ArrowUp') {
-          setSelectedIndex((prev) => (prev + items.length - 1) % items.length)
+        const delta = suggestionNavDelta(event)
+        if (delta !== 0) {
+          setSelectedIndex((prev) => (prev + delta + items.length) % items.length)
           return true
         }
-        if (event.key === 'ArrowDown') {
-          setSelectedIndex((prev) => (prev + 1) % items.length)
-          return true
-        }
-        if (event.key === 'Enter' || event.key === 'Tab') {
+        if (isSuggestionCommitKey(event)) {
           selectItem(selectedIndex)
           return true
         }
-        if (event.key === 'Escape') {
-          return true
-        }
+        // Everything else — Shift+Enter, Cmd+Enter, plain typing — falls
+        // through to the composer so `#1` can stay literal text.
         return false
       },
     }))
@@ -97,6 +94,9 @@ export const PrMenuList = forwardRef<SuggestionPopupRef, PrMenuListProps>(
 
     return (
       <div ref={listRef} className="slash-command-menu chat-slash-menu">
+        {/* Rows come first: `listRef.current.children[selectedIndex]`
+            drives scroll-into-view, and the footer below is a trailing
+            child that never gets selected. */}
         {items.map((item, index) => (
           <button
             key={item.number}
@@ -122,6 +122,9 @@ export const PrMenuList = forwardRef<SuggestionPopupRef, PrMenuListProps>(
             </span>
           </button>
         ))}
+        <div className="sticky bottom-0 -mx-1 -mb-1 mt-0.5 border-t border-border bg-popover px-2.5 py-1 text-[10px] text-muted-foreground/80">
+          Enter to insert, Esc to keep it as plain text
+        </div>
       </div>
     )
   },

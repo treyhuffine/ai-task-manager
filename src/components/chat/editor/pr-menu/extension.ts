@@ -23,6 +23,12 @@ interface PrMenuOptions {
    * the editor's options are frozen at create time.
    */
   getPrs?: () => PrMentionItem[]
+  /**
+   * Called when the user dismisses the menu with Escape. The composer
+   * takes this as "I meant `#N` as literal text" and skips the
+   * send-time PR expansion for the message.
+   */
+  onDismiss?: () => void
 }
 
 const MAX_RESULTS = 30
@@ -84,7 +90,7 @@ export const PrMenuExtension = Extension.create<PrMenuOptions>({
   priority: 200,
 
   addOptions() {
-    return { getPrs: undefined }
+    return { getPrs: undefined, onDismiss: undefined }
   },
 
   addProseMirrorPlugins() {
@@ -97,6 +103,11 @@ export const PrMenuExtension = Extension.create<PrMenuOptions>({
       // Don't require start-of-line — `#22` and "see #22" are both
       // valid spots for a reference.
       startOfLine: false,
+      // Stay out of the way entirely where there are no PRs to offer —
+      // the orchestrator chat and the note/task slideouts share this
+      // editor, and popping an empty menu on every `#` there is pure
+      // noise. Composers with a PR list still get the full menu.
+      allow: () => getPrs().length > 0,
       items: ({ query }: { query: string }) => rankItems(getPrs(), query),
       command: ({
         editor,
@@ -118,7 +129,9 @@ export const PrMenuExtension = Extension.create<PrMenuOptions>({
           .insertContent(' ')
           .run()
       },
-      render: createSuggestionPopupRenderer<PrMentionItem>(PrMenuList),
+      render: createSuggestionPopupRenderer<PrMentionItem>(PrMenuList, {
+        onDismiss: () => this.options.onDismiss?.(),
+      }),
     }
 
     return [

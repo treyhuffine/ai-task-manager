@@ -450,17 +450,22 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const handleSend = useCallback(
       async (
-        override?: { text: string; attachments: Attachment[] },
+        override?: { text: string; attachments: Attachment[]; literalPrRefs?: boolean },
         opts?: { viaVoice?: boolean },
       ) => {
         const editor = editorRef.current;
-        const out = override ?? editor?.getMarkerOutput() ?? { text: '', attachments: [] };
+        const out = override ??
+          editor?.getMarkerOutput() ?? { text: '', attachments: [], literalPrRefs: false };
         // Expand `#193` style PR references against the cached PR list so
         // the agent sees title + URL + branch context without an extra
         // `gh pr view` round-trip. Unmatched numbers pass through; voice
         // override path also runs through it so a dictated "look at one
-        // ninety three" expanded by STT still benefits.
-        const text = expandPrRefs(out.text.trim(), prMentionsRef.current);
+        // ninety three" expanded by STT still benefits. `literalPrRefs`
+        // is the user Escaping out of the `#` menu — they want the
+        // number as typed, so nothing gets rewritten.
+        const text = expandPrRefs(out.text.trim(), prMentionsRef.current, {
+          literal: out.literalPrRefs,
+        });
         // No isRunning gate: sends are accepted mid-turn. The harness's
         // own queue handles ordering — Claude drains as `<system-reminder>`
         // attachments into the current turn; Codex merges as additional

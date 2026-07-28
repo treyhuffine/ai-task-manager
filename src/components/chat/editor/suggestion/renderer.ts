@@ -6,6 +6,7 @@ import React, {
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
+import { registerOpenSuggestion } from './escape-guard'
 
 /**
  * Shared imperative-handle shape for popup components. The Tiptap
@@ -39,9 +40,20 @@ export type SuggestionPopupComponent<TItem> = ForwardRefExoticComponent<
   } & RefAttributes<SuggestionPopupRef>
 >
 
+export interface SuggestionPopupRendererOptions {
+  popupClassName?: string
+  /**
+   * Called when the user explicitly dismisses the menu with Escape (as
+   * opposed to the menu closing because the match broke). The `#` menu
+   * uses this to remember that the user meant the number as literal
+   * text, so the send path doesn't quietly re-link it.
+   */
+  onDismiss?: () => void
+}
+
 export function createSuggestionPopupRenderer<TItem>(
   Component: SuggestionPopupComponent<TItem>,
-  options?: { popupClassName?: string },
+  options?: SuggestionPopupRendererOptions,
 ) {
   const popupClassName = options?.popupClassName ?? 'slash-command-popup'
   return () => {
@@ -49,9 +61,18 @@ export function createSuggestionPopupRenderer<TItem>(
     let root: Root | null = null
     let componentRef: SuggestionPopupRef | null = null
     let host: HTMLElement = document.body
+    let releaseEscape: (() => void) | null = null
+    // Escape closes the menu for the rest of the current token. The
+    // Tiptap plugin stays active on purpose — force-exiting it would
+    // let the very next keystroke re-match `#1` → `#12` and pop the
+    // menu straight back open, which is the opposite of dismissing.
+    // `onExit` clears the flag once the match breaks, so the next `#`
+    // opens normally.
+    let dismissed = false
 
     return {
       onStart(props: SuggestionProps<TItem>) {
+        dismissed = false
         popup = document.createElement('div')
         popup.className = popupClassName
         // Mount inside the nearest Radix Dialog when present — Radix sets
@@ -76,9 +97,16 @@ export function createSuggestionPopupRenderer<TItem>(
         )
 
         updatePosition(popup, props)
+
+        releaseEscape?.()
+        releaseEscape = registerOpenSuggestion({
+          dismiss,
+          isFocused: () => props.editor.view.hasFocus(),
+        })
       },
 
       onUpdate(props: SuggestionProps<TItem>) {
+        if (dismissed) return
         root?.render(
           React.createElement(Component, {
             ref: (r: SuggestionPopupRef | null) => {
@@ -92,16 +120,29 @@ export function createSuggestionPopupRenderer<TItem>(
       },
 
       onKeyDown(props: SuggestionKeyDownProps) {
-        if (props.event.key === 'Escape') {
-          cleanup()
+        // Normally the window-capture guard has already handled Escape
+        // before ProseMirror sees it. This is the fallback for anything
+        // that dispatches straight at the editor. Returning `true`
+        // stops the Tiptap plugin from force-exiting the suggestion —
+        // see the `dismissed` note above.
+        if (props.event.key === 'Escape' || props.event.key === 'Esc') {
+          dismiss()
           return true
         }
         return componentRef?.onKeyDown(props) ?? false
       },
 
       onExit() {
+        dismissed = false
         cleanup()
       },
+    }
+
+    function dismiss() {
+      if (dismissed) return
+      dismissed = true
+      cleanup()
+      options?.onDismiss?.()
     }
 
     function updatePosition(el: HTMLDivElement, props: SuggestionProps<TItem>) {
@@ -118,6 +159,8 @@ export function createSuggestionPopupRenderer<TItem>(
     }
 
     function cleanup() {
+      releaseEscape?.()
+      releaseEscape = null
       root?.unmount()
       root = null
       popup?.remove()
