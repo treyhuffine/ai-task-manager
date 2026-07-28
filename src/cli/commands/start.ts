@@ -8,6 +8,7 @@ import {
   getStaticUrl,
   setRunningPort,
   setStaticUrl,
+  buildPairingUrl,
 } from '@/lib/auth/bootstrap';
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { resetDb } from '@/lib/db';
@@ -160,7 +161,9 @@ export async function startCommand(opts: StartOptions) {
   // start on 42241 must not mistake a prod server on 4224 for "already running".
   const probeUrl = getStaticUrl() ?? `http://localhost:${preferredPort}`;
   if (await isOurServerRunning(probeUrl)) {
-    const url = info.pairingUrl;
+    // Build the pairing URL against the URL we just confirmed is live, not the
+    // token's baked-in default (which predates port binding).
+    const url = buildPairingUrl(info.plaintext, probeUrl);
     log.success(`Already running at ${probeUrl}`);
     if (opts.open) await openBrowser(url);
     outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
@@ -239,7 +242,10 @@ export async function startCommand(opts: StartOptions) {
   await waitForServer(getLocalBaseUrl(), readyTimeoutMs);
   s.stop(`Server ready at ${getLocalBaseUrl()}`);
 
-  const url = info.pairingUrl;
+  // Rebuild against the now-bound port. `info.pairingUrl` was computed in
+  // `ensureLocalToken()` before `process.env.PORT` was set, so it carries the
+  // default port (e.g. 4224) even when the dev server bound 42241.
+  const url = buildPairingUrl(info.plaintext);
   if (opts.open) {
     await openBrowser(url);
     log.success(`Opened ${url}`);

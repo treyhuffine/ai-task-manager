@@ -14,15 +14,12 @@
 
 import { intro, outro, log, confirm, select, isCancel, spinner } from '@clack/prompts';
 import pc from 'picocolors';
-import { APP_NAME } from '@/constants/app';
+import { AGENT_SKILL_NAME, APP_NAME } from '@/constants/app';
 import { ensureLocalToken, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getIsOnboarded, markOnboarded, getOnboardedAt } from '@/lib/config/onboarded';
 import { getVoiceEnabled, setVoiceEnabled } from '@/lib/config/voice';
-import {
-  configureGlobalSkill,
-  getGlobalSkillPreference,
-} from '@/lib/agent-skills/shipped';
+import { configureGlobalSkill } from '@/lib/agent-skills/shipped';
 import { isOurServerRunning } from '../lib/server';
 import { isDockerAvailable } from '../lib/voice';
 import { openBrowser } from '../lib/browser';
@@ -108,7 +105,7 @@ export async function onboardCommand(opts: OnboardOptions) {
 
   if (action === 'open') {
     await openBrowser(info.pairingUrl);
-    outro(`Opened http://localhost:${port}`);
+    outro(`Opened ${baseUrl}`);
     return;
   }
 
@@ -175,22 +172,15 @@ export async function runWizard(): Promise<void> {
     log.info('Voice is enabled. Start Docker before running the server to activate it.');
   }
 
-  const globalSkill = await confirm({
-    message: 'Make task and note actions available to agents in every project?',
-    initialValue: getGlobalSkillPreference() ?? true,
-  });
-  if (isCancel(globalSkill)) {
-    throw new Error('Setup cancelled');
+  // Global by default: make task and note actions available to agents in every
+  // project. No prompt — matching the web onboarding, this isn't a decision most
+  // users can meaningfully answer, and the scope is adjustable later in Settings.
+  const skillResult = await configureGlobalSkill(true);
+  if (skillResult.install.errors > 0) {
+    throw new Error('Could not install the user-level productivity skill');
   }
-
-  const skillResult = await configureGlobalSkill(!!globalSkill);
-  if (skillResult.enabled) {
-    if (skillResult.install.errors > 0) {
-      throw new Error('Could not install the user-level productivity skill');
-    }
-    if (skillResult.install.conflicts > 0) {
-      log.warn('A user-level skill named orchestrator already exists and was left unchanged.');
-    }
+  if (skillResult.install.conflicts > 0) {
+    log.warn(`A user-level skill named ${AGENT_SKILL_NAME} already exists and was left unchanged.`);
   }
 
   // TODO: prompt for ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
