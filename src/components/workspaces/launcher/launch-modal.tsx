@@ -393,8 +393,15 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
         // PR #90". The controls already hide in Live; this makes the payload
         // agree with them.
         const live = mode === 'live';
+        // Normally the server names an execution from its first message. An
+        // "Open only" launch never sends one, so without help it lands in the
+        // rail as "Untitled" forever — and the branch inherits the same
+        // namelessness (`<slug>/session-019fab0b`). Fall back to whatever
+        // context was attached, which is the thing the user actually picked.
+        const seedLabel = send ? null : (chips.find((c) => c.chipKind === 'context')?.label ?? null);
         const session = await createExecution.mutateAsync({
           workspaceId,
+          label: seedLabel,
           baseBranch: live ? null : base.baseBranch,
           prNumber: live ? null : base.prNumber,
           liveMode: live,
