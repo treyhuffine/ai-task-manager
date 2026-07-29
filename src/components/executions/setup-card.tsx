@@ -6,7 +6,20 @@ import { toast } from 'sonner';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { formatElapsed } from '@/lib/executions/duration';
+import { harnessDefinition, isHarnessId } from '@/lib/agents/registry';
 import { ThinkingDots } from './thinking-dots';
+
+/**
+ * Display name for the provider an import came from. `surfaceRef` carries the
+ * importer's own source key, which is a `HarnessId` — so the registry already
+ * knows the proper name ("Claude Code", not "claude"). Falls back to the raw
+ * value rather than guessing, so a provider added to the importer before the
+ * registry still reads as something.
+ */
+function providerLabel(surfaceRef: string | null): string {
+  if (!surfaceRef) return 'an agent';
+  return isHarnessId(surfaceRef) ? harnessDefinition(surfaceRef).name : surfaceRef;
+}
 
 interface SetupCardProps {
   session: ChatSessionWithExecution;
@@ -34,13 +47,56 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   if (!workspace) return null;
 
   const isGit = workspace.isGit;
+  // An imported provider transcript. This app never provisioned anything for
+  // it — the agent ran wherever the user ran it — so most of the rows below
+  // would be inventions. It gets its own summary instead.
+  const isImported = session.surfaceKind === 'imported_agent';
   // Same detection the execution header uses for its LIVE badge: a git
   // workspace whose session points at the workspace's own directory.
   const isLive = isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   const hasError = isGit && !session.worktreePath && !!session.setupError;
   // Treat error state as terminal — drop the spinner row so the user
   // doesn't see "creating worktree…" next to a "setup failed" row.
-  const isSettingUp = isGit && !session.worktreePath && !hasError;
+  // An import is excluded outright: it has no worktree and never will, so the
+  // bare `!worktreePath` test read it as provisioning and rendered a spinner
+  // with a live elapsed counter that could never finish.
+  const isSettingUp = isGit && !session.worktreePath && !hasError && !isImported;
+
+  if (isImported) {
+    return (
+      <div className="space-y-1.5 mb-1">
+        <SetupRow
+          icon={<ArrowDownToLine size={11} className="text-primary/70" />}
+          text={
+            <>
+              Imported from{' '}
+              <span className="text-foreground/90">{providerLabel(session.surfaceRef)}</span>
+              <span className="text-muted-foreground/60"> into </span>
+              <span className="text-foreground/90">{workspace.name}</span>
+            </>
+          }
+        />
+        {/* The branch the transcript recorded, stated as a fact about where it
+            ran. Not "Branched X from Y" — nothing was branched, and printing
+            the workspace's base as the fork point would be a fabrication. */}
+        {session.branchName && (
+          <SetupRow
+            icon={<GitBranch size={11} />}
+            text={
+              <span className="font-mono">
+                <span className="text-muted-foreground/80">Ran on </span>
+                <span className="text-foreground/90">{session.branchName}</span>
+              </span>
+            }
+          />
+        )}
+        <SetupRow
+          icon={<Folder size={11} />}
+          text={<span className="font-mono text-muted-foreground/70 truncate">{workspace.cwd}</span>}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1.5 mb-1">

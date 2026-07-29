@@ -36,8 +36,11 @@ export const workspacesApi = {
     return api.post<{ ok: true }>('/workspaces/reorder', { ids });
   },
 
-  sessions(id: string): Promise<ChatSessionWithExecution[]> {
-    return api.get<ChatSessionWithExecution[]>(`/workspaces/${id}/sessions`);
+  /** One row per execution. `includeArchived` adds finished work (launcher only). */
+  sessions(id: string, opts: { includeArchived?: boolean } = {}): Promise<ChatSessionWithExecution[]> {
+    return api.get<ChatSessionWithExecution[]>(`/workspaces/${id}/sessions`, {
+      query: opts.includeArchived ? { includeArchived: true } : undefined,
+    });
   },
 
   createSession(

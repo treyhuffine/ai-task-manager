@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  Archive,
   ArrowDownToLine,
   CircleDot,
   GitBranch,
@@ -130,6 +131,9 @@ export function LaunchBrowse({
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('all');
   const [scope, setScope] = useState(SCOPE_ALL);
+  // "Dig deeper" for chats. Off by default so the common case — the work you
+  // have going right now — isn't diluted by everything you ever finished.
+  const [showArchivedChats, setShowArchivedChats] = useState(false);
   const [cursor, setCursor] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -139,6 +143,7 @@ export function LaunchBrowse({
     query,
     enabled: true,
     isGit,
+    includeArchivedChats: showArchivedChats,
   });
 
   const tabs = useMemo(() => TABS.filter((t) => isGit || !t.gitOnly), [isGit]);
@@ -172,6 +177,11 @@ export function LaunchBrowse({
   const isTaskTab = activeTab.id === 'task';
   const showScopeRow =
     (isTaskTab || activeTab.id === 'all') && (scopes.length > 0 || connectMore.length > 0);
+  // Only on the Chats tab. On All it would be ambiguous (archived what?), and
+  // the other tabs have no archived state to reveal. With a query typed it's
+  // hidden rather than disabled: search already spans both, so a control that
+  // couldn't change the results would just raise a question it can't answer.
+  const showArchivedToggle = activeTab.id === 'chat' && query.trim().length < 2;
   const visibleScopes = isTaskTab ? scopes : scopes.filter((s) => s.id !== SCOPE_ALL && s.id !== SCOPE_LOCAL);
   const effectiveScope = isTaskTab && scopes.length > 0 ? scope : SCOPE_ALL;
 
@@ -291,6 +301,33 @@ export function LaunchBrowse({
           </button>
         ))}
       </div>
+
+      {/* Chats: reach finished work. Same pill shape as the task scope row so
+          "narrow what this tab shows" reads as one idea in one place, and it
+          says what it includes rather than what it filters — "Show archived"
+          answers "where are my old chats", which is the question that got
+          someone here. */}
+      {showArchivedToggle && (
+        <div className="flex flex-shrink-0 items-center gap-1 border-b border-border/70 px-1.5 py-1">
+          <button
+            type="button"
+            onClick={() => setShowArchivedChats((prev) => !prev)}
+            aria-pressed={showArchivedChats}
+            className={cn(
+              'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition-colors',
+              showArchivedChats
+                ? 'border-primary/40 bg-primary/10 text-foreground'
+                : 'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+            )}
+          >
+            <Archive size={10} />
+            Show archived
+          </button>
+          <span className="truncate text-[10px] text-muted-foreground/60">
+            Typing searches everything either way
+          </span>
+        </div>
+      )}
 
       {/* Source scope. Connector pills are their brand mark alone until
           selected, which is what lets this row survive many connections:
@@ -456,6 +493,14 @@ export function LaunchBrowse({
                         >
                           {item.title}
                         </span>
+                        {/* Picking one of these reactivates it, which is a
+                            bigger thing than opening a live chat. Say so on the
+                            row rather than after the fact. */}
+                        {item.archived && (
+                          <span className="flex-shrink-0 rounded-sm bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                            archived
+                          </span>
+                        )}
                       </span>
                       {(due || item.subtitle) && (
                         <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/70">

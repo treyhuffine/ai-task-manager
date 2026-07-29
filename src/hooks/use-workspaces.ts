@@ -43,10 +43,22 @@ export function useWorkspace(id: string | null) {
   });
 }
 
-export function useWorkspaceSessions(id: string | null) {
+/**
+ * One row per execution in a workspace.
+ *
+ * `includeArchived` is a distinct cache entry rather than a filter over one
+ * list, because the archived-inclusive query returns strictly more rows and
+ * sharing a key would let whichever hook mounted last decide what the rail
+ * sees. The rail's invalidation still hits both — they share the key prefix.
+ */
+export function useWorkspaceSessions(
+  id: string | null,
+  opts: { includeArchived?: boolean } = {},
+) {
+  const includeArchived = !!opts.includeArchived;
   return useQuery({
-    queryKey: [...WORKSPACES_KEY, id, 'sessions'],
-    queryFn: () => workspacesApi.sessions(id!),
+    queryKey: [...WORKSPACES_KEY, id, 'sessions', ...(includeArchived ? ['with-archived'] : [])],
+    queryFn: () => workspacesApi.sessions(id!, { includeArchived }),
     enabled: !!id,
   });
 }

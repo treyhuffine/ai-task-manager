@@ -169,8 +169,17 @@ describe('external agent imports', () => {
     const q = await import('@/lib/db/queries');
     const sessions = q.listChatSessions({ type: 'execution' });
     expect(sessions).toHaveLength(2);
-    expect(sessions.every((session) => session.status === 'archived')).toBe(true);
+    // Active, not archived. An import you can't see in the workspace tree is
+    // an import you can only reach by guessing a search term.
+    expect(sessions.every((session) => session.status === 'active')).toBe(true);
+    expect(sessions.every((session) => session.archivedAt === null)).toBe(true);
     expect(sessions.every((session) => session.surfaceKind === 'imported_agent')).toBe(true);
+    // And the execution the chat hangs off has to agree — the workspace tree
+    // reads the execution's status, the chat lists read the session's, so a
+    // half-archived pair is invisible in exactly one of the two places.
+    const executionRows = sessions.map((session) => q.getExecution(session.executionId!));
+    expect(executionRows.every((row) => row?.status === 'active')).toBe(true);
+    expect(executionRows.every((row) => row?.archivedAt === null)).toBe(true);
 
     const claudeSession = sessions.find((session) => session.surfaceRef === 'claude')!;
     expect(claudeSession.externalSessionId).toBeNull();

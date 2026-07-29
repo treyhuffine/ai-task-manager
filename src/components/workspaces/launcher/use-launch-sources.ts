@@ -133,6 +133,7 @@ export function useLaunchSources({
   query,
   enabled,
   isGit,
+  includeArchivedChats = false,
 }: {
   workspaceId: string | null;
   workspaceCwd: string | null;
@@ -140,6 +141,12 @@ export function useLaunchSources({
   /** False while the browse panel is collapsed — keeps the scans from firing. */
   enabled: boolean;
   isGit: boolean;
+  /**
+   * Widen the no-query chat list to finished work. Only affects browsing:
+   * search already spans both states, because someone typing the name of an
+   * old chat wants to find it, not to be told to flip a switch first.
+   */
+  includeArchivedChats?: boolean;
 }): LaunchSourcesResult {
   const trimmed = query.trim();
   const gitEnabled = enabled && isGit;
@@ -175,7 +182,9 @@ export function useLaunchSources({
   // cached — and it keeps the Chats group from looking broken until you guess
   // a keyword. Only user and agent messages are indexed for FTS, so search
   // reaches far less than this list implies.
-  const recentChats = useWorkspaceSessions(enabled ? workspaceId : null);
+  const recentChats = useWorkspaceSessions(enabled ? workspaceId : null, {
+    includeArchived: includeArchivedChats,
+  });
 
   const discovery = useQuery({
     queryKey: DISCOVERY_KEY,
@@ -358,13 +367,15 @@ export function useLaunchSources({
       groups.push({
         id: 'chat',
         kind: 'chat',
-        label: searching ? 'Chats' : 'Recent chats',
+        label: searching ? 'Chats' : includeArchivedChats ? 'Recent chats, including archived' : 'Recent chats',
         isLoading: searching ? chats.isLoading : recentChats.isLoading,
         error: errorMessage(searching ? chats.error : recentChats.error),
         keepWhenEmpty: true,
         emptyHint: searching
           ? 'No chat matched. Search covers your and the agent\u2019s messages, not tool output.'
-          : 'No chats in this workspace yet.',
+          : includeArchivedChats
+            ? 'No chats in this workspace, archived or otherwise.'
+            : 'No active chats. Turn on Show archived to include finished work.',
         items: chatItems,
       });
     }
@@ -426,7 +437,12 @@ export function useLaunchSources({
         emptyHint: !scanned
           ? undefined
           : sawAnyForWorkspace
-            ? 'Every transcript for this workspace is already imported.'
+            // Says where they went, not just that they went somewhere. "All
+            // imported" was true and still left the reader stuck, because
+            // imports used to land archived and archived work is absent from
+            // every list in this panel. They land active now, so the answer to
+            // "then where are they" is one tab over.
+            ? 'Every transcript for this folder is already imported. Find them under Chats.'
             : 'No agent transcripts recorded for this folder yet.',
         // NOT truncated here. The shared row budget caps what's rendered and
         // emits a "+N more" affordance; slicing at the source hid 42 of 47

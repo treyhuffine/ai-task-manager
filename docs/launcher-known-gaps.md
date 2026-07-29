@@ -53,6 +53,31 @@ The launcher now lists recent chats when no query is typed, and says so in the
 empty state, so the group no longer reads as broken. Widening the index (tool
 summaries, thinking) is the actual fix and hasn't been done.
 
+## Fixed: imported chats were invisible after arriving
+
+Recorded here because the shape of the bug is worth remembering. Importing
+landed every session as `status: 'archived'` on both the chat and its execution.
+Archived work is absent from the workspace tree and from every active-only list,
+including this panel's own "Recent chats", so a folder with seven imported
+transcripts showed **zero** rows and an Import tab that said everything was
+already imported. Both statements were true and the reader was still stuck: the
+only route back was FTS search, which happens to span both statuses, and you had
+to already know a keyword.
+
+Imports land `active` now (`createImportSkeleton`), `pnpm unarchive:imports`
+backfills rows created before that, and the Chats tab has a **Show archived**
+toggle for deliberately-filed work. Two things made the original state easy to
+miss and are worth guarding:
+
+- `listWorkspaceExecutions` filters status in *two* places — the execution and
+  the newest-chat subquery. Relaxing one alone yields a join that matches
+  nothing, which is indistinguishable from the flag not working.
+  `queries.workspace-executions.test.ts` covers it.
+- `SetupCard` inferred "provisioning" from `!worktreePath`. An import never has
+  a worktree, so an active one rendered "creating worktree…" with a live elapsed
+  counter forever. It now branches on `surfaceKind === 'imported_agent'` and
+  states where the transcript ran instead of inventing a fork point.
+
 ## OpenCode import needs the CLI on PATH
 
 Discovery reports OpenCode `available: false` when the `opencode` binary isn't

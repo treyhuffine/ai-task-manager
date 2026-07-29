@@ -36,6 +36,7 @@
     "smoke:agent": "tsx scripts/smoke-orchestrator-agent.ts",
     "smoke:harness": "tsx scripts/smoke-orchestrator-harness.ts",
     "smoke:boot": "tsx src/cli/index.ts start --help > /dev/null && echo 'cli boot graph resolves'",
+    "unarchive:imports": "tsx scripts/unarchive-imports.ts",
     "migrate:layout": "tsx scripts/migrate-layout.ts",
     "dev:reset": "tsx scripts/seed-dev/reset.ts",
     "dev:seed": "tsx scripts/seed-dev/seed.ts",

@@ -546,15 +546,21 @@ function createImportSkeleton(
   const executionId = uuidv7();
   const chatSessionId = uuidv7();
   const ledgerId = uuidv7();
-  const archivedAt = candidate.updatedAt;
   return db.transaction((tx) => {
+    // Active, not archived. Importing used to archive on arrival, reasoning
+    // that a finished transcript isn't live work — but archived executions are
+    // absent from the workspace tree and from every active-only list, so an
+    // import landed somewhere you could only reach by already knowing to search
+    // for it. Importing is an explicit "bring this into the app" action; the
+    // result has to be somewhere you can see. Archiving stays available, as a
+    // choice the user makes.
     tx.insert(executions).values({
       id: executionId,
       workspaceId,
       label: candidate.label,
       branchName: candidate.branchName,
-      status: 'archived',
-      archivedAt,
+      status: 'active',
+      archivedAt: null,
       createdAt: candidate.startedAt,
       updatedAt: candidate.updatedAt,
     }).run();
@@ -564,7 +570,7 @@ function createImportSkeleton(
       type: 'execution',
       surfaceKind: 'imported_agent',
       surfaceRef: candidate.source,
-      status: 'archived',
+      status: 'active',
       label: candidate.label,
       workspaceId,
       executionId,
@@ -574,7 +580,7 @@ function createImportSkeleton(
       model: selection.model,
       effort: selection.effort,
       startedAt: candidate.startedAt,
-      archivedAt,
+      archivedAt: null,
       createdAt: candidate.startedAt,
       updatedAt: candidate.updatedAt,
     }).run();

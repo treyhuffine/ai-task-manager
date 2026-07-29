@@ -4047,8 +4047,23 @@ export function listRailSessions(): RailSessionRow[] {
  * (already-known-active) workspace, so the tree and the by-status rail
  * agree on cardinality.
  */
-export function listWorkspaceExecutions(workspaceId: string): ChatSessionWithExecution[] {
+export function listWorkspaceExecutions(
+  workspaceId: string,
+  opts: { includeArchived?: boolean } = {},
+): ChatSessionWithExecution[] {
   const db = getDb();
+  // Off by default: the workspace tree is a list of live work, and archiving is
+  // how you get something out of it. The launcher's browse panel opts in — its
+  // "Show archived" is the one place finished work is what you're looking for.
+  // Both halves have to relax together. Leaving the inner subquery pinned to
+  // active would return an archived execution joined to nothing, dropping it
+  // from the results anyway and making the flag look broken.
+  const sessionStatus = opts.includeArchived
+    ? sql`cs2.status IN ('active', 'archived')`
+    : sql`cs2.status = 'active'`;
+  const executionStatus = opts.includeArchived
+    ? inArray(executions.status, ['active', 'archived'])
+    : eq(executions.status, 'active');
   const rows = db
     .select({
       ...getTableColumns(chatSessions),
@@ -4059,12 +4074,12 @@ export function listWorkspaceExecutions(workspaceId: string): ChatSessionWithExe
       chatSessions,
       sql`${chatSessions.id} = (
         SELECT cs2.id FROM chat_sessions cs2
-        WHERE cs2.execution_id = ${executions.id} AND cs2.status = 'active'
+        WHERE cs2.execution_id = ${executions.id} AND ${sessionStatus}
         ORDER BY COALESCE(cs2.last_outcome_event_at, cs2.started_at) DESC
         LIMIT 1
       )`,
     )
-    .where(and(eq(executions.workspaceId, workspaceId), eq(executions.status, 'active')))
+    .where(and(eq(executions.workspaceId, workspaceId), executionStatus))
     .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map((r) =>

@@ -6,14 +6,17 @@ import { dispatchExecutionSession, WorkspaceNotFoundForDispatch } from '@/lib/se
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
     // One row per execution (its primary chat), not per chat — the tree
     // collapses an execution's sibling chats into a single named row.
-    const rows = listWorkspaceExecutions(id);
+    // `includeArchived` is the launcher's "Show archived" digging deeper into
+    // finished work; the rail never asks for it.
+    const includeArchived = request.nextUrl.searchParams.get('includeArchived') === 'true';
+    const rows = listWorkspaceExecutions(id, { includeArchived });
     return Response.json(rows);
   } catch (err) {
     console.error('[GET /api/workspaces/:id/sessions]', err);
