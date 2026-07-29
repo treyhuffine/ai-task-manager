@@ -553,4 +553,59 @@ rather than by booting a session.
    Reference folders stay a prompt and `@` concern. Putting them in the tree
    invites treating them as editable, which is the opposite of the point.
 
-No open questions remain. Ready to build on approval.
+No open questions remain.
+
+## 15. Future work
+
+Ordered by what actually costs a user something today.
+
+### Blocked on agentex
+
+1. **Session-scoped `instructionsFile` for cursor and opencode.** Until then
+   reference folders are a total no-op on half of Flow's harnesses (see §7).
+   The fix is one field read in `providers/<p>/session.ts`, mirroring what
+   claude and codex already do. This is the single highest-value follow-up and
+   it lives in the agentex repo, not here.
+2. **Typed `additionalDirectories`.** Would replace the `--add-dir` argv
+   passthrough. §7 records the semantics it should have: "extend the
+   workspace" (matching claude's `--add-dir` and gemini's
+   `--include-directories`), with read-only scoping left to `disallowedTools`.
+   Note codex's nearest equivalent, `sandbox_workspace_write.writable_roots`,
+   governs writes only and does not gate reads.
+
+### Gaps in what shipped
+
+3. **The UI never says the current harness can't deliver.** The settings
+   section promises "read-only folders this workspace can see", and on cursor
+   or opencode that is false. The warning is server-log only, so a user
+   configures folders, sees them listed, and gets nothing. Awkward because
+   references are per-workspace while the harness is per-session, so the
+   honest signal probably belongs in the composer or the execution header
+   rather than in workspace settings.
+4. **Archived references are unreachable.** Archiving frees the alias and
+   hides the row, and there is no "show archived" or restore anywhere. The
+   data is intact, so this is a listing plus one button, but right now
+   "remove" is functionally permanent from the UI's point of view.
+5. **`position` is written and never read.** The column exists, `create`
+   accepts it, and ordering honours it, but nothing in the UI reorders. Either
+   add drag-to-reorder or drop the column. Leaving a write-only column around
+   is how schemas rot.
+6. **Absolute paths containing spaces make `@` tokens ambiguous.** A chip for
+   `/Users/you/My Code/api/x.go` serializes to `@/Users/you/My Code/api/x.go`,
+   where the token has no clear end. Not a hard break (nothing parses `@`
+   server-side, the model reads the line as text, and `--add-dir` grants the
+   folder regardless), and macOS paths with spaces are common enough that this
+   will show up. The fix would be emitting `@alias/relative` instead, which
+   reverses the locked decision in §8, so it needs a real reason before
+   anyone touches it.
+
+### Deliberate boundaries, recorded so they aren't re-litigated by accident
+
+7. **Orchestrator sessions do not get reference folders.** The adapter gates on
+   `sessionType === 'execution'`. The orchestrator runs in the data root and
+   acts through typed actions rather than reading codebases, so the block would
+   be noise. Revisit only if the orchestrator starts doing code work.
+8. **Reference folders are not indexed into embeddings or `search`.** A stated
+   non-goal in §3. The agent greps them live, which stays correct as the folder
+   changes underneath us. Indexing would mean owning staleness for a folder
+   nobody here controls.
