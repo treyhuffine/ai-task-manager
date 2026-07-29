@@ -1,4 +1,5 @@
 import { api } from './client';
+import { fetchDiffStatsBatched } from './diff-stats-batch';
 import type {
   ChatSessionRecord, ChatSessionWithExecution, ChatEventRecord,
   PermissionMode, EffortLevel, Attachment,
@@ -631,8 +632,13 @@ export const sessionsApi = {
     return api.get<{ sessionIds: string[] }>('/sessions/pending-input');
   },
 
+  /**
+   * Diff stats for one session. Coalesced with every other row's request in
+   * the same tick into a single `POST /sessions/diff-stats` — the rail asks
+   * per row, the network carries one call. See `diff-stats-batch.ts`.
+   */
   diffStats(id: string): Promise<DiffStats | null> {
-    return api.get<DiffStats | null>(`/sessions/${id}/diff-stats`);
+    return fetchDiffStatsBatched(id);
   },
 
   archive(id: string, opts?: { force?: boolean }): Promise<ChatSessionWithExecution> {

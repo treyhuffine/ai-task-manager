@@ -1,11 +1,14 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
-import { openWorktreeHandle } from '@/lib/workspaces';
+import { readWorktreeDiffStats } from '@/lib/workspaces/diff-stats';
 
 /**
- * On-demand diff stats for an execution session. Returns null when the
+ * On-demand diff stats for one execution session. Returns null when the
  * worktree is missing on disk or the session isn't in a git workspace —
  * the row UI uses null to render the "missing" indicator.
+ *
+ * The rail fetches these in bulk through `POST /api/sessions/diff-stats`;
+ * this route stays for single-session callers and keeps the same shape.
  */
 export async function GET(
   _request: NextRequest,
@@ -15,16 +18,17 @@ export async function GET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.worktreePath || !session.workspaceId) {
-      return Response.json(null);
-    }
+    if (!session.worktreePath || !session.workspaceId) return Response.json(null);
+
     const ws = getWorkspace(session.workspaceId);
-    if (!ws) return Response.json(null);
+    if (!ws?.isGit) return Response.json(null);
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
-    if (!handle || handle.kind !== 'git') return Response.json(null);
-
-    const stats = await handle.git.shortstat('base');
+    const stats = await readWorktreeDiffStats({
+      worktreePath: session.worktreePath,
+      baseBranch: ws.baseBranch,
+      baseSha: session.baseSha,
+      inPlace: session.worktreePath === ws.cwd,
+    });
     return Response.json(stats);
   } catch (err) {
     console.error('[GET /api/sessions/:id/diff-stats]', err);
