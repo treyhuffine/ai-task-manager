@@ -39,6 +39,23 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * One line a person can act on, out of whatever the failure actually was.
+ *
+ * Route handlers are inconsistent about which key carries the human-readable
+ * part: some send `{ error }`, some send `{ error: <name>, message }` so the
+ * client can branch on the name. Prefer `message` when both are present, since
+ * `error` is the machine-facing one in that shape, and fall back to the status
+ * so an empty body still says something.
+ */
+export function apiErrorText(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { error?: string; message?: string } | null;
+    return body?.message ?? body?.error ?? `Request failed (${err.status})`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Primitive values allowed as query params; arrays are comma-joined. */
 type QueryValue =
   | string

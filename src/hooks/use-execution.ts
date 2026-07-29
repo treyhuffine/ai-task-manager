@@ -8,6 +8,8 @@ import {
   type WipApplyResult,
   type ExecutionChatHistoryEntry,
 } from '@/lib/api/sessions';
+import { ApiError } from '@/lib/api/client';
+import { isLaunchPending } from '@/lib/executions/pending-launch';
 import type { HarnessId } from '@/lib/agents/registry';
 import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
@@ -119,11 +121,41 @@ function byCreatedThenId(a: ChatEventRecord, b: ChatEventRecord): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * The session row behind an execution view.
+ *
+ * The 404 handling is the interesting part. Normally a 404 here is terminal —
+ * the session is gone, and retrying just delays an error the user needs to
+ * see. But the launcher navigates *before* its create finishes (it picks the
+ * session id itself), so for a few hundred milliseconds the view is mounted on
+ * a row that legitimately doesn't exist yet. `isLaunchPending` distinguishes
+ * the two: only ids with a create in flight get retried, and only while it's
+ * in flight. Everything else keeps failing fast.
+ */
 export function useSession(id: string | null) {
   return useQuery({
     queryKey: ['session', id],
     queryFn: () => sessionsApi.get(id!),
     enabled: !!id,
+    retry: (failureCount, error) => {
+      // `isLaunchPending` is the only stopping rule for this branch, on
+      // purpose: it goes false when the create resolves *and* has its own
+      // wall-clock ceiling, so a second failureCount limit could only ever
+      // disagree with it — and would, since creates have been measured well
+      // past what a small retry budget covers.
+      if (error instanceof ApiError && error.status === 404) {
+        return isLaunchPending(id);
+      }
+      return failureCount < 3;
+    },
+    // Fixed short delay for the pending-launch poll: this is waiting on a row
+    // we know is coming, so backing off would only delay the render. Anything
+    // else keeps React Query's default exponential backoff, spelled out here
+    // because supplying `retryDelay` at all replaces it.
+    retryDelay: (attempt, error) =>
+      error instanceof ApiError && error.status === 404
+        ? 300
+        : Math.min(1000 * 2 ** attempt, 30_000),
   });
 }
 

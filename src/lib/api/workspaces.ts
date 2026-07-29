@@ -43,6 +43,8 @@ export const workspacesApi = {
   createSession(
     id: string,
     options: {
+      /** Pre-allocated id so the caller can navigate before this resolves. */
+      sessionId?: string | null;
       label?: string | null;
       baseBranch?: string | null;
       /** GitHub PR number — when set, server resolves the head via
@@ -62,6 +64,7 @@ export const workspacesApi = {
     } = {},
   ): Promise<ChatSessionWithExecution> {
     return api.post<ChatSessionWithExecution>(`/workspaces/${id}/sessions`, {
+      sessionId: options.sessionId ?? undefined,
       label: options.label ?? null,
       baseBranch: options.baseBranch ?? null,
       prNumber: options.prNumber ?? null,

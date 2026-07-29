@@ -21,13 +21,13 @@ import {
   SquareCheckBig,
   X,
 } from 'lucide-react';
-import { useWorkspaces, useCreateExecution, useWorkspacePRs } from '@/hooks/use-workspaces';
+import { useWorkspaces, useWorkspacePRs } from '@/hooks/use-workspaces';
 import { useUserState } from '@/hooks/use-user-state';
 import { useAgentModels } from '@/hooks/use-agent-models';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { sessionsApi } from '@/lib/api/sessions';
 import { workspacesApi } from '@/lib/api/workspaces';
-import { api, ApiError } from '@/lib/api/client';
+import { api, apiErrorText } from '@/lib/api/client';
 import {
   providerIdForHarness,
   defaultModelFor,
@@ -73,6 +73,8 @@ import {
 } from './launch-controls';
 import { useLaunchSuggestions } from './use-launch-sources';
 import { closeLauncher, useLauncherStore } from './launcher-store';
+import { startExecution } from '@/lib/executions/start-execution';
+import { toast } from 'sonner';
 
 const CHIP_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; className?: string }>> = {
   pr: GitPullRequest,
@@ -116,7 +118,6 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { data: userState } = useUserState();
   const { setActiveView } = useDashboard();
-  const createExecution = useCreateExecution();
   const qc = useQueryClient();
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(
@@ -399,7 +400,12 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
         // namelessness (`<slug>/session-019fab0b`). Fall back to whatever
         // context was attached, which is the thing the user actually picked.
         const seedLabel = send ? null : (chips.find((c) => c.chipKind === 'context')?.label ?? null);
-        const session = await createExecution.mutateAsync({
+
+        // Leave before the work finishes. Every decision this modal exists to
+        // collect has been made by now, so holding it open through the create
+        // is pure waiting. `startExecution` hands back the session id up front
+        // and finishes underneath the view we're about to open.
+        const { sessionId } = startExecution(qc, {
           workspaceId,
           label: seedLabel,
           baseBranch: live ? null : base.baseBranch,
@@ -409,31 +415,36 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
           model: selection.model,
           modelVariant: agent?.variant ?? null,
           effort,
+          message: send ? { content, attachments: output.attachments } : null,
         });
-        targetSessionId = session.id;
+        persistPrefs();
+        setActiveView(sessionId);
+        closeLauncher();
+        return;
       }
 
-      // Navigate first so the user lands on the transcript (and, for a
-      // fresh worktree, its SetupCard) while the message POST is in flight.
+      // Continuations navigate here instead: the session already exists (it
+      // was imported and reactivated above), so there was never anything to
+      // wait on beyond that.
       persistPrefs();
       setActiveView(targetSessionId);
       closeLauncher();
 
       if (send && content.trim().length > 0) {
-        await sessionsApi.sendMessage(targetSessionId, content, {
-          eventId: uuidv7(),
-          attachments: output.attachments,
-        });
+        // Toast rather than `setError` — this fires after `closeLauncher`, so
+        // the inline error row it would have rendered no longer exists and the
+        // failure would go out silently.
+        sessionsApi
+          .sendMessage(targetSessionId, content, {
+            eventId: uuidv7(),
+            attachments: output.attachments,
+          })
+          .catch((err) => {
+            toast.error("Couldn't send that message", { description: apiErrorText(err) });
+          });
       }
     } catch (err) {
-      let message: string;
-      if (err instanceof ApiError) {
-        const body = err.body as { error?: string; message?: string } | null;
-        message = body?.message ?? body?.error ?? `Request failed (${err.status})`;
-      } else {
-        message = err instanceof Error ? err.message : String(err);
-      }
-      setError(message);
+      setError(apiErrorText(err));
       setLaunching(false);
     }
   };

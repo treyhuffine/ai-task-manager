@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useRailSessions, useCreateExecution } from '@/hooks/use-workspaces';
+import { useRailSessions } from '@/hooks/use-workspaces';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 import { BucketSection } from './bucket-section';
 import { StatusSessionRow } from './status-session-row';
@@ -17,19 +17,6 @@ export function StatusView() {
   const { data, isLoading } = useRailSessions();
   const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
   const [settingsId, setSettingsId] = useState<string | null>(null);
-  const createExecution = useCreateExecution();
-
-  const handleCreateExecution = (workspaceId: string) => {
-    if (createExecution.isPending) return;
-    createExecution.mutate(
-      { workspaceId },
-      {
-        onSuccess: (session) => {
-          setActiveView(session.id);
-        },
-      },
-    );
-  };
 
   const buckets = useMemo(() => {
     const map: Record<BucketId, RailSession[]> = {

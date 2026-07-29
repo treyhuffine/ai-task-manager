@@ -3,6 +3,8 @@ import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
 import type { EffortLevel } from '@/db/types';
 import { dispatchExecutionSession, WorkspaceNotFoundForDispatch } from '@/lib/sessions/dispatch';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -26,6 +28,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body: {
+      sessionId?: string;
       label?: string;
       harness?: string;
       model?: string | null;
@@ -49,8 +52,16 @@ export async function POST(
     // workspace's actual folder on whatever branch is checked out.
     // harness/model/variant/effort come from the launcher's model
     // control; omitted, they fall back to the saved global default.
+    // A supplied id becomes a branch name and a worktree path, so it has to
+    // be exactly a UUID and nothing else. Reject rather than quietly minting a
+    // replacement: the caller sends this precisely because it has already
+    // navigated to that id, and a silent substitution would strand it there.
+    if (body.sessionId !== undefined && !UUID_RE.test(body.sessionId ?? '')) {
+      return Response.json({ error: 'sessionId must be a UUID' }, { status: 400 });
+    }
     const row = await dispatchExecutionSession({
       workspaceId: id,
+      sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
       label: body.label?.trim() || null,
       harness: body.harness,
       model: body.model ?? null,

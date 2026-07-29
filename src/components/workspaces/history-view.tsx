@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { useHistorySessions, useCreateExecution } from '@/hooks/use-workspaces';
+import { useHistorySessions } from '@/hooks/use-workspaces';
 import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
@@ -36,7 +36,6 @@ export function HistoryView() {
   const { setActiveView } = useDashboard();
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
   const [settingsId, setSettingsId] = useState<string | null>(null);
-  const createExecution = useCreateExecution();
 
   // Workspaces represented in this feed. Order by first-appearance
   // (which the server already sorted by recency) so the most-recently
@@ -73,16 +72,6 @@ export function HistoryView() {
       else next.add(id);
       return next;
     });
-  };
-
-  const handleCreateExecution = (workspaceId: string) => {
-    if (createExecution.isPending) return;
-    createExecution.mutate(
-      { workspaceId },
-      {
-        onSuccess: (session) => setActiveView(session.id),
-      },
-    );
   };
 
   return (

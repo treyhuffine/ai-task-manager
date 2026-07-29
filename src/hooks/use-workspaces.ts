@@ -121,47 +121,6 @@ export function useReorderWorkspaces() {
   });
 }
 
-export function useCreateExecution() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      workspaceId,
-      label,
-      baseBranch,
-      prNumber,
-      liveMode,
-      harness,
-      model,
-      modelVariant,
-      effort,
-    }: {
-      workspaceId: string;
-      label?: string | null;
-      baseBranch?: string | null;
-      prNumber?: number | null;
-      liveMode?: boolean;
-      harness?: string | null;
-      model?: string | null;
-      modelVariant?: string | null;
-      effort?: EffortLevel | null;
-    }) =>
-      workspacesApi.createSession(workspaceId, {
-        label,
-        baseBranch,
-        prNumber,
-        liveMode,
-        harness,
-        model,
-        modelVariant,
-        effort,
-      }),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, vars.workspaceId, 'sessions'] });
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
-    },
-  });
-}
-
 export function useWorkspacePRs(id: string | null) {
   return useQuery({
     queryKey: [...WORKSPACES_KEY, id, 'github', 'prs'],

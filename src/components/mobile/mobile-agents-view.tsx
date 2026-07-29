@@ -15,11 +15,12 @@ import {
   useNeedsReviewSessions,
   useWorkspaceSessions,
   useUpdateWorkspace,
-  useCreateExecution,
 } from '@/hooks/use-workspaces';
 import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { useAreas } from '@/hooks/use-areas';
+import { useQueryClient } from '@tanstack/react-query';
+import { startExecution } from '@/lib/executions/start-execution';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceWithCounts } from '@/db/types';
@@ -125,25 +126,23 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
   const { streamingSessionIds, setActiveView, setMobileTab } = useDashboard();
   const { data: areas } = useAreas();
   const updateWs = useUpdateWorkspace();
-  const createExecution = useCreateExecution();
+  // Guards double-fire only — see WorkspaceNav.handleCreateExecution.
+  const [creating, setCreating] = useState(false);
+  const qc = useQueryClient();
   const expanded = !workspace.collapsed;
   const { data: sessions } = useWorkspaceSessions(expanded ? workspace.id : null);
 
-  // Mirror the desktop rail's WorkspaceNav.handleCreateExecution: create
-  // the row, then drop straight into the new ExecutionView. The label is
-  // null until the first message derives one server-side; the header
-  // renders "Untitled" in the meantime.
+  // Mirror the desktop rail's WorkspaceNav.handleCreateExecution: navigate
+  // into the new ExecutionView immediately and let the create land behind it.
+  // The label is null until the first message derives one server-side; the
+  // header renders "Untitled" in the meantime.
   const handleCreateExecution = () => {
-    if (createExecution.isPending) return;
-    createExecution.mutate(
-      { workspaceId: workspace.id },
-      {
-        onSuccess: (session) => {
-          setMobileTab('agents');
-          setActiveView(session.id);
-        },
-      },
-    );
+    if (creating) return;
+    setCreating(true);
+    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id });
+    setMobileTab('agents');
+    setActiveView(sessionId);
+    void done.finally(() => setCreating(false));
   };
 
   const linkedArea = workspace.areaId
@@ -195,7 +194,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
         <button
           type="button"
           onClick={handleCreateExecution}
-          disabled={createExecution.isPending}
+          disabled={creating}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40"
           aria-label="New execution"
         >
@@ -223,7 +222,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
             <button
               type="button"
               onClick={handleCreateExecution}
-              disabled={createExecution.isPending}
+              disabled={creating}
               className="ml-9 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-primary active:bg-primary/10 transition-colors disabled:opacity-40"
             >
               <Plus size={13} /> New execution

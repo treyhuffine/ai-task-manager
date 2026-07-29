@@ -27,7 +27,8 @@ import { NeedsReviewSection } from './needs-review-section';
 import { WorkspaceRow } from './workspace-row';
 import { WorkspaceCreateModal } from './workspace-create-modal';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
-import { useCreateExecution, useBulkArchiveSessions } from '@/hooks/use-workspaces';
+import { useBulkArchiveSessions } from '@/hooks/use-workspaces';
+import { startExecution } from '@/lib/executions/start-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
   WorkspaceSelectionProvider,
@@ -59,7 +60,9 @@ function WorkspaceNavInner() {
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const { setActiveView } = useDashboard();
-  const createExecution = useCreateExecution();
+  // Guards double-fire only. Navigation no longer waits on the create, so
+  // without this a fast second click would quietly make a second execution.
+  const [creating, setCreating] = useState(false);
 
   // Bulk-archive selection state (shared with the session rows via the
   // surrounding provider). The header toggles in and out of selection
@@ -101,20 +104,17 @@ function WorkspaceNavInner() {
     exit();
   };
 
+  // Shift-click on the ➕ — "just make one, skip the modal". Navigates on
+  // the spot and lets the create finish behind the view; the point of this
+  // shortcut is speed, so waiting out a round-trip would defeat it. The label
+  // is null on the new row and gets derived server-side from the first
+  // message; until then the SetupCard and header render "Untitled".
   const handleCreateExecution = (workspaceId: string) => {
-    if (createExecution.isPending) return;
-    createExecution.mutate(
-      { workspaceId },
-      {
-        onSuccess: (session) => {
-          // Drop the user straight into the new ExecutionView. The label
-          // is null on this row and will be derived server-side from
-          // their first message; until then, the SetupCard and header
-          // render "Untitled".
-          setActiveView(session.id);
-        },
-      },
-    );
+    if (creating) return;
+    setCreating(true);
+    const { sessionId, done } = startExecution(qc, { workspaceId });
+    setActiveView(sessionId);
+    void done.finally(() => setCreating(false));
   };
 
   const sensors = useSensors(

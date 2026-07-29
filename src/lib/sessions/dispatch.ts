@@ -83,6 +83,13 @@ async function snapshotLiveBranchAndSha(cwd: string): Promise<{ branch: string |
 
 export interface DispatchExecutionSessionArgs {
   workspaceId: string;
+  /**
+   * Pre-allocated session id. The launcher generates one up front so it can
+   * close and route immediately, then create in the background — see
+   * `lib/executions/pending-launch.ts`. Must be a fresh UUID; reusing an
+   * existing id fails the insert rather than overwriting anything.
+   */
+  sessionId?: string | null;
   /** Optional. If null/empty, the row is created with `label = null` and
    *  the branch falls back to `<workspace>/session-<short-id>`. The
    *  label is later derived from the first user message. */
@@ -165,7 +172,10 @@ export async function dispatchExecutionSession(
       ?? harnessSettings.defaultEffort,
   }, { cwd: ws.cwd, repairInvalidModel: true });
   const agent = getOrCreateDefaultExecutor(selection.harness);
-  const sessionId = uuidv7();
+  // The launcher supplies this so it can navigate before the create resolves;
+  // everything else lets us mint one. Same value either way — it just decides
+  // who learns the id first.
+  const sessionId = args.sessionId?.trim() || uuidv7();
   const label = args.label?.trim() || null;
   const prNumber = normalizePrNumber(args.prNumber);
   const liveMode = !!args.liveMode && ws.isGit;
