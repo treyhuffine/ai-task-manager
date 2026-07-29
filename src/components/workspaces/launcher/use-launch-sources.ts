@@ -77,6 +77,13 @@ export interface LaunchSourceGroup {
   error: string | null;
   /** Rendered instead of the rows when the group resolves to nothing. */
   emptyHint?: string;
+  /**
+   * Survive the empty-group filter so `emptyHint` can actually be seen.
+   * Without this a group that resolved to "nothing, and here's why" is
+   * indistinguishable from a group that was never asked — the exact failure
+   * that made a fully-imported workspace look broken.
+   */
+  keepWhenEmpty?: boolean;
 }
 
 export interface LaunchSourcesResult {
@@ -131,10 +138,6 @@ export function useLaunchSources({
 }): LaunchSourcesResult {
   const trimmed = query.trim();
   const gitEnabled = enabled && isGit;
-  // One timestamp for the whole panel session — recomputing per render would
-  // reshuffle bands mid-interaction as the clock crosses midnight.
-  const now = useMemo(() => new Date(), []);
-
   const prs = useWorkspacePRs(gitEnabled ? workspaceId : null);
   const issues = useWorkspaceIssues(gitEnabled ? workspaceId : null);
   const branches = useWorkspaceBranches(gitEnabled ? workspaceId : null);
@@ -375,6 +378,7 @@ export function useLaunchSources({
         label: 'Not in Flow yet',
         isLoading: discovery.isLoading,
         error: errorMessage(discovery.error),
+        keepWhenEmpty: true,
         emptyHint: !scanned
           ? undefined
           : sawAnyForWorkspace
@@ -410,7 +414,7 @@ export function useLaunchSources({
 
     return {
       groups: groups
-        .filter((g) => g.isLoading || g.error || g.items.length > 0)
+        .filter((g) => g.isLoading || g.error || g.items.length > 0 || g.keepWhenEmpty)
         // Stable, so connectors keep their discovered order within their rank.
         .sort((a, b) => rank(a.kind) - rank(b.kind)),
       connectorSources,
@@ -427,6 +431,5 @@ export function useLaunchSources({
     chats.data, chats.isLoading, chats.error,
     discovery.data, discovery.isLoading, discovery.error,
     connectorTasks.data, connectorTasks.isLoading, connectorTasks.error,
-    now,
   ]);
 }

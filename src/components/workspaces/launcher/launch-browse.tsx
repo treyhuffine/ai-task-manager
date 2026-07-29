@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDownToLine,
   CircleDot,
@@ -124,6 +125,7 @@ export function LaunchBrowse({
   onPick: (item: LaunchSourceItem) => void;
   onClose: () => void;
 }) {
+  const qc = useQueryClient();
   const now = useMemo(() => new Date(), []);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('all');
@@ -181,7 +183,10 @@ export function LaunchBrowse({
   const groups = useMemo(() => {
     const byTab =
       activeTab.kinds.length === 0
-        ? allGroups
+        // On All, a group that resolved to nothing stays hidden — its
+        // explanation is worth a row on its own tab, not next to six other
+        // sources competing for the fold.
+        ? allGroups.filter((g) => g.isLoading || g.error || g.items.length > 0)
         : allGroups.filter((g) => activeTab.kinds.includes(g.kind));
     if (effectiveScope === SCOPE_ALL) return byTab;
     if (effectiveScope === SCOPE_LOCAL) return byTab.filter((g) => g.kind !== 'connector');
@@ -369,6 +374,19 @@ export function LaunchBrowse({
               </span>
               {group.isLoading && (
                 <Loader2 size={9} className="animate-spin text-muted-foreground/50" />
+              )}
+              {/* Disk transcripts are cached for five minutes because the scan
+                  is expensive, but the single most likely reason to open this
+                  group is "I just finished a session and want it here". A
+                  manual rescan is the escape hatch for that window. */}
+              {group.kind === 'external' && !group.isLoading && (
+                <button
+                  type="button"
+                  onClick={() => qc.invalidateQueries({ queryKey: ['imports', 'external-agents'] })}
+                  className="ml-1 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  Rescan
+                </button>
               )}
             </div>
 
