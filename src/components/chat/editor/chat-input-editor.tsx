@@ -66,6 +66,7 @@ import type {
   FileMentionItem,
   TaskMentionItem,
   NoteMentionItem,
+  ReferenceFolderMentionItem,
 } from './mention-menu/types';
 import {
   MentionChipNode,
@@ -219,6 +220,17 @@ interface ChatInputEditorProps {
   /** Notes surfaced in the `@`-picker. */
   mentionNotes?: NoteMentionItem[];
   /**
+   * Reference folders surfaced in the `@`-picker
+   * (docs/reference-folders-spec.md §8). Picking one retargets the picker
+   * into that folder rather than inserting a chip.
+   */
+  mentionReferenceFolders?: ReferenceFolderMentionItem[];
+  /**
+   * Lazily loads one reference folder's file list for the drill-down.
+   * Only called once the user has actually typed `@alias/`.
+   */
+  loadReferenceTree?: (referenceId: string) => Promise<FileMentionItem[]>;
+  /**
    * Optional PRs for the `#`-mention menu. Sourced from `usePrList`
    * on the consumer side. When omitted, typing `#` does nothing
    * special.
@@ -358,6 +370,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       mentionFiles,
       mentionTasks,
       mentionNotes,
+      mentionReferenceFolders,
+      loadReferenceTree,
       prs,
       draftKey,
       history,
@@ -387,6 +401,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     mentionTasksRef.current = mentionTasks;
     const mentionNotesRef = useRef(mentionNotes);
     mentionNotesRef.current = mentionNotes;
+    const mentionReferenceFoldersRef = useRef(mentionReferenceFolders);
+    mentionReferenceFoldersRef.current = mentionReferenceFolders;
+    const loadReferenceTreeRef = useRef(loadReferenceTree);
+    loadReferenceTreeRef.current = loadReferenceTree;
     const prsRef = useRef(prs);
     prsRef.current = prs;
     // Set when the user Escapes out of the `#` menu: they want the
@@ -735,6 +753,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           getFileEntries: () => mentionFilesRef.current ?? [],
           getTasks: () => mentionTasksRef.current ?? [],
           getNotes: () => mentionNotesRef.current ?? [],
+          getReferenceFolders: () => mentionReferenceFoldersRef.current ?? [],
+          loadReferenceTree: (id: string) =>
+            loadReferenceTreeRef.current?.(id) ?? Promise.resolve([]),
         }),
         PrMenuExtension.configure({
           getPrs: () => prsRef.current ?? [],

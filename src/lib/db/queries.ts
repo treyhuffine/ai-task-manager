@@ -3,10 +3,12 @@
  * Used by both API route handlers and AI chat tools.
  */
 
+import nodePath from 'node:path';
+import os from 'node:os';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
-  workspaces, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks,
@@ -27,6 +29,7 @@ import type {
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
+  ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
   AgentRecord, CreateAgentInput,
   ExecutionRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
@@ -2557,6 +2560,347 @@ export function archiveWorkspace(id: string): WorkspaceRecord | null {
     .where(eq(workspaces.id, id))
     .returning()
     .get());
+  return row ?? null;
+}
+
+// ─── Reference folders ────────────────────────────────────────
+// Read-only folders a workspace's agents may consult. See
+// docs/reference-folders-spec.md. `workspaceId: null` rows are global and
+// surface in every workspace.
+
+/** Aliases must survive being typed after `@` without ambiguity against a path. */
+const REFERENCE_ALIAS_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+export class ReferenceFolderError extends Error {
+  constructor(
+    public code: 'invalid_params' | 'conflict' | 'not_found',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ReferenceFolderError';
+  }
+}
+
+/**
+ * Normalize a user-supplied alias. Lowercased and trimmed, because the alias
+ * is a typing affordance and case-sensitivity here would only ever surprise.
+ */
+export function normalizeReferenceAlias(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/**
+ * Turn whatever the user typed into an absolute path.
+ *
+ * `~` matters: the folder picker and every `/api/fs` route expand it, so a
+ * path typed by hand has to behave the same way. Without this, `~/code/api`
+ * resolves against the *server process* cwd and the reference renders as
+ * missing even though the folder is right there. Relative paths get the same
+ * treatment for the same reason.
+ */
+export function normalizeReferencePath(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('~')) {
+    return nodePath.join(os.homedir(), trimmed.slice(1).replace(/^[/\\]/, ''));
+  }
+  return nodePath.resolve(trimmed);
+}
+
+/**
+ * Columns a caller may set. Everything else (`id`, `createdAt`, `updatedAt`,
+ * `status`, `archivedAt`) is owned by this layer.
+ *
+ * HTTP routes hand us `await request.json()` cast to the input type, which is
+ * a compile-time claim and nothing more. Spreading that straight into `.set()`
+ * let a stray `id` in the body rewrite the primary key and orphan the row, so
+ * the whitelist lives here rather than at each route — the orchestrator
+ * actions, the routes, and any future caller all get it.
+ */
+const REFERENCE_FOLDER_WRITABLE = [
+  'workspaceId',
+  'alias',
+  'path',
+  'targetWorkspaceId',
+  'description',
+  'position',
+] as const;
+
+function pickReferenceFolderFields<T extends Record<string, unknown>>(input: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const key of REFERENCE_FOLDER_WRITABLE) {
+    if (key in input) out[key as keyof T] = input[key as keyof T];
+  }
+  return out;
+}
+
+/**
+ * The partial unique indexes are the real arbiter of alias uniqueness. The
+ * pre-check above gives a better message, but two concurrent creates can both
+ * pass it, so translate the constraint violation rather than letting a raw
+ * SQLite error escape as a 500.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Error && /UNIQUE constraint failed/i.test(err.message);
+}
+
+function assertValidReferenceAlias(alias: string): void {
+  if (!REFERENCE_ALIAS_RE.test(alias)) {
+    throw new ReferenceFolderError(
+      'invalid_params',
+      `Invalid alias "${alias}". Use lowercase letters, digits, dot, dash or underscore, starting with a letter or digit.`,
+    );
+  }
+}
+
+/**
+ * Exactly one target. The DB has a CHECK for this as a backstop, but raising
+ * here gives the caller a message that says which field to fix.
+ */
+function assertOneTarget(path: string | null | undefined, targetWorkspaceId: string | null | undefined): void {
+  const hasPath = path != null && path.length > 0;
+  const hasWorkspace = targetWorkspaceId != null && targetWorkspaceId.length > 0;
+  if (hasPath === hasWorkspace) {
+    throw new ReferenceFolderError(
+      'invalid_params',
+      hasPath
+        ? 'A reference folder takes either a path or a target workspace, not both.'
+        : 'A reference folder needs either a path or a target workspace.',
+    );
+  }
+}
+
+export function getReferenceFolder(id: string): ReferenceFolderRecord | undefined {
+  const db = getDb();
+  return db.select().from(referenceFolders).where(eq(referenceFolders.id, id)).get();
+}
+
+/**
+ * Raw scope listing. `workspaceId === null` returns global rows only; a string
+ * returns that workspace's own rows only. Use
+ * `listReferenceFoldersForWorkspace` for the merged view an agent sees.
+ */
+export function listReferenceFolders(
+  filter: { workspaceId?: string | null; status?: 'active' | 'archived' } = {},
+): ReferenceFolderRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [];
+  if (filter.workspaceId === null) conditions.push(isNull(referenceFolders.workspaceId));
+  else if (filter.workspaceId) conditions.push(eq(referenceFolders.workspaceId, filter.workspaceId));
+  conditions.push(eq(referenceFolders.status, filter.status ?? 'active'));
+  return db
+    .select()
+    .from(referenceFolders)
+    .where(and(...conditions))
+    .orderBy(asc(referenceFolders.position), asc(referenceFolders.createdAt))
+    .all();
+}
+
+/**
+ * What a workspace's agents actually see: its own references plus every global
+ * one, with the workspace's row winning on alias collision. Mirrors how
+ * `resolveSkillDirsForSession` lets a workspace skill shadow a global one.
+ */
+export function listReferenceFoldersForWorkspace(
+  workspaceId: string | null,
+): ReferenceFolderRecord[] {
+  const globals = listReferenceFolders({ workspaceId: null });
+  if (!workspaceId) return globals;
+  const own = listReferenceFolders({ workspaceId });
+  const ownAliases = new Set(own.map((r) => r.alias));
+  return [...own, ...globals.filter((g) => !ownAliases.has(g.alias))].sort(
+    (a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt),
+  );
+}
+
+/**
+ * Active references pointing AT this workspace — the reverse direction.
+ * References are deliberately one-way, so this is how a workspace finds out
+ * who is reading it. Each row is paired with the name of the workspace that
+ * owns it; global rows (`workspaceId` null) report a null owner.
+ */
+export function listReferenceFoldersTargeting(
+  targetWorkspaceId: string,
+): Array<{ reference: ReferenceFolderRecord; ownerName: string | null }> {
+  const db = getDb();
+  const rows = db
+    .select({ reference: getTableColumns(referenceFolders), ownerName: workspaces.name })
+    .from(referenceFolders)
+    .leftJoin(workspaces, eq(referenceFolders.workspaceId, workspaces.id))
+    .where(
+      and(
+        eq(referenceFolders.targetWorkspaceId, targetWorkspaceId),
+        eq(referenceFolders.status, 'active'),
+      ),
+    )
+    .orderBy(asc(referenceFolders.createdAt))
+    .all();
+  return rows.map((r) => ({ reference: r.reference, ownerName: r.ownerName ?? null }));
+}
+
+/** Existing active row with this alias in this exact scope, if any. */
+export function findReferenceFolderByAlias(
+  alias: string,
+  workspaceId: string | null,
+): ReferenceFolderRecord | undefined {
+  const db = getDb();
+  const scope =
+    workspaceId == null
+      ? isNull(referenceFolders.workspaceId)
+      : eq(referenceFolders.workspaceId, workspaceId);
+  return db
+    .select()
+    .from(referenceFolders)
+    .where(
+      and(
+        eq(referenceFolders.alias, normalizeReferenceAlias(alias)),
+        eq(referenceFolders.status, 'active'),
+        scope,
+      ),
+    )
+    .get();
+}
+
+/**
+ * Create a reference folder. Retry-safe: a repeat create in the same scope with
+ * the same alias raises `conflict` rather than inserting a duplicate, which is
+ * also what the partial unique index would do with a less useful message.
+ */
+export function createReferenceFolder(input: CreateReferenceFolderInput): ReferenceFolderRecord {
+  const db = getDb();
+  const alias = normalizeReferenceAlias(input.alias);
+  assertValidReferenceAlias(alias);
+  assertOneTarget(input.path, input.targetWorkspaceId);
+
+  const workspaceId = input.workspaceId ?? null;
+  if (input.targetWorkspaceId && input.targetWorkspaceId === workspaceId) {
+    throw new ReferenceFolderError(
+      'invalid_params',
+      'A workspace cannot reference itself. Its own folder is already the working directory.',
+    );
+  }
+  if (input.targetWorkspaceId && !getWorkspace(input.targetWorkspaceId)) {
+    throw new ReferenceFolderError(
+      'not_found',
+      `Target workspace not found: ${input.targetWorkspaceId}`,
+    );
+  }
+  if (findReferenceFolderByAlias(alias, workspaceId)) {
+    throw new ReferenceFolderError(
+      'conflict',
+      `A ${workspaceId ? 'workspace' : 'global'} reference folder named "${alias}" already exists.`,
+    );
+  }
+
+  const now = new Date().toISOString();
+  try {
+    return db
+      .insert(referenceFolders)
+      .values({
+        ...pickReferenceFolderFields(input),
+        alias,
+        workspaceId,
+        // `~` and relative paths are normalized here so every caller (route,
+        // orchestrator action, test) stores the same absolute form.
+        path: input.path ? normalizeReferencePath(input.path) : null,
+        targetWorkspaceId: input.targetWorkspaceId ?? null,
+        description: input.description?.trim() || null,
+        // `id` is honoured when supplied so a retried create is idempotent
+        // rather than duplicating. It is deliberately not part of the
+        // writable whitelist, which governs *updates*.
+        id: input.id ?? uuidv7(),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new ReferenceFolderError(
+        'conflict',
+        `A ${workspaceId ? 'workspace' : 'global'} reference folder named "${alias}" already exists.`,
+      );
+    }
+    throw err;
+  }
+}
+
+export function updateReferenceFolder(
+  id: string,
+  input: UpdateReferenceFolderInput,
+): ReferenceFolderRecord | null {
+  const db = getDb();
+  const existing = getReferenceFolder(id);
+  if (!existing) return null;
+
+  // Whitelist before anything else — the incoming object is an unvalidated
+  // request body wearing a TypeScript type.
+  const next = pickReferenceFolderFields(input);
+  if (next.alias != null) {
+    next.alias = normalizeReferenceAlias(next.alias);
+    assertValidReferenceAlias(next.alias);
+  }
+  if (next.path != null) next.path = normalizeReferencePath(next.path);
+  if (next.description != null) next.description = next.description.trim() || null;
+
+  // Target fields are validated against the merged row, so changing one side
+  // of the pair can't silently leave both set.
+  const mergedPath = 'path' in next ? next.path : existing.path;
+  const mergedTarget =
+    'targetWorkspaceId' in next ? next.targetWorkspaceId : existing.targetWorkspaceId;
+  assertOneTarget(mergedPath, mergedTarget);
+
+  const mergedWorkspace = 'workspaceId' in next ? next.workspaceId ?? null : existing.workspaceId;
+  if (mergedTarget && mergedTarget === mergedWorkspace) {
+    throw new ReferenceFolderError(
+      'invalid_params',
+      'A workspace cannot reference itself. Its own folder is already the working directory.',
+    );
+  }
+  if (mergedTarget && !getWorkspace(mergedTarget)) {
+    throw new ReferenceFolderError('not_found', `Target workspace not found: ${mergedTarget}`);
+  }
+
+  const mergedAlias = next.alias ?? existing.alias;
+  const clash = findReferenceFolderByAlias(mergedAlias, mergedWorkspace);
+  if (clash && clash.id !== id) {
+    throw new ReferenceFolderError(
+      'conflict',
+      `A ${mergedWorkspace ? 'workspace' : 'global'} reference folder named "${mergedAlias}" already exists.`,
+    );
+  }
+
+  try {
+    const row = db
+      .update(referenceFolders)
+      .set({ ...next, updatedAt: new Date().toISOString() })
+      .where(eq(referenceFolders.id, id))
+      .returning()
+      .get();
+    return row ?? null;
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new ReferenceFolderError(
+        'conflict',
+        `A ${mergedWorkspace ? 'workspace' : 'global'} reference folder named "${mergedAlias}" already exists.`,
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Archive rather than delete, matching the rest of the app. Archiving also
+ * frees the alias, since the partial unique indexes only cover active rows.
+ */
+export function archiveReferenceFolder(id: string): ReferenceFolderRecord | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const row = db
+    .update(referenceFolders)
+    .set({ status: 'archived', archivedAt: now, updatedAt: now })
+    .where(eq(referenceFolders.id, id))
+    .returning()
+    .get();
   return row ?? null;
 }
 

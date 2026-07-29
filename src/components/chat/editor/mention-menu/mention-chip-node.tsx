@@ -55,6 +55,10 @@ export const MentionChipNode = Node.create<{}>({
       path: { default: '' },
       name: { default: '' },
       kind: { default: 'file' },
+      // Set for files picked out of a reference folder. `label` reads
+      // `alias/relative/path`; `referenceAlias` marks `path` as absolute.
+      label: { default: null },
+      referenceAlias: { default: null },
     }
   },
 
@@ -88,6 +92,11 @@ export const MentionChipNode = Node.create<{}>({
 
 function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
   const attrs = node.attrs as MentionChipAttrs
+  // Reference-folder files live outside the worktree, and the file viewer only
+  // resolves worktree-relative paths — so no click-to-open rather than a click
+  // that quietly does nothing.
+  const isReference = !!attrs.referenceAlias
+  const openable = attrs.kind === 'file' && !isReference
 
   const handleRemove = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -116,7 +125,7 @@ function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
         'cursor-default select-none',
         selected && 'ring-2 ring-primary/40 border-primary/40',
       )}
-      title={attrs.path}
+      title={isReference ? `${attrs.label ?? attrs.name}\n${attrs.path}` : attrs.path}
     >
       {attrs.kind === 'dir' ? (
         <FolderIcon name={attrs.name} opened={false} size={11} />
@@ -126,12 +135,12 @@ function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
       <span
         className={cn(
           'font-mono text-[11px] truncate max-w-[180px]',
-          attrs.kind === 'file' && 'cursor-pointer hover:underline',
+          openable && 'cursor-pointer hover:underline',
         )}
         // Click a file mention to open it in the tree + viewer. mousedown
         // preventDefault keeps editor focus/selection from shifting first.
         onMouseDown={
-          attrs.kind === 'file'
+          openable
             ? (e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -139,7 +148,7 @@ function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
             : undefined
         }
         onClick={
-          attrs.kind === 'file'
+          openable
             ? (e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -148,7 +157,9 @@ function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
             : undefined
         }
       >
-        {attrs.name}
+        {/* Reference files show `alias/relative/path` so the chip says which
+            folder it came from; worktree files stay a bare basename. */}
+        {attrs.label ?? attrs.name}
       </span>
       <button
         type="button"

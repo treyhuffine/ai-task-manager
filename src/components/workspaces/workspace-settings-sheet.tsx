@@ -12,6 +12,7 @@ import { uploadAttachment } from '@/lib/attachments/client';
 import { FilesToCopySection } from './files-to-copy-section';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
 import { WorkspaceConnectorsSection } from './workspace-connectors-section';
+import { ReferenceFoldersSection } from './reference-folders-section';
 import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { GhStatus } from '@/lib/workspaces/gh';
@@ -342,6 +343,12 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                     cwd={ws.cwd}
                   />
                 </div>
+
+                {workspaceId && (
+                  <div>
+                    <ReferenceFoldersSection workspaceId={workspaceId} workspaceName={ws.name} />
+                  </div>
+                )}
 
                 {workspaceId && (
                   <div>

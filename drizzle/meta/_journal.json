@@ -57,6 +57,13 @@
       "when": 1785251474652,
       "tag": "0007_cold_maelstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785280844190,
+      "tag": "0008_marvelous_madame_web",
+      "breakpoints": true
     }
   ]
 }

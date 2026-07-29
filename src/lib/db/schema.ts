@@ -5,6 +5,7 @@ import {
   real,
   index,
   uniqueIndex,
+  check,
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
@@ -661,6 +662,70 @@ export const workspaces = sqliteTable(
   (table) => [
     index('idx_workspaces_status_position').on(table.status, table.position),
     index('idx_workspaces_area_id').on(table.areaId),
+  ],
+);
+
+// ─── Reference folders ────────────────────────────────────────
+// A read-only folder a workspace's agents may consult: a sibling repo, a docs
+// directory, an installed dependency's source. The agent is told the folder
+// exists and why, which is the actual gap — it can already read any absolute
+// path, it just never knows to look. See docs/reference-folders-spec.md.
+//
+// Points at either another workspace (`targetWorkspaceId`) or a bare path on
+// disk (`path`), never both. Forcing every consultable folder to be a full
+// workspace drags in worktrees, previews, and connector scopes for something
+// that only needs to be grepped.
+//
+// `workspaceId` NULL means the reference is global and visible from every
+// workspace, matching the brain-level convention in `triggers`.
+
+export const referenceFolders = sqliteTable(
+  'reference_folders',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    // Owning workspace. NULL = global (visible everywhere).
+    workspaceId: text().references(() => workspaces.id, { onDelete: 'cascade' }),
+    // What the user types after `@`. Lowercase `[a-z0-9][a-z0-9._-]*`, so the
+    // mention parser never has to disambiguate an alias from a path.
+    alias: text().notNull(),
+    // Bare-path target. Absolute. Mutually exclusive with targetWorkspaceId.
+    path: text(),
+    // Workspace target. Resolved to that workspace's `cwd` at read time so the
+    // reference survives the folder moving. Mutually exclusive with `path`.
+    // Nothing resolves to a live worktree or branch — a reference points at a
+    // folder and the agent gets whatever is in it.
+    targetWorkspaceId: text().references((): AnySQLiteColumn => workspaces.id, {
+      onDelete: 'cascade',
+    }),
+    // Optional note rendered under the path in the agent's prompt. Adding a
+    // reference should be one field, so this is only for when the alias and
+    // path don't already say why you'd look there.
+    description: text(),
+    position: integer().notNull().default(0),
+    status: text({ enum: ['active', 'archived'] })
+      .notNull()
+      .default('active'),
+    archivedAt: text(),
+  },
+  (table) => [
+    index('idx_reference_folders_workspace').on(table.workspaceId, table.status),
+    index('idx_reference_folders_target').on(table.targetWorkspaceId),
+    // Alias uniqueness is per scope. Two partial indexes rather than one
+    // UNIQUE(workspace_id, alias), because SQLite treats every NULL as
+    // distinct and would let duplicate global aliases through.
+    uniqueIndex('uniq_reference_folders_global_alias')
+      .on(table.alias)
+      .where(sql`${table.workspaceId} IS NULL AND ${table.status} = 'active'`),
+    uniqueIndex('uniq_reference_folders_workspace_alias')
+      .on(table.workspaceId, table.alias)
+      .where(sql`${table.workspaceId} IS NOT NULL AND ${table.status} = 'active'`),
+    // Exactly one target. The query layer validates this too with a friendlier
+    // message; this is the backstop for anything that reaches SQLite directly.
+    check(
+      'reference_folders_one_target',
+      sql`(${table.path} IS NOT NULL) <> (${table.targetWorkspaceId} IS NOT NULL)`,
+    ),
   ],
 );
 

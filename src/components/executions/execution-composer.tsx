@@ -53,10 +53,15 @@ import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
 import { useSlashCommands } from '@/hooks/use-slash-commands';
 import { useAgentHarnesses } from '@/hooks/use-agent-harnesses';
+import {
+  useSessionReferenceFolders,
+  useLoadReferenceTree,
+} from '@/hooks/use-reference-folders';
 import type {
   FileMentionItem,
   TaskMentionItem,
   NoteMentionItem,
+  ReferenceFolderMentionItem,
 } from '@/components/chat/editor/mention-menu/types';
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { expandPrRefs } from '@/components/chat/editor/pr-menu/expand';
@@ -289,6 +294,23 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         })),
       [pickerQuery.data?.notes],
     );
+
+    // Reference folders → `@`-picker items (docs/reference-folders-spec.md).
+    // Read-only folders outside the worktree the agent already knows about;
+    // picking one drills the picker into it rather than inserting a chip.
+    const referenceFoldersQuery = useSessionReferenceFolders(sessionId);
+    const mentionReferenceFolders = useMemo<ReferenceFolderMentionItem[]>(
+      () =>
+        (referenceFoldersQuery.data?.referenceFolders ?? []).map((r) => ({
+          kind: 'reference',
+          id: r.id,
+          alias: r.alias,
+          absolutePath: r.absolutePath,
+          exists: r.exists,
+        })),
+      [referenceFoldersQuery.data?.referenceFolders],
+    );
+    const loadReferenceTree = useLoadReferenceTree();
 
     // GitHub PRs → `#`-mention items. Empty when gh is missing /
     // unauthenticated or the workspace is non-git; the popup just shows
@@ -669,6 +691,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   onFocus={handleEditorFocus}
                   slashCommands={slashCommandsQuery.data?.commands}
                   mentionFiles={mentionFiles}
+                  mentionReferenceFolders={mentionReferenceFolders}
+                  loadReferenceTree={loadReferenceTree}
                   mentionTasks={mentionTasks}
                   mentionNotes={mentionNotes}
                   prs={prMentions}

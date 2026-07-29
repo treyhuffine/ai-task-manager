@@ -59,6 +59,13 @@ import {
   renderContentFocusPrompt,
   type OrchestratorMode,
 } from '@/lib/orchestrator/harness-surface';
+import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
+import {
+  buildReferenceFolderSessionConfig,
+  clearReferenceFolderInstructions,
+  referenceFolderProviderWiring,
+  writeReferenceFolderInstructions,
+} from '@/lib/reference-folders/session-config';
 import type {
   ChatEventSource,
   CreateChatEventInput,
@@ -742,6 +749,7 @@ export async function close(chatSessionId: string): Promise<void> {
   activeDispatchCount.delete(chatSessionId);
   setRunning(chatSessionId, false);
   clearBackgroundTasks(chatSessionId);
+  clearReferenceFolderInstructions(chatSessionId);
   rejectAllForSession(chatSessionId, 'Session closed');
   if (handle) {
     try { await handle.close(); } catch { /* best-effort */ }
@@ -757,6 +765,25 @@ export async function recycleWorkspaceSessions(workspaceId: string): Promise<voi
   // Only execution sessions consume the workspace connector scope (the orchestrator + content
   // sessions stay broad), so only those need recycling — don't disturb live content/focused sessions.
   const sessions = listChatSessions({ workspaceId, status: 'active', type: 'execution' });
+  await Promise.all(sessions.map((s) => recycleForModeChange(s.id)));
+}
+
+/**
+ * Recycle live sessions after a reference folder changes, so an added or
+ * removed folder takes effect now rather than whenever the session happens to
+ * restart. Session config (`instructionsFile`, `--add-dir`, the deny rules) is
+ * fixed at spawn, so without this the running agent keeps the old list
+ * indefinitely — the same problem connector scopes solve via
+ * `recycleWorkspaceSessions`.
+ *
+ * A global reference (`workspaceId === null`) is visible everywhere, so it has
+ * to recycle every workspace's execution sessions, not just one.
+ */
+export async function recycleForReferenceFolderChange(
+  workspaceId: string | null,
+): Promise<void> {
+  if (workspaceId) return recycleWorkspaceSessions(workspaceId);
+  const sessions = listChatSessions({ status: 'active', type: 'execution' });
   await Promise.all(sessions.map((s) => recycleForModeChange(s.id)));
 }
 
@@ -957,6 +984,56 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
             '(this harness does not enforce strict MCP tool-filtering).',
         );
       }
+    }
+
+    // Reference folders (docs/reference-folders-spec.md §6/§7). The prompt
+    // block is the feature — the agent can already read any absolute path, it
+    // just never knows the folder is there. Delivered via `instructionsFile`
+    // because every provider resolves that, unlike the claude-only
+    // `--append-system-prompt` used by the content branch above.
+    //
+    // `--add-dir` and the Edit deny rules are claude-only argv, so they're
+    // gated. Broken references are dropped upstream by
+    // `listUsableReferenceFolders` — pointing an agent at a path that isn't
+    // there is worse than saying nothing.
+    try {
+      const workspaceCwd = args.workspaceId ? getWorkspace(args.workspaceId)?.cwd ?? null : null;
+      const refs = await listUsableReferenceFolders(args.workspaceId ?? null, {
+        consumerCwd: workspaceCwd,
+      });
+      const refConfig = buildReferenceFolderSessionConfig(refs);
+      if (refConfig.instructions) {
+        const wiring = referenceFolderProviderWiring(refConfig, providerType);
+        if (wiring.deliversInstructions) {
+          config.instructionsFile = writeReferenceFolderInstructions(
+            args.chatSessionId,
+            refConfig.instructions,
+          );
+        }
+        extraArgs.push(...wiring.extraArgs);
+        if (wiring.disallowedTools.length > 0) {
+          config.disallowedTools = [...(config.disallowedTools ?? []), ...wiring.disallowedTools];
+        }
+        if (wiring.delivery === 'prompt-only') {
+          console.warn(
+            `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
+              'announced in the prompt, but the read scope and edit deny rules are claude-only argv ' +
+              '(this provider is told about them without being fenced off).',
+          );
+        } else if (wiring.delivery === 'unsupported') {
+          // Not a partial degradation — a total one. This provider's session
+          // path drops `instructionsFile`, so the agent is never told the
+          // folders exist, which is the whole feature.
+          console.warn(
+            `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
+              'configured but NOT delivered — this harness ignores session-scoped instructions, ' +
+              'so the agent will not be told these folders exist. Use claude or codex for reference folders.',
+          );
+        }
+      }
+    } catch (err) {
+      // A reference-folder failure must never cost the user their session.
+      console.error('[executor] reference folder resolution failed:', err);
     }
   }
 

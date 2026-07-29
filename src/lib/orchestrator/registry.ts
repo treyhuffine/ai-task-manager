@@ -41,6 +41,11 @@ import {
   getWorkspace,
   createWorkspace,
   archiveWorkspace,
+  createReferenceFolder,
+  updateReferenceFolder,
+  archiveReferenceFolder,
+  getReferenceFolder,
+  ReferenceFolderError,
   listChatSessions,
   searchChatSessions,
   listRailSessions,
@@ -92,6 +97,7 @@ import { inventorySkills } from '@/lib/executor/skills';
 import { fetchLiveSignals, serverFetch } from './server-client';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
 import { isSessionUnread } from '@/lib/utils/session-sort';
+import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
 import path from 'node:path';
 import {
   getAppRoot,
@@ -1060,6 +1066,122 @@ const archive_workspace_action = defineAction({
   },
 });
 
+// ─── Reference folders ────────────────────────────────────────
+// Read-only folders a workspace's agents may consult. See
+// docs/reference-folders-spec.md. `workspaceId: null` = global (every
+// workspace sees it).
+
+/**
+ * Translate the query layer's typed failure into the action envelope. Keeps
+ * the stable codes (`invalid_params | conflict | not_found`) rather than
+ * letting a raw Error escape as a 500.
+ */
+function rethrowReferenceFolderError(err: unknown): never {
+  if (err instanceof ReferenceFolderError) throw new ActionError(err.code, err.message);
+  throw err;
+}
+
+/**
+ * Bare paths are a disclosure vector from an untrusted caller — an agent over
+ * HTTP could point a reference at anything readable and have its contents
+ * summarized back. The local CLI is trusted and may pass any path; a remote
+ * caller has to go through a workspace, which the user already vouched for.
+ */
+function assertPathAllowed(ctx: { remote?: boolean }, path: string | null | undefined): void {
+  if (!path) return;
+  if (ctx.remote ?? true) {
+    throw new ActionError(
+      'unsupported',
+      'Remote callers cannot set a bare path on a reference folder. Point at a workspace with targetWorkspaceId, or add it from the app.',
+    );
+  }
+}
+
+const list_reference_folders_action = defineAction({
+  name: 'list_reference_folders',
+  description:
+    'List reference folders (read-only folders agents may consult), resolved to absolute paths with existence and git state. Pass workspaceId to see what that workspace sees (its own plus every global one); omit it for the global ones alone.',
+  params: { workspaceId: z.string().nullable().optional() },
+  handler: (_ctx, { workspaceId }) => listResolvedReferenceFolders(workspaceId ?? null),
+});
+
+const create_reference_folder_action = defineAction({
+  name: 'create_reference_folder',
+  description:
+    'Add a reference folder. Give exactly one of `path` (a folder on disk) or `targetWorkspaceId` (another workspace). Omit workspaceId to make it global. Safe under retry: a repeat with the same alias in the same scope returns a conflict rather than duplicating.',
+  params: {
+    alias: z.string().min(1),
+    workspaceId: z.string().nullable().optional(),
+    path: z.string().nullable().optional(),
+    targetWorkspaceId: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+  },
+  mutating: true,
+  handler: (ctx, input) => {
+    assertPathAllowed(ctx, input.path);
+    try {
+      // `~` / relative expansion happens in the query layer so every caller
+      // stores the same absolute form.
+      return createReferenceFolder({
+        alias: input.alias,
+        workspaceId: input.workspaceId ?? null,
+        path: input.path ?? null,
+        targetWorkspaceId: input.targetWorkspaceId ?? null,
+        description: input.description ?? null,
+      });
+    } catch (err) {
+      rethrowReferenceFolderError(err);
+    }
+  },
+});
+
+const update_reference_folder_action = defineAction({
+  name: 'update_reference_folder',
+  description:
+    'Update a reference folder. Only the fields you pass change. Switching targets means passing the new one and nulling the other.',
+  params: {
+    id: z.string().min(1),
+    alias: z.string().min(1).optional(),
+    path: z.string().nullable().optional(),
+    targetWorkspaceId: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    workspaceId: z.string().nullable().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (ctx, { id, ...rest }) => {
+    assertPathAllowed(ctx, rest.path);
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(rest)) {
+      if (v !== undefined) patch[k] = v;
+    }
+    try {
+      const row = updateReferenceFolder(id, patch);
+      if (!row) throw new ActionError('not_found', `Reference folder not found: ${id}`);
+      return row;
+    } catch (err) {
+      rethrowReferenceFolderError(err);
+    }
+  },
+});
+
+const archive_reference_folder_action = defineAction({
+  name: 'archive_reference_folder',
+  description:
+    'Archive a reference folder so agents stop being told about it. Nothing on disk is touched, and the alias becomes reusable.',
+  params: { id: z.string().min(1) },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: (_ctx, { id }) => {
+    if (!getReferenceFolder(id)) {
+      throw new ActionError('not_found', `Reference folder not found: ${id}`);
+    }
+    const row = archiveReferenceFolder(id);
+    if (!row) throw new ActionError('not_found', `Reference folder not found: ${id}`);
+    return row;
+  },
+});
+
 const list_workspace_sessions_action = defineAction({
   name: 'list_workspace_sessions',
   description: 'List active execution sessions in a workspace, newest activity first.',
@@ -1798,6 +1920,10 @@ export const actions = [
   get_workspace_action,
   create_workspace_action,
   archive_workspace_action,
+  list_reference_folders_action,
+  create_reference_folder_action,
+  update_reference_folder_action,
+  archive_reference_folder_action,
   list_workspace_sessions_action,
   search_sessions_action,
   list_executions_action,

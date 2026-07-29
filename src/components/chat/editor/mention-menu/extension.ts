@@ -8,7 +8,14 @@ import Suggestion, {
 } from '@tiptap/suggestion'
 import { createSuggestionPopupRenderer } from '../suggestion/renderer'
 import { MentionMenuList } from './popup'
-import type { MentionItem, FileMentionItem, TaskMentionItem, NoteMentionItem } from './types'
+import { buildItems, parseReferenceDrillDown, toReferenceFileItems } from './ranking'
+import type {
+  MentionItem,
+  FileMentionItem,
+  TaskMentionItem,
+  NoteMentionItem,
+  ReferenceFolderMentionItem,
+} from './types'
 
 // Distinct PluginKey so this Suggestion plugin doesn't collide with the
 // slash and PR menus — Tiptap's `Suggestion` defaults to a shared
@@ -27,135 +34,32 @@ interface MentionMenuOptions {
   getTasks?: () => TaskMentionItem[]
   /** Notes for the current session's workspace. */
   getNotes?: () => NoteMentionItem[]
-}
-
-const MAX_FILES = 30
-const MAX_TASKS = 15
-const MAX_NOTES = 15
-const COMMON_NOISE_DIRS = new Set([
-  'node_modules',
-  '.next',
-  '.git',
-  'dist',
-  'build',
-  '.turbo',
-  '.cache',
-])
-
-function scoreFile(item: FileMentionItem, q: string): number {
-  const lowerPath = item.path.toLowerCase()
-  const lowerName = item.name.toLowerCase()
-  if (lowerName === q) return 0
-  if (lowerName.startsWith(q)) return 1
-  if (lowerPath.endsWith('/' + q)) return 2
-  if (lowerName.includes(q)) return 3
-  if (lowerPath.includes(q)) return 4
-  return Infinity
-}
-
-function scoreText(text: string, q: string): number {
-  const lower = text.toLowerCase()
-  if (lower === q) return 0
-  if (lower.startsWith(q)) return 1
-  if (lower.includes(q)) return 2
-  return Infinity
-}
-
-function rankFiles(entries: FileMentionItem[], query: string): FileMentionItem[] {
-  if (!query) {
-    const filtered = entries.filter((e) => {
-      const top = e.path.split('/')[0] ?? ''
-      return !COMMON_NOISE_DIRS.has(top)
-    })
-    const files = filtered.filter((e) => e.kind === 'file').slice(0, MAX_FILES)
-    const dirs = filtered.filter((e) => e.kind === 'dir').slice(0, MAX_FILES - files.length)
-    return [...files, ...dirs]
-  }
-  const q = query.toLowerCase()
-  return entries
-    .map((item) => ({ item, score: scoreFile(item, q) }))
-    .filter((s) => Number.isFinite(s.score))
-    .sort((a, b) => {
-      if (a.score !== b.score) return a.score - b.score
-      if (a.item.kind !== b.item.kind) return a.item.kind === 'file' ? -1 : 1
-      return a.item.path.length - b.item.path.length
-    })
-    .slice(0, MAX_FILES)
-    .map((s) => s.item)
-}
-
-function rankTasks(tasks: TaskMentionItem[], query: string): TaskMentionItem[] {
-  if (!query) {
-    // Active first; within each status keep stored order (server returns
-    // by recency).
-    const active = tasks.filter((t) => t.status === 'active')
-    const rest = tasks.filter((t) => t.status !== 'active')
-    return [...active, ...rest].slice(0, MAX_TASKS)
-  }
-  const q = query.toLowerCase()
-  return tasks
-    .map((item) => ({ item, score: scoreText(item.title, q) }))
-    .filter((s) => Number.isFinite(s.score))
-    .sort((a, b) => {
-      if (a.score !== b.score) return a.score - b.score
-      // Tiebreak: active tasks before done/archived.
-      const aActive = a.item.status === 'active' ? 0 : 1
-      const bActive = b.item.status === 'active' ? 0 : 1
-      return aActive - bActive
-    })
-    .slice(0, MAX_TASKS)
-    .map((s) => s.item)
-}
-
-function rankNotes(notes: NoteMentionItem[], query: string): NoteMentionItem[] {
-  if (!query) return notes.slice(0, MAX_NOTES)
-  const q = query.toLowerCase()
-  return notes
-    .map((item) => ({ item, score: scoreText(item.title, q) }))
-    .filter((s) => Number.isFinite(s.score))
-    .sort((a, b) => a.score - b.score)
-    .slice(0, MAX_NOTES)
-    .map((s) => s.item)
+  /**
+   * Reference folders visible from this session's workspace
+   * (docs/reference-folders-spec.md §8). Read-only folders outside the
+   * worktree that the agent has been told about.
+   */
+  getReferenceFolders?: () => ReferenceFolderMentionItem[]
+  /**
+   * Fetch one reference folder's file list. Called only when the user has
+   * actually drilled in (`@alias/`), so a workspace with references pays
+   * nothing until someone browses one. Expected to cache — `items` runs on
+   * every keystroke inside the drill-down.
+   */
+  loadReferenceTree?: (referenceId: string) => Promise<FileMentionItem[]>
 }
 
 /**
- * Build the full picker list — entity options come first (scratchpad
- * always, then tasks then notes), followed by file matches. The user
- * almost always wants scratchpad / a known task before they want a
- * file path; files tend to be longer + more specific and surface
- * naturally as the query narrows.
- */
-function buildItems(
-  files: FileMentionItem[],
-  tasks: TaskMentionItem[],
-  notes: NoteMentionItem[],
-  query: string,
-): MentionItem[] {
-  const q = query.toLowerCase()
-  const out: MentionItem[] = []
-
-  // Scratchpad: surface when the query is empty OR matches "scratch" /
-  // "pad" / "scratchpad". Filtering instead of always-present so the
-  // option doesn't clutter every search.
-  if (!q || 'scratchpad'.includes(q) || 'pad'.includes(q)) {
-    out.push({ kind: 'scratchpad' })
-  }
-
-  for (const t of rankTasks(tasks, query)) out.push(t)
-  for (const n of rankNotes(notes, query)) out.push(n)
-  for (const f of rankFiles(files, query)) out.push(f)
-  return out
-}
-
-/**
- * Tiptap extension that opens an `@`-picker covering files / tasks /
- * notes / scratchpad. One trigger, four kinds — the popup renders
- * results in sections so visual scanning stays fast.
+ * Tiptap extension that opens an `@`-picker covering files / tasks / notes /
+ * scratchpad / reference folders. One trigger, five kinds — the popup renders
+ * results in sections so visual scanning stays fast. Ranking lives in
+ * `./ranking`, which is deliberately free of Tiptap so it can be tested alone.
  *
  * Selecting a file inserts a `MentionChipNode` (the existing chip —
  * serialized to `@<path>` on send). Selecting a task / note / scratchpad
  * inserts an `EntityChipNode` (serialized to `[[task:id]]` / `[[note:id]]`
- * / `[[scratchpad]]`).
+ * / `[[scratchpad]]`). Selecting a reference folder inserts nothing: it
+ * rewrites the query to `@<alias>/` so the picker retargets into that folder.
  */
 export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   name: 'mentionMenu',
@@ -165,13 +69,21 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   priority: 200,
 
   addOptions() {
-    return { getFileEntries: undefined, getTasks: undefined, getNotes: undefined }
+    return {
+      getFileEntries: undefined,
+      getTasks: undefined,
+      getNotes: undefined,
+      getReferenceFolders: undefined,
+      loadReferenceTree: undefined,
+    }
   },
 
   addProseMirrorPlugins() {
     const getFiles = () => this.options.getFileEntries?.() ?? []
     const getTasks = () => this.options.getTasks?.() ?? []
     const getNotes = () => this.options.getNotes?.() ?? []
+    const getReferences = () => this.options.getReferenceFolders?.() ?? []
+    const loadReferenceTree = this.options.loadReferenceTree
 
     const suggestion: Partial<SuggestionOptions<MentionItem, MentionItem>> = {
       pluginKey: MENTION_MENU_PLUGIN_KEY,
@@ -180,8 +92,34 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       allowSpaces: false,
       // `@` can appear mid-sentence; the picker fires from any position.
       startOfLine: false,
-      items: ({ query }: { query: string }) =>
-        buildItems(getFiles(), getTasks(), getNotes(), query),
+      // Async because a drill-down fetches that reference's file list on
+      // demand. Tiptap awaits this and only re-runs it when the query
+      // actually changes, so the fetch happens once per drill-down rather
+      // than per render.
+      items: async ({ query }: { query: string }) => {
+        const references = getReferences()
+        const drillDown = parseReferenceDrillDown(query, references)
+        let referenceFiles: FileMentionItem[] | null = null
+        if (drillDown && drillDown.reference.exists && loadReferenceTree) {
+          try {
+            const entries = await loadReferenceTree(drillDown.reference.id)
+            referenceFiles = toReferenceFileItems(drillDown.reference, entries)
+          } catch {
+            // A failed tree fetch degrades to worktree-only matches rather
+            // than emptying the picker mid-keystroke.
+            referenceFiles = null
+          }
+        }
+        return buildItems({
+          files: getFiles(),
+          tasks: getTasks(),
+          notes: getNotes(),
+          references,
+          referenceFiles,
+          drillDown,
+          query,
+        })
+      },
       command: ({
         editor,
         range,
@@ -192,7 +130,13 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         props: MentionItem
       }) => {
         const chain = editor.chain().focus().deleteRange(range)
-        if (item.kind === 'file' || item.kind === 'dir') {
+        if (item.kind === 'reference') {
+          // Not a chip — retarget the picker into the folder. Rewriting the
+          // text to `@alias/` leaves the suggestion active, so `items` reruns
+          // with a query that `parseReferenceDrillDown` recognizes. Typing
+          // `@alias/` by hand lands in exactly the same place.
+          chain.insertContent(`@${item.alias}/`).run()
+        } else if (item.kind === 'file' || item.kind === 'dir') {
           chain.insertMentionChip(item).insertContent(' ').run()
         } else if (item.kind === 'scratchpad') {
           chain

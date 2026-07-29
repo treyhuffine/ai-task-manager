@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
-  workspaces, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks,
@@ -142,6 +142,42 @@ export interface WorkspaceWithCounts extends WorkspaceRecord {
   sessionCount: number;
   needsReviewCandidateCount: number;
   activeSessionCount: number;
+}
+
+// ─── Reference folders ────────────────────────────────────────
+
+export type ReferenceFolderRecord = InferSelectModel<typeof referenceFolders>;
+export type CreateReferenceFolderInput = Omit<InferInsertModel<typeof referenceFolders>, 'id'> & {
+  id?: string;
+};
+export type UpdateReferenceFolderInput = Partial<
+  Omit<CreateReferenceFolderInput, 'id' | 'createdAt'>
+>;
+export type ReferenceFolderStatus = ReferenceFolderRecord['status'];
+
+/** Git state of a reference folder, when it happens to be a repo. */
+export interface ReferenceFolderGitState {
+  branch: string | null;
+  dirty: boolean;
+  /** Commits ahead of the tracking branch. Null when there is no upstream. */
+  ahead: number | null;
+  behind: number | null;
+}
+
+/**
+ * A reference folder with its target resolved to a real path, plus whatever
+ * the filesystem says about it right now. `exists: false` rows still render in
+ * settings (so the user can fix or remove them) but are kept out of the
+ * agent's prompt, since a path that isn't there is worse than silence.
+ */
+export interface ResolvedReferenceFolder extends ReferenceFolderRecord {
+  absolutePath: string;
+  exists: boolean;
+  git: ReferenceFolderGitState | null;
+  /** True when this row is global (`workspaceId === null`). */
+  global: boolean;
+  /** Set when the resolved path sits inside the consuming workspace's cwd. */
+  redundantWithCwd?: boolean;
 }
 
 // ─── Agents ───────────────────────────────────────────────────

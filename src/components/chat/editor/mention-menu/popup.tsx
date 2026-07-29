@@ -8,7 +8,7 @@ import {
   useImperativeHandle,
   forwardRef,
 } from 'react'
-import { Folder, Square, CheckSquare, StickyNote, Notebook } from 'lucide-react'
+import { Folder, FolderSymlink, Square, CheckSquare, StickyNote, Notebook, AlertTriangle } from 'lucide-react'
 import { FileIcon } from '@/components/file-icon'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
 import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
@@ -19,10 +19,16 @@ interface MentionMenuListProps {
   command: (item: MentionItem) => void
 }
 
-function sectionFor(item: MentionItem): 'entity' | 'task' | 'note' | 'file' {
+type Section = 'entity' | 'task' | 'note' | 'reference' | 'file' | `ref:${string}`
+
+function sectionFor(item: MentionItem): Section {
   if (item.kind === 'scratchpad') return 'entity'
   if (item.kind === 'task') return 'task'
   if (item.kind === 'note') return 'note'
+  if (item.kind === 'reference') return 'reference'
+  // Files pulled out of a reference folder band under that folder's alias, so
+  // a drill-down visibly separates "inside @backend" from worktree matches.
+  if (item.referenceAlias) return `ref:${item.referenceAlias}`
   return 'file'
 }
 
@@ -34,6 +40,8 @@ function keyFor(item: MentionItem): string {
       return `task:${item.id}`
     case 'note':
       return `note:${item.id}`
+    case 'reference':
+      return `reference:${item.id}`
     default:
       return `file:${item.path}`
   }
@@ -99,9 +107,10 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
 
     // Walk the (already-ordered) item list and inject a divider before
     // each new section's first row. The ordering convention from
-    // buildItems() is: scratchpad → tasks → notes → files.
+    // buildItems() is: scratchpad → tasks → notes → reference folders →
+    // files, or (inside a drill-down) that reference's files → worktree files.
     const rows: React.ReactNode[] = []
-    let prevSection: ReturnType<typeof sectionFor> | null = null
+    let prevSection: Section | null = null
     items.forEach((item, index) => {
       const section = sectionFor(item)
       if (section !== prevSection) {
@@ -130,9 +139,14 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
   },
 )
 
-function SectionHeader({ kind }: { kind: 'entity' | 'task' | 'note' | 'file' }) {
-  const label =
-    kind === 'entity' ? 'This session' : kind === 'task' ? 'Tasks' : kind === 'note' ? 'Notes' : 'Files'
+function SectionHeader({ kind }: { kind: Section }) {
+  let label: string
+  if (kind === 'entity') label = 'This session'
+  else if (kind === 'task') label = 'Tasks'
+  else if (kind === 'note') label = 'Notes'
+  else if (kind === 'reference') label = 'Reference folders'
+  else if (kind.startsWith('ref:')) label = `In @${kind.slice(4)} · read-only`
+  else label = 'Files'
   return (
     <div className="px-2.5 pt-1.5 pb-0.5 text-[9px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
       {label}
@@ -172,6 +186,10 @@ function RowIcon({ item }: { item: MentionItem }) {
   if (item.kind === 'scratchpad') {
     return <Notebook size={11} className="text-muted-foreground/80" />
   }
+  if (item.kind === 'reference') {
+    if (!item.exists) return <AlertTriangle size={11} className="text-destructive/80" />
+    return <FolderSymlink size={11} className="text-muted-foreground/80" />
+  }
   if (item.kind === 'task') {
     if (item.status === 'done') {
       return <CheckSquare size={11} className="text-muted-foreground/80" />
@@ -205,8 +223,21 @@ function RowBody({ item }: { item: MentionItem }) {
       </span>
     )
   }
-  const slash = item.path.lastIndexOf('/')
-  const parent = slash === -1 ? '' : item.path.slice(0, slash)
+  if (item.kind === 'reference') {
+    return (
+      <>
+        <span className="font-mono text-[11px] text-foreground shrink-0">@{item.alias}</span>
+        <span className="text-[10.5px] text-muted-foreground/70 truncate min-w-0">
+          {item.exists ? item.absolutePath : 'folder is missing'}
+        </span>
+      </>
+    )
+  }
+  // Inside a reference the label already carries `alias/relative/path`, so the
+  // parent shown is that rather than a bare worktree-relative directory.
+  const display = item.label ?? item.path
+  const slash = display.lastIndexOf('/')
+  const parent = slash === -1 ? '' : display.slice(0, slash)
   return (
     <>
       <span className="font-mono text-[11px] text-foreground shrink-0">{item.name}</span>
