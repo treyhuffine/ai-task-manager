@@ -35,6 +35,9 @@ export function RailStatusPills() {
     for (const s of data?.sessions ?? []) {
       if (s.status !== 'active') continue;
       const id = classifySession(s, pendingInputSessionIds, streamingSessionIds);
+      // null = not live work (a settled import). Skipped in both readers so the
+      // HUD pill counts keep matching the rail body row for row.
+      if (!id) continue;
       map[id].push(s);
     }
     for (const key of Object.keys(map) as BucketId[]) {

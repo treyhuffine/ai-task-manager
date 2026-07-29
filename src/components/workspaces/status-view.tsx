@@ -33,6 +33,9 @@ export function StatusView() {
       // never lands in a bucket.
       if (s.status !== 'active') continue;
       const id = classifySession(s, pendingInputSessionIds, streamingSessionIds);
+      // null = not live work (a settled import). Skipped in both readers so the
+      // HUD pill counts keep matching the rail body row for row.
+      if (!id) continue;
       map[id].push(s);
     }
     // Sort each bucket independently so the hottest row sits at the
@@ -57,7 +60,12 @@ export function StatusView() {
     );
   }
 
-  const total = (data?.sessions.length ?? 0);
+  // Count what actually landed in a bucket, not the raw row count. Since
+  // settled imports classify to null, a home whose only active sessions are
+  // imported transcripts has rows but nothing to show — counting rows would
+  // skip the empty state and render four zero-count headers instead of saying
+  // what's true.
+  const total = BUCKET_ORDER.reduce((sum, id) => sum + buckets[id].length, 0);
   if (total === 0) {
     return (
       <div className="px-3 py-4 text-center text-[10px] text-muted-foreground/70 leading-relaxed">

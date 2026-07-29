@@ -78,6 +78,33 @@ miss and are worth guarding:
   counter forever. It now branches on `surfaceKind === 'imported_agent'` and
   states where the transcript ran instead of inventing a fork point.
 
+## A settled import is deliberately absent from the by-status rail
+
+Imports land `active` so they're visible in the workspace tree. That put them in
+`classifySession`'s reach, where the only bucket they could land in is
+`waiting` — rendered as **"Waiting response"** with a clock icon. A finished
+Codex chat from March is waiting on nothing, and importing is a bulk action:
+onboarding's fourth step *is* the import panel, it offers per-project
+select-all, `MAX_IMPORT_SELECTION` is 1,000, and `listRailSessions` has no
+LIMIT. Measured on a real home, a 24-chat import put **14** rows under "Waiting
+response" — enough to bury the one row that needed a human, and a 300-chat
+import is the same action with a bigger number.
+
+`classifySession` now returns `BucketId | null`, and a settled import gets
+`null`. The exclusion sits *after* the pending/streaming/unread checks on
+purpose, so an import re-enters the rail the moment it becomes live work: a sync
+that pulls in new messages makes it `unread`, continuing the chat makes it
+`working` or `needsApproval`. It stays in the workspace tree and in search the
+whole time, because those read `listWorkspaceExecutions` and the FTS index and
+never consult a bucket.
+
+Both readers (`status-view.tsx`, `rail-status-pills.tsx`) skip nulls, which is
+load-bearing: they share `classifySession` specifically so the HUD pill counts
+match the rail body row for row, and one of them ignoring the null would break
+that. `status-view` also counts bucketed rows rather than raw sessions for its
+empty state, or a home whose only active sessions are imports would render four
+zero-count headers instead of "No active sessions yet."
+
 ## An imported chat never catches up on its own
 
 An import snapshots the transcript as it stood. If the provider session later

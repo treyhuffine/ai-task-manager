@@ -71,7 +71,7 @@ export function classifySession(
   session: RailSession,
   pending: ReadonlySet<string>,
   streaming: ReadonlySet<string>,
-): BucketId {
+): BucketId | null {
   if (pending.has(session.id)) return 'needsApproval';
   if (streaming.has(session.id)) return 'working';
 
@@ -87,6 +87,24 @@ export function classifySession(
   if (lastActivity > lastViewed && lastActivity !== '1970-01-01') {
     return 'unread';
   }
+
+  // An imported provider transcript that has nothing new is not live work, and
+  // this is the only bucket it could otherwise fall into. "Waiting response"
+  // means something is pending on you; a Codex chat you finished in March is
+  // pending nothing. Importing is also a bulk action — onboarding's fourth step
+  // is the import panel, which offers per-project select-all up to
+  // MAX_IMPORT_SELECTION (1,000) — so left in `waiting` a single import could
+  // put hundreds of finished transcripts under a clock icon and bury the two
+  // rows that actually needed the user.
+  //
+  // Returning null rather than filtering at the query keeps this reversible on
+  // its own terms: the checks above still run first, so the moment an import
+  // becomes live work it appears. A sync that pulls in new messages makes it
+  // `unread`; continuing the chat makes it `working` or `needsApproval`. It
+  // stays in the workspace tree throughout, which reads
+  // `listWorkspaceExecutions` and doesn't care about buckets — so it's always
+  // findable, just not always claiming your attention.
+  if (session.surfaceKind === 'imported_agent') return null;
 
   return 'waiting';
 }
