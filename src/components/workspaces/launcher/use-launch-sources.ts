@@ -2,7 +2,12 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useWorkspacePRs, useWorkspaceIssues, useWorkspaceBranches } from '@/hooks/use-workspaces';
+import {
+  useWorkspacePRs,
+  useWorkspaceIssues,
+  useWorkspaceBranches,
+  useWorkspaceSessions,
+} from '@/hooks/use-workspaces';
 import { sessionsApi } from '@/lib/api/sessions';
 import { tasksApi } from '@/lib/api/tasks';
 import { api } from '@/lib/api/client';
@@ -164,6 +169,14 @@ export function useLaunchSources({
     staleTime: 15_000,
   });
 
+  // With no search term there is nothing to full-text match, but "the chat I
+  // was just in" is the most likely thing you want. This is the workspace's
+  // executions by recency — the same list the rail renders, so it's already
+  // cached — and it keeps the Chats group from looking broken until you guess
+  // a keyword. Only user and agent messages are indexed for FTS, so search
+  // reaches far less than this list implies.
+  const recentChats = useWorkspaceSessions(enabled ? workspaceId : null);
+
   const discovery = useQuery({
     queryKey: DISCOVERY_KEY,
     queryFn: () => api.get<ExternalAgentDiscovery>('/imports/agents', { timeoutMs: 120_000 }),
@@ -323,21 +336,36 @@ export function useLaunchSources({
       });
     }
 
-    if (trimmed.length >= 2) {
+    {
+      const searching = trimmed.length >= 2;
+      const chatItems: LaunchSourceItem[] = searching
+        ? (chats.data ?? []).map((c) => ({
+            kind: 'chat' as const,
+            key: c.id,
+            sessionId: c.id,
+            archived: c.status === 'archived',
+            title: c.label ?? c.execution?.label ?? 'Untitled chat',
+            subtitle: stripHighlight(c.snippet),
+          }))
+        : (recentChats.data ?? []).slice(0, 8).map((c) => ({
+            kind: 'chat' as const,
+            key: c.id,
+            sessionId: c.id,
+            archived: c.status === 'archived',
+            title: c.execution?.label ?? c.label ?? 'Untitled chat',
+            subtitle: c.branchName ?? null,
+          }));
       groups.push({
         id: 'chat',
         kind: 'chat',
-        label: 'Chats',
-        isLoading: chats.isLoading,
-        error: errorMessage(chats.error),
-        items: (chats.data ?? []).map((c) => ({
-          kind: 'chat' as const,
-          key: c.id,
-          sessionId: c.id,
-          archived: c.status === 'archived',
-          title: c.label ?? c.execution?.label ?? 'Untitled chat',
-          subtitle: stripHighlight(c.snippet),
-        })),
+        label: searching ? 'Chats' : 'Recent chats',
+        isLoading: searching ? chats.isLoading : recentChats.isLoading,
+        error: errorMessage(searching ? chats.error : recentChats.error),
+        keepWhenEmpty: true,
+        emptyHint: searching
+          ? 'No chat matched. Search covers your and the agent\u2019s messages, not tool output.'
+          : 'No chats in this workspace yet.',
+        items: chatItems,
       });
     }
 
@@ -348,6 +376,22 @@ export function useLaunchSources({
     const externalItems: LaunchSourceItem[] = [];
     if (workspaceCwd) {
       for (const project of discovery.data?.projects ?? []) {
+        // KNOWN GAP (deliberate, 2026-07-29): exact-path match only, so this
+        // offers transcripts recorded at the repo root and nothing else.
+        // Sessions an agent ran inside a *worktree* — this app's own
+        // `.work/worktrees/<slug>/…`, or a third-party tool's like Conductor's
+        // `conductor/workspaces/<repo>/<name>` — are never listed here even
+        // though discovery returns them.
+        //
+        // Not fixed because the obvious approaches don't survive contact:
+        // worktree directories are deleted when their execution is archived,
+        // so git can't resolve them after the fact; and `prRepository` (the one
+        // durable repo id in a Claude transcript) appears in ~4% of files.
+        // The workable shape is "rank, don't filter" — surface everything with
+        // paths we can attribute first, rest below with their path shown —
+        // which also needs `ensureImportWorkspace` widened, since it uses this
+        // same equality to decide where an import lands and would otherwise
+        // mint a new workspace named after the worktree.
         if (project.cwd !== workspaceCwd) continue;
         for (const session of project.sessions) {
           if (session.imported) continue;
@@ -429,6 +473,7 @@ export function useLaunchSources({
     branches.data, branches.isLoading, branches.error,
     tasks.data, tasks.isLoading, tasks.error,
     chats.data, chats.isLoading, chats.error,
+    recentChats.data, recentChats.isLoading, recentChats.error,
     discovery.data, discovery.isLoading, discovery.error,
     connectorTasks.data, connectorTasks.isLoading, connectorTasks.error,
   ]);
