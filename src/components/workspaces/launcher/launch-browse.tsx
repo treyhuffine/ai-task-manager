@@ -377,6 +377,18 @@ export function LaunchBrowse({
                 <span className="text-destructive">{group.error}</span>
                 {group.emptyHint && <span> {group.emptyHint}</span>}
               </div>
+            ) : group.isLoading && shown.length === 0 ? (
+              // A slow source used to render as a bare header, which is
+              // indistinguishable from "there's nothing here". Say what's
+              // happening instead — the provider-history scan can take a
+              // while on a busy machine.
+              <div className="px-2 pb-1.5 text-[10.5px] italic text-muted-foreground/60">
+                Searching…
+              </div>
+            ) : shown.length === 0 ? (
+              <div className="px-2 pb-1.5 text-[10.5px] italic text-muted-foreground/60">
+                {group.emptyHint ?? 'Nothing here.'}
+              </div>
             ) : (
               shown.map((item) => {
                 rowIndex++;

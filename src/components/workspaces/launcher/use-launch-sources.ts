@@ -163,9 +163,15 @@ export function useLaunchSources({
 
   const discovery = useQuery({
     queryKey: DISCOVERY_KEY,
-    queryFn: () => api.get<ExternalAgentDiscovery>('/imports/agents', { timeoutMs: 60_000 }),
+    queryFn: () => api.get<ExternalAgentDiscovery>('/imports/agents', { timeoutMs: 120_000 }),
     enabled,
-    staleTime: 30_000,
+    // The scan walks every provider's history directory — ~4s in production,
+    // but 50s+ against a loaded dev server. A 30s stale window meant refetching
+    // an expensive scan almost every time the panel opened, and racing the
+    // client timeout. Five minutes is well inside "the transcripts on disk
+    // haven't meaningfully changed".
+    staleTime: 5 * 60_000,
+    retry: 1,
   });
 
   // Live reads from connected task providers. Hits the network per query, so
@@ -354,13 +360,26 @@ export function useLaunchSources({
         }
       }
     }
-    if (externalItems.length > 0 || discovery.isLoading) {
+    // Always pushed. An empty result has three very different meanings —
+    // still scanning, the scan failed, or everything here is already imported
+    // — and collapsing them into "the group isn't there" is what makes a slow
+    // or failed scan read as "you have nothing to import".
+    {
+      const scanned = !discovery.isLoading && !discovery.error;
+      const sawAnyForWorkspace = (discovery.data?.projects ?? []).some(
+        (p) => p.cwd === workspaceCwd && p.sessions.length > 0,
+      );
       groups.push({
         id: 'external',
         kind: 'external',
         label: 'Not in Flow yet',
         isLoading: discovery.isLoading,
         error: errorMessage(discovery.error),
+        emptyHint: !scanned
+          ? undefined
+          : sawAnyForWorkspace
+            ? 'Every transcript for this workspace is already imported.'
+            : 'No agent transcripts recorded for this folder yet.',
         // NOT truncated here. The shared row budget caps what's rendered and
         // emits a "+N more" affordance; slicing at the source hid 42 of 47
         // available transcripts with no indication they existed, which reads
