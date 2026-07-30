@@ -326,6 +326,27 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
     [efforts, agent?.harness, fallbackProvider, fallbackModel],
   );
 
+  /**
+   * Empty the composer once its text has actually been sent.
+   *
+   * `ChatInputEditor` persists what you type to localStorage under
+   * `draftKey` so a mis-click doesn't lose it. Nothing was clearing that on
+   * launch, so starting a chat left the draft behind and the next open of the
+   * launcher came back pre-filled with a prompt already running somewhere.
+   *
+   * Clearing is enough to delete the stored copy too: an empty hydrated editor
+   * makes `draftStorageAction` return 'remove', and removes are immediate
+   * rather than debounced, so it lands before `closeLauncher` unmounts us.
+   *
+   * Deliberately conditional. An "Open only" launch never sends the text, and
+   * silently deleting words the user typed but didn't send would be the worse
+   * bug of the two. That draft is still theirs, still keyed to this workspace,
+   * and still waiting the next time they open the launcher here.
+   */
+  const clearComposerIfSent = (sent: boolean) => {
+    if (sent) editorRef.current?.clear();
+  };
+
   // ─── Commit ─────────────────────────────────────────────────
   const launch = async ({ send = true }: { send?: boolean } = {}) => {
     if (launching) return;
@@ -418,6 +439,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
           message: send ? { content, attachments: output.attachments } : null,
         });
         persistPrefs();
+        clearComposerIfSent(send);
         setActiveView(sessionId);
         closeLauncher();
         return;
@@ -427,6 +449,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
       // was imported and reactivated above), so there was never anything to
       // wait on beyond that.
       persistPrefs();
+      clearComposerIfSent(send);
       setActiveView(targetSessionId);
       closeLauncher();
 
