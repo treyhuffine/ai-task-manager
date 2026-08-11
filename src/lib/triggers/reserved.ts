@@ -30,6 +30,29 @@ export const RESERVED_TRIGGER_IDS = {
 export type ReservedTriggerId =
   (typeof RESERVED_TRIGGER_IDS)[keyof typeof RESERVED_TRIGGER_IDS];
 
+/**
+ * Reserved triggers whose result already has a purpose-built review surface,
+ * so the chat they produce must never also pile up in the Unread queue.
+ *
+ * A normal scheduled chat earns its Unread row: the transcript IS how its
+ * result reaches the user. These do not. The deck refresh lands in the Deck
+ * pane (with its change brief); every stream sweep lands in the stream digest
+ * (unseen dot, "Looks right") and the "Needs your call" review sheet. Leaving
+ * them in Unread charges the user twice for the same output — once in the
+ * surface built to review it, once as a chat they must open and dismiss —
+ * which is exactly the maintenance overhead the app exists to remove.
+ *
+ * Consumed by `listNeedsReviewSessionCandidates`. Anything added here needs a
+ * real surface of its own first; silence in Unread is only earned by being
+ * reviewable somewhere else.
+ */
+export const TRIGGERS_WITH_OWN_REVIEW_SURFACE: readonly ReservedTriggerId[] = [
+  RESERVED_TRIGGER_IDS.morningDeck,
+  RESERVED_TRIGGER_IDS.streamSweepDebounce,
+  RESERVED_TRIGGER_IDS.morningStreamSweep,
+  RESERVED_TRIGGER_IDS.weeklyStreamDigest,
+];
+
 const RESERVED = new Set<string>(Object.values(RESERVED_TRIGGER_IDS));
 
 /** True when `id` is an app-managed sentinel (locked identity, no delete). */

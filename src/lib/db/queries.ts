@@ -63,7 +63,7 @@ import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/h
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import { explicitAgentSelection, modelsForProvider, providerIdForHarness } from '@/lib/agent-options';
-import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
+import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -3915,13 +3915,13 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
  */
 export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
   const db = getDb();
-  const createdByMorningDeckRun = db
+  const createdBySelfReviewedRun = db
     .select({ id: runs.id })
     .from(runs)
     .where(
       and(
         eq(runs.id, chatSessions.createdByRunId),
-        eq(runs.triggerId, RESERVED_TRIGGER_IDS.morningDeck),
+        inArray(runs.triggerId, [...TRIGGERS_WITH_OWN_REVIEW_SURFACE]),
       ),
     );
   const rows = db
@@ -3939,10 +3939,12 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
         // conversation itself, not output owed review, so it never belongs
         // in the unread queue. Scheduled orchestrator chats generally stay
         // eligible because this is how their results reach the user. The
-        // reserved morning-deck refresh is the exception: its result already
-        // has a purpose-built review surface in the Deck pane.
+        // app-managed deck and stream-triage runs are the exception: their
+        // results already have purpose-built review surfaces (the Deck pane,
+        // the stream digest and "Needs your call"), so a second, redundant
+        // unread row is pure noise. See TRIGGERS_WITH_OWN_REVIEW_SURFACE.
         sql`NOT (${chatSessions.type} = 'orchestration' AND ${chatSessions.createdByRunId} IS NULL)`,
-        notExists(createdByMorningDeckRun),
+        notExists(createdBySelfReviewedRun),
         sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
         sql`COALESCE(
           MAX(

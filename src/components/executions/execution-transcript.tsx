@@ -22,6 +22,7 @@ import { TurnFilesFooter } from './file-chip';
 import { buildTranscriptNodes } from './transcript-grouping';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { isPlumbingTool } from '@/lib/executions/tool-display';
+import { NO_RESPONSE_REQUESTED } from '@/lib/executions/conversation';
 import { SetupCard } from './setup-card';
 import { ThinkingState } from './thinking-state';
 
@@ -337,24 +338,6 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
   }, [trigger, scrollToBottom]);
   return null;
 }
-
-/**
- * Synthetic assistant text Claude Code injects to keep its own
- * conversation history API-valid when a turn produced no real output —
- * e.g. a silently-handled rate-limit/model fallback, or a recovered
- * interrupted turn. agentex forwards it on the stream, so it lands here
- * as an `agent` row with this exact content.
- *
- * The Claude Code TUI never paints it: its `AssistantTextMessage`
- * renderer does `case NO_RESPONSE_REQUESTED: return null`. We match that
- * behavior — the row stays in `chat_events` (raw kept for debugging,
- * same as `result`/`init`), it's just filtered out of the transcript.
- * Wrapper apps that don't replicate this filter are exactly why the
- * string leaks into their UI.
- *
- * Mirrors `NO_RESPONSE_REQUESTED` in Claude Code's `utils/messages.ts`.
- */
-const NO_RESPONSE_REQUESTED = 'No response requested.';
 
 /**
  * `system`-source events are `type:"system"` telemetry/lifecycle markers

@@ -4,9 +4,23 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { terminalsApi } from '@/lib/api/terminals';
+import { createInputQueue } from '@/lib/terminal/input-queue';
+import { detectIsMac, resolveTerminalKey } from '@/lib/terminal/keymap';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { cn } from '@/lib/utils';
 import '@xterm/xterm/css/xterm.css';
+
+/**
+ * How long the PTY is allowed to believe a stale size during a drag.
+ *
+ * `fit()` still runs every frame so the viewport reflows smoothly; only the
+ * `resize` request is held back. Without this, dragging the panel divider
+ * fires a request per frame and buries the shell in SIGWINCH, which makes
+ * full-screen TUIs (vim, htop, an agent CLI) redraw continuously.
+ */
+const RESIZE_SETTLE_MS = 120;
 
 interface ExecutionTerminalInstanceProps {
   sessionId: string;
@@ -94,22 +108,65 @@ export function ExecutionTerminalInstance({
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(container);
+
+    // GPU renderer. xterm ships only the DOM renderer in core, which is
+    // what made this terminal feel sluggish next to VS Code — VS Code loads
+    // this same addon. It has to be loaded *after* `open()` because
+    // `activate()` reaches for the terminal's element.
+    //
+    // Both failure modes fall back to the DOM renderer rather than breaking
+    // the terminal: `onContextLoss` fires when the GPU drops the context
+    // (driver reset, tab backgrounded too long), and the constructor throws
+    // outright where WebGL2 is unavailable.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        try { webgl.dispose(); } catch { /* already gone */ }
+      });
+      term.loadAddon(webgl);
+    } catch {
+      // No WebGL2 — the DOM renderer stays active and everything works.
+    }
+
     try { fit.fit(); } catch { /* container may be 0px before paint */ }
 
     termRef.current = term;
     fitRef.current = fit;
+
+    const isMac = detectIsMac();
+
+    // stdin. Serialised and self-batching — see `input-queue.ts` for why
+    // one-POST-per-keystroke both reorders bytes and drowns a tunnel.
+    const input = createInputQueue({
+      send: (data) => terminalsApi.input(sessionIdRef.current, terminalId, data),
+    });
 
     // Mac-style shortcuts inside the terminal. Browser-reserved keys
     // (Cmd+T, Cmd+W, Cmd+N) we can't override — those still hit the
     // browser. Everything else we can.
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true;
+
+      // Line editing that xterm gets wrong or skips entirely: Cmd+Backspace
+      // (deletes one character instead of the line), Cmd+arrow (dead), and
+      // Option+arrow (emits a sequence no shell binds, so readline drops
+      // `;3D` into the buffer as literal text). See `keymap.ts`.
+      const remapped = resolveTerminalKey(event, isMac);
+      if (remapped !== null) {
+        input.push(remapped);
+        // Returning false short-circuits xterm's own keydown path, which is
+        // where `scrollOnUserInput` normally lives — so editing the line
+        // while scrolled up would otherwise leave the prompt off-screen.
+        term.scrollToBottom();
+        event.preventDefault();
+        return false;
+      }
+
       const mod = event.metaKey || event.ctrlKey;
       if (!mod) return true;
 
-      // Cmd+C: copy selection. With no selection, fall through to the
-      // shell so Cmd+C still does whatever Ctrl+C would do (SIGINT
-      // bubbles via Ctrl+C; Cmd+C alone is just a no-op then).
+      // Cmd+C: copy selection. With no selection, fall through so the key
+      // keeps whatever meaning xterm gives it.
       if (event.key === 'c' && event.metaKey) {
         const sel = term.getSelection();
         if (sel) {
@@ -120,18 +177,19 @@ export function ExecutionTerminalInstance({
         return true;
       }
 
-      // Cmd+V: paste from clipboard. xterm's `paste` handles bracketed
-      // paste correctly so multi-line paste doesn't run line-by-line.
-      if (event.key === 'v' && event.metaKey) {
-        navigator.clipboard.readText().then((text) => {
-          if (text) term.paste(text);
-        }).catch(() => { /* */ });
-        event.preventDefault();
-        return false;
-      }
+      // Cmd+V is deliberately NOT handled here. xterm already listens for
+      // the native `paste` event on both its textarea and its root element,
+      // and that path handles bracketed paste correctly. Intercepting the
+      // keydown suppressed that event and forced paste through
+      // `navigator.clipboard.readText()`, which needs a permission the
+      // native path doesn't: it fails outright in Firefox, prompts every
+      // time in Safari, and the failure was swallowed — which is what made
+      // paste look broken. Letting the key through fixes it everywhere.
 
-      // Cmd+K: clear viewport (Terminal.app parity).
-      if (event.key === 'k' && event.metaKey) {
+      // Cmd+K: clear the viewport (Terminal.app parity). Shadows the app's
+      // global search only while the terminal has focus; both bindings are
+      // declared together in `constants/commands.ts`.
+      if (matchesHotkey(event, HOTKEYS.terminalClear) && event.metaKey) {
         term.clear();
         event.preventDefault();
         return false;
@@ -140,9 +198,23 @@ export function ExecutionTerminalInstance({
       return true;
     });
 
-    // SSE: stdout. EventSource auto-reconnects; the server replays the
-    // recent buffer on each connect so refreshes don't blank the screen.
+    // SSE: stdout. EventSource auto-reconnects, and replays the last `id:`
+    // it saw as `Last-Event-ID`, so the server can send only what we missed
+    // instead of the whole buffer. A first connect has no cursor and gets
+    // the full backlog, which is what makes a refresh land on a live screen.
     const es = new EventSource(terminalsApi.streamUrl(sessionIdRef.current, terminalId));
+
+    // A reconnect that couldn't be resumed (first view, or we were away
+    // long enough that the missed output aged out of the server's ring)
+    // hands back a snapshot rather than a continuation. Reset first so it
+    // replaces the screen instead of being appended to a stale copy of
+    // itself — appending is what made scrollback appear twice.
+    const onReady = (ev: MessageEvent<string>) => {
+      try {
+        const { resumed } = JSON.parse(ev.data) as { resumed?: boolean };
+        if (!resumed) term.reset();
+      } catch { /* */ }
+    };
 
     const onData = (ev: MessageEvent<string>) => {
       try { term.write(JSON.parse(ev.data)); } catch { /* */ }
@@ -152,28 +224,43 @@ export function ExecutionTerminalInstance({
       try { es.close(); } catch { /* */ }
       onExitRef.current?.();
     };
+    es.addEventListener('ready', onReady as EventListener);
     es.addEventListener('data', onData as EventListener);
     es.addEventListener('exit', onExitEvt as EventListener);
 
-    // stdin
-    const dataDisp = term.onData((data) => {
-      void terminalsApi.input(sessionIdRef.current, terminalId, data).catch(() => { /* */ });
-    });
+    const dataDisp = term.onData((data) => input.push(data));
 
-    // resize → tell the pty
+    // resize → tell the pty, once the drag settles. The viewport itself
+    // still reflows every frame; this only rate-limits the SIGWINCH.
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const resizeDisp = term.onResize(({ cols, rows }) => {
-      void terminalsApi.resize(sessionIdRef.current, terminalId, { cols, rows }).catch(() => { /* */ });
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        void terminalsApi
+          .resize(sessionIdRef.current, terminalId, { cols, rows })
+          .catch(() => { /* terminal may have exited mid-drag */ });
+      }, RESIZE_SETTLE_MS);
     });
 
     // refit when the container changes size (panel resize, viewport
-    // resize, etc.)
+    // resize, etc.), at most once per frame — a drag otherwise fires the
+    // observer faster than layout can settle.
+    let fitFrame: number | null = null;
     const ro = new ResizeObserver(() => {
-      try { fit.fit(); } catch { /* */ }
+      if (fitFrame !== null) return;
+      fitFrame = requestAnimationFrame(() => {
+        fitFrame = null;
+        try { fit.fit(); } catch { /* */ }
+      });
     });
     ro.observe(container);
 
     return () => {
       ro.disconnect();
+      if (fitFrame !== null) cancelAnimationFrame(fitFrame);
+      if (resizeTimer) clearTimeout(resizeTimer);
+      input.dispose();
       dataDisp.dispose();
       resizeDisp.dispose();
       try { es.close(); } catch { /* */ }

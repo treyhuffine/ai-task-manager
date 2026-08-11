@@ -19,6 +19,11 @@ export const HOTKEYS = {
   toggleRail: { key: '\\', meta: true, label: '\u2318\\' },
   focusChatInput: { key: 'i', meta: true, label: '\u2318I' },
   closeExecution: { key: 'e', meta: true, label: '\u2318E' },
+  // Deliberately the same combo as `search`. A focused terminal claims it
+  // for Terminal.app parity (clear the viewport) and search stays reachable
+  // from everywhere else. Declared here rather than hardcoded in the
+  // terminal so the collision is visible in one place.
+  terminalClear: { key: 'k', meta: true, label: '\u2318K' },
 } as const satisfies Record<string, Hotkey>;
 
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */

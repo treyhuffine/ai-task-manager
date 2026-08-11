@@ -460,6 +460,124 @@
 }
 
 /* ============================================
+   Compact markdown (rail hover preview)
+   Builds on .chat-markdown, then shrinks everything to preview scale:
+   11px body in a 360px column. Headings flatten to near-body size —
+   a preview is a glance, not a document, so a full-size h1 would eat
+   the panel. Block margins tighten so more of the turn fits above
+   the fold.
+   ============================================ */
+
+.preview-markdown {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.preview-markdown p,
+.preview-markdown li,
+.preview-markdown blockquote {
+  font-size: 11px;
+  margin: 0.3em 0;
+}
+
+.preview-markdown > :first-child {
+  margin-top: 0;
+}
+
+.preview-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.preview-markdown h1,
+.preview-markdown h2,
+.preview-markdown h3,
+.preview-markdown h4,
+.preview-markdown h5,
+.preview-markdown h6 {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0.6em 0 0.2em;
+}
+
+.preview-markdown ul,
+.preview-markdown ol {
+  margin: 0.3em 0;
+  padding-left: 1.1em;
+}
+
+.preview-markdown li {
+  margin: 0.1em 0;
+}
+
+.preview-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.preview-markdown blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.625em;
+  color: var(--muted-foreground);
+}
+
+.preview-markdown hr {
+  margin: 0.6em 0;
+  border-color: var(--border);
+}
+
+/* Streamdown keeps its code-block wrapper even with the highlighter
+   plugin off, and .chat-markdown styles that wrapper at full chat
+   scale. Re-style it at preview scale: no language header (a row of
+   chrome nobody reads on a card that closes on mouse-out) and a
+   tighter body. Selectors have to match .chat-markdown's own
+   class+attribute weight to win. */
+.preview-markdown [data-streamdown="code-block"] {
+  margin: 0.4em 0;
+  border-radius: 0.375rem;
+}
+
+.preview-markdown [data-streamdown="code-block-header"] {
+  display: none;
+}
+
+.preview-markdown [data-streamdown="code-block-body"] pre {
+  padding: 0.5em 0.625em;
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-x: auto;
+}
+
+.preview-markdown :not(pre) > code {
+  font-size: 10px;
+  padding: 0.1em 0.3em;
+  background: var(--muted);
+  border-radius: 0.25rem;
+}
+
+.preview-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin: 0.4em 0;
+}
+
+.preview-markdown th,
+.preview-markdown td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.2em 0.375em;
+  text-align: left;
+}
+
+.preview-markdown img {
+  max-width: 100%;
+  max-height: 120px;
+  border-radius: 0.25rem;
+  margin: 0.3em 0;
+}
+
+/* ============================================
    Rich Editor (Tiptap) Styles
    ============================================ */
 

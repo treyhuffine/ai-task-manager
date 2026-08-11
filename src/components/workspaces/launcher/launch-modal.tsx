@@ -61,6 +61,8 @@ import {
   ChatInputEditor,
   type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor';
+import { AttachButton } from '@/components/chat/editor/attach-button';
+import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { LaunchBrowse } from './launch-browse';
 import {
   BaseControl,
@@ -128,7 +130,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
 
   // The editor owns its own document; we only mirror "is there anything to
   // send" for the Start button. Pulling the text out happens once, at launch.
-  const [hasText, setHasText] = useState(false);
+  const [hasContent, setHasContent] = useState(false);
   const [pendingUploads, setPendingUploads] = useState(false);
   const [chips, setChips] = useState<LaunchChip[]>([]);
   const [browseOpen, setBrowseOpen] = useState(false);
@@ -354,6 +356,10 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
       setError('Pick a workspace first.');
       return;
     }
+    // The disabled Start button covers clicks, but Enter submits from inside
+    // the editor. Check the editor synchronously too so a keypress that races
+    // an upload never sends the text while silently dropping its pending file.
+    if (send && editorRef.current?.hasPendingUploads()) return;
     // Opening without a prompt is a legitimate destination — you often want
     // the worktree, file tree and terminal before you know what to ask for.
     // Only the send path needs something to actually say.
@@ -472,10 +478,11 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
     }
   };
 
-  // `hasText` mirrors the editor; context chips alone are also launchable.
+  // `hasContent` mirrors text or attachment chips; context chips alone are
+  // also launchable.
   // Pending uploads block Start so a chip can't be sent half-resolved.
   const ready =
-    (hasText || chips.some((c) => c.chipKind === 'context'))
+    (hasContent || chips.some((c) => c.chipKind === 'context'))
     && !!workspaceId
     && !pendingUploads;
 
@@ -490,6 +497,13 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
       e.stopPropagation();
       setBrowseOpen(true);
     }
+  };
+
+  const attachFile = (file: File) => {
+    setError(null);
+    const upload = editorRef.current?.uploadFile(file);
+    if (!upload) return;
+    void upload.catch((err) => setError(apiErrorText(err)));
   };
 
   return (
@@ -542,7 +556,14 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
             </DialogPrimitive.Description>
           </VisuallyHidden.Root>
 
-          <div className="flex max-h-[84vh] animate-in flex-col overflow-hidden rounded-xl border border-border bg-card fade-in-0 shadow-2xl duration-150">
+          <ChatDropZone
+            className="flex max-h-[84vh] animate-in flex-col overflow-hidden rounded-xl border border-border bg-card fade-in-0 shadow-2xl duration-150"
+            disabled={launching}
+            onFiles={(files) => {
+              for (const file of files) attachFile(file);
+              editorRef.current?.focus({ end: true });
+            }}
+          >
             {/* Header — WHERE the work happens. Workspace, isolation mode and
                 fork point are one thought ("this repo, isolated, off main"),
                 so they sit together above the prompt. The footer is left for
@@ -599,7 +620,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
                   disabled={launching}
                   prs={prMentions}
                   draftKey={workspaceId ? `launcher:${workspaceId}` : undefined}
-                  onContentChange={setHasText}
+                  onContentChange={setHasContent}
                   onPendingUploadsChange={setPendingUploads}
                   onSubmit={() => void launch()}
                   onBackspaceOnEmpty={() => setChips((prev) => prev.slice(0, -1))}
@@ -676,6 +697,12 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
 
             {/* Footer — controls + Start */}
             <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 border-t border-border bg-muted/25 px-3 py-2">
+              <AttachButton
+                onPick={attachFile}
+                disabled={launching}
+                title="Attach file"
+                className="-ml-1"
+              />
               {continuation ? (
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-[11px] text-foreground">
                   <MessageSquare size={11} className="text-primary/70" />
@@ -726,7 +753,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
                 </button>
               </div>
             </div>
-          </div>
+          </ChatDropZone>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
 import { useTerminals, useCreateTerminal, useKillTerminal } from '@/hooks/use-terminals';
-import { useWorktreeScope } from '@/hooks/use-execution';
+import { useSession, useWorktreeScope } from '@/hooks/use-execution';
 import { ExecutionTerminalInstance } from './execution-terminal-instance';
 import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
@@ -45,19 +45,31 @@ export function ExecutionTerminalPanel({
   const killTerminal = useKillTerminal(sessionId);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  // Clear a stale spawn failure when we move to a different worktree.
+  // Clear a stale spawn failure once the thing that caused it has changed.
   //
   // The mutation's error state is bound to this component instance, and
   // the panel never remounts (it takes `sessionId` as a prop, not a key).
   // Without this, one failed spawn — a worktree that vanished, say —
   // latched `isError` forever and silently suppressed auto-create for
-  // every execution the user opened afterwards. A failure in one worktree
-  // says nothing about the next.
+  // every execution the user opened afterwards.
+  //
+  // The scope alone is not enough to key that on. It derives from the
+  // execution id, which is fixed for the life of the panel, so the common
+  // failure — spawning against a worktree that is still provisioning, which
+  // the API rejects with a 409 — stayed latched even after the worktree
+  // landed. The user was left looking at "Couldn't start terminal" on a
+  // session that had been ready for minutes, with a Retry button as the
+  // only way out.
+  //
+  // Keying on the worktree path and the disabled gate as well means every
+  // transition that could plausibly fix a failed spawn also clears it.
   const scope = useWorktreeScope(sessionId);
+  const { data: session } = useSession(sessionId);
   const scopeKey = scope ? scope.join(':') : null;
+  const resetKey = `${scopeKey ?? ''}|${session?.worktreePath ?? ''}|${disabled ? 'off' : 'on'}`;
   const resetCreate = useRef(createTerminal.reset);
   resetCreate.current = createTerminal.reset;
-  useEffect(() => { resetCreate.current(); }, [scopeKey]);
+  useEffect(() => { resetCreate.current(); }, [resetKey]);
 
   // Auto-create the first terminal once the panel mounts and isn't
   // disabled. Skip when collapsed — no point spinning a PTY for a

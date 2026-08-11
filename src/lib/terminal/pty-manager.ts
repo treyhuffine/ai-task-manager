@@ -27,11 +27,17 @@ import * as nodePty from 'node-pty';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
+import { sliceReplay } from './replay';
 
 const MAX_BUFFER_BYTES = 256 * 1024;
 
 export type TerminalChunk =
-  | { type: 'data'; data: string }
+  /**
+   * `offset` is the running character count *including* this chunk, so a
+   * listener that has seen it can reconnect with that number and be sent
+   * only what it missed. See `subscribe`.
+   */
+  | { type: 'data'; data: string; offset: number }
   | { type: 'exit'; code: number | null; signal: number | null };
 
 export type TerminalListener = (chunk: TerminalChunk) => void;
@@ -47,6 +53,16 @@ interface ManagedTerminal {
   proc: nodePty.IPty;
   buffer: string[];
   bufferBytes: number;
+  /**
+   * Characters ever written by this PTY, including those since evicted
+   * from the ring. Monotonic, so it doubles as a resume cursor: a client
+   * that reconnects saying "I have 40000" can be handed exactly the tail it
+   * hasn't seen instead of the whole buffer again.
+   */
+  emittedChars: number;
+  /** Characters currently held in `buffer`. Tracked to keep replay slicing
+   *  O(1) rather than re-measuring the ring on every subscribe. */
+  bufferChars: number;
   exited: boolean;
   exitCode: number | null;
   exitSignal: number | null;
@@ -147,9 +163,12 @@ function describe(t: ManagedTerminal): TerminalDescriptor {
 function appendBuffer(t: ManagedTerminal, data: string) {
   t.buffer.push(data);
   t.bufferBytes += Buffer.byteLength(data, 'utf8');
+  t.bufferChars += data.length;
+  t.emittedChars += data.length;
   while (t.bufferBytes > MAX_BUFFER_BYTES && t.buffer.length > 1) {
     const oldest = t.buffer.shift()!;
     t.bufferBytes -= Buffer.byteLength(oldest, 'utf8');
+    t.bufferChars -= oldest.length;
   }
 }
 
@@ -235,6 +254,8 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
     proc,
     buffer: [],
     bufferBytes: 0,
+    emittedChars: 0,
+    bufferChars: 0,
     exited: false,
     exitCode: null,
     exitSignal: null,
@@ -244,8 +265,9 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
 
   proc.onData((data) => {
     appendBuffer(t, data);
+    const offset = t.emittedChars;
     for (const listener of t.listeners) {
-      try { listener({ type: 'data', data }); } catch { /* listener errors must not kill the pty */ }
+      try { listener({ type: 'data', data, offset }); } catch { /* listener errors must not kill the pty */ }
     }
   });
 
@@ -332,12 +354,25 @@ export function killAllForOwner(ownerId: string): number {
  * before any future chunks land, so a fresh SSE connection sees the
  * recent backlog and then real-time updates without any join race.
  *
- * Returns the unsubscribe function plus the buffer snapshot. Callers
- * that don't want replay can ignore the buffer.
+ * Pass `since` — the offset from the last `data` chunk the caller
+ * processed — to resume rather than restart. `EventSource` reconnects on
+ * its own whenever the stream drops (a dev-server reload, a laptop waking,
+ * a tunnel blip), and each reconnect used to hand back the entire 256KB
+ * ring, which the client then wrote into the terminal a second time. The
+ * visible symptom was scrollback silently duplicating itself.
+ *
+ * Omitting `since` replays everything, which is what a genuinely new
+ * viewer wants.
  */
 export interface SubscribeResult {
   unsubscribe: () => void;
   replay: string;
+  /** Offset the replay ends at — the resume cursor for the next connect. */
+  offset: number;
+  /** True when the requested `since` was older than anything still
+   *  buffered, so the replay is a best-effort tail rather than an exact
+   *  continuation and the client should reset its view before writing. */
+  gap: boolean;
   exited: boolean;
   exitCode: number | null;
 }
@@ -346,14 +381,22 @@ export function subscribe(
   ownerId: string,
   id: string,
   listener: TerminalListener,
+  since?: number,
 ): SubscribeResult | null {
   const t = terminals.get(id);
   if (!t || t.ownerId !== ownerId) return null;
-  const replay = t.buffer.join('');
+
+  const { replay, gap } = sliceReplay(
+    { chunks: t.buffer, emittedChars: t.emittedChars, bufferChars: t.bufferChars },
+    since,
+  );
+
   if (!t.exited) t.listeners.add(listener);
   return {
     unsubscribe: () => { t.listeners.delete(listener); },
     replay,
+    offset: t.emittedChars,
+    gap,
     exited: t.exited,
     exitCode: t.exitCode,
   };

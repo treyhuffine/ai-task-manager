@@ -7,16 +7,24 @@ import { useSession, useSessionEvents } from '@/hooks/use-execution';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MessageResponse } from '@/components/ai-elements/message';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
+import { conversationText, pickConversationMessages } from '@/lib/executions/conversation';
 import { cn } from '@/lib/utils';
 import type { ChatEventRecord, ChatSessionRecord, WorkspaceRecord, AreaRecord } from '@/db/types';
 import { useSessionHover } from './session-hover-context';
 
 const PANEL_WIDTH = 360;
 const PANEL_GAP = 8;
-const PANEL_MAX_HEIGHT = 400;
+const PANEL_MAX_HEIGHT = 520;
 const VIEWPORT_MARGIN = 8;
-const MAX_PREVIEW_MESSAGES = 6;
+const MAX_PREVIEW_MESSAGES = 8;
+/**
+ * Height cap for every message except the newest, which renders in full.
+ * Roughly eight lines at 11px — enough to recognize a turn without
+ * letting one long paste bury the reply the hover is actually about.
+ */
+const OLDER_MESSAGE_MAX_HEIGHT = 108;
 
 interface PanelPosition {
   top: number;
@@ -199,7 +207,10 @@ function PreviewBody({ sessionId }: { sessionId: string }) {
     [workspace?.areaId, areas],
   );
 
-  const messages = useMemo(() => pickPreviewMessages(events ?? []), [events]);
+  const messages = useMemo(
+    () => pickConversationMessages(events ?? [], MAX_PREVIEW_MESSAGES),
+    [events],
+  );
 
   return (
     <div className="flex flex-col min-h-0">
@@ -211,12 +222,61 @@ function PreviewBody({ sessionId }: { sessionId: string }) {
           No messages yet.
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2.5 space-y-2.5">
-          {messages.map((m) => (
-            <PreviewMessage key={m.id} event={m} />
-          ))}
-        </div>
+        // Keyed by session so moving to another row resets the scroll
+        // position instead of inheriting the previous row's.
+        <PreviewMessages key={sessionId} messages={messages} />
       )}
+    </div>
+  );
+}
+
+/** Slack from the bottom edge that still counts as "at the bottom". */
+const STICK_THRESHOLD = 24;
+
+/**
+ * Message list, opened at the bottom. The newest turn is what the user
+ * hovered to see, so the panel starts at the end of the transcript with
+ * older turns scrollable above — same reading position as opening the
+ * chat itself.
+ *
+ * The jump lands before paint (`useLayoutEffect`) so the list never
+ * flashes at the top, and repeats whenever the slice changes: events
+ * finish loading and replace an empty first render, or a live session
+ * appends a turn while the panel is open.
+ *
+ * It yields to the user, though. Once they scroll up to read, the panel
+ * stops re-pinning — a live session streaming in shouldn't yank them
+ * back down mid-sentence. Scrolling back to the bottom re-arms it.
+ * `PreviewBody` keys this component by session, so hovering another row
+ * remounts it and starts at the bottom again.
+ */
+function PreviewMessages({ messages }: { messages: ChatEventRecord[] }) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottom = useRef(true);
+
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  // Runs for programmatic scrolls too, which is what re-arms sticking
+  // after the effect above pins the list.
+  const handleScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    stickToBottom.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD;
+  };
+
+  return (
+    <div
+      ref={listRef}
+      onScroll={handleScroll}
+      className="flex-1 min-h-0 overflow-y-auto px-3 py-2.5 space-y-2.5"
+    >
+      {messages.map((m, i) => (
+        <PreviewMessage key={m.id} event={m} full={i === messages.length - 1} />
+      ))}
     </div>
   );
 }
@@ -314,9 +374,16 @@ function PreviewSkeleton() {
   );
 }
 
-function PreviewMessage({ event }: { event: ChatEventRecord }) {
+/**
+ * `full` renders the message uncapped. It's set for the newest message
+ * only: that's the one the hover is asking about, and the panel already
+ * opens scrolled to it. Earlier messages keep a height cap so a long
+ * back-and-forth doesn't push the recent turn out of view — they're
+ * context, and the whole thing is one click away in the chat.
+ */
+function PreviewMessage({ event, full }: { event: ChatEventRecord; full?: boolean }) {
   const isUser = event.source === 'user';
-  const content = renderableText(event);
+  const content = conversationText(event);
   return (
     <div className="flex items-start gap-2">
       <span
@@ -332,40 +399,74 @@ function PreviewMessage({ event }: { event: ChatEventRecord }) {
         <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/70 mb-0.5">
           {isUser ? 'You' : 'Agent'}
         </div>
-        <p className="text-[11px] leading-snug text-foreground/90 whitespace-pre-wrap break-words line-clamp-4">
-          {content || <span className="italic text-muted-foreground/60">(no text)</span>}
-        </p>
+        {content ? (
+          <MessageBody text={content} full={full} />
+        ) : (
+          <p className="text-[11px] leading-snug italic text-muted-foreground/60">(no text)</p>
+        )}
       </div>
     </div>
   );
 }
 
 /**
- * Pull the most recent user/agent turns out of the event stream. Tool
- * calls, results, thinking blocks, and system metadata are skipped —
- * the preview is about "what did we talk about", not "what did the
- * agent do under the hood". Order is chronological (oldest first) so
- * the user reads top-to-bottom like a transcript.
+ * Message text as rendered markdown — same renderer as the transcript
+ * (`MessageResponse` → Streamdown), so a preview reads the way the chat
+ * does: headings, lists, tables, inline code, links.
+ *
+ * Two deviations from the transcript, both about size. Plugins are off
+ * (`plugins={{}}`): syntax highlighting, math, and mermaid all render
+ * async and are illegible in a 360px column, so fences fall back to
+ * plain `<pre>`. Controls are off too — a copy/download bar on a hover
+ * card is chrome nobody can reach before the card closes.
+ *
+ * Capped messages get a fade at the cut so the clip reads as
+ * intentional. Whether it's clipped has to be measured (the wrapper's
+ * own height is pinned to the cap, so the inner block is what's
+ * observed) — a fade painted unconditionally would wash out the last
+ * line of every short message.
  */
-function pickPreviewMessages(events: ChatEventRecord[]): ChatEventRecord[] {
-  const conversational: ChatEventRecord[] = [];
-  for (const e of events) {
-    if (e.source === 'user' || e.source === 'agent') conversational.push(e);
-  }
-  // Tail-slice so the recent N show, then re-sort ascending for
-  // top-to-bottom reading.
-  return conversational.slice(-MAX_PREVIEW_MESSAGES);
-}
+function MessageBody({ text, full }: { text: string; full?: boolean }) {
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  const [clipped, setClipped] = useState(false);
 
-/**
- * Strip Tiptap-style `[[file:...]]` markers and any leading/trailing
- * whitespace so the preview body reads cleanly. The full transcript
- * still expands these into chips — here we only need the text.
- */
-function renderableText(event: ChatEventRecord): string {
-  const raw = event.content ?? '';
-  return raw
-    .replace(/\[\[file:[^\]]+\]\]/g, '')
-    .replace(/\s+\n/g, '\n')
-    .trim();
+  useLayoutEffect(() => {
+    if (full) {
+      setClipped(false);
+      return;
+    }
+    const el = innerRef.current;
+    if (!el) return;
+    const measure = () => setClipped(el.offsetHeight > OLDER_MESSAGE_MAX_HEIGHT);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    // Content settles after mount (fonts, tables reflowing at 360px), and
+    // the capped wrapper can't report that growth itself.
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, full]);
+
+  return (
+    <div
+      className="relative overflow-hidden"
+      style={full ? undefined : { maxHeight: OLDER_MESSAGE_MAX_HEIGHT }}
+    >
+      <div ref={innerRef}>
+        <MessageResponse
+          className="preview-markdown !size-auto text-foreground/90"
+          plugins={{}}
+          controls={false}
+        >
+          {text}
+        </MessageResponse>
+      </div>
+      {clipped && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-popover to-transparent"
+          aria-hidden
+        />
+      )}
+    </div>
+  );
 }
