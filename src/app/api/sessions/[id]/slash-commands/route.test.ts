@@ -23,6 +23,7 @@ const discoverSkillCommands = vi.fn();
 const reconcileSkillCommands = vi.fn();
 const getChatSession = vi.fn();
 const getAgent = vi.fn();
+const getSkillUsageScores = vi.fn();
 const getSessionInventory = vi.fn();
 
 vi.mock('@agentex/agent', () => ({
@@ -33,6 +34,7 @@ vi.mock('@agentex/agent', () => ({
 vi.mock('@/lib/db/queries', () => ({
   getChatSession: (id: string) => getChatSession(id),
   getAgent: (id: string) => getAgent(id),
+  getSkillUsageScores: () => getSkillUsageScores(),
 }));
 
 vi.mock('@/lib/executor/adapter', () => ({
@@ -77,11 +79,14 @@ beforeEach(() => {
   reconcileSkillCommands.mockReset();
   getChatSession.mockReset();
   getAgent.mockReset();
+  getSkillUsageScores.mockReset();
   getSessionInventory.mockReset();
 
-  // Sensible defaults: session/agent exist, no inventory, empty discovery.
+  // Sensible defaults: session/agent exist, no inventory, empty discovery,
+  // no usage history.
   getChatSession.mockReturnValue({ id: SESSION_ID, agentId: 'agent-1' });
   getAgent.mockReturnValue({ id: 'agent-1', harness: 'claude_code' });
+  getSkillUsageScores.mockReturnValue(new Map());
   getSessionInventory.mockReturnValue(null);
   discoverSkillCommands.mockResolvedValue({ commands: [], diagnostics: [] });
   reconcileSkillCommands.mockImplementation(({ discovered }) => discovered);
@@ -204,5 +209,32 @@ describe('GET /api/sessions/[id]/slash-commands', () => {
     const body = await (await GET(makeRequest(), makeParams())).json();
 
     expect(body.commands).toHaveLength(1);
+  });
+
+  it('joins the decayed usage score onto each descriptor', async () => {
+    discoverSkillCommands.mockResolvedValue({
+      commands: [descriptor({ name: 'ship' }), descriptor({ id: 'x', name: 'qa' })],
+      diagnostics: [],
+    });
+    getSkillUsageScores.mockReturnValue(new Map([['ship', 4.25]]));
+
+    const body = await (await GET(makeRequest(), makeParams())).json();
+
+    expect(body.commands.find((c: { name: string }) => c.name === 'ship').frecency).toBe(4.25);
+    // Never-used commands carry no frecency at all, so ranking falls back to
+    // match quality — the fresh-install case.
+    expect(body.commands.find((c: { name: string }) => c.name === 'qa').frecency).toBeUndefined();
+  });
+
+  it('matches usage case-insensitively', async () => {
+    discoverSkillCommands.mockResolvedValue({
+      commands: [descriptor({ name: 'Ship' })],
+      diagnostics: [],
+    });
+    getSkillUsageScores.mockReturnValue(new Map([['ship', 2]]));
+
+    const body = await (await GET(makeRequest(), makeParams())).json();
+
+    expect(body.commands[0].frecency).toBe(2);
   });
 });

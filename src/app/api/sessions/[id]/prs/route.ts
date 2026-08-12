@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { getChatSession, getWorkspace } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Lightweight PR list for the chat composer's `#` mention menu. We
@@ -31,7 +32,11 @@ export interface PrListResponse {
   ghStatus?: 'not_installed' | 'not_authenticated';
 }
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

@@ -13,12 +13,18 @@
 import { createHash } from 'node:crypto';
 import { customAlphabet } from 'nanoid';
 import { APP_SHORT_ID } from '@/constants/app';
+import type { TokenEnv } from './token-display';
+
+// `node:crypto` at module scope means importing anything from this file
+// drags the crypto-browserify polyfill into a client bundle. Server-only
+// code should import from here; anything the browser touches belongs in
+// `./token-display`, which is deliberately crypto-free. Re-exported rather
+// than redefined so there is still one definition of each.
+export { tokenDisplay, type TokenEnv } from './token-display';
 
 const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const TOKEN_LENGTH = 40;
 const randomToken = customAlphabet(TOKEN_ALPHABET, TOKEN_LENGTH);
-
-export type TokenEnv = 'live' | 'test';
 
 export function getTokenEnv(): TokenEnv {
   return process.env.AUTH_TOKEN_ENV === 'test' ? 'test' : 'live';
@@ -46,8 +52,4 @@ export function generateToken(env: TokenEnv = getTokenEnv()): GeneratedToken {
 
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
-}
-
-export function tokenDisplay(prefix: string, suffix: string, env: TokenEnv = 'live'): string {
-  return `${APP_SHORT_ID}_${env}_${prefix}…${suffix}`;
 }

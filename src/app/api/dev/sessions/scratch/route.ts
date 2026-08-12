@@ -24,11 +24,16 @@ import { getDb } from '@/lib/db';
 import { workspaces, chatSessions } from '@/lib/db/schema';
 import { createWorkspace, createExecutionSession, getAgent } from '@/lib/db/queries';
 import { hydrateRow } from '@/lib/db/hydrate';
+import { withCompression } from '@/lib/api/compression';
 
 const SCRATCH_SLUG = '__dev_scratch__';
 const SCRATCH_CWD = join(tmpdir(), 'flow-dev-scratch');
 
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   try {
     const db = getDb();
 

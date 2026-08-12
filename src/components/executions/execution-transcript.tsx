@@ -15,7 +15,8 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
-import type { ChatEventRecord, ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
+import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { ExecutionEvent } from './execution-event';
 import { ActivityGroup } from './activity-group';
 import { TurnFilesFooter } from './file-chip';
@@ -72,7 +73,7 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   // a call row can render the result's summary inline ("150 lines"). Built
   // from the full event list before any suppression.
   const resultByCallId = useMemo(() => {
-    const m = new Map<string, ChatEventRecord>();
+    const m = new Map<string, ChatEventDTO>();
     for (const e of events) {
       if (e.source === 'tool_result' && e.externalToolCallId) m.set(e.externalToolCallId, e);
     }
@@ -365,7 +366,7 @@ const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([]);
  *   - `agent` events that are Claude Code's synthetic
  *     `No response requested.` placeholder — see the constant above.
  */
-function filterRenderable(events: ChatEventRecord[]): ChatEventRecord[] {
+function filterRenderable(events: ChatEventDTO[]): ChatEventDTO[] {
   return events.filter((e) => {
     if (e.source === 'result') return false;
     if (e.source === 'agent' && e.content === NO_RESPONSE_REQUESTED) return false;
@@ -379,8 +380,9 @@ function filterRenderable(events: ChatEventRecord[]): ChatEventRecord[] {
     // (none today). The subtype lives in `content` (the adapter stores
     // `event.subtype` there); `raw.subtype` is unreliable (`'unknown'` for
     // forward-compat events), so prefer `content`.
-    const raw = (e.raw ?? {}) as { subtype?: string };
-    const subtype = e.content ?? raw.subtype ?? '';
+    // `rawSubtype` is lifted off the payload server-side so the transcript
+    // doesn't need `raw` shipped at all. See lib/api/dto/chat-event.ts.
+    const subtype = e.content ?? e.rawSubtype ?? '';
     return RENDERABLE_SYSTEM_SUBTYPES.has(subtype);
   });
 }

@@ -27,6 +27,7 @@ import { useAgentModels } from '@/hooks/use-agent-models';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { sessionsApi } from '@/lib/api/sessions';
 import { workspacesApi } from '@/lib/api/workspaces';
+import { tasksApi } from '@/lib/api/tasks';
 import { api, apiErrorText } from '@/lib/api/client';
 import {
   providerIdForHarness,
@@ -228,6 +229,28 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
   // a graceful degradation rather than a stall.
   const warm = useCallback(
     async (item: LaunchSourceItem) => {
+      // Tasks: `/api/tasks` sends a bounded excerpt, not the whole body, so
+      // the chip built from list data would carry a prompt truncated at 300
+      // characters. Fetch the full record the same way a PR or issue does.
+      // Handled before the `item.number` guard below — tasks have no number.
+      if (item.kind === 'task') {
+        try {
+          const full = await tasksApi.get(item.key);
+          const chipIdToPatch = `context:task:${item.key}`;
+          const body = (full.body ?? full.description ?? '').trim();
+          setChips((prev) =>
+            prev.map((c) =>
+              c.id === chipIdToPatch && c.context
+                ? { ...c, detail: body ? null : c.detail, context: { ...c.context, body } }
+                : c,
+            ),
+          );
+        } catch {
+          /* the excerpt already in the chip is still a usable prompt */
+        }
+        return;
+      }
+
       if (!workspaceId || item.number == null) return;
       if (item.kind !== 'pr' && item.kind !== 'issue') return;
       try {

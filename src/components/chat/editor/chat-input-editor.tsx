@@ -60,7 +60,7 @@ import {
 } from './draft-storage';
 import { recallStep, textToDocJSON, type RecallDirection } from './history-recall';
 import { SlashMenuExtension } from './slash-menu/extension';
-import type { SkillCommandDescriptor } from './slash-menu/types';
+import type { SlashCommand } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
 import type {
   FileMentionItem,
@@ -206,9 +206,10 @@ interface ChatInputEditorProps {
    * Optional slash-command descriptors surfaced via `/`. When provided
    * and non-empty, registers the SlashMenu extension. When omitted, the
    * editor behaves like a plain composer with no popup. The data
-   * source is `useSlashCommands(sessionId)` on the consumer side.
+   * source is `useSlashCommands(sessionId)` on the consumer side, which
+   * also carries each command's `frecency` for ranking.
    */
-  slashCommands?: SkillCommandDescriptor[];
+  slashCommands?: SlashCommand[];
   /**
    * Optional worktree files/folders for the `@`-mention menu. Sourced
    * from `useSessionTree` on the consumer side. When omitted, typing

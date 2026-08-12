@@ -4,10 +4,11 @@ import {
   reconcileSkillCommands,
   type SkillCommandDescriptor,
 } from '@agentex/agent';
-import { getChatSession, getAgent } from '@/lib/db/queries';
+import { getChatSession, getAgent, getSkillUsageScores } from '@/lib/db/queries';
 import { mapHarnessToProvider } from '@/lib/executor/harness';
 import { getAppRoot } from '@/lib/config/paths';
 import * as executor from '@/lib/executor/adapter';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Merge agentex's local skill discovery with the live runtime inventory
@@ -31,7 +32,11 @@ import * as executor from '@/lib/executor/adapter';
  * `includeInstalled: 'all'` covers both. No filesystem watcher — the
  * result is re-fetched per request via TanStack Query.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -61,9 +66,19 @@ export async function GET(
     provider,
   });
 
-  const visible = reconciled.filter(
-    (cmd: SkillCommandDescriptor) => cmd.userInvocable !== false && cmd.available !== false,
-  );
+  // Attach the decayed usage score so the menu can rank by habit. Joined here
+  // rather than fetched separately by the client — the descriptor list is
+  // already a per-session request the composer caches, and usage without the
+  // commands it belongs to is useless. Names not in `skill_usage` (the common
+  // case on a fresh install) simply carry no `frecency`, and ranking falls
+  // back to match quality alone.
+  const usage = getSkillUsageScores();
+  const visible = reconciled
+    .filter((cmd: SkillCommandDescriptor) => cmd.userInvocable !== false && cmd.available !== false)
+    .map((cmd: SkillCommandDescriptor) => {
+      const frecency = usage.get(cmd.name.toLowerCase());
+      return frecency ? { ...cmd, frecency } : cmd;
+    });
 
   return Response.json({
     commands: visible,

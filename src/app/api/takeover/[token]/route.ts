@@ -4,6 +4,7 @@ import {
   getWorkspace,
 } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * GET /api/takeover/[token]
@@ -27,7 +28,11 @@ export interface TakeoverInfoResponse {
   hostLabel: string;
 }
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: Request,
   { params }: { params: Promise<{ token: string }> },
 ) {

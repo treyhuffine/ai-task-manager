@@ -449,14 +449,14 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                           onClick={() => openNote(note.id)}
                           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors hover:bg-card"
                         >
-                          <NoteIcon body={note.body} size={13} className="text-muted-foreground/40 flex-shrink-0" />
+                          <NoteIcon body={note.bodyExcerpt} size={13} className="text-muted-foreground/40 flex-shrink-0" />
                           <div className="min-w-0 flex-1">
                             <span className="text-[12px] font-medium text-foreground truncate block">
                               {note.title || 'Untitled'}
                             </span>
-                            {note.body && (
+                            {note.bodyExcerpt && (
                               <span className="text-[10px] text-muted-foreground/50 truncate block">
-                                {note.body.replace(/[#*_~`>\-\[\]()]/g, '').slice(0, 80)}
+                                {note.bodyExcerpt.replace(/[#*_~`>\-\[\]()]/g, '').slice(0, 80)}
                               </span>
                             )}
                           </div>

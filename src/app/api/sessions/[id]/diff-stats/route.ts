@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { readWorktreeDiffStats } from '@/lib/workspaces/diff-stats';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * On-demand diff stats for one execution session. Returns null when the
@@ -10,7 +11,11 @@ import { readWorktreeDiffStats } from '@/lib/workspaces/diff-stats';
  * The rail fetches these in bulk through `POST /api/sessions/diff-stats`;
  * this route stays for single-session callers and keeps the same shape.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

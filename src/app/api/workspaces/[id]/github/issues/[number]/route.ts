@@ -1,11 +1,16 @@
 import type { NextRequest } from 'next/server';
 import { getWorkspace } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Fetch one issue's full detail (adds `body`, which the list endpoint omits).
  * The launcher's warm step for an issue pick — see the PR sibling route.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; number: string }> },
 ) {

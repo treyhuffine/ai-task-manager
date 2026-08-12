@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { listHistorySessions } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Execution history feed for the rail's "By history" tab. Returns every
@@ -11,7 +12,11 @@ import { listHistorySessions } from '@/lib/db/queries';
  * Capped at 200 rows. Older sessions are reachable from the workspace
  * tree directly; the rail doesn't try to be infinite scroll.
  */
-export async function GET(_request: NextRequest) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(_request: NextRequest) {
   try {
     const sessions = listHistorySessions({ limit: 200 });
     return Response.json({ sessions });

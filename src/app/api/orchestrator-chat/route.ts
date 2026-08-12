@@ -11,6 +11,7 @@ import type { ProviderId } from '@/lib/agent-options';
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
 import { resolveAgentSelection } from '@/lib/agent-model-discovery';
 import { isHarnessId } from '@/lib/agents/registry';
+import { withCompression } from '@/lib/api/compression';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
@@ -92,7 +93,11 @@ async function createInteractiveSession(override: ChatOverride = {}) {
   return session;
 }
 
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   try {
     const session = findCurrent() ?? await createInteractiveSession();
     return Response.json({ session });

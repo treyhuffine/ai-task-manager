@@ -1700,3 +1700,29 @@ export const notificationDeliveries = sqliteTable(
     index('idx_notification_deliveries_next_attempt').on(table.status, table.nextAttemptAt), // future worker
   ],
 );
+
+// ─── Skill Usage ──────────────────────────────────────────────
+
+/**
+ * How often the user actually reaches for each slash command, so the `/` menu
+ * can put their habits on top. One row per command name, global rather than
+ * per-session or per-harness: a preference for `/ship` is a preference for
+ * `/ship` no matter which agent is running.
+ *
+ * `score` is a decayed running count (see `recordSkillUse`), not a raw total.
+ * `useCount` is kept alongside it for display and debugging.
+ *
+ * Names are recorded as typed and validated lazily at read time against the
+ * discovered command list, so a stray `/Users/...` paste writes a row that
+ * simply never surfaces.
+ */
+export const skillUsage = sqliteTable('skill_usage', {
+  id: text().primaryKey(),
+  ...timestamps,
+  /** Command name without the leading slash, e.g. `implementing-specs`. */
+  name: text().notNull().unique(),
+  useCount: integer().notNull().default(0),
+  /** Exponentially decayed use count. Only ever breaks ties within a match tier. */
+  score: real().notNull().default(0),
+  lastUsedAt: text(),
+});

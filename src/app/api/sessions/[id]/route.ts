@@ -13,8 +13,13 @@ import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-option
 import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
 import { getHarnessRuntime } from '@/lib/agents/runtime';
 import { getAppRoot } from '@/lib/config/paths';
+import { withCompression } from '@/lib/api/compression';
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import * as executor from '@/lib/executor/adapter';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Whether this chat_session has an in-flight root turn or detached background
@@ -10,7 +11,11 @@ import * as executor from '@/lib/executor/adapter';
  * If the process restarted, no turn can be running anyway (in-memory
  * AgentSession map is empty).
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

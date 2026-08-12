@@ -1,8 +1,14 @@
 import { NextRequest } from 'next/server';
 import { listTasks, createTask } from '@/lib/db/queries';
 import type { CreateTaskInput } from '@/db/types';
+import { withCompression } from '@/lib/api/compression';
+import { toTaskListDTOs } from '@/lib/api/dto/entity-list';
 
-export async function GET(request: NextRequest) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
 
@@ -19,7 +25,9 @@ export async function GET(request: NextRequest) {
       offset: params.get('offset') ? parseInt(params.get('offset')!, 10) : undefined,
     });
 
-    return Response.json(rows);
+    // Bodies are 64% of this payload; the list shows a clamped tooltip.
+    // Full body stays on GET /api/tasks/:id. See dto/entity-list.ts.
+    return Response.json(toTaskListDTOs(rows));
   } catch (err) {
     console.error('[GET /api/tasks]', err);
     return Response.json({ error: String(err) }, { status: 500 });

@@ -2,10 +2,15 @@ import type { NextRequest } from 'next/server';
 import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
 import type { EffortLevel } from '@/db/types';
 import { dispatchExecutionSession, WorkspaceNotFoundForDispatch } from '@/lib/sessions/dispatch';
+import { withCompression } from '@/lib/api/compression';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

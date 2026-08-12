@@ -2,8 +2,13 @@ import { clearCursorApiKey, cursorCredentialStatus, setCursorApiKey } from '@/li
 import { clearHarnessRuntimeCache } from '@/lib/agents/runtime';
 import { clearAgentModelCache } from '@/lib/agent-model-discovery';
 import { clearAuthCache } from '@agentex/agent';
+import { withCompression } from '@/lib/api/compression';
 
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   return Response.json(cursorCredentialStatus());
 }
 

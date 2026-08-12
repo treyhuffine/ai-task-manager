@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { getReferenceFolder } from '@/lib/db/queries';
 import { resolveReferenceFolder } from '@/lib/reference-folders/resolve';
 import { listReferenceTree } from '@/lib/reference-folders/tree';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Flat file list for one reference folder, backing the `@alias` drill-down in
@@ -14,7 +15,11 @@ import { listReferenceTree } from '@/lib/reference-folders/tree';
  * No git probe here — the picker only needs paths, and probing would add a
  * subprocess to every drill-down.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

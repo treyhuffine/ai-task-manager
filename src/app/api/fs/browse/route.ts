@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Directory listing for the in-app folder picker.
@@ -17,7 +18,11 @@ import path from 'node:path';
  *                  typeahead only needs dirs, the dialog wants files for
  *                  visual context)
  */
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
     const raw = params.get('path') ?? '~';

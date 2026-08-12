@@ -1,11 +1,16 @@
 import type { NextRequest } from 'next/server';
 import { getTerminal, killTerminal } from '@/lib/terminal/pty-manager';
 import { terminalOwnerForSession } from '@/lib/terminal/owner';
+import { withCompression } from '@/lib/api/compression';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; terminalId: string }> },
 ) {

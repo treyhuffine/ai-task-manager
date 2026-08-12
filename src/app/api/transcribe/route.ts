@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { transcribe, getProviderStatus } from '@/lib/stt/transcribe';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * POST /api/transcribe
@@ -35,6 +36,10 @@ export async function POST(request: NextRequest) {
  * GET /api/transcribe
  * Returns availability status for each provider.
  */
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   return Response.json({ providers: await getProviderStatus() });
 }

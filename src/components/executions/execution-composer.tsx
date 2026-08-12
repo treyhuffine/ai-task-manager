@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react';
 import { ArrowUp, Mic, Square, Loader2, Sparkles, Check, Zap, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
@@ -51,7 +52,8 @@ import {
 } from '@/components/chat/editor/chat-input-editor';
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
-import { useSlashCommands } from '@/hooks/use-slash-commands';
+import { useSlashCommands, slashCommandsKey } from '@/hooks/use-slash-commands';
+import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
 import { useAgentHarnesses } from '@/hooks/use-agent-harnesses';
 import {
   useSessionReferenceFolders,
@@ -257,6 +259,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const sessionMeta = useSessionMeta(sessionId);
     const slashCommandsQuery = useSlashCommands(sessionId);
+    const queryClient = useQueryClient();
 
     // Worktree files/folders → @-mention items. Same data the file tree
     // shows, transformed into the lighter shape the popup needs.
@@ -529,6 +532,13 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
             viaVoice: opts?.viaVoice,
             attachments: out.attachments.length > 0 ? out.attachments : undefined,
           });
+          // The send just bumped this skill's usage server-side. Refetch so it
+          // floats immediately instead of after the 30s staleTime — using a
+          // skill and watching the menu not notice is exactly the kind of lag
+          // that makes ranking feel arbitrary.
+          if (sessionId && parseSlashInvocation(text)) {
+            queryClient.invalidateQueries({ queryKey: slashCommandsKey(sessionId) });
+          }
         } catch (err) {
           // Round-trip failed (network, 500, takeover 409, etc.). Put
           // the user's content back so they can correct and retry —
@@ -543,7 +553,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
           setSending(false);
         }
       },
-      [sending, disabled, onSend, sessionId, markRead],
+      [sending, disabled, onSend, sessionId, markRead, queryClient],
     );
 
     // Voice transcript → composer. Auto-send dispatches a synthesized

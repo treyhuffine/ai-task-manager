@@ -2,7 +2,7 @@
 
 import { createSuggestionPopupRenderer } from '../suggestion/renderer'
 import { SlashMenuList } from './popup'
-import type { SkillCommandDescriptor } from './types'
+import type { CommandMatch } from './ranking'
 
 /**
  * Tiptap Suggestion `render` factory for the slash menu. Thin wrapper
@@ -11,5 +11,5 @@ import type { SkillCommandDescriptor } from './types'
  * handling, and lifecycle stay in one place.
  */
 export function createSuggestionRenderer() {
-  return createSuggestionPopupRenderer<SkillCommandDescriptor>(SlashMenuList)
+  return createSuggestionPopupRenderer<CommandMatch>(SlashMenuList)
 }

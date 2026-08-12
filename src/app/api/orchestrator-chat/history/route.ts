@@ -1,4 +1,5 @@
 import { listChatSessions, getLastChatEventBySource } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
 const HISTORY_LIMIT = 50;
 const SNIPPET_MAX = 80;
@@ -14,7 +15,11 @@ const SNIPPET_MAX = 80;
  * archive time; `snippet` (last user message) is the live fallback while
  * the thread is current or until the summary lands.
  */
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   try {
     const sessions = listChatSessions({ type: 'orchestration' })
       .filter((s) => s.createdByRunId === null)

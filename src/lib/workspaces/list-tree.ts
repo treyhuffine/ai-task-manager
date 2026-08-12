@@ -45,22 +45,43 @@ async function listTreeGit(ws: GitWorkspace, surfaceIgnored: readonly string[]):
   // null-delimits AND disables quoting, giving raw UTF-8 paths — which also
   // makes them match `git.status()`'s (unquoted) paths and handles the
   // newline-in-path case for free.
+  // `-t` prefixes each path with its source: `H ` for a cached (tracked) file,
+  // `? ` for an untracked one. That distinction is the only reason this used
+  // to run a *second* `ls-files --others` below — the untracked set was needed
+  // separately to badge those rows, and the combined listing couldn't tell
+  // them apart. Tagging gets both sets out of one subprocess.
+  //
+  // Worth the tiny parsing cost: each git invocation on this route measured
+  // ~83ms warm, and the route runs several of them back to back, so deleting
+  // one is a real fraction of the time to open an execution.
   const lsResult = await ws.git.raw([
     'ls-files',
     '-z',
+    '-t',
     '--cached',
     '--others',
     '--exclude-standard',
   ]);
   const lines = lsResult.stdout.split('\0').filter(Boolean);
 
-  // Dedup — `--cached --others` together can occasionally double-list edge cases.
+  // Dedup — `--cached --others` together can occasionally double-list edge
+  // cases. A path listed both ways keeps its first tag, which is `H`; that
+  // matches the old behaviour, where the separate `--others` call was the
+  // only thing that could mark a path untracked and a tracked path never
+  // appeared in it.
   const seen = new Set<string>();
   const rels: string[] = [];
+  const untracked: string[] = [];
   for (const ln of lines) {
-    if (seen.has(ln)) continue;
-    seen.add(ln);
-    rels.push(ln);
+    // `<tag><space><path>` — tag is a single character, so the path starts at
+    // index 2. Paths are raw UTF-8 (see the `-z` note above), so a leading
+    // space in a filename survives this slice intact.
+    const tag = ln[0];
+    const rel = ln.slice(2);
+    if (!rel || seen.has(rel)) continue;
+    seen.add(rel);
+    rels.push(rel);
+    if (tag === '?') untracked.push(rel);
   }
 
   // Status is computed against the diff base (`ws.git.baseSha`), NOT the
@@ -73,19 +94,13 @@ async function listTreeGit(ws: GitWorkspace, surfaceIgnored: readonly string[]):
   //
   //   1. `git diff --name-status <base>` — every TRACKED change since the base
   //      (committed + staged + unstaged) in one shot.
-  //   2. `ls-files --others --exclude-standard` — untracked (not-yet-tracked)
-  //      files. The diff view renders these as synthetic "added"; we badge them
-  //      'untracked'. Listing them via ls-files (full per-file paths, honoring
-  //      `.gitignore`) also dodges `git status`'s new-directory collapse, which
-  //      otherwise drops a new file inside a new folder from the tree.
+  //   2. The `?`-tagged entries from the `ls-files` call above — untracked
+  //      (not-yet-tracked) files. The diff view renders these as synthetic
+  //      "added"; we badge them 'untracked'. Getting them from ls-files (full
+  //      per-file paths, honoring `.gitignore`) also dodges `git status`'s
+  //      new-directory collapse, which otherwise drops a new file inside a new
+  //      folder from the tree.
   const baseSha = ws.git.baseSha;
-  const othersResult = await ws.git.raw([
-    'ls-files',
-    '-z',
-    '--others',
-    '--exclude-standard',
-  ]);
-  const untracked = othersResult.stdout.split('\0').filter(Boolean);
 
   const nameStatusResult = await ws.git.raw([
     'diff',

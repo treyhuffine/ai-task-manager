@@ -7,7 +7,7 @@ import type {
   workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
-  triagePasses, triageDecisions, streamLinks,
+  triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition } from '@/lib/db/schema';
@@ -370,3 +370,7 @@ export type CreateWebPushSubscriptionInput = Omit<InferInsertModel<typeof webPus
 export type NotificationDeliveryRecord = InferSelectModel<typeof notificationDeliveries>;
 export type CreateNotificationDeliveryInput = Omit<InferInsertModel<typeof notificationDeliveries>, 'id'> & { id?: string };
 export type NotificationDeliveryStatus = NotificationDeliveryRecord['status'];
+
+// ─── Skill Usage ──────────────────────────────────────────────
+
+export type SkillUsageRecord = InferSelectModel<typeof skillUsage>;

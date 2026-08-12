@@ -5,6 +5,7 @@ import { buildOpenPrPrompt } from '@/lib/executor/prompts/open-pr';
 import * as executor from '@/lib/executor/adapter';
 import { getPrStatus, type PrMergeable, type PrStatus } from '@/lib/github/pr-mergeable';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * PR surface for the execution view's action bar.
@@ -73,7 +74,11 @@ function toPrInfo(pr: PrLike, status: PrStatus | null): PrInfo {
   };
 }
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

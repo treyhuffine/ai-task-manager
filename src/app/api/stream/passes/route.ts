@@ -2,10 +2,15 @@ import { NextRequest } from 'next/server';
 import { listTriagePasses, listTriageDecisions } from '@/lib/db/queries';
 import { triageErrorResponse } from '@/lib/stream-triage/http';
 import { serializeDecision } from '@/lib/stream-triage/serialize';
+import { withCompression } from '@/lib/api/compression';
 
 /** GET /api/stream/passes — digest data: recent passes with their
  *  decisions and source-capture previews. */
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
     const passes = listTriagePasses({

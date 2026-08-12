@@ -7,7 +7,7 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { TopHud } from './top-hud';
 import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
-import { ExecutionView } from '@/components/executions/execution-view';
+import { ExecutionView } from '@/components/executions/execution-view-lazy';
 import { FocusView } from './focus-view';
 import { SearchOverlay } from '@/components/shared/search-overlay';
 import { NoteSlideout } from '@/components/notes/note-slideout';

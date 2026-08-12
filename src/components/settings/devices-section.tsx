@@ -7,7 +7,7 @@ import { devicesApi, type CreateDeviceResponse, type UpdateDeviceBody } from '@/
 import { settingsApi } from '@/lib/api/settings';
 import { PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import type { ApiKeyRecord, DeviceType } from '@/db/types';
-import { tokenDisplay } from '@/lib/auth/tokens';
+import { tokenDisplay } from '@/lib/auth/token-display';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { QrCode } from '@/components/settings/qr-code';

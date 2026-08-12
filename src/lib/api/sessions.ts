@@ -1,7 +1,8 @@
 import { api } from './client';
+import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { fetchDiffStatsBatched } from './diff-stats-batch';
 import type {
-  ChatSessionRecord, ChatSessionWithExecution, ChatEventRecord,
+  ChatSessionRecord, ChatSessionWithExecution,
   PermissionMode, EffortLevel, Attachment,
 } from '@/db/types';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
@@ -443,11 +444,11 @@ export const sessionsApi = {
   events(
     id: string,
     opts?: { limit?: number; before?: string },
-  ): Promise<ChatEventRecord[]> {
+  ): Promise<ChatEventDTO[]> {
     // `before` (an event id) requests the page of events strictly older
     // than that anchor — the transcript's scroll-up pager. Omitting it
     // returns the most-recent `limit` events.
-    return api.get<ChatEventRecord[]>(`/sessions/${id}/events`, {
+    return api.get<ChatEventDTO[]>(`/sessions/${id}/events`, {
       query: { limit: opts?.limit, before: opts?.before },
     });
   },
@@ -728,8 +729,8 @@ export const sessionsApi = {
     id: string,
     content: string,
     opts?: { attachments?: Attachment[]; eventId?: string },
-  ): Promise<ChatEventRecord> {
-    return api.post<ChatEventRecord>(`/sessions/${id}/messages`, {
+  ): Promise<ChatEventDTO> {
+    return api.post<ChatEventDTO>(`/sessions/${id}/messages`, {
       content,
       attachments: opts?.attachments,
       id: opts?.eventId,

@@ -1,11 +1,16 @@
 import type { NextRequest } from 'next/server';
 import { getWorkspace } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * List open issues for the workspace's repo via `@agentex/github`. The
  * "Create from → Issue" tab in the CreateFromModal renders these.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

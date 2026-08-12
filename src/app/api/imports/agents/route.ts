@@ -4,10 +4,15 @@ import {
   importExternalAgentSessions,
 } from '@/lib/import/external-agents';
 import type { ExternalAgentImportRequest } from '@/lib/import/types';
+import { withCompression } from '@/lib/api/compression';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   try {
     return Response.json(await discoverExternalAgentSessions());
   } catch (error) {

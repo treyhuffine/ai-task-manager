@@ -11,17 +11,24 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api/client';
-import type { SkillCommandDescriptor, SkillCommandDiagnostic } from '@agentex/agent';
+import type { SkillCommandDiagnostic } from '@agentex/agent';
+import type { SlashCommand } from '@/components/chat/editor/slash-menu/types';
 
 export interface SlashCommandsResponse {
-  commands: SkillCommandDescriptor[];
+  /** Descriptors carrying the decayed `frecency` the route joins on. */
+  commands: SlashCommand[];
   diagnostics: SkillCommandDiagnostic[];
   inventorySource: 'provider-init' | 'configured' | 'none';
 }
 
+/** Cache key, exported so the send path can invalidate after an invocation. */
+export function slashCommandsKey(sessionId: string) {
+  return ['sessions', sessionId, 'slash-commands'] as const;
+}
+
 export function useSlashCommands(sessionId: string | null | undefined) {
   return useQuery({
-    queryKey: ['sessions', sessionId, 'slash-commands'],
+    queryKey: slashCommandsKey(sessionId ?? ''),
     queryFn: () => api.get<SlashCommandsResponse>(`/sessions/${sessionId}/slash-commands`),
     enabled: !!sessionId,
     refetchOnWindowFocus: true,

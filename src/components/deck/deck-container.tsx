@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
 import { useAreas } from '@/hooks/use-areas';
@@ -37,8 +38,15 @@ const EFFORT_SHORT: Record<string, string> = {
   epic: 'XL',
 };
 
+/**
+ * Only the fields this function actually reads. Declaring the narrow shape
+ * lets it accept both a list row (a DTO, which carries an excerpt rather
+ * than a body) and a freshly created task from quick-add (a full record).
+ */
+type DeckTaskSource = Omit<TaskRecord, 'body'>;
+
 function taskToDeckItem(
-  task: TaskRecord,
+  task: DeckTaskSource,
   areaMap: Map<string, string>,
   parentMap: Map<string, string>,
 ): DeckItem {
@@ -68,11 +76,11 @@ const MOCK_ROUTINES: RoutineItem[] = [
 
 function hydrateDeckRecord(
   record: DeckRecord,
-  tasks: TaskRecord[],
+  tasks: TaskListDTO[],
   areaMap: Map<string, string>,
   parentMap: Map<string, string>,
 ): DeckPlan {
-  const taskById = new Map<string, TaskRecord>();
+  const taskById = new Map<string, TaskListDTO>();
   tasks.forEach(t => taskById.set(t.id, t));
 
   const items: DeckItem[] = [];
@@ -589,7 +597,7 @@ export function DeckContainer() {
     setMoreOptionsCollapsed(true);
   }, []);
 
-  const handleAddFromBrowser = useCallback((task: TaskRecord) => {
+  const handleAddFromBrowser = useCallback((task: TaskListDTO) => {
     const item = taskToDeckItem(task, areaMap, parentMap);
     item.manuallyAdded = true;
     setPlan(prev => {
@@ -609,7 +617,7 @@ export function DeckContainer() {
     });
   }, []);
 
-  const handleQuickAdd = useCallback((task: TaskRecord) => {
+  const handleQuickAdd = useCallback((task: DeckTaskSource) => {
     const item = taskToDeckItem(task, areaMap, parentMap);
     item.manuallyAdded = true;
     item.rationale = '';

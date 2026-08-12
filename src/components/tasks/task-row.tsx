@@ -23,7 +23,8 @@ import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/compone
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { AreaSelect } from '@/components/shared/area-select';
 import { cn } from '@/lib/utils';
-import type { TaskListRecord, Energy, Effort } from '@/db/types';
+import type { Energy, Effort } from '@/db/types';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 const ENERGY_COLORS: Record<string, string> = {
   deep: 'text-orange-500',
@@ -61,7 +62,7 @@ function formatDate(iso: string | null): string | null {
 }
 
 interface TaskRowProps {
-  task: TaskListRecord;
+  task: TaskListDTO;
   onComplete: (id: string) => void;
   onUpdate: (id: string, field: string, value: unknown) => void;
   onSnooze: (id: string, days: number) => void;
@@ -294,7 +295,7 @@ export function TaskRow({
           )}
 
           {/* Has body */}
-          {task.body && (
+          {task.bodyLen > 0 && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -303,7 +304,7 @@ export function TaskRow({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-[300px] whitespace-pre-wrap text-xs leading-relaxed line-clamp-5">
-                  {task.body}
+                  {task.bodyExcerpt}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

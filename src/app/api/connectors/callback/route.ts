@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isConnectorError } from '@connectors/engine';
 import { getConnectorRuntime } from '@/lib/connectors/runtime';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * OAuth redirect target (public — see proxy PUBLIC_PATHS). The provider sends the
@@ -9,7 +10,11 @@ import { getConnectorRuntime } from '@/lib/connectors/runtime';
  * Security is the single-use `state` validated against the stored AuthRequest
  * inside `completeAuth`.
  */
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   const url = new URL(request.url);
 
   // A connect started with `returnTo` (e.g. onboarding) parks the destination

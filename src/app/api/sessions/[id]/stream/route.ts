@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import { subscribe, sessionChannel, type SessionStreamMessage } from '@/lib/realtime/bus';
 import { listChatEventsAfter } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
@@ -63,8 +64,13 @@ export async function GET(
         try { controller.enqueue(chunk); } catch { /* closed */ }
       };
 
+      // Both the live publish and the resume replay funnel through here, so
+      // the projection applies to each. It has to match the GET /events route
+      // exactly: a transcript assembled from stream frames and one fetched as
+      // a page must carry the same fields, or a consumer reading `rawSubtype`
+      // works on reload and breaks on live update. See lib/api/dto/chat-event.
       const writeChatEvent = (event: ChatEventRecord) => {
-        enqueue(sse('chat_event', event, event.id));
+        enqueue(sse('chat_event', toChatEventDTO(event), event.id));
       };
 
       // Subscribe first — any message arriving while we read the

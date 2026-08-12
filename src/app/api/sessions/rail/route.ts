@@ -9,6 +9,8 @@ import {
   listRunningSessions,
   listSessionsWithPending,
 } from '@/lib/executor/status-snapshot';
+import { withCompression } from '@/lib/api/compression';
+import { toRailSessionDTOs } from '@/lib/api/dto/rail-session';
 
 /**
  * One-shot fetch for the left rail's "by status" view. Returns all active
@@ -20,9 +22,17 @@ import {
  * lives client-side so re-buckets are reactive to the in-memory
  * pending/streaming sets without a server round trip.
  */
-export async function GET() {
+// Compressed: the rail is polled every 15s and carries full session rows,
+// so it is one of the largest repeat payloads in the app. The `request`
+// argument is unused by the handler but required to read Accept-Encoding.
+// See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(_request: Request) {
   try {
-    const sessions = listRailSessions();
+    // Redacted: this poll ran every 15s carrying a live takeover token.
+    // See lib/api/dto/rail-session.ts.
+    const sessions = toRailSessionDTOs(listRailSessions());
     const pendingSessionIds = listSessionsWithPending();
     const runningSessionIds = listRunningSessions();
     const backgroundSessionIds = listBackgroundTaskSessions();

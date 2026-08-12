@@ -6,6 +6,7 @@
 
 import { NextRequest } from 'next/server';
 import { runAction } from '@/lib/orchestrator/dispatch';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Parse a `status`/`trigger`-style param that may carry one value or a
@@ -21,7 +22,11 @@ function parseMulti(raw: string | null): string | string[] | undefined {
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const input: Record<string, unknown> = {};
   // Multi-value filters — Zod schema unions allow string or string[].

@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ChatEventRecord } from '@/db/types';
+import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 import { worktreeScopeFromCache } from '@/hooks/use-execution';
@@ -68,15 +68,15 @@ export function useSessionStream(sessionId: string | null): void {
 
     const handleChatEvent = (raw: MessageEvent) => {
       hot('sse chat_event');
-      let event: ChatEventRecord;
+      let event: ChatEventDTO;
       try {
-        event = JSON.parse(raw.data) as ChatEventRecord;
+        event = JSON.parse(raw.data) as ChatEventDTO;
       } catch (err) {
         console.error('[useSessionStream] malformed chat_event frame:', err);
         return;
       }
 
-      queryClient.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+      queryClient.setQueryData<ChatEventDTO[]>(eventsKey, (prev) => {
         const list = prev ?? [];
         // Idempotent insert: stream + snapshot can deliver the same row
         // on first connect or after an invalidation. Skip dupes.

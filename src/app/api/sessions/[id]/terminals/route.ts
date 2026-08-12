@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { createTerminal, listTerminals, TerminalSpawnError } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
+import { withCompression } from '@/lib/api/compression';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -81,7 +82,11 @@ function resolveCwd(sessionId: string): ResolvedCwd {
   };
 }
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

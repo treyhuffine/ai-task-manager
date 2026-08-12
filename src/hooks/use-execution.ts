@@ -11,7 +11,8 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { isLaunchPending } from '@/lib/executions/pending-launch';
 import type { HarnessId } from '@/lib/agents/registry';
-import type { PermissionMode, EffortLevel, ChatEventRecord, Attachment } from '@/db/types';
+import type { PermissionMode, EffortLevel, Attachment } from '@/db/types';
+import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import {
@@ -114,7 +115,7 @@ function worktreeFileKey(
  * Shared by the snapshot merge and the scroll-up prepend so every writer
  * keeps the cached list sorted identically.
  */
-function byCreatedThenId(a: ChatEventRecord, b: ChatEventRecord): number {
+function byCreatedThenId(a: ChatEventDTO, b: ChatEventDTO): number {
   if (a.createdAt !== b.createdAt) {
     return a.createdAt < b.createdAt ? -1 : 1;
   }
@@ -174,7 +175,7 @@ export function useSessionEvents(id: string | null) {
       // drop a row until the next refetch; (b) older pages a previous
       // scroll-up already loaded — re-fetching the tail must not discard
       // them. Same merge also covers focus-refetch overlap.
-      const cached = qc.getQueryData<ChatEventRecord[]>(queryKey);
+      const cached = qc.getQueryData<ChatEventDTO[]>(queryKey);
       if (!cached?.length) return fresh;
       const seen = new Set(fresh.map((e) => e.id));
       const extra = cached.filter((e) => !seen.has(e.id));
@@ -214,7 +215,7 @@ interface ChatPaginationMeta {
  */
 export function useLoadOlderEvents(
   sessionId: string | null,
-  rawEvents: ChatEventRecord[] | undefined,
+  rawEvents: ChatEventDTO[] | undefined,
 ) {
   const qc = useQueryClient();
   const eventsKey = useMemo(() => ['session', sessionId, 'events'] as const, [sessionId]);
@@ -236,7 +237,7 @@ export function useLoadOlderEvents(
       if (!sessionId) return 0;
       // Read the live cache (not `rawEvents`) so the cursor is the true
       // current oldest even if a concurrent SSE/optimistic write landed.
-      const list = qc.getQueryData<ChatEventRecord[]>(eventsKey) ?? [];
+      const list = qc.getQueryData<ChatEventDTO[]>(eventsKey) ?? [];
       const oldest = list[0];
       if (!oldest) return 0;
       const older = await sessionsApi.events(sessionId, {
@@ -249,7 +250,7 @@ export function useLoadOlderEvents(
       });
       if (older.length === 0) return 0;
       let added = 0;
-      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+      qc.setQueryData<ChatEventDTO[]>(eventsKey, (prev) => {
         const cur = prev ?? [];
         const seen = new Set(cur.map((e) => e.id));
         const incoming = older.filter((e) => !seen.has(e.id));
@@ -302,7 +303,21 @@ export function useSessionTree(id: string | null) {
     queryKey: worktreeKey(scope, id, 'tree'),
     queryFn: () => sessionsApi.tree(id!),
     enabled: !!id && !!scope,
-    refetchInterval: 30_000,
+    // This route is the most expensive read in the app: several sequential
+    // git subprocesses, measured at ~1s regardless of repo size (the cost is
+    // per-invocation, not per-file). At 30s it re-ran twice a minute for as
+    // long as an execution stayed open, almost always producing an identical
+    // answer.
+    //
+    // Nearly every real change already invalidates this cache without the
+    // timer: agent file writes arrive over SSE (`mutation-detect`), and in-app
+    // saves/creates/deletes/renames go through `invalidateWorktree`. The poll
+    // exists only for changes nothing reports — you editing a file in the
+    // terminal, or a build writing output — so it wants to be a safety net,
+    // not the primary refresh path. Three minutes bounds how long the tree can
+    // sit stale after an unobserved change while cutting the steady-state cost
+    // by 6x.
+    refetchInterval: 180_000,
     staleTime: 5_000,
   });
 }
@@ -694,7 +709,7 @@ export function useSendMessage(id: string) {
   const eventsKey = ['session', id, 'events'] as const;
   const runtimeKey = ['session', id, 'runtime-status'] as const;
 
-  const mutation = useMutation<ChatEventRecord, Error, InternalSendInput>({
+  const mutation = useMutation<ChatEventDTO, Error, InternalSendInput>({
     mutationFn: (input) =>
       sessionsApi.sendMessage(id, input.content, {
         attachments: input.attachments,
@@ -710,7 +725,7 @@ export function useSendMessage(id: string) {
       // The optimistic row and the persisted row share the same id
       // (`input.eventId`), so React's reconciler keeps the same DOM
       // node when the POST resolves — no unmount/remount flash.
-      const placeholder: ChatEventRecord = {
+      const placeholder: ChatEventDTO = {
         id: input.eventId,
         sessionId: id,
         role: 'user',
@@ -729,13 +744,18 @@ export function useSendMessage(id: string) {
         externalToolCallId: null,
         externalParentToolCallId: null,
         sourcePartIndex: 0,
+        // A user's own optimistic row has no provider payload to lift
+        // anything out of; the server's version arrives under the same id.
         raw: null,
+        rawSubtype: null,
+        rawModel: null,
+        rawUsage: null,
       };
       // Retry path: a previous failed bubble with the same id is
       // promoted back to in-flight rather than re-inserted, so the
       // user sees the spinner return on the bubble they clicked
       // rather than a phantom new row above it.
-      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+      qc.setQueryData<ChatEventDTO[]>(eventsKey, (prev) => {
         const list = prev ?? [];
         const existing = list.findIndex((e) => e.id === input.eventId);
         const next = existing >= 0 ? [...list] : [...list, placeholder];
@@ -756,7 +776,7 @@ export function useSendMessage(id: string) {
       // any server-defaulted columns the client didn't synthesize are
       // stamped through. SSE delivering the same id is dedup'd by
       // `useSessionStream`.
-      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+      qc.setQueryData<ChatEventDTO[]>(eventsKey, (prev) => {
         if (!prev) return prev;
         return prev.map((e) => (e.id === realEvent.id ? realEvent : e));
       });
@@ -806,9 +826,9 @@ export function useSendMessage(id: string) {
 export function useRetrySend(sessionId: string) {
   const qc = useQueryClient();
   const eventsKey = ['session', sessionId, 'events'] as const;
-  return useMutation<ChatEventRecord, Error, { eventId: string }>({
+  return useMutation<ChatEventDTO, Error, { eventId: string }>({
     mutationFn: async ({ eventId }) => {
-      const events = qc.getQueryData<ChatEventRecord[]>(eventsKey) ?? [];
+      const events = qc.getQueryData<ChatEventDTO[]>(eventsKey) ?? [];
       const target = events.find((e) => e.id === eventId);
       if (!target) {
         throw new Error('Original message no longer in cache');
@@ -826,7 +846,7 @@ export function useRetrySend(sessionId: string) {
       setClientStatus(qc, eventsKey, eventId, { status: 'sending' });
     },
     onSuccess: (realEvent) => {
-      qc.setQueryData<ChatEventRecord[]>(eventsKey, (prev) => {
+      qc.setQueryData<ChatEventDTO[]>(eventsKey, (prev) => {
         if (!prev) return prev;
         return prev.map((e) => (e.id === realEvent.id ? realEvent : e));
       });
@@ -979,7 +999,7 @@ export function useSessionMeta(sessionId: string | null): SessionMeta {
   return useMemo(() => deriveSessionMeta(events ?? []), [events]);
 }
 
-function deriveSessionMeta(events: ChatEventRecord[]): SessionMeta {
+function deriveSessionMeta(events: ChatEventDTO[]): SessionMeta {
   let modelId: string | null = null;
   let lastInputTokens: number | null = null;
   let lastOutputTokens: number | null = null;
@@ -988,9 +1008,11 @@ function deriveSessionMeta(events: ChatEventRecord[]): SessionMeta {
   // System events carry the active model id.
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
-    const raw = (ev.raw ?? {}) as Record<string, unknown>;
+    // `rawUsage` / `rawModel` are lifted out of `raw` server-side so the
+    // provider payload never has to reach the browser just to read two
+    // fields. See lib/api/dto/chat-event.ts.
     if (lastInputTokens == null && ev.source === 'result') {
-      const usage = raw['usage'] as
+      const usage = ev.rawUsage as
         | Record<string, { input_tokens?: number; output_tokens?: number } | number | undefined>
         | undefined;
       if (usage) {
@@ -1015,8 +1037,7 @@ function deriveSessionMeta(events: ChatEventRecord[]): SessionMeta {
       }
     }
     if (modelId == null && ev.source === 'system') {
-      const m = raw['model'];
-      if (typeof m === 'string' && m) modelId = m;
+      if (ev.rawModel) modelId = ev.rawModel;
     }
     if (lastInputTokens != null && modelId != null) break;
   }

@@ -8,6 +8,7 @@ import {
 } from '@/lib/workspaces/read-file';
 import { writeWorkspaceFile, deleteWorkspacePath } from '@/lib/workspaces/write-file';
 import { openSessionWorktree, mapFileError } from '../_helpers';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Single-file CRUD for the execution view's file viewer.
@@ -24,7 +25,11 @@ import { openSessionWorktree, mapFileError } from '../_helpers';
  * caches that depend on worktree state once the route returns; git
  * status flips in/out via the same `tree` refetch path the agent uses.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

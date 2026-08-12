@@ -2,7 +2,7 @@
 
 import { useDashboard } from '@/contexts/dashboard-context';
 import { ContentPanel } from '@/components/dashboard/content-panel';
-import { ExecutionView } from '@/components/executions/execution-view';
+import { ExecutionView } from '@/components/executions/execution-view-lazy';
 import { MobileAgentsView } from './mobile-agents-view';
 import { MobileMoreView } from './mobile-more-view';
 import { MobileTabBar } from './mobile-tab-bar';

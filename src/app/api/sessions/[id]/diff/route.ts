@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Structured diff from `@agentex/workspace`'s `ws.git.diff('base')` —
@@ -9,7 +10,11 @@ import { openWorktreeHandle } from '@/lib/workspaces';
  * Optional `?file=...` filters to a single file's hunks (cheaper for the
  * slideout when the user clicks a single file).
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

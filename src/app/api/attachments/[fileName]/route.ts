@@ -14,11 +14,16 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { getAttachmentsDir } from '@/lib/config/paths';
 import { resolveMime } from '@/lib/attachments/mime';
+import { withCompression } from '@/lib/api/compression';
 
 /** Reject anything that isn't a bare `<uuid>.<ext>` filename. */
 const SAFE_FILENAME_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/;
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ fileName: string }> },
 ) {

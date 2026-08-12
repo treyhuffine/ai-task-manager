@@ -61,7 +61,7 @@ export function useLaunchSuggestions({
         kind: 'task',
         key: t.id,
         title: t.title,
-        body: t.body ?? t.description ?? null,
+        body: t.bodyExcerpt ?? t.description ?? null,
       });
     }
     return items.slice(0, 3);
@@ -294,7 +294,7 @@ export function useLaunchSources({
         key: t.id,
         title: t.title,
         subtitle: t.effort ? `${t.effort} effort` : null,
-        body: t.body ?? t.description ?? null,
+        body: t.bodyExcerpt ?? t.description ?? null,
         due: t.hardDeadline ?? null,
       })),
     });

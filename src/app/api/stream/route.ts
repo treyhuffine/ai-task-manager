@@ -2,8 +2,13 @@ import { NextRequest } from 'next/server';
 import type { CreateStreamInput, StreamStatus } from '@/db/types';
 import { createStream, listStreamWithOutcomes } from '@/lib/db/queries';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
+import { withCompression } from '@/lib/api/compression';
 
-export async function GET(request: NextRequest) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
     const status = params.get('status');

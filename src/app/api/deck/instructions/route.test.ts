@@ -28,7 +28,7 @@ function putReq(body: unknown): NextRequest {
 
 describe('/api/deck/instructions route', () => {
   it('GET returns empty content when DECK.md does not exist', async () => {
-    const res = await GET();
+    const res = await GET(new Request('http://localhost/api'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ content: '' });
   });
@@ -39,7 +39,7 @@ describe('/api/deck/instructions route', () => {
     expect(await put.json()).toMatchObject({ ok: true, content: '# Sources\nUse my calendar.' });
     expect(fs.existsSync(path.join(ROOT, DECK_INSTRUCTIONS_FILENAME))).toBe(true);
 
-    const get = await GET();
+    const get = await GET(new Request('http://localhost/api'));
     expect(await get.json()).toEqual({ content: '# Sources\nUse my calendar.' });
   });
 

@@ -14,8 +14,13 @@
 import type { NextRequest } from 'next/server';
 import { getChatSession } from '@/lib/db/queries';
 import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
+import { withCompression } from '@/lib/api/compression';
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

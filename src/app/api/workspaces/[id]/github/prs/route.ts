@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { getWorkspace } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * List open PRs for the workspace's repo via `@agentex/github`. The
@@ -9,7 +10,11 @@ import { getWorkspace } from '@/lib/db/queries';
  * workspace lib is — Next.js bundles these route handlers in a way
  * that occasionally trips static `import` of pure-ESM packages.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

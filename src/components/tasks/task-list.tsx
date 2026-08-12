@@ -38,7 +38,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { TaskRow } from './task-row';
 import { cn } from '@/lib/utils';
-import type { TaskStatus, Energy, TaskListRecord } from '@/db/types';
+import type { TaskStatus, Energy } from '@/db/types';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 type SortOption = 'sortKey' | 'lastViewedAt' | 'hardDeadline' | 'createdAt' | 'updatedAt';
 
@@ -372,7 +373,7 @@ export function TaskList() {
 /* ── Virtualized inner list ── */
 
 interface VirtualTaskListProps {
-  tasks: TaskListRecord[] | undefined;
+  tasks: TaskListDTO[] | undefined;
   isLoading: boolean;
   error: Error | null;
   sensors: ReturnType<typeof useSensors>;

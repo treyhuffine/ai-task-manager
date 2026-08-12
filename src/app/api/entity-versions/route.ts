@@ -1,4 +1,5 @@
 import { listEntityVersions } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Change history for a note or task — newest first. Powers the in-document
@@ -7,7 +8,11 @@ import { listEntityVersions } from '@/lib/db/queries';
  *
  *   GET ?entityType=task|note&entityId=<id>&limit=<n>
  */
-export async function GET(req: Request) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(req: Request) {
   const { searchParams } = new URL(req.url);
   const entityType = searchParams.get('entityType');
   const entityId = searchParams.get('entityId');

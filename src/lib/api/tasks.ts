@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import type {
   TaskRecord,
   TaskListRecord,
@@ -8,8 +9,8 @@ import type {
 } from '@/db/types';
 
 export const tasksApi = {
-  list(filter?: TaskFilter): Promise<TaskListRecord[]> {
-    return api.get<TaskListRecord[]>('/tasks', { query: filter as Record<string, string> });
+  list(filter?: TaskFilter): Promise<TaskListDTO[]> {
+    return api.get<TaskListDTO[]>('/tasks', { query: filter as Record<string, string> });
   },
 
   get(id: string): Promise<TaskRecord> {

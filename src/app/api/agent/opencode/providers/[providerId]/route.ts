@@ -13,10 +13,15 @@ import {
   safeOpenCodeErrorCode,
 } from '@/lib/agents/opencode';
 import { isHarnessId } from '@/lib/agents/registry';
+import { withCompression } from '@/lib/api/compression';
 
 type Context = { params: Promise<{ providerId: string }> };
 
-export async function GET(_request: Request, { params }: Context) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(_request: Request, { params }: Context) {
   try {
     const { providerId } = await params;
     const manager = openCodeProviderManager();

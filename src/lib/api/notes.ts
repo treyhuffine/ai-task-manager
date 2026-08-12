@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { NoteListDTO } from '@/lib/api/dto/entity-list';
 import type {
   NoteRecord,
   CreateNoteInput,
@@ -7,8 +8,8 @@ import type {
 } from '@/db/types';
 
 export const notesApi = {
-  list(filter?: NoteFilter): Promise<NoteRecord[]> {
-    return api.get<NoteRecord[]>('/notes', { query: filter as Record<string, string> });
+  list(filter?: NoteFilter): Promise<NoteListDTO[]> {
+    return api.get<NoteListDTO[]>('/notes', { query: filter as Record<string, string> });
   },
 
   get(id: string): Promise<NoteRecord> {

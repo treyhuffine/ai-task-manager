@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { finishMcpOAuth } from '@connectors/engine/mcp';
+import { withCompression } from '@/lib/api/compression';
 import {
   getMcpServerStore,
   getConnectorRuntime,
@@ -14,7 +15,11 @@ import {
  * can exchange the code and save the tokens. We then rebuild the runtime to ingest the now-authorized
  * server's tools and bounce back to the Connectors pane.
  */
-export async function GET(request: NextRequest, { params }: { params: Promise<{ sid: string }> }) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest, { params }: { params: Promise<{ sid: string }> }) {
   const { sid } = await params;
   const url = new URL(request.url);
   const back = new URL('/?settings=connectors', url.origin);

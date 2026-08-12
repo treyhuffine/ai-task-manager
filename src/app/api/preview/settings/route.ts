@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { readPreviewSettings, writePreviewSettings } from '@/lib/preview/settings';
 import { beamdLogin, beamdLogout, beamdCheck, beamdStatus, beamdBinInfo, BeamdCliError } from '@/lib/preview/beamd/cli';
 import { listPreviewProviders } from '@/lib/preview/service';
+import { withCompression } from '@/lib/api/compression';
 
 export const runtime = 'nodejs';
 
@@ -65,7 +66,11 @@ async function snapshot() {
   };
 }
 
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   return Response.json(await snapshot());
 }
 

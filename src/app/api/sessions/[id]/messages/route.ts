@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import {
   getAgent,
   getChatEventById,
@@ -6,7 +7,9 @@ import {
   getExecution,
   insertChatEvent,
   materializeEventRefs,
+  recordSkillUse,
 } from '@/lib/db/queries';
+import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
 import { budgetGate } from '@/lib/runs/budget';
 import { ensureWorktreeReady } from '@/lib/runs/dispatch';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
@@ -172,6 +175,23 @@ export async function POST(
       }
     }
 
+    // Teach the `/` menu which skills this user actually reaches for. Recorded
+    // here rather than on menu selection because this is the only point every
+    // surface funnels through, and because the signal we want is "invoked",
+    // not "highlighted" — typing `/impl` from muscle memory without ever
+    // opening the popup should still count, and picking a skill then deleting
+    // it should not. Skipped on retry so a re-POST can't double count.
+    if (!isRetry) {
+      const invoked = parseSlashInvocation(content);
+      if (invoked) {
+        try {
+          recordSkillUse(invoked);
+        } catch (err) {
+          console.warn(`[POST /api/sessions/:id/messages] recordSkillUse failed:`, err);
+        }
+      }
+    }
+
     // Expand markers once, off the response path. Both label derivation
     // and the agent dispatch use the same expanded prompt. Two passes:
     // entity markers (task / note / scratchpad) first — they expand to
@@ -247,7 +267,9 @@ export async function POST(
       });
     }
 
-    return Response.json(row, { status: 201 });
+    // Same projection as GET /events and the SSE stream. This row lands in
+    // the same client cache as those, so it has to carry the same fields.
+    return Response.json(toChatEventDTO(row), { status: 201 });
   } catch (err) {
     console.error('[POST /api/sessions/:id/messages]', err);
     return Response.json({ error: String(err) }, { status: 500 });

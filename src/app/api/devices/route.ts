@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { createApiKey, listApiKeys } from '@/lib/db/queries';
 import { deviceTypeFromUserAgent } from '@/lib/auth/device-type';
 import type { CreateApiKeyInput, DeviceType } from '@/db/types';
+import { withCompression } from '@/lib/api/compression';
 
 const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
   'host',
@@ -12,7 +13,11 @@ const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
   'other',
 ];
 
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const includeRevoked = request.nextUrl.searchParams.get('includeRevoked') === '1';
     const rows = listApiKeys({ includeRevoked });

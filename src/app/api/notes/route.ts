@@ -1,8 +1,14 @@
 import { NextRequest } from 'next/server';
 import { listNotes, createNote } from '@/lib/db/queries';
 import type { CreateNoteInput } from '@/db/types';
+import { withCompression } from '@/lib/api/compression';
+import { toNoteListDTOs } from '@/lib/api/dto/entity-list';
 
-export async function GET(request: NextRequest) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
 
@@ -16,7 +22,9 @@ export async function GET(request: NextRequest) {
       offset: params.get('offset') ? parseInt(params.get('offset')!, 10) : undefined,
     });
 
-    return Response.json(rows);
+    // Bodies are 69% of this payload; the list shows a title line and a
+    // one-line preview. Full body stays on GET /api/notes/:id.
+    return Response.json(toNoteListDTOs(rows));
   } catch (err) {
     console.error('[GET /api/notes]', err);
     return Response.json({ error: String(err) }, { status: 500 });

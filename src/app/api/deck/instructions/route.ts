@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { withCompression } from '@/lib/api/compression';
 import {
   readDeckInstructions,
   writeDeckInstructions,
@@ -6,7 +7,11 @@ import {
 } from '@/lib/deck/instructions';
 
 /** The user's DECK.md source instructions. */
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   try {
     return Response.json({ content: readDeckInstructions() ?? '' });
   } catch (err) {

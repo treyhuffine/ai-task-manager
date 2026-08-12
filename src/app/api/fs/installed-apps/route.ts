@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { detectInstalledApps, type DetectedApp } from '@/lib/fs/detect-apps';
 import { extractAppIconPng } from '@/lib/fs/extract-icon';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * GET /api/fs/installed-apps
@@ -29,7 +30,11 @@ export interface InstalledAppsResponse {
   apps: InstalledAppEntry[];
 }
 
-export async function GET(_request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(_request: NextRequest) {
   try {
     const detected = await detectInstalledApps();
     const apps: InstalledAppEntry[] = await Promise.all(

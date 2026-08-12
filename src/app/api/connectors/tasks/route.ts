@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { listConnectorTasks } from '@/lib/connectors/task-sources';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Tasks from connected task-management providers (Todoist, Linear).
@@ -11,7 +12,11 @@ import { listConnectorTasks } from '@/lib/connectors/task-sources';
  */
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const query = request.nextUrl.searchParams.get('q') ?? '';
     return Response.json(await listConnectorTasks(query));

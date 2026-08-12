@@ -14,7 +14,7 @@ import {
 import { AreaSelect } from '@/components/shared/area-select';
 import { TaskPicker } from '@/components/shared/task-picker';
 import { cn } from '@/lib/utils';
-import type { NoteRecord } from '@/db/types';
+import type { NoteListDTO } from '@/lib/api/dto/entity-list';
 
 /** Strip markdown syntax for plain-text previews */
 function stripMarkdown(text: string): string {
@@ -45,15 +45,15 @@ function formatRelativeDate(iso: string): string {
 }
 
 interface NoteRowProps {
-  note: NoteRecord;
+  note: NoteListDTO;
   onUpdate: (id: string, field: string, value: unknown) => void;
   onArchive: (id: string) => void;
   onOpen?: (id: string) => void;
 }
 
 export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
-  const displayTitle = note.title || stripMarkdown(note.body.split('\n')[0]).slice(0, 80);
-  const rawPreview = note.title ? note.body : note.body.split('\n').slice(1).join('\n');
+  const displayTitle = note.title || stripMarkdown((note.bodyExcerpt ?? '').split('\n')[0]).slice(0, 80);
+  const rawPreview = note.title ? (note.bodyExcerpt ?? '') : (note.bodyExcerpt ?? '').split('\n').slice(1).join('\n');
   const bodyPreview = rawPreview ? stripMarkdown(rawPreview) : '';
 
   return (
@@ -72,7 +72,7 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
     >
       {/* Icon */}
       <div className="mt-0.5 text-muted-foreground/50 flex-shrink-0">
-        {note.url ? <ExternalLink size={14} /> : <NoteIcon body={note.body} size={14} />}
+        {note.url ? <ExternalLink size={14} /> : <NoteIcon body={note.bodyExcerpt} size={14} />}
       </div>
 
       {/* Content */}

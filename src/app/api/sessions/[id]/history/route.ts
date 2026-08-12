@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, listChatSessions } from '@/lib/db/queries';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { isRunning } from '@/lib/executor/adapter';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Past + current chats for the execution that `:id` belongs to, hottest first.
@@ -23,7 +24,11 @@ import { isRunning } from '@/lib/executor/adapter';
  * `/runtime-status`) so the tab strip can mark which parallel chats have
  * an agent actively working. Free — no DB read, no subprocess poke.
  */
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
     const current = getChatSessionWithExecution(id);

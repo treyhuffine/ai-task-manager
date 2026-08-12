@@ -14,8 +14,13 @@
  */
 import { NextRequest } from 'next/server';
 import { getChatSession, listTasks, listNotes } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

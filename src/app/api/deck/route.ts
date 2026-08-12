@@ -6,11 +6,16 @@ import { getActiveDeckForDate, getLatestDeck } from '@/lib/db/queries';
 import { ensureTodaysDeck } from '@/lib/deck/ensure-todays-deck';
 import { ensureCalendarProvider } from '@/lib/deck/calendar-connector';
 import { todayLocalDate } from '@/lib/deck/date';
+import { withCompression } from '@/lib/api/compression';
 
 // First-look generation can run the AI pipeline (two model calls).
 export const maxDuration = 60;
 
-export async function GET(request: NextRequest) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
     const limit = parseInt(params.get('limit') ?? '1', 10);

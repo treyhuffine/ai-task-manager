@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
 import {
   detectSourceWip,
   copyWipToWorktree,
@@ -19,7 +20,11 @@ import {
  * source checkout directly, so there is no separate worktree for WIP to
  * "stay behind" from.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

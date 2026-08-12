@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isConnectorError } from '@connectors/engine';
 import { getConnectorAdmin, getConnectorOwnerId } from '@/lib/connectors/runtime';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Manage BYO ("use your own OAuth app") auth configs for a provider. These persist in the home
@@ -22,7 +23,11 @@ function errorResponse(e: unknown): NextResponse {
   return NextResponse.json({ error: code ?? (e instanceof Error ? e.message : String(e)) }, { status });
 }
 
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   const providerId = new URL(request.url).searchParams.get('providerId');
   if (!providerId) return NextResponse.json({ error: 'providerId required' }, { status: 400 });
   return NextResponse.json({ configs: await (await getConnectorAdmin()).list(providerId) });

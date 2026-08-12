@@ -10,15 +10,42 @@ import {
 } from 'react'
 import type { SuggestionKeyDownProps } from '@tiptap/suggestion'
 import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
-import type { SkillCommandDescriptor } from './types'
+import { highlightSegments, type CommandMatch } from './ranking'
 
 export interface SlashMenuListRef {
   onKeyDown: (props: SuggestionKeyDownProps) => boolean
 }
 
 interface SlashMenuListProps {
-  items: SkillCommandDescriptor[]
-  command: (item: SkillCommandDescriptor) => void
+  items: CommandMatch[]
+  command: (item: CommandMatch) => void
+}
+
+/**
+ * Emphasize the characters the query actually matched. With no cap on the
+ * list this is what keeps a long result set legible: the top rows visibly
+ * matched the command name, the tail visibly matched a description word, and
+ * nothing looks like it arrived by accident.
+ *
+ * The theme is monochrome, so there is no accent hue to highlight with —
+ * contrast does the work instead. The same class pair reads correctly in both
+ * slots: on the foreground-colored name, unmatched characters recede to muted;
+ * on the already-muted description, matched characters step forward.
+ */
+function Highlighted({ text, matches }: { text: string; matches: number[] }) {
+  if (matches.length === 0) return <>{text}</>
+  return (
+    <>
+      {highlightSegments(text, matches).map((seg, i) => (
+        <span
+          key={i}
+          className={seg.match ? 'text-foreground font-medium' : 'text-muted-foreground'}
+        >
+          {seg.text}
+        </span>
+      ))}
+    </>
+  )
 }
 
 /**
@@ -79,7 +106,7 @@ export const SlashMenuList = forwardRef<SlashMenuListRef, SlashMenuListProps>(
       <div ref={listRef} className="slash-command-menu chat-slash-menu">
         {items.map((item, index) => (
           <button
-            key={item.id}
+            key={item.command.id}
             type="button"
             className={`flex items-baseline gap-2 w-full px-2.5 py-1 rounded text-left transition-colors ${
               index === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50'
@@ -89,11 +116,14 @@ export const SlashMenuList = forwardRef<SlashMenuListRef, SlashMenuListProps>(
             onMouseEnter={() => setSelectedIndex(index)}
           >
             <span className="font-mono text-[11px] text-foreground shrink-0">
-              /{item.name}
+              /<Highlighted text={item.command.name} matches={item.nameMatches} />
             </span>
-            {item.description && (
+            {item.command.description && (
               <span className="text-[11px] text-muted-foreground truncate min-w-0">
-                {item.description}
+                <Highlighted
+                  text={item.command.description}
+                  matches={item.descriptionMatches}
+                />
               </span>
             )}
           </button>

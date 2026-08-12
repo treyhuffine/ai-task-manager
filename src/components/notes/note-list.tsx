@@ -17,7 +17,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { NoteRow } from './note-row';
 import { cn } from '@/lib/utils';
-import type { NoteStatus, NoteRecord } from '@/db/types';
+import type { NoteStatus } from '@/db/types';
+import type { NoteListDTO } from '@/lib/api/dto/entity-list';
 
 export function NoteList() {
   const { theme, openNote } = useDashboard();
@@ -152,7 +153,7 @@ export function NoteList() {
 /* ── Virtualized inner list ── */
 
 interface VirtualNoteListProps {
-  notes: NoteRecord[] | undefined;
+  notes: NoteListDTO[] | undefined;
   isLoading: boolean;
   error: Error | null;
   onUpdate: (id: string, field: string, value: unknown) => void;

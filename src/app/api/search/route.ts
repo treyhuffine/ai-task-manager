@@ -4,8 +4,13 @@ import { getDb } from '@/lib/db';
 import { hydrateRow } from '@/lib/db/hydrate';
 import { tasks, notes, stream } from '@/lib/db/schema';
 import { hybridSearch, vectorSearch, ftsSearch } from '@/lib/embeddings/search';
+import { withCompression } from '@/lib/api/compression';
 
-export async function GET(request: NextRequest) {
+// Compressed: this route can ship hundreds of KB of JSON, and Next 16
+// does not compress route handlers. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const q = request.nextUrl.searchParams.get('q');
     const mode = (request.nextUrl.searchParams.get('mode') ?? 'hybrid') as

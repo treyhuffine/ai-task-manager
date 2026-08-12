@@ -9,8 +9,13 @@
 
 import { NextRequest } from 'next/server';
 import { runAction } from '@/lib/orchestrator/dispatch';
+import { withCompression } from '@/lib/api/compression';
 
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const input: Record<string, unknown> = {};
   const enabled = params.get('enabled');

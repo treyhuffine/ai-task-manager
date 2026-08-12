@@ -129,7 +129,7 @@ export function NoteActions({ onPromote, onMerge }: NoteActionsProps) {
   const { data: notes } = useNotes({ status: 'active' });
 
   const filtered = (notes ?? []).filter(n => {
-    const text = (n.title ?? n.body).toLowerCase();
+    const text = (n.title ?? n.bodyExcerpt ?? '').toLowerCase();
     return text.includes(query.toLowerCase());
   }).slice(0, 8);
 
@@ -201,7 +201,7 @@ export function NoteActions({ onPromote, onMerge }: NoteActionsProps) {
                 >
                   <FileText size={10} className="text-muted-foreground mt-0.5 flex-shrink-0" />
                   <span className="text-[10.5px] text-foreground leading-snug line-clamp-2">
-                    {note.title ?? note.body.slice(0, 80)}
+                    {note.title ?? (note.bodyExcerpt ?? '').slice(0, 80)}
                   </span>
                 </button>
               ))}

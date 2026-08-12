@@ -4,11 +4,16 @@ import { getStreamAutonomy, setStreamAutonomy } from '@/lib/db/queries';
 import { previewGraduationOffers, describeGraduation } from '@/lib/stream-triage/autonomy';
 import { getStreamAutomationMode, setStreamAutomationMode } from '@/lib/stream-triage/triggers';
 import { triageErrorResponse } from '@/lib/stream-triage/http';
+import { withCompression } from '@/lib/api/compression';
 
 /** GET /api/stream/autonomy — current config plus any standing graduation
  *  offers (side-effect free: demotions only apply at sweep end). Offers
  *  carry their user-facing copy so the client never imports server code. */
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   try {
     return Response.json({
       autonomy: getStreamAutonomy(),

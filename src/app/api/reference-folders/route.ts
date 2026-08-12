@@ -4,6 +4,7 @@ import { listResolvedReferenceFolders, resolveReferenceFolder } from '@/lib/refe
 import { recycleForReferenceFolderChange } from '@/lib/executor/adapter';
 import { getWorkspace } from '@/lib/db/queries';
 import type { CreateReferenceFolderInput } from '@/db/types';
+import { withCompression } from '@/lib/api/compression';
 
 /** Map the query layer's typed failures onto HTTP without leaking stack traces. */
 function statusForReferenceError(code: ReferenceFolderError['code']): number {
@@ -19,7 +20,11 @@ function statusForReferenceError(code: ReferenceFolderError['code']): number {
  *
  * `?workspaceId=` omitted lists the global rows alone.
  */
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     const consumerCwd = workspaceId ? getWorkspace(workspaceId)?.cwd ?? null : null;

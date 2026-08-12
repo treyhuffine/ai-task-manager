@@ -12,7 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import type { TaskRecord } from '@/db/types';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 const EFFORT_SHORT: Record<string, string> = {
   trivial: 'XS',
@@ -25,7 +25,7 @@ const EFFORT_SHORT: Record<string, string> = {
 interface DeckTaskBrowserProps {
   /** IDs of tasks already on the deck (shown as disabled) */
   deckTaskIds: Set<string>;
-  onAddToDeck: (task: TaskRecord) => void;
+  onAddToDeck: (task: TaskListDTO) => void;
   onRemoveFromDeck?: (taskId: string) => void;
   onClose: () => void;
 }

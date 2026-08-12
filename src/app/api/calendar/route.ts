@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { withCompression } from '@/lib/api/compression';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -10,7 +11,11 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  * it bypasses the queries layer by design. `start` defaults to today, `days`
  * clamps to 1-14, `fresh=1` busts the 60s service cache.
  */
-export async function GET(request: NextRequest) {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
     const start = sp.get('start') ?? undefined;

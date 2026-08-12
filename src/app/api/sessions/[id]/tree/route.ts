@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { listTree, type TreeEntry } from '@/lib/workspaces/list-tree';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Flat list of the worktree's tracked + untracked files for the file
@@ -15,7 +16,11 @@ import { listTree, type TreeEntry } from '@/lib/workspaces/list-tree';
  * non-git workspace without a path) so the client can render an empty
  * state instead of error.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

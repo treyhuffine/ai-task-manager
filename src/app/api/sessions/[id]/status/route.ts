@@ -1,13 +1,18 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Worktree status from `@agentex/workspace`'s `ws.git.status()` —
  * untracked / modified / staged file lists plus ahead/behind counts.
  * Returns null for non-git workspaces or when the worktree is missing.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

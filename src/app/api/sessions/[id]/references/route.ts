@@ -25,6 +25,7 @@ import {
 } from '@/lib/db/queries';
 import type { ChatRefRecord, TaskRecord, TaskListRecord, NoteRecord } from '@/db/types';
 import type { ReferenceRow } from '@/lib/api/sessions';
+import { withCompression } from '@/lib/api/compression';
 
 const SECTION_CAP = 50;
 
@@ -60,7 +61,11 @@ function noteToRow(n: NoteRecord, referencedAt?: string | null): ReferenceRow {
   };
 }
 
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

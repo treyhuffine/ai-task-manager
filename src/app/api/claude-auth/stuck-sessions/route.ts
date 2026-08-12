@@ -1,6 +1,7 @@
 import { listSessionsStuckOnSource } from '@/lib/db/queries';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { Attachment, StoredAttachment } from '@/db/types';
+import { withCompression } from '@/lib/api/compression';
 
 export interface StuckSession {
   id: string;
@@ -23,7 +24,11 @@ export interface StuckSession {
  * Cheap to call repeatedly — the floating card refetches on close+reopen
  * and after each Resend so a row disappears once its dispatch lands.
  */
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   const rows = listSessionsStuckOnSource('auth_required');
   const sessions: StuckSession[] = rows.map((r) => {
     // The CTE pulls the JSON column verbatim, so the parsed shape is

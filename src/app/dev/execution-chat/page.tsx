@@ -21,7 +21,7 @@ import { Loader2, RotateCcw, Beaker, Zap, RefreshCw } from 'lucide-react';
 import { DashboardProvider } from '@/contexts/dashboard-context';
 import { api, ApiError } from '@/lib/api/client';
 import { sessionsApi, type ChatSessionWithAgent } from '@/lib/api/sessions';
-import { ExecutionView } from '@/components/executions/execution-view';
+import { ExecutionView } from '@/components/executions/execution-view-lazy';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
 import { SCENARIOS, SCENARIO_CATEGORIES, type Scenario, type InjectBody } from '@/lib/dev/scenarios';
 import type { WorkspaceRecord } from '@/db/types';

@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getWorkspace } from '@/lib/db/queries';
 import { getWorkspaceBaseStatus } from '@/lib/workspaces';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * How far the workspace's own checkout is behind its base branch.
@@ -14,7 +15,11 @@ import { getWorkspaceBaseStatus } from '@/lib/workspaces';
  * "0 behind" while upstream has moved. An unfetched answer here would be worse
  * than none, since the whole point is telling the user whether they're current.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

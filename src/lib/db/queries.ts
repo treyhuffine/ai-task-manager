@@ -11,7 +11,7 @@ import {
   workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
-  triagePasses, triageDecisions, streamLinks,
+  triagePasses, triageDecisions, streamLinks, skillUsage,
 } from '@/lib/db/schema';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
@@ -44,6 +44,7 @@ import type {
   NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput,
   WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
   NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
+  SkillUsageRecord,
   AgentHarnessSettingsRecord, UpsertAgentHarnessSettingsInput, AgentHarnessOperationRecord,
   StreamStatus,
   TriagePassRecord, TriagePassTrigger,
@@ -5354,4 +5355,103 @@ export function listNotificationDeliveries(userId: string, limit = 100): Notific
     .orderBy(desc(notificationDeliveries.createdAt))
     .limit(limit)
     .all();
+}
+
+// ─── Skill Usage ──────────────────────────────────────────────
+
+/**
+ * Days for a command's score to lose half its weight. Picked so a skill used
+ * daily clearly outranks one used monthly, which is the behavior we want. The
+ * score only ever breaks ties inside a match tier (see the slash menu's
+ * `ranking.ts`), so an imprecise half-life is cheap.
+ */
+export const SKILL_USAGE_HALF_LIFE_DAYS = 14;
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Below this a score is noise, not signal — exponential decay never actually
+ * reaches zero, so without a floor a command touched once years ago stays in
+ * the ranking map forever carrying a number that rounds to nothing.
+ */
+const SKILL_USAGE_FLOOR = 1e-6;
+
+/**
+ * Decay a stored score forward to `now`. Exported for the ranking read path so
+ * a command last used months ago doesn't keep a stale lead over one used this
+ * morning purely because nothing has written to its row since.
+ */
+export function decaySkillScore(score: number, lastUsedAt: string | null, now = Date.now()): number {
+  if (score <= 0) return 0;
+  if (!lastUsedAt) return score;
+  const elapsed = now - new Date(lastUsedAt).getTime();
+  // Clock skew (or a future-dated row) would otherwise inflate the score.
+  if (!Number.isFinite(elapsed) || elapsed <= 0) return score;
+  return score * Math.pow(0.5, elapsed / MS_PER_DAY / SKILL_USAGE_HALF_LIFE_DAYS);
+}
+
+/**
+ * Record one invocation of a slash command.
+ *
+ * The score is a decayed running count: decay what was there to now, then add
+ * one. That keeps recency and frequency in a single number with an O(1)
+ * update and no event log to prune — a command used twice today outranks one
+ * used five times last quarter, without storing five rows.
+ *
+ * Safe to call with an unrecognized name; the read path filters against the
+ * live command list, so junk rows are inert.
+ */
+export function recordSkillUse(name: string): void {
+  const trimmed = name.trim().toLowerCase();
+  if (!trimmed) return;
+  const now = new Date().toISOString();
+  const existing = getDb().select().from(skillUsage).where(eq(skillUsage.name, trimmed)).get();
+
+  if (!existing) {
+    getDb()
+      .insert(skillUsage)
+      .values({ id: uuidv7(), name: trimmed, useCount: 1, score: 1, lastUsedAt: now })
+      // A concurrent first-use of the same command (two tabs, two devices)
+      // races here; fold it into the existing row rather than throwing on the
+      // unique index.
+      .onConflictDoUpdate({
+        target: skillUsage.name,
+        set: {
+          useCount: sql`${skillUsage.useCount} + 1`,
+          score: sql`${skillUsage.score} + 1`,
+          lastUsedAt: now,
+        },
+      })
+      .run();
+    return;
+  }
+
+  getDb()
+    .update(skillUsage)
+    .set({
+      useCount: existing.useCount + 1,
+      score: decaySkillScore(existing.score, existing.lastUsedAt) + 1,
+      lastUsedAt: now,
+    })
+    .where(eq(skillUsage.id, existing.id))
+    .run();
+}
+
+/**
+ * Current decayed score per command name. Returned as a map because the only
+ * caller joins it against the discovered command list.
+ */
+export function getSkillUsageScores(): Map<string, number> {
+  const now = Date.now();
+  const out = new Map<string, number>();
+  for (const row of getDb().select().from(skillUsage).all()) {
+    const score = decaySkillScore(row.score, row.lastUsedAt, now);
+    if (score >= SKILL_USAGE_FLOOR) out.set(row.name, score);
+  }
+  return out;
+}
+
+/** Full usage rows, most-used first. */
+export function listSkillUsage(): SkillUsageRecord[] {
+  return getDb().select().from(skillUsage).orderBy(desc(skillUsage.score)).all();
 }

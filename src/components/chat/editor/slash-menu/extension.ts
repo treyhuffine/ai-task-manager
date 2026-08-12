@@ -7,7 +7,8 @@ import Suggestion, {
   type SuggestionProps,
 } from '@tiptap/suggestion'
 import { createSuggestionRenderer } from './renderer'
-import type { SkillCommandDescriptor } from './types'
+import { rankCommands, type CommandMatch } from './ranking'
+import type { SlashCommand } from './types'
 
 // Each Suggestion plugin needs its own PluginKey — without one they
 // all default to `suggestion$` and ProseMirror throws "Adding different
@@ -21,7 +22,7 @@ interface SlashMenuOptions {
    * extension always sees the latest TanStack Query data even though its
    * options are frozen at editor-create time.
    */
-  getCommands?: () => SkillCommandDescriptor[]
+  getCommands?: () => SlashCommand[]
 }
 
 /**
@@ -55,40 +56,35 @@ export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
   addProseMirrorPlugins() {
     const getCommands = () => this.options.getCommands?.() ?? []
 
-    const suggestion: Partial<SuggestionOptions<SkillCommandDescriptor, SkillCommandDescriptor>> = {
+    const suggestion: Partial<SuggestionOptions<CommandMatch, CommandMatch>> = {
       pluginKey: SLASH_MENU_PLUGIN_KEY,
       char: '/',
       allowSpaces: false,
       startOfLine: true,
-      items: ({ query }: { query: string }) => {
-        const q = query.toLowerCase()
-        return getCommands().filter((cmd) => {
-          if (cmd.name.toLowerCase().includes(q)) return true
-          if (cmd.description?.toLowerCase().includes(q)) return true
-          return false
-        })
-      },
+      // All ordering lives in `ranking.ts` — see the tier table there for why
+      // a name match can never lose to a description match.
+      items: ({ query }: { query: string }) => rankCommands(getCommands(), query),
       command: ({
         editor,
         range,
-        props: cmd,
+        props: match,
       }: {
-        editor: SuggestionProps<SkillCommandDescriptor>['editor']
+        editor: SuggestionProps<CommandMatch>['editor']
         range: { from: number; to: number }
-        props: SkillCommandDescriptor
+        props: CommandMatch
       }) => {
         editor
           .chain()
           .focus()
           .deleteRange(range)
-          .insertContent(`/${cmd.name} `)
+          .insertContent(`/${match.command.name} `)
           .run()
       },
       render: createSuggestionRenderer(),
     }
 
     return [
-      Suggestion<SkillCommandDescriptor, SkillCommandDescriptor>({
+      Suggestion<CommandMatch, CommandMatch>({
         editor: this.editor,
         ...suggestion,
       }),

@@ -9,6 +9,7 @@
 
 import { countActiveRuns, sumRunCostSince } from '@/lib/db/queries';
 import { budgetSnapshot } from '@/lib/runs/budget';
+import { withCompression } from '@/lib/api/compression';
 
 function startOfDayUtcIso(now: Date = new Date()): string {
   return new Date(
@@ -16,7 +17,11 @@ function startOfDayUtcIso(now: Date = new Date()): string {
   ).toISOString();
 }
 
-export async function GET() {
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET() {
   try {
     const now = new Date();
     const today = sumRunCostSince(startOfDayUtcIso(now));

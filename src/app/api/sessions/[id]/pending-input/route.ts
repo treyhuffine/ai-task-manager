@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { listForSession } from '@/lib/executor/pending-input';
+import { withCompression } from '@/lib/api/compression';
 
 /**
  * Active permission/question requests for this chat_session that are
@@ -11,7 +12,11 @@ import { listForSession } from '@/lib/executor/pending-input';
  * sees no response and the next user message creates a fresh session.
  * That's the same recovery model as `runtime-status`.
  */
-export async function GET(
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+export const GET = withCompression(handleGET);
+
+async function handleGET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
