@@ -149,9 +149,32 @@ export async function compressJsonResponse(
   request: Request,
   res: Response,
 ): Promise<Response> {
+  try {
+    return await compressOrThrow(request, res);
+  } catch {
+    // Compression is an optimization layered *after* the handler has already
+    // produced a correct response. Anything that goes wrong in here — a
+    // caller that passed something other than a real Request, a body that
+    // can't be buffered, a zlib failure — must not turn that 200 into a 500.
+    // Fall back to the response the handler actually returned.
+    //
+    // Not theoretical: this fired the first time a route test invoked a
+    // wrapped handler with a stub request, where reading `accept-encoding`
+    // threw and took a passing route down with it.
+    return res;
+  }
+}
+
+async function compressOrThrow(request: Request, res: Response): Promise<Response> {
   if (!isCompressible(res)) return res;
 
-  const encoding = negotiateEncoding(request.headers.get('accept-encoding'));
+  // Tolerate a caller without real headers rather than assuming a
+  // well-formed Request; an absent header simply means "no encoding".
+  const accept =
+    typeof request?.headers?.get === 'function'
+      ? request.headers.get('accept-encoding')
+      : null;
+  const encoding = negotiateEncoding(accept);
   const body = Buffer.from(await res.arrayBuffer());
 
   const headers = addVary(new Headers(res.headers));

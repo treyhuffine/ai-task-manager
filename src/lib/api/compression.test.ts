@@ -147,6 +147,24 @@ describe('compressJsonResponse', () => {
     expect(res.bodyUsed).toBe(false);
   });
 
+  it('never turns a working response into an error', async () => {
+    // Compression runs after the handler has already produced a correct
+    // response, so a fault in here must degrade to "uncompressed", never to a
+    // 500. Route tests invoke handlers with stub requests, which is exactly
+    // how this surfaced: reading `accept-encoding` off `{}` threw and took a
+    // passing 200 down with it.
+    const original = Response.json({ ok: true, pad: 'x'.repeat(2000) });
+    const res = await compressJsonResponse({} as unknown as Request, original);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
+
+    // Same for a request whose headers exist but misbehave.
+    const hostile = { headers: { get() { throw new Error('nope'); } } } as unknown as Request;
+    const res2 = await compressJsonResponse(hostile, Response.json({ ok: true, pad: 'y'.repeat(2000) }));
+    expect(res2.status).toBe(200);
+    expect(await res2.json()).toMatchObject({ ok: true });
+  });
+
   it('preserves status and custom headers', async () => {
     const res = await compressJsonResponse(
       req('gzip'),
