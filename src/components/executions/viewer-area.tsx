@@ -25,9 +25,8 @@ interface ViewerAreaProps {
    * Monotonic counter the parent bumps every time the user explicitly
    * picks a file (via the tree, rename, or create). When this changes,
    * we swap to the Files tab — clicking a file unambiguously means
-   * "show me the file." Programmatic selection (e.g. `useInitialSelectedFile`'s
-   * auto-seed on mount) doesn't bump the counter, so it doesn't yank the
-   * user out of a Preview view they're still using.
+   * "show me the file." Programmatic selection doesn't bump the counter,
+   * so it can't yank the user out of a Preview view they're still using.
    */
   filePickSignal?: number;
   /**

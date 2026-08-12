@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Copy,
   AtSign,
+  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSession, useSessionTree, useWriteFile } from '@/hooks/use-execution';
@@ -40,7 +41,7 @@ import { MarkdownView } from './markdown-view';
 interface FileViewerProps {
   sessionId: string;
   selectedPath: string | null;
-  /** Dismiss the open file — viewer returns to the empty "Select a file" state. */
+  /** Dismiss the open file — viewer returns to the "No file open" state. */
   onClose?: () => void;
   /**
    * Insert `@<relative-path>` at the chat composer's cursor. Wired by
@@ -165,13 +166,7 @@ export function FileViewer({
   }, [selectedPath]);
 
   if (!selectedPath) {
-    return (
-      <EmptyShell
-        icon={<FileText size={20} className="opacity-60" />}
-        title="Select a file to preview"
-        detail="Pick something from the tree on the left."
-      />
-    );
+    return <NoFileOpen />;
   }
 
   // Fall back to Current when the selected mode doesn't apply to this
@@ -544,20 +539,38 @@ function RevealButton({ sessionId, path }: RevealButtonProps) {
   );
 }
 
-function EmptyShell({
-  icon,
-  title,
-  detail,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  detail?: string;
-}) {
+/**
+ * Resting state of the viewer. Nothing is open by design: an execution
+ * opens with no file selected, so this is what the user lands on. It has
+ * to read as "ready when you are" rather than "something failed to
+ * load", which is why it points at the two tree affordances (the
+ * All / Changes toggle and search) instead of just saying "empty".
+ */
+function NoFileOpen() {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-background px-6 text-center text-[11px] text-muted-foreground/80">
-      {icon}
-      <span className="text-foreground/85 text-[12px] font-medium">{title}</span>
-      {detail && <span className="text-muted-foreground/70">{detail}</span>}
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-muted/40">
+        <FileText size={18} className="text-muted-foreground/70" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-[13px] font-medium text-foreground/90">No file open</span>
+        <span className="max-w-[22rem] text-[11.5px] leading-relaxed text-muted-foreground/80">
+          Pick a file from the tree on the left to view, diff, or edit it.
+        </span>
+      </div>
+      <div className="mt-0.5 flex flex-col items-center gap-1 text-[11px] text-muted-foreground/60">
+        <span className="flex items-center gap-1.5">
+          <GitCompareArrows size={11} className="shrink-0" />
+          <span>
+            <span className="text-muted-foreground/85">Changes</span> narrows the tree to
+            what the agent touched
+          </span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Search size={11} className="shrink-0" />
+          <span>Search the tree to jump anywhere in the worktree</span>
+        </span>
+      </div>
     </div>
   );
 }

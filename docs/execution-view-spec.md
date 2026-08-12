@@ -476,11 +476,11 @@ unblock later ones.
       "Reveal in Finder" affordance.
 - [x] Wire viewer into `ExecutionView` — replace stub. Selected path
       flows from FileTree → FileViewer.
-- [x] Add `useInitialSelectedFile(session, tree, events)` hook —
-      computes initial focus: prefer most recent tool-use file path
-      from `useSessionEvents`, fall back to most recent by `mtime` in
-      `tree.entries.filter(e => e.status)`, fall back to `null`. Runs
-      once per session-open.
+- [x] ~~Add `useInitialSelectedFile(session, tree, events)` hook~~ —
+      **Reverted.** Auto-focusing a file on open cost a content + diff
+      fetch for a view the user usually did not want, and it fought the
+      Preview tab. Executions now open with nothing selected and the
+      viewer shows a "No file open" CTA pointing at the file tree.
 - [x] Hook up `ChangesPill` to FileViewer: clicking the pill selects
       the latest-edited file and switches to Diff view.
 

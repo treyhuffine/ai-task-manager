@@ -33,7 +33,6 @@ import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
 import { FileTree } from './file-tree/file-tree';
 import { ViewerArea } from './viewer-area';
-import { useInitialSelectedFile } from './viewer/use-initial-selected-file';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
 import { useFileHistory } from '@/hooks/use-file-history';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
@@ -279,13 +278,14 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
   // Selected file path in the file tree / viewer pair. Lifted here so
   // the tree and viewer can render in different columns and still share
-  // selection state.
+  // selection state. Starts empty on every open: auto-opening a file was
+  // an expensive fetch (content + diff) for a view the user usually
+  // didn't ask for, so the viewer shows its empty CTA until a pick.
   //
   // Reset on execution change. ExecutionView is mounted once and just
   // re-renders when sessionId changes (no `key={sessionId}` upstream),
   // so without this reset, a file picked in execution A would leak
-  // into execution B — and useInitialSelectedFile's "already selected"
-  // early-return would suppress picking a fresh default for B.
+  // into execution B.
   //
   // Guarded on executionId rather than sessionId: sibling chats share a
   // worktree, so clearing the open file when you switch chats would be
@@ -297,10 +297,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     setSelectedPath(null);
   }
 
-  // Monotonic signal the ViewerArea watches to know "the user *intentionally*
-  // picked a file" — distinct from the auto-seed that `useInitialSelectedFile`
-  // does on mount. Bumped here in the tree's onSelect path; ViewerArea
-  // swaps to its Files tab when this changes. Closing a file (onSelect(null))
+  // Monotonic signal the ViewerArea watches to know "the user picked a
+  // file". Bumped here in the tree's onSelect path; ViewerArea swaps to
+  // its Files tab when this changes. Closing a file (onSelect(null))
   // does NOT bump it — closing isn't a request to view files.
   const [filePickSignal, setFilePickSignal] = useState(0);
 
@@ -435,11 +434,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       setTerminalOpenPct(t);
     }
   };
-
-  // Seed the initial selection from the agent's most recent file-touch
-  // tool call (falling back to the most recently changed file) so the
-  // user lands on something meaningful when they open the view.
-  useInitialSelectedFile(sessionId, selectedPath, setSelectedPath);
 
   // Navigate-away read receipt. The composer fires markRead eagerly on
   // focus and send, so all engaged-then-leave cases are covered already.
