@@ -3,10 +3,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { EditorView, keymap } from '@codemirror/view';
-import { Loader2, FileX, Lock, FileWarning } from 'lucide-react';
+import { FileX, Lock, FileWarning } from 'lucide-react';
 import { useSessionFile, useSessionBaseFile } from '@/hooks/use-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { TreeEntryStatus } from '@/lib/api/sessions';
+import { FileSkeleton } from '../skeletons';
 import { languageFor } from './language-for';
 import { cmTheme } from './cm-theme';
 import { inlineDiffExtension } from './inline-diff';
@@ -221,11 +222,7 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
   );
 
   if (isLoading && buffer === null) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FileSkeleton />;
   }
 
   if (error) {

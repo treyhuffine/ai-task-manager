@@ -1,7 +1,8 @@
 'use client';
 
-import { Loader2, FileX, FileWarning, Lock } from 'lucide-react';
+import { FileX, FileWarning, Lock } from 'lucide-react';
 import { useSessionFile } from '@/hooks/use-execution';
+import { FileSkeleton } from '../skeletons';
 import { MessageResponse } from '@/components/ai-elements/message';
 
 interface MarkdownViewProps {
@@ -19,11 +20,7 @@ export function MarkdownView({ sessionId, path }: MarkdownViewProps) {
   const { data, isLoading, error } = useSessionFile(sessionId, path);
 
   if (isLoading && !data) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FileSkeleton variant="prose" />;
   }
 
   if (error) {

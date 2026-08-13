@@ -5,7 +5,10 @@ import {
   HORIZONTAL_PANEL_IDS,
   VERTICAL_PANEL_IDS,
 } from '@/hooks/use-execution-layout-sizes';
-import { cn } from '@/lib/utils';
+// `Bar` is the shared primitive under its local name — the chat, header
+// and terminal skeletons below were written against it, and aliasing
+// keeps them on the same bar as the tree and viewer columns.
+import { FileSkeleton, SkeletonBar as Bar, TreeRowsSkeleton } from './skeletons';
 
 interface ExecutionSkeletonProps {
   /** Same horizontal layout the real ExecutionView feeds to its
@@ -174,96 +177,26 @@ function TreeColumn() {
       <div className="border-b border-border px-2 py-1.5">
         <Bar w="60%" h="h-2" />
       </div>
-      {/* Rows — indented bars at varied depths so it reads as a tree. */}
-      <div className="flex-1 min-h-0 overflow-hidden px-2 py-2 space-y-1.5">
-        {TREE_ROWS.map(({ width, indent }, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-1.5"
-            style={{ paddingLeft: indent }}
-          >
-            <div
-              className="h-2.5 w-2.5 rounded-sm bg-muted animate-pulse"
-              style={{ animationDelay: `${i * 70}ms`, animationDuration: '1.4s' }}
-            />
-            <Bar w={width} delayMs={i * 70} />
-          </div>
-        ))}
+      {/* Rows — shared with the tree column's own loading state, so a
+          cold open that resolves the session before the tree listing
+          keeps the same rows on screen instead of re-shuffling them. */}
+      <div className="flex-1 min-h-0">
+        <TreeRowsSkeleton />
       </div>
     </div>
   );
 }
-
-const TREE_ROWS = [
-  { width: '70%', indent: 0 },
-  { width: '60%', indent: 12 },
-  { width: '78%', indent: 24 },
-  { width: '52%', indent: 24 },
-  { width: '66%', indent: 12 },
-  { width: '40%', indent: 0 },
-  { width: '72%', indent: 12 },
-  { width: '58%', indent: 24 },
-  { width: '64%', indent: 24 },
-  { width: '50%', indent: 12 },
-  { width: '74%', indent: 0 },
-  { width: '46%', indent: 12 },
-];
 
 // ─── viewer column ─────────────────────────────────────────────
 
+/**
+ * Viewer column: the shared file skeleton, header strip included. Same
+ * component the viewer itself falls back to, so the handoff from this
+ * full-view skeleton to the real column is invisible when the session
+ * resolves before the file does.
+ */
 function ViewerColumn() {
-  return (
-    <div className="flex h-full w-full flex-col bg-background min-w-0">
-      {/* File path bar + a couple of action affordances on the right. */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-        <div className="h-2.5 w-2.5 rounded-sm bg-muted animate-pulse" />
-        <Bar w="38%" h="h-2" />
-        <div className="flex-1" />
-        <Bar w="40px" h="h-3" />
-        <Bar w="14px" h="h-3" />
-        <Bar w="14px" h="h-3" />
-      </div>
-      {/* Code lines — narrow line numbers + variable-width content. */}
-      <div className="flex-1 min-h-0 overflow-hidden flex">
-        <div className="flex flex-col gap-1.5 px-2 py-3 border-r border-border/40">
-          {VIEWER_LINES.map((_, i) => (
-            <div
-              key={i}
-              className="h-2 w-3 rounded bg-muted/60 animate-pulse"
-              style={{ animationDelay: `${i * 60}ms`, animationDuration: '1.4s' }}
-            />
-          ))}
-        </div>
-        <div className="flex-1 flex flex-col gap-1.5 px-3 py-3 min-w-0">
-          {VIEWER_LINES.map((w, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-2"
-              style={{ paddingLeft: indentForCodeLine(i) }}
-            >
-              <Bar w={w} delayMs={i * 60} />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const VIEWER_LINES = [
-  '52%', '70%', '40%', '64%', '58%', '78%',
-  '36%', '62%', '74%', '48%', '66%', '54%',
-  '70%', '42%', '58%', '64%',
-];
-
-// Stagger indent like real source code — first/last lines hug the gutter,
-// middle lines step in/out as if inside a function body.
-function indentForCodeLine(i: number): number {
-  if (i < 2) return 0;
-  if (i < 4) return 12;
-  if (i < 10) return 24;
-  if (i < 14) return 12;
-  return 0;
+  return <FileSkeleton header />;
 }
 
 // ─── terminal column ───────────────────────────────────────────
@@ -292,26 +225,3 @@ function TerminalColumn() {
 }
 
 const TERMINAL_LINES = ['62%', '40%', '78%', '48%', '70%'];
-
-// ─── primitives ────────────────────────────────────────────────
-
-function Bar({
-  w,
-  h = 'h-2.5',
-  delayMs = 0,
-}: {
-  w: string;
-  h?: string;
-  delayMs?: number;
-}) {
-  return (
-    <div
-      className={cn('rounded bg-muted animate-pulse', h)}
-      style={{
-        width: w,
-        animationDelay: delayMs ? `${delayMs}ms` : undefined,
-        animationDuration: '1.4s',
-      }}
-    />
-  );
-}

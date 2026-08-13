@@ -33,6 +33,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { FileSkeleton } from '../skeletons';
 import { FileView, type FileViewHandle } from './file-view';
 import { DiffView } from './diff-view';
 import { ConflictView } from './conflict-view';
@@ -82,7 +83,13 @@ export function FileViewer({
   onClose,
   onReferenceInChat,
 }: FileViewerProps) {
-  const { data: tree } = useSessionTree(sessionId);
+  const treeQuery = useSessionTree(sessionId);
+  const tree = treeQuery.data;
+  // The worktree isn't known yet, so we can't know there's nothing to
+  // show. `isPending` covers the window where the query is still gated
+  // on `useWorktreeScope` resolving the session row, which `isFetching`
+  // alone would miss (a disabled query never fetches).
+  const treeLoading = !tree && (treeQuery.isPending || treeQuery.isFetching);
 
   // Look up the selected entry — drives Diff/Current toggle availability.
   const entry: TreeEntry | undefined = useMemo(() => {
@@ -166,7 +173,14 @@ export function FileViewer({
   }, [selectedPath]);
 
   if (!selectedPath) {
-    return <NoFileOpen />;
+    // Nothing will open on its own, but the pane shouldn't answer
+    // "nothing here" before the worktree has even been read — during the
+    // load it shows the same file skeleton a real open would, so the
+    // column reads as filling in rather than sitting empty and then
+    // sprouting a CTA. No faux header strip here: this resolves to the
+    // headerless CTA, and a bar that appears then vanishes is the jump
+    // the skeleton exists to prevent.
+    return treeLoading ? <FileSkeleton /> : <NoFileOpen />;
   }
 
   // Fall back to Current when the selected mode doesn't apply to this

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSessionFile, useResolveFileConflict } from '@/hooks/use-execution';
+import { FileSkeleton } from '../skeletons';
 import {
   parseConflicts,
   serializeResolution,
@@ -89,11 +90,7 @@ export function ConflictView({ sessionId, path }: ConflictViewProps) {
 
   // ── Loading / non-text guards, mirroring DiffView ──
   if (fileQuery.isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FileSkeleton />;
   }
   if (fileQuery.error) {
     return (

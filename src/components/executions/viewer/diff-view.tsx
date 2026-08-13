@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import { MergeView } from '@codemirror/merge';
 import { EditorView } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { Loader2, FileX, Lock, FileWarning } from 'lucide-react';
+import { FileX, Lock, FileWarning } from 'lucide-react';
 import { useSessionFile, useSessionBaseFile } from '@/hooks/use-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { TreeEntryStatus } from '@/lib/api/sessions';
+import { FileSkeleton } from '../skeletons';
 import { languageFor } from './language-for';
 import { cmTheme } from './cm-theme';
 
@@ -120,11 +121,9 @@ export function DiffView({ sessionId, path, status }: DiffViewProps) {
   }, [baseContent, currentContent, extensions, isLoading, error, tooLarge, isBinary]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    // Two panes, because that's what lands: a centered spinner in a
+    // wide column gives no hint that the answer is side-by-side.
+    return <FileSkeleton variant="split" />;
   }
 
   if (error) {

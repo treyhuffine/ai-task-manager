@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutationState } from '@tanstack/react-query';
-import { Loader2, Plus, FilePlus, FolderPlus } from 'lucide-react';
+import { Plus, FilePlus, FolderPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
 import { copyText } from '@/lib/clipboard';
@@ -45,6 +45,7 @@ import { TreeList, type PendingCreate, type PendingError } from './tree-list';
 import { TreeViewToggle, type TreeViewMode } from './tree-view-toggle';
 import { TreeSearchBar } from './tree-search-bar';
 import { OpenWorktreeButton } from '../open-worktree-button';
+import { TreeRowsSkeleton } from '../skeletons';
 
 interface FileTreeProps {
   /** Addresses the API (routes are session-scoped) and the file mutations. */
@@ -488,10 +489,11 @@ export function FileTree({
       <div className="flex-1 min-h-0">
         {entries.length === 0 && (isFetching || !worktreePath) ? (
           // Worktree still provisioning, or a (re)fetch in flight with nothing
-          // cached yet → show the spinner, never a misleading "No files".
-          <div className="flex h-full items-center justify-center">
-            <Loader2 size={14} className="animate-spin text-muted-foreground" />
-          </div>
+          // cached yet → skeleton rows, never a misleading "No files". Rows
+          // rather than a spinner because the tree read is the slow one
+          // (several sequential git subprocesses, ~1s), so this is on screen
+          // long enough to be worth showing the shape of what's coming.
+          <TreeRowsSkeleton />
         ) : (
           <TreeList
             entries={entries}
