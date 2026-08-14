@@ -125,8 +125,35 @@ export const EFFORT_OPTIONS: EffortOption[] = [
 ];
 
 const FALLBACK_EFFORTS: Partial<Record<HarnessId, readonly EffortLevel[]>> = {
-  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  claude: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   codex: ['low', 'medium', 'high', 'xhigh'],
+};
+
+/**
+ * Provider vocabulary for a shared effort id. Both CLIs expose the same top
+ * rung, but Claude names it "ultracode" and Codex names it "ultra". The
+ * dropdown borrows whichever word the selected provider uses rather than
+ * inventing a third one the user would then have to translate.
+ */
+const EFFORT_LABEL_OVERRIDES: Partial<
+  Record<HarnessId, Partial<Record<EffortLevel, Partial<EffortOption>>>>
+> = {
+  claude: {
+    ultra: {
+      label: 'Ultracode',
+      shortLabel: 'ultracode',
+      hint: 'Extra high plus standing workflow orchestration',
+    },
+  },
+};
+
+/**
+ * Effort value as the provider's CLI spells it. Claude's `--effort` rejects
+ * `ultra` — and only *warns* before falling back to the default effort — so an
+ * unmapped value is a silent downgrade rather than a visible failure.
+ */
+const EFFORT_WIRE_VALUES: Partial<Record<HarnessId, Partial<Record<EffortLevel, string>>>> = {
+  claude: { ultra: 'ultracode' },
 };
 
 const PRESERVE_EXTERNALLY_VALIDATED_EFFORT = new Set<HarnessId>(['codex']);
@@ -150,7 +177,19 @@ export function effortOptionsForModel(
       ? model.supportedEfforts
       : FALLBACK_EFFORTS[providerId] ?? [],
   );
-  return EFFORT_OPTIONS.filter((option) => supported.has(option.id));
+  const overrides = EFFORT_LABEL_OVERRIDES[providerId];
+  return EFFORT_OPTIONS
+    .filter((option) => supported.has(option.id))
+    .map((option) => (overrides?.[option.id] ? { ...option, ...overrides[option.id] } : option));
+}
+
+/** Translate a canonical effort id into the value the provider's CLI accepts. */
+export function providerEffortValue(harness: string | null, effort: EffortLevel): string {
+  try {
+    return EFFORT_WIRE_VALUES[providerIdForHarness(harness)]?.[effort] ?? effort;
+  } catch {
+    return effort;
+  }
 }
 
 /** Explicit fallback used when a provider does not advertise a preference. */

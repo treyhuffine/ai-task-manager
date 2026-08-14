@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace, touchSessionActivity } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 
 /**
@@ -50,6 +50,10 @@ export async function POST(
     }
 
     await handle.git.push();
+    // Pushing is work on the execution even though it writes no chat event
+    // (unlike commit / open-PR / resolve-conflicts, which drive the agent and
+    // therefore get their activity bump for free from `insertChatEvent`).
+    touchSessionActivity(id, 'git');
     return Response.json({ ok: true });
   } catch (err) {
     if (looksLikeNonFastForward(err)) {

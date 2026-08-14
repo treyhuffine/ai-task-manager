@@ -261,7 +261,7 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
     forceState === 'needs_review'
       ? true
       : !isStreaming && !isPending && lastOutcome && lastOutcome > (session.lastViewedAt ?? '1970-01-01');
-  const timestamp = lastOutcome ?? session.startedAt;
+  const timestamp = session.lastActivityAt ?? lastOutcome ?? session.startedAt;
   // One row per execution: active when the open view is its primary chat
   // or any sibling chat of the same execution.
   const isActive =

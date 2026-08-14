@@ -50,7 +50,21 @@ import type {
 const MAX_IMPORT_SELECTION = 1_000;
 const MAX_EXTERNAL_SESSION_ID_LENGTH = 512;
 const EVENT_BATCH_SIZE = 100;
-const MAX_STAGED_HISTORY_BYTES = 25 * 1024 * 1024;
+// How much normalized history is held in memory before it is committed. This
+// bounds memory, not transcript size: a long chat is imported as a sequence of
+// windows, each one leaving the ledger on a resumable prefix. Transcripts of a
+// few hundred MB are ordinary for long-running agents.
+//
+// Bigger windows buy nothing. Measured on a 114MB Claude transcript (32k
+// events), 8 MiB against 128 MiB was a wash on wall time — ~6.8s vs ~7.3s
+// median over six paired runs, well inside run-to-run noise, because the work
+// is linear in transcript size either way. What did scale with the window was
+// the worst event-loop stall: 0.25-0.8s at 8 MiB against 1.8-3.3s at 128 MiB,
+// with one run reaching 12s. Both the synchronous SQLite commit and the major
+// GC that follows releasing a window block the loop, and this process also
+// serves the UI and terminals, so the window stays small enough that an import
+// never freezes the app.
+const HISTORY_WINDOW_BYTES = 8 * 1024 * 1024;
 const EXTERNAL_AGENT_SOURCES = ['claude', 'codex', 'opencode'] as const satisfies readonly ExternalAgentSource[];
 const sourceSyncTails = new Map<string, Promise<void>>();
 
@@ -75,7 +89,7 @@ type InternalCandidate = FileCandidate | ServiceCandidate;
 
 interface PendingHistoryEvent {
   input: CreateChatEventInput;
-  nextOffset?: number;
+  /** Service sources only — the bookmark this event may be committed against. */
   checkpoint?: HistoryCheckpoint;
 }
 
@@ -149,25 +163,53 @@ async function pathIsDirectory(filePath: string): Promise<boolean> {
   }
 }
 
-async function sha256Prefix(filePath: string, byteLength: number): Promise<string> {
-  const handle = await open(filePath, 'r');
+interface PrefixDigest {
+  /** sha256 of `[0, offset)`. Offsets must be requested in ascending order. */
+  at(offset: number): Promise<string>;
+}
+
+/**
+ * Rolling sha256 over the transcript bytes an import has consumed so far.
+ * Every committed window has to leave the ledger describing a *prefix* of the
+ * file, and re-hashing `[0, offset)` once per window would be quadratic on a
+ * long transcript, so hash forward once and snapshot the digest at each
+ * boundary.
+ */
+function createPrefixDigest(filePath: string): PrefixDigest {
   const hash = createHash('sha256');
-  const buffer = Buffer.allocUnsafe(64 * 1024);
-  let position = 0;
-  try {
-    while (position < byteLength) {
-      const length = Math.min(buffer.length, byteLength - position);
-      const { bytesRead } = await handle.read(buffer, 0, length, position);
-      if (bytesRead === 0) {
-        throw codedError('source_changed_during_read', 'The provider transcript became shorter while it was read.');
+  let hashedTo = 0;
+  return {
+    async at(offset: number): Promise<string> {
+      if (offset < hashedTo) {
+        throw codedError(
+          'source_changed_during_read',
+          'The provider transcript rewound while it was being synchronized.',
+        );
       }
-      hash.update(buffer.subarray(0, bytesRead));
-      position += bytesRead;
-    }
-    return hash.digest('hex');
-  } finally {
-    await handle.close();
-  }
+      if (offset > hashedTo) {
+        const handle = await open(filePath, 'r');
+        const buffer = Buffer.allocUnsafe(64 * 1024);
+        try {
+          while (hashedTo < offset) {
+            const length = Math.min(buffer.length, offset - hashedTo);
+            const { bytesRead } = await handle.read(buffer, 0, length, hashedTo);
+            if (bytesRead === 0) {
+              throw codedError('source_changed_during_read', 'The provider transcript became shorter while it was read.');
+            }
+            hash.update(buffer.subarray(0, bytesRead));
+            hashedTo += bytesRead;
+          }
+        } finally {
+          await handle.close();
+        }
+      }
+      return hash.copy().digest('hex');
+    },
+  };
+}
+
+async function sha256Prefix(filePath: string, byteLength: number): Promise<string> {
+  return createPrefixDigest(filePath).at(byteLength);
 }
 
 function baseCandidate(
@@ -575,6 +617,10 @@ function createImportSkeleton(
       workspaceId,
       executionId,
       lastOutcomeEventAt: candidate.updatedAt,
+      // Imported transcripts rank by when the work actually happened, not by
+      // when the import ran — otherwise every sync would slam a year of old
+      // sessions to the top of the rail.
+      lastActivityAt: candidate.updatedAt,
       lastViewedAt: candidate.updatedAt,
       permissionMode: 'bypass',
       model: selection.model,
@@ -660,78 +706,95 @@ function markImportError(ledgerId: string, error: unknown): void {
   }).where(eq(externalSessionImports.id, ledgerId)).run();
 }
 
-function stageHistoryInput(
-  pending: PendingHistoryEvent[],
-  item: PendingHistoryEvent,
-  stagedBytes: number,
-): number {
-  const nextBytes = stagedBytes + Buffer.byteLength(JSON.stringify(item.input), 'utf8');
-  if (nextBytes > MAX_STAGED_HISTORY_BYTES) {
-    throw codedError('history_resync_limit', 'Provider history exceeded the bounded synchronization limit.');
-  }
-  pending.push(item);
-  return nextBytes;
+interface HistoryWindowWriter {
+  /**
+   * Commit one window of normalized events plus the ledger position they leave
+   * behind. Every window is one transaction, so an interrupted sync always ends
+   * on a committed prefix rather than a torn one.
+   */
+  commit(pending: PendingHistoryEvent[], ledgerUpdate: UpdateExternalSessionImportInput): number;
+  /** Whether any window has landed yet — the replace delete is still pending until one has. */
+  readonly committed: boolean;
+  readonly inserted: number;
 }
 
-function commitStagedEvents(
+function createHistoryWindowWriter(
   ledger: ExternalSessionImportRecord,
-  pending: PendingHistoryEvent[],
-  options: {
-    replace: boolean;
-    ledgerUpdate: UpdateExternalSessionImportInput;
-    sourceUpdatedAt: string;
-  },
-): number {
+  options: { replace: boolean; sourceUpdatedAt: string },
+): HistoryWindowWriter {
   const db = getDb();
-  const now = new Date().toISOString();
   const executionId = db
     .select({ executionId: chatSessions.executionId })
     .from(chatSessions)
     .where(eq(chatSessions.id, ledger.chatSessionId))
     .get()?.executionId;
-  return db.transaction((tx) => {
-    if (options.replace) {
-      tx.delete(chatEvents).where(and(
-        eq(chatEvents.sessionId, ledger.chatSessionId),
-        isNotNull(chatEvents.externalEventId),
-      )).run();
-    }
-    let inserted = 0;
-    for (let index = 0; index < pending.length; index += EVENT_BATCH_SIZE) {
-      const values = pending.slice(index, index + EVENT_BATCH_SIZE).map(({ input }) => ({
-        ...input,
-        id: input.id ?? uuidv7(),
-        sessionId: ledger.chatSessionId,
-        attachments: undefined,
-        createdAt: input.createdAt ?? now,
-        updatedAt: input.updatedAt ?? input.createdAt ?? now,
-      }));
-      if (values.length > 0) {
-        inserted += tx.insert(chatEvents).values(values).onConflictDoNothing().run().changes;
-      }
-    }
-    const lastExternalEventId = pending.at(-1)?.input.externalEventId
-      ?? (options.replace ? null : ledger.syncLastEventId);
-    tx.update(externalSessionImports).set({
-      ...options.ledgerUpdate,
-      syncLastEventId: lastExternalEventId,
-      status: 'current',
-      lastScannedAt: now,
-      lastSyncedAt: now,
-      lastError: null,
-      updatedAt: now,
-    }).where(eq(externalSessionImports.id, ledger.id)).run();
-    tx.update(chatSessions).set({
-      lastOutcomeEventAt: options.sourceUpdatedAt,
-      updatedAt: options.sourceUpdatedAt,
-    }).where(eq(chatSessions.id, ledger.chatSessionId)).run();
-    if (executionId) {
-      tx.update(executions).set({ updatedAt: options.sourceUpdatedAt })
-        .where(eq(executions.id, executionId))
-        .run();
-    }
-    return inserted;
-  });
+  // A replace drops the previously imported transcript, so it rides along with
+  // the first window instead of running up front: a read that fails before it
+  // produces anything must leave the existing transcript alone.
+  let replacePending = options.replace;
+  let lastExternalEventId = ledger.syncLastEventId;
+  let inserted = 0;
+  let committed = false;
+
+  return {
+    get committed() {
+      return committed;
+    },
+    get inserted() {
+      return inserted;
+    },
+    commit(pending, ledgerUpdate) {
+      const now = new Date().toISOString();
+      const replace = replacePending;
+      if (replace) lastExternalEventId = null;
+      lastExternalEventId = pending.at(-1)?.input.externalEventId ?? lastExternalEventId;
+      const changes = db.transaction((tx) => {
+        if (replace) {
+          tx.delete(chatEvents).where(and(
+            eq(chatEvents.sessionId, ledger.chatSessionId),
+            isNotNull(chatEvents.externalEventId),
+          )).run();
+        }
+        let count = 0;
+        for (let index = 0; index < pending.length; index += EVENT_BATCH_SIZE) {
+          const values = pending.slice(index, index + EVENT_BATCH_SIZE).map(({ input }) => ({
+            ...input,
+            id: input.id ?? uuidv7(),
+            sessionId: ledger.chatSessionId,
+            attachments: undefined,
+            createdAt: input.createdAt ?? now,
+            updatedAt: input.updatedAt ?? input.createdAt ?? now,
+          }));
+          if (values.length > 0) {
+            count += tx.insert(chatEvents).values(values).onConflictDoNothing().run().changes;
+          }
+        }
+        tx.update(externalSessionImports).set({
+          ...ledgerUpdate,
+          syncLastEventId: lastExternalEventId,
+          status: 'current',
+          lastScannedAt: now,
+          lastSyncedAt: now,
+          lastError: null,
+          updatedAt: now,
+        }).where(eq(externalSessionImports.id, ledger.id)).run();
+        tx.update(chatSessions).set({
+          lastOutcomeEventAt: options.sourceUpdatedAt,
+          updatedAt: options.sourceUpdatedAt,
+        }).where(eq(chatSessions.id, ledger.chatSessionId)).run();
+        if (executionId) {
+          tx.update(executions).set({ updatedAt: options.sourceUpdatedAt })
+            .where(eq(executions.id, executionId))
+            .run();
+        }
+        return count;
+      });
+      replacePending = false;
+      committed = true;
+      inserted += changes;
+      return changes;
+    },
+  };
 }
 
 async function syncFileCandidate(
@@ -766,20 +829,44 @@ async function syncFileCandidate(
     || prefixChanged
     || unverifiedPrefix;
   const fromOffset = replace ? 0 : initialLedger.syncOffset;
-  const pending: PendingHistoryEvent[] = [];
+  const transcriptPath = candidate.historySession.transcriptPath;
+  const writer = createHistoryWindowWriter(initialLedger, {
+    replace,
+    sourceUpdatedAt: candidate.updatedAt,
+  });
+  const digest = createPrefixDigest(transcriptPath);
+  let pending: PendingHistoryEvent[] = [];
   let stagedBytes = 0;
   let lastNextOffset = fromOffset;
+
   for await (const yielded of candidate.history.read(candidate.historySession, {
     fromOffset,
   })) {
+    // Offsets are line-granular: one transcript line can normalize to several
+    // events (a text block plus a tool call), and they all carry that line's
+    // nextOffset. A window may only close where a new line starts, or the
+    // ledger would claim an offset whose remaining events were never committed
+    // and the resumed read would skip them.
+    if (stagedBytes >= HISTORY_WINDOW_BYTES && yielded.lineStartOffset >= lastNextOffset) {
+      writer.commit(pending, {
+        sourcePath: transcriptPath,
+        // The committed prefix, not the whole file: the next scan sees a
+        // shorter source than the transcript and offers the rest as an update.
+        sourceSize: lastNextOffset,
+        sourceModifiedAtNs: before.modifiedAtNs,
+        sourceContentSha256: await digest.at(lastNextOffset),
+        sourceUpdatedAt: candidate.updatedAt,
+        syncOffset: lastNextOffset,
+        historyCheckpoint: null,
+      });
+      pending = [];
+      stagedBytes = 0;
+    }
     lastNextOffset = yielded.nextOffset;
     const input = historyEventInput(yielded.event, yielded.event.eventId, yielded.partIndex);
     if (!input) continue;
-    stagedBytes = stageHistoryInput(
-      pending,
-      { input, nextOffset: yielded.nextOffset },
-      stagedBytes,
-    );
+    pending.push({ input });
+    stagedBytes += Buffer.byteLength(JSON.stringify(input), 'utf8');
   }
 
   const after = await candidate.history.fingerprint(candidate.historySession, { sha256: true });
@@ -791,30 +878,36 @@ async function syncFileCandidate(
       'The provider transcript changed while it was being synchronized. Retry to continue.',
     );
   }
-  return commitStagedEvents(initialLedger, pending, {
-    replace,
+  writer.commit(pending, {
+    sourcePath: transcriptPath,
+    sourceSize: after.size,
+    sourceModifiedAtNs: after.modifiedAtNs,
+    sourceContentSha256: after.sha256 ?? null,
     sourceUpdatedAt: candidate.updatedAt,
-    ledgerUpdate: {
-      sourcePath: candidate.historySession.transcriptPath,
-      sourceSize: after.size,
-      sourceModifiedAtNs: after.modifiedAtNs,
-      sourceContentSha256: after.sha256 ?? null,
-      sourceUpdatedAt: candidate.updatedAt,
-      // Completion plus an unchanged strong fingerprint proves the reader
-      // reached this stable EOF, including provider records that normalize to
-      // no Flow event.
-      syncOffset: Math.max(lastNextOffset, after.size),
-      historyCheckpoint: null,
-    },
+    // Completion plus an unchanged strong fingerprint proves the reader
+    // reached this stable EOF, including provider records that normalize to
+    // no Flow event.
+    syncOffset: Math.max(lastNextOffset, after.size),
+    historyCheckpoint: null,
   });
+  return writer.inserted;
 }
 
-async function stageSavedHistory(
+function checkpointKey(checkpoint: HistoryCheckpoint): string {
+  return `${checkpoint.kind} ${JSON.stringify(checkpoint.value ?? null)}`;
+}
+
+/**
+ * Read provider-owned history, committing it in bounded windows. Returns the
+ * final checkpoint so the caller can close out the sync.
+ */
+async function streamSavedHistory(
   candidate: ServiceCandidate,
   after: HistoryCheckpoint | undefined,
   mode: 'incremental' | 'bounded_full_resync',
+  writer: HistoryWindowWriter,
 ): Promise<{ pending: PendingHistoryEvent[]; checkpoint: HistoryCheckpoint | null }> {
-  const pending: PendingHistoryEvent[] = [];
+  let pending: PendingHistoryEvent[] = [];
   let checkpoint: HistoryCheckpoint | null = after ?? null;
   let stagedBytes = 0;
   for await (const yielded of candidate.history.read(candidate.historySession, {
@@ -822,14 +915,25 @@ async function stageSavedHistory(
     mode,
     ...candidate.runtime,
   })) {
+    // One provider part can normalize to several events that share a
+    // checkpoint, so only close a window once the checkpoint moves — a
+    // checkpoint persisted mid-part would skip its siblings on resume.
+    const staged = pending.at(-1)?.checkpoint;
+    if (stagedBytes >= HISTORY_WINDOW_BYTES
+      && staged
+      && checkpointKey(staged) !== checkpointKey(yielded.checkpoint)) {
+      writer.commit(pending, {
+        sourceUpdatedAt: candidate.updatedAt,
+        historyCheckpoint: staged,
+      });
+      pending = [];
+      stagedBytes = 0;
+    }
     checkpoint = yielded.checkpoint;
     const input = historyEventInput(yielded.event, yielded.eventId, yielded.partIndex);
     if (!input) continue;
-    stagedBytes = stageHistoryInput(
-      pending,
-      { input, checkpoint: yielded.checkpoint },
-      stagedBytes,
-    );
+    pending.push({ input, checkpoint: yielded.checkpoint });
+    stagedBytes += Buffer.byteLength(JSON.stringify(input), 'utf8');
   }
   return { pending, checkpoint };
 }
@@ -839,26 +943,34 @@ async function syncServiceCandidate(
   initialLedger: ExternalSessionImportRecord,
 ): Promise<number> {
   let staged: { pending: PendingHistoryEvent[]; checkpoint: HistoryCheckpoint | null };
-  let replace = !initialLedger.historyCheckpoint;
+  const replace = !initialLedger.historyCheckpoint;
+  let writer = createHistoryWindowWriter(initialLedger, {
+    replace,
+    sourceUpdatedAt: candidate.updatedAt,
+  });
   try {
-    staged = await stageSavedHistory(
+    staged = await streamSavedHistory(
       candidate,
       initialLedger.historyCheckpoint ?? undefined,
       replace ? 'bounded_full_resync' : 'incremental',
+      writer,
     );
   } catch (error) {
-    if (errorCode(error) !== 'history_checkpoint_not_found') throw error;
-    replace = true;
-    staged = await stageSavedHistory(candidate, undefined, 'bounded_full_resync');
-  }
-  return commitStagedEvents(initialLedger, staged.pending, {
-    replace,
-    sourceUpdatedAt: candidate.updatedAt,
-    ledgerUpdate: {
+    // A checkpoint the provider no longer recognizes means a full resync — but
+    // only from a standing start. Once a window has landed, the ledger already
+    // holds a newer checkpoint and the next sync resumes from it.
+    if (errorCode(error) !== 'history_checkpoint_not_found' || writer.committed) throw error;
+    writer = createHistoryWindowWriter(initialLedger, {
+      replace: true,
       sourceUpdatedAt: candidate.updatedAt,
-      historyCheckpoint: staged.checkpoint,
-    },
+    });
+    staged = await streamSavedHistory(candidate, undefined, 'bounded_full_resync', writer);
+  }
+  writer.commit(staged.pending, {
+    sourceUpdatedAt: candidate.updatedAt,
+    historyCheckpoint: staged.checkpoint,
   });
+  return writer.inserted;
 }
 
 async function synchronizeCandidate(

@@ -88,7 +88,9 @@ export function SessionRow({
     && lastActivity !== '1970-01-01'
     && lastActivity > lastViewed;
 
-  const timestamp = session.lastOutcomeEventAt ?? session.startedAt;
+  // Activity, not outcome: this is the row's rank made visible. The unread
+  // derivation above deliberately stays on `lastOutcomeEventAt`.
+  const timestamp = session.lastActivityAt ?? session.lastOutcomeEventAt ?? session.startedAt;
   // This row stands for an execution (its primary chat). It's "active"
   // when the open view is its primary chat OR — in the tree — any sibling
   // chat of the same execution (tracked via activeExecutionId), so opening

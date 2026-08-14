@@ -54,7 +54,7 @@ export function StatusSessionRow({
   const wsEmoji = session.workspaceEmoji;
 
   const lastOutcome = session.lastOutcomeEventAt;
-  const timestamp = lastOutcome ?? session.startedAt;
+  const timestamp = session.lastActivityAt ?? lastOutcome ?? session.startedAt;
 
   return (
     <div

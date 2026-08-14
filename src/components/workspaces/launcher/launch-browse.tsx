@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   ArrowDownToLine,
+  ChevronDown,
   CircleDot,
   GitBranch,
   GitPullRequest,
@@ -21,6 +22,15 @@ import { DueBand, dueBand, dueLabel } from '@/lib/executions/task-rank';
 import { cn } from '@/lib/utils';
 import type { LaunchSourceItem, LaunchSourceKind } from '@/lib/executions/launch-draft';
 import { useLaunchSources } from './use-launch-sources';
+import {
+  expand,
+  fetchLimit,
+  jumpLabel,
+  nextExpandable,
+  planRows,
+  showMoreLabel,
+  type PageState,
+} from './launch-paging';
 
 const KIND_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; className?: string }>> = {
   pr: GitPullRequest,
@@ -77,30 +87,8 @@ const SCOPE_ALL = 'all';
 /** Scope value for tasks that live in this app rather than a connector. */
 const SCOPE_LOCAL = 'local';
 
-/**
- * Total rows to spend across all groups when several share the list.
- *
- * A fixed per-group cap doesn't survive growth: at four rows each, two task
- * sources fill 8 rows and six sources fill 24, so the list gets longer exactly
- * as it gets more fragmented. Budgeting the total instead keeps it scannable
- * at any N — the share per source shrinks as sources are added, and every
- * source stays visible without scrolling, which is the whole point.
- *
- * A query narrows this for free: groups that match nothing drop out, so the
- * remaining ones split the budget between fewer claimants. Search for
- * something only Linear has and Linear gets the room.
- *
- * Truncation is never silent — a "+N more" row jumps to that source, where
- * the list is complete and uncapped.
- */
-// Sized against what the panel actually shows without scrolling (~7 rows at
-// two lines each), not against an abstract sense of "enough". Set too high and
-// the first group alone fills the viewport, which is the bug this exists to
-// prevent: two groups at a budget of 14 gives 6 rows each and the second
-// header lands below the fold.
-const ROW_BUDGET = 8;
-const MIN_ROWS_PER_GROUP = 2;
-const MAX_ROWS_PER_GROUP = 5;
+/** How close to the bottom of the list counts as "keep going". */
+const AUTOLOAD_SLACK_PX = 64;
 
 /**
  * The launcher's browse panel: one search field over every source, results
@@ -135,7 +123,29 @@ export function LaunchBrowse({
   // have going right now — isn't diluted by everything you ever finished.
   const [showArchivedChats, setShowArchivedChats] = useState(false);
   const [cursor, setCursor] = useState(0);
+  // Pages revealed per group. Empty means "first page of everything", which is
+  // what every change to the result set resets it back to.
+  const [pages, setPages] = useState<PageState>({});
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Server-backed sources fetch to the depth the user has actually paged to,
+  // so a resting panel stays as cheap as it was. Connector groups share one
+  // limit because the endpoint applies it per provider — paging Todoist also
+  // deepens Linear, which costs one extra provider call and keeps the wire
+  // contract to a single number.
+  const limits = useMemo(() => {
+    const connectorPages = Math.max(
+      1,
+      ...Object.entries(pages)
+        .filter(([id]) => id.startsWith('connector:'))
+        .map(([, n]) => n),
+    );
+    return {
+      task: fetchLimit(pages, 'task'),
+      chat: fetchLimit(pages, 'chat'),
+      connector: fetchLimit({ connector: connectorPages }, 'connector'),
+    };
+  }, [pages]);
 
   const { groups: allGroups, connectorSources, supportedSources } = useLaunchSources({
     workspaceId,
@@ -144,6 +154,7 @@ export function LaunchBrowse({
     enabled: true,
     isGit,
     includeArchivedChats: showArchivedChats,
+    limits,
   });
 
   const tabs = useMemo(() => TABS.filter((t) => isGit || !t.gitOnly), [isGit]);
@@ -203,31 +214,31 @@ export function LaunchBrowse({
     return byTab.filter((g) => g.toolkitId === effectiveScope);
   }, [allGroups, activeTab, effectiveScope]);
 
-  // Breadth beats depth while several sources share the list; once the user
-  // has narrowed to one, that's a deliberate "show me everything from here".
-  const rendered = useMemo(() => {
-    if (groups.length <= 1) {
-      return groups.map((g) => ({ group: g, shown: g.items, hidden: 0 }));
-    }
-    const share = Math.round(ROW_BUDGET / groups.length);
-    const cap = Math.min(MAX_ROWS_PER_GROUP, Math.max(MIN_ROWS_PER_GROUP, share));
-    return groups.map((g) => ({
-      group: g,
-      shown: g.items.slice(0, cap),
-      hidden: Math.max(0, g.items.length - cap),
-    }));
-  }, [groups]);
+  const rendered = useMemo(() => planRows(groups, pages), [groups, pages]);
 
   // Flatten for keyboard traversal — the cursor walks rendered rows, so a
   // capped group can't leave the cursor pointing at something invisible.
   const flat = useMemo(() => rendered.flatMap((r) => r.shown), [rendered]);
 
-  // Any change to the result set puts the cursor back on the first row.
-  // Without this, narrowing a query (or switching tabs) can leave the
-  // highlight past the end of the list.
+  // The one group whose remaining rows can be revealed in place, if any. Also
+  // what ArrowDown-at-the-end and scroll-to-bottom act on, so all three routes
+  // to "keep going" agree on which list they're extending.
+  const expandable = nextExpandable(rendered);
+  const showMore = (groupId: string) => setPages((p) => expand(p, groupId));
+
+  // A different result set starts over: the cursor goes home and every group
+  // collapses back to one page, which also drops the deepened fetch limits.
   useEffect(() => {
     setCursor(0);
-  }, [query, tab, scope, flat.length]);
+    setPages({});
+  }, [query, tab, scope, showArchivedChats]);
+
+  // Growing the list must NOT move the cursor — paging is the one case where
+  // the row count changes while the user's place in it should not. Only clamp,
+  // for when a slow source resolves to fewer rows than are already highlighted.
+  useEffect(() => {
+    setCursor((c) => (c < flat.length ? c : Math.max(0, flat.length - 1)));
+  }, [flat.length]);
 
   useEffect(() => {
     listRef.current
@@ -235,10 +246,30 @@ export function LaunchBrowse({
       ?.scrollIntoView({ block: 'nearest' });
   }, [cursor]);
 
+  // Reaching the bottom of a narrowed list is itself the request for more, so
+  // scrolling there loads the next page. The in-flight guard matters for the
+  // server-backed groups: resting at the bottom while a deeper fetch is on the
+  // wire would otherwise queue a page per scroll event.
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > AUTOLOAD_SLACK_PX) return;
+    if (!expandable || expandable.group.isFetching) return;
+    showMore(expandable.group.id);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor((c) => (flat.length === 0 ? 0 : (c + 1) % flat.length));
+      if (flat.length === 0) return;
+      // At the end of a list that has more: extend it rather than wrapping.
+      // The cursor deliberately stays put — the next press walks into the rows
+      // that just appeared, and for a server-backed group they may not have
+      // landed yet.
+      if (cursor === flat.length - 1 && expandable) {
+        showMore(expandable.group.id);
+        return;
+      }
+      setCursor((c) => (c + 1) % flat.length);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor((c) => (flat.length === 0 ? 0 : (c - 1 + flat.length) % flat.length));
@@ -376,7 +407,11 @@ export function LaunchBrowse({
         </div>
       )}
 
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div
+        ref={listRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto p-1.5"
+      >
         {groups.length === 0 && !anyLoading && (
           <div className="px-2 py-6 text-center text-[11px] italic text-muted-foreground/60">
             {/* Label verbatim — lowercasing turns "PRs" into "prs". */}
@@ -400,7 +435,7 @@ export function LaunchBrowse({
           </button>
         )}
 
-        {rendered.map(({ group, shown, hidden }) => (
+        {rendered.map(({ group, shown, hidden, more }) => (
           <div key={group.id} className="mb-1.5 last:mb-0">
             <div className="flex items-center gap-1.5 px-2 py-1">
               {group.toolkitId && (
@@ -530,7 +565,9 @@ export function LaunchBrowse({
               })
             )}
 
-            {hidden > 0 && (
+            {/* Sharing the list with other sources: the rest of this one is a
+                tab away, not a page away. */}
+            {more === 'jump' && (
               <button
                 type="button"
                 onClick={() => {
@@ -539,15 +576,32 @@ export function LaunchBrowse({
                   // click means "show me the rest of THIS list".
                   const owner = tabs.find((t) => t.kinds.includes(group.kind));
                   if (owner) setTab(owner.id);
-                  // Narrowing to exactly this source is what uncaps it: a
-                  // connector scopes to its toolkit, local tasks to "This app".
+                  // Narrowing to exactly this source is what gives it the whole
+                  // list: a connector scopes to its toolkit, local tasks to
+                  // "This app".
                   setScope(
                     group.toolkitId ?? (group.kind === 'task' ? SCOPE_LOCAL : SCOPE_ALL),
                   );
                 }}
                 className="w-full rounded-md px-2 py-1 text-left text-[10.5px] text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
               >
-                +{hidden} more in {group.label}
+                {jumpLabel(hidden, group.truncated, group.label)}
+              </button>
+            )}
+
+            {/* This source owns the list, so the rest of it arrives here. */}
+            {more === 'page' && (
+              <button
+                type="button"
+                onClick={() => showMore(group.id)}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[10.5px] font-medium text-muted-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                {group.isFetching ? (
+                  <Loader2 size={10} className="flex-shrink-0 animate-spin" />
+                ) : (
+                  <ChevronDown size={10} className="flex-shrink-0" />
+                )}
+                {showMoreLabel(hidden, group.truncated)}
               </button>
             )}
           </div>

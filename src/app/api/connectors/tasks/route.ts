@@ -18,8 +18,17 @@ export const GET = withCompression(handleGET);
 
 async function handleGET(request: NextRequest) {
   try {
-    const query = request.nextUrl.searchParams.get('q') ?? '';
-    return Response.json(await listConnectorTasks(query));
+    const params = request.nextUrl.searchParams;
+    const query = params.get('q') ?? '';
+    // Per provider, not overall — the launcher renders one group each, so a
+    // shared budget would let a chatty provider starve a quiet one. Grows as
+    // the user pages through a group; clamped so a hand-written URL can't ask
+    // a provider for its entire backlog.
+    const limitRaw = parseInt(params.get('limit') ?? '', 10);
+    const limitPerProvider = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 200)
+      : undefined;
+    return Response.json(await listConnectorTasks(query, { limitPerProvider }));
   } catch (err) {
     console.error('[GET /api/connectors/tasks]', err);
     return Response.json({ error: String(err) }, { status: 500 });

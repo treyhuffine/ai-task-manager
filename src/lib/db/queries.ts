@@ -57,6 +57,12 @@ import type { HarnessId } from '@/lib/agents/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
+import {
+  activityReasonForEventSource,
+  isActivity,
+  shouldThrottledBump,
+  type ActivityReason,
+} from '@/lib/sessions/activity';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
@@ -2168,9 +2174,13 @@ export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSett
   const state = getUserState();
   const bundled = modelsForProvider(harness).map((model) => model.id);
   const preferred = state?.defaultAgentHarness === harness ? state.defaultAgentModel : null;
+  // Claude's bundled entries are tier aliases rather than pinned versions, so
+  // the whole set stays useful indefinitely and all of it is seeded. Codex's
+  // list is a versioned catalog whose tail is superseded, so only the current
+  // models are seeded and the rest stay one toggle away in settings.
   const enabledModels = [...new Set([
     ...(preferred ? [preferred] : []),
-    ...bundled.slice(0, harness === 'claude' ? 3 : 4),
+    ...bundled.slice(0, 4),
   ])];
   return upsertAgentHarnessSettings({
     harness,
@@ -3235,7 +3245,7 @@ export function findChatSessionByTakeoverToken(token: string): ChatSessionWithEx
     .select()
     .from(chatSessions)
     .where(and(eq(chatSessions.executionId, exec.id), eq(chatSessions.status, 'active')))
-    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .get();
   if (!chat) return undefined;
   return flattenSessionExecution({ ...chat, execution: exec });
@@ -3517,7 +3527,7 @@ export function listChatSessions(filter: {
     .from(chatSessions)
     .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map((r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }));
 }
@@ -3552,6 +3562,11 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       // space-format, so `startedAt` sorts consistently against the ISO
       // outcome/unread timestamps it's compared with (see session-sort.ts).
       startedAt: input.startedAt ?? new Date().toISOString(),
+      // Seed the sort key at creation. A NULL here would sink a brand-new
+      // session to the BOTTOM of `ORDER BY last_activity_at DESC` (SQLite
+      // sorts NULL last in DESC) — the exact "new chat disappears" bug the
+      // old mixed-format COALESCE used to cause.
+      lastActivityAt: input.lastActivityAt ?? input.startedAt ?? new Date().toISOString(),
     })
     .returning()
     .get();
@@ -3761,6 +3776,12 @@ export function createExecutionWithChat(params: {
         // consistently against ISO outcome/unread timestamps (the SQLite
         // `datetime('now')` default would store the space-format instead).
         startedAt: now,
+        // Seed the rail sort key. This path does NOT go through
+        // `createChatSession` — it writes the row inside the execution's
+        // transaction — so the seeding there does not cover it, and this is
+        // the path every execution chat takes. A NULL would sort the brand
+        // new chat to the bottom of `ORDER BY last_activity_at DESC`.
+        lastActivityAt: now,
         model: selection.model,
         modelVariant: selection.variant,
         effort: selection.effort,
@@ -3864,7 +3885,14 @@ export function markSessionRead(id: string): ChatSessionRecord | null {
  * as unread on the next rail render.
  */
 export function markSessionUnread(id: string): ChatSessionRecord | null {
-  return updateChatSession(id, { unreadMarkerAt: new Date().toISOString() });
+  const at = new Date().toISOString();
+  // Marking unread is a deliberate "come back to this" gesture, so it counts
+  // as activity and floats the chat. This is also what lets the ORDER BYs key
+  // off one column: `unread_marker_at` no longer needs to be a separate term
+  // the SQL has to remember to consider (it used to be omitted, which is how
+  // marked-unread chats ended up ranked by their months-old outcome instead).
+  touchSessionActivity(id, 'mark_unread', { at });
+  return updateChatSession(id, { unreadMarkerAt: at });
 }
 
 /** Advance the outcome timestamp. Called when an `agent`/`result` event lands. */
@@ -3874,6 +3902,45 @@ export function bumpSessionOutcome(id: string, at: string = new Date().toISOStri
     .set({ lastOutcomeEventAt: at })
     .where(eq(chatSessions.id, id))
     .run();
+}
+
+/**
+ * Advance the rail's sort key. Monotonic: `max(existing, at)`, so a path that
+ * replays history (transcript import, the reconcile sweep) can insert
+ * month-old events without yanking a live session to the bottom of the rail.
+ *
+ * `''` as the COALESCE floor rather than NULL because SQLite's multi-argument
+ * `max()` returns NULL if ANY argument is NULL, which would blank the column
+ * on the first bump of an un-backfilled row.
+ *
+ * Writes ISO only. `last_activity_at` is the one timestamp in this table
+ * guaranteed to be single-format, which is what lets the ORDER BYs compare it
+ * as a raw string (see src/lib/utils/timestamps.ts for why that matters).
+ */
+export function bumpSessionActivity(id: string, at: string = new Date().toISOString()): void {
+  const db = getDb();
+  db.update(chatSessions)
+    .set({ lastActivityAt: sql`max(coalesce(${chatSessions.lastActivityAt}, ''), ${at})` })
+    .where(eq(chatSessions.id, id))
+    .run();
+}
+
+/**
+ * Report that something happened in a session and let policy decide whether
+ * it counts. This is the entry point every call site should use — the reason
+ * set lives in `src/lib/sessions/activity.ts`.
+ *
+ * `throttle` is for sources that fire per-keystroke (terminal input). It caps
+ * the write rate per session; the sort key does not need finer resolution.
+ */
+export function touchSessionActivity(
+  id: string,
+  reason: ActivityReason,
+  opts: { at?: string; throttle?: boolean } = {},
+): void {
+  if (!isActivity(reason)) return;
+  if (opts.throttle && !shouldThrottledBump(id, Date.now())) return;
+  bumpSessionActivity(id, opts.at ?? new Date().toISOString());
 }
 
 /**
@@ -3895,7 +3962,7 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
         isNotNull(chatSessions.externalSessionId),
       ),
     )
-    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .all();
 }
 
@@ -3956,13 +4023,11 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
         ) > COALESCE(${chatSessions.lastViewedAt}, '1970-01-01')`,
       ),
     )
-    .orderBy(sql`COALESCE(
-      MAX(
-        COALESCE(${chatSessions.lastOutcomeEventAt}, '1970-01-01'),
-        COALESCE(${chatSessions.unreadMarkerAt}, '1970-01-01')
-      ),
-      '1970-01-01'
-    ) DESC`)
+    // Membership is an unread question (above), but ORDER is an activity
+    // question, so it uses the same key as every other rail surface. The
+    // Unread section is not re-sorted client-side, so this ordering is what
+    // the user actually sees.
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map(
     (r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }),
@@ -4028,12 +4093,12 @@ export function listRailSessions(): RailSessionRow[] {
       sql`${chatSessions.id} = (
         SELECT cs2.id FROM chat_sessions cs2
         WHERE cs2.execution_id = ${executions.id} AND cs2.status = 'active'
-        ORDER BY COALESCE(cs2.last_outcome_event_at, cs2.started_at) DESC
+        ORDER BY COALESCE(cs2.last_activity_at, cs2.started_at) DESC
         LIMIT 1
       )`,
     )
     .where(eq(executions.status, 'active'))
-    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map((r) => hydrateRailRow(r));
 }
@@ -4078,12 +4143,12 @@ export function listWorkspaceExecutions(
       sql`${chatSessions.id} = (
         SELECT cs2.id FROM chat_sessions cs2
         WHERE cs2.execution_id = ${executions.id} AND ${sessionStatus}
-        ORDER BY COALESCE(cs2.last_outcome_event_at, cs2.started_at) DESC
+        ORDER BY COALESCE(cs2.last_activity_at, cs2.started_at) DESC
         LIMIT 1
       )`,
     )
     .where(and(eq(executions.workspaceId, workspaceId), executionStatus))
-    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map((r) =>
     flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }),
@@ -4118,7 +4183,7 @@ export function listHistorySessions(opts: { limit?: number } = {}): RailSessionR
     .leftJoin(workspaces, eq(workspaces.id, chatSessions.workspaceId))
     .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .where(eq(chatSessions.type, 'execution'))
-    .orderBy(sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.startedAt}) DESC`)
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .limit(limit)
     .all();
   return rows.map((r) => hydrateRailRow(r));
@@ -4331,9 +4396,14 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
   if (rows.length === 0) return null;
   const row = hydrateRow(rows[0]!);
 
+  const at = input.createdAt ?? new Date().toISOString();
   if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
-    bumpSessionOutcome(input.sessionId, input.createdAt ?? new Date().toISOString());
+    bumpSessionOutcome(input.sessionId, at);
   }
+  // Separate from the outcome bump on purpose: outcome drives "unread" and
+  // must stay agent-only, activity drives sort order and takes everything
+  // policy allows. See src/lib/sessions/activity.ts.
+  touchSessionActivity(input.sessionId, activityReasonForEventSource(input.source), { at });
 
   publishChatEvent(row);
   return row;
@@ -4370,9 +4440,11 @@ export function replaceChatEventPart(input: CreateChatEventInput): ChatEventReco
   if (!row) return null;
 
   const hydrated = hydrateRow(row);
+  const at = input.createdAt ?? new Date().toISOString();
   if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
-    bumpSessionOutcome(input.sessionId, input.createdAt ?? new Date().toISOString());
+    bumpSessionOutcome(input.sessionId, at);
   }
+  touchSessionActivity(input.sessionId, activityReasonForEventSource(input.source), { at });
   publishChatEvent(hydrated);
   return hydrated;
 }
@@ -4559,7 +4631,7 @@ export function listSessionsStuckOnSource(source: ChatEventSource): StuckSession
        JOIN chat_sessions s ON s.id = l.session_id
        LEFT JOIN last_user lu ON lu.session_id = l.session_id
        WHERE s.status = 'active'
-       ORDER BY s.last_outcome_event_at DESC, s.started_at DESC`,
+       ORDER BY COALESCE(s.last_activity_at, s.started_at) DESC, s.started_at DESC`,
     )
     .all(source) as StuckSessionRow[];
 }

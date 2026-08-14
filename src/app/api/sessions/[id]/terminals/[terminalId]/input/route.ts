@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { writeInput } from '@/lib/terminal/pty-manager';
 import { terminalOwnerForSession } from '@/lib/terminal/owner';
+import { touchSessionActivity } from '@/lib/db/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,10 @@ export async function POST(
     if (!ownerId) return Response.json({ error: 'Session not found' }, { status: 404 });
     const ok = writeInput(ownerId, terminalId, body.data);
     if (!ok) return Response.json({ error: 'Terminal not found or exited' }, { status: 404 });
+    // Working in the terminal is working on the execution. Throttled because
+    // this route is one POST per keystroke and the rail's sort key does not
+    // need per-character resolution.
+    touchSessionActivity(id, 'terminal', { throttle: true });
     return Response.json({ ok: true });
   } catch (err) {
     console.error('[POST /api/sessions/:id/terminals/:terminalId/input]', err);

@@ -356,6 +356,103 @@ describe('external agent imports', () => {
       .toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('imports a transcript far larger than one commit window', async () => {
+    const transcriptPath = path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`);
+    appendBulkRecords(transcriptPath, projectOne, 0, BULK_RECORDS);
+
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    const result = await importer.importExternalAgentSessions([claude.key]);
+
+    // Two events per bulk line (a text block plus a tool call) on top of the
+    // five baseline events. A window that closed mid-line would drop the
+    // line's remaining events and come up short here.
+    expect(result).toMatchObject({
+      importedSessions: 1,
+      importedEvents: 5 + BULK_RECORDS * 2,
+      failures: [],
+    });
+
+    const q = await import('@/lib/db/queries');
+    const session = q.listChatSessions({ type: 'execution' })
+      .find((candidate) => candidate.surfaceRef === 'claude')!;
+    const events = q.listChatEvents(session.id, { limit: 5_000 });
+    expect(events).toHaveLength(5 + BULK_RECORDS * 2);
+    expect(events.at(-1)?.toolName).toBe('Read');
+    expect(events.at(-2)?.content).toContain(`bulk ${BULK_RECORDS - 1} `);
+
+    const ledger = q.getExternalSessionImportBySource('claude', CLAUDE_ID)!;
+    expect(ledger.status).toBe('current');
+    expect(ledger.syncOffset).toBe(fs.statSync(transcriptPath).size);
+    expect(ledger.sourceSize).toBe(fs.statSync(transcriptPath).size);
+
+    // Re-syncing a fully imported transcript is a no-op, not a re-insert.
+    const again = await importer.importExternalAgentSessions([claude.key]);
+    expect(again).toMatchObject({ syncedSessions: 1, syncedEvents: 0, failures: [] });
+    expect(q.listChatEvents(session.id, { limit: 5_000 })).toHaveLength(5 + BULK_RECORDS * 2);
+  }, 60_000);
+
+  it('resumes from the last committed window when a long read fails partway', async () => {
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    await importer.importExternalAgentSessions([claude.key]);
+
+    const q = await import('@/lib/db/queries');
+    const session = q.listChatSessions({ type: 'execution' })
+      .find((candidate) => candidate.surfaceRef === 'claude')!;
+    const transcriptPath = path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`);
+    const syncedOffset = q.getExternalSessionImportBySource('claude', CLAUDE_ID)!.syncOffset;
+    appendBulkRecords(transcriptPath, projectOne, 0, BULK_RECORDS);
+
+    const agentex = await import('@agentex/agent');
+    const history = agentex.getProvider('claude').localHistory!;
+    const read = history.read.bind(history);
+    const cutoff = syncedOffset + 4 * 1024 * 1024;
+    vi.spyOn(history, 'read').mockImplementation(async function* (...args) {
+      for await (const yielded of read(...args)) {
+        if (yielded.nextOffset > cutoff) throw new Error('transcript read interrupted');
+        yield yielded;
+      }
+    });
+
+    const failed = await importer.importExternalAgentSessions([claude.key]);
+    expect(failed.syncedSessions).toBe(0);
+    expect(failed.failures).toHaveLength(1);
+
+    const partial = q.getExternalSessionImportBySource('claude', CLAUDE_ID)!;
+    expect(partial.status).toBe('error');
+    // The work already read is durable, and the ledger describes exactly the
+    // prefix it committed rather than the whole file.
+    expect(partial.syncOffset).toBeGreaterThan(syncedOffset);
+    expect(partial.syncOffset).toBeLessThan(fs.statSync(transcriptPath).size);
+    expect(partial.sourceSize).toBe(partial.syncOffset);
+    const partialEvents = q.listChatEvents(session.id, { limit: 5_000 }).length;
+    expect(partialEvents).toBeGreaterThan(5);
+    expect(partialEvents).toBeLessThan(5 + BULK_RECORDS * 2);
+
+    // A failed sync surfaces as an error. Were the process to die instead of
+    // throwing, the ledger would keep the last window's 'current' — and the
+    // short prefix still has to read as an available update, never as synced.
+    q.updateExternalSessionImport(partial.id, { status: 'current', lastError: null });
+    const partialScan = await importer.discoverExternalAgentSessions();
+    expect(partialScan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')?.importStatus).toBe('changed');
+
+    vi.restoreAllMocks();
+    const resumed = await importer.importExternalAgentSessions([claude.key]);
+    expect(resumed).toMatchObject({ syncedSessions: 1, failures: [] });
+    expect(resumed.syncedEvents).toBe(5 + BULK_RECORDS * 2 - partialEvents);
+    // Resumed, not replayed: the prefix hash proved the committed bytes still
+    // matched, so nothing was re-read and nothing was duplicated.
+    expect(q.listChatEvents(session.id, { limit: 5_000 })).toHaveLength(5 + BULK_RECORDS * 2);
+    expect(q.getExternalSessionImportBySource('claude', CLAUDE_ID)?.syncOffset)
+      .toBe(fs.statSync(transcriptPath).size);
+  }, 60_000);
+
   it('cleans up a new workspace and skeleton when the first read fails', async () => {
     const agentex = await import('@agentex/agent');
     const history = agentex.getProvider('claude').localHistory!;
@@ -382,4 +479,38 @@ describe('external agent imports', () => {
 function writeJsonl(filePath: string, records: Record<string, unknown>[]): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+}
+
+// Enough transcript to span several commit windows once normalized: each
+// record carries ~24KB of text and normalizes into two events that both keep a
+// copy of the raw record.
+const BULK_RECORDS = 300;
+const BULK_TEXT_BYTES = 24_000;
+
+function appendBulkRecords(
+  filePath: string,
+  cwd: string,
+  startIndex: number,
+  count: number,
+): void {
+  const lines: string[] = [];
+  for (let offset = 0; offset < count; offset++) {
+    const index = startIndex + offset;
+    lines.push(JSON.stringify({
+      type: 'assistant',
+      uuid: `claude-bulk-${index}`,
+      sessionId: CLAUDE_ID,
+      cwd,
+      timestamp: new Date(Date.UTC(2026, 0, 2, 0, 0, index)).toISOString(),
+      message: {
+        id: `msg_bulk_${index}`,
+        role: 'assistant',
+        content: [
+          { type: 'text', text: `bulk ${index} ${'x'.repeat(BULK_TEXT_BYTES)}` },
+          { type: 'tool_use', id: `bulk-tool-${index}`, name: 'Read', input: { file_path: `file-${index}.ts` } },
+        ],
+      },
+    }));
+  }
+  fs.appendFileSync(filePath, `${lines.join('\n')}\n`);
 }

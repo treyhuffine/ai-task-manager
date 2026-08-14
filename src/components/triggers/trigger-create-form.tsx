@@ -34,7 +34,7 @@ import {
   type FrequencyKind,
   type Weekday,
 } from '@/lib/scheduler/frequency';
-import type { EffortLevel, TriggerRecord } from '@/db/types';
+import { EFFORT_LEVELS, type EffortLevel, type TriggerRecord } from '@/db/types';
 import { MODEL_OPTIONS } from '@/lib/agent-options';
 import { cn } from '@/lib/utils';
 
@@ -58,10 +58,10 @@ const WEEKDAY_LABELS: { value: Weekday; label: string }[] = [
   { value: 0, label: 'Sunday' },
 ];
 
-// Trigger creation does not yet select a provider and model together. Preserve
-// its existing provider-agnostic choices, while leaving Codex-only `ultra` to
-// the model-aware execution composer.
-const TRIGGER_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+// Trigger creation does not yet select a provider and model together, so it
+// offers the full ladder. A rung the chosen model turns out not to support is
+// resolved down at dispatch by `explicitEffortForModel`, never sent as-is.
+const TRIGGER_EFFORT_LEVELS = EFFORT_LEVELS;
 
 export interface WebhookCredentials {
   publicId: string;

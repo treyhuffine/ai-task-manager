@@ -7,6 +7,8 @@ import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
+import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
+import { normalizeTimestamp } from '@/lib/utils/timestamps';
 import type { RailSession } from '@/lib/api/sessions';
 import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 import { HistoryRow } from './history-row';
@@ -63,7 +65,15 @@ export function HistoryView() {
     );
   }, [data?.sessions, selectedWs]);
 
-  const grouped = useMemo(() => groupByDateBucket(filtered), [filtered]);
+  // Re-sort before bucketing. The server orders by `last_activity_at`, but
+  // this is the one rail surface that used to render the server list
+  // verbatim, which meant it inherited every ordering quirk the SQL had.
+  // Running the shared key here keeps History agreeing with Status, the
+  // workspace tree, and the skinny rail.
+  const grouped = useMemo(
+    () => groupByDateBucket(sortSessionsHotnessDesc(filtered)),
+    [filtered],
+  );
 
   const togglePill = (id: string) => {
     setSelectedWs((prev) => {
@@ -214,7 +224,11 @@ export function groupByDateBucket(sessions: RailSession[], now: Date = new Date(
   const groups = new Map<string, DateGroup>();
 
   for (const s of sessions) {
-    const ts = s.lastOutcomeEventAt ?? s.startedAt;
+    // Bucket on activity, not outcome. A month-old execution worked on today
+    // belongs under "Today" — keying off `lastOutcomeEventAt` filed it by
+    // when the agent last spoke, so a session you spent the afternoon in the
+    // terminal on (or explicitly marked unread) sat weeks down the feed.
+    const ts = s.lastActivityAt ?? s.lastOutcomeEventAt ?? s.startedAt;
     const bucket = describeBucket(ts, now);
     const existing = groups.get(bucket.id);
     if (existing) {
@@ -232,7 +246,10 @@ export function groupByDateBucket(sessions: RailSession[], now: Date = new Date(
 }
 
 function describeBucket(iso: string, now: Date): { id: string; label: string } {
-  const then = new Date(iso);
+  // Normalize first: a SQLite space-format value parses as LOCAL time even
+  // though `datetime('now')` is UTC, which skewed the bucket by the viewer's
+  // offset and could file an evening session under the wrong calendar day.
+  const then = new Date(normalizeTimestamp(iso));
   if (Number.isNaN(then.getTime())) return { id: '99|unknown', label: 'Unknown' };
 
   const days = calendarDaysBetween(then, now);

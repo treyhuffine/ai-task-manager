@@ -460,9 +460,13 @@ export async function resumeWorktreeForSession(args: {
 }
 
 /**
- * List remote-tracking branches in a workspace. Used by the "Create
- * from → Branch" flow. Strips the `origin/HEAD -> origin/main` symbolic
- * ref entry that's noise in a picker.
+ * List remote-tracking branches in a workspace, most recently committed first.
+ * Used by the "Create from → Branch" flow. Strips the `origin/HEAD ->
+ * origin/main` symbolic ref entry that's noise in a picker.
+ *
+ * The sort is what makes the list usable on a long-lived repo: `for-each-ref`
+ * defaults to refname order, so an alphabetical picker buries the branch you
+ * pushed ten minutes ago somewhere in the four hundred you didn't.
  */
 export async function listWorkspaceBranches(ws: WorkspaceRecord): Promise<string[]> {
   if (!ws.isGit) return [];
@@ -472,6 +476,7 @@ export async function listWorkspaceBranches(ws: WorkspaceRecord): Promise<string
     if (result.kind !== 'git') return [];
     const raw = await result.git.raw([
       'for-each-ref',
+      '--sort=-committerdate',
       '--format=%(refname:short)',
       'refs/remotes/',
     ]);

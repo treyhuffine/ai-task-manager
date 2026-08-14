@@ -70,7 +70,9 @@ export function HistoryRow({
   const wsEmoji = session.workspaceEmoji;
   const branch = session.branchName;
 
-  const timestamp = session.lastOutcomeEventAt ?? session.startedAt;
+  // Display the same instant the row is RANKED by, so a session that
+  // sorts to Today never reads "3 weeks ago" next to its own position.
+  const timestamp = session.lastActivityAt ?? session.lastOutcomeEventAt ?? session.startedAt;
 
   return (
     <div

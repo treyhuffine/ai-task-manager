@@ -97,7 +97,12 @@ import {
 } from '@/lib/db/queries';
 import { notifyNeedsInput, notifyRunTerminal } from '@/lib/notifications/emit';
 import { budgetGate } from '@/lib/runs/budget';
-import { explicitAgentSelection, providerIdForHarness, type ProviderId } from '@/lib/agent-options';
+import {
+  explicitAgentSelection,
+  providerEffortValue,
+  providerIdForHarness,
+  type ProviderId,
+} from '@/lib/agent-options';
 import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
 import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/agents/runtime';
 import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
@@ -915,7 +920,9 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   if (args.modelVariant && runtime.capabilities.modelVariants.supported) {
     config.modelVariant = args.modelVariant;
   }
-  if (args.effort && runtime.capabilities.reasoningEffort.supported) config.effort = args.effort;
+  if (args.effort && runtime.capabilities.reasoningEffort.supported) {
+    config.effort = providerEffortValue(harness, args.effort);
+  }
   if (args.permissionMode === 'plan' && runtime.capabilities.planMode.supported) {
     config.planMode = true;
   }

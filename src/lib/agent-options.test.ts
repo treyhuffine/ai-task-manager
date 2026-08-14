@@ -6,6 +6,7 @@ import {
   explicitModelForProvider,
   effortOptionsForModel,
   harnessSupportsEffort,
+  providerEffortValue,
   type ModelOption,
 } from './agent-options';
 
@@ -51,8 +52,31 @@ describe('agent effort options', () => {
       'high',
       'xhigh',
       'max',
+      'ultra',
     ]);
     expect(EFFORT_OPTIONS.at(-1)?.id).toBe('ultra');
+  });
+
+  it('names the top rung the way each provider names it', () => {
+    const claude = effortOptionsForModel('claude_code', null).at(-1);
+    expect(claude).toMatchObject({ id: 'ultra', label: 'Ultracode', shortLabel: 'ultracode' });
+
+    const codex = effortOptionsForModel('codex', {
+      id: 'gpt-test',
+      label: 'GPT Test',
+      supportedEfforts: ['ultra'],
+    }).at(-1);
+    expect(codex).toMatchObject({ id: 'ultra', label: 'Ultra', shortLabel: 'ultra' });
+  });
+
+  it('sends the top rung under the name each CLI accepts', () => {
+    // `claude --effort ultra` only warns and silently drops to the default
+    // effort, so the rename is the difference between running ultracode and
+    // quietly running whatever the session would have run anyway.
+    expect(providerEffortValue('claude_code', 'ultra')).toBe('ultracode');
+    expect(providerEffortValue('codex', 'ultra')).toBe('ultra');
+    expect(providerEffortValue('claude_code', 'xhigh')).toBe('xhigh');
+    expect(providerEffortValue('nonsense', 'ultra')).toBe('ultra');
   });
 
   it('resolves null values to an explicit model and effort', () => {

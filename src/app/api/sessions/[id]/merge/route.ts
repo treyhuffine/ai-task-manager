@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getWorkspace, touchSessionActivity } from '@/lib/db/queries';
 import { resolveSessionPr } from '@/lib/github/session-pr';
 
 /**
@@ -55,6 +55,7 @@ export async function POST(
         method: body.method ?? 'squash',
         deleteBranch: body.deleteBranch ?? true,
       });
+      touchSessionActivity(id, 'git');
       return Response.json({ ok: true, prNumber: pr.number, url: pr.url });
     } catch (err) {
       if (err instanceof NotInstalledError || err instanceof NotAuthenticatedError) {

@@ -68,7 +68,10 @@ describe('GET /api/orchestrator-chat — seeds model + effort from defaults', ()
 
     const { session } = await (await GET(new Request('http://localhost/api'))).json();
     expect(session.model).toBe('opus');
-    expect(session.effort).toBe('medium');
+    // Effort resolves against the provider, not the rejected model. `ultra` is
+    // Claude's top rung too (it goes out as `--effort ultracode`), so repairing
+    // the model must not drag a perfectly valid effort down with it.
+    expect(session.effort).toBe('ultra');
   });
 
   it('defaults only seed NEW chats — an existing active chat is returned untouched', async () => {

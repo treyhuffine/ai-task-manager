@@ -325,8 +325,8 @@ For each selected source Flow:
 2. Reuses a workspace whose normalized `cwd` matches.
 3. Creates an active workspace for an existing directory or an archived placeholder for a missing directory.
 4. Creates an archived execution, archived chat, and `importing` ledger row in one transaction.
-5. Reads and normalizes the complete source into bounded staging memory.
-6. Commits all staged events and final ledger state in one database transaction.
+5. Reads and normalizes the source into bounded staging memory, committing it as a sequence of windows.
+6. Commits each window plus the ledger position it leaves behind in one database transaction.
 7. Removes the new skeleton and any unused newly created workspace if import fails.
 
 Each selected chat is an independent unit. One failed source does not roll back successful imports of other selected chats.
@@ -343,9 +343,23 @@ Before treating source growth as append-only, Flow verifies the SHA-256 hash of 
 - The old prefix hash changed
 - A legacy row has an offset but no verified hash
 
-Flow fingerprints before and after reading. Size, nanosecond mtime, and full SHA must remain stable. If the source changes during the read, the staged result is discarded and the old projection remains intact.
+Flow fingerprints before and after reading. Size, nanosecond mtime, and full SHA must remain stable. If the source changes during the read, the pending window is discarded and the sync fails.
 
 The committed offset advances to stable EOF, including provider records that normalize to no Flow event.
+
+### 6.3.1 Commit windows
+
+Transcript size is unbounded in practice: a long agent session can reach hundreds of megabytes, several times that once normalized. Flow therefore never holds a whole transcript in memory. Normalized events accumulate to a fixed byte budget and are then committed as one window, so memory tracks the window size rather than the source size.
+
+Each window leaves the ledger describing exactly the prefix it committed: `sync_offset` and `source_size` at the window boundary, and `source_content_sha256` over `[0, boundary)`. Consequences:
+
+- An interrupted sync keeps the work it already read. The next sync verifies that prefix hash and resumes from the boundary instead of replaying from zero.
+- A partly synchronized transcript reports `changed`, never `current`, because the recorded prefix is shorter than the source.
+- The prefix hash is rolled forward as bytes are consumed, so windowing costs one extra sequential read of the source rather than a re-hash per window.
+
+A window may only close on a source-record boundary. One transcript line, or one provider part, can normalize into several events that share an offset or checkpoint, and committing a position mid-group would skip that group's remaining events on resume.
+
+A replacement's delete rides along with its first window rather than running up front, so a read that fails before producing anything leaves the previous transcript intact.
 
 ### 6.4 OpenCode synchronization
 
@@ -353,11 +367,11 @@ OpenCode synchronization starts from the ledger's opaque checkpoint.
 
 - A valid checkpoint performs an incremental read.
 - No checkpoint performs a bounded full read.
-- `history_checkpoint_not_found` triggers a bounded full resync.
+- `history_checkpoint_not_found` triggers a bounded full resync, but only from a standing start. Once a window has committed, the ledger already holds a newer checkpoint and the next sync resumes from it.
 - A no-op incremental read preserves the existing checkpoint.
-- `source_missing`, malformed history, a provider error, or a size-limit error preserves the old transcript.
+- `source_missing`, malformed history, a provider error, or a provider size-limit error preserves the old transcript.
 
-The replacement transcript is staged before the database deletes any old external rows.
+The first window of a replacement deletes the old external rows in the same transaction that writes its own, so a failure before then leaves the old transcript untouched.
 
 ### 6.5 Concurrency
 
@@ -444,11 +458,11 @@ The implementation must preserve all of these:
 4. Source identity includes provider type.
 5. Missing status requires a completed provider enumeration.
 6. A failed initial import leaves no empty chat, execution, ledger, or unused workspace.
-7. A failed replacement leaves the prior transcript and checkpoint intact.
-8. A source that changes during read is retried later, not partially committed.
+7. A replacement that fails before its first window leaves the prior transcript and checkpoint intact.
+8. A source that changes during read is retried later. The retry resumes from the last committed window.
 9. Concurrent syncs for one source cannot commit out of order.
-10. Checkpoints and offsets advance only with the event transaction.
-11. Staging is bounded at 25 MiB in Flow.
+10. Checkpoints and offsets advance only with the event transaction, and only to a source-record boundary.
+11. Staging memory is bounded by the commit window, not by transcript size. No source is too large to import.
 12. Raw payloads and errors are handled without logging secrets by default.
 
 ## 9. Verification requirements
@@ -499,6 +513,8 @@ Required coverage:
 - Prefix rewrite with larger source full replay
 - Legacy unverified hash full replay
 - Source mutation during read rollback
+- Multi-window import of a transcript larger than one commit window
+- Resume from the last committed window after an interrupted read
 - OpenCode incremental checkpoint synchronization
 - Mutable or stale checkpoint full replacement
 - No-op checkpoint preservation
@@ -564,13 +580,14 @@ Release gate:
 - [x] Add explicit initial import.
 - [x] Add explicit repeatable synchronization.
 - [x] Add staged and atomic replacement.
+- [x] Commit long transcripts in bounded, resumable windows.
 - [x] Verify file prefix and stable full fingerprint.
 - [x] Preserve service checkpoints on no-op reads.
 - [x] Preserve existing transcripts on failed sync.
 - [x] Clean up failed initial import skeletons.
 - [x] Serialize concurrent work for one ledger.
 - [x] Add the refresh-by-chat endpoint.
-- [x] Enforce selection and staging bounds.
+- [x] Enforce selection bounds and bound staging memory by commit window.
 
 ### Flow UI
 

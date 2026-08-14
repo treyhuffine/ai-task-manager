@@ -54,8 +54,13 @@ export interface ConnectorTaskResult {
    * current query must still show its chip, or the filter row would flicker
    * in and out as the user types and "my Todoist is missing" would be
    * indistinguishable from "no Todoist task matched".
+   *
+   * `truncated` says this provider had more rows than `limitPerProvider`, so
+   * the launcher can offer to page deeper. It's measured on the raw fetch, not
+   * on what survived the query filter: a search matching 3 of 25 fetched rows
+   * still has rows upstream we never looked at.
    */
-  sources: { toolkitId: string; providerLabel: string }[];
+  sources: { toolkitId: string; providerLabel: string; truncated: boolean }[];
   /**
    * Every provider we know how to read tasks from, connected or not. Lets the
    * launcher name what's still connectable ("Connect Jira, Asana") instead of
@@ -91,8 +96,12 @@ interface TaskSource {
    * real providers need real shapes: Asana can't list tasks without first
    * resolving a workspace gid, and Jira needs a JQL string synthesized rather
    * than passed through. Anything expressible as "some calls, then rows" fits.
+   *
+   * `limit` is how many rows the caller intends to keep. Providers with a
+   * page-size parameter must pass it through, or paging past the first page
+   * would ask for more rows and get the same ones back.
    */
-  fetch: (run: RunAction, query: string) => Promise<TaskRow[]>;
+  fetch: (run: RunAction, query: string, limit: number) => Promise<TaskRow[]>;
 }
 
 function str(v: unknown): string | null {
@@ -131,10 +140,10 @@ const TASK_SOURCES: TaskSource[] = [
     toolkitId: 'linear',
     providerId: 'linear',
     label: 'Linear',
-    fetch: async (run, query) => {
+    fetch: async (run, query, limit) => {
       const raw = await run<{ issues?: unknown[] }>(
         'linear.list_issues',
-        query ? { first: 25, query } : { first: 25 },
+        query ? { first: limit, query } : { first: limit },
       );
       return (raw.issues ?? [])
         .map((r) => r as Record<string, unknown>)
@@ -161,7 +170,7 @@ const TASK_SOURCES: TaskSource[] = [
     label: 'Jira',
     // JQL is required, but "my open issues" is a well-defined default — no
     // reason to make the user hand-write a query to see their own work.
-    fetch: async (run, query) => {
+    fetch: async (run, query, limit) => {
       const escaped = query.replace(/["\\]/g, '');
       const jql = [
         'assignee = currentUser()',
@@ -170,7 +179,10 @@ const TASK_SOURCES: TaskSource[] = [
       ]
         .filter(Boolean)
         .join(' AND ') + ' ORDER BY updated DESC';
-      const raw = await run<{ issues?: unknown[] }>('jira.search_issues', { jql, maxResults: 25 });
+      const raw = await run<{ issues?: unknown[] }>('jira.search_issues', {
+        jql,
+        maxResults: limit,
+      });
       return (raw.issues ?? [])
         .map((r) => r as Record<string, unknown>)
         .map((i) => ({
@@ -191,7 +203,7 @@ const TASK_SOURCES: TaskSource[] = [
     // `list_tasks` rejects an assignee without a workspace, so resolve one
     // first. Most accounts have exactly one; we take the first deterministically
     // rather than guessing across several.
-    fetch: async (run) => {
+    fetch: async (run, _query, limit) => {
       const ws = await run<{ workspaces?: unknown[] }>('asana.list_workspaces', {});
       const first = (ws.workspaces ?? [])[0] as Record<string, unknown> | undefined;
       const gid = first ? str(first.gid) : null;
@@ -199,7 +211,7 @@ const TASK_SOURCES: TaskSource[] = [
       const raw = await run<{ tasks?: unknown[] }>('asana.list_tasks', {
         assignee: 'me',
         workspace: gid,
-        limit: 25,
+        limit,
       });
       return (raw.tasks ?? [])
         .map((r) => r as Record<string, unknown>)
@@ -256,6 +268,7 @@ export async function listConnectorTasks(
 
   const items: ConnectorTaskItem[] = [];
   const failures: ConnectorTaskResult['failures'] = [];
+  const truncatedBy = new Map<string, boolean>();
 
   type Settled =
     | { source: TaskSource; ok: true; rows: TaskRow[] }
@@ -283,7 +296,7 @@ export async function listConnectorTasks(
         );
       };
       try {
-        return { source, ok: true, rows: await source.fetch(run, query) };
+        return { source, ok: true, rows: await source.fetch(run, query, limit) };
       } catch (err) {
         return { source, ok: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -299,6 +312,9 @@ export async function listConnectorTasks(
       });
       continue;
     }
+    // Before filtering: the provider's page size is what bounds this, and a
+    // narrow query shrinking the result set says nothing about what's upstream.
+    truncatedBy.set(entry.source.toolkitId, entry.rows.length >= limit);
     const matched = q
       ? entry.rows.filter(
           (r) =>
@@ -323,7 +339,11 @@ export async function listConnectorTasks(
 
   return {
     items,
-    sources: active.map((s) => ({ toolkitId: s.toolkitId, providerLabel: s.label })),
+    sources: active.map((s) => ({
+      toolkitId: s.toolkitId,
+      providerLabel: s.label,
+      truncated: truncatedBy.get(s.toolkitId) ?? false,
+    })),
     supported: SUPPORTED_TASK_SOURCES,
     failures,
   };

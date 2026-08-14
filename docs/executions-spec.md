@@ -136,7 +136,7 @@ export const executions = sqliteTable('executions', {
 - `external_session_id`, `external_transcript_path`, `external_sync_offset`, `external_sync_last_event_id`
 - `permission_mode`, `model`, `effort`, `pre_plan_mode`
 - `scratch_pad`
-- `last_outcome_event_at`, `last_viewed_at`, `unread_marker_at`
+- `last_outcome_event_at`, `last_viewed_at`, `unread_marker_at`, `last_activity_at`
 - `surface_kind`, `surface_ref` (for content chats)
 - `created_by_run_id` — **renamed** from the previously-proposed `triggered_by_run_id`. The column means "the run that created this chat," not "the run this chat is about." A chat can host multiple subsequent runs (initial → iterate → re-iterate); those are tracked via `runs.chat_session_id`, not by overloading this field.
 
@@ -398,7 +398,7 @@ This is the rigorous way to do the lift: every read path goes through the bridge
 **One-to-many.** One execution has many chats; one chat belongs to at most one execution.
 
 **The "primary" chat of an execution** (when UI needs to default-select one):
-- Most recently active by `last_outcome_event_at`
+- Most recently active by `last_activity_at` (see § Activity vs outcome)
 - Where `status='active'` (not archived)
 - **Primary chat is a default, not the only addressable chat.** Run-history links and any UI that names a specific chat (e.g., "view the run from morning-triage that fired Tuesday") always open the exact `runs.chat_session_id`. The primary-chat rule only governs what to show when the user navigates *to the execution* without a more specific target.
 
@@ -411,6 +411,44 @@ This is the rigorous way to do the lift: every read path goes through the bridge
 - `runs.chat_session_id` (per async-agents-v1) — a run targets a specific chat.
 - `runs.workspace_id` — denormalized for queries.
 - New: `runs.execution_id` — denormalized, populated at dispatch time. Lets us roll up cost per execution cheaply.
+
+### Activity vs outcome
+
+Two timestamps that look interchangeable and are not. Conflating them is a
+bug we already shipped once, so the distinction is worth stating plainly.
+
+| | `last_outcome_event_at` | `last_activity_at` |
+|---|---|---|
+| Answers | "did the agent produce something I have not read?" | "did anything happen here?" |
+| Drives | the unread derivation and the Unread rail section | every rail sort and the History date buckets |
+| Moves on | `agent`, `result`, `background_task` only | whatever `ACTIVITY_REASONS` allows |
+| Must not move on | the user's own typing | opening a chat |
+
+They shared one column originally. Unread needs the narrow definition (your
+own typing must not mark a chat unread), so the narrow definition won, and
+sorting inherited it. The result: on a representative day, 265 of 4,239
+events moved the rail order. Tool calls, thinking, your own sends, and all
+terminal work were invisible to it, and a session could sit **5.2 hours**
+behind its real last event during a tool-heavy stretch. Sessions also ranked
+by creation date whenever nothing bumped the outcome, so a month-old
+execution worked on all day still read as a month old.
+
+**Rules:**
+
+- The policy lives in `src/lib/sessions/activity.ts` and nowhere else. Call
+  sites report an `ActivityReason` and stay dumb about whether it counts.
+- Never write `last_activity_at` directly. `bumpSessionActivity` is the only
+  writer, it is monotonic (`max(existing, at)`) so replaying an old
+  transcript cannot yank a live session down, and it writes ISO only. That
+  single-format guarantee is what lets the SQL `ORDER BY` compare it as a raw
+  string (see `src/lib/utils/timestamps.ts` for why mixed formats break).
+- `open` and `mark_read` are deliberately excluded. The composer autofocuses
+  when a session opens, and both ride that autofocus, so counting either
+  would re-sort the rail as a side effect of navigation.
+- `mark_unread` IS activity. That is also why no query needs to `MAX` in
+  `unread_marker_at` separately anymore.
+- Creation is a floor, never a ceiling. A month-old execution that ran today
+  ranks as today.
 
 ---
 

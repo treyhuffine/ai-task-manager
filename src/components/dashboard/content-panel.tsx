@@ -311,7 +311,7 @@ function ChatHistoryMenu() {
                     {s.label ?? s.snippet ?? 'New chat'}
                   </span>
                   <span className="shrink-0 text-[9.5px] text-muted-foreground/60 font-mono">
-                    {formatCompactRelative(s.lastOutcomeEventAt ?? s.startedAt)}
+                    {formatCompactRelative(s.lastActivityAt ?? s.lastOutcomeEventAt ?? s.startedAt)}
                   </span>
                 </button>
               );

@@ -65,6 +65,8 @@ export interface OrchestratorChatHistoryEntry {
   status: 'active' | 'archived';
   startedAt: string;
   lastOutcomeEventAt: string | null;
+  /** Rail sort key — anything that happened, human or agent. */
+  lastActivityAt: string | null;
 }
 
 /** Past + current interactive orchestrator chats, newest activity first. */

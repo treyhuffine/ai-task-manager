@@ -36,6 +36,7 @@ async function handleGET() {
           status: s.status,
           startedAt: s.startedAt,
           lastOutcomeEventAt: s.lastOutcomeEventAt,
+          lastActivityAt: s.lastActivityAt,
         };
       });
     return Response.json({ sessions });

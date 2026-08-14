@@ -4,21 +4,31 @@ import { timestampEpoch } from './timestamps';
  * Shared session "hotness" key used to sort rail lists. A session's
  * hotness is the most recent timestamp across:
  *
- *   - `lastOutcomeEventAt` — last agent/result event landed
- *   - `unreadMarkerAt`      — user explicitly flagged unread
- *   - `startedAt`            — session creation (floor for brand-new
- *                                sessions with no events yet)
+ *   - `lastActivityAt`  — anything happened here, human or agent. The real
+ *                            signal. What bumps it is policy, and the policy
+ *                            lives in `src/lib/sessions/activity.ts`.
+ *   - `unreadMarkerAt`  — user explicitly flagged unread. Redundant now
+ *                            (`markSessionUnread` bumps activity too), kept
+ *                            as free insurance for any path that writes the
+ *                            marker without going through it. Can only ever
+ *                            agree with or exceed `lastActivityAt`, never
+ *                            contradict it.
+ *   - `startedAt`       — session creation. Floor for rows created before
+ *                            `lastActivityAt` existed and never touched since.
  *
- * `startedAt` is a SQLite space-format timestamp while the other two are
- * ISO (`toISOString`). Those formats do NOT sort consistently as raw
- * strings (' ' < 'T'), so we compare via {@link timestampEpoch}, which
- * normalizes both to UTC epoch ms. Comparing the strings directly is what
- * made a brand-new session sink below the day's active ones instead of
- * rising to the top.
+ * Creation is a FLOOR, never a ceiling: an execution opened a month ago that
+ * ran today ranks as today. That is the whole point of the key.
+ *
+ * Formats: `lastActivityAt` is ISO-only by construction (`bumpSessionActivity`
+ * is the sole writer). `startedAt` can still be SQLite space-format on legacy
+ * rows, and the two do NOT sort consistently as raw strings (' ' < 'T'), so
+ * we compare via {@link timestampEpoch}, which normalizes both to UTC epoch
+ * ms. Comparing the strings directly is what made a brand-new session sink
+ * below the day's active ones instead of rising to the top.
  */
 
 interface SortableSession {
-  lastOutcomeEventAt: string | null;
+  lastActivityAt?: string | null;
   unreadMarkerAt: string | null;
   startedAt: string;
 }
@@ -27,7 +37,7 @@ interface SortableSession {
 export function sessionHotnessKey(s: SortableSession): number {
   return Math.max(
     timestampEpoch(s.startedAt),
-    timestampEpoch(s.lastOutcomeEventAt),
+    timestampEpoch(s.lastActivityAt),
     timestampEpoch(s.unreadMarkerAt),
   );
 }

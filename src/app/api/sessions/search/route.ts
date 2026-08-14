@@ -12,7 +12,7 @@ import { withCompression } from '@/lib/api/compression';
  *   status       'active' | 'archived'; omit for both.
  *   workspaceId  scope to one workspace.
  *   source       'native' | 'imported' | 'claude' | 'codex' | 'opencode'.
- *   limit        max sessions (1-100, default 30).
+ *   limit        max sessions (1-500, default 30).
  *
  * Distinct from `/sessions/history` (a flat feed): this takes a query and
  * ranks by relevance. The static `search` segment is matched ahead of the
@@ -46,8 +46,11 @@ async function handleGET(request: NextRequest) {
 
     const workspaceId = params.get('workspaceId') ?? undefined;
 
+    // Ceiling is a runaway guard, not a page size. It used to be 100, which the
+    // launcher's paging could walk right into — and a cap the caller can reach
+    // by asking is indistinguishable from "no more results".
     const limitRaw = parseInt(params.get('limit') ?? '30', 10);
-    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 30;
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 30;
 
     const results = searchChatSessions({ query, status, workspaceId, source, limit });
     return Response.json(results);

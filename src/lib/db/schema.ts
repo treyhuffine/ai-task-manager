@@ -984,10 +984,14 @@ export const chatSessions = sqliteTable(
 
     // Review derivation (timestamp-only, no state column).
     //
-    // `last_viewed_at` is the read receipt — bumped on user interaction
-    // with the chat (textarea focus, send, explicit Mark read). Opening
-    // the session no longer marks read on its own; the user has to engage
-    // for the chat to leave the Unread bucket.
+    // `last_viewed_at` is the read receipt — bumped on textarea focus, send,
+    // and explicit Mark read. Note that in practice this DOES mean opening
+    // marks read: the composer autofocuses on session change, so the focus
+    // receipt fires without a deliberate act. (The "peek does not mark read"
+    // cleanup in execution-view.tsx runs after that and is therefore inert.)
+    // This is exactly why `open` and `mark_read` are excluded from the
+    // activity policy — if reading counted as activity, opening a chat would
+    // silently re-sort the rail. See src/lib/sessions/activity.ts.
     //
     // `unread_marker_at` is the "Mark as unread" override. When set above
     // `last_viewed_at` it forces the session into Unread even when no new
@@ -995,6 +999,27 @@ export const chatSessions = sqliteTable(
     lastOutcomeEventAt: text(),
     lastViewedAt: text(),
     unreadMarkerAt: text(),
+
+    // Rail sort key: "when did anything last happen here", human OR agent.
+    //
+    // Deliberately separate from `last_outcome_event_at`, which the two used
+    // to share. That column feeds the *unread* derivation, so it can only
+    // ever move on agent output — your own typing must not mark a chat
+    // unread. Sorting wants the opposite: the widest possible definition of
+    // activity. One column could not serve both, and the narrow definition
+    // won, which left roughly 94% of a session's traffic (tool calls,
+    // thinking, your own sends, terminal work) invisible to the rail order.
+    //
+    // Which reasons bump this is policy, not schema — see
+    // `src/lib/sessions/activity.ts`. Never written directly: go through
+    // `bumpSessionActivity` so the format stays ISO and monotonic.
+    //
+    // Nullable for the migration (retrofitting NOT NULL onto a populated
+    // table is not cleanly autogeneratable), but `createChatSession` always
+    // seeds it and the migration backfills every existing row, so a NULL
+    // here means "row predates the backfill" and readers fall back to
+    // `started_at`.
+    lastActivityAt: text(),
 
     // CLI-backed tracking; null for in-app sessions. Provider type is stored
     // alongside the provider-owned id because those ids are only unique
@@ -1054,16 +1079,18 @@ export const chatSessions = sqliteTable(
     index('idx_chat_sessions_workspace_status').on(
       table.workspaceId,
       table.status,
-      table.lastOutcomeEventAt,
+      table.lastActivityAt,
     ),
     index('idx_chat_sessions_agent_status').on(table.agentId, table.status),
     index('idx_chat_sessions_type_status').on(table.type, table.status),
     // Primary-chat lookup + per-execution rollups: "most-recently-active
     // non-archived chat for execution E" (docs/executions-spec.md §4).
+    // Keyed on `last_activity_at` because that is what the lookup orders
+    // by — "most recently active" means any activity, not just output.
     index('idx_chat_sessions_execution_status_activity').on(
       table.executionId,
       table.status,
-      table.lastOutcomeEventAt,
+      table.lastActivityAt,
     ),
   ],
 );
