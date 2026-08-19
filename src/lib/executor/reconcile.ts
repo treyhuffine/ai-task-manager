@@ -47,6 +47,7 @@ import {
   listStuckBootstrapExecutions,
   recordExecutionSetupError,
   getAgent,
+  getExternalSessionImportForChat,
   insertChatEvent,
 } from '@/lib/db/queries';
 import {
@@ -65,6 +66,12 @@ export interface ReconcileResult {
   /** Number of new events appended to chat_events during this call. */
   replayed: number;
   /**
+   * Set when the replay itself failed. The events we did get are still
+   * committed and the cursor still advanced, so this isn't fatal — but a
+   * user-initiated Resync needs to say so rather than report success.
+   */
+  error?: string;
+  /**
    * Why we no-op'd, if applicable. `'no_transcript'` is a normal state
    * (the provider hasn't written a file yet); `'unsupported_provider'`
    * applies to harnesses without an agentex transcript reader;
@@ -72,7 +79,10 @@ export interface ReconcileResult {
    * locate the transcript; `'running'` means we deferred to the live
    * stream for a Codex session that's currently mid-turn;
    * `'in_flight'` means another reconcile for this session was already
-   * running and we returned without starting a second one.
+   * running and we returned without starting a second one;
+   * `'import_current'` / `'import_source_missing'` /
+   * `'import_discovery_failed'` are the imported-chat outcomes (see
+   * `syncImportedSession`).
    */
   skipped?:
     | 'no_transcript'
@@ -80,7 +90,10 @@ export interface ReconcileResult {
     | 'no_cwd'
     | 'no_external_session'
     | 'running'
-    | 'in_flight';
+    | 'in_flight'
+    | 'import_current'
+    | 'import_source_missing'
+    | 'import_discovery_failed';
 }
 
 /**
@@ -122,7 +135,24 @@ export async function reconcileSession(sessionId: string): Promise<ReconcileResu
   try {
     const session = getChatSessionWithExecution(sessionId);
     if (!session) return { drift: false, replayed: 0, skipped: 'no_cwd' };
+
     if (!session.externalSessionId) {
+      // An imported chat has no executor session of its own: its transcript
+      // is still being written by whatever terminal the user started it in,
+      // and the import ledger is the only record of where to read from.
+      // Routing it here is what makes every trigger that keeps a live
+      // session honest — session-open, per-send, Resync, cold start — keep
+      // an imported one current too. Without it, this bail made Resync a
+      // guaranteed no-op that still reported success.
+      //
+      // Ordered after the `externalSessionId` test on purpose. Sending into
+      // an imported chat from this app promotes a real provider session onto
+      // the row, and from then on that transcript is the chat's history.
+      // Merging the old imported one back in would interleave two different
+      // conversations into a thread that contradicts itself.
+      if (getExternalSessionImportForChat(sessionId)) {
+        return await reconcileImportedSession(sessionId);
+      }
       return { drift: false, replayed: 0, skipped: 'no_external_session' };
     }
 
@@ -134,6 +164,38 @@ export async function reconcileSession(sessionId: string): Promise<ReconcileResu
     return { drift: false, replayed: 0, skipped: 'unsupported_provider' };
   } finally {
     state.inFlight.delete(sessionId);
+  }
+}
+
+// ─── Imported provider history ────────────────────────────────
+
+const IMPORT_SKIP_REASONS = {
+  current: 'import_current',
+  source_missing: 'import_source_missing',
+  discovery_failed: 'import_discovery_failed',
+} as const;
+
+async function reconcileImportedSession(sessionId: string): Promise<ReconcileResult> {
+  try {
+    // Local import: the import module pulls in provider discovery and the
+    // workspace helpers, and only a session that actually has a ledger needs
+    // any of it.
+    const { syncImportedSession } = await import('@/lib/import/external-agents');
+    const result = await syncImportedSession(sessionId);
+    const skipped = result.skipped && result.skipped in IMPORT_SKIP_REASONS
+      ? IMPORT_SKIP_REASONS[result.skipped as keyof typeof IMPORT_SKIP_REASONS]
+      : undefined;
+    return { drift: result.replayed > 0, replayed: result.replayed, skipped };
+  } catch (err) {
+    // `synchronizeCandidate` already wrote the reason onto the ledger, which
+    // is what the imports panel renders. Surface it here too so a Resync can
+    // say what went wrong instead of flashing a check mark.
+    console.error(`[reconcile] import sync failed for ${sessionId}:`, err);
+    return {
+      drift: false,
+      replayed: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -428,6 +490,8 @@ export async function reconcileAllSessions(): Promise<{
   replayed: number;
   redispatched: number;
   reapedStuckBootstraps: number;
+  importsChecked: number;
+  importsSynced: number;
   errors: number;
 }> {
   // Local import — health.ts imports reconcileSession from this file,
@@ -480,5 +544,32 @@ export async function reconcileAllSessions(): Promise<{
     }
   }
 
-  return { checked, drifted, replayed, redispatched, reapedStuckBootstraps, errors };
+  // Imported chats are invisible to `listReconcilableSessions` (no
+  // `externalSessionId`), so they get their own pass. One shared provider
+  // scan covers all of them, which is why this is a batch call rather than
+  // a per-session loop through `healthCheckSession`.
+  let importsChecked = 0;
+  let importsSynced = 0;
+  try {
+    const { syncAllImportedSessions } = await import('@/lib/import/external-agents');
+    const imports = await syncAllImportedSessions();
+    importsChecked = imports.checked;
+    importsSynced = imports.synced;
+    replayed += imports.replayed;
+    errors += imports.errors;
+  } catch (err) {
+    errors++;
+    console.error('[reconcile] imported-session sweep failed:', err);
+  }
+
+  return {
+    checked,
+    drifted,
+    replayed,
+    redispatched,
+    reapedStuckBootstraps,
+    importsChecked,
+    importsSynced,
+    errors,
+  };
 }

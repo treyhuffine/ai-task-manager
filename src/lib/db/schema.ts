@@ -130,6 +130,13 @@ export const agentHarnessSettings = sqliteTable('agent_harness_settings', {
   ...timestamps,
   harness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }).notNull().unique(),
   enabledModels: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+  /**
+   * Exact model ids the user typed in rather than picked from the catalog.
+   * They join the catalog for validation and always sit inside
+   * `enabledModels`, so a pinned id (`claude-opus-4-8`) reaches the provider
+   * verbatim instead of being resolved through a tier alias.
+   */
+  customModels: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
   defaultModel: text(),
   defaultVariant: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),

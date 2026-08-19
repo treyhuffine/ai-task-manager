@@ -38,6 +38,8 @@ import { useFileHistory } from '@/hooks/use-file-history';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverBanner } from './takeover/takeover-banner';
 import { SetupPlaceholder } from './setup-placeholder';
+import { ImportedTakeoverBar } from './imported-takeover-bar';
+import { providerLabel as importedProviderLabel } from './setup-card';
 import { ExecutionSkeleton } from './execution-skeleton';
 import { ReferencesPane } from './references-pane';
 import { ScratchpadPane } from './scratchpad-pane';
@@ -515,13 +517,22 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // takes over and the message reads as the normal setup spinner. Avoids
   // a race where a very fast user could send during the ~200-500ms
   // round-trip and hit a 400 from `/messages`.
+  // An imported chat mirrors a session this app doesn't drive. Sending would
+  // spawn an agent with none of the context shown above it, so the composer
+  // stays locked until the user takes the chat over on purpose
+  // (`ImportedTakeoverBar`). `externalSessionId` is the flip: once it's set,
+  // the chat owns a provider session and behaves like any other.
+  const isMirroredImport =
+    session.surfaceKind === 'imported_agent' && !session.externalSessionId;
   const isResuming = session.status === 'archived';
-  const composerDisabled = isResuming || isSettingUp;
+  const composerDisabled = isResuming || isSettingUp || isMirroredImport;
   const composerDisabledReason = isResuming
     ? 'Resuming…'
     : isSettingUp
       ? 'Setting up worktree…'
-      : undefined;
+      : isMirroredImport
+        ? 'Continue here to reply'
+        : undefined;
 
   // Chat body — WIP banner + transcript + composer. Used in both
   // desktop and mobile chat columns. The header (and on desktop, the
@@ -584,6 +595,13 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
         />
         <PendingInputArea sessionId={session.id} />
+        {isMirroredImport && (
+          <ImportedTakeoverBar
+            sessionId={session.id}
+            providerLabel={importedProviderLabel(session.surfaceRef)}
+            cwd={workspace?.cwd ?? null}
+          />
+        )}
         <ExecutionComposer
           ref={composerHandleRef}
           sessionId={session.id}

@@ -35,7 +35,8 @@ import {
   type Weekday,
 } from '@/lib/scheduler/frequency';
 import { EFFORT_LEVELS, type EffortLevel, type TriggerRecord } from '@/db/types';
-import { MODEL_OPTIONS } from '@/lib/agent-options';
+import { useAgentModels } from '@/hooks/use-agent-models';
+import { PinModelInput } from '@/components/settings/pin-model-input';
 import { cn } from '@/lib/utils';
 
 const FREQUENCY_OPTIONS: { value: FrequencyKind; label: string }[] = [
@@ -503,11 +504,15 @@ function ModelPill({
   onChange: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  // Single source of truth: the same Claude tier aliases the composer
-  // offers (opus/sonnet/haiku/fable → always-latest). Empty id = harness default.
+  // Scheduled runs use the default Claude executor, so this offers exactly
+  // what that provider offers the composer: its visible models plus any
+  // pinned ids. Anything not in that list is silently repaired to the default
+  // at fire time, which is why the pin below writes it into the catalog
+  // rather than just onto this trigger. Empty id = harness default.
+  const { models } = useAgentModels('claude');
   const presets = [
     { id: '', label: 'Default model' },
-    ...MODEL_OPTIONS.claude_code.map((m) => ({ id: m.id, label: m.label })),
+    ...models.map((m) => ({ id: m.id, label: m.label })),
   ];
   const label = presets.find((p) => p.id === value)?.label ?? value ?? 'Default model';
   return (
@@ -539,13 +544,13 @@ function ModelPill({
               {p.label}
             </button>
           ))}
-          <div className="px-2 py-1.5 border-t border-border mt-1">
-            <input
-              type="text"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder="Custom id…"
-              className="w-full px-2 py-1 text-[11px] rounded border border-border bg-background"
+          <div className="mt-1 border-t border-border pt-1">
+            <PinModelInput
+              providerId="claude"
+              onPinned={(model) => {
+                onChange(model.id);
+                setOpen(false);
+              }}
             />
           </div>
         </div>

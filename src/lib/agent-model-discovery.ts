@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { promisify } from 'node:util';
 import {
+  customModelOption,
   explicitAgentSelection,
   modelsForProvider,
   type ExplicitAgentSelection,
@@ -9,27 +8,14 @@ import {
   type ModelOption,
   type ProviderId,
 } from '@/lib/agent-options';
+import { getAgentHarnessSettings } from '@/lib/db/queries';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/agents/runtime';
 import { HARNESS_REGISTRY } from '@/lib/agents/registry';
 import type { ProviderRuntimeContext, UpstreamProvider } from '@agentex/agent';
 
-const execFileAsync = promisify(execFile);
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const FAILURE_TTL_MS = 30 * 1000;
-
-interface CodexCatalogModel {
-  slug?: unknown;
-  display_name?: unknown;
-  description?: unknown;
-  visibility?: unknown;
-  supported_reasoning_levels?: unknown;
-  default_reasoning_level?: unknown;
-}
-
-interface CodexCatalog {
-  models?: unknown;
-}
 
 interface CachedModels {
   expiresAt: number;
@@ -133,44 +119,6 @@ function parseSupportedEfforts(value: unknown): EffortLevel[] {
   return [...seen];
 }
 
-export function parseCodexModelCatalog(raw: string): ModelOption[] {
-  const parsed = JSON.parse(raw) as CodexCatalog;
-  if (!Array.isArray(parsed.models)) throw new Error('Codex model catalog has no models array');
-
-  const seen = new Set<string>();
-  const models: ModelOption[] = [];
-  for (const entry of parsed.models as CodexCatalogModel[]) {
-    if (entry.visibility !== 'list') continue;
-    if (typeof entry.slug !== 'string' || typeof entry.display_name !== 'string') continue;
-    if (seen.has(entry.slug)) continue;
-    seen.add(entry.slug);
-    const supportedEfforts = parseSupportedEfforts(entry.supported_reasoning_levels);
-    const defaultEffort = parseEffortLevel(entry.default_reasoning_level);
-    models.push({
-      id: entry.slug,
-      label: modelLabel(entry.display_name),
-      ...(typeof entry.description === 'string' && entry.description
-        ? { hint: entry.description.replace(/[.]$/, '') }
-        : {}),
-      ...(supportedEfforts.length > 0 ? { supportedEfforts } : {}),
-      ...(defaultEffort ? { defaultEffort } : {}),
-    });
-  }
-
-  if (models.length === 0) throw new Error('Codex model catalog has no visible models');
-  return models;
-}
-
-async function discoverCodexModels(): Promise<ModelOption[]> {
-  const command = process.env.CODEX_COMMAND || 'codex';
-  const { stdout } = await execFileAsync(command, ['debug', 'models'], {
-    encoding: 'utf8',
-    timeout: 15_000,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return parseCodexModelCatalog(stdout);
-}
-
 function providerModelOption(
   providerId: ProviderId,
   model: import('@agentex/agent').ProviderModel,
@@ -181,6 +129,7 @@ function providerModelOption(
   return {
     id: model.id,
     label: providerId === 'codex' ? modelLabel(model.name) : model.name,
+    ...(model.description ? { hint: model.description } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.providerName ? { providerName: model.providerName } : {}),
     ...(model.variants ? { variants: model.variants } : {}),
@@ -234,13 +183,10 @@ async function discoverModels(
         };
       }
     } catch {
-      // Continue to the provider-specific discovery path or config fallback.
+      // Fall through to the bundled catalog. Discovery throws rather than
+      // returning an empty list when a provider's probe mechanism is broken,
+      // so this catch is the intended landing spot for that case.
     }
-  }
-
-  if (providerId === 'codex') {
-    const models = await discoverCodexModels();
-    return { models, source: 'cli' };
   }
 
   return { models: modelsForProvider(providerId), source: 'config' };
@@ -270,9 +216,22 @@ export async function getAgentModels(
 }
 
 /**
- * Catalog used for server-side validation. Keep bundled models alongside live
- * discovery so stable aliases such as `opus` remain valid when a provider API
- * returns only versioned model ids.
+ * User-pinned exact model ids for one provider, as catalog entries.
+ *
+ * Read straight from settings rather than through the discovery cache: a pin
+ * is a local decision, so it must be usable the moment it is saved and must
+ * survive a provider being offline. A pin that collides with a real catalog id
+ * keeps the discovered metadata (see the merge order in `getAgentModelCatalog`).
+ */
+export function customModelCatalog(providerId: ProviderId): ModelOption[] {
+  return (getAgentHarnessSettings(providerId)?.customModels ?? []).map(customModelOption);
+}
+
+/**
+ * Catalog used for server-side validation. Keep bundled models and pinned ids
+ * alongside live discovery so stable aliases such as `opus` remain valid when
+ * a provider API returns only versioned model ids, and so a hand-typed id is
+ * accepted by every validator instead of only the one that saved it.
  */
 export async function getAgentModelCatalog(
   providerId: ProviderId,
@@ -281,7 +240,7 @@ export async function getAgentModelCatalog(
   const discovered = (await getAgentModels(providerId, options)).models
     .filter((model) => model.availability !== 'unavailable');
   const byId = new Map<string, ModelOption>();
-  for (const model of [...discovered, ...modelsForProvider(providerId)]) {
+  for (const model of [...discovered, ...modelsForProvider(providerId), ...customModelCatalog(providerId)]) {
     if (!byId.has(model.id)) byId.set(model.id, model);
   }
   return [...byId.values()];

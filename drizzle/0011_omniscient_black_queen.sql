@@ -1,0 +1,1 @@
+ALTER TABLE `agent_harness_settings` ADD `custom_models` text DEFAULT '[]' NOT NULL;

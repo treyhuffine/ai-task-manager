@@ -11,6 +11,7 @@
  */
 
 import type { EffortLevel } from '@/db/types';
+import { prettifyModelId } from '@/lib/executor/context-window';
 import {
   HARNESS_IDS,
   HARNESS_REGISTRY,
@@ -51,6 +52,41 @@ export interface ModelOption {
   availability?: 'available' | 'unavailable';
   availabilityReason?: string;
   enabled?: boolean;
+  /** Typed in by the user (see `customModelOption`) rather than discovered. */
+  custom?: boolean;
+}
+
+/**
+ * Exact-id pins the user typed in. Providers keep shipping models faster than
+ * any catalog read can see them — and Claude's bundled entries are tier
+ * aliases on purpose (`opus` = "the best current Opus") — so pegging a build
+ * (`claude-opus-4-8`) is the one thing picking from a list cannot express.
+ *
+ * The id travels to the provider verbatim. Everything else about it is
+ * cosmetic: the label is a best-effort prettify so the composer chip stays
+ * short, and the raw id is always shown beside it.
+ */
+export function customModelOption(id: string): ModelOption {
+  return {
+    id,
+    label: prettifyModelId(id),
+    hint: id,
+    custom: true,
+    availability: 'available',
+  };
+}
+
+/**
+ * Accepted shape for a typed model id: what providers actually use in model
+ * slugs (`anthropic/claude-opus-4-8`, `gpt-5.4-mini`, `qwen3:32b`). Anything
+ * with whitespace or shell-flavored punctuation is a paste accident rather
+ * than a model, so it is rejected at the input instead of failing later at the
+ * provider boundary. Returns null when the value is unusable.
+ */
+export function normalizeCustomModelId(raw: string | null | undefined): string | null {
+  const id = raw?.trim() ?? '';
+  if (!id || id.length > 160) return null;
+  return /^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$/.test(id) ? id : null;
 }
 
 /**
@@ -86,12 +122,15 @@ export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
   opencode: [],
 };
 
-export type AgentModelSource = 'provider' | 'cli' | 'config';
+/** Where a catalog came from: the harness itself, or Flow's bundled fallback. */
+export type AgentModelSource = 'provider' | 'config';
 
 export interface AgentModelsResponse {
   models: ModelOption[];
   source: AgentModelSource;
   enabledModelIds?: string[];
+  /** Exact ids the user pinned by hand for this provider. */
+  customModelIds?: string[];
   defaultModel?: string | null;
   defaultVariant?: string | null;
   defaultEffort?: EffortLevel | null;
@@ -147,15 +186,6 @@ const EFFORT_LABEL_OVERRIDES: Partial<
   },
 };
 
-/**
- * Effort value as the provider's CLI spells it. Claude's `--effort` rejects
- * `ultra` — and only *warns* before falling back to the default effort — so an
- * unmapped value is a silent downgrade rather than a visible failure.
- */
-const EFFORT_WIRE_VALUES: Partial<Record<HarnessId, Partial<Record<EffortLevel, string>>>> = {
-  claude: { ultra: 'ultracode' },
-};
-
 const PRESERVE_EXTERNALLY_VALIDATED_EFFORT = new Set<HarnessId>(['codex']);
 
 export function effortOptionsForModel(
@@ -183,15 +213,6 @@ export function effortOptionsForModel(
     .map((option) => (overrides?.[option.id] ? { ...option, ...overrides[option.id] } : option));
 }
 
-/** Translate a canonical effort id into the value the provider's CLI accepts. */
-export function providerEffortValue(harness: string | null, effort: EffortLevel): string {
-  try {
-    return EFFORT_WIRE_VALUES[providerIdForHarness(harness)]?.[effort] ?? effort;
-  } catch {
-    return effort;
-  }
-}
-
 /** Explicit fallback used when a provider does not advertise a preference. */
 export const DEFAULT_AGENT_EFFORT: EffortLevel = 'medium';
 
@@ -206,8 +227,10 @@ export function providerIdForHarness(harness: string | null | undefined): Provid
  *
  * The catalog is authoritative when the model is present. The prefix checks
  * cover discovered models that are newer than this app's bundled fallback,
- * while explicitly rejecting the other provider's namespace. Unknown custom
- * ids are rejected because the UI only supports catalog-backed selections.
+ * while explicitly rejecting the other provider's namespace. Ids the user
+ * pinned by hand pass through the catalog arm — the server merges them in
+ * (see `getAgentModelCatalog`), so they are catalog members here, not a
+ * separate exemption.
  */
 export function modelBelongsToProvider(
   providerId: ProviderId,

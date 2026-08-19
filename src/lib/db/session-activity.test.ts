@@ -136,9 +136,14 @@ describe('lastActivityAt', () => {
     // would make merely clicking a rail row re-sort the rail.
     const { q, session } = await setup();
 
+    // Backdate first, like every other case here. Comparing against
+    // `startedAt` instead made the assertion depend on creation and
+    // mark-unread landing in different milliseconds, which holds right up
+    // until something else slows the suite down.
+    await backdate(session.id);
     q.markSessionUnread(session.id);
     const afterUnread = await activityOf(session.id);
-    expect(afterUnread).not.toBe(session.startedAt);
+    expect(afterUnread).not.toBe('2026-01-01T00:00:00.000Z');
 
     q.markSessionRead(session.id);
     expect(await activityOf(session.id)).toBe(afterUnread);

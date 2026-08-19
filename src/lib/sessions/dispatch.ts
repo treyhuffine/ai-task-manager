@@ -553,7 +553,16 @@ export async function continueExecutionSession(
   if (!session.executionId) return session;
   const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
   // Non-git workspaces never had a worktree to recreate; just unarchive.
-  if (!ws || !ws.isGit) {
+  //
+  // Imported chats join them. The agent ran in the user's own folder, and that
+  // cwd is what the provider derives its transcript directory from — cutting a
+  // worktree here would move it and make the imported session unresumable,
+  // which is exactly how an imported chat once ended up answering from a blank
+  // context under a transcript showing hundreds of prior turns. Imports run in
+  // place or not at all. `createImportSkeleton` sets `worktreePath` to the
+  // workspace cwd so this is normally moot; the explicit test covers rows
+  // imported before that was true.
+  if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent') {
     if (session.status === 'archived') unarchiveExecution(session.executionId);
     return getChatSessionWithExecution(args.sessionId);
   }

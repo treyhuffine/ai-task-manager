@@ -184,6 +184,35 @@ describe('deriveBackgroundTasks', () => {
     expect(tasks[0].isActive).toBe(false);
   });
 
+  it('keeps a paused task paused when an update reports no status', () => {
+    // agentex sends `status: null` for an update that carries no status — a
+    // patch that only renames a task says nothing about whether it is running.
+    // Those arrive as `phase: 'progress'`, so if the phase outranked what we
+    // already knew, a paused task would silently flip back to running.
+    const tasks = deriveBackgroundTasks([
+      backgroundTaskEvent('codex', 'started', { taskId: 't1', status: 'running' }, '2026-01-01T00:00:00Z'),
+      backgroundTaskEvent('codex', 'progress', { taskId: 't1', status: 'paused' }, '2026-01-01T00:01:00Z'),
+      backgroundTaskEvent('codex', 'progress', { taskId: 't1', status: null, description: 'renamed' }, '2026-01-01T00:02:00Z'),
+    ]);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ status: 'paused', description: 'renamed', isActive: true });
+  });
+
+  it('still defaults a first sighting with no status to running', () => {
+    const tasks = deriveBackgroundTasks([
+      backgroundTaskEvent('codex', 'progress', { taskId: 't2', status: null }, '2026-01-01T00:00:00Z'),
+    ]);
+    expect(tasks[0]).toMatchObject({ status: 'running', isActive: true });
+  });
+
+  it('lets a terminal phase end a task even with no status reported', () => {
+    const tasks = deriveBackgroundTasks([
+      backgroundTaskEvent('codex', 'started', { taskId: 't3', status: 'running' }, '2026-01-01T00:00:00Z'),
+      backgroundTaskEvent('codex', 'completed', { taskId: 't3', status: null }, '2026-01-01T00:01:00Z'),
+    ]);
+    expect(tasks[0]).toMatchObject({ status: 'completed', isActive: false });
+  });
+
   it('sorts active tasks before terminal ones, newest first within a group', () => {
     const tasks = deriveBackgroundTasks([
       sysTaskEvent('task_started', { task_id: 'done', task_type: 'local_agent' }, '2026-06-23T00:00:00.000Z'),

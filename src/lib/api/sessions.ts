@@ -218,6 +218,14 @@ export interface RestartResult {
   ok: true;
 }
 
+export interface TakeOverImportResult {
+  ok: true;
+  /** The provider session the chat will resume from here on. */
+  externalSessionId: string;
+  /** Where the agent will run. Always the workspace folder, never a worktree. */
+  cwd: string;
+}
+
 export interface WipDetection {
   modified: string[];
   untracked: string[];
@@ -761,6 +769,10 @@ export const sessionsApi = {
 
   restart(id: string): Promise<RestartResult> {
     return api.post<RestartResult>(`/sessions/${id}/restart`);
+  },
+
+  takeOverImport(id: string): Promise<TakeOverImportResult> {
+    return api.post<TakeOverImportResult>(`/sessions/${id}/take-over-import`);
   },
 
   wip(id: string): Promise<WipDetection | null> {

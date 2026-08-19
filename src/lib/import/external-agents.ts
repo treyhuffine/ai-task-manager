@@ -12,7 +12,7 @@ import {
   type SavedHistoryOps,
   type SavedHistorySession,
 } from '@agentex/agent';
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
 import {
@@ -24,10 +24,19 @@ import {
 } from '@/lib/db/schema';
 import {
   createWorkspace,
+  getChatSessionWithExecution,
+  getExternalSessionImportForChat,
   getOrCreateDefaultExecutor,
+  getWorkspace,
   listWorkspaces,
+  updateChatSession,
+  updateExecution,
 } from '@/lib/db/queries';
 import { parseStreamEvent } from '@/lib/executor/adapter';
+import {
+  publishReconcileStarted,
+  publishReconcileDone,
+} from '@/lib/realtime/bus';
 import { explicitAgentSelection } from '@/lib/agent-options';
 import { openCodeRuntimeContext } from '@/lib/agents/opencode';
 import { runtimeContextForHarness } from '@/lib/agents/runtime';
@@ -66,6 +75,11 @@ const EVENT_BATCH_SIZE = 100;
 // never freezes the app.
 const HISTORY_WINDOW_BYTES = 8 * 1024 * 1024;
 const EXTERNAL_AGENT_SOURCES = ['claude', 'codex', 'opencode'] as const satisfies readonly ExternalAgentSource[];
+// NUL, because it is the one byte a provider session id may never contain
+// (`validExternalSessionId` rejects it), so `source + id` can't be ambiguous.
+// Spelled this way rather than inline so the file stays free of raw control
+// bytes that make grep treat it as binary.
+const SYNC_LOCK_SEPARATOR = String.fromCharCode(0);
 const sourceSyncTails = new Map<string, Promise<void>>();
 
 interface CandidateBase extends ExternalAgentSessionCandidate {
@@ -107,6 +121,17 @@ function validExternalSessionId(value: string): boolean {
 
 function sessionKey(source: ExternalAgentSource, externalSessionId: string): string {
   return `${source}:${Buffer.from(externalSessionId, 'utf8').toString('base64url')}`;
+}
+
+/**
+ * Identity of one provider session: what the ledger lookup maps are keyed by,
+ * and what every path that advances a ledger cursor locks on. Because the
+ * settings-panel import, the per-session sync, and the cold-start sweep all
+ * derive it the same way, none of them can replay a transcript window another
+ * one is already committing.
+ */
+function syncLockKey(source: ExternalAgentSource, externalSessionId: string): string {
+  return `${source}${SYNC_LOCK_SEPARATOR}${externalSessionId}`;
 }
 
 async function withSourceSyncLock<T>(sourceIdentity: string, action: () => Promise<T>): Promise<T> {
@@ -405,13 +430,13 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
   const scannedAt = new Date().toISOString();
   const ledgers = db.select().from(externalSessionImports).all();
   const ledgerBySource = new Map(ledgers.map((ledger) => [
-    `${ledger.providerType}\u0000${ledger.externalSessionId}`,
+    syncLockKey(ledger.providerType as ExternalAgentSource, ledger.externalSessionId),
     ledger,
   ]));
   const discoveredSources = new Set<string>();
 
   for (const candidate of candidates) {
-    const sourceIdentity = `${candidate.source}\u0000${candidate.externalSessionId}`;
+    const sourceIdentity = syncLockKey(candidate.source, candidate.externalSessionId);
     discoveredSources.add(sourceIdentity);
     const ledger = ledgerBySource.get(sourceIdentity);
     if (!ledger) continue;
@@ -460,7 +485,7 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
   for (const row of missingRows) {
     const source = row.providerType as ExternalAgentSource;
     if (!EXTERNAL_AGENT_SOURCES.includes(source)) continue;
-    const sourceIdentity = `${source}\u0000${row.externalSessionId}`;
+    const sourceIdentity = syncLockKey(source, row.externalSessionId);
     if (discoveredSources.has(sourceIdentity) || !row.cwd) continue;
     const status: Exclude<ExternalAgentImportStatus, 'not_imported'> = completed[source]
       ? 'missing'
@@ -550,13 +575,15 @@ function historyEventInput(
   };
 }
 
-async function ensureImportWorkspace(candidate: InternalCandidate): Promise<{ id: string; created: boolean }> {
+async function ensureImportWorkspace(
+  candidate: InternalCandidate,
+): Promise<{ id: string; cwd: string; created: boolean }> {
   const resolvedCwd = path.normalize(candidate.cwd);
   const existing = [
     ...listWorkspaces({ status: 'active' }),
     ...listWorkspaces({ status: 'archived' }),
   ].find((workspace) => path.normalize(workspace.cwd) === resolvedCwd);
-  if (existing) return { id: existing.id, created: false };
+  if (existing) return { id: existing.id, cwd: existing.cwd, created: false };
 
   const pathExists = await pathIsDirectory(resolvedCwd);
   const isGit = pathExists && await detectIsGit(resolvedCwd);
@@ -574,12 +601,13 @@ async function ensureImportWorkspace(candidate: InternalCandidate): Promise<{ id
     status: pathExists ? 'active' : 'archived',
     archivedAt: pathExists ? null : new Date().toISOString(),
   });
-  return { id: created.id, created: true };
+  return { id: created.id, cwd: created.cwd, created: true };
 }
 
 function createImportSkeleton(
   candidate: InternalCandidate,
   workspaceId: string,
+  workspaceCwd: string,
 ): { ledger: ExternalSessionImportRecord; chatSessionId: string; executionId: string } {
   const db = getDb();
   const harness = candidate.source === 'claude' ? 'claude_code' : candidate.source;
@@ -603,6 +631,15 @@ function createImportSkeleton(
       branchName: candidate.branchName,
       status: 'active',
       archivedAt: null,
+      // The imported agent ran in the workspace's real folder, so that is where
+      // this execution lives — the same shape as a Live-mode session
+      // (`worktreePath === workspace.cwd`). Leaving it null read as "git
+      // workspace still provisioning", and the first send cut a worktree on a
+      // new branch. That was wrong twice over: it contradicts the setup card
+      // ("the agent ran wherever the user ran it"), and it moved the cwd, which
+      // is what Claude derives its transcript directory from. Once the cwd
+      // moved, the imported session became unresumable even by hand.
+      worktreePath: workspaceCwd,
       createdAt: candidate.startedAt,
       updatedAt: candidate.updatedAt,
     }).run();
@@ -780,6 +817,11 @@ function createHistoryWindowWriter(
         }).where(eq(externalSessionImports.id, ledger.id)).run();
         tx.update(chatSessions).set({
           lastOutcomeEventAt: options.sourceUpdatedAt,
+          // Same clock `createImportSkeleton` sets on arrival: an imported chat
+          // ranks by when the work happened, not by when the sync ran. Without
+          // this the rail keeps a synced session pinned at its import-time
+          // position while the transcript below it grows.
+          lastActivityAt: options.sourceUpdatedAt,
           updatedAt: options.sourceUpdatedAt,
         }).where(eq(chatSessions.id, ledger.chatSessionId)).run();
         if (executionId) {
@@ -987,6 +1029,217 @@ async function synchronizeCandidate(
   }
 }
 
+// ─── Keeping an imported chat current ─────────────────────────
+//
+// An imported chat has no executor subprocess and no
+// `chat_sessions.external_session_id` — its transcript keeps growing in the
+// terminal, and the import ledger is the only thing that knows where to read
+// from. `reconcileSession` therefore routes imported chats here instead of
+// through the executor's transcript reconcile, so the same four triggers that
+// keep a live session honest (open a session, send a message, Resync, cold
+// start) also keep an imported one current.
+
+export interface ImportedSessionSyncResult {
+  /** Events appended to `chat_events` by this call. */
+  replayed: number;
+  /**
+   * Why nothing was replayed. `not_imported` means the chat has no ledger and
+   * the caller should fall through to its normal path; `current` means the
+   * source fingerprint already matched; `source_missing` means the provider no
+   * longer has that transcript; `discovery_failed` means the provider could not
+   * be enumerated, so absence proves nothing and the ledger is left alone.
+   */
+  skipped?: 'not_imported' | 'unknown_source' | 'current' | 'source_missing' | 'discovery_failed';
+}
+
+/**
+ * Bring one ledger up to the candidate the scan just produced. Callers hold
+ * the source lock; `ledger` must be re-read inside that lock so a queued
+ * caller never syncs from a cursor another one already advanced past.
+ */
+async function syncLedger(
+  ledger: ExternalSessionImportRecord,
+  candidate: InternalCandidate | null,
+  discoveryCompleted: boolean,
+): Promise<ImportedSessionSyncResult> {
+  const scannedAt = new Date().toISOString();
+  if (!candidate) {
+    // Only a completed scan can prove absence. A provider that failed to
+    // enumerate leaves the ledger exactly as it was.
+    if (discoveryCompleted) updateScanState(ledger, 'missing', scannedAt);
+    return { replayed: 0, skipped: discoveryCompleted ? 'source_missing' : 'discovery_failed' };
+  }
+  const status = sourceStatus(candidate, ledger);
+  updateScanState(ledger, status, scannedAt);
+  if (status === 'current') return { replayed: 0, skipped: 'current' };
+
+  publishReconcileStarted(ledger.chatSessionId);
+  let inserted = 0;
+  try {
+    inserted = await synchronizeCandidate(candidate, ledger);
+  } finally {
+    // Always closes the client's reconcile frame, including on the throw —
+    // otherwise an open transcript spins forever on a failed sync.
+    publishReconcileDone(ledger.chatSessionId, inserted);
+  }
+  return { replayed: inserted };
+}
+
+/**
+ * Pull any new provider history into one imported chat. Scans only that
+ * chat's own provider (~200ms for a Claude history of a few hundred
+ * transcripts) rather than the full three-source discovery the settings panel
+ * runs, so this is cheap enough to sit on the session-open path.
+ *
+ * Throws when the sync itself fails — the ledger records the error too, but
+ * the caller needs it to tell the user their Resync didn't work.
+ */
+export async function syncImportedSession(
+  chatSessionId: string,
+): Promise<ImportedSessionSyncResult> {
+  const ledger = getExternalSessionImportForChat(chatSessionId);
+  if (!ledger) return { replayed: 0, skipped: 'not_imported' };
+  const source = ledger.providerType as ExternalAgentSource;
+  if (!EXTERNAL_AGENT_SOURCES.includes(source)) {
+    return { replayed: 0, skipped: 'unknown_source' };
+  }
+
+  const sourceIdentity = syncLockKey(source, ledger.externalSessionId);
+  return withSourceSyncLock(sourceIdentity, async () => {
+    const current = getExternalSessionImportForChat(chatSessionId);
+    if (!current) return { replayed: 0, skipped: 'not_imported' };
+    const { candidates, completed } = await discoverProvider(source);
+    const key = sessionKey(source, current.externalSessionId);
+    return syncLedger(current, candidates.find((c) => c.key === key) ?? null, completed);
+  });
+}
+
+/**
+ * Sync every imported chat that belongs to an active session, on one shared
+ * discovery pass. Used by the cold-start sweep: coming back to the app after
+ * working in the terminal should show the terminal's work, without having to
+ * open each imported chat by hand.
+ */
+export async function syncAllImportedSessions(): Promise<{
+  checked: number;
+  synced: number;
+  replayed: number;
+  errors: number;
+}> {
+  const db = getDb();
+  const ledgers = db
+    .select({ ledger: externalSessionImports })
+    .from(externalSessionImports)
+    .innerJoin(chatSessions, eq(externalSessionImports.chatSessionId, chatSessions.id))
+    .where(and(
+      eq(chatSessions.status, 'active'),
+      // Same rule `reconcileSession` applies: a chat that has since been sent
+      // to from this app owns a live provider session, and that transcript is
+      // its history now. The imported one stops being the source of truth.
+      isNull(chatSessions.externalSessionId),
+    ))
+    .all()
+    .map((row) => row.ledger);
+  if (ledgers.length === 0) return { checked: 0, synced: 0, replayed: 0, errors: 0 };
+
+  const { candidates, completed } = await discoverCandidatesInternal();
+  const byKey = new Map(candidates.map((candidate) => [candidate.key, candidate]));
+  let checked = 0;
+  let synced = 0;
+  let replayed = 0;
+  let errors = 0;
+
+  for (const ledger of ledgers) {
+    const source = ledger.providerType as ExternalAgentSource;
+    if (!EXTERNAL_AGENT_SOURCES.includes(source)) continue;
+    checked++;
+    const sourceIdentity = syncLockKey(source, ledger.externalSessionId);
+    try {
+      const result = await withSourceSyncLock(sourceIdentity, async () => {
+        const current = getExternalSessionImportForChat(ledger.chatSessionId);
+        if (!current) return { replayed: 0, skipped: 'not_imported' as const };
+        const key = sessionKey(source, current.externalSessionId);
+        return syncLedger(current, byKey.get(key) ?? null, completed[source]);
+      });
+      if (result.replayed > 0) {
+        synced++;
+        replayed += result.replayed;
+      }
+    } catch (error) {
+      errors++;
+      console.error(`[imports] sweep sync failed for ${ledger.chatSessionId}:`, safeError(error));
+    }
+  }
+
+  return { checked, synced, replayed, errors };
+}
+
+export interface ImportedTakeoverResult {
+  /** The provider session this chat will now resume rather than fork. */
+  externalSessionId: string;
+  /** Where the agent will run. Always the workspace folder, never a worktree. */
+  cwd: string;
+}
+
+/**
+ * Flip an imported chat from mirror to live.
+ *
+ * Until this runs, an imported chat is a read-only mirror of a transcript some
+ * other process owns. Sending into one used to spawn a brand-new provider
+ * session, because the chat row carries no `external_session_id` and there was
+ * nothing to hand `--resume`. The transcript pane kept showing the imported
+ * history, so the chat displayed hundreds of turns while the agent answering
+ * had none — with no signal to the user that those were two different
+ * conversations.
+ *
+ * Taking over copies the ledger's provider session id onto the chat, which is
+ * what makes the next dispatch resume the real thread, and pins the execution
+ * to the workspace folder. Both are required: the provider resolves a session
+ * id relative to the cwd it was started in, so resuming from anywhere else
+ * silently finds nothing.
+ *
+ * Deliberately explicit rather than automatic on first send. Resuming a
+ * session a terminal may still have open means two writers on one transcript,
+ * and that is the user's call to make knowingly.
+ */
+export function takeOverImportedSession(chatSessionId: string): ImportedTakeoverResult {
+  const session = getChatSessionWithExecution(chatSessionId);
+  if (!session) throw new Error('Chat not found.');
+  const ledger = getExternalSessionImportForChat(chatSessionId);
+  if (!ledger) throw new Error('This chat was not imported.');
+  if (ledger.status === 'missing') {
+    throw new Error('The provider transcript this chat was imported from is no longer available.');
+  }
+  const workspace = session.workspaceId ? getWorkspace(session.workspaceId) : null;
+  if (!workspace) throw new Error('This chat has no workspace to run in.');
+
+  // Idempotent: a second call returns the same answer rather than re-pointing
+  // a chat that is already live at a session it has since moved past.
+  if (!session.externalSessionId) {
+    updateChatSession(chatSessionId, {
+      externalSessionId: ledger.externalSessionId,
+      externalProviderType: ledger.providerType,
+      // Let reconcile re-resolve from the live session's own cwd instead of
+      // inheriting the import ledger's path and offset, which describe a
+      // different file.
+      externalTranscriptPath: null,
+      externalSyncOffset: null,
+      externalSyncLastEventId: null,
+    });
+  }
+  if (session.executionId && session.worktreePath !== workspace.cwd) {
+    updateExecution(session.executionId, {
+      worktreePath: workspace.cwd,
+      setupStartedAt: null,
+      setupError: null,
+    });
+  }
+  return {
+    externalSessionId: session.externalSessionId ?? ledger.externalSessionId,
+    cwd: workspace.cwd,
+  };
+}
+
 function emptyImportResult(): ExternalAgentImportResult {
   return {
     importedSessions: 0,
@@ -1014,11 +1267,11 @@ export async function importExternalAgentSessions(sessionKeys: string[]): Promis
   const byKey = new Map(candidates.map((candidate) => [candidate.key, candidate]));
   const db = getDb();
   const result = emptyImportResult();
-  const workspaceByCwd = new Map<string, string>();
+  const workspaceByCwd = new Map<string, { id: string; cwd: string }>();
 
   for (const { key, parsed } of parsedKeys) {
     if (!parsed) continue;
-    const sourceIdentity = `${parsed.source}\u0000${parsed.externalSessionId}`;
+    const sourceIdentity = syncLockKey(parsed.source, parsed.externalSessionId);
     await withSourceSyncLock(sourceIdentity, async () => {
       const existing = db
         .select()
@@ -1055,17 +1308,18 @@ export async function importExternalAgentSessions(sessionKeys: string[]): Promis
       let createdWorkspaceId: string | null = null;
       let createdSkeleton: ReturnType<typeof createImportSkeleton> | null = null;
       try {
-        let workspaceId = workspaceByCwd.get(candidate.cwd);
-        if (!workspaceId) {
+        let target = workspaceByCwd.get(candidate.cwd);
+        if (!target) {
           const workspace = await ensureImportWorkspace(candidate);
-          workspaceId = workspace.id;
-          workspaceByCwd.set(candidate.cwd, workspaceId);
+          target = { id: workspace.id, cwd: workspace.cwd };
+          workspaceByCwd.set(candidate.cwd, target);
           if (workspace.created) {
             createdWorkspaceId = workspace.id;
             result.createdWorkspaces++;
           }
         }
-        const created = createImportSkeleton(candidate, workspaceId);
+        const workspaceId = target.id;
+        const created = createImportSkeleton(candidate, workspaceId, target.cwd);
         createdSkeleton = created;
         const inserted = await synchronizeCandidate(candidate, created.ledger);
         result.importedSessions++;

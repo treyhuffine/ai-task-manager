@@ -2,13 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Bot, Globe2, Loader2, RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { Bot, Globe2, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
 import { useUserState } from '@/hooks/use-user-state';
 import { useAgentModels } from '@/hooks/use-agent-models';
-import { useAgentHarnesses, useSaveHarnessModels, type HarnessSettingsView } from '@/hooks/use-agent-harnesses';
+import {
+  useAgentHarnesses,
+  useRemoveCustomModel,
+  useSaveHarnessModels,
+  type HarnessSettingsView,
+} from '@/hooks/use-agent-harnesses';
 import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './agent-connection-ui';
+import { PinModelInput } from './pin-model-input';
 import { CursorCredentialPanel } from './cursor-credential-panel';
 import { OpenCodeProviderPanel } from './opencode-provider-panel';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -151,6 +157,7 @@ function GlobalSkillSetting() {
 function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active: boolean }) {
   const catalog = useAgentModels(harness.id, { catalog: true });
   const save = useSaveHarnessModels();
+  const removeCustom = useRemoveCustomModel();
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [enabled, setEnabled] = useState<string[]>(harness.settings.enabledModels);
@@ -244,10 +251,34 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
             className="h-8 rounded-md pl-8 text-[11px]"
           />
         </div>
+        {/* Pinning saves on its own (the id has to exist before anything can
+            validate against it), so the pending local edits mirror it rather
+            than overwrite it on the next Save. */}
+        <PinModelInput
+          providerId={harness.id}
+          onPinned={(model) => {
+            setEnabled((prev) => [...new Set([...prev, model.id])]);
+            setDefaultModel((prev) => prev ?? model.id);
+            setQuery('');
+          }}
+        />
         <VirtualModelChecklist
           models={catalog.models}
           query={query}
           enabled={enabled}
+          removing={removeCustom.isPending ? removeCustom.variables?.modelId ?? null : null}
+          onRemove={(id) => {
+            void removeCustom.mutateAsync({ harness: harness.id, modelId: id })
+              .then(() => {
+                setEnabled((prev) => prev.filter((entry) => entry !== id));
+                setDefaultModel((prev) => (prev === id ? null : prev));
+              })
+              .catch((error: unknown) => {
+                toast.error(`Could not remove ${id}`, {
+                  description: error instanceof Error ? error.message : String(error),
+                });
+              });
+          }}
           onToggle={(id, checked) => {
             const next = checked ? [...new Set([...enabled, id])] : enabled.filter((modelId) => modelId !== id);
             setEnabled(next);
@@ -351,12 +382,17 @@ function VirtualModelChecklist({
   models,
   query,
   enabled,
+  removing,
   onToggle,
+  onRemove,
 }: {
   models: ModelOption[];
   query: string;
   enabled: string[];
+  /** Id of the pinned model whose removal is in flight. */
+  removing?: string | null;
   onToggle: (id: string, checked: boolean) => void;
+  onRemove: (id: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rows = useMemo(() => {
@@ -383,29 +419,52 @@ function VirtualModelChecklist({
           const model = rows[virtualRow.index]!;
           const checked = enabled.includes(model.id);
           return (
-            <label
+            <div
               key={virtualRow.key}
-              className={cn(
-                'absolute left-0 top-0 flex w-full cursor-pointer items-center gap-2.5 border-b border-border/60 px-2.5 py-1.5 hover:bg-muted/40',
-                model.availability === 'unavailable' && 'cursor-not-allowed opacity-60',
-              )}
+              className="absolute left-0 top-0 flex w-full items-center gap-1 border-b border-border/60 pr-1.5 hover:bg-muted/40"
               style={{ height: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
             >
-              <Checkbox
-                checked={checked}
-                disabled={model.availability === 'unavailable'}
-                onCheckedChange={(value) => onToggle(model.id, value === true)}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5 text-[11.5px] font-medium text-foreground">
-                  <span className="truncate">{model.label}</span>
-                  {model.providerName && <span className="truncate text-[10px] font-normal text-muted-foreground">{model.providerName}</span>}
+              <label
+                className={cn(
+                  'flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2.5 py-1.5',
+                  model.availability === 'unavailable' && 'cursor-not-allowed opacity-60',
+                )}
+              >
+                <Checkbox
+                  checked={checked}
+                  disabled={model.availability === 'unavailable'}
+                  onCheckedChange={(value) => onToggle(model.id, value === true)}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-[11.5px] font-medium text-foreground">
+                    <span className="truncate">{model.label}</span>
+                    {model.custom && (
+                      <span className="rounded bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                        pinned
+                      </span>
+                    )}
+                    {model.providerName && <span className="truncate text-[10px] font-normal text-muted-foreground">{model.providerName}</span>}
+                  </span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {model.availability === 'unavailable' ? model.availabilityReason : model.hint ?? model.id}
+                  </span>
                 </span>
-                <span className="block truncate text-[10px] text-muted-foreground">
-                  {model.availability === 'unavailable' ? model.availabilityReason : model.hint ?? model.id}
-                </span>
-              </span>
-            </label>
+              </label>
+              {model.custom && (
+                <button
+                  type="button"
+                  disabled={removing === model.id}
+                  onClick={() => onRemove(model.id)}
+                  title={`Unpin ${model.id}`}
+                  aria-label={`Unpin ${model.id}`}
+                  className="rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground disabled:opacity-50"
+                >
+                  {removing === model.id
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <X size={11} />}
+                </button>
+              )}
+            </div>
           );
         })}
       </div>

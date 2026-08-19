@@ -69,7 +69,12 @@ import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
-import { explicitAgentSelection, modelsForProvider, providerIdForHarness } from '@/lib/agent-options';
+import {
+  explicitAgentSelection,
+  modelsForProvider,
+  normalizeCustomModelId,
+  providerIdForHarness,
+} from '@/lib/agent-options';
 import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
 
 // ─── Tasks ────────────────────────────────────────────────────
@@ -2185,6 +2190,7 @@ export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSett
   return upsertAgentHarnessSettings({
     harness,
     enabledModels,
+    customModels: [],
     defaultModel: preferred && enabledModels.includes(preferred) ? preferred : enabledModels[0] ?? null,
     defaultVariant: null,
     defaultEffort: state?.defaultAgentHarness === harness && (harness === 'claude' || harness === 'codex')
@@ -2205,6 +2211,9 @@ export function upsertAgentHarnessSettings(
       target: agentHarnessSettings.harness,
       set: {
         enabledModels: input.enabledModels,
+        // Omitted on the callers that only touch the allowlist, so the pinned
+        // ids survive a plain model save instead of being reset to empty.
+        ...(input.customModels ? { customModels: input.customModels } : {}),
         defaultModel: input.defaultModel,
         defaultVariant: input.defaultVariant,
         defaultEffort: input.defaultEffort,
@@ -2256,6 +2265,80 @@ export function setEnabledHarnessModels(
         set: { enabledModels, defaultModel, updatedAt: now },
       })
       .returning().get();
+  });
+}
+
+/**
+ * Pin an exact provider model id the catalog does not offer.
+ *
+ * Custom ids join `enabledModels` in the same write: a pinned model that is
+ * invisible in the picker is indistinguishable from one that never saved, and
+ * every downstream validator (session PATCH, dispatch preflight, the enabled
+ * allowlist route) reads the merged catalog rather than the raw column.
+ */
+export function addCustomHarnessModel(harness: HarnessId, modelId: string): AgentHarnessSettingsRecord {
+  const id = normalizeCustomModelId(modelId);
+  if (!id) throw new Error('Enter a model ID with no spaces, for example claude-opus-4-8');
+  ensureAgentHarnessSettings(harness);
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx.select().from(agentHarnessSettings)
+      .where(eq(agentHarnessSettings.harness, harness)).get()!;
+    const customModels = [...new Set([...row.customModels, id])];
+    const enabledModels = [...new Set([...row.enabledModels, id])];
+    return tx.update(agentHarnessSettings).set({
+      customModels,
+      enabledModels,
+      defaultModel: row.defaultModel ?? id,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(agentHarnessSettings.harness, harness)).returning().get();
+  });
+}
+
+/**
+ * Drop a pinned model id. It leaves the allowlist with it, because a pin has
+ * no catalog entry to fall back to and an enabled row that resolves to nothing
+ * is worse than a missing one. The exception is an id that shadows a bundled
+ * model (someone pinned `gpt-5.4` by hand): that one still resolves without
+ * the pin, so unpinning must not also hide it from the picker.
+ */
+export function removeCustomHarnessModel(harness: HarnessId, modelId: string): AgentHarnessSettingsRecord {
+  const id = modelId.trim();
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx.select().from(agentHarnessSettings)
+      .where(eq(agentHarnessSettings.harness, harness)).get();
+    if (!row) throw new Error(`No settings for ${harness}`);
+    if (!row.customModels.includes(id)) return row;
+    const customModels = row.customModels.filter((entry) => entry !== id);
+    const shadowsCatalogModel = modelsForProvider(harness).some((model) => model.id === id);
+    const enabledModels = shadowsCatalogModel
+      ? row.enabledModels
+      : row.enabledModels.filter((entry) => entry !== id);
+    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultAgentHarness;
+    if (active === harness && enabledModels.length === 0) {
+      throw new Error('The active harness must have at least one enabled model');
+    }
+    const replacesDefault = row.defaultModel === id && !shadowsCatalogModel;
+    const defaultModel = replacesDefault ? enabledModels[0] ?? null : row.defaultModel;
+    const now = new Date().toISOString();
+    const updated = tx.update(agentHarnessSettings).set({
+      customModels,
+      enabledModels,
+      defaultModel,
+      // The pinned model owned this pair; the replacement advertises its own.
+      defaultVariant: replacesDefault ? null : row.defaultVariant,
+      defaultEffort: replacesDefault ? null : row.defaultEffort,
+      updatedAt: now,
+    }).where(eq(agentHarnessSettings.harness, harness)).returning().get();
+    if (replacesDefault && active === harness) {
+      tx.update(userState).set({
+        defaultAgentModel: defaultModel,
+        defaultAgentEffort: null,
+        updatedAt: now,
+      }).where(eq(userState.id, 1)).run();
+    }
+    return updated;
   });
 }
 

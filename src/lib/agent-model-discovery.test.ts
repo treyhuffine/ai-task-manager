@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   agentModelCacheFingerprint,
   applyOpenCodeProviderAvailability,
-  parseCodexModelCatalog,
 } from './agent-model-discovery';
 
 describe('agent model cache identity', () => {
@@ -21,54 +20,6 @@ describe('agent model cache identity', () => {
       .not.toBe(fingerprint);
     expect(agentModelCacheFingerprint({ ...base, upstream: [{ id: 'xai', connected: true }] }))
       .not.toBe(fingerprint);
-  });
-});
-
-describe('parseCodexModelCatalog', () => {
-  it('returns visible CLI models in catalog order with picker labels', () => {
-    const result = parseCodexModelCatalog(JSON.stringify({
-      models: [
-        {
-          slug: 'gpt-5.5',
-          display_name: 'GPT-5.5',
-          description: 'Frontier model.',
-          visibility: 'list',
-        },
-        {
-          slug: 'gpt-5.6-sol',
-          display_name: 'GPT-5.6-Sol',
-          description: 'Latest frontier agentic coding model.',
-          visibility: 'list',
-          supported_reasoning_levels: [
-            { effort: 'low', description: 'Fast responses' },
-            { effort: 'max', description: 'Maximum reasoning' },
-            { effort: 'ultra', description: 'Automatic delegation' },
-            { effort: 'future-value', description: 'Unknown to this app' },
-          ],
-          default_reasoning_level: 'low',
-        },
-        {
-          slug: 'hidden-model',
-          display_name: 'Hidden-Model',
-          visibility: 'hide',
-        },
-      ],
-    }));
-
-    expect(result).toEqual([
-      { id: 'gpt-5.5', label: '5.5', hint: 'Frontier model' },
-      {
-        id: 'gpt-5.6-sol',
-        label: '5.6 Sol',
-        hint: 'Latest frontier agentic coding model',
-        supportedEfforts: ['low', 'max', 'ultra'],
-        defaultEffort: 'low',
-      },
-    ]);
-  });
-
-  it('rejects an empty visible catalog so callers use the fallback', () => {
-    expect(() => parseCodexModelCatalog('{"models":[]}')).toThrow('no visible models');
   });
 });
 

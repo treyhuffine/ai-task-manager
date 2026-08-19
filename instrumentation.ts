@@ -51,7 +51,7 @@ export async function register() {
     reconcileAllSessions()
       .then((stats) => {
         console.log(
-          `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} redispatched=${stats.redispatched} reapedStuckBootstraps=${stats.reapedStuckBootstraps} errors=${stats.errors}`,
+          `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} redispatched=${stats.redispatched} reapedStuckBootstraps=${stats.reapedStuckBootstraps} importsChecked=${stats.importsChecked} importsSynced=${stats.importsSynced} errors=${stats.errors}`,
         );
       })
       .catch((err) => {

@@ -29,6 +29,9 @@ vi.mock('@/lib/db/queries', () => ({
   listReconcilableSessions: vi.fn(() => []),
   listStuckBootstrapExecutions: vi.fn(() => []),
   recordExecutionSetupError: vi.fn(),
+  // These sessions are executor-owned, not imported: no ledger, so reconcile
+  // stays on the OpenCode path instead of branching to the import sync.
+  getExternalSessionImportForChat: vi.fn(() => undefined),
   insertChatEvent: vi.fn(),
 }));
 

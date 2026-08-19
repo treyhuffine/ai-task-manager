@@ -1124,6 +1124,23 @@ export function useResyncSession(id: string) {
 }
 
 /**
+ * Flip an imported chat from read-only mirror to live. Invalidates the session
+ * row so the composer unlocks the moment the server confirms, and the events
+ * list so the reconcile that follows repaints.
+ */
+export function useTakeOverImport(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.takeOverImport(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', id] });
+      qc.invalidateQueries({ queryKey: ['session', id, 'events'] });
+      qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
+    },
+  });
+}
+
+/**
  * User-pressable Restart — recycle the agent's CLI subprocess without
  * losing the conversation. Force-closes the cached process so the next
  * send spawns a fresh one that `--resume`s the transcript. Use to pick up

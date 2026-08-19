@@ -60,15 +60,19 @@ export function deriveBackgroundTasks(events: ChatEventRecord[]): BackgroundTask
     if (!d || !d.taskId) continue;
     const prev = byId.get(d.taskId);
 
-    // status precedence: this event's explicit status > implied "running" on
-    // start/progress > whatever we had.
+    // Precedence: what this event states > what its phase proves > what we
+    // already had > a first-sighting default.
+    //
+    // `prev` has to outrank the phase guess. agentex reports `status: null` for
+    // an update that carries no status (a patch that only renames a task says
+    // nothing about liveness), and those arrive with `phase: 'progress'`.
+    // Letting the phase win there would re-fabricate `running` over a real
+    // `paused` — the exact assertion that was just removed upstream.
     const status: BackgroundTaskStatus =
-      d.status ??
-      (d.phase === 'completed'
-        ? 'completed'
-        : d.phase === 'started' || d.phase === 'progress'
-          ? 'running'
-          : prev?.status ?? 'running');
+      d.status
+      ?? (d.phase === 'completed' ? 'completed' : null)
+      ?? prev?.status
+      ?? 'running';
 
     const next: BackgroundTask = {
       taskId: d.taskId,

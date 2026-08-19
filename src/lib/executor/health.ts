@@ -61,6 +61,12 @@ export interface HealthReport {
   redispatched: boolean;
   /** Number of transcript events replayed (forwarded from reconcile). */
   replayed: number;
+  /**
+   * Why the transcript sync failed, if it did. Everything else in the check
+   * still ran. Callers that represent an explicit user gesture (Resync)
+   * should show this instead of reporting success.
+   */
+  error?: string;
 }
 
 export interface HealthCheckOptions {
@@ -115,13 +121,14 @@ export async function healthCheckSession(
   const fixes: string[] = [];
   let redispatched = false;
   let replayed = 0;
+  let error: string | undefined;
 
   const session = getChatSession(sessionId);
   if (!session) {
-    return { classification: 'healthy', fixes, redispatched, replayed };
+    return { classification: 'healthy', fixes, redispatched, replayed, error };
   }
   if (session.status === 'archived') {
-    return { classification: 'healthy', fixes, redispatched, replayed };
+    return { classification: 'healthy', fixes, redispatched, replayed, error };
   }
 
   // 1. DB ↔ transcript. reconcileSession is itself idempotent and
@@ -129,11 +136,13 @@ export async function healthCheckSession(
   try {
     const recon = await reconcileSession(sessionId);
     replayed = recon.replayed;
+    error = recon.error;
     if (recon.drift && recon.replayed > 0) {
       fixes.push(`reconciled ${recon.replayed} transcript events`);
     }
   } catch (err) {
     console.error(`[health] reconcile failed for ${sessionId}:`, err);
+    error = err instanceof Error ? err.message : String(err);
   }
 
   // 2. In-memory ↔ reality.
@@ -156,7 +165,7 @@ export async function healthCheckSession(
   const activity = inspectActivity(recent);
 
   if (activity.hasRecentAgentEvent) {
-    return { classification: 'healthy', fixes, redispatched, replayed };
+    return { classification: 'healthy', fixes, redispatched, replayed, error };
   }
 
   if (activity.orphan && !alive) {
@@ -165,15 +174,35 @@ export async function healthCheckSession(
     // "allowed" / "denied" (see buildPendingResponseEvent), and it's
     // tied to a specific tool_use_id in the now-dead subprocess —
     // there's no way to resume that tool lifecycle in a fresh CLI.
+    //
+    // `externalEventId` is the other disqualifier. Rows carrying one were
+    // mirrored in from a provider transcript, not sent from this app: a
+    // session running in the user's terminal, paused on their question, is
+    // supposed to sit there waiting for them. Re-firing it would start an
+    // agent turn nobody asked this app for, against a transcript another
+    // process owns. Only this app's own sends (externalEventId null) are
+    // ours to retry.
+    //
+    // A chat still mirroring an import is disqualified outright, whatever the
+    // row looks like. It has no provider session to resume, so a dispatch
+    // would spawn a fresh agent with none of the context the transcript
+    // shows — the exact silent fork the takeover gate exists to prevent, and
+    // an automated trigger must not walk through that gate on the user's
+    // behalf.
+    const isMirroredImport =
+      session.surfaceKind === 'imported_agent' && !session.externalSessionId;
     const isRedispatchable =
-      activity.orphan.role === 'user' && activity.orphan.source === 'user';
+      activity.orphan.role === 'user'
+      && activity.orphan.source === 'user'
+      && !activity.orphan.externalEventId
+      && !isMirroredImport;
     if (options.redispatchOrphans && isRedispatchable) {
       const now = Date.now();
       const last = redispatchThrottle.lastAttempt.get(sessionId) ?? 0;
       if (!options.force && now - last < REDISPATCH_COOLDOWN_MS) {
         // Recent attempt already fired (succeeded or failed) — don't
         // pile on. The next sweep after the cooldown will retry.
-        return { classification: 'dead', fixes, redispatched, replayed };
+        return { classification: 'dead', fixes, redispatched, replayed, error };
       }
       redispatchThrottle.lastAttempt.set(sessionId, now);
       try {
@@ -193,13 +222,13 @@ export async function healthCheckSession(
         console.error(`[health] orphan redispatch setup failed for ${sessionId}:`, err);
       }
     }
-    return { classification: 'dead', fixes, redispatched, replayed };
+    return { classification: 'dead', fixes, redispatched, replayed, error };
   }
 
   if (!alive && wasRunning) {
     // Subprocess gone, no orphan to re-fire — still classify as
     // dead so callers (rail) can refresh.
-    return { classification: 'dead', fixes, redispatched, replayed };
+    return { classification: 'dead', fixes, redispatched, replayed, error };
   }
 
   if (activity.orphan && alive) {
@@ -207,10 +236,10 @@ export async function healthCheckSession(
     // waiting on a response. Could be a slow real turn or wedged —
     // we don't auto-recover because re-firing might race the live
     // turn. Caller decides whether to surface this to the user.
-    return { classification: 'ambiguous', fixes, redispatched, replayed };
+    return { classification: 'ambiguous', fixes, redispatched, replayed, error };
   }
 
-  return { classification: 'healthy', fixes, redispatched, replayed };
+  return { classification: 'healthy', fixes, redispatched, replayed, error };
 }
 
 interface ActivityProbe {

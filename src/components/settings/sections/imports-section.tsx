@@ -241,7 +241,9 @@ export function ExternalAgentImportPanel() {
         <div>
           <h3 className="text-[12px] font-medium text-foreground">Local projects and chats</h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground/85">
-            Flow reads local agent history without changing it. Select imported chats to sync newer messages.
+            Local agent history is read, never changed. An imported chat arrives as a
+            read-only mirror that keeps syncing as the original session grows, and it
+            runs in the project folder rather than a worktree if you continue it here.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={discovery.isFetching}>

@@ -419,7 +419,7 @@ export function ExecutionHeader({
                 <div className="h-px bg-border" />
                 <div className="p-1"><RestartMenuItem sessionId={session.id} /></div>
                 <div className="h-px bg-border" />
-                <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>
+                <div className="p-1"><ResyncMenuItem sessionId={session.id} imported={session.surfaceKind === 'imported_agent'} /></div>
                 {archiveMenuItem && (
                   <>
                     <div className="h-px bg-border" />
@@ -612,7 +612,7 @@ export function ExecutionHeader({
               <div className="p-1"><RestartMenuItem sessionId={session.id} /></div>
 
               <div className="h-px bg-border" />
-              <div className="p-1"><ResyncMenuItem sessionId={session.id} /></div>
+              <div className="p-1"><ResyncMenuItem sessionId={session.id} imported={session.surfaceKind === 'imported_agent'} /></div>
 
               {archiveMenuItem && (
                 <>

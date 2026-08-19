@@ -16,7 +16,7 @@ import { ThinkingDots } from './thinking-dots';
  * value rather than guessing, so a provider added to the importer before the
  * registry still reads as something.
  */
-function providerLabel(surfaceRef: string | null): string {
+export function providerLabel(surfaceRef: string | null): string {
   if (!surfaceRef) return 'an agent';
   return isHarnessId(surfaceRef) ? harnessDefinition(surfaceRef).name : surfaceRef;
 }

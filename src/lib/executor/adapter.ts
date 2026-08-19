@@ -99,7 +99,6 @@ import { notifyNeedsInput, notifyRunTerminal } from '@/lib/notifications/emit';
 import { budgetGate } from '@/lib/runs/budget';
 import {
   explicitAgentSelection,
-  providerEffortValue,
   providerIdForHarness,
   type ProviderId,
 } from '@/lib/agent-options';
@@ -920,8 +919,12 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   if (args.modelVariant && runtime.capabilities.modelVariants.supported) {
     config.modelVariant = args.modelVariant;
   }
+  // Canonical id straight through. agentex owns the per-provider vocabulary
+  // (Claude spells the top rung `ultracode`, Codex spells it `ultra`) and
+  // translates at the flag boundary, so translating here too would be a second
+  // source of truth for the same fact.
   if (args.effort && runtime.capabilities.reasoningEffort.supported) {
-    config.effort = providerEffortValue(harness, args.effort);
+    config.effort = args.effort;
   }
   if (args.permissionMode === 'plan' && runtime.capabilities.planMode.supported) {
     config.planMode = true;

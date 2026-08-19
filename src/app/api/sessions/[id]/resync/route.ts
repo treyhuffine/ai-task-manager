@@ -35,6 +35,12 @@ export async function POST(
       redispatchOrphans: true,
       force: true,
     });
+    if (report.error) {
+      // Resync is a user asking "please make this right". Reporting success
+      // when the transcript sync failed is how a session stays behind with
+      // nobody able to tell why.
+      return Response.json({ error: report.error }, { status: 500 });
+    }
     return Response.json({
       ok: true,
       classification: report.classification,

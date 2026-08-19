@@ -72,3 +72,100 @@ describe('ensureAgentHarnessSettings', () => {
     expect(q.ensureAgentHarnessSettings('claude').enabledModels).toEqual(['opus']);
   });
 });
+
+/**
+ * Pinned ids are the only models in this table the user typed rather than
+ * picked, so nothing else in the app can regenerate one that gets dropped by
+ * accident: an ordinary "save models" round trip has to leave them alone, and
+ * removing one has to leave the harness in a usable state rather than pointing
+ * its default at an id that no longer resolves anywhere.
+ */
+describe('custom (pinned) harness models', () => {
+  it('pins an exact id and makes it visible in the same write', () => {
+    q.ensureAgentHarnessSettings('claude');
+    const settings = q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    expect(settings.customModels).toEqual(['claude-opus-4-8']);
+    // Enabling is not a convenience: every downstream validator resolves
+    // against the visible set, so a pin that isn't enabled can't be selected.
+    expect(settings.enabledModels).toContain('claude-opus-4-8');
+  });
+
+  it('trims and rejects ids that cannot be a model', () => {
+    q.ensureAgentHarnessSettings('claude');
+    expect(q.addCustomHarnessModel('claude', '  claude-opus-4-8  ').customModels)
+      .toEqual(['claude-opus-4-8']);
+    expect(() => q.addCustomHarnessModel('claude', 'claude opus 4 8')).toThrow();
+    expect(() => q.addCustomHarnessModel('claude', '')).toThrow();
+  });
+
+  it('is idempotent, so a repeated pin does not duplicate the row', () => {
+    q.ensureAgentHarnessSettings('claude');
+    q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    const settings = q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    expect(settings.customModels).toEqual(['claude-opus-4-8']);
+    expect(settings.enabledModels.filter((id) => id === 'claude-opus-4-8')).toHaveLength(1);
+  });
+
+  it('adopts the pin as the default only when there is no default yet', () => {
+    q.setEnabledHarnessModels('cursor', [], null);
+    expect(q.addCustomHarnessModel('cursor', 'composer-1').defaultModel).toBe('composer-1');
+    q.ensureAgentHarnessSettings('claude');
+    expect(q.addCustomHarnessModel('claude', 'claude-opus-4-8').defaultModel).toBe('opus');
+  });
+
+  it('survives an ordinary model save', () => {
+    q.ensureAgentHarnessSettings('claude');
+    q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    const saved = q.setEnabledHarnessModels('claude', ['opus', 'claude-opus-4-8'], 'opus');
+    expect(saved.customModels).toEqual(['claude-opus-4-8']);
+    expect(q.upsertAgentHarnessSettings({
+      ...saved,
+      customModels: undefined,
+      catalogRefreshedAt: new Date().toISOString(),
+    }).customModels).toEqual(['claude-opus-4-8']);
+  });
+
+  it('unpins from both lists and hands the default to a model that resolves', () => {
+    q.ensureAgentHarnessSettings('claude');
+    q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    q.setHarnessDefaultSelection('claude', { model: 'claude-opus-4-8', effort: 'high' });
+    const settings = q.removeCustomHarnessModel('claude', 'claude-opus-4-8');
+    expect(settings.customModels).toEqual([]);
+    expect(settings.enabledModels).not.toContain('claude-opus-4-8');
+    expect(settings.defaultModel).toBe('opus');
+    // The effort belonged to the model that just left.
+    expect(settings.defaultEffort).toBeNull();
+  });
+
+  it('leaves an unrelated default alone', () => {
+    q.ensureAgentHarnessSettings('claude');
+    q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    expect(q.removeCustomHarnessModel('claude', 'claude-opus-4-8').defaultModel).toBe('opus');
+  });
+
+  it('ignores an id that was never pinned', () => {
+    const before = q.ensureAgentHarnessSettings('claude');
+    expect(q.removeCustomHarnessModel('claude', 'opus').enabledModels).toEqual(before.enabledModels);
+  });
+
+  it('keeps a pin that shadows a real catalog model visible after unpinning', () => {
+    // Pinning `opus` by hand is redundant but legal. Unpinning it must drop
+    // only the pin, because the alias still resolves on its own.
+    q.ensureAgentHarnessSettings('claude');
+    q.addCustomHarnessModel('claude', 'opus');
+    const settings = q.removeCustomHarnessModel('claude', 'opus');
+    expect(settings.customModels).toEqual([]);
+    expect(settings.enabledModels).toContain('opus');
+    expect(settings.defaultModel).toBe('opus');
+  });
+
+  it('refuses to leave the active harness with nothing to run', () => {
+    q.setEnabledHarnessModels('cursor', [], null);
+    q.addCustomHarnessModel('cursor', 'composer-1');
+    q.setActiveHarness('cursor');
+    expect(() => q.removeCustomHarnessModel('cursor', 'composer-1')).toThrow(/at least one/);
+    // `user_state` outlives the per-test settings reset, so hand the active
+    // harness back rather than leaking it into whatever runs next.
+    q.updateUserState({ defaultAgentHarness: 'claude' });
+  });
+});
