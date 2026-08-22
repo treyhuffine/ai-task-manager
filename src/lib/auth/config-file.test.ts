@@ -71,6 +71,11 @@ describe('readAuthConfig', () => {
       lastPort: null,
       autoTunnel: null,
       tunnelName: null,
+      browserEnabled: null,
+      browserChromiumPath: null,
+      browserHeadlessDefault: null,
+      browserIdleCloseMs: null,
+      browserDefaultProfile: null,
     });
   });
 
@@ -87,6 +92,11 @@ describe('readAuthConfig', () => {
       lastPort: null,
       autoTunnel: null,
       tunnelName: null,
+      browserEnabled: null,
+      browserChromiumPath: null,
+      browserHeadlessDefault: null,
+      browserIdleCloseMs: null,
+      browserDefaultProfile: null,
     });
   });
 });
@@ -116,6 +126,11 @@ describe('writeAuthConfig', () => {
       lastPort: null,
       autoTunnel: null,
       tunnelName: null,
+      browserEnabled: null,
+      browserChromiumPath: null,
+      browserHeadlessDefault: null,
+      browserIdleCloseMs: null,
+      browserDefaultProfile: null,
     });
   });
 
@@ -132,6 +147,11 @@ describe('writeAuthConfig', () => {
       lastPort: null,
       autoTunnel: null,
       tunnelName: null,
+      browserEnabled: null,
+      browserChromiumPath: null,
+      browserHeadlessDefault: null,
+      browserIdleCloseMs: null,
+      browserDefaultProfile: null,
     });
   });
 

@@ -36,6 +36,22 @@ export interface AuthConfig {
    *  is identical everywhere, so the second machine gets `name_taken`. See
    *  `src/lib/auth/beamd-base-url.ts`. */
   tunnelName: string | null;
+  /** Master switch for the agent browser capability. Null = enabled
+   *  (batteries-included when a browser is present), false = explicitly off.
+   *  See `src/lib/browser/`. */
+  browserEnabled: boolean | null;
+  /** Absolute path to the Chromium-family binary the agent browser drives.
+   *  Null = autodetect (Chrome, Brave, Edge, Chromium). */
+  browserChromiumPath: string | null;
+  /** Whether unattended runs default to headless. Null = true (headless for
+   *  scheduled/trigger runs, headed only for interactive login). */
+  browserHeadlessDefault: boolean | null;
+  /** Idle milliseconds before an unattended agent browser auto-closes. Null =
+   *  default (10 minutes). 0 disables auto-close. */
+  browserIdleCloseMs: number | null;
+  /** Name of the default agent browser profile. Null = "agent". Letters,
+   *  digits, underscore, and hyphen only (it becomes a directory name). */
+  browserDefaultProfile: string | null;
 }
 
 export function getAuthConfigDir(): string {
@@ -63,6 +79,11 @@ export function readAuthConfig(): AuthConfig | null {
       staticUrl: parsed.staticUrl ?? null,
       autoTunnel: parsed.autoTunnel ?? null,
       tunnelName: parsed.tunnelName ?? null,
+      browserEnabled: parsed.browserEnabled ?? null,
+      browserChromiumPath: parsed.browserChromiumPath ?? null,
+      browserHeadlessDefault: parsed.browserHeadlessDefault ?? null,
+      browserIdleCloseMs: parsed.browserIdleCloseMs ?? null,
+      browserDefaultProfile: parsed.browserDefaultProfile ?? null,
     };
   } catch (err) {
     console.error('[auth] failed to read config.json:', err);
@@ -92,6 +113,11 @@ export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
     staticUrl: pick('staticUrl'),
     autoTunnel: pick('autoTunnel'),
     tunnelName: pick('tunnelName'),
+    browserEnabled: pick('browserEnabled'),
+    browserChromiumPath: pick('browserChromiumPath'),
+    browserHeadlessDefault: pick('browserHeadlessDefault'),
+    browserIdleCloseMs: pick('browserIdleCloseMs'),
+    browserDefaultProfile: pick('browserDefaultProfile'),
   };
 
   const p = getAuthConfigPath();

@@ -188,6 +188,40 @@ export function ensureBackupsDir(): string {
   return dir;
 }
 
+// ─── browser — agent profiles are precious (.config), scratch is not (.work) ─
+
+/**
+ * Where the agent browser keeps its per-profile user-data-dir (cookies, the
+ * logged-in session). This is precious-local: losing it means re-logging into
+ * every site, so it lives under `.config` (don't sync, don't lose), never
+ * `.work` (safe to delete).
+ */
+export function getBrowserProfilesDir(): string {
+  return path.join(getConfigDir(), 'browser', 'profiles');
+}
+
+/** One named agent browser profile dir. Default profile is `agent`. */
+export function getBrowserProfileDir(name = 'agent'): string {
+  return path.join(getBrowserProfilesDir(), name);
+}
+
+export function ensureBrowserProfileDir(name = 'agent'): string {
+  const dir = getBrowserProfileDir(name);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+/** Regenerable browser scratch (pidfiles, read-spill). Safe to delete. */
+export function getBrowserWorkDir(): string {
+  return path.join(getWorkDir(), 'browser');
+}
+
+export function ensureBrowserWorkDir(): string {
+  const dir = getBrowserWorkDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
 // ─── Home bootstrap ───────────────────────────────────────────────
 
 const GITIGNORE_BODY = `# ${APP_SHORT_ID}: machine-local plumbing, never sync

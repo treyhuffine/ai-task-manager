@@ -12,6 +12,7 @@ import { readAuthConfig } from '@/lib/auth/config-file';
 import { getDbPath, getAppRoot } from '@/lib/config/paths';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { isDockerAvailable, isVoiceReady } from '../lib/voice';
+import { runBrowserDoctor } from '@/lib/browser/doctor';
 
 interface CheckResult {
   ok: boolean;
@@ -80,6 +81,15 @@ const checks: Check[] = [
         return { ok: false, detail: 'enabled, but Docker daemon is not running' };
       }
       return { ok: true, detail: 'enabled, will start on server launch' };
+    },
+  },
+  {
+    name: 'Agent browser',
+    run: async () => {
+      const checks = await runBrowserDoctor();
+      const browserCheck = checks.find((c) => c.name === 'Chromium-family browser');
+      // Not a hard failure: the capability is optional and launches on demand.
+      return { ok: true, detail: browserCheck?.detail ?? 'not configured' };
     },
   },
 ];

@@ -24,6 +24,7 @@ import { ProfileSection } from './sections/profile-section';
 import { GeneralSection } from './sections/general-section';
 import { ModelsSection } from './sections/models-section';
 import { VoiceSection } from './sections/voice-section';
+import { BrowserSection } from './sections/browser-section';
 import { ConnectorsSection } from './sections/connectors-section';
 import { NotificationsSection } from './sections/notifications-section';
 import { DevicesSettingsSection } from './sections/devices-section';
@@ -44,6 +45,8 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
       return <ModelsSection />;
     case 'voice':
       return <VoiceSection />;
+    case 'browser':
+      return <BrowserSection />;
     case 'connectors':
       return <ConnectorsSection />;
     case 'notifications':

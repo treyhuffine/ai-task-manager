@@ -42,7 +42,8 @@
     "dev:seed": "tsx scripts/seed-dev/seed.ts",
     "dev:reseed": "tsx scripts/seed-dev/reseed.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:browser": "FLOW_BROWSER_E2E=1 vitest run src/lib/browser/browser.integration.test.ts"
   },
   "bin": {
     "flow": "./dist/cli/index.mjs"
@@ -82,6 +83,7 @@
     "@lezer/highlight": "^1.2.3",
     "@mastra/core": "^1.9.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mozilla/readability": "^0.6.0",
     "@sindresorhus/slugify": "^3.0.0",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
@@ -128,6 +130,7 @@
     "get-port": "^7.2.0",
     "googleapis": "^171.4.0",
     "heic-convert": "^2.1.0",
+    "linkedom": "^0.18.13",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.575.0",
     "mammoth": "^1.12.0",
@@ -142,6 +145,7 @@
     "openai": "^6.26.0",
     "picocolors": "^1.1.1",
     "picomatch": "^4.0.4",
+    "playwright-core": "^1.62.1",
     "qr-scanner": "^1.4.2",
     "qrcode": "^1.5.4",
     "radix-ui": "^1.4.3",

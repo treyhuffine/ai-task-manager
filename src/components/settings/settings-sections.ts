@@ -7,6 +7,7 @@ import {
   Bell,
   MonitorSmartphone,
   Globe,
+  Chrome,
   ListChecks,
   Download,
   type LucideIcon,
@@ -26,6 +27,7 @@ export type SectionId =
   | 'general'
   | 'models'
   | 'voice'
+  | 'browser'
   | 'connectors'
   | 'notifications'
   | 'devices'
@@ -81,6 +83,13 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     icon: Mic,
     title: 'Voice',
     description: 'Speech-to-text model and whether voice transcriptions send automatically.',
+  },
+  {
+    id: 'browser',
+    label: 'Browser',
+    icon: Chrome,
+    title: 'Agent browser',
+    description: 'Let the agent read and act on web pages using sites you sign into once.',
   },
   {
     id: 'connectors',

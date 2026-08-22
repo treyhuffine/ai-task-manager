@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import { z } from 'zod';
 import { defineAction, ActionError } from './types';
+import { browserActions } from './browser-actions';
 import {
   listTasks,
   getTask,
@@ -1943,4 +1944,5 @@ export const actions = [
   reset_trigger_failures_action,
   list_notification_channels_action,
   list_skills_action,
+  ...browserActions,
 ];
