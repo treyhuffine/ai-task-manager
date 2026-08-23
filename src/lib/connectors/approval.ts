@@ -4,8 +4,11 @@
  * this owns the policy:
  *
  *   - non-mutating actions run freely;
- *   - mutating actions need a grant keyed on (ownerId, actionId, connectionId, inputDigest,
- *     actionVersion) — the exact key the spec mandates, so the retry after a human approves
+ *   - mutating actions the user's write-policy marks 'auto' (reversible, internal writes on an
+ *     account they connected) also run freely — see write-policy.ts;
+ *   - the rest (outward sends, irreversible high-risk) need a grant keyed on (ownerId, actionId,
+ *     connectionId, inputDigest, actionVersion) — the exact key the spec mandates, so the retry
+ *     after a human approves
  *     matches (and a grant auto-invalidates when the input/schema/risk changes, because
  *     inputDigest/actionVersion change);
  *   - with no grant, a pending approval is registered (deduped by key) and `'ask'` is returned,
@@ -21,6 +24,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ApprovalPolicy, ApprovalCheckInput } from '@connectors/engine';
 import { isNotifierDelivery } from '@/lib/notifications/caller';
+import { resolveApprovalMode } from './write-policy';
 
 const GRANT_TTL_MS = 5 * 60_000;
 
@@ -59,6 +63,13 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       if (isNotifierDelivery(input.caller, input.actionId)) return 'allow';
       if (opts.autoApprove) return 'allow';
       if (!input.mutating) return 'allow';
+      // Standing intent: reversible, internal writes run on the connection the
+      // user already authorized. Outward (send/post/…) and irreversible
+      // (high-risk delete/cancel/pay) actions fall through to the human gate,
+      // unless the user has explicitly flipped that action to 'auto'.
+      if (resolveApprovalMode({ actionId: input.actionId, risk: input.risk, mutating: input.mutating }) === 'auto') {
+        return 'allow';
+      }
       const key = grantKey(input);
       const exp = grants.get(key);
       if (exp && exp > Date.now()) {

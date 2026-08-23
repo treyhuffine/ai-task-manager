@@ -56,6 +56,12 @@ interface ToolkitInfo {
   scopes: string[];
   actions: ActionInfo[];
 }
+type ApprovalMode = 'auto' | 'ask';
+interface WritePolicyAction {
+  mode: ApprovalMode;
+  defaultMode: ApprovalMode;
+  overridden: boolean;
+}
 interface AuthConfigSummary {
   id: string;
   providerId: string;
@@ -116,6 +122,7 @@ export function ConnectorsSection() {
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [toolkits, setToolkits] = useState<ToolkitInfo[]>([]);
+  const [writePolicy, setWritePolicy] = useState<Record<string, WritePolicyAction>>({}); // actionId → effective approval mode
   const [redirectUri, setRedirectUri] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -184,15 +191,19 @@ export function ConnectorsSection() {
     });
 
   const refresh = useCallback(async () => {
-    const [st, cn, tk] = await Promise.all([
+    const [st, cn, tk, wp] = await Promise.all([
       api.get<{ redirectUri: string; providers: ProviderStatus[] }>('/connectors/status'),
       api.get<{ connections: Connection[] }>('/connectors/connections'),
       api.get<{ toolkits: ToolkitInfo[] }>('/connectors/toolkits'),
+      api.get<{ toolkits: { actions: (WritePolicyAction & { id: string })[] }[] }>('/connectors/write-policy'),
     ]);
     setProviders(st.providers);
     setRedirectUri(st.redirectUri);
     setConnections(cn.connections);
     setToolkits(tk.toolkits);
+    const wpMap: Record<string, WritePolicyAction> = {};
+    for (const t of wp.toolkits) for (const a of t.actions) wpMap[a.id] = { mode: a.mode, defaultMode: a.defaultMode, overridden: a.overridden };
+    setWritePolicy(wpMap);
     // Fetch MCP server health AFTER the runtime-touching calls above (which force a rebuild +
     // re-ingest), so the health reflects the latest ingest, not a pre-rebuild snapshot.
     const mcp = await api.get<{ servers: McpServerEntry[] }>('/connectors/mcp-servers');
@@ -281,6 +292,13 @@ export function ConnectorsSection() {
       const current = s.toolOverrides ?? {};
       const toolOverrides = { ...current, [toolName]: { ...current[toolName], ...patch } };
       await api.patch(`/connectors/mcp-servers/${s.id}`, { toolOverrides });
+    });
+
+  // Flip a mutating action between running on standing intent ('auto') and pausing
+  // for a per-call approval ('ask'). Persisted as a per-action override.
+  const setActionApproval = (actionId: string, mode: ApprovalMode) =>
+    run(async () => {
+      await api.post('/connectors/write-policy', { actionId, mode });
     });
 
   // --- Connect flows -------------------------------------------------------
@@ -690,8 +708,10 @@ export function ConnectorsSection() {
                             </div>
                             <p className="text-[10px] leading-normal text-muted-foreground">
                               Available to the orchestrator and to executions scoped to this service.{' '}
-                              <span className="font-semibold">Read</span> is safe;{' '}
-                              <span className="font-semibold">Write</span> changes data and may require your approval.
+                              <span className="font-semibold">Read</span> is safe. Reversible{' '}
+                              <span className="font-semibold">Write</span> actions run once connected; sends, posts, and
+                              deletes stay behind <span className="font-semibold">Ask</span> approval. Toggle Ask to change any
+                              action (<span className="font-semibold">*</span> = changed from default).
                             </p>
                             <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                               {tks.map((t) => {
@@ -724,6 +744,27 @@ export function ConnectorsSection() {
                                             </div>
                                           )}
                                         </div>
+                                        {a.mutating &&
+                                          (() => {
+                                            const wp = writePolicy[a.id];
+                                            const gated = wp ? wp.mode === 'ask' : true; // gated until policy loads
+                                            return (
+                                              <label
+                                                className="ml-auto mt-0.5 flex shrink-0 cursor-pointer items-center gap-1 text-[10px] text-muted-foreground"
+                                                title="Require your approval before this action runs"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={gated}
+                                                  disabled={busy}
+                                                  onChange={() => setActionApproval(a.id, gated ? 'auto' : 'ask')}
+                                                  aria-label={`Require approval for ${a.id}`}
+                                                  className="size-3.5 cursor-pointer accent-primary"
+                                                />
+                                                <span>Ask{wp?.overridden ? '*' : ''}</span>
+                                              </label>
+                                            );
+                                          })()}
                                       </div>
                                     ))}
                                   </div>
