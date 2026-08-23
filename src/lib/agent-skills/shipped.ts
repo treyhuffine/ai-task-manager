@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SkillInstallResult, SkillRemoveResult } from '@agentex/agent';
-import { AGENT_SKILL_NAME } from '@/constants/app';
+import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 import { getAppRoot, getWorkDir } from '@/lib/config/paths';
 import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 
@@ -39,7 +39,10 @@ const SKILLS_ROOT = path.join(findPackageRoot(MODULE_DIR), 'skills');
  * the source we hand it must already carry the composed name — hence the
  * materialization step below.
  */
-const SHIPPED_SKILLS = [{ template: 'orchestrator', name: AGENT_SKILL_NAME }] as const;
+const SHIPPED_SKILLS = [
+  { template: 'orchestrator', name: AGENT_SKILL_NAME },
+  { template: 'browser', name: AGENT_BROWSER_SKILL_NAME },
+] as const;
 
 /** Regenerable materialization root — never synced, safe to delete (self-heals). */
 function generatedSkillsRoot(): string {

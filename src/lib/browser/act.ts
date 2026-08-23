@@ -14,7 +14,7 @@ import type { Locator, Page } from 'playwright-core';
 import { attachmentPath } from '@/lib/attachments/save';
 import type { Attachment } from '@/db/types';
 import { ActionError } from '@/lib/orchestrator/types';
-import { pageState, detectBlocked, type BlockedSignal } from './read';
+import { pageState, detectBlocked, settleInterstitial, type BlockedSignal } from './read';
 import {
   drainNewDownloads,
   settleDownloads,
@@ -247,6 +247,8 @@ async function settleAfter(
 
   const dialog = session.dialogsSeen > dialogsBefore ? session.dialogs[session.dialogs.length - 1] : undefined;
   const active = await getActivePage(session);
+  // If the act triggered a navigation into a bot interstitial, wait it out.
+  await settleInterstitial(active);
   const blocked = await detectBlocked(active);
 
   return {

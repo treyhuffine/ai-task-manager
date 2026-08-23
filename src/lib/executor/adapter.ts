@@ -40,6 +40,7 @@ import type {
   UserInputRequest,
   UserInputResponse,
   RuntimeCommandInventory,
+  McpServerConfig,
 } from '@agentex/agent';
 import {
   getChatSession,
@@ -56,9 +57,11 @@ import {
   installOrchestratorSurface,
   orchestratorSessionConfig,
   connectorsMcpServer,
+  browserMcpServer,
   renderContentFocusPrompt,
   type OrchestratorMode,
 } from '@/lib/orchestrator/harness-surface';
+import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import {
   buildReferenceFolderSessionConfig,
@@ -979,11 +982,25 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   if (args.sessionType === 'execution') {
     if (runtime.capabilities.strictMcpIsolation.supported) {
       config.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
-      const scopes = args.workspaceId ? getWorkspace(args.workspaceId)?.connectorScopes ?? [] : [];
+      const servers: McpServerConfig[] = [];
+      // Workspace-scoped connectors (opt-in via the workspace's connector allowlist).
+      const workspace = args.workspaceId ? getWorkspace(args.workspaceId) : null;
+      const scopes = workspace?.connectorScopes ?? [];
       if (scopes.length > 0 && args.workspaceId) {
-        const server = connectorsMcpServer(undefined, { workspaceId: args.workspaceId });
-        if (server) config.mcpServers = [server];
+        const connectors = connectorsMcpServer(undefined, { workspaceId: args.workspaceId });
+        if (connectors) servers.push(connectors);
       }
+      // Agent browser, when the app allows it AND the workspace opted in (default
+      // on). Executions browse an ISOLATED per-workspace profile so an autonomous
+      // run cannot reach the user's logged-in default identity. The profile is
+      // forced by the browser MCP route, the execution cannot switch it.
+      const browserOn = isBrowserEnabled() && (workspace ? workspace.browserEnabled : true);
+      if (browserOn) {
+        const profile = args.workspaceId ? `ws-${args.workspaceId}` : 'execution';
+        const browser = browserMcpServer(undefined, { profile });
+        if (browser) servers.push(browser);
+      }
+      if (servers.length > 0) config.mcpServers = servers;
     } else {
       const wantsConnectors = args.workspaceId
         ? (getWorkspace(args.workspaceId)?.connectorScopes.length ?? 0) > 0

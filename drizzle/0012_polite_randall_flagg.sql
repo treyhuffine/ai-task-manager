@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `browser_enabled` integer DEFAULT true NOT NULL;

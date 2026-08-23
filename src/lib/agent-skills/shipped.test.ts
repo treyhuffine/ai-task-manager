@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { AGENT_SKILL_NAME } from '@/constants/app';
+import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import {
   configureGlobalSkill,
@@ -38,7 +38,8 @@ describe('shipped agent skills', () => {
   it('installs the app-owned skill into both app-root channels', async () => {
     const result = await installAppRootSkills();
 
-    expect(result.installed).toBe(2);
+    // Two shipped skills (orchestrator + browser) across two channels each.
+    expect(result.installed).toBe(4);
     for (const channel of ['.agents', '.claude']) {
       const link = path.join(appRoot, channel, 'skills', AGENT_SKILL_NAME);
       expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
@@ -50,6 +51,15 @@ describe('shipped agent skills', () => {
     const materialized = fs.readFileSync(path.join(shippedSkillDirs()[0], 'SKILL.md'), 'utf8');
     expect(materialized).toContain(`name: ${AGENT_SKILL_NAME}`);
     expect(materialized).not.toContain('{{SKILL_NAME}}');
+
+    // The browser skill materializes and installs the same way.
+    const browserSkill = fs.readFileSync(path.join(shippedSkillDirs()[1], 'SKILL.md'), 'utf8');
+    expect(browserSkill).toContain(`name: ${AGENT_BROWSER_SKILL_NAME}`);
+    expect(browserSkill).not.toContain('{{SKILL_NAME}}');
+    for (const channel of ['.agents', '.claude']) {
+      const link = path.join(appRoot, channel, 'skills', AGENT_BROWSER_SKILL_NAME);
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    }
   });
 
   it('persists an explicit global opt-in and installs both user-level channels', async () => {
@@ -68,7 +78,7 @@ describe('shipped agent skills', () => {
     const result = await configureGlobalSkill(false);
 
     expect(result.enabled).toBe(false);
-    expect(result.remove.removed).toBe(2);
+    expect(result.remove.removed).toBe(4);
     expect(getGlobalSkillPreference()).toBe(false);
     expect(fs.existsSync(path.join(tmpHome, '.agents', 'skills', AGENT_SKILL_NAME))).toBe(false);
     expect(fs.existsSync(path.join(tmpHome, '.claude', 'skills', AGENT_SKILL_NAME))).toBe(false);
@@ -86,7 +96,7 @@ describe('shipped agent skills', () => {
 
     const result = await removeOwnedProjectSkillLinks(project);
 
-    expect(result.removed).toBe(2);
+    expect(result.removed).toBe(4);
     expect(fs.existsSync(path.join(project, '.agents', 'skills', AGENT_SKILL_NAME))).toBe(false);
     expect(fs.existsSync(path.join(project, '.claude', 'skills', AGENT_SKILL_NAME))).toBe(false);
     expect(fs.existsSync(path.join(unrelated, 'SKILL.md'))).toBe(true);

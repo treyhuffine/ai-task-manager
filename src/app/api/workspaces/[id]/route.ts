@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { getWorkspace, updateWorkspace } from '@/lib/db/queries';
 import type { UpdateWorkspaceInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
+import { recycleWorkspaceSessions } from '@/lib/executor/adapter';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -34,6 +35,10 @@ export async function PATCH(
     const { connectorScopes: _ignored, ...body } = (await request.json()) as UpdateWorkspaceInput;
     const row = updateWorkspace(id, body);
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+    // Toggling the agent browser changes the execution tool set, so recycle live
+    // sessions for this workspace (like connector-scope edits) to apply it now
+    // rather than only on the next session.
+    if ('browserEnabled' in body) await recycleWorkspaceSessions(id);
     return Response.json(row);
   } catch (err) {
     console.error('[PATCH /api/workspaces/:id]', err);

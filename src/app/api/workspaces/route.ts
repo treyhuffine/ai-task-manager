@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
       teardownCommand: body.teardownCommand ?? null,
       areaId: body.areaId ?? null,
       status: body.status ?? 'active',
+      browserEnabled: body.browserEnabled ?? true,
       ...(connectorScopes !== undefined ? { connectorScopes } : {}),
     });
     return Response.json(row, { status: 201 });

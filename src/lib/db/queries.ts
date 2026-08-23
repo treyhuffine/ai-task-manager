@@ -4226,12 +4226,14 @@ export function listWorkspaceExecutions(
       sql`${chatSessions.id} = (
         SELECT cs2.id FROM chat_sessions cs2
         WHERE cs2.execution_id = ${executions.id} AND ${sessionStatus}
-        ORDER BY COALESCE(cs2.last_activity_at, cs2.started_at) DESC
+        ORDER BY COALESCE(cs2.last_activity_at, cs2.started_at) DESC, cs2.id DESC
         LIMIT 1
       )`,
     )
     .where(and(eq(executions.workspaceId, workspaceId), executionStatus))
-    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
+    .orderBy(
+      sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC, ${chatSessions.id} DESC`,
+    )
     .all();
   return rows.map((r) =>
     flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }),

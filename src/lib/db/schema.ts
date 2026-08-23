@@ -661,6 +661,11 @@ export const workspaces = sqliteTable(
     // opt in via the modal's "Don't ask again" checkbox and can re-arm it from
     // workspace settings.
     skipLiveConfirm: integer({ mode: 'boolean' }).notNull().default(false),
+    // Whether this workspace's executions get the agent browser. Defaults on.
+    // ANDs with the global capability gate (auth config `browserEnabled` /
+    // `isBrowserEnabled()`): a workspace execution browses only when both the
+    // app and this workspace allow it. See docs/browser-capability-proposal.md.
+    browserEnabled: integer({ mode: 'boolean' }).notNull().default(true),
     status: text({ enum: ['active', 'archived'] })
       .notNull()
       .default('active'),

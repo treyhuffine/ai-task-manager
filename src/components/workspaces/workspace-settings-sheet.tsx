@@ -43,6 +43,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
   const [startCommand, setStartCommand] = useState('');
   const [teardownCommand, setTeardownCommand] = useState('');
   const [skipLiveConfirm, setSkipLiveConfirm] = useState(false);
+  const [browserEnabled, setBrowserEnabled] = useState(true);
   const [gh, setGh] = useState<GhStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,6 +60,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
     setStartCommand(ws.startCommand ?? '');
     setTeardownCommand(ws.teardownCommand ?? '');
     setSkipLiveConfirm(ws.skipLiveConfirm ?? false);
+    setBrowserEnabled(ws.browserEnabled ?? true);
   }, [ws]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,6 +107,7 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
         startCommand: startCommand.trim() || null,
         teardownCommand: teardownCommand.trim() || null,
         skipLiveConfirm,
+        browserEnabled,
       },
       {
         onSuccess: () => {
@@ -328,6 +331,23 @@ export function WorkspaceSettingsSheet({ workspaceId, onClose }: WorkspaceSettin
                     </FieldGroup>
                   </>
                 )}
+
+                <FieldGroup label="Agent browser">
+                  <label className="flex items-start justify-between gap-3 cursor-pointer">
+                    <span className="text-[11px] text-muted-foreground/85 leading-relaxed">
+                      Let executions use the browser
+                      <span className="block text-muted-foreground/60">
+                        Executions in this workspace can read and act on the web, browsing an
+                        isolated profile, not your logged-in one. On by default.
+                      </span>
+                    </span>
+                    <Switch
+                      checked={browserEnabled}
+                      onCheckedChange={setBrowserEnabled}
+                      className="mt-0.5"
+                    />
+                  </label>
+                </FieldGroup>
 
                 <div>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">

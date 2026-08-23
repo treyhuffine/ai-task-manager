@@ -12,4 +12,7 @@ export const APP_SHORT_ID = 'flow';
  */
 export const AGENT_SKILL_NAME = `agent-work-tasks-notes_${APP_SHORT_ID}`;
 
+/** Shipped skill teaching the agent to drive the built-in browser capability. */
+export const AGENT_BROWSER_SKILL_NAME = `agent-browser_${APP_SHORT_ID}`;
+
 export const PAIRING_TOKEN_FRAGMENT_KEY = 'token';

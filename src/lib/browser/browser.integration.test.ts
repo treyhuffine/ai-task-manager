@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { detectBrowsers } from './chromium';
 import { listBrowserProfiles } from './config';
 import { getSession, getActivePage, listTabs, selectTab, closeTab } from './runtime';
-import { readPage } from './read';
+import { readPage, detectBlocked, isInterstitial } from './read';
 import { performAct, performBatch } from './act';
 import { isBrowserOpen, closeBrowser } from './session';
 import { importCookies } from './cookie-import';
@@ -270,6 +270,20 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
       await performAct(session, { kind: 'forward' });
       expect(await page.evaluate(() => document.body.innerText)).toContain('PageB');
       expect((await performAct(session, { kind: 'reload' })).ok).toBe(true);
+    },
+    T,
+  );
+
+  it(
+    'detects a Cloudflare interstitial as a challenge (and clears on a normal page)',
+    async () => {
+      const { page } = await blankPage();
+      await page.setContent('<title>Just a moment...</title><body>Checking your browser before you access the site.</body>');
+      expect(await isInterstitial(page)).toBe(true);
+      expect((await detectBlocked(page))?.kind).toBe('challenge');
+      await page.setContent('<title>Real Page</title><h1>Hello</h1>');
+      expect(await isInterstitial(page)).toBe(false);
+      expect(await detectBlocked(page)).toBeUndefined();
     },
     T,
   );

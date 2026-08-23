@@ -15,6 +15,7 @@ import { FolderPicker } from './folder-picker';
 import { FilesToCopySection } from './files-to-copy-section';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
 import { ConnectorScopePicker } from './connector-scope-picker';
+import { Switch } from '@/components/ui/switch';
 
 const DEFAULT_FILES_TO_COPY = ['.env*'];
 
@@ -42,6 +43,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
   const [startCommand, setStartCommand] = useState('');
   const [teardownCommand, setTeardownCommand] = useState('');
   const [connectorScopes, setConnectorScopes] = useState<WorkspaceConnectorScope[]>([]);
+  const [browserEnabled, setBrowserEnabled] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,6 +70,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
     setStartCommand('');
     setTeardownCommand('');
     setConnectorScopes([]);
+    setBrowserEnabled(true);
     setError(null);
     nameUserEditedRef.current = false;
     coverUserEditedRef.current = false;
@@ -178,6 +181,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         startCommand: startCommand.trim() || null,
         teardownCommand: teardownCommand.trim() || null,
         connectorScopes,
+        browserEnabled,
       },
       {
         onSuccess: () => {
@@ -194,7 +198,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         },
       },
     );
-  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, connectorScopes, createWs, reset, onOpenChange]);
+  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, connectorScopes, browserEnabled, createWs, reset, onOpenChange]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -401,6 +405,25 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                     </p>
                     <ConnectorScopePicker scopes={connectorScopes} onChange={setConnectorScopes} disabled={createWs.isPending} />
                   </div>
+
+                  <label className="flex cursor-pointer items-center justify-between gap-3">
+                    <div>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                        Agent browser
+                      </span>
+                      <p className="text-[10px] text-muted-foreground/70">
+                        Let this workspace&apos;s executions read and act on the web. They browse an
+                        isolated profile, not your logged-in one. On by default, change it later in
+                        settings.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={browserEnabled}
+                      onCheckedChange={setBrowserEnabled}
+                      disabled={createWs.isPending}
+                      aria-label="Agent browser for this workspace"
+                    />
+                  </label>
                 </>
               )}
 

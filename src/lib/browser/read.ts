@@ -167,13 +167,68 @@ async function setOfMarks(page: Page, fullPage: boolean): Promise<{ image: strin
 }
 
 /** Conservative login / challenge wall detection for graceful handback. */
+/**
+ * A transient bot-verification interstitial (Cloudflare "Just a moment", and
+ * friends). These auto-clear for a real signed-in browser after a beat, so we
+ * wait them out before reading rather than returning the challenge page.
+ */
+export async function isInterstitial(page: Page): Promise<boolean> {
+  try {
+    return await page.evaluate(() => {
+      const title = (document.title || '').toLowerCase();
+      const url = location.href;
+      if (/just a moment|attention required|checking your browser|verifying you are human/.test(title)) return true;
+      if (/[?&]__cf_chl|\/cdn-cgi\/challenge|cf_chl_/.test(url)) return true;
+      return !!document.querySelector(
+        '#challenge-form, #cf-challenge-running, .cf-browser-verification, .cf-turnstile, iframe[src*="challenges.cloudflare.com"]',
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** Wait for a transient interstitial to clear (Cloudflare passes a real browser). */
+export async function settleInterstitial(page: Page, timeoutMs = 15_000): Promise<void> {
+  if (!(await isInterstitial(page))) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(500);
+    if (!(await isInterstitial(page))) return;
+  }
+}
+
 export async function detectBlocked(page: Page): Promise<BlockedSignal | undefined> {
   const url = page.url();
+  // A challenge that has not cleared (settleInterstitial already gave it time).
+  if (await isInterstitial(page)) {
+    return {
+      kind: 'challenge',
+      message: 'A bot-verification interstitial (e.g. Cloudflare) is still on this page. Wait and retry the read, or hand back to the user.',
+    };
+  }
   const signals = await page.evaluate(() => {
-    const hasPassword = !!document.querySelector('input[type="password"]');
-    const captchaEl = !!document.querySelector(
-      'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[title*="challenge"], [class*="captcha" i], [id*="captcha" i]',
-    );
+    // Only an on-screen element blocks. Invisible/decorative widgets (Google's
+    // site-wide reCAPTCHA v3 badge and its 0-sized iframe, a hidden sign-in
+    // modal) must not read as a wall when the real content is present. The
+    // predicate is inlined at each call site so it stays a plain anonymous
+    // arrow (no bundler name-keeping helpers leak into the page context).
+    const hasPassword = Array.from(document.querySelectorAll('input[type="password"]')).some((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 40 || r.height < 40) return false;
+      const s = getComputedStyle(el);
+      return s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) !== 0;
+    });
+    // Match the interactive challenge frames (the checkbox anchor and the popup
+    // bframe), not the invisible v3 scoring iframe, and require it to be shown.
+    const captchaSel =
+      'iframe[src*="recaptcha/api2/anchor"], iframe[src*="recaptcha/api2/bframe"], iframe[src*="hcaptcha.com/captcha"], iframe[title*="challenge" i], [class*="captcha" i]:not(.grecaptcha-badge):not([class*="grecaptcha"]), [id*="captcha" i]';
+    const captchaEl = Array.from(document.querySelectorAll(captchaSel)).some((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 40 || r.height < 40) return false;
+      const s = getComputedStyle(el);
+      return s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) !== 0;
+    });
     const bodyText = (document.body?.innerText || '').slice(0, 4000).toLowerCase();
     const captchaText = /(are you a robot|verify you are human|complete the captcha|unusual traffic)/.test(bodyText);
     return { hasPassword, captcha: captchaEl || captchaText };
@@ -215,6 +270,9 @@ export async function readPage(page: Page, opts: ReadOptions = {}): Promise<Read
   const mode: ReadMode = opts.mode ?? 'snapshot';
   const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
   const session = opts.session ?? 'default';
+  // Wait out a transient bot interstitial (Cloudflare) before reading, so we
+  // return the real page and not the challenge screen.
+  await settleInterstitial(page);
   const url = page.url();
   const title = await page.title().catch(() => '');
   const blocked = await detectBlocked(page);

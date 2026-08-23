@@ -38,7 +38,7 @@ import path from 'node:path';
 // import inside the async installer below. Matches the lazy-load convention
 // in registry.ts / skills.ts.
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
-import { AGENT_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { renderBaseBrief, FLOW_MANAGED_TAG } from '@/lib/config/claude-md-template';
 import {
   APP_ROOT_ENV,
@@ -54,6 +54,7 @@ export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
 
 export const ORCHESTRATOR_MCP_SERVER_NAME = 'orchestrator';
 export const CONNECTORS_MCP_SERVER_NAME = 'connectors';
+export const BROWSER_MCP_SERVER_NAME = 'browser';
 
 // ─── Server endpoint resolution ───────────────────────────────────
 
@@ -216,6 +217,20 @@ For recurring duties ("check my executions every morning and nudge stalled
 ones"), create a trigger with \`target_kind=orchestrator\`. Scheduled fires
 run with this same tool surface.
 
+## Browser
+
+You have a real browser (\`browser_read\`, \`browser_act\`, and friends) that
+reads and acts on web pages using the sites the user has signed the agent
+browser into. Reach for it when a plain fetch cannot get the content: a
+paywalled or login-gated page, a JS-heavy page, filling a form, posting, or
+pulling a file down. Prefer a first-party connector when one exists for the job
+(read Gmail through the Gmail connector, not the browser). The loop is read then
+act: \`browser_read\` returns a snapshot with \`[ref=..]\` ids, you act on a
+ref. If a result carries a \`blocked\` login or challenge signal, stop and hand
+back to the user, never automate a login. The \`${AGENT_BROWSER_SKILL_NAME}\`
+skill has the full playbook (modes, profiles, downloads, safety), load it when
+you do browser work.
+
 ## This conversation is long-running
 
 You are a persistent assistant in one continuous thread that can span days
@@ -292,7 +307,9 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`update_deck\`, \`regenerate_deck\`, \`reconcile_deck\`, \`search\`, \`get_user_state\`,
 \`update_user_state\`. Execution oversight via \`list_executions\`,
 \`get_session_messages\`, \`send_session_message\`, \`get_pending_input\`,
-\`answer_pending_input\`. Plus workspace/trigger/run management and
+\`answer_pending_input\`. Browser via \`browser_read\`, \`browser_act\`,
+\`browser_batch\`, \`browser_tabs\`, \`browser_open\`, \`browser_profiles\`,
+\`browser_status\`, \`browser_close\`. Plus workspace/trigger/run management and
 \`describe_paths\` / \`describe_schema\` / \`list_skills\`.
 
 Use these MCP tools for every read and write. Reading files in your home dir
@@ -406,6 +423,30 @@ export function connectorsMcpServer(
   const url = opts.workspaceId ? `${base}?ws=${encodeURIComponent(opts.workspaceId)}` : base;
   return {
     name: CONNECTORS_MCP_SERVER_NAME,
+    type: 'http',
+    url,
+    headers: { Authorization: `Bearer ${token}` },
+  };
+}
+
+/**
+ * The browser-only MCP as a typed `McpServerConfig`: the same gated `runAction`,
+ * but exposing ONLY the `browser_*` actions (a static subset), for execution
+ * sessions that opted into the browser. An optional `profile` locks every call
+ * to one browsing identity (via `?profile=<name>`) so an execution cannot
+ * switch to a different logged-in profile. Tools appear as `mcp__browser__*`.
+ * Returns null when no local token exists yet.
+ */
+export function browserMcpServer(
+  port = resolveServerPort(),
+  opts: { profile?: string } = {},
+): McpServerConfig | null {
+  const token = readAuthConfig()?.localToken;
+  if (!token) return null;
+  const base = `http://localhost:${port}/api/orchestrator/browser/mcp`;
+  const url = opts.profile ? `${base}?profile=${encodeURIComponent(opts.profile)}` : base;
+  return {
+    name: BROWSER_MCP_SERVER_NAME,
     type: 'http',
     url,
     headers: { Authorization: `Bearer ${token}` },

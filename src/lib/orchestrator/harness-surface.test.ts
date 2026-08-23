@@ -8,9 +8,11 @@ import {
   installOrchestratorSurface,
   orchestratorMcpServer,
   connectorsMcpServer,
+  browserMcpServer,
   orchestratorSessionConfig,
   renderOrchestratorBrief,
 } from './harness-surface';
+import { AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 
 // agentex tags the managed region `<!-- flow:managed:start hash=… -->` /
 // `<!-- flow:managed:end -->`. The start marker carries a content hash, so
@@ -207,6 +209,21 @@ describe('connectorsMcpServer', () => {
   });
 });
 
+describe('browserMcpServer', () => {
+  it('builds a browser-only MCP server, optionally locked to a profile', () => {
+    fs.mkdirSync(root, { recursive: true });
+    seedToken();
+    expect(browserMcpServer(5151)).toMatchObject({
+      type: 'http',
+      url: 'http://localhost:5151/api/orchestrator/browser/mcp',
+    });
+    expect(browserMcpServer(5151, { profile: 'ws-123' })).toMatchObject({
+      type: 'http',
+      url: 'http://localhost:5151/api/orchestrator/browser/mcp?profile=ws-123',
+    });
+  });
+});
+
 describe('renderOrchestratorBrief', () => {
   it('embeds the CLI command in skills mode', () => {
     const brief = renderOrchestratorBrief('harness_skills', 'flow');
@@ -221,6 +238,15 @@ describe('renderOrchestratorBrief', () => {
       expect(brief).toContain('Re-read state before acting');
       expect(brief).toContain('Your clock may be stale');
       expect(brief).toContain('Never re-introduce yourself');
+    }
+  });
+
+  it('surfaces the browser capability and its skill in both harness modes', () => {
+    for (const mode of ['harness_skills', 'harness_mcp'] as const) {
+      const brief = renderOrchestratorBrief(mode, 'flow');
+      expect(brief).toContain('## Browser');
+      expect(brief).toContain('browser_read');
+      expect(brief).toContain(AGENT_BROWSER_SKILL_NAME);
     }
   });
 
