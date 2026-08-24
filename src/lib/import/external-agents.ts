@@ -433,18 +433,56 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
     syncLockKey(ledger.providerType as ExternalAgentSource, ledger.externalSessionId),
     ledger,
   ]));
+  // App-spawned CLI chats bind their provider session id directly onto
+  // chat_sessions (externalProviderType + externalSessionId) and never write an
+  // external_session_imports ledger row — that ledger is only for historical
+  // immutable imports. Without this second identity map, a session the app
+  // started itself scans back off disk with imported=false and shows up in the
+  // Import tab as if it were foreign. Keyed the same way as the ledger map so a
+  // candidate resolves against either provenance; the unique index
+  // `chat_sessions_external_provider_session_uq` keeps it one row per identity.
+  const liveBoundBySource = new Map<string, string>();
+  const liveBound = db
+    .select({
+      chatSessionId: chatSessions.id,
+      providerType: chatSessions.externalProviderType,
+      externalSessionId: chatSessions.externalSessionId,
+    })
+    .from(chatSessions)
+    .where(and(
+      isNotNull(chatSessions.externalProviderType),
+      isNotNull(chatSessions.externalSessionId),
+    ))
+    .all();
+  for (const row of liveBound) {
+    const providerType = row.providerType as ExternalAgentSource;
+    if (!row.externalSessionId || !EXTERNAL_AGENT_SOURCES.includes(providerType)) continue;
+    liveBoundBySource.set(syncLockKey(providerType, row.externalSessionId), row.chatSessionId);
+  }
   const discoveredSources = new Set<string>();
 
   for (const candidate of candidates) {
     const sourceIdentity = syncLockKey(candidate.source, candidate.externalSessionId);
     discoveredSources.add(sourceIdentity);
     const ledger = ledgerBySource.get(sourceIdentity);
-    if (!ledger) continue;
-    const status = sourceStatus(candidate, ledger);
-    candidate.imported = true;
-    candidate.importStatus = status;
-    candidate.chatSessionId = ledger.chatSessionId;
-    updateScanState(ledger, status, scannedAt);
+    if (ledger) {
+      const status = sourceStatus(candidate, ledger);
+      candidate.imported = true;
+      candidate.importStatus = status;
+      candidate.chatSessionId = ledger.chatSessionId;
+      updateScanState(ledger, status, scannedAt);
+      continue;
+    }
+    // No import ledger, but the app may already own this exact session as a
+    // live CLI chat it spawned. Treat that as already-present so it isn't
+    // offered for import again. 'current' — a live session reconciles through
+    // its own executor path, not the immutable-import sync.
+    const liveChatSessionId = liveBoundBySource.get(sourceIdentity);
+    if (liveChatSessionId) {
+      candidate.imported = true;
+      candidate.importStatus = 'current';
+      candidate.chatSessionId = liveChatSessionId;
+    }
   }
 
   const publicCandidates: ExternalAgentSessionCandidate[] = candidates.map((candidate) => ({
@@ -1302,6 +1340,24 @@ export async function importExternalAgentSessions(sessionKeys: string[]): Promis
         } catch (error) {
           result.failures.push({ key, error: safeError(error) });
         }
+        return;
+      }
+
+      // The app may already own this exact session as a live CLI chat it
+      // spawned (bound on chat_sessions, no import ledger). Importing it again
+      // would fork an immutable duplicate of a conversation that already syncs
+      // through its own executor path. Report the owning chat and skip.
+      const liveBoundChatSessionId = db
+        .select({ id: chatSessions.id })
+        .from(chatSessions)
+        .where(and(
+          eq(chatSessions.externalProviderType, parsed.source),
+          eq(chatSessions.externalSessionId, parsed.externalSessionId),
+        ))
+        .get()?.id;
+      if (liveBoundChatSessionId) {
+        result.skippedSessions++;
+        result.sessions.push({ key, chatSessionId: liveBoundChatSessionId });
         return;
       }
 

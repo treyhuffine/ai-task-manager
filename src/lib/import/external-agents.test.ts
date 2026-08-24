@@ -250,6 +250,72 @@ describe('external agent imports', () => {
     expect(secondScan.sources.opencode).toMatchObject({ available: false, found: 0, imported: 0 });
   }, 15_000);
 
+  it('treats an app-spawned live session as already present, never re-importing it', async () => {
+    const q = await import('@/lib/db/queries');
+    const importer = await import('./external-agents');
+
+    // A chat the app spawned itself binds the provider session id straight onto
+    // chat_sessions and writes NO external_session_imports ledger row. The
+    // ledger-only dedup used to miss these, so the same transcript scanned back
+    // off disk as foreign and reappeared in the launcher's Import tab.
+    const executor = q.getOrCreateDefaultExecutor('claude_code');
+    const workspace = q.createWorkspace({
+      name: 'project-one',
+      cwd: projectOne,
+      emoji: '🟠',
+      attachments: [],
+      isGit: false,
+      baseBranch: null,
+      remoteName: null,
+      worktreeRoot: null,
+      areaId: null,
+      status: 'active',
+      archivedAt: null,
+    });
+    const liveChat = q.createChatSession({
+      agentId: executor.id,
+      type: 'execution',
+      surfaceKind: 'live',
+      surfaceRef: 'claude',
+      label: 'Live claude chat',
+      workspaceId: workspace.id,
+      externalSessionId: CLAUDE_ID,
+    });
+    expect(liveChat.externalProviderType).toBe('claude');
+    expect(q.listExternalSessionImports()).toHaveLength(0);
+
+    // Discovery dedups it against the live binding, not just the import ledger.
+    // imported=true is exactly the flag the launcher filters on, so it never
+    // reaches the Import tab. The unrelated codex transcript stays importable.
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    expect(claude).toMatchObject({
+      imported: true,
+      importStatus: 'current',
+      chatSessionId: liveChat.id,
+    });
+    expect(scan.sources.claude).toMatchObject({ found: 1, imported: 1 });
+    expect(scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'codex'))
+      .toMatchObject({ imported: false });
+
+    // Even if that key is submitted anyway (the Settings sync button posts it
+    // straight to import), it resolves to the owning chat instead of forking a
+    // duplicate immutable import.
+    const result = await importer.importExternalAgentSessions([claude.key]);
+    expect(result).toMatchObject({
+      importedSessions: 0,
+      syncedSessions: 0,
+      skippedSessions: 1,
+      failures: [],
+    });
+    expect(result.sessions).toEqual([{ key: claude.key, chatSessionId: liveChat.id }]);
+    // No immutable-import chat was minted: the single live session is all there is.
+    expect(q.listChatSessions({ type: 'execution' })).toHaveLength(1);
+    expect(q.listExternalSessionImports()).toHaveLength(0);
+  });
+
   it('replays a same-or-larger rewrite when the imported prefix changed', async () => {
     const importer = await import('./external-agents');
     const scan = await importer.discoverExternalAgentSessions();
