@@ -22,6 +22,7 @@ import { useAreas } from '@/hooks/use-areas';
 import { useQueryClient } from '@tanstack/react-query';
 import { startExecution } from '@/lib/executions/start-execution';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
+import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceWithCounts } from '@/db/types';
 
@@ -256,12 +257,14 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
   // the process is still "running," but a green "working" pip would
   // mislead — nothing is happening until the user responds.
   const isStreaming = !isPending && streamingSessionIds.has(session.id);
-  const lastOutcome = session.lastOutcomeEventAt;
+  // Shared unread rule so the mobile pip matches the desktop rail — this
+  // now also honors an explicit "Mark as unread" (unreadMarkerAt), which
+  // the old outcome-only check silently ignored.
   const needsReview =
     forceState === 'needs_review'
       ? true
-      : !isStreaming && !isPending && lastOutcome && lastOutcome > (session.lastViewedAt ?? '1970-01-01');
-  const timestamp = session.lastActivityAt ?? lastOutcome ?? session.startedAt;
+      : !isStreaming && !isPending && isSessionUnread(session);
+  const timestamp = session.lastActivityAt ?? session.lastOutcomeEventAt ?? session.startedAt;
   // One row per execution: active when the open view is its primary chat
   // or any sibling chat of the same execution.
   const isActive =

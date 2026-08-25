@@ -1,6 +1,7 @@
 import { AlertCircle, Circle, Clock, Zap } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { RailSession } from '@/lib/api/sessions';
+import { isSessionUnread } from '@/lib/utils/session-sort';
 
 // Bucket identity for the rail's "by status" view. Shared by:
 //   - status-view.tsx (the rail body)
@@ -75,16 +76,9 @@ export function classifySession(
   if (pending.has(session.id)) return 'needsApproval';
   if (streaming.has(session.id)) return 'working';
 
-  // Unread = max(lastOutcomeEventAt, unreadMarkerAt) > lastViewedAt.
-  // Sentinel '1970-01-01' lets nulls compare lexicographically as
-  // "earliest possible time" without explicit null handling.
-  const outcomes = [
-    session.lastOutcomeEventAt ?? '1970-01-01',
-    session.unreadMarkerAt ?? '1970-01-01',
-  ];
-  const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-  const lastViewed = session.lastViewedAt ?? '1970-01-01';
-  if (lastActivity > lastViewed && lastActivity !== '1970-01-01') {
+  // Unread = later of (lastOutcomeEventAt, unreadMarkerAt) > lastViewedAt,
+  // via the shared rule. pending/streaming already returned above.
+  if (isSessionUnread(session)) {
     return 'unread';
   }
 

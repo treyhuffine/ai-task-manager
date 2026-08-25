@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, StretchHorizontal } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, StretchHorizontal, Eye, EyeOff } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { useUpdateSession } from '@/hooks/use-execution';
+import { useMarkSessionRead, useMarkSessionUnread } from '@/hooks/use-workspaces';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
@@ -24,6 +25,7 @@ import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
 import { deriveExecutionHeaderStatus } from './execution-header-status';
 import { resumeCommandForHarness } from '@/lib/agents/registry';
+import { isSessionUnread } from '@/lib/utils/session-sort';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
 
@@ -80,6 +82,8 @@ export function ExecutionHeader({
   const { pendingInputSessionIds, setActiveView } = useDashboard();
   const { confirmArchive } = useArchiveWithConfirm();
   const updateSession = useUpdateSession();
+  const markRead = useMarkSessionRead();
+  const markUnread = useMarkSessionUnread();
 
   // Header layout variant — three arrangements the user can flip between
   // to compare. Persisted in localStorage. Default `right` (actions
@@ -271,6 +275,32 @@ export function ExecutionHeader({
     </button>
   );
 
+  // Read-state toggle for the session menu — the same affordance the rail
+  // rows expose, brought inside the execution view (and, since this header
+  // is the mobile chrome too, onto mobile). `isSessionUnread` is the shared
+  // rule (later of outcome event / unread marker vs the read receipt); the
+  // running guard is the overlay the rail applies via bucket priority so a
+  // live session is never flagged "unread".
+  const isUnread = !isRunning && isSessionUnread(session);
+
+  const readStateMenuItem = isUnread ? (
+    <button
+      onClick={() => markRead.mutate(session.id)}
+      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+    >
+      <Eye size={12} />
+      Mark as read
+    </button>
+  ) : (
+    <button
+      onClick={() => markUnread.mutate(session.id)}
+      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+    >
+      <EyeOff size={12} />
+      Mark as unread
+    </button>
+  );
+
   const worktreeLinks = session.worktreePath ? (
     <WorktreeDeepLinks worktreePath={session.worktreePath} />
   ) : null;
@@ -408,6 +438,8 @@ export function ExecutionHeader({
                     />
                   )}
                 </div>
+                <div className="h-px bg-border" />
+                <div className="p-1">{readStateMenuItem}</div>
                 {worktreeLinks && (
                   <>
                     <div className="h-px bg-border" />
@@ -585,6 +617,9 @@ export function ExecutionHeader({
                   />
                 )}
               </div>
+
+              <div className="h-px bg-border" />
+              <div className="p-1">{readStateMenuItem}</div>
 
               {/* Link / unlink a PR explicitly. Useful when the PR's
                   head ref doesn't match the session's branch name

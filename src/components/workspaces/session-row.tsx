@@ -4,6 +4,7 @@ import { GitBranch } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
+import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import type { ChatSessionWithExecution } from '@/db/types';
@@ -75,18 +76,11 @@ export function SessionRow({
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
 
-  // Match StatusView's unread derivation so both surfaces agree on
-  // which sessions are flagged: the user's "Mark as unread" override
-  // (unreadMarkerAt) wins even when no outcome event has landed.
-  const outcomes = [
-    session.lastOutcomeEventAt ?? '1970-01-01',
-    session.unreadMarkerAt ?? '1970-01-01',
-  ];
-  const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-  const lastViewed = session.lastViewedAt ?? '1970-01-01';
-  const isUnread = !isStreaming
-    && lastActivity !== '1970-01-01'
-    && lastActivity > lastViewed;
+  // Shared unread rule (isSessionUnread) so every surface agrees: the
+  // user's "Mark as unread" override (unreadMarkerAt) or a fresh outcome
+  // event beats the read receipt. The streaming overlay stays local — a
+  // session you're actively watching isn't flagged unread.
+  const isUnread = !isStreaming && isSessionUnread(session);
 
   // Activity, not outcome: this is the row's rank made visible. The unread
   // derivation above deliberately stays on `lastOutcomeEventAt`.

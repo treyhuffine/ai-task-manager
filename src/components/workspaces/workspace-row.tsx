@@ -8,7 +8,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useUpdateWorkspace, useWorkspaceSessions, useRailSessions } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
-import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
+import { sortSessionsHotnessDesc, isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import type { WorkspaceWithCounts } from '@/db/types';
@@ -98,13 +98,7 @@ export function WorkspaceRow({
         working++;
         continue;
       }
-      const outcomes = [
-        s.lastOutcomeEventAt ?? '1970-01-01',
-        s.unreadMarkerAt ?? '1970-01-01',
-      ];
-      const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-      const lastViewed = s.lastViewedAt ?? '1970-01-01';
-      if (lastActivity !== '1970-01-01' && lastActivity > lastViewed) {
+      if (isSessionUnread(s)) {
         unread++;
       }
     }

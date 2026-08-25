@@ -3,6 +3,7 @@
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
+import { isSessionUnread } from '@/lib/utils/session-sort';
 import type { RailSession } from '@/lib/api/sessions';
 import { useSessionRowHover } from './session-hover-context';
 
@@ -27,16 +28,9 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
 
-  // Same unread derivation as StatusView/SessionRow so the pip is
-  // consistent across all three renderings.
-  const outcomes = [
-    session.lastOutcomeEventAt ?? '1970-01-01',
-    session.unreadMarkerAt ?? '1970-01-01',
-  ];
-  const lastActivity = outcomes[0]! > outcomes[1]! ? outcomes[0]! : outcomes[1]!;
-  const lastViewed = session.lastViewedAt ?? '1970-01-01';
-  const isUnread =
-    !isStreaming && lastActivity !== '1970-01-01' && lastActivity > lastViewed;
+  // Shared unread rule so the pip stays consistent with SessionRow/StatusView;
+  // the streaming overlay stays local.
+  const isUnread = !isStreaming && isSessionUnread(session);
 
   const handleOpen = () => {
     closeNow();
