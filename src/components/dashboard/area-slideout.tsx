@@ -19,6 +19,7 @@ import {
 import { NoteIcon } from '@/components/shared/note-icon'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
+import { formatLocalDate, isPastDate } from '@/lib/dates'
 
 const DEFAULT_WIDTH = 640
 const MIN_WIDTH = 400
@@ -369,11 +370,11 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                           {task.hardDeadline && (
                             <span className={cn(
                               'ml-auto text-[9px] font-medium flex-shrink-0',
-                              new Date(task.hardDeadline) < new Date()
+                              isPastDate(task.hardDeadline)
                                 ? 'text-destructive'
                                 : 'text-muted-foreground/50'
                             )}>
-                              {new Date(task.hardDeadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              {formatLocalDate(task.hardDeadline, { month: 'short', day: 'numeric' })}
                             </span>
                           )}
                         </button>

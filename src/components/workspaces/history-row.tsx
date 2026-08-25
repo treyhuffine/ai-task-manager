@@ -1,6 +1,6 @@
 'use client';
 
-import { GitBranch } from 'lucide-react';
+import { GitBranch, Pin } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
@@ -53,6 +53,9 @@ export function HistoryRow({
 
   const isActive = activeView === session.id;
   const isArchived = session.status === 'archived';
+  // Only active executions live in the rail, so only they can be pinned.
+  // Archived rows carry a cleared pin and hide the Pin menu item entirely.
+  const isPinned = !isArchived && !!session.execution?.pinnedAt;
 
   const handleOpen = () => {
     closeNow();
@@ -113,6 +116,9 @@ export function HistoryRow({
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-[9.5px] text-muted-foreground/70 mt-0.5 min-w-0">
+          {isPinned && (
+            <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
+          )}
           <span className="truncate">{wsName}</span>
           {branch && (
             <span className="flex items-center gap-0.5 truncate min-w-0">
@@ -129,6 +135,7 @@ export function HistoryRow({
         sessionId={session.id}
         workspaceId={session.workspaceId ?? null}
         isUnread={false}
+        isPinned={isArchived ? undefined : isPinned}
         label={label}
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}
         onOpenLauncher={onOpenLauncher}

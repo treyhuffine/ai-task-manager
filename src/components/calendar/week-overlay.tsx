@@ -16,6 +16,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toDateOnly } from '@/lib/dates';
 import { useDayShape } from '@/hooks/use-day-shape';
 import { useTasks } from '@/hooks/use-tasks';
 import { todayLocalDate } from '@/lib/deck/date';
@@ -64,7 +65,7 @@ export function WeekOverlay({ open, onOpenChange, initialDate, onSelectDay, onOp
   const deadlinesByDate = useMemo(() => {
     const map = new Map<string, DeadlineMarker[]>();
     for (const t of tasks ?? []) {
-      const date = t.hardDeadline?.slice(0, 10);
+      const date = toDateOnly(t.hardDeadline);
       if (!date) continue;
       const list = map.get(date) ?? [];
       list.push({ taskId: t.id, title: t.title });

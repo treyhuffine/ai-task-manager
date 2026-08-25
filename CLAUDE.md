@@ -56,6 +56,15 @@ One generic attachment system across the whole app:
 - Send-to-model: `src/lib/attachments/extract-text.ts` handles non-natively-readable formats (docx/xlsx/pptx via mammoth/xlsx/officeparser, audio via STT through `pickProvider`, svg as XML). Images route through `src/lib/attachments/normalize-image.ts` (HEIC→JPEG, downscale to API caps via sharp) before base64-inlining for the orchestrator chat. PDFs are native for Anthropic; `unpdf` extracts text for the OpenAI provider path. 200k-char per-attachment cap to bound context.
 - See `docs/chat-sessions.md` for the chat-specific flow end-to-end.
 
+## Client data layer (TanStack Query)
+
+- **Mutations are optimistic, at the hook layer.** Task/note/area mutations live in `src/hooks/use-{tasks,notes,areas}.ts` and all funnel through `src/lib/query/optimistic-entity.ts`: patch the cache in `onMutate` (`optimisticPatch` / `optimisticRemove`), roll back in `onError` (`rollbackOptimistic` + a sonner toast), reconcile in `onSettled` (`settleEntity`, a background invalidate). Do **not** add a blocking `onSuccess: invalidateQueries` — that reintroduces the second round-trip the optimistic layer exists to remove, and is the lag this replaced.
+- **Patches are partial merges, never record replaces** — the same update hook carries every field (`title`, `areaId`, `dueAt`, `body`, `sortKey`, ...).
+- **Two cache shapes per root:** single-entity `[root, id]` holds the full record (with `body`); lists `[root, filter]` hold DTOs that omit `body` and carry `bodyExcerpt` / `bodyLen`. The helper projects a body patch to the excerpt shape for lists (`projectPatchToList`) — never write a raw `body` onto a list row.
+- **Never write a server-normalized `body` into the live cache.** The Tiptap editor (`src/components/editor/rich-editor.tsx`) is authoritative while focused, and the server stores `body` verbatim, so the optimistic `body` already equals what the editor emitted. Writing a server echo back is the one thing that can reflow an open document or clobber newer keystrokes.
+- **Creates stay non-optimistic for lists** (the server owns filter placement); they seed the detail cache and let settle place the row. Recurring-task completes skip the optimistic `done` flip (the server bumps `nextRecurrenceAt`).
+- Full rationale and the body-editor safety analysis: `docs/optimistic-updates.md`.
+
 ## Orchestrator (agent surface)
 
 Actions defined in `src/lib/orchestrator/registry.ts` generate both the CLI (`<cli> agent <action>`) and the HTTP MCP at `/api/orchestrator/[transport]`. Single source of truth — add an action once, both surfaces pick it up.

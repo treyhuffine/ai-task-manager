@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  MoreVertical, Archive, Eye, EyeOff, Settings, Plus,
+  MoreVertical, Archive, Eye, EyeOff, Settings, Plus, Pin, PinOff,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -13,6 +13,8 @@ import {
 import {
   useMarkSessionRead,
   useMarkSessionUnread,
+  usePinSession,
+  useUnpinSession,
 } from '@/hooks/use-workspaces';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { cn } from '@/lib/utils';
@@ -27,6 +29,12 @@ interface SessionRowMenuProps {
    * based on which one is the current state.
    */
   isUnread: boolean;
+  /**
+   * Whether this row's execution is pinned to the rail's Pinned group.
+   * Toggles the menu item between "Pin to top" and "Unpin". Omitted on
+   * rows that can't be pinned (no execution) — the item is hidden then.
+   */
+  isPinned?: boolean;
   label: string;
   /** Open the workspace settings sheet. Hidden when omitted. */
   onOpenWorkspaceSettings?: (id: string) => void;
@@ -52,6 +60,7 @@ export function SessionRowMenu({
   sessionId,
   workspaceId,
   isUnread,
+  isPinned,
   label,
   onOpenWorkspaceSettings,
   onOpenLauncher,
@@ -60,6 +69,8 @@ export function SessionRowMenu({
   const { confirmArchive } = useArchiveWithConfirm();
   const markRead = useMarkSessionRead();
   const markUnread = useMarkSessionUnread();
+  const pin = usePinSession();
+  const unpin = useUnpinSession();
 
   const handleArchive = () => {
     void confirmArchive({ id: sessionId, label });
@@ -108,6 +119,18 @@ export function SessionRowMenu({
           <DropdownMenuItem onSelect={() => markUnread.mutate(sessionId)}>
             <EyeOff size={12} /> Mark as unread
           </DropdownMenuItem>
+        )}
+
+        {isPinned !== undefined && (
+          isPinned ? (
+            <DropdownMenuItem onSelect={() => unpin.mutate(sessionId)}>
+              <PinOff size={12} /> Unpin
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => pin.mutate(sessionId)}>
+              <Pin size={12} /> Pin to top
+            </DropdownMenuItem>
+          )
         )}
 
         {showWorkspaceGroup && (

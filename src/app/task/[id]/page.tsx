@@ -30,6 +30,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Energy, Effort, Attachment } from '@/db/types';
 
 const ENERGY_OPTIONS: { value: Energy; label: string; icon: typeof Flame; color: string }[] = [
@@ -185,15 +186,12 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const isDone = task?.status === 'done';
 
   const formatDate = (iso: string | null | undefined) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    const now = new Date();
-    const diff = d.getTime() - now.getTime();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    const days = calendarDaysUntil(iso);
+    if (days === null) return null;
     if (days === 0) return 'Today';
     if (days === 1) return 'Tomorrow';
     if (days === -1) return 'Yesterday';
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return formatLocalDate(iso, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const goBack = useCallback(() => {
@@ -411,7 +409,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                           onBlur={(e) => {
                             setEditingDeadline(false);
                             const val = e.target.value;
-                            saveField('hardDeadline', val ? new Date(val).toISOString() : null);
+                            saveField('hardDeadline', dateInputToStored(val));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -423,7 +421,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                           onClick={() => setEditingDeadline(true)}
                           className={cn(
                             'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors hover:bg-muted',
-                            task.hardDeadline && new Date(task.hardDeadline) < new Date()
+                            isPastDate(task.hardDeadline)
                               ? 'text-destructive'
                               : 'text-muted-foreground',
                           )}
@@ -446,7 +444,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                           onBlur={(e) => {
                             setEditingBoomerang(false);
                             const val = e.target.value;
-                            saveField('resurfaceAfter', val ? new Date(val).toISOString() : null);
+                            saveField('resurfaceAfter', dateInputToStored(val));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

@@ -1,14 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, StretchHorizontal, Eye, EyeOff } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, StretchHorizontal, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { useUpdateSession } from '@/hooks/use-execution';
-import { useMarkSessionRead, useMarkSessionUnread } from '@/hooks/use-workspaces';
+import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
@@ -84,6 +84,8 @@ export function ExecutionHeader({
   const updateSession = useUpdateSession();
   const markRead = useMarkSessionRead();
   const markUnread = useMarkSessionUnread();
+  const pin = usePinSession();
+  const unpin = useUnpinSession();
 
   // Header layout variant — three arrangements the user can flip between
   // to compare. Persisted in localStorage. Default `right` (actions
@@ -301,6 +303,31 @@ export function ExecutionHeader({
     </button>
   );
 
+  // Pin toggle — the same rail affordance, reachable from inside the open
+  // execution. Hidden for archived sessions (only active executions live in
+  // the rail, and archiving clears the pin anyway). Requires an execution to
+  // pin against.
+  const isPinned = !!session.execution?.pinnedAt;
+  const pinMenuItem = !isArchived && session.executionId ? (
+    isPinned ? (
+      <button
+        onClick={() => unpin.mutate(session.id)}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+      >
+        <PinOff size={12} />
+        Unpin from rail
+      </button>
+    ) : (
+      <button
+        onClick={() => pin.mutate(session.id)}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+      >
+        <Pin size={12} />
+        Pin to rail
+      </button>
+    )
+  ) : null;
+
   const worktreeLinks = session.worktreePath ? (
     <WorktreeDeepLinks worktreePath={session.worktreePath} />
   ) : null;
@@ -439,7 +466,10 @@ export function ExecutionHeader({
                   )}
                 </div>
                 <div className="h-px bg-border" />
-                <div className="p-1">{readStateMenuItem}</div>
+                <div className="p-1">
+                  {readStateMenuItem}
+                  {pinMenuItem}
+                </div>
                 {worktreeLinks && (
                   <>
                     <div className="h-px bg-border" />
@@ -619,7 +649,10 @@ export function ExecutionHeader({
               </div>
 
               <div className="h-px bg-border" />
-              <div className="p-1">{readStateMenuItem}</div>
+              <div className="p-1">
+                {readStateMenuItem}
+                {pinMenuItem}
+              </div>
 
               {/* Link / unlink a PR explicitly. Useful when the PR's
                   head ref doesn't match the session's branch name

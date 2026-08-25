@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
-import { sessionsApi, type RailResponse, type ChatSessionWithAgent } from '@/lib/api/sessions';
+import { sessionsApi, type RailResponse, type HistoryResponse, type ChatSessionWithAgent } from '@/lib/api/sessions';
 import { worktreeScopeFor } from '@/hooks/use-execution';
 import { ApiError } from '@/lib/api/client';
 import type {
@@ -255,6 +255,72 @@ export function useMarkSessionUnread() {
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
+    },
+  });
+}
+
+/**
+ * Patch a session's `execution.pinnedAt` in every rail-feeding cache so a
+ * pin/unpin lands instantly, before the server round-trip. Pinning stamps
+ * the current time (which also floats the row to the top of the Pinned
+ * group, ordered by pinnedAt desc); unpinning clears it. The pin lives on
+ * the nested `execution` record — the same object the Pinned group and the
+ * row's pin marker both read — so we spread a fresh execution rather than
+ * mutating in place.
+ */
+function patchSessionPinnedInCaches(
+  qc: ReturnType<typeof useQueryClient>,
+  id: string,
+  pinnedAt: string | null,
+) {
+  const bump = <T extends ChatSessionWithExecution>(s: T): T =>
+    s.id === id && s.execution
+      ? { ...s, execution: { ...s.execution, pinnedAt } }
+      : s;
+
+  qc.setQueryData<RailResponse>(RAIL_KEY, (prev) =>
+    prev ? { ...prev, sessions: prev.sessions.map(bump) } : prev,
+  );
+  qc.setQueryData<HistoryResponse>(HISTORY_KEY, (prev) =>
+    prev ? { ...prev, sessions: prev.sessions.map(bump) } : prev,
+  );
+  qc.setQueriesData<ChatSessionWithExecution[]>(
+    { predicate: (q) => q.queryKey[0] === 'workspaces' && q.queryKey[2] === 'sessions' },
+    (prev) => prev?.map(bump),
+  );
+  qc.setQueryData<ChatSessionWithAgent>(['session', id], (prev) =>
+    prev && prev.execution ? { ...prev, execution: { ...prev.execution, pinnedAt } } : prev,
+  );
+}
+
+/**
+ * Pin an execution to the rail's "Pinned" group (transient working-set
+ * marker, not a priority). Optimistic so the row jumps into the group on
+ * click; `onSettled` reconciles with the server's canonical timestamp.
+ */
+export function usePinSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sessionsApi.pin(id),
+    onMutate: (id) => patchSessionPinnedInCaches(qc, id, new Date().toISOString()),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: RAIL_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+    },
+  });
+}
+
+/** Unpin an execution (clears `execution.pinnedAt`). Inverse of usePinSession. */
+export function useUnpinSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sessionsApi.unpin(id),
+    onMutate: (id) => patchSessionPinnedInCaches(qc, id, null),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: RAIL_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
   });
 }

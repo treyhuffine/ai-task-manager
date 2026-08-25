@@ -1,6 +1,6 @@
 'use client';
 
-import { GitBranch } from 'lucide-react';
+import { GitBranch, Pin } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
@@ -31,6 +31,13 @@ interface SessionRowProps {
   onOpenWorkspaceSettings?: (id: string) => void;
   /** Open the "create from PR/branch/issue" modal for this row's workspace. */
   onOpenLauncher?: (workspaceId: string) => void;
+  /**
+   * Suppress the inline "pinned" marker. Set by the Pinned group, where a
+   * per-row pin glyph would just repeat the section title. The kebab still
+   * offers Unpin regardless. Everywhere else the marker stays on so a pinned
+   * execution is recognizable in its natural home under its workspace.
+   */
+  hidePinMarker?: boolean;
 }
 
 /**
@@ -57,6 +64,7 @@ export function SessionRow({
   workspaceIsGit,
   onOpenWorkspaceSettings,
   onOpenLauncher,
+  hidePinMarker,
 }: SessionRowProps) {
   const { activeView, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
@@ -116,6 +124,7 @@ export function SessionRow({
   // placeholder until then so the row stays orientable.
   const label = session.execution?.label ?? session.label ?? 'Untitled';
   const labelIsPlaceholder = !(session.execution?.label ?? session.label);
+  const isPinned = !!session.execution?.pinnedAt;
 
   return (
     <div
@@ -205,6 +214,13 @@ export function SessionRow({
             is known at render, and the diff stats append last so their
             arrival lands in empty space and displaces nothing. */}
         <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
+          {isPinned && !hidePinMarker && (
+            <Pin
+              size={9}
+              className="text-muted-foreground/50 fill-current flex-shrink-0 -rotate-45"
+              aria-label="Pinned"
+            />
+          )}
           <span className="text-muted-foreground/60 flex-shrink-0">
             {formatCompactRelative(timestamp)}
           </span>
@@ -224,6 +240,7 @@ export function SessionRow({
           sessionId={session.id}
           workspaceId={session.workspaceId ?? null}
           isUnread={isUnread || isPending}
+          isPinned={isPinned}
           label={label}
           onOpenWorkspaceSettings={onOpenWorkspaceSettings}
           onOpenLauncher={onOpenLauncher}

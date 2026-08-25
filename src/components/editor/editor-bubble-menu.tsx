@@ -14,6 +14,7 @@ import {
   Heading2,
   Heading3,
   Quote,
+  ListCollapse,
 } from 'lucide-react'
 
 interface EditorBubbleMenuProps {
@@ -174,6 +175,14 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
         title="Quote"
       >
         <Quote size={iconSize} />
+      </MenuButton>
+
+      <MenuButton
+        onClick={() => editor.chain().focus().setToggle().run()}
+        isActive={editor.isActive('toggle')}
+        title="Turn into toggle"
+      >
+        <ListCollapse size={iconSize} />
       </MenuButton>
 
       <MenuButton

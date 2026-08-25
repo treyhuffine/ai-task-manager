@@ -730,6 +730,60 @@
   background-color: var(--accent);
 }
 
+/* Toggle block — a standalone collapsible that is not a heading.
+ * Structure: .toggle-block > [.toggle-chevron, .toggle-inner > (summary + body)].
+ * The chevron floats in a reserved left gutter, Notion-style, so it sits to the
+ * left of the summary text rather than over it. */
+.toggle-block {
+  position: relative;
+  padding-left: 1.5em;
+  margin: 0.35em 0;
+}
+
+.toggle-block:first-child {
+  margin-top: 0;
+}
+
+.toggle-chevron {
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+/* The summary line: strip the native <details> disclosure marker (this <summary>
+ * lives inside a div, not a real <details>, so it has no native behavior). */
+.toggle-summary {
+  display: block;
+  list-style: none;
+  outline: none;
+  font-weight: 500;
+}
+
+.toggle-summary::-webkit-details-marker,
+.toggle-summary::marker {
+  display: none;
+  content: '';
+}
+
+.toggle-content {
+  margin-top: 0.15em;
+}
+
+/* Collapsed: hide the body. Kept in the DOM (not unmounted) so the doc stays
+ * valid and the ProseMirror mutation observer never fires — same reasoning as
+ * .collapsed-hidden for headings. */
+.toggle-block[data-open='false'] .toggle-content {
+  display: none;
+}
+
 /* Lists */
 .rich-editor-body ul {
   list-style-type: disc;

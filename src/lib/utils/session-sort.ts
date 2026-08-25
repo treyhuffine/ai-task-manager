@@ -51,6 +51,33 @@ export function sortSessionsHotnessDesc<T extends SortableSession>(sessions: rea
   return [...sessions].sort((a, b) => sessionHotnessKey(b) - sessionHotnessKey(a));
 }
 
+interface PinnableSession {
+  id: string;
+  status: string;
+  execution: { pinnedAt: string | null } | null;
+}
+
+/**
+ * The rail's "Pinned" group, derived from any session list (the shared rail
+ * query already carries `execution.pinnedAt`, so no dedicated fetch is
+ * needed). Keeps only *active* pinned executions — archiving clears the pin,
+ * but a stale cache could momentarily show an archived+pinned row, so the
+ * status guard makes the group self-coherent regardless.
+ *
+ * Ordered by pin time, most-recent first, so a fresh pin lands on top and the
+ * group stays stable as agents work underneath it (activity never reshuffles
+ * a pin). `pinnedAt` is an ISO string, so a string compare is chronological;
+ * id is the stable tie-break. Returns a new array — the input is untouched.
+ */
+export function selectPinnedSessions<T extends PinnableSession>(sessions: readonly T[]): T[] {
+  return sessions
+    .filter((s) => s.status === 'active' && !!s.execution?.pinnedAt)
+    .sort((a, b) => {
+      const cmp = (b.execution?.pinnedAt ?? '').localeCompare(a.execution?.pinnedAt ?? '');
+      return cmp !== 0 ? cmp : b.id.localeCompare(a.id);
+    });
+}
+
 interface UnreadableSession {
   lastOutcomeEventAt: string | null;
   unreadMarkerAt: string | null;

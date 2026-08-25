@@ -1,5 +1,6 @@
 'use client';
 
+import { Pin } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
@@ -27,6 +28,7 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
   const isActive = activeView === session.id;
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
+  const isPinned = !!session.execution?.pinnedAt;
 
   // Shared unread rule so the pip stays consistent with SessionRow/StatusView;
   // the streaming overlay stays local.
@@ -74,6 +76,14 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
           className="w-7 h-7 rounded-md flex items-center justify-center text-foreground/80 text-[13px] font-bold tracking-wide"
         >
           {initialsFor(wsName)}
+        </span>
+      )}
+      {isPinned && (
+        <span
+          aria-hidden
+          className="absolute -top-0.5 -left-0.5 flex items-center justify-center w-3 h-3 rounded-full bg-background ring-1 ring-border"
+        >
+          <Pin size={7} className="fill-current text-muted-foreground -rotate-45" />
         </span>
       )}
       <StatusOverlay

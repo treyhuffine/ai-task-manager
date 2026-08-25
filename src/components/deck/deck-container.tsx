@@ -27,6 +27,7 @@ import type {
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem, DeckChange } from '@/db/types';
 import { api, ApiError } from '@/lib/api/client';
+import { calendarDaysUntil } from '@/lib/dates';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -64,12 +65,13 @@ function taskToDeckItem(
   };
 }
 
-// ─── Mock routines (replaced by real data later) ────────────────
-
-const MOCK_ROUTINES: RoutineItem[] = [
-  { id: 'rt1', title: 'Work out', completedCount: 3, targetCount: 4, period: 'this week', streak: 12, taskId: 'task-rt1' },
-  { id: 'rt2', title: 'Read', completedCount: 0, targetCount: 1, period: 'today', streak: 8, taskId: 'task-rt2' },
-];
+// ─── Routines / habits ──────────────────────────────────────────
+// Hidden until real tracking exists (no schema/queries yet). The day
+// bar hides the habits pill whenever this is empty, so once routines
+// are fetched from a real source the UI reappears automatically.
+// Prior mock shape, kept for reference when wiring this up:
+//   { id: 'rt1', title: 'Work out', completedCount: 3, targetCount: 4, period: 'this week', streak: 12, taskId: 'task-rt1' }
+const MOCK_ROUTINES: RoutineItem[] = [];
 
 
 // ─── Hydrate a persisted DeckRecord into a client DeckPlan ──────
@@ -296,14 +298,14 @@ export function DeckContainer() {
     return plan.items.filter(item => {
       if (areaFilter && item.areaId !== areaFilter) return false;
       if (workMode && item.energy !== workMode) return false;
-      if (filterDueToday && !(item.hardDeadline && new Date(item.hardDeadline).toDateString() === new Date().toDateString())) return false;
+      if (filterDueToday && calendarDaysUntil(item.hardDeadline) !== 0) return false;
       return true;
     });
   }, [plan, areaFilter, workMode, filterDueToday]);
 
   const dueTodayCount = useMemo(() => {
     if (!plan) return 0;
-    return plan.items.filter(item => item.hardDeadline && new Date(item.hardDeadline).toDateString() === new Date().toDateString()).length;
+    return plan.items.filter(item => calendarDaysUntil(item.hardDeadline) === 0).length;
   }, [plan]);
 
   const filteredAlternatives = useMemo(() => {

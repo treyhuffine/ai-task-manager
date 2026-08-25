@@ -68,17 +68,28 @@ function orderSessions(
   tab: 'status' | 'workspace' | 'history',
 ): RailSession[] {
   const active = sessions.filter((s) => s.status === 'active');
+
+  // Pinned executions float to the very top of the strip on every tab —
+  // the skinny mirror of the wide rail's Pinned group, so "keep this close"
+  // survives collapsing the rail. Most-recently-pinned first; the rest keep
+  // their tab ordering below.
+  const pinned = active
+    .filter((s) => !!s.execution?.pinnedAt)
+    .sort((a, b) => (b.execution?.pinnedAt ?? '').localeCompare(a.execution?.pinnedAt ?? ''));
+  const pinnedIds = new Set(pinned.map((s) => s.id));
+  const rest = active.filter((s) => !pinnedIds.has(s.id));
+
   // History falls back to status ordering in skinny mode — the rail
   // is too narrow to draw date buckets, and "most recent first" is the
   // closest approximation of what the wide history list shows.
-  if (tab === 'status' || tab === 'history') return sortSessionsHotnessDesc(active);
+  if (tab === 'status' || tab === 'history') return [...pinned, ...sortSessionsHotnessDesc(rest)];
 
   // Workspace tab: respect workspace list order; sessions within each
   // workspace come out hot-first. Sessions without a known workspace
   // bucket land at the end so they don't disappear silently.
   const order = new Map((workspaces ?? []).map((w, i) => [w.id, i] as const));
   const byWs = new Map<string | null, RailSession[]>();
-  for (const s of active) {
+  for (const s of rest) {
     const key = s.workspaceId ?? null;
     const arr = byWs.get(key) ?? [];
     arr.push(s);
@@ -89,7 +100,8 @@ function orderSessions(
     const bi = b == null ? Infinity : order.get(b) ?? Infinity;
     return ai - bi;
   });
-  const out: RailSession[] = [];
+  // Pins lead the strip; the by-workspace ordering fills in below them.
+  const out: RailSession[] = [...pinned];
   for (const k of sortedKeys) {
     out.push(...sortSessionsHotnessDesc(byWs.get(k) ?? []));
   }

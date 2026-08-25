@@ -111,6 +111,9 @@ export const executions = sqliteTable('executions', {
 
   status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
 
+  // Rail pin — transient working-set marker, non-null iff pinned (§2.4)
+  pinned_at: text('pinned_at'),
+
   created_at: text('created_at').notNull().default(sql`(datetime('now'))`),
   updated_at: text('updated_at').notNull().default(sql`(datetime('now'))`),
   archived_at: text('archived_at'),
@@ -123,6 +126,17 @@ export const executions = sqliteTable('executions', {
 ```
 
 **No `owning_schedule_id` on this table.** Ownership lives on the schedules table — see §2.3.
+
+### 2.4 Rail pin (`pinned_at`)
+
+A pin is a **transient working-set marker** on the execution: "keep this reachable while I bounce between things." It is deliberately NOT a priority or a favorite — those accumulate and rot, which is the exact organizational overhead this app strips out. `pinned_at` is null when unpinned and holds the pin time when pinned; that timestamp both flags the pin and orders the rail's Pinned group (most-recently-pinned first, stable as agents work underneath).
+
+Rules that keep the pin honest:
+
+- **Archiving auto-clears it.** `archiveExecution` sets `pinned_at = null` in the same write that flips `status = 'archived'` (and `archiveExecutionSession` routes through it), so a pin never outlives the active work it points at and the Pinned group can't decay into a graveyard. Only active executions are pinnable.
+- **Write path.** `setExecutionPinned(executionId, pinned)` (direct) and `setSessionPinned(sessionId, pinned)` (resolves the execution from a session id, since every rail surface addresses rows by their primary chat). HTTP: `POST /api/sessions/:id/pin` and `.../unpin`, mirroring `.../read` / `.../unread`. Idempotent and retry-safe — re-pinning just refreshes the stamp.
+- **Read path.** No dedicated query or endpoint. `listRailSessions` already flattens `execution.pinnedAt` onto every row, and pins only exist on active executions, so the client's Pinned group is a pure derive over the existing rail cache (`selectPinnedSessions` in `session-sort.ts`). This keeps the group referentially coherent with every other rail surface for free.
+- **Surfaces.** A "Pinned" section sits at the top of the rail body across all three wide tabs (Workspace / Status / History); the pinned execution ALSO stays in its natural home (under its workspace, in its status bucket) — pinning surfaces, it does not move. The skinny rail floats pins to the top of the icon strip. Pin/Unpin lives in the shared session kebab (`SessionRowMenu`) on every rail row and in the open execution's header menu.
 
 ### 2.2 Changes to `chat_sessions`
 

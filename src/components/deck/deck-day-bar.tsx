@@ -59,18 +59,21 @@ export function DeckDayBar({ items, completedItems, routines, onRoutineComplete,
           )}
         </div>
 
-        {/* Routines dropdown trigger — right side */}
-        <button
-          onClick={() => toggle('routines')}
-          className={cn(
-            'flex items-center gap-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors',
-            openDropdown === 'routines' && 'text-muted-foreground',
-          )}
-        >
-          <Circle className="w-3 h-3" />
-          {routinesDone}/{routines.length} habits
-          <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', openDropdown === 'routines' && 'rotate-180')} />
-        </button>
+        {/* Routines dropdown trigger — right side. Hidden until habits
+            are backed by real tracking; empty routines = nothing to show. */}
+        {routines.length > 0 && (
+          <button
+            onClick={() => toggle('routines')}
+            className={cn(
+              'flex items-center gap-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors',
+              openDropdown === 'routines' && 'text-muted-foreground',
+            )}
+          >
+            <Circle className="w-3 h-3" />
+            {routinesDone}/{routines.length} habits
+            <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', openDropdown === 'routines' && 'rotate-180')} />
+          </button>
+        )}
       </div>
 
       {/* Dropdown panels */}

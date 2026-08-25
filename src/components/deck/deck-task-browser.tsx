@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Search, Plus, Check, Minus, X, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { parseLocalDate } from '@/lib/dates';
 import { useTasks } from '@/hooks/use-tasks';
 import { useAreas } from '@/hooks/use-areas';
 import {
@@ -68,7 +69,7 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
         if (!a.hardDeadline && !b.hardDeadline) return 0;
         if (!a.hardDeadline) return 1;
         if (!b.hardDeadline) return -1;
-        return new Date(a.hardDeadline).getTime() - new Date(b.hardDeadline).getTime();
+        return parseLocalDate(a.hardDeadline)!.getTime() - parseLocalDate(b.hardDeadline)!.getTime();
       });
     }
 

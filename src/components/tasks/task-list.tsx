@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { TaskRow } from './task-row';
 import { cn } from '@/lib/utils';
+import { todayLocalDate } from '@/lib/deck/date';
 import type { TaskStatus, Energy } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
@@ -116,7 +117,7 @@ export function TaskList() {
     date.setDate(date.getDate() + days);
     updateTask.mutate({
       id,
-      resurfaceAfter: date.toISOString(),
+      resurfaceAfter: todayLocalDate(date),
       timesDeferred: undefined, // let the server handle increment ideally, but for now just set resurface
     } as Parameters<typeof updateTask.mutate>[0]);
   }, [updateTask]);

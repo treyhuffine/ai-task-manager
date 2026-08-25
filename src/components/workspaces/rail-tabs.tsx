@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { WorkspaceNav } from './workspace-nav';
 import { StatusView } from './status-view';
 import { HistoryView } from './history-view';
+import { PinnedRail } from './pinned-rail';
 import { SessionSearchResults } from './session-search-results';
 import { SkinnyView } from './skinny-view';
 import { SessionHoverProvider } from './session-hover-context';
@@ -115,6 +116,11 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
             collapsed && 'overflow-x-hidden',
           )}
         >
+          {/* Pinned executions sit above the tab body on every wide tab, so
+              the user's kept-close work is one glance away regardless of
+              which lens they're in. Hidden while searching (results own the
+              body) and in skinny mode (no room). Renders nothing when empty. */}
+          {!collapsed && !searching && <PinnedRail />}
           {collapsed ? (
             <SkinnyView tab={tab} />
           ) : searching ? (

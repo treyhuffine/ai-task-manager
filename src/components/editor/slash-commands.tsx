@@ -16,6 +16,7 @@ import {
   Minus,
   ImageIcon,
   TextIcon,
+  ListCollapse,
 } from 'lucide-react'
 import type { Attachment } from '@/db/types'
 import { insertUploadedFiles } from './upload-files'
@@ -131,6 +132,14 @@ function buildSlashCommands(ctx: SlashCommandsBuildContext): SlashCommandItem[] 
     icon: Quote,
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).toggleBlockquote().run()
+    },
+  },
+  {
+    title: 'Toggle',
+    description: 'Collapsible section',
+    icon: ListCollapse,
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).setToggle().run()
     },
   },
   {

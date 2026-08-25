@@ -1,5 +1,6 @@
 'use client';
 
+import { Pin } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
@@ -48,6 +49,7 @@ export function StatusSessionRow({
   // label (survives "new chat"); fall back to the chat label otherwise.
   const label = session.execution?.label ?? session.label ?? 'Untitled';
   const labelIsPlaceholder = !(session.execution?.label ?? session.label);
+  const isPinned = !!session.execution?.pinnedAt;
 
   const wsName = session.workspaceName ?? 'No workspace';
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);
@@ -93,8 +95,11 @@ export function StatusSessionRow({
         )}>
           {label}
         </div>
-        <div className="text-[10px] truncate mt-0.5 text-muted-foreground/70">
-          {wsName}
+        <div className="flex items-center gap-1 text-[10px] mt-0.5 text-muted-foreground/70">
+          {isPinned && (
+            <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
+          )}
+          <span className="truncate">{wsName}</span>
         </div>
       </div>
 
@@ -105,7 +110,8 @@ export function StatusSessionRow({
         <SessionRowMenu
           sessionId={session.id}
           workspaceId={session.workspaceId ?? null}
-            isUnread={isUnread}
+          isUnread={isUnread}
+          isPinned={isPinned}
           label={label}
           onOpenWorkspaceSettings={onOpenWorkspaceSettings}
           onOpenLauncher={onOpenLauncher}

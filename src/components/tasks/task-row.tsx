@@ -23,6 +23,7 @@ import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/compone
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { AreaSelect } from '@/components/shared/area-select';
 import { cn } from '@/lib/utils';
+import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Energy, Effort } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
@@ -48,17 +49,14 @@ const ENERGY_CYCLE: (Energy | null)[] = ['deep', 'light', null];
 const EFFORT_CYCLE: (Effort | null)[] = ['trivial', 'small', 'medium', 'large', 'epic', null];
 
 function formatDate(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = d.getTime() - now.getTime();
-  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+  const days = calendarDaysUntil(iso);
+  if (days === null) return null;
   if (days === 0) return 'Today';
   if (days === 1) return 'Tomorrow';
   if (days === -1) return 'Yesterday';
   if (days > 0 && days <= 7) return `In ${days}d`;
   if (days < 0 && days >= -7) return `${Math.abs(days)}d ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return formatLocalDate(iso, { month: 'short', day: 'numeric' });
 }
 
 interface TaskRowProps {
@@ -224,7 +222,7 @@ export function TaskRow({
               onClick={(e) => { e.stopPropagation(); setEditingDeadline(true); }}
               className={cn(
                 'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
-                task.hardDeadline && new Date(task.hardDeadline) < new Date()
+                isPastDate(task.hardDeadline)
                   ? 'text-destructive'
                   : 'text-muted-foreground',
               )}
@@ -241,7 +239,7 @@ export function TaskRow({
               onBlur={(e) => {
                 setEditingDeadline(false);
                 const val = e.target.value;
-                onUpdate(task.id, 'hardDeadline', val ? new Date(val).toISOString() : null);
+                onUpdate(task.id, 'hardDeadline', dateInputToStored(val));
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -270,7 +268,7 @@ export function TaskRow({
               onBlur={(e) => {
                 setEditingBoomerang(false);
                 const val = e.target.value;
-                onUpdate(task.id, 'resurfaceAfter', val ? new Date(val).toISOString() : null);
+                onUpdate(task.id, 'resurfaceAfter', dateInputToStored(val));
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

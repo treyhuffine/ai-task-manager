@@ -3374,7 +3374,10 @@ export function archiveExecution(executionId: string): ExecutionRecord | null {
   return db.transaction((tx) => {
     const row = tx
       .update(executions)
-      .set({ status: 'archived', archivedAt: now, updatedAt: now })
+      // Archiving clears any rail pin in the same write: a pin is a
+      // working-set marker for *active* work, so a pinned execution that
+      // gets archived must drop out of the Pinned group, not linger there.
+      .set({ status: 'archived', archivedAt: now, pinnedAt: null, updatedAt: now })
       .where(eq(executions.id, executionId))
       .returning()
       .get();
@@ -3483,6 +3486,45 @@ export function setExecutionPreviewUrls(
   urls: PreviewUrl[],
 ): ExecutionRecord | null {
   return updateExecution(executionId, { previewUrls: urls });
+}
+
+// ── Rail pin ──────────────────────────────────────────────────
+
+/**
+ * Pin or unpin an execution in the left rail. Pinning stamps
+ * `pinnedAt = now()`; unpinning clears it back to null. The timestamp both
+ * flags the pin and orders the rail's "Pinned" group (most-recent first).
+ *
+ * A pin is a transient working-set marker — "keep this reachable while I
+ * bounce between things" — not a durable priority. Archiving auto-clears it
+ * (see `archiveExecution`), so a pin never outlives the active work it
+ * points at. Safe under retry: setting the same state twice is idempotent
+ * (the second pin just refreshes the timestamp).
+ */
+export function setExecutionPinned(
+  executionId: string,
+  pinned: boolean,
+): ExecutionRecord | null {
+  return updateExecution(executionId, {
+    pinnedAt: pinned ? new Date().toISOString() : null,
+  });
+}
+
+/**
+ * Session-keyed pin toggle: resolves the session's execution and pins/unpins
+ * it, then returns the session flattened with the updated execution state so
+ * the caller can echo the new `execution.pinnedAt` straight into its caches.
+ * Returns null for an unknown session or one with no execution (orchestration
+ * and content chats can't be pinned — they never appear in the rail).
+ */
+export function setSessionPinned(
+  sessionId: string,
+  pinned: boolean,
+): ChatSessionWithExecution | null {
+  const session = getChatSessionWithExecution(sessionId);
+  if (!session || !session.executionId) return null;
+  setExecutionPinned(session.executionId, pinned);
+  return getChatSessionWithExecution(sessionId);
 }
 
 // ─── Preview Targets ──────────────────────────────────────────

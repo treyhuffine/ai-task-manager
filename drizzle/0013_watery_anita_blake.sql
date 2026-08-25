@@ -1,0 +1,1 @@
+ALTER TABLE `executions` ADD `pinned_at` text;

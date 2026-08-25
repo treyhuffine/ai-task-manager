@@ -47,6 +47,7 @@ import { ReferencingSessionsButton } from '@/components/shared/referencing-sessi
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
 import { cn } from '@/lib/utils';
+import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Energy, Effort, Attachment } from '@/db/types';
 
 const DEFAULT_WIDTH = 1200;
@@ -297,15 +298,12 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const isDone = task?.status === 'done';
 
   const formatDate = (iso: string | null | undefined) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    const now = new Date();
-    const diff = d.getTime() - now.getTime();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    const days = calendarDaysUntil(iso);
+    if (days === null) return null;
     if (days === 0) return 'Today';
     if (days === 1) return 'Tomorrow';
     if (days === -1) return 'Yesterday';
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return formatLocalDate(iso, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   return (
@@ -622,10 +620,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                               onBlur={(e) => {
                                 setEditingDeadline(false);
                                 const val = e.target.value;
-                                saveField(
-                                  'hardDeadline',
-                                  val ? new Date(val).toISOString() : null,
-                                );
+                                saveField('hardDeadline', dateInputToStored(val));
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -637,7 +632,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                               onClick={() => setEditingDeadline(true)}
                               className={cn(
                                 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors hover:bg-muted',
-                                task.hardDeadline && new Date(task.hardDeadline) < new Date()
+                                isPastDate(task.hardDeadline)
                                   ? 'text-destructive'
                                   : 'text-muted-foreground',
                               )}
@@ -660,10 +655,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                               onBlur={(e) => {
                                 setEditingBoomerang(false);
                                 const val = e.target.value;
-                                saveField(
-                                  'resurfaceAfter',
-                                  val ? new Date(val).toISOString() : null,
-                                );
+                                saveField('resurfaceAfter', dateInputToStored(val));
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

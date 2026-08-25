@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useOptionalDashboard } from '@/contexts/dashboard-context'
 import { cn } from '@/lib/utils'
+import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates'
 import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList, SquareTerminal } from 'lucide-react'
 import { NoteIcon } from '@/components/shared/note-icon'
 import type { TaskRecord, NoteRecord, AreaRecord, ChatSessionWithExecution, WorkspaceRecord } from '@/db/types'
@@ -103,16 +104,13 @@ const ENTITY_CONFIG: Record<EntityType, {
 // ─── Helpers ────────────────────────────────────────────────
 
 function formatDeadline(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const d = new Date(iso)
-  const now = new Date()
-  const diff = d.getTime() - now.getTime()
-  const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
+  const days = calendarDaysUntil(iso)
+  if (days === null) return null
   if (days === 0) return 'Today'
   if (days === 1) return 'Tomorrow'
   if (days < 0) return `${Math.abs(days)}d overdue`
   if (days <= 7) return `In ${days}d`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return formatLocalDate(iso, { month: 'short', day: 'numeric' })
 }
 
 function stripMarkdown(text: string): string {
@@ -130,7 +128,7 @@ function stripMarkdown(text: string): string {
 
 function TaskCard({ data, onClick }: { data: TaskRecord; onClick: () => void }) {
   const deadline = formatDeadline(data.hardDeadline)
-  const isOverdue = data.hardDeadline && new Date(data.hardDeadline) < new Date()
+  const isOverdue = isPastDate(data.hardDeadline)
 
   return (
     <button

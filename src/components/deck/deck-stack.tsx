@@ -19,6 +19,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
+import { calendarDaysUntil, formatLocalDate, parseLocalDate } from '@/lib/dates';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { RowActionsMenu, type RowAction } from '@/components/shared/row-actions-menu';
@@ -27,28 +28,22 @@ import type { DeckItem, SubtaskItem } from '@/types/dashboard';
 // ─── Helpers ────────────────────────────────────────────────────
 
 function formatDeadline(deadline?: string): string | null {
-  if (!deadline) return null;
-  const date = new Date(deadline);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const deadlineDate = new Date(date);
-  deadlineDate.setHours(0, 0, 0, 0);
-  const diffDays = Math.round((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = calendarDaysUntil(deadline);
+  if (diffDays === null) return null;
 
   if (diffDays < 0) return 'Overdue';
   if (diffDays === 0) return 'Due today';
   if (diffDays === 1) return 'Due tomorrow';
   if (diffDays <= 7) {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return `Due ${days[date.getDay()]}`;
+    return `Due ${days[parseLocalDate(deadline)!.getDay()]}`;
   }
-  return `Due ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  return `Due ${formatLocalDate(deadline, { month: 'short', day: 'numeric' })}`;
 }
 
 function isDeadlineUrgent(deadline?: string): boolean {
-  if (!deadline) return false;
-  const diffDays = Math.round((new Date(deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  return diffDays <= 1;
+  const diffDays = calendarDaysUntil(deadline);
+  return diffDays !== null && diffDays <= 1;
 }
 
 // ─── Pill components ────────────────────────────────────────────

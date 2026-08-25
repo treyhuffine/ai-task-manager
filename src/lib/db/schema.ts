@@ -864,6 +864,17 @@ export const executions = sqliteTable(
       .default('active'),
 
     archivedAt: text(),
+
+    // Rail pin — a transient working-set marker, non-null iff pinned. The
+    // value is *when* it was pinned, which orders the rail's "Pinned" group
+    // (most-recently-pinned first) and stays stable as agents work (a pin is
+    // a fixed anchor, not something that should reshuffle by activity).
+    //
+    // Deliberately a pin, NOT a priority/favorite: it means "keep this
+    // reachable while I bounce between things", not "this matters forever".
+    // Archiving clears it (see `archiveExecution`) so a pin never outlives
+    // the active work it points at and the group can't rot into a graveyard.
+    pinnedAt: text(),
   },
   (table) => [
     index('idx_executions_workspace_status').on(table.workspaceId, table.status),

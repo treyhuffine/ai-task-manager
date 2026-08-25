@@ -613,6 +613,17 @@ export const sessionsApi = {
     return api.post<ChatSessionRecord>(`/sessions/${id}/unread`);
   },
 
+  /** Pin this session's execution to the rail's "Pinned" group. Returns the
+   *  session flattened with the updated `execution.pinnedAt`. */
+  pin(id: string): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/pin`);
+  },
+
+  /** Unpin this session's execution (clears `execution.pinnedAt`). */
+  unpin(id: string): Promise<ChatSessionWithExecution> {
+    return api.post<ChatSessionWithExecution>(`/sessions/${id}/unpin`);
+  },
+
   rail(): Promise<RailResponse> {
     return api.get<RailResponse>('/sessions/rail');
   },

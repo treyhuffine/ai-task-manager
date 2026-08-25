@@ -1,5 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { notesApi } from '@/lib/api/notes';
+import {
+  optimisticPatch,
+  optimisticRemove,
+  rollbackOptimistic,
+  settleEntity,
+} from '@/lib/query/optimistic-entity';
 import type {
   CreateNoteInput,
   UpdateNoteInput,
@@ -26,24 +33,41 @@ export function useNote(id: string | null) {
 export function useCreateNote() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: NOTES_KEY,
     mutationFn: (input: CreateNoteInput) => notesApi.create(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: NOTES_KEY }),
+    // See useCreateTask: seed the detail cache, leave list placement to settle.
+    onSuccess: (record) => qc.setQueryData([...NOTES_KEY, record.id], record),
+    onSettled: () => settleEntity(qc, 'notes'),
   });
 }
 
 export function useUpdateNote() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: NOTES_KEY,
     mutationFn: ({ id, ...input }: UpdateNoteInput & { id: string }) =>
       notesApi.update(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: NOTES_KEY }),
+    onMutate: async ({ id, ...input }) => ({
+      snapshot: await optimisticPatch(qc, 'notes', id, input),
+    }),
+    onError: (_err, _vars, ctx) => {
+      rollbackOptimistic(qc, ctx?.snapshot);
+      toast.error('Could not save changes');
+    },
+    onSettled: () => settleEntity(qc, 'notes'),
   });
 }
 
 export function useDeleteNote() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: NOTES_KEY,
     mutationFn: (id: string) => notesApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: NOTES_KEY }),
+    onMutate: async (id) => ({ snapshot: await optimisticRemove(qc, 'notes', id) }),
+    onError: (_err, _id, ctx) => {
+      rollbackOptimistic(qc, ctx?.snapshot);
+      toast.error('Could not delete note');
+    },
+    onSettled: () => settleEntity(qc, 'notes'),
   });
 }

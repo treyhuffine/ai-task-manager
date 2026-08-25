@@ -21,6 +21,7 @@ import {
   applyFoldedHeadingIds,
   getFoldedHeadingIds,
 } from './collapsible-heading'
+import { Toggle, ToggleSummary, ToggleContent } from './toggle-block'
 import { Paragraph } from './paragraph'
 import { EditorBubbleMenu } from './editor-bubble-menu'
 import { ListKeymap } from './list-keymap'
@@ -115,15 +116,32 @@ export function RichEditor({
       }),
       Paragraph,
       CollapsibleHeading,
+      Toggle,
+      ToggleSummary,
+      ToggleContent,
       Markdown,
       Placeholder.configure({
-        placeholder: ({ node }) => {
+        placeholder: ({ node, pos, editor }) => {
           if (node.type.name === 'collapsibleHeading') {
             return node.attrs.level === 1
               ? 'Heading 1'
               : node.attrs.level === 2
                 ? 'Heading 2'
                 : 'Heading 3'
+          }
+          if (node.type.name === 'toggleSummary') {
+            return 'Toggle'
+          }
+          // The empty paragraph seeded inside a toggle body gets its own hint
+          // instead of the generic body placeholder.
+          if (node.type.name === 'paragraph') {
+            try {
+              if (editor.state.doc.resolve(pos).parent?.type.name === 'toggleContent') {
+                return 'Empty toggle. Click to add content'
+              }
+            } catch {
+              // pos may be out of range mid-transaction — fall through.
+            }
           }
           return placeholder
         },
