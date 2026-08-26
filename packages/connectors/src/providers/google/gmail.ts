@@ -31,6 +31,19 @@ const recipientField = z
   .refine((s) => !hasLineBreak(s), 'recipients must not contain line breaks')
   .refine(isEmailList, 'must be a valid email address or comma-separated list of addresses');
 const subjectField = z.string().refine((s) => !hasLineBreak(s), 'subject must not contain line breaks');
+/**
+ * The RFC Message-ID of the message being replied to (e.g. "<abc@mail.gmail.com>"). Interpolated
+ * into the `In-Reply-To`/`References` header lines, so it carries the same single-line
+ * header-injection guard as every other header value.
+ */
+const inReplyToField = z.string().refine((s) => !hasLineBreak(s), 'inReplyTo must not contain line breaks');
+/**
+ * The `References` header of the message being replied to — a space-separated chain of the ancestor
+ * Message-IDs, oldest first. We append `inReplyTo` to it so the reply carries the full thread ancestry
+ * (deep replies stay correctly nested in strict RFC 5322 clients). Optional: omit for a simple one-hop
+ * reply, where `References` falls back to just `inReplyTo`. Same single-line header-injection guard.
+ */
+const referencesField = z.string().refine((s) => !hasLineBreak(s), 'references must not contain line breaks');
 
 /** RFC 2047-encode a header value when it carries non-ASCII bytes (e.g. a unicode subject). */
 function encodeHeaderWord(value: string): string {
@@ -38,21 +51,40 @@ function encodeHeaderWord(value: string): string {
 }
 
 /** Build a minimal RFC 5322 message and base64url-encode it for the Gmail API. */
-export function encodeEmail(input: { to: string; subject: string; body: string; cc?: string; bcc?: string }): string {
+export function encodeEmail(input: {
+  to: string;
+  subject: string;
+  body: string;
+  cc?: string;
+  bcc?: string;
+  inReplyTo?: string;
+  references?: string;
+}): string {
   // Defense in depth — schemas already reject these, but a header value must never break out.
   for (const [name, value] of [
     ['To', input.to],
     ['Cc', input.cc],
     ['Bcc', input.bcc],
     ['Subject', input.subject],
+    ['In-Reply-To', input.inReplyTo],
+    ['References', input.references],
   ] as const) {
     if (value && hasLineBreak(value)) throw new Error(`mail header "${name}" contains a line break`);
   }
+  // References = the parent's own chain (if the caller passed it) followed by the parent's Message-ID.
+  // With no `references` this is just `inReplyTo`, identical to a plain one-hop reply.
+  const references = [input.references, input.inReplyTo].filter(Boolean).join(' ');
   const headers = [
     `To: ${input.to}`,
     input.cc ? `Cc: ${input.cc}` : null,
     input.bcc ? `Bcc: ${input.bcc}` : null,
     `Subject: ${encodeHeaderWord(input.subject)}`,
+    // Reply threading: In-Reply-To points at the immediate parent's Message-ID; References carries the
+    // whole ancestor chain (parent's References + parent's Message-ID) so Gmail — and every RFC 5322
+    // client — nests this message in that conversation. The Gmail API ALSO needs the numeric threadId on
+    // the request body; the create_draft / send_email actions set it.
+    input.inReplyTo ? `In-Reply-To: ${input.inReplyTo}` : null,
+    references ? `References: ${references}` : null,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
@@ -79,7 +111,7 @@ interface RawMessage {
   payload?: GmailPayload;
 }
 
-const WANTED_HEADERS = ['From', 'To', 'Cc', 'Bcc', 'Subject', 'Date', 'Message-ID'];
+const WANTED_HEADERS = ['From', 'To', 'Cc', 'Bcc', 'Subject', 'Date', 'Message-ID', 'References'];
 
 function extractHeaders(p?: GmailPayload): Record<string, string> | undefined {
   const out: Record<string, string> = {};
@@ -159,7 +191,11 @@ export const gmail = defineToolkit({
 
     httpAction({
       id: 'gmail.create_draft',
-      description: 'Create a draft email (does not send).',
+      description:
+        'Create a draft email (does not send). To draft a reply that threads inside an existing ' +
+        'conversation, pass threadId AND inReplyTo — read both off the message being replied to via ' +
+        'get_message (its threadId and headers["Message-ID"]). For a deep reply, also pass references ' +
+        '(its headers["References"]) to preserve the full thread ancestry.',
       mutating: true,
       risk: 'medium',
       scopes: [GOOGLE_SCOPES.gmailCompose],
@@ -168,17 +204,40 @@ export const gmail = defineToolkit({
         subject: subjectField,
         body: z.string(),
         cc: recipientField.optional(),
+        threadId: z
+          .string()
+          .optional()
+          .describe('Gmail thread id to attach this draft to, so it nests as a reply. Pair with inReplyTo.'),
+        inReplyTo: inReplyToField
+          .optional()
+          .describe(
+            'RFC Message-ID header of the message being replied to (from get_message headers["Message-ID"]). ' +
+              'Sets In-Reply-To/References so the reply threads correctly.',
+          ),
+        references: referencesField
+          .optional()
+          .describe(
+            'The References header of the message being replied to (from get_message headers["References"]). ' +
+              'Optional — prepended to the reply\'s References chain so a deep reply keeps full thread ancestry.',
+          ),
       }),
-      request: (i) => ({ method: 'POST', path: `${GMAIL}/drafts`, body: { message: { raw: encodeEmail(i) } } }),
+      request: (i) => ({
+        method: 'POST',
+        path: `${GMAIL}/drafts`,
+        body: { message: { raw: encodeEmail(i), ...(i.threadId ? { threadId: i.threadId } : {}) } },
+      }),
       output: (raw) => {
         const r = raw as { id?: string; message?: RawMessage };
-        return { draftId: r.id, messageId: r.message?.id };
+        return { draftId: r.id, messageId: r.message?.id, threadId: r.message?.threadId };
       },
     }),
 
     httpAction({
       id: 'gmail.send_email',
-      description: 'Send an email from the connected account.',
+      description:
+        'Send an email from the connected account. To reply within an existing thread, pass threadId ' +
+        'AND inReplyTo (from get_message on the message being replied to). For a deep reply, also pass ' +
+        'references (its headers["References"]) to preserve the full thread ancestry.',
       mutating: true,
       risk: 'high',
       scopes: [GOOGLE_SCOPES.gmailSend],
@@ -188,8 +247,25 @@ export const gmail = defineToolkit({
         body: z.string(),
         cc: recipientField.optional(),
         bcc: recipientField.optional(),
+        threadId: z
+          .string()
+          .optional()
+          .describe('Gmail thread id to send this reply into, so it nests in that conversation. Pair with inReplyTo.'),
+        inReplyTo: inReplyToField
+          .optional()
+          .describe('RFC Message-ID header of the message being replied to; sets In-Reply-To/References.'),
+        references: referencesField
+          .optional()
+          .describe(
+            'The References header of the message being replied to (from get_message headers["References"]). ' +
+              'Optional — prepended to the reply\'s References chain so a deep reply keeps full thread ancestry.',
+          ),
       }),
-      request: (i) => ({ method: 'POST', path: `${GMAIL}/messages/send`, body: { raw: encodeEmail(i) } }),
+      request: (i) => ({
+        method: 'POST',
+        path: `${GMAIL}/messages/send`,
+        body: { raw: encodeEmail(i), ...(i.threadId ? { threadId: i.threadId } : {}) },
+      }),
       output: (raw) => {
         const m = raw as RawMessage;
         return { id: m.id, threadId: m.threadId };
