@@ -293,5 +293,57 @@ export const gmail = defineToolkit({
         return { id: m.id, labelIds: m.labelIds ?? [] };
       },
     }),
+
+    httpAction({
+      id: 'gmail.list_drafts',
+      description:
+        'List draft ids, each with its message id and thread id. Use it to find a draft to delete — ' +
+        'delete_draft needs the draftId, which search_messages does not return. Optional `query` filters ' +
+        'with Gmail search syntax.',
+      scopes: [GOOGLE_SCOPES.gmailCompose],
+      input: z.object({
+        maxResults: z.number().int().positive().max(100).default(20),
+        query: z.string().optional().describe('Gmail search query to filter drafts (e.g. "to:alice@example.com").'),
+        pageToken: z.string().optional(),
+      }),
+      request: (i) => ({
+        method: 'GET',
+        path: `${GMAIL}/drafts`,
+        query: {
+          maxResults: i.maxResults,
+          ...(i.query ? { q: i.query } : {}),
+          ...(i.pageToken ? { pageToken: i.pageToken } : {}),
+        },
+      }),
+      output: (raw) => {
+        const r = raw as {
+          drafts?: Array<{ id?: string; message?: RawMessage }>;
+          nextPageToken?: string;
+          resultSizeEstimate?: number;
+        };
+        return {
+          drafts: (r.drafts ?? []).map((d) => ({
+            draftId: d.id,
+            messageId: d.message?.id,
+            threadId: d.message?.threadId,
+          })),
+          ...(r.nextPageToken ? { nextPageToken: r.nextPageToken } : {}),
+          estimate: r.resultSizeEstimate ?? 0,
+        };
+      },
+    }),
+
+    httpAction({
+      id: 'gmail.delete_draft',
+      description: 'Permanently delete a draft by its draftId (from list_drafts). Only affects the draft, never sent mail.',
+      mutating: true,
+      risk: 'medium',
+      scopes: [GOOGLE_SCOPES.gmailCompose],
+      input: z.object({
+        draftId: z.string(),
+      }),
+      request: (i) => ({ method: 'DELETE', path: `${GMAIL}/drafts/${encodeURIComponent(i.draftId)}` }),
+      output: () => ({ ok: true }),
+    }),
   ],
 });

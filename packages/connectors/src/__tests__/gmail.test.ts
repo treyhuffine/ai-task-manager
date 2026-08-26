@@ -270,3 +270,36 @@ describe('gmail reply threading (create_draft / send_email)', () => {
     expect(raw).toContain('In-Reply-To: <third@mail.gmail.com>');
   });
 });
+
+describe('gmail drafts list + delete', () => {
+  it('list_drafts maps draft/message/thread ids and forwards an optional query', async () => {
+    const h = makeHarness();
+    await h.connect();
+    let sawUrl = '';
+    h.env.action = (call) => {
+      sawUrl = call.url;
+      return { json: { drafts: [{ id: 'd1', message: { id: 'm1', threadId: 't1' } }], resultSizeEstimate: 1 } };
+    };
+    const out = await h.runtime.runAction('gmail.list_drafts', { maxResults: 10, query: 'to:alice@example.com' });
+    expect(out.ok).toBe(true);
+    const r = (out as { result: { drafts: Array<{ draftId?: string; messageId?: string; threadId?: string }> } }).result;
+    expect(r.drafts).toEqual([{ draftId: 'd1', messageId: 'm1', threadId: 't1' }]);
+    expect(sawUrl).toContain('maxResults=10');
+    expect(sawUrl).toContain('alice');
+  });
+
+  it('delete_draft issues a DELETE against the draft id', async () => {
+    const h = makeHarness();
+    await h.connect();
+    h.setApproval(() => 'allow');
+    let seen: { method: string; url: string } | undefined;
+    h.env.action = (call) => {
+      seen = { method: call.method, url: call.url };
+      return { status: 200, json: {} };
+    };
+    const out = await h.runtime.runAction('gmail.delete_draft', { draftId: 'r-123' });
+    expect(out.ok).toBe(true);
+    expect(seen?.method).toBe('DELETE');
+    expect(seen?.url).toContain('/drafts/r-123');
+  });
+});
