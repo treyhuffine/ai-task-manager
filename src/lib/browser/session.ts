@@ -237,6 +237,10 @@ async function launch(opts: OpenOptions): Promise<string> {
     '--remote-allow-origins=*', // required for the CDP websocket handshake on recent Chromium
     '--no-first-run',
     '--no-default-browser-check',
+    // Suppress navigator.webdriver. Without this, remote-debugging makes Chromium
+    // report webdriver=true, which Cloudflare/Medium bot detection blocks on. A real
+    // user's browser reports false; this makes ours match so logged-in reads go through.
+    '--disable-blink-features=AutomationControlled',
   ];
   if (opts.headless) args.push('--headless=new');
 
