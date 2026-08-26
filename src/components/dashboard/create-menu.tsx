@@ -63,7 +63,16 @@ export function CreateMenu() {
             <Plus size={14} /> CREATE
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" sideOffset={8} className="w-[240px] p-1.5">
+        <PopoverContent
+          align="end"
+          sideOffset={8}
+          className="w-[240px] p-1.5"
+          // Each item here navigates into a new surface (task/note slideout,
+          // area modal, quick capture) that focuses its own field. Don't let the
+          // popover snap focus back to the CREATE trigger as it closes, or it
+          // steals the caret from the freshly opened new task's title.
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
           {/* Quick Capture — hero action, spans full width */}
           <button
             onClick={handleQuickCapture}

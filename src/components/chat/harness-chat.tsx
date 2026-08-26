@@ -98,11 +98,16 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
 export function HarnessChatSession({
   sessionId,
   isMobile = false,
+  autoFocusComposer = true,
   onSwitchProvider,
   switchingProvider,
 }: {
   sessionId: string;
   isMobile?: boolean;
+  /** Auto-focus the composer on mount. Defaults to true (executions). The
+   *  slideout document-chat passes false so the composer doesn't steal focus
+   *  from the task/note title. */
+  autoFocusComposer?: boolean;
   /** Optional: enables the composer's provider switcher (starts a fresh chat
    *  on the chosen provider). The host owns what "new chat" means. */
   onSwitchProvider?: (next: {
@@ -183,6 +188,7 @@ export function HarnessChatSession({
         <ExecutionComposer
           ref={composerHandleRef}
           sessionId={session.id}
+          autoFocus={autoFocusComposer}
           permissionMode={session.permissionMode}
           model={session.model}
           modelVariant={session.modelVariant}

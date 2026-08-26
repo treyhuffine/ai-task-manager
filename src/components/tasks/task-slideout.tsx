@@ -124,27 +124,34 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
 
   // Auto-size title textarea when task loads, focus title if new
   useEffect(() => {
-    if (task && titleRef.current) {
-      const isNew = !task.title?.trim() && !task.body;
-      titleRef.current.value = isNew ? '' : task.title;
-      titleRef.current.style.height = 'auto';
-      titleRef.current.style.height = titleRef.current.scrollHeight + 'px';
-
-      if (isNew) {
-        titleRef.current.focus();
-      }
-    }
+    const el = titleRef.current;
+    if (!task || !el) return;
+    const isNew = !task.title?.trim() && !task.body;
+    el.value = isNew ? '' : task.title;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+    if (!isNew) return;
+    // Focus on the next frame rather than synchronously. A new task is opened by
+    // the create menu, whose popover returns focus to its trigger as it closes,
+    // and (now that useCreateTask seeds the detail cache) this effect runs in the
+    // same commit the dialog opens instead of a round-trip later. Deferring one
+    // frame puts our focus after that focus-return so the title reliably wins.
+    const raf = requestAnimationFrame(() => el.focus());
+    return () => cancelAnimationFrame(raf);
   }, [task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync title when it changes externally (e.g. AI tool update)
+  // Sync title when it changes externally (e.g. AI tool update). Ignore
+  // whitespace-only differences: a new task is seeded with a single space to
+  // satisfy the create API's non-empty guard, and writing that space back would
+  // suppress the "Task title" placeholder and fight the new-task focus above.
   useEffect(() => {
-    if (task && titleRef.current && document.activeElement !== titleRef.current) {
-      if (titleRef.current.value !== task.title) {
-        titleRef.current.value = task.title;
-        titleRef.current.style.height = 'auto';
-        titleRef.current.style.height = titleRef.current.scrollHeight + 'px';
-      }
-    }
+    const el = titleRef.current;
+    if (!task || !el || document.activeElement === el) return;
+    const incoming = task.title ?? '';
+    if (el.value.trim() === incoming.trim()) return;
+    el.value = incoming;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
   }, [task?.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveField = useCallback(
@@ -296,6 +303,11 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   }, [isOpen, taskId, router]);
 
   const isDone = task?.status === 'done';
+  // A brand-new task is seeded with a blank/whitespace title and no body. Render
+  // its title field empty so the "Task title" placeholder shows on the first
+  // paint, rather than briefly painting the seeded space before the effect above
+  // clears it.
+  const isNewTask = !!task && !task.title?.trim() && !task.body;
 
   const formatDate = (iso: string | null | undefined) => {
     const days = calendarDaysUntil(iso);
@@ -330,7 +342,15 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
             isVisible ? 'translate-x-0' : 'translate-x-full',
           )}
           style={{ width: `min(${width}px, 100vw)` }}
-          onOpenAutoFocus={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => {
+            // Take over Radix's open-focus. For a brand-new task, put the caret
+            // in the title so the user can type immediately; focusing here (as
+            // part of Radix's own focus sequence) beats the focus-scope's
+            // container fallback that otherwise wins the race. For an existing
+            // task we intentionally focus nothing — the document is for reading.
+            e.preventDefault();
+            if (isNewTask) titleRef.current?.focus();
+          }}
           onInteractOutside={(e) => {
             if (isResizing) e.preventDefault();
           }}
@@ -472,7 +492,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                           isDone && 'line-through text-muted-foreground',
                         )}
                         placeholder="Task title"
-                        defaultValue={task.title}
+                        defaultValue={isNewTask ? '' : task.title}
                         onInput={handleTitleInput}
                         onKeyDown={handleTitleKeyDown}
                         disabled={aiBusy}

@@ -124,6 +124,13 @@ interface ExecutionComposerProps {
   /** A turn is currently in flight — flips Send to Stop. */
   isRunning?: boolean;
   /**
+   * Auto-focus the composer when it mounts / the session changes. Defaults to
+   * true — the executions "click a run, start typing" flow. The slideout
+   * document-chat passes false so the composer never steals the caret from the
+   * task/note title (which owns focus when a brand-new entity is opened).
+   */
+  autoFocus?: boolean;
+  /**
    * Send the message. `opts.viaVoice` is true when the text came from a
    * voice transcript (auto-send path) — the parent uses this to mark
    * the resulting event id as voice-sent so the transcript can render
@@ -180,6 +187,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       helperText,
       submitOnEnter = true,
       isRunning,
+      autoFocus = true,
       onSend,
       onStop,
       onSwitchProvider,
@@ -252,10 +260,10 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // Tiptap a microtask so the contenteditable is mounted and ready
     // before we call `focus()`.
     useEffect(() => {
-      if (!sessionId || disabled) return;
+      if (!sessionId || disabled || !autoFocus) return;
       const t = setTimeout(() => editorRef.current?.focus(), 0);
       return () => clearTimeout(t);
-    }, [sessionId, disabled]);
+    }, [sessionId, disabled, autoFocus]);
 
     const sessionMeta = useSessionMeta(sessionId);
     const slashCommandsQuery = useSlashCommands(sessionId);

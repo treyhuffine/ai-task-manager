@@ -288,6 +288,9 @@ function ChatBody({
       <HarnessChatSession
         sessionId={chat.sessionId}
         isMobile={isMobile}
+        // Opening a task/note should land the caret in the document title/body,
+        // not the AI composer. Don't autofocus the composer in this surface.
+        autoFocusComposer={false}
         onSwitchProvider={(next) => chat.newChat.mutate({
           providerId: next.harness,
           model: next.model,
