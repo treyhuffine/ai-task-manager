@@ -29,6 +29,12 @@ export interface CondensedEvent {
   /** One-line summary of the tool input (truncated JSON). */
   input?: string;
   isError?: boolean;
+  /**
+   * Present when a nested actor (a subagent) produced this row rather than
+   * the session itself. The value is the `tool_use` id of the launching call,
+   * so an agent can group a fan-out back together.
+   */
+  nestedUnder?: string;
 }
 
 /** Sources that carry no signal for an overseeing agent. */
@@ -39,6 +45,10 @@ export function condenseEvents(events: ChatEventRecord[]): CondensedEvent[] {
   for (const e of events) {
     if (DROP_SOURCES.has(e.source)) continue;
     const row: CondensedEvent = { at: e.createdAt, kind: e.source };
+    // Mark nested work so an overseeing agent doesn't read a subagent's
+    // narration as the session's own answer. Reading a session mid-fan-out
+    // otherwise returns dozens of rows that look identical to the reply.
+    if (e.externalParentToolCallId) row.nestedUnder = e.externalParentToolCallId;
     if (e.toolName) row.tool = e.toolName;
     if (e.toolInput && Object.keys(e.toolInput).length > 0) {
       try {

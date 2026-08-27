@@ -1,4 +1,5 @@
 import type { ChatEventRecord } from '@/db/types';
+import { isSubagentEvent } from '@/lib/executions/subagent';
 
 /**
  * Synthetic assistant text Claude Code injects to keep its own
@@ -75,6 +76,12 @@ export function pickConversationMessages(
       continue;
     }
     if (e.source !== 'agent') continue;
+    // A subagent narrating to its own caller is not this session replying to
+    // the user. Claude Code streams those onto the parent tagged with the
+    // launching tool_use id; untagged, the last one to speak would win the
+    // "final agent message" slot below and become the session's visible
+    // answer. See `isSubagentEvent`.
+    if (isSubagentEvent(e)) continue;
     if (e.content === NO_RESPONSE_REQUESTED) continue;
     if (!conversationText(e)) continue;
     // Later agent text in the same turn replaces the earlier narration.

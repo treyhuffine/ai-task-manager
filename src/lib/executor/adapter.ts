@@ -187,6 +187,16 @@ interface ExecutorState {
   /** Active provider-neutral background task ids, grouped by chat session. */
   backgroundTasks: Map<string, Set<string>>;
   /**
+   * Chat sessions whose provider reports a turn currently open.
+   *
+   * Distinct from `inflightCount`, which only counts turns *we* dispatched.
+   * Claude Code starts turns on its own after a background task finishes, and
+   * those are invisible to the counter — the session read finished while the
+   * agent was still working. Fed by `turn_start`/`turn_end` (agentex 0.0.37+);
+   * providers that emit neither never appear here and are unaffected.
+   */
+  openStreamTurns: Set<string>;
+  /**
    * Skill command inventory reported by the provider's session at boot
    * (via `system/init` for Claude — see `commandInventoryFromEvent`).
    * Keyed by our chat session id. Populated once per session lifetime,
@@ -208,6 +218,7 @@ if (!globalRef[STATE_KEY]) {
     dispatchGenerations: new Map(),
     nextDispatchGeneration: 0,
     backgroundTasks: new Map(),
+    openStreamTurns: new Set(),
     sessionInventories: new Map(),
   };
 } else {
@@ -230,11 +241,15 @@ if (!globalRef[STATE_KEY]) {
   if (!globalRef[STATE_KEY].backgroundTasks) {
     globalRef[STATE_KEY].backgroundTasks = new Map();
   }
+  if (!globalRef[STATE_KEY].openStreamTurns) {
+    globalRef[STATE_KEY].openStreamTurns = new Set();
+  }
 }
 
 const {
   agentSessions,
   runningSessions,
+  openStreamTurns,
   inflightCount,
   activeDispatchCount,
   dispatchGenerations,
@@ -255,6 +270,41 @@ function setRunning(chatSessionId: string, running: boolean): void {
   if (wasRunning !== running) {
     publishRuntime(chatSessionId, running);
   }
+}
+
+/**
+ * Recompute "is this session working" from both signals and publish the union.
+ *
+ * Our own dispatch count cannot see the whole picture: Claude Code ends the
+ * root turn when it launches a background task, then opens a *new* turn by
+ * itself once that task finishes. `send()` has long since resolved, so a
+ * dispatch-counted session reads finished while the agent is visibly editing
+ * files — measured at eleven minutes on a real session.
+ *
+ * agentex 0.0.37 reports those turns as `turn_start`/`turn_end`. Taking the
+ * union rather than replacing the counter keeps providers that emit no turn
+ * events (Codex, OpenCode) working exactly as before: they only ever
+ * contribute the dispatch side.
+ */
+function refreshRunning(chatSessionId: string): void {
+  const dispatching = (inflightCount.get(chatSessionId) ?? 0) > 0;
+  setRunning(chatSessionId, dispatching || openStreamTurns.has(chatSessionId));
+}
+
+/**
+ * Sessions the provider says have a turn open right now.
+ *
+ * Every `turn_start` is closed by exactly one `turn_end` — including the
+ * paths that produce no `result` (a message the CLI cancels, discards, or
+ * refuses) and session teardown — so this cannot leak a permanently-working
+ * session the way a `result`-only close would.
+ */
+function trackTurnBoundary(chatSessionId: string, event: StreamEvent): void {
+  const type = (event as { type?: string }).type;
+  if (type === 'turn_start') openStreamTurns.add(chatSessionId);
+  else if (type === 'turn_end') openStreamTurns.delete(chatSessionId);
+  else return;
+  refreshRunning(chatSessionId);
 }
 
 /**
@@ -293,6 +343,12 @@ export function _recordBackgroundTaskEvent(chatSessionId: string, event: unknown
 function clearBackgroundTasks(chatSessionId: string): void {
   if (!backgroundTasks.delete(chatSessionId)) return;
   publishBackgroundTaskActivity(chatSessionId, false, []);
+}
+
+/** Forget a torn-down session's turn state so it cannot read working forever. */
+function clearStreamTurn(chatSessionId: string): void {
+  if (!openStreamTurns.delete(chatSessionId)) return;
+  refreshRunning(chatSessionId);
 }
 
 /**
@@ -355,6 +411,7 @@ export function _resetExecutorState(): void {
   activeDispatchCount.clear();
   dispatchGenerations.clear();
   backgroundTasks.clear();
+  openStreamTurns.clear();
   sessionInventories.clear();
 }
 
@@ -404,6 +461,7 @@ export function invalidateAgentSession(chatSessionId: string): void {
   agentSessions.delete(chatSessionId);
   sessionInventories.delete(chatSessionId);
   clearBackgroundTasks(chatSessionId);
+  clearStreamTurn(chatSessionId);
 }
 
 /**
@@ -456,7 +514,7 @@ function startInflight(
 ): DispatchLifecycleRef {
   const next = (inflightCount.get(chatSessionId) ?? 0) + 1;
   inflightCount.set(chatSessionId, next);
-  if (next === 1) setRunning(chatSessionId, true);
+  if (next === 1) refreshRunning(chatSessionId);
   return { generation: currentDispatchGeneration(chatSessionId), kind };
 }
 
@@ -466,7 +524,8 @@ function endInflight(chatSessionId: string, ref: DispatchLifecycleRef): void {
   const next = cur - 1;
   if (next <= 0) {
     inflightCount.delete(chatSessionId);
-    setRunning(chatSessionId, false);
+    // Not necessarily idle: a provider-initiated turn may still be open.
+    refreshRunning(chatSessionId);
   } else {
     inflightCount.set(chatSessionId, next);
   }
@@ -756,6 +815,7 @@ export async function close(chatSessionId: string): Promise<void> {
   activeDispatchCount.delete(chatSessionId);
   setRunning(chatSessionId, false);
   clearBackgroundTasks(chatSessionId);
+  clearStreamTurn(chatSessionId);
   clearReferenceFolderInstructions(chatSessionId);
   rejectAllForSession(chatSessionId, 'Session closed');
   if (handle) {
@@ -832,6 +892,7 @@ export async function recycleForModeChange(chatSessionId: string): Promise<void>
   // mode restricts the toolset).
   sessionInventories.delete(chatSessionId);
   clearBackgroundTasks(chatSessionId);
+  clearStreamTurn(chatSessionId);
   // Don't reject pending requests — a mode change shouldn't blow up
   // an in-flight permission prompt the user is about to answer.
   try { await handle.close(); } catch { /* best-effort */ }
@@ -1383,6 +1444,10 @@ export async function persistStreamEvent(
   options: { trackBackgroundTaskRuntime?: boolean } = {},
 ): Promise<void> {
   const safeEvent = redactAgentRuntimeValue(event);
+  // Runtime signal, not transcript content — and it has to be applied even
+  // though the event persists nothing, which is why it runs before the
+  // early return below.
+  trackTurnBoundary(chatSessionId, safeEvent);
   const row = parseStreamEvent(chatSessionId, safeEvent);
   if (!row) return;
   const cumulativeOpenCodePart = safeEvent.providerType === 'opencode'
@@ -1415,6 +1480,43 @@ export async function persistStreamEvent(
  * still has a stable identifier; replay-dedup for those providers falls
  * back to byte-offset cursoring.
  */
+/**
+ * Provider identity fields every row carries, regardless of which branch of
+ * `parseStreamEvent` builds it.
+ *
+ * Factored out because three branches construct their own base object, and a
+ * field added to only one of them means the column's real meaning becomes
+ * "was written by a code path that happened to include it" — the adapter and
+ * a `raw`-derived backfill would then permanently disagree on those rows.
+ */
+function attributionFields(event: StreamEvent): {
+  externalMessageId: string | null;
+  externalParentToolCallId: string | null;
+} {
+  return {
+    // Provider-native message id. Claude emits `msg_01...` per assistant
+    // message; Codex reuses `item_N` per turn, so it is not a unique key —
+    // stored for correlation only, never as an identity.
+    externalMessageId: event.messageId ?? null,
+    // Nested-actor attribution: the tool_use id of the call that produced
+    // this event. See src/lib/executions/subagent.ts for what depends on it.
+    externalParentToolCallId: event.parentToolCallId ?? null,
+  };
+}
+
+/**
+ * Whether this event comes from a stream that distinguishes a task's result
+ * delivery from a bare state change.
+ *
+ * Presence of the field is the signal — a `null` report on a stream that has
+ * the concept means "this record delivered nothing", while its absence means
+ * the provider never says. Read off the event rather than tracked per session
+ * so a single record is enough to decide.
+ */
+function providerReportsDeliveries(event: StreamEvent): boolean {
+  return 'report' in (event as unknown as Record<string, unknown>);
+}
+
 export function parseStreamEvent(
   chatSessionId: string,
   event: StreamEvent,
@@ -1433,6 +1535,7 @@ export function parseStreamEvent(
     externalEventId: externalEventId,
     raw: event as unknown as Record<string, unknown>,
     createdAt,
+    ...attributionFields(event),
     ...(isOpenCodePart ? { sourcePartIndex: event.type === 'tool_result' ? 1 : 0 } : {}),
   };
 
@@ -1441,7 +1544,18 @@ export function parseStreamEvent(
   // child's summary remains discoverable and reaches Needs Review.
   if ((event as { type: string }).type === 'background_task') {
     const backgroundTask = decodeBackgroundTaskEvent(event);
-    const terminal = backgroundTask !== null && !isActiveBackgroundTaskEvent(backgroundTask);
+    // A completion arrives as two records: a state patch and a result
+    // delivery. Both are terminal, so keying visibility on terminality alone
+    // rendered every finished task twice — once with its summary and once
+    // empty. `report` marks the one that actually handed the result back.
+    //
+    // Falls back to terminality for providers and versions that do not report
+    // one (agentex <= 0.0.36, and any provider that emits a single terminal
+    // record), so nothing becomes invisible on an older stream.
+    const delivered = backgroundTask?.report != null;
+    const terminalRecord = backgroundTask !== null && !isActiveBackgroundTaskEvent(backgroundTask);
+    const terminal = delivered
+      || (terminalRecord && !providerReportsDeliveries(event));
     return {
       ...base,
       role: 'system',
@@ -1456,6 +1570,12 @@ export function parseStreamEvent(
   }
 
   switch (event.type) {
+    // Liveness signals. They drive the runtime running flag (see
+    // `trackTurnBoundary`) and carry nothing a reader would want in the
+    // transcript; persisting them would surface an `unknown` row per turn.
+    case 'turn_start':
+    case 'turn_end':
+      return null;
     case 'system':
       return {
         ...base,
@@ -1569,6 +1689,7 @@ export function parseStreamEvent(
         content: fallback.type ?? null,
         raw: event as unknown as Record<string, unknown>,
         createdAt: fallback.timestamp ?? new Date().toISOString(),
+        ...attributionFields(event),
       };
     }
   }
@@ -1628,6 +1749,7 @@ function mapUnknownEvent(
     externalEventId: externalEventId,
     raw: event as unknown as Record<string, unknown>,
     createdAt,
+    ...attributionFields(event),
   };
 
   // Drop Claude's JSONL-only bookkeeping types up front. These never

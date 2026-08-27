@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   ChevronRight, AlertTriangle, RefreshCw, Sparkles,
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
   FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
   ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash,
 } from 'lucide-react';
-import { describeToolCall, describeToolResult, fileTargetPath, type ToolGlyph } from '@/lib/executions/tool-display';
+import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, type ToolGlyph } from '@/lib/executions/tool-display';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { extractPullRequestUrl } from '@/lib/executions/pr-link';
 import { FileChip, DiffLines } from './file-chip';
@@ -67,6 +67,21 @@ interface ExecutionEventProps {
    * own).
    */
   resultByCallId?: Map<string, ChatEventRecord>;
+  /**
+   * Subagent transcripts keyed by the `tool_use` id of the call that
+   * launched them. A subagent-spawning `tool_call` row expands into its
+   * child's events instead of leaving them loose in the parent conversation.
+   * Passed down recursively so a subagent that spawns its own subagent
+   * nests correctly.
+   */
+  subagentEventsByCallId?: Map<string, ChatEventRecord[]>;
+  /**
+   * Tool call ids already open above this row in the nesting stack. Nesting
+   * recurses through provider-supplied ids, so a duplicated id would render a
+   * group inside itself forever and hang the tab. Cheap insurance against
+   * malformed data; empty in the normal case.
+   */
+  nestedAncestorCallIds?: ReadonlySet<string>;
 }
 
 /**
@@ -79,7 +94,7 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / background_task / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
 
@@ -215,6 +230,25 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       const pr =
         extractPullRequestUrl(paired?.content) ??
         extractPullRequestUrl(typeof event.toolInput === 'string' ? event.toolInput : null);
+      // A call that spawns nested work owns that work's whole transcript.
+      // Those events arrive on this session's stream tagged with this call's
+      // id; showing them here is what keeps them out of the parent
+      // conversation. Subagent launches (`Agent`) are the common case, but
+      // `Skill` nests its tool calls the same way — both read better folded
+      // under the thing that caused them.
+      // Refuse to descend into a call already open above us. With well-formed
+      // data this never triggers; with a duplicated tool id it is the
+      // difference between a missing row and a frozen tab.
+      const alreadyOpen = Boolean(
+        event.externalToolCallId && nestedAncestorCallIds?.has(event.externalToolCallId),
+      );
+      const nestedEvents = event.externalToolCallId && !alreadyOpen
+        ? subagentEventsByCallId?.get(event.externalToolCallId)
+        : undefined;
+      const hasNested = Boolean(nestedEvents?.length);
+      // Only badge it as an agent when it really spawned one; a Skill's
+      // nested tool calls are the session's own work, just scoped.
+      const nestedIsSubagent = isSubagentTool(event.toolName);
       return (
         <div className="group/row w-full text-[11px]">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -249,6 +283,12 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             )}
             <div className="ml-auto flex flex-shrink-0 items-center gap-2 pl-1.5">
               {pr && <PrLink url={pr.url} number={pr.number} />}
+              {hasNested && (
+                <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground/55">
+                  {nestedIsSubagent && <Bot size={10} className="flex-shrink-0" />}
+                  <span className="tabular-nums">{nestedStepLabel(nestedEvents!)}</span>
+                </span>
+              )}
               {(resultSummary || pairedError) && (
                 <span className="tabular-nums text-[10.5px] text-muted-foreground/55">
                   {pairedError && !resultSummary ? 'error' : resultSummary}
@@ -264,11 +304,27 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
               {editDiff && editDiff.lines.length > 0 ? (
                 <DiffLines lines={editDiff.lines} className="border-l border-border/40" />
               ) : (
-                event.toolInput != null && (
+                // A subagent launch's input is the prompt the user already
+                // wrote — up to 10.6KB of it in the real corpus. Expanding the
+                // row means "show me what the subagent did", so the prompt
+                // gets its own disclosure rather than burying the transcript.
+                event.toolInput != null && (hasNested ? (
+                  <CollapsedToolInput input={event.toolInput} />
+                ) : (
                   <pre className="text-[10.5px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
                     {typeof event.toolInput === 'string' ? event.toolInput : JSON.stringify(event.toolInput, null, 2)}
                   </pre>
-                )
+                ))
+              )}
+              {hasNested && (
+                <NestedTranscript
+                  events={nestedEvents!}
+                  sessionId={sessionId}
+                  resultByCallId={resultByCallId}
+                  subagentEventsByCallId={subagentEventsByCallId}
+                  ancestorCallIds={nestedAncestorCallIds}
+                  ownCallId={event.externalToolCallId}
+                />
               )}
               {paired && resultText && (
                 <pre className="text-[10.5px] text-muted-foreground whitespace-pre-wrap wrap-anywhere font-mono border-l border-border/40 pl-2">
@@ -814,6 +870,98 @@ function PrLink({ url, number }: { url: string; number: number }) {
       PR #{number}
       <ArrowUpRight size={10} className="text-muted-foreground/70" />
     </a>
+  );
+}
+
+/**
+ * Compact weight for collapsed nested work: how many things it actually did.
+ * Tool results are excluded because in condensed mode they fold onto their
+ * call, so counting both would double every step.
+ */
+function nestedStepLabel(events: ChatEventRecord[]): string {
+  const steps = events.filter((e) => e.source !== 'tool_result').length;
+  return `${steps} ${steps === 1 ? 'step' : 'steps'}`;
+}
+
+/**
+ * The transcript of work nested under a tool call — a subagent's whole
+ * session, or a Skill's scoped tool calls. This is the nested-actor boundary
+ * made visible: everything in here was produced by the child, so it reads as
+ * its work rather than as the session answering the user.
+ *
+ * Mirrors the parent transcript's condensed behavior — when the caller hands
+ * down a `resultByCallId` map (which the transcript only does in condensed
+ * mode), paired `tool_result` rows fold onto their call instead of rendering
+ * standalone. `subagentEventsByCallId` is passed straight through so a
+ * subagent that spawns its own subagent nests the same way.
+ */
+function NestedTranscript({
+  events,
+  sessionId,
+  resultByCallId,
+  subagentEventsByCallId,
+  ancestorCallIds,
+  ownCallId,
+}: {
+  events: ChatEventRecord[];
+  sessionId?: string;
+  resultByCallId?: Map<string, ChatEventRecord>;
+  subagentEventsByCallId?: Map<string, ChatEventRecord[]>;
+  ancestorCallIds?: ReadonlySet<string>;
+  ownCallId: string | null;
+}) {
+  const condensed = Boolean(resultByCallId);
+  const nestedAncestorCallIds = useMemo(
+    () => (ownCallId ? new Set([...(ancestorCallIds ?? []), ownCallId]) : ancestorCallIds),
+    [ancestorCallIds, ownCallId],
+  );
+  const rows = useMemo(() => {
+    if (!condensed) return events;
+    const callIds = new Set<string>();
+    for (const e of events) {
+      if (e.source === 'tool_call' && e.externalToolCallId) callIds.add(e.externalToolCallId);
+    }
+    return events.filter(
+      (e) => !(e.source === 'tool_result' && e.externalToolCallId && callIds.has(e.externalToolCallId)),
+    );
+  }, [events, condensed]);
+
+  return (
+    <div className="flex flex-col gap-2 border-l border-border/40 pl-3">
+      {rows.map((child) => (
+        <ExecutionEvent
+          key={child.id}
+          event={child}
+          sessionId={sessionId}
+          resultByCallId={resultByCallId}
+          subagentEventsByCallId={subagentEventsByCallId}
+          nestedAncestorCallIds={nestedAncestorCallIds}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** The launch prompt, behind its own disclosure so it never buries the run. */
+function CollapsedToolInput({ input }: { input: unknown }) {
+  const [open, setOpen] = useState(false);
+  const text = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[10.5px] text-muted-foreground/55 hover:text-muted-foreground transition-colors"
+      >
+        <ChevronRight size={10} className={cn('transition-transform', open && 'rotate-90')} />
+        Prompt
+      </button>
+      {open && (
+        <pre className="mt-1 text-[10.5px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
+          {text}
+        </pre>
+      )}
+    </div>
   );
 }
 

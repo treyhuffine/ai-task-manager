@@ -50,6 +50,53 @@ describe('describeToolCall', () => {
     expect(isSubagentTool('Bash')).toBe(false);
   });
 
+  it('describes an Agent launch by its description, not its raw prompt', () => {
+    // `Agent` is what current Claude builds emit. Falling through to the
+    // default branch rendered a fragment of the prompt as the target.
+    const d = describeToolCall('Agent', {
+      subagent_type: 'Explore',
+      description: 'Find playbank page implementation',
+      prompt: 'I need to understand the /playbook/playbank page...',
+    });
+    expect(d.glyph).toBe('task');
+    expect(d.verb).toBe('Subagent');
+    expect(d.kind).toBe('subagent');
+    expect(d.target).toBe('Find playbank page implementation');
+  });
+
+  it('falls back to the subagent type when no description is given', () => {
+    const d = describeToolCall('Agent', { subagent_type: 'Explore' });
+    expect(d.target).toBe('Explore');
+  });
+
+  it("labels a Codex spawn_agent by task name, since its message is encrypted", () => {
+    const d = describeToolCall('spawn_agent', {
+      task_name: 'git_history',
+      message: 'gAAAAABqX8eKimif7x6en6knzV7tLfE2fv8lly...',
+    });
+    expect(d.verb).toBe('Subagent');
+    expect(d.target).toBe('git_history');
+  });
+
+  it('recognizes the subagent tool names providers actually emit', () => {
+    // `Task` is the historical Claude name; current builds emit `Agent`, and
+    // every subagent launch in the corpus uses it. Codex spawns via
+    // `spawn_agent`. Missing these meant no launch was ever counted as a
+    // subagent, and nothing anchored a subagent's nested transcript.
+    expect(isSubagentTool('Agent')).toBe(true);
+    expect(isSubagentTool('spawn_agent')).toBe(true);
+  });
+
+  it('excludes tools that only query existing children', () => {
+    // `wait_agent`/`list_agents` reference a child rather than creating one.
+    // Counting them would inflate the subagent tally and give two rows a
+    // claim on the same child's events.
+    expect(isSubagentTool('wait_agent')).toBe(false);
+    expect(isSubagentTool('list_agents')).toBe(false);
+    expect(isSubagentTool(null)).toBe(false);
+    expect(isSubagentTool(undefined)).toBe(false);
+  });
+
   it('handles unknown tools without throwing', () => {
     const d = describeToolCall('SomethingNew', {});
     expect(d.verb).toBe('SomethingNew');

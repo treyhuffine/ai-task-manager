@@ -216,8 +216,18 @@ export function describeToolCall(toolName: string | null | undefined, input: unk
       return { glyph: 'plan', verb: 'Update plan', target: currentPlanStep(input), kind: 'plan' };
     case 'TodoWrite':
       return { glyph: 'todo', verb: 'Update todos', kind: 'plan' };
+    // `Task` is Claude Code's historical subagent tool; current builds emit
+    // `Agent` with the same input shape. Without the second name every real
+    // subagent launch fell through to the default branch below and rendered
+    // as a monospace "Agent" row with a fragment of the raw prompt as its
+    // target — the opposite of the one row that should be legible.
     case 'Task':
+    case 'Agent':
       return { glyph: 'task', verb: 'Subagent', target: str(o.description) ?? str(o.subagent_type), kind: 'subagent' };
+    // Codex's equivalent. `message` is an encrypted blob, so the task name is
+    // the only human-readable handle it gives us.
+    case 'spawn_agent':
+      return { glyph: 'task', verb: 'Subagent', target: str(o.task_name), kind: 'subagent' };
     case 'AskUserQuestion':
       return { glyph: 'question', verb: 'Ask', kind: 'other' };
 
@@ -252,9 +262,19 @@ export function fileTargetPath(toolName: string | null | undefined, input: unkno
   }
 }
 
-/** True for tools that spawn a subagent — used for the grouped-turn count. */
+/**
+ * True for tools that *spawn* a subagent — used for the grouped-turn count
+ * and to anchor a subagent's nested transcript.
+ *
+ * `Task` is Claude Code's historical name; current builds emit `Agent`, and
+ * every subagent launch in the corpus uses the latter. Codex spawns children
+ * via `spawn_agent`. Deliberately excludes `wait_agent` and `list_agents` —
+ * those query existing children rather than creating one, so counting them
+ * would inflate the subagent tally and give two rows a claim on the same
+ * child's events.
+ */
 export function isSubagentTool(toolName: string | null | undefined): boolean {
-  return toolName === 'Task';
+  return toolName === 'Task' || toolName === 'Agent' || toolName === 'spawn_agent';
 }
 
 /** PTY plumbing rows (Codex) — high-volume, low-signal; folded + uncounted. */

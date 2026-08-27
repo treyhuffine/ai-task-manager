@@ -39,6 +39,7 @@
     "unarchive:imports": "tsx scripts/unarchive-imports.ts",
     "fix:task-dates": "tsx scripts/normalize-task-dates.ts",
     "migrate:layout": "tsx scripts/migrate-layout.ts",
+    "backfill:subagents": "tsx scripts/backfill-subagent-attribution.ts",
     "dev:reset": "tsx scripts/seed-dev/reset.ts",
     "dev:seed": "tsx scripts/seed-dev/seed.ts",
     "dev:reseed": "tsx scripts/seed-dev/reseed.ts",
@@ -54,7 +55,7 @@
     "skills"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.36",
+    "@agentex/agent": "^0.0.37",
     "@agentex/github": "^0.0.1",
     "@agentex/workspace": "^0.0.4",
     "@ai-sdk/anthropic": "^3.0.63",

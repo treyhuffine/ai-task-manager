@@ -1,5 +1,6 @@
 import type { ChatEventRecord } from '@/db/types';
 import { isSubagentTool, isPlumbingTool, fileTargetPath } from '@/lib/executions/tool-display';
+import { isSubagentEvent, isSubagentLaunch, collectNestedEvents } from '@/lib/executions/subagent';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { formatSpanSeconds } from '@/lib/executions/duration';
 import type { TranscriptDensity } from '@/lib/client/transcript-density';
@@ -43,10 +44,31 @@ export type TranscriptNode =
     }
   | { kind: 'files'; id: string; files: TurnFileEdit[] };
 
-/** Aggregate the files written/edited in a turn (reads excluded), by path. */
-function aggregateTurnFiles(turn: ChatEventRecord[]): TurnFileEdit[] {
+/**
+ * Aggregate the files written/edited in a turn (reads excluded), by path.
+ *
+ * Includes files written by the turn's subagents. The footer's contract is
+ * "what changed on disk this turn", and a child process doing the writing
+ * does not make the file not-changed. Measured on one real session, counting
+ * only top-level rows dropped 152 of 272 edited paths — and a turn whose
+ * subagent did all the writing rendered no footer at all.
+ */
+function aggregateTurnFiles(
+  turn: ChatEventRecord[],
+  nested?: ReadonlyMap<string, ChatEventRecord[]>,
+): TurnFileEdit[] {
   const byPath = new Map<string, TurnFileEdit>();
-  for (const e of turn) {
+  const scope = nested
+    ? [
+        ...turn,
+        ...turn.flatMap((e) =>
+          isSubagentLaunch(e) && e.externalToolCallId
+            ? collectNestedEvents(e.externalToolCallId, nested)
+            : [],
+        ),
+      ]
+    : turn;
+  for (const e of scope) {
     if (e.source !== 'tool_call') continue;
     const path = fileTargetPath(e.toolName, e.toolInput);
     if (!path) continue;
@@ -111,7 +133,16 @@ export function summarizeCounts(c: GroupCounts): string {
  */
 export function buildTranscriptNodes(
   events: ChatEventRecord[],
-  opts: { isRunning: boolean; density: TranscriptDensity },
+  opts: {
+    isRunning: boolean;
+    density: TranscriptDensity;
+    /**
+     * Subagent transcripts keyed by launching tool call. Only used for
+     * turn-level aggregates — the nested events themselves render inside
+     * their launch row, not here.
+     */
+    nestedByParentCallId?: ReadonlyMap<string, ChatEventRecord[]>;
+  },
 ): TranscriptNode[] {
   if (opts.density === 'full') {
     return events.map((event) => ({ kind: 'event', event }));
@@ -139,23 +170,32 @@ export function buildTranscriptNodes(
       continue;
     }
 
-    appendCollapsedTurn(nodes, turn);
+    appendCollapsedTurn(nodes, turn, opts.nestedByParentCallId);
     i = j;
   }
   return nodes;
 }
 
-function appendCollapsedTurn(nodes: TranscriptNode[], turn: ChatEventRecord[]): void {
+function appendCollapsedTurn(
+  nodes: TranscriptNode[],
+  turn: ChatEventRecord[],
+  nested?: ReadonlyMap<string, ChatEventRecord[]>,
+): void {
   // Files written/edited this turn — rendered as a footer after the reply.
-  const files = aggregateTurnFiles(turn);
+  const files = aggregateTurnFiles(turn, nested);
   const appendFilesFooter = () => {
     if (files.length) nodes.push({ kind: 'files', id: `files:${turn[0]?.id ?? ''}`, files });
   };
 
-  // The final assistant text message stays visible below the group.
+  // The final assistant text message stays visible below the group. A
+  // subagent's narration is never eligible: it is a nested actor talking to
+  // its caller, so promoting it would make the session's visible answer churn
+  // through every child's commentary. Normally those events have already been
+  // routed into their launch row, but an un-anchored one (launch row on a
+  // page not loaded yet) can still reach here — hence the guard.
   let finalAgentIdx = -1;
   for (let k = turn.length - 1; k >= 0; k--) {
-    if (turn[k].source === 'agent') {
+    if (turn[k].source === 'agent' && !isSubagentEvent(turn[k])) {
       finalAgentIdx = k;
       break;
     }

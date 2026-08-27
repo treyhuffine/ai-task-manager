@@ -57,6 +57,7 @@ import type { HarnessId } from '@/lib/agents/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
+import { isSubagentTool } from '@/lib/executions/tool-display';
 import {
   activityReasonForEventSource,
   isActivity,
@@ -4483,10 +4484,68 @@ export function searchChatSessions(opts: {
 // ─── Chat Events ──────────────────────────────────────────────
 
 /**
- * Single chokepoint for `chat_events` inserts. Every write path —
- * executor live stream, JSONL reconcile, user-message POST, inject
- * dev route, MCP/orchestrator handlers — goes through here so the
- * realtime broadcast and outcome-timestamp bump are guaranteed.
+ * Whether a row should bump `last_outcome_event_at` — i.e. whether it is
+ * output *the user* is waiting on.
+ *
+ * `OUTCOME_SOURCES` answers "is this kind of event an outcome". This adds the
+ * second half: *whose* outcome. Claude Code streams a subagent's own text and
+ * tool calls onto the parent session tagged with the launching tool_use id,
+ * and those are a nested actor talking to its caller, not the session
+ * answering the user. Counting them meant a fan-out of four research
+ * subagents re-marked the session unread on every line they narrated — a
+ * session the user had just read would flip back to unread seconds later,
+ * repeatedly, for as long as the subagents ran.
+ *
+ * The gate is on the *parent tool*, not on merely having a parent. Claude
+ * tags anything nested under any tool call, and in the real corpus a third of
+ * tagged rows hang off `Bash`, `Skill`, or `TaskOutput`. A Skill runs as the
+ * session — if one ever emits assistant text, or a background task completes
+ * inside one, that is the session's output and must still reach the user. For
+ * a detached background task the terminal summary is the *only* signal there
+ * is, so swallowing it would lose the result outright.
+ *
+ * Activity is deliberately *not* gated this way: subagent progress is real
+ * work and should still float the session in sort order. Only the "needs your
+ * attention" signal is scoped to the top-level actor.
+ */
+function isOutcomeEvent(input: CreateChatEventInput): boolean {
+  if (!OUTCOME_SOURCES.has(input.source as ChatEventSource)) return false;
+  const parentCallId = input.externalParentToolCallId;
+  if (!parentCallId) return true;
+  return !isSubagentLaunchCall(input.sessionId, parentCallId);
+}
+
+/**
+ * Whether `callId` names a subagent-spawning tool call in this session.
+ *
+ * One indexed lookup, and only for rows that are both an outcome source and
+ * nested — a few per fan-out, not per event.
+ */
+function isSubagentLaunchCall(sessionId: string, callId: string): boolean {
+  const row = getDb()
+    .select({ toolName: chatEvents.toolName })
+    .from(chatEvents)
+    .where(
+      and(
+        eq(chatEvents.sessionId, sessionId),
+        eq(chatEvents.externalToolCallId, callId),
+        eq(chatEvents.source, 'tool_call'),
+      ),
+    )
+    .get();
+  return isSubagentTool(row?.toolName ?? null);
+}
+
+/**
+ * Chokepoint for `chat_events` inserts. The executor live stream, JSONL
+ * reconcile, user-message POST, inject dev route, and MCP/orchestrator
+ * handlers all go through here so the realtime broadcast and outcome-timestamp
+ * bump are guaranteed.
+ *
+ * One deliberate exception: the external-agent importer bulk-inserts through
+ * Drizzle directly (`src/lib/import/external-agents.ts`) and sets
+ * `lastOutcomeEventAt` itself. Anything that changes the outcome rules here
+ * has to be mirrored there.
  *
  * Idempotent for CLI-backed events: replays of the same wire event
  * produce the same `externalEventId`, and the partial unique index
@@ -4524,7 +4583,7 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
   const row = hydrateRow(rows[0]!);
 
   const at = input.createdAt ?? new Date().toISOString();
-  if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
+  if (isOutcomeEvent(input)) {
     bumpSessionOutcome(input.sessionId, at);
   }
   // Separate from the outcome bump on purpose: outcome drives "unread" and
@@ -4568,7 +4627,7 @@ export function replaceChatEventPart(input: CreateChatEventInput): ChatEventReco
 
   const hydrated = hydrateRow(row);
   const at = input.createdAt ?? new Date().toISOString();
-  if (OUTCOME_SOURCES.has(input.source as ChatEventSource)) {
+  if (isOutcomeEvent(input)) {
     bumpSessionOutcome(input.sessionId, at);
   }
   touchSessionActivity(input.sessionId, activityReasonForEventSource(input.source), { at });

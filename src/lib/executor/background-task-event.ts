@@ -39,6 +39,28 @@ export interface DecodedBackgroundTaskEvent {
   providerType: string | null;
   /** Claude launch tool id, available on legacy events and normalized raw. */
   toolUseId: string | null;
+  /**
+   * Set only on the record that actually hands the task's result back.
+   *
+   * A single completion arrives as two wire records — a state patch and a
+   * result delivery — and before agentex 0.0.37 they normalized to the same
+   * shape, so both rendered. This is what distinguishes them: the delivery
+   * carries the summary and the launching tool call, the patch carries
+   * neither. Null on every non-delivering record, including a task that was
+   * stopped or killed (cut short, nothing handed back).
+   *
+   * Absent on events from agentex <= 0.0.36, which is why the transcript falls
+   * back to terminality when no record in a session ever reports one.
+   */
+  report: {
+    summary: string | null;
+    outputFile: string | null;
+    usage: {
+      totalTokens: number | null;
+      toolUses: number | null;
+      durationMs: number | null;
+    } | null;
+  } | null;
   usage: {
     totalTokens: number | null;
     toolUses: number | null;
@@ -52,6 +74,17 @@ export const TERMINAL_BACKGROUND_TASK_STATUSES: ReadonlySet<BackgroundTaskStatus
   'stopped',
   'killed',
 ]);
+
+/** Normalize agentex's `report`, absent on events from <= 0.0.36. */
+function reportFrom(value: unknown): DecodedBackgroundTaskEvent['report'] {
+  const r = asRecord(value);
+  if (!r) return null;
+  return {
+    summary: str(r.summary),
+    outputFile: str(r.outputFile),
+    usage: usageFrom(asRecord(r.usage) ? { usage: r.usage } : null),
+  };
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -114,6 +147,7 @@ export function decodeBackgroundTaskEvent(value: unknown): DecodedBackgroundTask
       parentTaskId: str(event.parentTaskId),
       providerType: str(event.providerType),
       toolUseId: str(event.toolUseId) ?? str(raw?.tool_use_id),
+      report: reportFrom(event.report),
       usage: usageFrom(raw),
     };
   }
@@ -144,6 +178,8 @@ export function decodeBackgroundTaskEvent(value: unknown): DecodedBackgroundTask
     summary: str(raw.summary),
     parentTaskId: str(raw.parent_task_id),
     providerType: 'claude',
+    // agentex <= 0.0.32 had no delivery/patch distinction on the wire.
+    report: null,
     toolUseId: str(raw.tool_use_id),
     usage: usageFrom(raw),
   };
