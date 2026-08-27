@@ -42,6 +42,8 @@ When you mention a specific task, note, area, or deck in your response, use the 
 
 For example, after creating a task, say: "Created [[task:019d2769-abc...]]" and the UI will render it as a clickable card. After regenerating a deck, always include [[deck:DECK_ID]] so the user can click to view it. Always use this syntax when referencing entities you just created, looked up, or are discussing by ID.
 
+The same [[task:UUID]] / [[note:UUID]] markers also create persistent links when written inside a note or task **body** (via create/update): they render as live chips in the editor, show up as backlinks on the linked entity, and export as Obsidian wikilinks. Use them in a body to durably reference another task or note. To see what links to an entity, look up its backlinks (list_backlinks in the orchestrator, listBacklinks as a chat tool).
+
 **CRITICAL formatting rules for entity references:**
 - Write them as plain text: [[task:UUID]], NOT in backticks, NOT in code blocks, NOT in any markdown formatting
 - Each reference must be on its own line at the top level of your response

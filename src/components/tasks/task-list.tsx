@@ -87,6 +87,11 @@ export function TaskList() {
   const { data: tasks, isLoading, error } = useTasks(filter);
   const { data: areas } = useAreas();
   const updateTask = useUpdateTask();
+
+  const areaLabel =
+    areaFilter === 'all'
+      ? 'All Areas'
+      : areas?.find((a) => a.id === areaFilter)?.name ?? 'All Areas';
   const completeTask = useCompleteTask();
   const queryKey = ['tasks', filter];
 
@@ -265,8 +270,9 @@ export function TaskList() {
         {/* Filter dropdown — Area on desktop, Status+Energy+Area on mobile */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border">
-              <Filter size={11} />
+            <button className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground bg-card rounded border border-border">
+              <Filter size={10} className="flex-shrink-0" />
+              <span className="max-w-[120px] truncate">{areaLabel}</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
@@ -295,7 +301,7 @@ export function TaskList() {
             </div>
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Area</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={areaFilter} onValueChange={(v) => { setAreaFilter(v); dismissSwitchBanner(); }}>
-              <DropdownMenuRadioItem value="all" className="text-xs">All areas</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="all" className="text-xs">All Areas</DropdownMenuRadioItem>
               <DropdownMenuSeparator />
               {areas?.map(area => (
                 <DropdownMenuRadioItem key={area.id} value={area.id} className="text-xs">

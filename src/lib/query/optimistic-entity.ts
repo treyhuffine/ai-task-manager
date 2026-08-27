@@ -133,4 +133,11 @@ export function rollbackOptimistic(qc: QueryClient, snapshot: OptimisticSnapshot
  */
 export function settleEntity(qc: QueryClient, root: EntityRoot) {
   qc.invalidateQueries({ queryKey: [root] });
+  // Backlinks point at *targets*, so editing/renaming this entity changes the
+  // backlink views of the entities it links to. And a rename changes this
+  // entity's title everywhere it is referenced as a chip. Invalidate both
+  // link-derived caches broadly in the target direction — each only refetches
+  // where actually mounted. See docs/entity-links-spec.md §9.3.
+  qc.invalidateQueries({ queryKey: ['entity-backlinks'] });
+  qc.invalidateQueries({ queryKey: ['entity-title'] });
 }

@@ -26,6 +26,8 @@ import { Paragraph } from './paragraph'
 import { EditorBubbleMenu } from './editor-bubble-menu'
 import { ListKeymap } from './list-keymap'
 import { SlashCommands } from './slash-commands'
+import { EntityLinkNode } from './entity-link-node'
+import { EntityLinkMenuExtension } from './entity-link-menu/extension'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Attachment } from '@/db/types'
@@ -120,6 +122,8 @@ export function RichEditor({
       ToggleSummary,
       ToggleContent,
       Markdown,
+      EntityLinkNode,
+      EntityLinkMenuExtension,
       Placeholder.configure({
         placeholder: ({ node, pos, editor }) => {
           if (node.type.name === 'collapsibleHeading') {

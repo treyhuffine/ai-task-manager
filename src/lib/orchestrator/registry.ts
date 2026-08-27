@@ -74,6 +74,8 @@ import {
   undoTriageDecision,
   firstLineTitle,
   TriageError,
+  listBacklinks,
+  listOutgoingLinks,
   type TriageDecisionInput,
 } from '@/lib/db/queries';
 import { stripHighlight } from '@/lib/search/highlight';
@@ -283,6 +285,28 @@ const get_note_action = defineAction({
     if (!note) throw new ActionError('not_found', `Note not found: ${id}`);
     return note;
   },
+});
+
+const list_backlinks_action = defineAction({
+  name: 'list_backlinks',
+  description:
+    'List the tasks and notes whose body links to a given task or note (backlinks). Reads the derived link index and repairs any pending sources first.',
+  params: {
+    entityType: z.enum(['task', 'note']),
+    entityId: z.string().min(1),
+  },
+  handler: (_ctx, { entityType, entityId }) => listBacklinks(entityType, entityId),
+});
+
+const list_outgoing_links_action = defineAction({
+  name: 'list_outgoing_links',
+  description:
+    'List the tasks and notes that a given task or note links to from its body, with unresolved (deleted) targets flagged.',
+  params: {
+    entityType: z.enum(['task', 'note']),
+    entityId: z.string().min(1),
+  },
+  handler: (_ctx, { entityType, entityId }) => listOutgoingLinks(entityType, entityId),
 });
 
 const create_note_action = defineAction({
@@ -1889,6 +1913,8 @@ export const actions = [
   complete_task_action,
   list_notes_action,
   get_note_action,
+  list_backlinks_action,
+  list_outgoing_links_action,
   create_note_action,
   update_note_action,
   list_stream_action,

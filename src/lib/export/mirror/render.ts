@@ -29,6 +29,7 @@ import type {
 import { slugify } from '@/lib/export/markdown';
 import type { EntityType } from './config';
 import { rewriteAttachmentsForMirror } from '@/lib/attachments/derive';
+import { rewriteEntityMarkers } from '@/lib/entity-refs/extract-links';
 
 const SLUG_MAX = 60;
 
@@ -87,6 +88,21 @@ function wikiLink(
   if (!id || !resolver) return null;
   const target = resolver.linkFor(type, id);
   return target ? `[[${target}]]` : null;
+}
+
+/**
+ * Rewrite `[[task:id]]` / `[[note:id]]` body markers to the same vault
+ * wikilink the frontmatter uses (e.g. `[[tasks/<slug>--<id>]]`), so the
+ * exported vault resolves them in Obsidian. Markers inside code are skipped
+ * (shared extraction layer); unresolved targets are left verbatim. See
+ * docs/entity-links-spec.md §8.
+ */
+function rewriteBodyEntityLinks(text: string, resolver: LinkResolver | undefined): string {
+  if (!text || !resolver) return text;
+  return rewriteEntityMarkers(text, ({ kind, id }) => {
+    const target = resolver.linkFor(kind, id);
+    return target ? `[[${target}]]` : null;
+  });
 }
 
 // ─── YAML frontmatter ────────────────────────────────────────
@@ -201,8 +217,11 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
     managedBy: APP_SHORT_ID,
   });
 
-  const description = rewriteAttachmentsForMirror(task.description ?? '').trim();
-  const body = rewriteAttachmentsForMirror(task.body ?? '').trim();
+  const description = rewriteBodyEntityLinks(
+    rewriteAttachmentsForMirror(task.description ?? ''),
+    opts.links,
+  ).trim();
+  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(task.body ?? ''), opts.links).trim();
   const userContext = (task.userContext ?? '').trim();
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', `# ${task.title}`];
@@ -271,7 +290,7 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS];
   if (note.title) parts.push('', `# ${note.title}`);
-  const body = rewriteAttachmentsForMirror(note.body ?? '').trim();
+  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(note.body ?? ''), opts.links).trim();
   if (body) parts.push('', body);
   parts.push(...renderSourcesSection(sources, opts.links));
 

@@ -33,6 +33,7 @@ import { tasksApi } from '@/lib/api/tasks';
 import { BUCKET_OPTIONS, computeBucketPlacement, type Bucket } from '@/lib/utils/bucket-placement';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { RichEditor } from '@/components/editor/rich-editor';
+import { LinkedReferences } from '@/components/shared/linked-references';
 import { SubtaskSection } from './subtask-section';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
@@ -739,11 +740,14 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                         onChange={handleBodyChange}
                         onAttachment={handleAttachment}
                         editable={!aiBusy}
-                        placeholder="Type '/' for commands..."
+                        placeholder="Type '/' for commands, @ to link a task or note..."
                         hideFooter
                         foldedHeadings={task.foldedHeadings ?? []}
                         onFoldedHeadingsChange={handleFoldedHeadingsChange}
                       />
+                    </div>
+                    <div className="px-4 md:px-12 pb-8">
+                      <LinkedReferences entityType="task" entityId={task.id} />
                     </div>
                   </div>
                 ) : (

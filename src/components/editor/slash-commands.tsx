@@ -17,6 +17,7 @@ import {
   ImageIcon,
   TextIcon,
   ListCollapse,
+  Link2,
 } from 'lucide-react'
 import type { Attachment } from '@/db/types'
 import { insertUploadedFiles } from './upload-files'
@@ -56,6 +57,16 @@ function pickAndInsertImages(
 
 function buildSlashCommands(ctx: SlashCommandsBuildContext): SlashCommandItem[] {
   return [
+  {
+    title: 'Link',
+    description: 'Link to a task or note',
+    icon: Link2,
+    command: ({ editor, range }) => {
+      // Hand off to the `@` entity picker: replace the slash trigger with an
+      // `@` so the entity-link suggestion opens at the caret.
+      editor.chain().focus().deleteRange(range).insertContent('@').run()
+    },
+  },
   {
     title: 'Image',
     description: 'Upload an image from your device',

@@ -74,12 +74,12 @@ pnpm cli:dev agent <action>       # drive the typed agent surface from the shell
 If you want a real `flow` binary on your PATH (still from this repo, no npm publish):
 
 ```bash
-pnpm cli:build            # bundle the CLI to ./dist/cli/index.mjs
+pnpm cli:build            # bundle the CLI to ./dist/cli/index.mjs (also runs on install via `prepare`)
 pnpm link --global        # symlink the `flow` bin from this repo
 flow start                # works from anywhere
 ```
 
-Re-run `pnpm cli:build` after CLI changes; the symlink keeps pointing at the rebuilt bundle. To undo: `pnpm unlink --global flow`.
+`./dist` is a build artifact, not source, so it is gitignored and never committed. The `prepare` hook rebuilds it on every `pnpm install`, so a fresh clone gets a working binary automatically. Re-run `pnpm cli:build` after CLI changes to refresh the bundle the symlink points at. To undo the link: `pnpm unlink --global flow`.
 
 ## Two ways to run dev
 

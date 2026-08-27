@@ -114,6 +114,54 @@ FROM chat_events
 WHERE source IN ('user', 'agent') AND content IS NOT NULL AND content <> ''
   AND NOT EXISTS (SELECT 1 FROM chat_events_fts LIMIT 1);
 
+-- Entity-links projection spine (docs/entity-links-spec.md §5.1).
+-- Pure-SQL revision triggers: bump source_revision whenever link-bearing
+-- text changes, so every writer (helpers AND raw SQL) is caught and the DB
+-- file stays portable (no JS in triggers). Reconciliation in queries.ts
+-- advances links_projected_revision. The AFTER DELETE trigger removes the
+-- source's edges and its projection row for every delete path. entity_links
+-- and entity_projection_state are Drizzle tables, created by migrate() above
+-- before this runs. Guards are null-safe (IS NOT).
+CREATE TRIGGER IF NOT EXISTS tasks_entity_projection_ai AFTER INSERT ON tasks BEGIN
+  INSERT INTO entity_projection_state (source_type, source_id, source_revision, links_projected_revision, created_at, updated_at)
+  VALUES ('task', NEW.id, 1, 0, datetime('now'), datetime('now'))
+  ON CONFLICT(source_type, source_id) DO UPDATE SET source_revision = source_revision + 1, updated_at = datetime('now');
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_entity_projection_au AFTER UPDATE ON tasks
+WHEN NEW.body IS NOT OLD.body OR NEW.description IS NOT OLD.description BEGIN
+  INSERT INTO entity_projection_state (source_type, source_id, source_revision, links_projected_revision, created_at, updated_at)
+  VALUES ('task', NEW.id, 1, 0, datetime('now'), datetime('now'))
+  ON CONFLICT(source_type, source_id) DO UPDATE SET source_revision = source_revision + 1, updated_at = datetime('now');
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_entity_projection_ad AFTER DELETE ON tasks BEGIN
+  DELETE FROM entity_links WHERE source_type = 'task' AND source_id = OLD.id;
+  DELETE FROM entity_projection_state WHERE source_type = 'task' AND source_id = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS notes_entity_projection_ai AFTER INSERT ON notes BEGIN
+  INSERT INTO entity_projection_state (source_type, source_id, source_revision, links_projected_revision, created_at, updated_at)
+  VALUES ('note', NEW.id, 1, 0, datetime('now'), datetime('now'))
+  ON CONFLICT(source_type, source_id) DO UPDATE SET source_revision = source_revision + 1, updated_at = datetime('now');
+END;
+CREATE TRIGGER IF NOT EXISTS notes_entity_projection_au AFTER UPDATE ON notes
+WHEN NEW.body IS NOT OLD.body BEGIN
+  INSERT INTO entity_projection_state (source_type, source_id, source_revision, links_projected_revision, created_at, updated_at)
+  VALUES ('note', NEW.id, 1, 0, datetime('now'), datetime('now'))
+  ON CONFLICT(source_type, source_id) DO UPDATE SET source_revision = source_revision + 1, updated_at = datetime('now');
+END;
+CREATE TRIGGER IF NOT EXISTS notes_entity_projection_ad AFTER DELETE ON notes BEGIN
+  DELETE FROM entity_links WHERE source_type = 'note' AND source_id = OLD.id;
+  DELETE FROM entity_projection_state WHERE source_type = 'note' AND source_id = OLD.id;
+END;
+
+-- Partial index of only-pending projection rows, so read-repair's
+-- "source_revision > links_projected_revision" scan is cheap when nothing is
+-- pending (the common case). Raw SQL because the drizzle index builder does not
+-- express a two-column partial predicate cleanly.
+CREATE INDEX IF NOT EXISTS idx_entity_projection_pending
+  ON entity_projection_state (source_type, source_id)
+  WHERE source_revision > links_projected_revision;
+
 -- Embeddings metadata
 CREATE TABLE IF NOT EXISTS embeddings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,6 +262,36 @@ function ensureCosineEmbeddingIndex(sqlite: Database.Database): void {
   migrate.immediate();
 }
 
+/**
+ * One-shot backfill of the entity-links index for data that predates the
+ * projection triggers (an upgrade). Idempotent: skips once any projection row
+ * exists (writes/backfill already ran) and skips a fresh DB (triggers +
+ * reconcile maintain new writes; read-repair heals raw writes). Cycle-free —
+ * uses the raw handle and the pure parser, never queries.ts or getDb().
+ * See docs/entity-links-spec.md §10.
+ */
+function ensureEntityLinksBackfill(sqlite: Database.Database): void {
+  // Make any source lacking a projection row DISCOVERABLE by marking it PENDING
+  // (source_revision 1 > links_projected_revision 0). Read-repair then does the
+  // exact upsert-and-prune reconciliation from the current body on the next
+  // supported read — so backfill writes no edges here and can never leave stale
+  // ones (docs/entity-links-spec.md §10). Keyed off the MISSING row, so partial
+  // upgrades are covered; once every source is tracked both anti-joins are
+  // empty and this is a cheap no-op. INSERT..SELECT is atomic per statement.
+  sqlite.exec(`
+    INSERT OR IGNORE INTO entity_projection_state (source_type, source_id, source_revision, links_projected_revision)
+      SELECT 'task', id, 1, 0 FROM tasks
+      WHERE NOT EXISTS (
+        SELECT 1 FROM entity_projection_state p WHERE p.source_type = 'task' AND p.source_id = tasks.id
+      );
+    INSERT OR IGNORE INTO entity_projection_state (source_type, source_id, source_revision, links_projected_revision)
+      SELECT 'note', id, 1, 0 FROM notes
+      WHERE NOT EXISTS (
+        SELECT 1 FROM entity_projection_state p WHERE p.source_type = 'note' AND p.source_id = notes.id
+      );
+  `);
+}
+
 export function getDb(dbPath?: string): DB {
   const resolvedPath = dbPath ?? getDefaultDbPath();
 
@@ -256,6 +334,7 @@ export function getDb(dbPath?: string): DB {
   // FTS, triggers, sqlite-vec, and seed data
   sqlite.exec(EXTRA_SQL);
   ensureCosineEmbeddingIndex(sqlite);
+  ensureEntityLinksBackfill(sqlite);
 
   currentPath = resolvedPath;
   return dbInstance;

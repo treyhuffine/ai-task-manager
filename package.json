@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "postinstall": "node scripts/fetch-symbols-icons.mjs",
+    "prepare": "tsup",
     "dev": "FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-42241}",
     "dev:hot": "NEXT_PUBLIC_HOT=1 FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-42241}",
     "dev:web": "FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-42241}",
@@ -14,6 +15,7 @@
     "lint": "eslint",
     "db:seed": "tsx personal/notion-import/seed.ts",
     "db:reset": "tsx personal/notion-import/reset-and-seed.ts",
+    "db:relink": "tsx scripts/rebuild-entity-links.ts",
     "db:triage": "rm -f personal/notion-import/raw/triage.json && tsx personal/notion-import/triage.ts",
     "db:triage:claude": "rm -f personal/notion-import/raw/triage.json && tsx personal/notion-import/triage.ts --provider claude",
     "db:triage:codex": "rm -f personal/notion-import/raw/triage.json && tsx personal/notion-import/triage.ts --provider codex",

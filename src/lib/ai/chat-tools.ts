@@ -8,7 +8,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import {
   listTasks, getTask, createTask, updateTask, deleteTask, completeTask,
-  listNotes, getNote, createNote, updateNote, deleteNote,
+  listNotes, getNote, createNote, updateNote, deleteNote, listBacklinks,
   listAreas, getArea, createArea, updateArea,
   getLatestDeck, updateDeck,
   getUserState, updateUserState,
@@ -236,6 +236,22 @@ const noteTools = {
         return note;
       } catch (err) {
         return toolError('getNote', err);
+      }
+    },
+  }),
+
+  listBacklinks: tool({
+    description:
+      'List the tasks and notes whose body links to a given task or note (its backlinks).',
+    inputSchema: z.object({
+      entityType: z.enum(['task', 'note']).describe('Type of the entity to find backlinks for'),
+      entityId: z.string().describe('The entity ID'),
+    }),
+    execute: async ({ entityType, entityId }) => {
+      try {
+        return listBacklinks(entityType, entityId);
+      } catch (err) {
+        return toolError('listBacklinks', err);
       }
     },
   }),

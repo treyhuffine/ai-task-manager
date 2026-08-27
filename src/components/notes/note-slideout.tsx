@@ -5,6 +5,7 @@ import { Dialog } from 'radix-ui'
 import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles, Maximize2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { NoteEditor } from '@/components/editor/rich-editor'
+import { LinkedReferences } from '@/components/shared/linked-references'
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes'
 import { HOTKEYS, matchesHotkey } from '@/constants/commands'
 import { AreaSelect } from '@/components/shared/area-select'
@@ -328,6 +329,9 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                         </p>
                       }
                     />
+                  </div>
+                  <div className="px-4 md:px-12 pb-8">
+                    <LinkedReferences entityType="note" entityId={note.id} />
                   </div>
                 </>
               ) : (

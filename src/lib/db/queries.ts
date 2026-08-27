@@ -9,7 +9,7 @@ import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
   workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
-  triggers, runs, previewTargets, entityVersions,
+  triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
 } from '@/lib/db/schema';
@@ -55,6 +55,7 @@ import type {
 } from '@/db/types';
 import type { HarnessId } from '@/lib/agents/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
+import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
 import {
@@ -146,6 +147,375 @@ function taskAttachmentText(
   return `${description ?? ''}\n${body ?? ''}`;
 }
 
+// ─── Entity links (docs/entity-links-spec.md) ────────────────────────
+// Derived backlink index. Reconciliation is a pure function of a source's
+// own link-bearing text. The create/update helpers reconcile inline as plain
+// statements (so they compose inside an outer transaction such as triage, and
+// stand alone otherwise); the pure-SQL trigger marks any bypass pending and
+// read-repair heals it, so correctness never depends on the inline call.
+
+type LinkSourceType = 'task' | 'note';
+
+export interface BacklinkItem {
+  sourceType: LinkSourceType;
+  sourceId: string;
+  /** Current title (null when the source is untitled). */
+  title: string | null;
+}
+
+export interface OutgoingLinkItem {
+  targetType: LinkSourceType;
+  targetId: string;
+  /** Current title, or null when unresolved/untitled. */
+  title: string | null;
+  /** False when the target no longer exists (an Obsidian-style unresolved link). */
+  resolved: boolean;
+}
+
+/** Current link-bearing text for a source, or null if the row is gone. */
+function getLinkTextsForSource(
+  sourceType: LinkSourceType,
+  sourceId: string,
+): Array<string | null> | null {
+  const db = getDb();
+  if (sourceType === 'task') {
+    const row = db
+      .select({ description: tasks.description, body: tasks.body })
+      .from(tasks)
+      .where(eq(tasks.id, sourceId))
+      .get();
+    return row ? [row.description, row.body] : null;
+  }
+  const row = db.select({ body: notes.body }).from(notes).where(eq(notes.id, sourceId)).get();
+  return row ? [row.body] : null;
+}
+
+/**
+ * Replace a source's outgoing edges with those declared by `texts`.
+ * Upsert-and-prune: unchanged edges keep their id/created_at, so it is
+ * row-identical under retry. Runs on the caller's connection/transaction.
+ */
+function reconcileEntityLinks(
+  sourceType: LinkSourceType,
+  sourceId: string,
+  texts: Array<string | null | undefined>,
+): void {
+  const db = getDb();
+  const desired = linksFromTexts(texts);
+  const desiredKeys = new Set(desired.map((e) => `${e.targetType}:${e.targetId}`));
+
+  for (const e of desired) {
+    db.insert(entityLinks)
+      .values({
+        id: uuidv7(),
+        sourceType,
+        sourceId,
+        targetType: e.targetType,
+        targetId: e.targetId,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  const existing = db
+    .select({
+      id: entityLinks.id,
+      targetType: entityLinks.targetType,
+      targetId: entityLinks.targetId,
+    })
+    .from(entityLinks)
+    .where(and(eq(entityLinks.sourceType, sourceType), eq(entityLinks.sourceId, sourceId)))
+    .all();
+  const staleIds = existing
+    .filter((r) => !desiredKeys.has(`${r.targetType}:${r.targetId}`))
+    .map((r) => r.id);
+  if (staleIds.length) {
+    db.delete(entityLinks).where(inArray(entityLinks.id, staleIds)).run();
+  }
+}
+
+/** Advance a source's links projection to its current source_revision. */
+function advanceLinksProjection(sourceType: LinkSourceType, sourceId: string): void {
+  const db = getDb();
+  db.update(entityProjectionState)
+    .set({ linksProjectedRevision: sql`${entityProjectionState.sourceRevision}` })
+    .where(
+      and(
+        eq(entityProjectionState.sourceType, sourceType),
+        eq(entityProjectionState.sourceId, sourceId),
+      ),
+    )
+    .run();
+}
+
+/**
+ * Ensure a projection row exists for a source and is marked caught up. Unlike
+ * `advanceLinksProjection`, this CREATES the row when missing — used by the
+ * full rebuild so legacy sources (which predate the triggers and have no row)
+ * become tracked. Otherwise read-repair, which only scans existing rows, could
+ * never discover them (docs/entity-links-spec.md §10).
+ */
+function ensureProjectionCaughtUp(sourceType: LinkSourceType, sourceId: string): void {
+  const db = getDb();
+  db.insert(entityProjectionState)
+    .values({ sourceType, sourceId, sourceRevision: 1, linksProjectedRevision: 1 })
+    .onConflictDoUpdate({
+      target: [entityProjectionState.sourceType, entityProjectionState.sourceId],
+      set: { linksProjectedRevision: sql`${entityProjectionState.sourceRevision}` },
+    })
+    .run();
+}
+
+/** The create/update fast path: reconcile edges from the row we just wrote and
+ *  mark the projection caught up. Plain statements (no own transaction). */
+function projectEntityLinksInline(
+  sourceType: LinkSourceType,
+  sourceId: string,
+  texts: Array<string | null | undefined>,
+): void {
+  reconcileEntityLinks(sourceType, sourceId, texts);
+  advanceLinksProjection(sourceType, sourceId);
+}
+
+/**
+ * Run `fn` atomically. If a transaction is already open (e.g. the triage apply
+ * core wraps createTask/updateTask), that outer transaction provides atomicity
+ * and we must NOT open a nested one (drizzle's top-level transaction re-runs
+ * BEGIN, which SQLite rejects). Otherwise open a fresh transaction so a row
+ * write, its projection trigger, and reconciliation commit together — without
+ * this, a concurrent writer can slip between the commit and the reconcile and
+ * leave stale edges marked current (docs/entity-links-spec.md §6, R1/R3).
+ * `immediate` acquires the write lock up front for read-then-write bodies
+ * (read-repair), avoiding SQLITE_BUSY_SNAPSHOT under concurrent writers.
+ */
+function inEntityTx<T>(fn: () => T, immediate = false): T {
+  if (getRawDb().inTransaction) return fn();
+  const db = getDb();
+  return immediate ? db.transaction(fn, { behavior: 'immediate' }) : db.transaction(fn);
+}
+
+/**
+ * Reconcile every source whose text changed since its links projection last
+ * caught up (source_revision > links_projected_revision). Recompute is
+ * idempotent and order-independent, so at-least-once/out-of-order both
+ * converge. Assumes the caller holds a transaction (see listBacklinks).
+ */
+function repairPendingLinks(): void {
+  const db = getDb();
+  const pending = db
+    .select({
+      sourceType: entityProjectionState.sourceType,
+      sourceId: entityProjectionState.sourceId,
+      sourceRevision: entityProjectionState.sourceRevision,
+    })
+    .from(entityProjectionState)
+    .where(gt(entityProjectionState.sourceRevision, entityProjectionState.linksProjectedRevision))
+    .all();
+  for (const p of pending) {
+    const texts = getLinkTextsForSource(p.sourceType, p.sourceId);
+    if (texts === null) {
+      // Source is gone (the delete trigger should have cleaned up; heal
+      // defensively): drop its edges and projection row.
+      db.delete(entityLinks)
+        .where(and(eq(entityLinks.sourceType, p.sourceType), eq(entityLinks.sourceId, p.sourceId)))
+        .run();
+      db.delete(entityProjectionState)
+        .where(
+          and(
+            eq(entityProjectionState.sourceType, p.sourceType),
+            eq(entityProjectionState.sourceId, p.sourceId),
+          ),
+        )
+        .run();
+      continue;
+    }
+    reconcileEntityLinks(p.sourceType, p.sourceId, texts);
+    // Advance to the revision observed at select time. If a concurrent writer
+    // bumped it again after our read, it stays pending and repairs next pass.
+    db.update(entityProjectionState)
+      .set({ linksProjectedRevision: p.sourceRevision })
+      .where(
+        and(
+          eq(entityProjectionState.sourceType, p.sourceType),
+          eq(entityProjectionState.sourceId, p.sourceId),
+        ),
+      )
+      .run();
+  }
+}
+
+/** Current title for an entity: string|null title, or undefined if it's gone. */
+function resolveEntityTitle(type: LinkSourceType, id: string): string | null | undefined {
+  const db = getDb();
+  if (type === 'task') {
+    const row = db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, id)).get();
+    return row ? row.title : undefined;
+  }
+  const row = db.select({ title: notes.title }).from(notes).where(eq(notes.id, id)).get();
+  return row ? row.title : undefined;
+}
+
+export interface EntityTitleRef {
+  type: LinkSourceType;
+  id: string;
+}
+
+export interface EntityTitleResult {
+  type: LinkSourceType;
+  id: string;
+  title: string | null;
+  status: string;
+}
+
+/**
+ * Resolve titles + status for a batch of entity refs. Read-only and
+ * side-effect-free by design: link chips render dozens of these, and they must
+ * NOT bump `last_viewed_at` (which the per-entity GET routes do) or fetch full
+ * bodies. Unresolved refs are omitted (the caller renders them as unresolved).
+ * At most two queries regardless of ref count.
+ */
+export function resolveEntityTitles(refs: EntityTitleRef[]): EntityTitleResult[] {
+  if (refs.length === 0) return [];
+  const db = getDb();
+  const taskIds = [...new Set(refs.filter((r) => r.type === 'task').map((r) => r.id))];
+  const noteIds = [...new Set(refs.filter((r) => r.type === 'note').map((r) => r.id))];
+  const out = new Map<string, EntityTitleResult>();
+  if (taskIds.length) {
+    for (const t of db
+      .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+      .from(tasks)
+      .where(inArray(tasks.id, taskIds))
+      .all()) {
+      out.set(`task:${t.id}`, { type: 'task', id: t.id, title: t.title, status: t.status });
+    }
+  }
+  if (noteIds.length) {
+    for (const n of db
+      .select({ id: notes.id, title: notes.title, status: notes.status })
+      .from(notes)
+      .where(inArray(notes.id, noteIds))
+      .all()) {
+      out.set(`note:${n.id}`, { type: 'note', id: n.id, title: n.title, status: n.status });
+    }
+  }
+  return refs
+    .map((r) => out.get(`${r.type}:${r.id}`))
+    .filter((x): x is EntityTitleResult => x !== undefined);
+}
+
+// Read helpers below assume read-repair has already run in the caller's
+// transaction. They never open their own transaction.
+
+function readBacklinks(targetType: LinkSourceType, targetId: string): BacklinkItem[] {
+  const db = getDb();
+  const rows = db
+    .select({ sourceType: entityLinks.sourceType, sourceId: entityLinks.sourceId })
+    .from(entityLinks)
+    .where(and(eq(entityLinks.targetType, targetType), eq(entityLinks.targetId, targetId)))
+    .all();
+  const items: BacklinkItem[] = [];
+  for (const r of rows) {
+    if (r.sourceType === targetType && r.sourceId === targetId) continue; // filter self
+    const title = resolveEntityTitle(r.sourceType, r.sourceId);
+    if (title === undefined) continue; // source vanished; skip defensively
+    items.push({ sourceType: r.sourceType, sourceId: r.sourceId, title });
+  }
+  return items;
+}
+
+function readOutgoing(sourceType: LinkSourceType, sourceId: string): OutgoingLinkItem[] {
+  const db = getDb();
+  return db
+    .select({ targetType: entityLinks.targetType, targetId: entityLinks.targetId })
+    .from(entityLinks)
+    .where(and(eq(entityLinks.sourceType, sourceType), eq(entityLinks.sourceId, sourceId)))
+    .all()
+    .map((r) => {
+      const title = resolveEntityTitle(r.targetType, r.targetId);
+      return {
+        targetType: r.targetType,
+        targetId: r.targetId,
+        title: title ?? null,
+        resolved: title !== undefined,
+      };
+    });
+}
+
+/**
+ * Backlinks + outgoing links for an entity, repaired and read in ONE
+ * transaction so both reflect the same snapshot (a separate call per direction
+ * could straddle a concurrent write). Repairs pending sources first, so a
+ * source that just added its first link to the target — invisible from the
+ * target's stale index — is discovered (docs/entity-links-spec.md §6, R7).
+ */
+export function listEntityLinksFor(
+  type: LinkSourceType,
+  id: string,
+): { backlinks: BacklinkItem[]; outgoing: OutgoingLinkItem[] } {
+  return inEntityTx(() => {
+    repairPendingLinks();
+    return { backlinks: readBacklinks(type, id), outgoing: readOutgoing(type, id) };
+  }, true);
+}
+
+/** Backlinks only (repairs first). See listEntityLinksFor for the combined read. */
+export function listBacklinks(targetType: LinkSourceType, targetId: string): BacklinkItem[] {
+  return inEntityTx(() => {
+    repairPendingLinks();
+    return readBacklinks(targetType, targetId);
+  }, true);
+}
+
+/** Outgoing links only (repairs first), with unresolved targets flagged. */
+export function listOutgoingLinks(
+  sourceType: LinkSourceType,
+  sourceId: string,
+): OutgoingLinkItem[] {
+  return inEntityTx(() => {
+    repairPendingLinks();
+    return readOutgoing(sourceType, sourceId);
+  }, true);
+}
+
+/** Delete edges whose source no longer exists. Never prunes unresolved targets
+ *  (those are valid unresolved links). Returns rows removed. */
+function pruneOrphanEdges(): number {
+  const db = getDb();
+  const a = db.run(
+    sql`DELETE FROM entity_links WHERE source_type = 'task' AND source_id NOT IN (SELECT id FROM tasks)`,
+  );
+  const b = db.run(
+    sql`DELETE FROM entity_links WHERE source_type = 'note' AND source_id NOT IN (SELECT id FROM notes)`,
+  );
+  return Number(a.changes ?? 0) + Number(b.changes ?? 0);
+}
+
+/**
+ * Maintenance / backfill: reconcile every task and note's edges from scratch,
+ * mark all projections caught up, and prune orphaned source rows. Idempotent.
+ * Used by the post-migration lifecycle and the repair CLI.
+ */
+export function rebuildAllEntityLinks(): { sources: number; pruned: number } {
+  const db = getDb();
+  return inEntityTx(() => {
+    const taskRows = db
+      .select({ id: tasks.id, description: tasks.description, body: tasks.body })
+      .from(tasks)
+      .all();
+    for (const t of taskRows) {
+      reconcileEntityLinks('task', t.id, [t.description, t.body]);
+      ensureProjectionCaughtUp('task', t.id);
+    }
+    const noteRows = db.select({ id: notes.id, body: notes.body }).from(notes).all();
+    for (const n of noteRows) {
+      reconcileEntityLinks('note', n.id, [n.body]);
+      ensureProjectionCaughtUp('note', n.id);
+    }
+    const pruned = pruneOrphanEdges();
+    return { sources: taskRows.length + noteRows.length, pruned };
+  }, true);
+}
+
 export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput?: string }): TaskRecord {
   const db = getDb();
   const now = new Date().toISOString();
@@ -160,22 +530,25 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
   });
 
   const rest = withoutAttachments(input);
-  const row = hydrateRow(db
-    .insert(tasks)
-    .values({
-      ...rest,
-      rawInput: input.rawInput ?? input.title,
-      id: uuidv7(),
-      status: input.status ?? 'active',
-      contextTags: input.contextTags ?? [],
-      attachments: dehydrateAttachments(attachments) ?? [],
-      timesDeferred: 0,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get());
-
+  const row = inEntityTx(() => {
+    const created = hydrateRow(db
+      .insert(tasks)
+      .values({
+        ...rest,
+        rawInput: input.rawInput ?? input.title,
+        id: uuidv7(),
+        status: input.status ?? 'active',
+        contextTags: input.contextTags ?? [],
+        attachments: dehydrateAttachments(attachments) ?? [],
+        timesDeferred: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get());
+    projectEntityLinksInline('task', created.id, [created.description, created.body]);
+    return created;
+  });
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
   return row;
@@ -205,17 +578,22 @@ export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVers
       : undefined;
 
   const rest = withoutAttachments(input);
-  const row = hydrateRow(db
-    .update(tasks)
-    .set({
-      ...rest,
-      ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(tasks.id, id))
-    .returning()
-    .get());
-
+  const row = inEntityTx(() => {
+    const updated = hydrateRow(db
+      .update(tasks)
+      .set({
+        ...rest,
+        ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(tasks.id, id))
+      .returning()
+      .get());
+    if (bodyChanged || descriptionChanged) {
+      projectEntityLinksInline('task', updated.id, [updated.description, updated.body]);
+    }
+    return updated;
+  });
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
   captureEntityVersion('task', row.id, taskSnapshot(existing), taskSnapshot(row), meta, existing.updatedAt);
@@ -362,20 +740,23 @@ export function createNote(input: CreateNoteInput): NoteRecord {
   });
 
   const rest = withoutAttachments(input);
-  const row = hydrateRow(db
-    .insert(notes)
-    .values({
-      ...rest,
-      id: uuidv7(),
-      status: input.status ?? 'active',
-      contextTags: input.contextTags ?? [],
-      attachments: dehydrateAttachments(attachments) ?? [],
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get());
-
+  const row = inEntityTx(() => {
+    const created = hydrateRow(db
+      .insert(notes)
+      .values({
+        ...rest,
+        id: uuidv7(),
+        status: input.status ?? 'active',
+        contextTags: input.contextTags ?? [],
+        attachments: dehydrateAttachments(attachments) ?? [],
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get());
+    projectEntityLinksInline('note', created.id, [created.body]);
+    return created;
+  });
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
   return row;
@@ -399,17 +780,22 @@ export function updateNote(id: string, input: UpdateNoteInput, meta?: EntityVers
       : undefined;
 
   const rest = withoutAttachments(input);
-  const row = hydrateRow(db
-    .update(notes)
-    .set({
-      ...rest,
-      ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(notes.id, id))
-    .returning()
-    .get());
-
+  const row = inEntityTx(() => {
+    const updated = hydrateRow(db
+      .update(notes)
+      .set({
+        ...rest,
+        ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(notes.id, id))
+      .returning()
+      .get());
+    if (bodyChanged) {
+      projectEntityLinksInline('note', updated.id, [updated.body]);
+    }
+    return updated;
+  });
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
   captureEntityVersion('note', row.id, noteSnapshot(existing), noteSnapshot(row), meta, existing.updatedAt);

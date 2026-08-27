@@ -31,7 +31,7 @@ export type McpMode = 'query' | 'update';
 
 const READ_TOOL_NAMES = [
   'listTasks', 'getTask',
-  'listNotes', 'getNote',
+  'listNotes', 'getNote', 'listBacklinks',
   'listAreas', 'getArea',
   'getDeck',
   'searchKnowledgeBase',

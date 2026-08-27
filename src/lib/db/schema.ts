@@ -5,6 +5,7 @@ import {
   real,
   index,
   uniqueIndex,
+  primaryKey,
   check,
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
@@ -1317,6 +1318,78 @@ export const notes = sqliteTable(
     index('idx_notes_task_id').on(table.taskId),
     index('idx_notes_workspace_id').on(table.workspaceId),
     index('idx_notes_status').on(table.status),
+  ],
+);
+
+// ─── Entity Links ────────────────────────────────────────────
+// Derived, content-authored links between notes/tasks. One row per
+// directed edge (source's body contains a `[[target]]` marker). A
+// PROJECTION of body text, never authored by hand: reconciled
+// in-transaction on app writes and healed for external writes via
+// revision-checked read-repair. See docs/entity-links-spec.md §5–6.
+//
+// Invariant: a row (S→T) exists iff S's current link-bearing text has a
+// resolvable marker to T. Target existence is irrelevant — a row may
+// point at a deleted target (an unresolved link). Read by target →
+// backlinks; by source → outgoing links (and the delete/rebuild key).
+//
+// Typed keys, not id-only: uuidv7 makes collisions astronomically
+// unlikely, but raw SQL is a supported capability, so we match on the
+// real identity (type, id) rather than assume ids are globally unique
+// across tasks/notes. Polymorphic association → no FK; cleanup is by
+// the AFTER DELETE trigger (src/lib/db/index.ts) plus code.
+//
+// Distinct from `chat_refs` (a chat-session context/pin mechanism);
+// they share only the `[[kind:id]]` grammar (parse-markers.ts).
+
+export const entityLinks = sqliteTable(
+  'entity_links',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    sourceType: text({ enum: ['task', 'note'] }).notNull(),
+    sourceId: text().notNull(),
+    targetType: text({ enum: ['task', 'note'] }).notNull(),
+    targetId: text().notNull(),
+  },
+  (table) => [
+    index('idx_entity_links_target').on(table.targetType, table.targetId),
+    index('idx_entity_links_source').on(table.sourceType, table.sourceId),
+    uniqueIndex('entity_links_edge_uq').on(
+      table.sourceType,
+      table.sourceId,
+      table.targetType,
+      table.targetId,
+    ),
+  ],
+);
+
+// ─── Entity Projection State ──────────────────────────────────
+// One coalescing row per source entity, keyed naturally. Pure-SQL
+// triggers on tasks/notes (src/lib/db/index.ts EXTRA_SQL) bump
+// `source_revision` whenever link-bearing text changes, so raw SQL is
+// caught too. Reconciliation advances `links_projected_revision`;
+// pending == source_revision > links_projected_revision. Links-only:
+// the markdown mirror is NOT tracked here. See docs/entity-links-spec.md.
+//
+// Composite PK (no surrogate id): pure-SQL triggers write this table,
+// so we avoid an id they would have to mint. House-style exception,
+// justified by the trigger-authored path. `updated_at` is set
+// explicitly by the triggers (its Drizzle `$onUpdate` never fires for
+// raw-SQL/trigger writes), and is not used for staleness — the integer
+// `source_revision` is, because every writer bumps it.
+
+export const entityProjectionState = sqliteTable(
+  'entity_projection_state',
+  {
+    sourceType: text({ enum: ['task', 'note'] }).notNull(),
+    sourceId: text().notNull(),
+    ...timestamps,
+    sourceRevision: integer().notNull().default(0),
+    linksProjectedRevision: integer().notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceType, table.sourceId] }),
   ],
 );
 

@@ -18,6 +18,7 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 - Orientation: `describe_paths`, `describe_schema`, `list_skills`
 - Tasks: `list_tasks`, `get_task`, `create_task`, `update_task`, `complete_task`
 - Notes: `list_notes`, `get_note`, `create_note`, `update_note`
+- Links: `list_backlinks`, `list_outgoing_links` (what links to / from a task or note; write `[[task:UUID]]` / `[[note:UUID]]` in a body to create durable links)
 - Stream: `list_stream`, `get_stream_item`, `create_stream_item`, `promote_stream`, `dismiss_stream`
 - Areas: `list_areas`, `get_area`, `create_area`, `update_area`
 - Deck: `get_deck`, `update_deck`, `regenerate_deck`

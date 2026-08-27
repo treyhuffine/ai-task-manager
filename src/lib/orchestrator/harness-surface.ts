@@ -285,6 +285,11 @@ User messages may reference uploaded files as \`[[file:<name>]]\`. The file
 lives at \`attachments/<name>\` under your home dir. Read it when you need the
 content.
 
+The same \`[[task:UUID]]\` / \`[[note:UUID]]\` markers written into a note or
+task **body** (via \`create_note\` / \`update_task\`) create durable links: they
+render as chips, appear as backlinks on the target, and export as Obsidian
+wikilinks. Use \`list_backlinks\` (or \`list_outgoing_links\`) to traverse them.
+
 ## Output style
 
 - Plain markdown, concise and action-oriented. Bullets over paragraphs.
