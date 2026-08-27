@@ -188,7 +188,12 @@ export async function PATCH(
           { status: 400 },
         );
       }
-      if ('effort' in body && nextSelection.effort !== requestedEffort) {
+      // A null resolution means the target harness has no reasoning-effort axis
+      // at all (e.g. OpenCode/Cursor), so an incoming effort is simply
+      // irrelevant rather than "unsupported" — ignore it instead of rejecting a
+      // model change. The mismatch error is reserved for harnesses that do have
+      // an effort axis but can't honor the specific requested level.
+      if ('effort' in body && nextSelection.effort !== null && nextSelection.effort !== requestedEffort) {
         return Response.json(
           { error: `Effort ${requestedEffort} is not supported by model ${nextSelection.model}.` },
           { status: 400 },

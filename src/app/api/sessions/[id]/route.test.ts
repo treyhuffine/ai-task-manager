@@ -162,4 +162,43 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { label: 'Renamed' });
     expect(recycleForModeChange).not.toHaveBeenCalled();
   });
+
+  // A harness without a reasoning-effort axis (OpenCode) resolves effort to
+  // null on the server. A model change must not be rejected just because the
+  // request still carried the client's fallback 'medium' — effort is simply
+  // irrelevant there, so it's ignored rather than reported as unsupported.
+  it('switches an OpenCode model even when the body still carries an effort', async () => {
+    getChatSessionWithExecution.mockReturnValue({
+      ...existing,
+      model: 'opencode/grok-code',
+      effort: null,
+    });
+    getAgent.mockReturnValue({ id: 'agent-1', harness: 'opencode' });
+    getAgentModelCatalog.mockResolvedValue([
+      { id: 'opencode/grok-code', label: 'Grok Code' },
+      { id: 'opencode/grok-4.5', label: 'Grok 4.5' },
+    ]);
+    getHarnessRuntime.mockResolvedValue({
+      capabilities: {
+        planMode: { supported: true, status: 'supported' },
+        permissionRequests: { supported: true, status: 'supported' },
+        sessionModelChange: { supported: true, status: 'supported' },
+        sessionVariantChange: { supported: true, status: 'supported' },
+        sessionEffortChange: { supported: false, status: 'missing' },
+      },
+    });
+
+    const response = await PATCH(
+      request({ model: 'opencode/grok-4.5', effort: 'medium' }),
+      params(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { model: 'opencode/grok-4.5' });
+    expect(updateUserState).toHaveBeenCalledWith({
+      defaultAgentHarness: 'opencode',
+      defaultAgentModel: 'opencode/grok-4.5',
+      defaultAgentEffort: null,
+    });
+  });
 });

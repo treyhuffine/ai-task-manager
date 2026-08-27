@@ -1,5 +1,5 @@
 /**
- * Items in the `@`-mention picker. One picker covers five kinds, with a
+ * Items in the `@`-mention picker. One picker covers six kinds, with a
  * discriminator so the popup can section-render and the extension can
  * dispatch to the right chip on select.
  *
@@ -12,7 +12,12 @@
  *   - reference — a reference folder (docs/reference-folders-spec.md).
  *     Selecting one does NOT insert a chip: it rewrites the query to
  *     `@<alias>/` so the picker retargets into that folder.
+ *   - pr — a GitHub pull request, reached by typing `@#` (see
+ *     `pr-trigger.ts`). Insertion → PrChipNode, which serializes to a
+ *     full context line via `formatPrRef`.
  */
+
+import type { PrMentionItem } from '../pr-menu/types';
 
 export interface FileMentionItem {
   kind: 'file' | 'dir';
@@ -60,9 +65,19 @@ export interface ReferenceFolderMentionItem {
   exists: boolean;
 }
 
+/**
+ * A pull request surfaced under `@#`. Extends the wire shape the PR chip
+ * consumes (`PrMentionItem`) with the picker discriminator, so selecting
+ * one can drop the `kind` and hand the rest straight to `insertPrChip`.
+ */
+export interface PrMentionMenuItem extends PrMentionItem {
+  kind: 'pr';
+}
+
 export type MentionItem =
   | FileMentionItem
   | TaskMentionItem
   | NoteMentionItem
   | ScratchpadMentionItem
-  | ReferenceFolderMentionItem;
+  | ReferenceFolderMentionItem
+  | PrMentionMenuItem;

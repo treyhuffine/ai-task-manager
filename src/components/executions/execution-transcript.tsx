@@ -23,6 +23,7 @@ import { TurnFilesFooter } from './file-chip';
 import { buildTranscriptNodes } from './transcript-grouping';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { isPlumbingTool } from '@/lib/executions/tool-display';
+import { partitionSubagentEvents } from '@/lib/executions/subagent';
 import { NO_RESPONSE_REQUESTED } from '@/lib/executions/conversation';
 import { SetupCard } from './setup-card';
 import { ThinkingState } from './thinking-state';
@@ -67,11 +68,21 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   const { density } = useTranscriptDensity();
 
   const events = useMemo(() => filterRenderable(rawEvents ?? []), [rawEvents]);
-  const hasEvents = events.length > 0;
+
+  // Split off events a subagent produced. They stay fully rendered, but as
+  // that subagent's own nested transcript under the tool call that launched
+  // it — never as rows in this session's conversation. See lib/executions/
+  // subagent.ts for why the parent stream carries them at all.
+  const { topLevel, byParentCallId: subagentEventsByCallId } = useMemo(
+    () => partitionSubagentEvents(events),
+    [events],
+  );
+  const hasEvents = topLevel.length > 0;
 
   // Pair each `tool_result` to its `tool_call` (via externalToolCallId) so
   // a call row can render the result's summary inline ("150 lines"). Built
-  // from the full event list before any suppression.
+  // from the full event list — including subagent events — so a nested call
+  // row gets its own result summary the same way a top-level one does.
   const resultByCallId = useMemo(() => {
     const m = new Map<string, ChatEventDTO>();
     for (const e of events) {
@@ -85,26 +96,32 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   //   - tool_result rows whose tool_call is present (merged onto the call)
   //   - PTY plumbing calls (Codex write_stdin/read_thread_terminal)
   const renderEvents = useMemo(() => {
-    if (density !== 'condensed') return events;
+    if (density !== 'condensed') return topLevel;
     const callIds = new Set<string>();
-    for (const e of events) {
+    for (const e of topLevel) {
       if (e.source === 'tool_call' && e.externalToolCallId) callIds.add(e.externalToolCallId);
     }
-    return events.filter((e) => {
+    return topLevel.filter((e) => {
       if (e.source === 'tool_result' && e.externalToolCallId && callIds.has(e.externalToolCallId)) {
         return false;
       }
       if (e.source === 'tool_call' && isPlumbingTool(e.toolName)) return false;
       return true;
     });
-  }, [events, density]);
+  }, [topLevel, density]);
 
   // Condensed (default) folds each completed turn's intermediate activity
   // into a collapsible summary; `full` renders every event. Recomputes
   // when the live turn finishes (isRunning) so it collapses on completion.
   const nodes = useMemo(
-    () => buildTranscriptNodes(renderEvents, { isRunning, density }),
-    [renderEvents, isRunning, density],
+    () => buildTranscriptNodes(renderEvents, {
+      isRunning,
+      density,
+      // Turn-level aggregates (the file footer) must account for work a
+      // subagent did, even though those events render inside their launch row.
+      nestedByParentCallId: subagentEventsByCallId,
+    }),
+    [renderEvents, isRunning, density, subagentEventsByCallId],
   );
 
   // Index lookups for per-event flags (auth banner actionability, last row).
@@ -168,6 +185,7 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
                 node={node}
                 sessionId={session.id}
                 resultByCallId={resultByCallId}
+                subagentEventsByCallId={subagentEventsByCallId}
               />
             );
           }
@@ -184,6 +202,7 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
               // Merge result summaries onto call rows only in condensed
               // mode; in full mode the standalone result row owns it.
               resultByCallId={density === 'condensed' ? resultByCallId : undefined}
+              subagentEventsByCallId={subagentEventsByCallId}
               isLast={idx === renderEvents.length - 1}
               // For `auth_required`: the trailing `result` event from the
               // same failed turn means `isLast` is false even though no
@@ -286,11 +305,24 @@ function ScrollUpPager({
   // effect once the older page renders. Non-null = a load is in flight
   // and its prepend hasn't been anchored yet.
   const pending = useRef<{ prevHeight: number; prevTop: number } | null>(null);
+  // Set right after a programmatic re-anchor, cleared by the scroll event it
+  // provokes. The height math below assumes every height change happened
+  // above the viewport; when a newly-loaded launch row causes previously
+  // inline subagent events to collapse into it, height also disappears
+  // *below*, so the re-anchor lands short and can even clamp to 0. Without
+  // this guard that clamp looks like "user scrolled to the top" and pages
+  // again, cascading through the entire history. One skipped scroll event
+  // costs nothing; a genuine user scroll still pages normally.
+  const justAnchored = useRef(false);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
+      if (justAnchored.current) {
+        justAnchored.current = false;
+        return;
+      }
       if (!ready || !hasOlder || isLoadingOlder || pending.current) return;
       if (el.scrollTop > SCROLL_UP_THRESHOLD_PX) return;
       pending.current = { prevHeight: el.scrollHeight, prevTop: el.scrollTop };
@@ -314,6 +346,7 @@ function ScrollUpPager({
     if (!el || !p) return;
     el.scrollTop = el.scrollHeight - p.prevHeight + p.prevTop;
     pending.current = null;
+    justAnchored.current = true;
   }, [oldestEventId, scrollRef]);
 
   return null;

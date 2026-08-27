@@ -18,10 +18,13 @@ export function ActivityGroup({
   node,
   sessionId,
   resultByCallId,
+  subagentEventsByCallId,
 }: {
   node: GroupNode;
   sessionId?: string;
   resultByCallId?: Map<string, ChatEventRecord>;
+  /** Nested subagent transcripts, keyed by the tool call that launched them. */
+  subagentEventsByCallId?: Map<string, ChatEventRecord[]>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const summary = summarizeCounts(node.counts);
@@ -50,6 +53,7 @@ export function ActivityGroup({
               event={event}
               sessionId={sessionId}
               resultByCallId={resultByCallId}
+              subagentEventsByCallId={subagentEventsByCallId}
             />
           ))}
         </div>

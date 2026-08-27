@@ -41,6 +41,14 @@ function ev(source: string, content: string | null): ChatEventRecord {
 
 const ids = (events: ChatEventRecord[]) => events.map((e) => e.id);
 
+/**
+ * Re-tag an event as produced by a subagent rather than by the session —
+ * what Claude Code puts on every event a nested `Agent` call emits.
+ */
+function sub(event: ChatEventRecord, parentToolCallId = 'toolu_sub'): ChatEventRecord {
+  return { ...event, externalParentToolCallId: parentToolCallId };
+}
+
 describe('conversationText', () => {
   it('strips file markers and trims', () => {
     expect(conversationText({ content: '  [[file:abc.png]] look at this  ' })).toBe(
@@ -118,6 +126,42 @@ describe('pickConversationMessages', () => {
     ];
     const picked = pickConversationMessages(events, 10);
     expect(picked.map((e) => e.content)).toEqual(['q', 'the real answer']);
+  });
+
+  it("never lets a subagent line become the turn's reply", () => {
+    // The live failure: the main agent finishes, then four background
+    // subagents keep narrating onto the same stream. Untagged, whichever
+    // spoke last became the session's visible answer, so the "final" message
+    // changed a handful of times after the turn was already over.
+    const events = [
+      ev('user', 'paginate the playbank'),
+      ev('agent', "I've launched four parallel research agents."),
+      sub(ev('agent', "I'll explore the app to understand the playbank...")),
+      sub(ev('agent', 'Let me read the core files.')),
+      sub(ev('agent', 'I have the complete picture. Here is my report...')),
+    ];
+    const picked = pickConversationMessages(events, 10);
+    expect(picked.map((e) => e.content)).toEqual([
+      'paginate the playbank',
+      "I've launched four parallel research agents.",
+    ]);
+  });
+
+  it('still surfaces the main reply that lands after subagent chatter', () => {
+    const events = [
+      ev('user', 'q'),
+      ev('agent', 'launching research'),
+      sub(ev('agent', 'subagent narration')),
+      ev('agent', 'Done — here is the answer.'),
+    ];
+    const picked = pickConversationMessages(events, 10);
+    expect(picked.map((e) => e.content)).toEqual(['q', 'Done — here is the answer.']);
+  });
+
+  it('yields no reply for a turn that was only subagent chatter', () => {
+    const events = [ev('user', 'q'), sub(ev('agent', 'subagent narration'))];
+    const picked = pickConversationMessages(events, 10);
+    expect(picked.map((e) => e.content)).toEqual(['q']);
   });
 
   it('keeps an attachment-only user message even though its text is empty', () => {

@@ -8,7 +8,19 @@ import {
   useImperativeHandle,
   forwardRef,
 } from 'react'
-import { Folder, FolderSymlink, Square, CheckSquare, StickyNote, Notebook, AlertTriangle } from 'lucide-react'
+import {
+  Folder,
+  FolderSymlink,
+  Square,
+  CheckSquare,
+  StickyNote,
+  Notebook,
+  AlertTriangle,
+  GitPullRequest,
+  GitPullRequestDraft,
+  GitPullRequestClosed,
+  GitMerge,
+} from 'lucide-react'
 import { FileIcon } from '@/components/file-icon'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
 import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
@@ -19,13 +31,14 @@ interface MentionMenuListProps {
   command: (item: MentionItem) => void
 }
 
-type Section = 'entity' | 'task' | 'note' | 'reference' | 'file' | `ref:${string}`
+type Section = 'entity' | 'task' | 'note' | 'reference' | 'file' | 'pr' | `ref:${string}`
 
 function sectionFor(item: MentionItem): Section {
   if (item.kind === 'scratchpad') return 'entity'
   if (item.kind === 'task') return 'task'
   if (item.kind === 'note') return 'note'
   if (item.kind === 'reference') return 'reference'
+  if (item.kind === 'pr') return 'pr'
   // Files pulled out of a reference folder band under that folder's alias, so
   // a drill-down visibly separates "inside @backend" from worktree matches.
   if (item.referenceAlias) return `ref:${item.referenceAlias}`
@@ -42,6 +55,8 @@ function keyFor(item: MentionItem): string {
       return `note:${item.id}`
     case 'reference':
       return `reference:${item.id}`
+    case 'pr':
+      return `pr:${item.number}`
     default:
       return `file:${item.path}`
   }
@@ -145,6 +160,7 @@ function SectionHeader({ kind }: { kind: Section }) {
   else if (kind === 'task') label = 'Tasks'
   else if (kind === 'note') label = 'Notes'
   else if (kind === 'reference') label = 'Reference folders'
+  else if (kind === 'pr') label = 'Pull requests'
   else if (kind.startsWith('ref:')) label = `In @${kind.slice(4)} · read-only`
   else label = 'Files'
   return (
@@ -182,9 +198,25 @@ function MentionRow({ item, index, selected, onSelect, onHover }: MentionRowProp
   )
 }
 
+function PrRowIcon({ state, isDraft }: { state: string; isDraft: boolean }) {
+  if (state === 'MERGED') {
+    return <GitMerge size={11} className="text-violet-500 dark:text-violet-400" />
+  }
+  if (state === 'CLOSED') {
+    return <GitPullRequestClosed size={11} className="text-rose-500 dark:text-rose-400" />
+  }
+  if (isDraft) {
+    return <GitPullRequestDraft size={11} className="text-muted-foreground/80" />
+  }
+  return <GitPullRequest size={11} className="text-emerald-500 dark:text-emerald-400" />
+}
+
 function RowIcon({ item }: { item: MentionItem }) {
   if (item.kind === 'scratchpad') {
     return <Notebook size={11} className="text-muted-foreground/80" />
+  }
+  if (item.kind === 'pr') {
+    return <PrRowIcon state={item.state} isDraft={item.isDraft} />
   }
   if (item.kind === 'reference') {
     if (!item.exists) return <AlertTriangle size={11} className="text-destructive/80" />
@@ -221,6 +253,19 @@ function RowBody({ item }: { item: MentionItem }) {
       <span className="text-[11px] text-foreground truncate min-w-0">
         {item.title || (item.kind === 'task' ? 'Untitled task' : 'Untitled note')}
       </span>
+    )
+  }
+  if (item.kind === 'pr') {
+    return (
+      <>
+        <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+          #{item.number}
+        </span>
+        <span className="text-[11px] text-foreground truncate min-w-0">{item.title}</span>
+        <span className="ml-auto pl-2 font-mono text-[10px] text-muted-foreground/70 truncate max-w-[40%]">
+          {item.headRefName}
+        </span>
+      </>
     )
   }
   if (item.kind === 'reference') {

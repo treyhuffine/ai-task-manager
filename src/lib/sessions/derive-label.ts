@@ -161,7 +161,13 @@ const RETRO_MAX_EXCERPTS = 10;
 export function buildRetrospectiveSample(sessionId: string): string | null {
   const tail = listChatEvents(sessionId, { limit: RETRO_TAIL_EVENTS });
   const prose = tail.filter(
-    (e) => (e.source === 'user' || e.source === 'agent') && e.content?.trim(),
+    (e) =>
+      (e.source === 'user' || e.source === 'agent') &&
+      e.content?.trim() &&
+      // A subagent narrating to its caller says nothing about what this
+      // session is *for*, and a fan-out can easily supply every row in the
+      // tail — titling off "Let me read the core files" names the wrong arc.
+      !e.externalParentToolCallId,
   );
   if (prose.length === 0) return null;
 

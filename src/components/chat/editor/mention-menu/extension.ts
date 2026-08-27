@@ -16,6 +16,7 @@ import type {
   NoteMentionItem,
   ReferenceFolderMentionItem,
 } from './types'
+import type { PrMentionItem } from '../pr-menu/types'
 
 // Distinct PluginKey so this Suggestion plugin doesn't collide with the
 // slash and PR menus — Tiptap's `Suggestion` defaults to a shared
@@ -47,19 +48,34 @@ interface MentionMenuOptions {
    * every keystroke inside the drill-down.
    */
   loadReferenceTree?: (referenceId: string) => Promise<FileMentionItem[]>
+  /**
+   * GitHub pull requests, surfaced when the query opens with `#` (`@#`).
+   * Wrapped in a closure so the extension always sees the latest
+   * `usePrList` data without re-creating the editor. Empty (or omitted)
+   * when gh is missing / unauthenticated or the workspace is non-git — the
+   * `@#` filter just shows its empty state there.
+   */
+  getPrs?: () => PrMentionItem[]
 }
 
 /**
  * Tiptap extension that opens an `@`-picker covering files / tasks / notes /
- * scratchpad / reference folders. One trigger, five kinds — the popup renders
- * results in sections so visual scanning stays fast. Ranking lives in
- * `./ranking`, which is deliberately free of Tiptap so it can be tested alone.
+ * scratchpad / reference folders / pull requests. One trigger, six kinds — the
+ * popup renders results in sections so visual scanning stays fast. Ranking
+ * lives in `./ranking`, which is deliberately free of Tiptap so it can be
+ * tested alone.
  *
  * Selecting a file inserts a `MentionChipNode` (the existing chip —
  * serialized to `@<path>` on send). Selecting a task / note / scratchpad
  * inserts an `EntityChipNode` (serialized to `[[task:id]]` / `[[note:id]]`
- * / `[[scratchpad]]`). Selecting a reference folder inserts nothing: it
- * rewrites the query to `@<alias>/` so the picker retargets into that folder.
+ * / `[[scratchpad]]`). Selecting a PR inserts a `PrChipNode` (serialized to
+ * a full context line via `formatPrRef`). Selecting a reference folder
+ * inserts nothing: it rewrites the query to `@<alias>/` so the picker
+ * retargets into that folder.
+ *
+ * PRs are gated behind a `#` after the `@` (`@#193`) — see `pr-trigger.ts`.
+ * This replaced a standalone `#` trigger whose send-time raw-text expansion
+ * surprised users by rewriting numbers they meant literally.
  */
 export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   name: 'mentionMenu',
@@ -75,6 +91,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       getNotes: undefined,
       getReferenceFolders: undefined,
       loadReferenceTree: undefined,
+      getPrs: undefined,
     }
   },
 
@@ -83,6 +100,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
     const getTasks = () => this.options.getTasks?.() ?? []
     const getNotes = () => this.options.getNotes?.() ?? []
     const getReferences = () => this.options.getReferenceFolders?.() ?? []
+    const getPrs = () => this.options.getPrs?.() ?? []
     const loadReferenceTree = this.options.loadReferenceTree
 
     const suggestion: Partial<SuggestionOptions<MentionItem, MentionItem>> = {
@@ -116,6 +134,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           notes: getNotes(),
           references,
           referenceFiles,
+          prs: getPrs(),
           drillDown,
           query,
         })
@@ -158,6 +177,12 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
             .insertEntityChip({ kind: 'note', id: item.id, title: item.title })
             .insertContent(' ')
             .run()
+        } else if (item.kind === 'pr') {
+          // Drop the picker discriminator; the rest is exactly PrChipAttrs,
+          // so the chip is self-describing and serializes without re-reading
+          // the PR cache at send time.
+          const { kind: _kind, ...pr } = item
+          chain.insertPrChip(pr).insertContent(' ').run()
         }
       },
       render: createSuggestionPopupRenderer<MentionItem>(MentionMenuList),

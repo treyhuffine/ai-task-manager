@@ -105,3 +105,99 @@ describe('formatSpan', () => {
     expect(formatSpan(new Date(base).toISOString(), new Date(base + 200).toISOString())).toBeNull();
   });
 });
+
+describe('nested subagent work in turn aggregates', () => {
+  const launch = (callId: string) =>
+    ev('tool_call', { toolName: 'Agent', externalToolCallId: callId });
+  const edit = (path: string, content: string, parent: string | null = null) =>
+    ev('tool_call', {
+      toolName: 'Write',
+      toolInput: { file_path: path, content },
+      externalParentToolCallId: parent,
+    });
+
+  it('counts files a subagent wrote in the turn footer', () => {
+    // The footer's contract is "what changed on disk this turn". A child
+    // process doing the writing does not make the file not-changed — and
+    // counting only top-level rows dropped 152 of 272 paths on a real session.
+    const nested = new Map([['toolu_a', [edit('/src/child.ts', 'a\nb\n', 'toolu_a')]]]);
+    const nodes = buildTranscriptNodes(
+      [ev('user'), launch('toolu_a'), ev('agent', { content: 'done' })],
+      { isRunning: false, density: 'condensed', nestedByParentCallId: nested },
+    );
+    const files = nodes.find((n) => n.kind === 'files');
+    expect(files?.kind === 'files' && files.files.map((f) => f.path)).toEqual([
+      '/src/child.ts',
+    ]);
+  });
+
+  it('renders a footer for a turn where only the subagent wrote', () => {
+    // Previously this turn produced no footer at all.
+    const nested = new Map([['toolu_a', [edit('/src/only.ts', 'x\n', 'toolu_a')]]]);
+    const nodes = buildTranscriptNodes([ev('user'), launch('toolu_a')], {
+      isRunning: false,
+      density: 'condensed',
+      nestedByParentCallId: nested,
+    });
+    expect(nodes.some((n) => n.kind === 'files')).toBe(true);
+  });
+
+  it('merges a path both the main agent and its subagent touched', () => {
+    // One line from the subagent, two from the main agent, one merged entry.
+    const nested = new Map([['toolu_a', [edit('/src/shared.ts', 'a', 'toolu_a')]]]);
+    const nodes = buildTranscriptNodes(
+      [ev('user'), launch('toolu_a'), edit('/src/shared.ts', 'b\nc')],
+      { isRunning: false, density: 'condensed', nestedByParentCallId: nested },
+    );
+    const files = nodes.find((n) => n.kind === 'files');
+    expect(files?.kind === 'files' && files.files).toHaveLength(1);
+    expect(files?.kind === 'files' && files.files[0].additions).toBe(3);
+  });
+
+  it('reaches files written by a grandchild subagent', () => {
+    const nested = new Map([
+      ['toolu_outer', [ev('tool_call', {
+        toolName: 'Agent',
+        externalToolCallId: 'toolu_inner',
+        externalParentToolCallId: 'toolu_outer',
+      })]],
+      ['toolu_inner', [edit('/src/deep.ts', 'z\n', 'toolu_inner')]],
+    ]);
+    const nodes = buildTranscriptNodes([ev('user'), launch('toolu_outer')], {
+      isRunning: false,
+      density: 'condensed',
+      nestedByParentCallId: nested,
+    });
+    const files = nodes.find((n) => n.kind === 'files');
+    expect(files?.kind === 'files' && files.files.map((f) => f.path)).toEqual([
+      '/src/deep.ts',
+    ]);
+  });
+
+  it('omits the footer when nothing was written anywhere', () => {
+    const nodes = buildTranscriptNodes([ev('user'), launch('toolu_a')], {
+      isRunning: false,
+      density: 'condensed',
+      nestedByParentCallId: new Map(),
+    });
+    expect(nodes.some((n) => n.kind === 'files')).toBe(false);
+  });
+
+  it('never promotes an un-anchored subagent line to the turn reply', () => {
+    // When the launch row is on a page that has not loaded, the subagent's
+    // events stay inline. They still must not become the visible answer —
+    // that is the churn this whole change exists to remove.
+    const nodes = buildTranscriptNodes(
+      [
+        ev('user'),
+        ev('agent', { content: 'the real reply' }),
+        ev('tool_call', { toolName: 'Read' }),
+        ev('agent', { content: 'subagent narration', externalParentToolCallId: 'toolu_gone' }),
+      ],
+      { isRunning: false, density: 'condensed' },
+    );
+    const visible = nodes.filter((n) => n.kind === 'event' && n.event.source === 'agent');
+    expect(visible).toHaveLength(1);
+    expect(visible[0].kind === 'event' && visible[0].event.content).toBe('the real reply');
+  });
+});

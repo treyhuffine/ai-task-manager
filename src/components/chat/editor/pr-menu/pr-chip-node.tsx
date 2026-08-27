@@ -5,10 +5,10 @@
  * full PR metadata in its attrs so serialization doesn't depend on
  * the menu's cache being fresh at send time.
  *
- * Inserted by the `#`-mention suggestion (`pr-menu/extension.ts`).
- * Serialized to the same expanded text the manual `#193` typing path
- * produces (via `formatPrRef`), so downstream code only ever sees one
- * canonical shape on the wire.
+ * Inserted from the `@#` PR picker (`mention-menu`). Serialized to a
+ * single canonical context line via `formatPrRef`, so downstream code
+ * only ever sees one shape on the wire regardless of how the chip was
+ * composed.
  */
 
 import { Node, mergeAttributes, type NodeViewProps } from '@tiptap/core'
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { handleChipBackspace } from '../suggestion/chip-backspace'
+import { MENTION_PR_TRIGGER } from '../mention-menu/pr-trigger'
 import type { PrMentionItem } from './types'
 
 export const PR_CHIP_NAME = 'prChip'
@@ -82,7 +83,10 @@ export const PrChipNode = Node.create<{}>({
 
   addKeyboardShortcuts() {
     return {
-      Backspace: ({ editor }) => handleChipBackspace(editor, PR_CHIP_NAME, '#'),
+      // Backspacing a PR chip re-inserts `@#` so the mention picker
+      // reopens in PR mode — the user can swap to a different PR without
+      // retyping the trigger, matching every other chip's behavior.
+      Backspace: ({ editor }) => handleChipBackspace(editor, PR_CHIP_NAME, MENTION_PR_TRIGGER),
     }
   },
 

@@ -10,12 +10,16 @@ import type {
   TaskMentionItem,
   NoteMentionItem,
   ReferenceFolderMentionItem,
+  PrMentionMenuItem,
 } from './types'
+import type { PrMentionItem } from '../pr-menu/types'
+import { PR_QUERY_PREFIX } from './pr-trigger'
 
 export const MAX_FILES = 30
 export const MAX_TASKS = 15
 export const MAX_NOTES = 15
 export const MAX_REFERENCES = 8
+export const MAX_PRS = 30
 
 const COMMON_NOISE_DIRS = new Set([
   'node_modules',
@@ -142,6 +146,57 @@ export function rankReferences(
     .map((s) => s.item)
 }
 
+function toPrItem(pr: PrMentionItem): PrMentionMenuItem {
+  return { kind: 'pr', ...pr }
+}
+
+/**
+ * Rank pull requests for the `@#` picker. `query` is the text after the
+ * `#` prefix (already stripped by the caller).
+ *
+ * A pure-digit query filters by PR number — exact, then number-prefix,
+ * then number-substring — so typing `@#22` surfaces #22 above #221 / #322
+ * rather than an arbitrary ordering. A text query matches the title
+ * (prefix beats substring) and then the head branch, tie-broken by
+ * recency since the feed already arrives newest-first.
+ */
+export function rankPrs(prs: PrMentionItem[], query: string): PrMentionMenuItem[] {
+  if (!query) return prs.slice(0, MAX_PRS).map(toPrItem)
+
+  if (/^\d+$/.test(query)) {
+    const exact: PrMentionItem[] = []
+    const startsWith: PrMentionItem[] = []
+    const contains: PrMentionItem[] = []
+    for (const p of prs) {
+      const num = String(p.number)
+      if (num === query) exact.push(p)
+      else if (num.startsWith(query)) startsWith.push(p)
+      else if (num.includes(query)) contains.push(p)
+    }
+    return [...exact, ...startsWith, ...contains].slice(0, MAX_PRS).map(toPrItem)
+  }
+
+  const q = query.toLowerCase()
+  type Scored = { item: PrMentionItem; score: number }
+  const scored: Scored[] = []
+  for (const p of prs) {
+    const title = p.title.toLowerCase()
+    const branch = p.headRefName.toLowerCase()
+    let score: number
+    if (title.startsWith(q)) score = 0
+    else if (title.includes(q)) score = 1
+    else if (branch.includes(q)) score = 2
+    else continue
+    scored.push({ item: p, score })
+  }
+  scored.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score
+    // Tiebreak by recency (feed is already sorted newest-first).
+    return a.item.updatedAt < b.item.updatedAt ? 1 : -1
+  })
+  return scored.slice(0, MAX_PRS).map((s) => toPrItem(s.item))
+}
+
 export interface ReferenceDrillDown {
   reference: ReferenceFolderMentionItem
   rest: string
@@ -199,6 +254,9 @@ export function toReferenceFileItems(
  * has said exactly where they are looking — but worktree matches still follow
  * underneath, so an alias that happens to share a name with a real folder
  * doesn't make that folder unreachable.
+ *
+ * A query that opens with `#` (`@#…`) is the pull-request filter: it returns
+ * PRs only, keeping the default file/task/note list uncluttered.
  */
 export function buildItems(args: {
   files: FileMentionItem[]
@@ -206,10 +264,18 @@ export function buildItems(args: {
   notes: NoteMentionItem[]
   references: ReferenceFolderMentionItem[]
   referenceFiles: FileMentionItem[] | null
+  prs: PrMentionItem[]
   drillDown: ReferenceDrillDown | null
   query: string
 }): MentionItem[] {
-  const { files, tasks, notes, references, referenceFiles, drillDown, query } = args
+  const { files, tasks, notes, references, referenceFiles, prs, drillDown, query } = args
+
+  // `@#…` — pull-request mode. Checked before everything else so the `#`
+  // discriminator wins even if the remainder looks like a file query.
+  if (query.startsWith(PR_QUERY_PREFIX)) {
+    return rankPrs(prs, query.slice(PR_QUERY_PREFIX.length))
+  }
+
   const q = query.toLowerCase()
   const out: MentionItem[] = []
 

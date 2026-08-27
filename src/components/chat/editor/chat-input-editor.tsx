@@ -73,10 +73,9 @@ import {
   MENTION_CHIP_NAME,
   type MentionChipAttrs,
 } from './mention-menu/mention-chip-node';
-import { PrMenuExtension } from './pr-menu/extension';
 import type { PrMentionItem } from './pr-menu/types';
 import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './pr-menu/pr-chip-node';
-import { formatPrRef } from './pr-menu/expand';
+import { formatPrRef } from './pr-menu/format';
 import { EntityChipNode, ENTITY_CHIP_NAME, type EntityChipAttrs } from './entity-chip-node';
 
 // ─── Public types ────────────────────────────────────────────────
@@ -90,8 +89,6 @@ import { EntityChipNode, ENTITY_CHIP_NAME, type EntityChipAttrs } from './entity
  */
 export interface EditorSnapshot {
   readonly doc: unknown;
-  /** Carries the `#`-menu dismissal across a failed-send rollback. */
-  readonly literalPrRefs?: boolean;
 }
 
 export interface ChatInputEditorHandle {
@@ -145,12 +142,6 @@ export interface ChatInputEditorHandle {
   getMarkerOutput(): {
     text: string;
     attachments: Attachment[];
-    /**
-     * True once the user has dismissed the `#` menu with Escape in this
-     * message. The composer skips `expandPrRefs` so a typed `#1` reaches
-     * the agent as the literal two characters the user meant.
-     */
-    literalPrRefs: boolean;
   };
   /**
    * Orchestrator-chat output: ai-sdk parts in document order. Text
@@ -232,9 +223,9 @@ interface ChatInputEditorProps {
    */
   loadReferenceTree?: (referenceId: string) => Promise<FileMentionItem[]>;
   /**
-   * Optional PRs for the `#`-mention menu. Sourced from `usePrList`
-   * on the consumer side. When omitted, typing `#` does nothing
-   * special.
+   * Optional PRs surfaced in the `@`-picker under its `#` filter
+   * (`@#193`). Sourced from `usePrList` on the consumer side. When
+   * omitted, `@#` just shows an empty state.
    */
   prs?: PrMentionItem[];
   /**
@@ -408,11 +399,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     loadReferenceTreeRef.current = loadReferenceTree;
     const prsRef = useRef(prs);
     prsRef.current = prs;
-    // Set when the user Escapes out of the `#` menu: they want the
-    // number as plain text, so the composer skips PR expansion for this
-    // message. Cleared on send (and on any draft swap), carried across a
-    // failed-send rollback by snapshot/restore.
-    const literalPrRefsRef = useRef(false);
     onFocusRef.current = onFocus;
     // Mirror the recall ring in a ref so the keymap (built once) always
     // reads the latest sent-message list without re-creating the editor.
@@ -757,12 +743,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           getReferenceFolders: () => mentionReferenceFoldersRef.current ?? [],
           loadReferenceTree: (id: string) =>
             loadReferenceTreeRef.current?.(id) ?? Promise.resolve([]),
-        }),
-        PrMenuExtension.configure({
+          // PRs live under the `@` picker's `#` filter (`@#193`); there is
+          // no separate `#` trigger anymore.
           getPrs: () => prsRef.current ?? [],
-          onDismiss: () => {
-            literalPrRefsRef.current = true;
-          },
         }),
         KeymapExtension,
       ],
@@ -819,11 +802,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       // above (which still needs the stash) so history state doesn't leak
       // across a session switch.
       resetHistoryNav();
-      if (previousKey !== draftKey) {
-        // Same reasoning for the `#`-literal flag: it describes the
-        // message being composed, and that message just changed.
-        literalPrRefsRef.current = false;
-      }
       if (!draftKey) return;
       // Mark this key hydrated *before* reading: from here on an empty
       // editor genuinely means "user cleared it", so saves/removes are
@@ -910,8 +888,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           // A send/clear ends any recall navigation — the stashed draft is
           // intentionally discarded (the user committed the recalled text).
           resetHistoryNav();
-          // The "I meant `#1` literally" flag is scoped to one message.
-          literalPrRefsRef.current = false;
           editor.commands.clearContent(true);
         },
         insertTextAtCursor: (text) => {
@@ -929,14 +905,13 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         },
         snapshot: () => {
           if (!editor || editor.isEmpty) return null;
-          return { doc: editor.getJSON(), literalPrRefs: literalPrRefsRef.current };
+          return { doc: editor.getJSON() };
         },
         restore: (snap) => {
           if (!editor) return;
           // A failed-send rollback puts the real draft back — end any recall
           // navigation so the restored text is treated as the live draft.
           resetHistoryNav();
-          literalPrRefsRef.current = snap.literalPrRefs ?? false;
           // `setContent` with `emitUpdate: true` so `onUpdate` runs and
           // the parent's `hasContent` flips back to true after a
           // failed-send rollback. Focus to the end matches what the
@@ -944,10 +919,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           editor.chain().setContent(snap.doc as never, { emitUpdate: true }).focus('end').run();
         },
         uploadFile: (file, name) => uploadAndInsert(file, name ?? (file as File).name ?? 'upload'),
-        getMarkerOutput: () => ({
-          ...buildMarkerOutput(editor),
-          literalPrRefs: literalPrRefsRef.current,
-        }),
+        getMarkerOutput: () => buildMarkerOutput(editor),
         getUiMessageParts: () => buildUiMessageParts(editor),
       }),
       [editor, uploadAndInsert, editorHasPendingChip, resetHistoryNav],
@@ -1043,10 +1015,9 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
       return false;
     }
     if (node.type.name === PR_CHIP_NAME) {
-      // PR chips self-serialize to the same expanded text the manual
-      // `#193` typing path produces via `expandPrRefs`. Doing it here
-      // means the chip is self-contained — no dependency on the PR
-      // list cache being fresh at send time.
+      // PR chips self-serialize to a full context line via `formatPrRef`.
+      // Doing it here means the chip is self-contained — no dependency on
+      // the PR list cache being fresh at send time.
       const attrs = node.attrs as PrChipAttrs;
       lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + formatPrRef(attrs);
       return false;

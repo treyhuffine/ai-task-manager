@@ -591,6 +591,10 @@ function historyEventInput(
   eventId: string,
   partIndex: number,
 ): CreateChatEventInput | null {
+  // `parseStreamEvent` now sets messageId/parentToolCallId too, so those two
+  // are redundant on the non-user path — but the user path below builds its
+  // row by hand and has no other source for them. Kept in one place rather
+  // than split across the two branches.
   const shared = {
     externalEventId: eventId,
     externalMessageId: event.messageId,
