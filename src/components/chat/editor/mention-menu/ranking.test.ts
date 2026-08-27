@@ -4,12 +4,14 @@ import {
   parseReferenceDrillDown,
   toReferenceFileItems,
   rankReferences,
+  rankPrs,
 } from './ranking';
 import type {
   FileMentionItem,
   ReferenceFolderMentionItem,
   MentionItem,
 } from './types';
+import type { PrMentionItem } from '../pr-menu/types';
 
 /**
  * `@`-picker behavior for reference folders (docs/reference-folders-spec.md §8).
@@ -32,7 +34,29 @@ function file(path: string): FileMentionItem {
   return { kind: 'file', path, name: path.split('/').pop() ?? path };
 }
 
-const EMPTY = { files: [], tasks: [], notes: [], references: [], referenceFiles: null, drillDown: null };
+function pr(overrides: Partial<PrMentionItem> = {}): PrMentionItem {
+  return {
+    number: 1,
+    title: 'Add SEO footer',
+    state: 'OPEN',
+    isDraft: false,
+    headRefName: 'codex/seo-footer',
+    baseRefName: 'main',
+    url: 'https://github.com/owner/repo/pull/1',
+    updatedAt: '2026-07-20T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+const EMPTY = {
+  files: [],
+  tasks: [],
+  notes: [],
+  references: [],
+  referenceFiles: null,
+  prs: [],
+  drillDown: null,
+};
 
 describe('parseReferenceDrillDown', () => {
   const refs = [reference(), reference({ id: 'ref-2', alias: 'vault', absolutePath: '/notes' })];
@@ -219,5 +243,66 @@ describe('buildItems', () => {
       query: '',
     });
     expect(kinds(items)).toEqual(['scratchpad', 'task', 'note', 'file']);
+  });
+
+  it('switches to PR-only results the moment the query opens with `#`', () => {
+    // Files/tasks/notes are all present, but `@#` must return PRs alone.
+    const items = buildItems({
+      ...EMPTY,
+      files: [file('src/app.ts')],
+      tasks: [{ kind: 'task', id: 't1', title: 'Ship it', status: 'active' }],
+      notes: [{ kind: 'note', id: 'n1', title: 'Ideas' }],
+      prs: [pr({ number: 193, title: 'Add SEO footer' })],
+      query: '#',
+    });
+    expect(kinds(items)).toEqual(['pr']);
+    expect((items[0] as { number: number }).number).toBe(193);
+  });
+
+  it('keeps PRs out of the default `@` list', () => {
+    const items = buildItems({
+      ...EMPTY,
+      files: [file('src/app.ts')],
+      prs: [pr({ number: 193 })],
+      query: '',
+    });
+    expect(kinds(items)).not.toContain('pr');
+  });
+
+  it('filters PRs by the query after the `#`', () => {
+    const items = buildItems({
+      ...EMPTY,
+      prs: [pr({ number: 12 }), pr({ number: 193 }), pr({ number: 7 })],
+      query: '#19',
+    });
+    expect((items as { number: number }[]).map((i) => i.number)).toEqual([193]);
+  });
+});
+
+describe('rankPrs', () => {
+  const prs = [
+    pr({ number: 22, title: 'Fix login', headRefName: 'fix/login', updatedAt: '2026-07-01T00:00:00.000Z' }),
+    pr({ number: 221, title: 'Add settings', headRefName: 'feat/settings', updatedAt: '2026-07-03T00:00:00.000Z' }),
+    pr({ number: 322, title: 'Refactor auth', headRefName: 'chore/auth', updatedAt: '2026-07-02T00:00:00.000Z' }),
+  ];
+
+  it('returns everything for an empty query, tagged as `pr`', () => {
+    const out = rankPrs(prs, '');
+    expect(out).toHaveLength(3);
+    expect(out.every((p) => p.kind === 'pr')).toBe(true);
+  });
+
+  it('ranks a numeric query exact → number-prefix → number-substring', () => {
+    // `22` should surface #22 first, then #221 (prefix), then #322 (substring).
+    expect(rankPrs(prs, '22').map((p) => p.number)).toEqual([22, 221, 322]);
+  });
+
+  it('matches a text query on title, then head branch', () => {
+    expect(rankPrs(prs, 'settings').map((p) => p.number)).toEqual([221]);
+    expect(rankPrs(prs, 'auth').map((p) => p.number)).toEqual([322]);
+  });
+
+  it('drops PRs that match neither number, title, nor branch', () => {
+    expect(rankPrs(prs, 'zzz')).toEqual([]);
   });
 });

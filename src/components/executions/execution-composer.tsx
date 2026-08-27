@@ -66,7 +66,6 @@ import type {
   ReferenceFolderMentionItem,
 } from '@/components/chat/editor/mention-menu/types';
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
-import { expandPrRefs } from '@/components/chat/editor/pr-menu/expand';
 import { usePrList } from '@/hooks/use-prs';
 import { useAgentModels } from '@/hooks/use-agent-models';
 
@@ -323,9 +322,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     );
     const loadReferenceTree = useLoadReferenceTree();
 
-    // GitHub PRs → `#`-mention items. Empty when gh is missing /
-    // unauthenticated or the workspace is non-git; the popup just shows
-    // its empty state in those cases.
+    // GitHub PRs → items in the `@`-picker's `#` filter (`@#193`). Empty
+    // when gh is missing / unauthenticated or the workspace is non-git; the
+    // picker just shows its empty state in those cases.
     const prListQuery = usePrList(sessionId);
     const prMentions = useMemo<PrMentionItem[]>(
       () =>
@@ -341,11 +340,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         })),
       [prListQuery.data?.prs],
     );
-
-    // Mirror in a ref so handleSend always sees the latest list without
-    // forcing the send callback to re-create on every refetch.
-    const prMentionsRef = useRef(prMentions);
-    prMentionsRef.current = prMentions;
 
     // Sent-message recall (ArrowUp in the composer). Derived from the same
     // persisted transcript the chat body renders — already in the query
@@ -446,7 +440,11 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       updateSession.mutate({
         id: sessionId,
         model: nextModel.id,
-        effort: nextEffort,
+        // Only carry an effort for harnesses that actually have a
+        // reasoning-effort axis. OpenCode/Cursor resolve effort to null on the
+        // server, so sending the client-side fallback ('medium') would be
+        // rejected as an unsupported effort. Mirrors the provider-switch paths.
+        ...(showEffort ? { effort: nextEffort } : {}),
       });
     };
 
@@ -487,22 +485,17 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const handleSend = useCallback(
       async (
-        override?: { text: string; attachments: Attachment[]; literalPrRefs?: boolean },
+        override?: { text: string; attachments: Attachment[] },
         opts?: { viaVoice?: boolean },
       ) => {
         const editor = editorRef.current;
         const out = override ??
-          editor?.getMarkerOutput() ?? { text: '', attachments: [], literalPrRefs: false };
-        // Expand `#193` style PR references against the cached PR list so
-        // the agent sees title + URL + branch context without an extra
-        // `gh pr view` round-trip. Unmatched numbers pass through; voice
-        // override path also runs through it so a dictated "look at one
-        // ninety three" expanded by STT still benefits. `literalPrRefs`
-        // is the user Escaping out of the `#` menu — they want the
-        // number as typed, so nothing gets rewritten.
-        const text = expandPrRefs(out.text.trim(), prMentionsRef.current, {
-          literal: out.literalPrRefs,
-        });
+          editor?.getMarkerOutput() ?? { text: '', attachments: [] };
+        // A typed `#193` stays literal text — PR context only rides along
+        // when the user explicitly picks a PR from the `@#` picker, which
+        // inserts a chip that serializes to the full context line on its
+        // own. No raw-number rewriting here, by design.
+        const text = out.text.trim();
         // No isRunning gate: sends are accepted mid-turn. The harness's
         // own queue handles ordering — Claude drains as `<system-reminder>`
         // attachments into the current turn; Codex merges as additional
