@@ -13,11 +13,11 @@
  * verification once they ship it.
  *
  * Dedup: Pocket delivers at-least-once with retries. We key on `recording.id`
- * via `origin_source='pocket'` + `externalId`.
+ * via `externalSource='pocket'` + `externalId`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createStream, findStreamByExternalId } from '@/lib/db/queries';
+import { createExternalStream, findStreamByExternalId } from '@/lib/db/queries';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 
 export const runtime = 'nodejs';
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'empty transcript' }, { status: 400 });
   }
 
-  const row = createStream({
+  const inserted = createExternalStream({
     rawText: transcript,
     source: 'webhook',
     media: 'voice',
@@ -135,7 +135,15 @@ export async function POST(request: NextRequest) {
     externalPayload: bodyText,
     status: 'pending',
   });
-  onStreamCaptured(row.id);
+  if (!inserted.created) {
+    return NextResponse.json({
+      ok: true,
+      deduped: true,
+      item_id: inserted.row.id,
+    });
+  }
 
-  return NextResponse.json({ ok: true, item_id: row.id }, { status: 201 });
+  onStreamCaptured(inserted.row.id);
+
+  return NextResponse.json({ ok: true, item_id: inserted.row.id }, { status: 201 });
 }

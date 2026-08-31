@@ -1046,10 +1046,8 @@ export function findStreamByExternalId(
     .get());
 }
 
-export function createStream(input: CreateStreamInput): StreamRecord {
-  const db = getDb();
+function streamInsertValues(input: CreateStreamInput): typeof stream.$inferInsert {
   const now = new Date().toISOString();
-
   const attachments = deriveAttachments({
     body: input.rawText ?? '',
     prior: [],
@@ -1057,22 +1055,56 @@ export function createStream(input: CreateStreamInput): StreamRecord {
   });
 
   const rest = withoutAttachments(input);
-  const row = hydrateRow(db
-    .insert(stream)
-    .values({
-      ...rest,
-      id: uuidv7(),
-      source: input.source ?? 'capture',
-      status: input.status ?? 'pending',
-      attachments: dehydrateAttachments(attachments) ?? [],
-      createdAt: input.createdAt ?? now,
-    })
-    .returning()
-    .get());
+  return {
+    ...rest,
+    id: uuidv7(),
+    source: input.source ?? 'capture',
+    status: input.status ?? 'pending',
+    attachments: dehydrateAttachments(attachments) ?? [],
+    createdAt: input.createdAt ?? now,
+  };
+}
 
+function finishCreatedStream(raw: typeof stream.$inferSelect): StreamRecord {
+  const row = hydrateRow(raw);
   void upsertEmbedding('stream', row.id, buildEmbeddingText('stream', row));
   void syncEntity('stream', row.id);
   return row;
+}
+
+export function createStream(input: CreateStreamInput): StreamRecord {
+  const row = getDb()
+    .insert(stream)
+    .values(streamInsertValues(input))
+    .returning()
+    .get();
+  return finishCreatedStream(row);
+}
+
+/**
+ * Atomically insert an externally identified Stream item. The partial unique
+ * index on `(external_source, external_id)` is the cross-process retry guard.
+ * A losing concurrent caller receives the already committed canonical row.
+ */
+export function createExternalStream(
+  input: CreateStreamInput & { externalSource: string; externalId: string },
+): { row: StreamRecord; created: boolean } {
+  const inserted = getDb()
+    .insert(stream)
+    .values(streamInsertValues(input))
+    .onConflictDoNothing()
+    .returning()
+    .get();
+
+  if (inserted) {
+    return { row: finishCreatedStream(inserted), created: true };
+  }
+
+  const existing = findStreamByExternalId(input.externalSource, input.externalId);
+  if (!existing) {
+    throw new Error('External Stream insert conflicted without a canonical row');
+  }
+  return { row: existing, created: false };
 }
 
 /**

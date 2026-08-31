@@ -53,7 +53,11 @@ export async function pickProvider(): Promise<string> {
  * Transcribe an audio blob using the given voice model ID
  * (format: "provider/model-name").
  */
-export async function transcribe(file: Blob, voiceModel: string): Promise<string> {
+export async function transcribe(
+  file: Blob,
+  voiceModel: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const provider = getVoiceProvider(voiceModel);
   const modelName = getVoiceModelName(voiceModel);
 
@@ -66,7 +70,11 @@ export async function transcribe(file: Blob, voiceModel: string): Promise<string
     case 'local': {
       const available = await isLocalAvailable();
       if (!available) throw new Error('Local STT unavailable. Run: pnpm dev:stt');
-      const res = await fetch(`${LOCAL_STT_URL}/v1/audio/transcriptions`, { method: 'POST', body: form });
+      const res = await fetch(`${LOCAL_STT_URL}/v1/audio/transcriptions`, {
+        method: 'POST',
+        body: form,
+        signal,
+      });
       if (!res.ok) throw new Error(`Local STT error ${res.status}: ${await res.text()}`);
       return (await res.json()).text ?? '';
     }
@@ -76,6 +84,7 @@ export async function transcribe(file: Blob, voiceModel: string): Promise<string
         method: 'POST',
         headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
         body: form,
+        signal,
       });
       if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
       return (await res.json()).text ?? '';
@@ -86,6 +95,7 @@ export async function transcribe(file: Blob, voiceModel: string): Promise<string
         method: 'POST',
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
         body: form,
+        signal,
       });
       if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
       return (await res.json()).text ?? '';
