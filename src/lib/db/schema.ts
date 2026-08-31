@@ -224,7 +224,11 @@ export const stream = sqliteTable(
      *  references present in `raw_text`. */
     attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
   },
-  (table) => [index('stream_external_id_idx').on(table.externalSource, table.externalId)],
+  (table) => [
+    uniqueIndex('stream_external_id_uq')
+      .on(table.externalSource, table.externalId)
+      .where(sql`${table.externalSource} IS NOT NULL AND ${table.externalId} IS NOT NULL`),
+  ],
 );
 
 // ─── Stream Triage ────────────────────────────────────────────

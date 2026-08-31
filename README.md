@@ -130,6 +130,10 @@ By default the skill installs into `~/.claude/skills/` and `~/.agents/skills/`, 
 
 The web app uses cookie-based session auth. Other devices (a phone, the CLI on another machine, an agent) pair via `flow pair` — a one-time URL/QR exchange that mints a per-device API key. Middleware enforces `Authorization: Bearer <key>` on `/api/*`.
 
+### Capture integrations
+
+- [Pebble Index 01 webhook](docs/pebble-index-01-webhook.md)
+
 ### Schema
 
 Authoritative schema is `src/lib/db/schema.ts`. Drizzle-derived types live in `src/db/types.ts` — don't duplicate.

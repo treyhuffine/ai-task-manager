@@ -177,7 +177,7 @@ Copy rules (hard requirements):
 Not building, on purpose:
 
 - **A rules engine.** No user-authored if-this-then-that routing. The agent plus telemetry is the mechanism. Users who want determinism can edit the sweep trigger's prompt (the user-owned hook).
-- **Auto-ingesting firehoses.** The visible stream holds things a human meant to capture. Connector-sourced signal (email, Slack, calendar) stays out of the stream. When connectors ship, they get their own ingestion boundary and reuse the reconciliation engine behind a stricter trust wall. Existing Pocket webhook items are deliberate user pushes and stay.
+- **Auto-ingesting firehoses.** The visible stream holds things a human meant to capture. Connector-sourced signal (email, Slack, calendar) stays out of the stream. When connectors ship, they get their own ingestion boundary and reuse the reconciliation engine behind a stricter trust wall. Existing Pocket and Pebble Index webhook items are deliberate user pushes and stay.
 - **The stream as a destination.** No feed mechanics, no pinning, no folders, no stream-native organization. It is a ledger with a queue on top.
 - **A second review surface.** The digest lives on the deck and the stream tab. No new top-level destination.
 - **A tagging system, a knowledge graph, or perfect semantic organization in v1.**
@@ -191,10 +191,10 @@ Not building, on purpose:
 
 What exists and is sound:
 
-- **Schema** (`src/lib/db/schema.ts:169-207`): `stream` table with `rawText`, `source` (capture/chat/webhook), `media` (text/voice/image), `origin`, external dedupe fields (`externalSource`, `externalId`, `externalPayload`, indexed), `status` (pending/promoted/dismissed), `dismissedBy`, `promotedToType/Id/At`, `promotionPass`, `attachments`.
+- **Schema** (`src/lib/db/schema.ts:169-207`): `stream` table with `rawText`, `source` (capture/chat/webhook), `media` (text/voice/image), `origin`, external dedupe fields (`externalSource`, `externalId`, `externalPayload`, uniquely indexed when both identifiers are present), `status` (pending/promoted/dismissed), `dismissedBy`, `promotedToType/Id/At`, `promotionPass`, `attachments`.
 - **Query layer** (`src/lib/db/queries.ts`): `listStream`, `getStream`, `findStreamByExternalId`, `createStream`, `updateStream`, `dismissStream`. Embedding upsert and mirror sync fire on create/update. No hard delete exists anywhere.
 - **Orchestrator actions** (`src/lib/orchestrator/registry.ts`): `list_stream`, `get_stream_item`, `create_stream_item`, `promote_stream` (one item to one new task or note, guards status pending, throws conflict on re-promote), `dismiss_stream`.
-- **Capture surface**: `POST /api/capture` (`src/app/api/capture/route.ts`) handles text, voice (transcription), image (vision extraction). Failure paths already preserve the original: failed transcription saves the audio attachment, failed image extraction saves the images. Pocket webhook dedupes via `externalId`.
+- **Capture surface**: `POST /api/capture` (`src/app/api/capture/route.ts`) handles text, voice (transcription), image (vision extraction). Failure paths already preserve the original: failed transcription saves the audio attachment, failed image extraction saves the images. Pocket and Pebble Index webhook adapters dedupe via `externalId`. Pebble's multipart adapter also preserves an included M4A attachment.
 - **Manual triage UI** (`src/components/stream/`): `stream-list.tsx`, `stream-triage.tsx`, `promote-actions.tsx`, `stream-attachments.tsx`.
 - **Search**: stream is a first-class entity in sqlite-vec and FTS5, participates in hybrid search.
 - **Triggers infrastructure** (`src/lib/db/schema.ts:1037`, `src/lib/scheduler/runner.ts`): kinds `manual | at | every | cron | webhook`, `nextRunAt` advanced atomically before dispatch, `concurrencyPolicy`, per-trigger model/effort, `findTriggerByName` query, `run_trigger` action, `runs` table. Dispatches harness sessions.
