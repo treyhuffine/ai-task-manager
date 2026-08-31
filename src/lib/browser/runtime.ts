@@ -111,10 +111,46 @@ function attachPageHandlers(session: BrowserSession, page: Page): void {
   });
 }
 
-function isLive(session: BrowserSession): boolean {
+/** How long a cached session's CDP channel gets to answer before we treat it as
+ * dead and reconnect. Only ever paid in full on a wedged/half-dead transport. */
+const LIVENESS_PING_MS = 2_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/**
+ * True if `probe` resolves within `ms`; false if it rejects or does not settle
+ * in time. A late rejection is swallowed so it never surfaces as unhandled.
+ * Exported for tests.
+ */
+export async function respondsWithin(probe: Promise<unknown>, ms: number): Promise<boolean> {
+  probe.catch(() => {});
+  try {
+    await withTimeout(probe, ms);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isLive(session: BrowserSession): Promise<boolean> {
   if (!session.agent.browser.isConnected()) return false;
-  if (!session.activePage.isClosed()) return true;
-  return session.agent.context.pages().some((p) => !p.isClosed());
+  const hasOpenTab =
+    !session.activePage.isClosed() || session.agent.context.pages().some((p) => !p.isClosed());
+  if (!hasOpenTab) return false;
+  // isConnected() only reflects what the transport object believes; it lags a
+  // browser that has died or wedged. Confirm the CDP channel actually answers
+  // under a short deadline before handing the cached session back, otherwise the
+  // next read/act call gets dispatched into a half-dead transport and hangs.
+  return respondsWithin(session.agent.context.cookies(), LIVENESS_PING_MS);
 }
 
 /** Get or create a live session, reconnecting if the browser was closed. */
@@ -123,7 +159,7 @@ export async function getSession(
 ): Promise<BrowserSession> {
   const key = sessionKey(opts);
   const existing = sessions.get(key);
-  if (existing && isLive(existing)) {
+  if (existing && (await isLive(existing))) {
     touchSession(existing);
     return existing;
   }
