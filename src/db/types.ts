@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
   userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, taskLifecycleCommands, notes, decks, apiKeys,
-  workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  workspaces, referenceFolders, agents, executions, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
@@ -204,6 +204,10 @@ export type ExecutionRecord = InferSelectModel<typeof executions>;
 export type CreateExecutionInput = Omit<InferInsertModel<typeof executions>, 'id'> & { id?: string };
 export type UpdateExecutionInput = Partial<Omit<CreateExecutionInput, 'createdAt'>>;
 export type ExecutionStatus = ExecutionRecord['status'];
+
+export type ExecutionReviewRecord = InferSelectModel<typeof executionReviews>;
+export type CreateExecutionReviewInput = Omit<InferInsertModel<typeof executionReviews>, 'id' | 'createdAt' | 'updatedAt'>;
+export type ReviewDisposition = ExecutionReviewRecord['disposition'];
 
 // ─── Preview Targets ──────────────────────────────────────────
 

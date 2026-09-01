@@ -7,7 +7,7 @@ import nodePath from 'node:path';
 import os from 'node:os';
 import { getDb, getRawDb } from '@/lib/db';
 import {
-  tasks, notes, areas, stream, taskCompletions, taskLifecycleCommands, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
+  tasks, notes, areas, stream, taskCompletions, taskLifecycleCommands, executionReviews, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
   workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -31,7 +31,7 @@ import type {
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
   AgentRecord, CreateAgentInput,
-  ExecutionRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
+  ExecutionRecord, ExecutionReviewRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
@@ -707,6 +707,10 @@ export interface TransitionTaskInput {
   idempotencyKey: string;
   /** Optimistic-concurrency guard. If provided and stale, throws `conflict`. */
   expectedRevision?: number;
+  /** Coordinated stop: archive any live owning execution as part of this same
+   * transaction before applying a terminal transition. Without it, archiving a
+   * task with a live owning execution throws `active_execution`. */
+  stopOwningExecutions?: boolean;
   meta?: LifecycleActorMeta;
 }
 
@@ -734,12 +738,45 @@ function isBlockerUnresolved(blockedOn: string | null | undefined): boolean {
 }
 
 /**
- * Whether an agent execution actively owns and is working this task. Wired in
- * Phase 4 once `executions.task_id` exists; until then no execution owns a
- * task, so no transition is blocked by live agent work.
+ * Whether a non-archived agent execution owns this task. This is the durable
+ * "live owning execution" signal used by the Consider precondition and the
+ * terminal-transition guard. The finer runtime distinction (actively working
+ * vs idle) is derived at the UI layer from session activity.
  */
-function hasLiveOwningExecution(_taskId: string): boolean {
-  return false;
+function hasLiveOwningExecution(taskId: string): boolean {
+  const row = getDb()
+    .select({ id: executions.id })
+    .from(executions)
+    .where(and(eq(executions.taskId, taskId), eq(executions.status, 'active')))
+    .get();
+  return !!row;
+}
+
+/** Archive every live owning execution for a task (the coordinated-stop half of
+ * "Stop agents and change status"). The runtime cancel of a running agent is a
+ * separate UI/runtime concern; this is the durable stopped state. */
+function stopOwningExecutionsFor(taskId: string): void {
+  const now = new Date().toISOString();
+  getDb()
+    .update(executions)
+    .set({ status: 'archived', archivedAt: now, pinnedAt: null, updatedAt: now })
+    .where(and(eq(executions.taskId, taskId), eq(executions.status, 'active')))
+    .run();
+}
+
+/** Throw active_execution unless the caller opted into a coordinated stop, in
+ * which case stop the owning executions here. Used before terminal transitions. */
+function guardLiveExecutions(taskId: string, stop: boolean | undefined, action: string): void {
+  if (!hasLiveOwningExecution(taskId)) return;
+  if (stop) {
+    stopOwningExecutionsFor(taskId);
+    return;
+  }
+  throw new TaskLifecycleError(
+    'active_execution',
+    `An agent is working on this task. Stop it first, or ${action} and stop the agent together.`,
+    { taskId },
+  );
 }
 
 function recordLifecycleCommand(
@@ -851,6 +888,12 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
       }
     }
 
+    // 5b. Archiving is terminal — it cannot displace a live owning execution
+    //     without an explicit coordinated stop.
+    if (command === 'archive') {
+      guardLiveExecutions(taskId, input.stopOwningExecutions, 'archive');
+    }
+
     // 6. Apply. Status change stamps a fresh lifecycle age and bumps revision.
     const to = targetState(command);
     const now = new Date().toISOString();
@@ -880,6 +923,8 @@ export interface CompleteTaskInput {
   note?: string | null;
   idempotencyKey?: string;
   expectedRevision?: number;
+  /** Coordinated stop of a live owning execution as part of completing. */
+  stopOwningExecutions?: boolean;
   meta?: LifecycleActorMeta;
 }
 
@@ -932,6 +977,10 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
         { expected: input.expectedRevision, actual: task.lifecycleRevision },
       );
     }
+
+    // Completing is terminal — a live owning execution must be stopped first
+    // (or coordinated with stopOwningExecutions).
+    guardLiveExecutions(id, input.stopOwningExecutions, 'complete');
 
     const now = new Date().toISOString();
 
@@ -1010,6 +1059,118 @@ function computeNextRecurrence(recurrence: string, fromDate: string): string {
   }
 
   return date.toISOString();
+}
+
+// ─── Task-owned executions & review ───────────────────────────
+// A task owns zero or many executions; an execution has zero or one owning
+// task. Taskless quick work stays valid. Reading output only moves unread
+// state; review is an explicit disposition tied to the exact output event.
+
+/** Executions owned by a task, newest first. */
+export function getTaskExecutions(taskId: string): ExecutionRecord[] {
+  return getDb()
+    .select()
+    .from(executions)
+    .where(eq(executions.taskId, taskId))
+    .orderBy(desc(executions.createdAt))
+    .all();
+}
+
+/**
+ * Set (or clear) an execution's owning task. Attaching an execution already
+ * owned by a DIFFERENT task is a conflict — ownership is exclusive. Idempotent
+ * when it already points at the same task.
+ */
+export function attachExecutionToTask(executionId: string, taskId: string | null): ExecutionRecord {
+  return inEntityTx(() => {
+    const exec = getDb().select().from(executions).where(eq(executions.id, executionId)).get();
+    if (!exec) throw new TaskLifecycleError('not_found', `Execution ${executionId} not found.`);
+    if (taskId) {
+      const task = getDb().select({ id: tasks.id }).from(tasks).where(eq(tasks.id, taskId)).get();
+      if (!task) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+      if (exec.taskId && exec.taskId !== taskId) {
+        throw new TaskLifecycleError('conflict', `Execution ${executionId} is already owned by task ${exec.taskId}.`, { current: exec.taskId });
+      }
+    }
+    return getDb()
+      .update(executions)
+      .set({ taskId, updatedAt: new Date().toISOString() })
+      .where(eq(executions.id, executionId))
+      .returning()
+      .get();
+  });
+}
+
+export interface ReviewOutputInput {
+  executionId: string;
+  outputEventId: string;
+  disposition: 'accepted' | 'changes_requested' | 'dismissed';
+  actorSource?: EntityVersionSource;
+  actorSessionId?: string | null;
+  note?: string | null;
+}
+
+/**
+ * Record a review disposition against an exact output event. Append-only: the
+ * newest row for an output event is its current disposition, and new output
+ * after the last reviewed output creates a fresh obligation. Reading output
+ * never calls this.
+ */
+export function reviewExecutionOutput(input: ReviewOutputInput): ExecutionReviewRecord {
+  const exec = getDb().select({ id: executions.id }).from(executions).where(eq(executions.id, input.executionId)).get();
+  if (!exec) throw new TaskLifecycleError('not_found', `Execution ${input.executionId} not found.`);
+  return getDb()
+    .insert(executionReviews)
+    .values({
+      id: uuidv7(),
+      executionId: input.executionId,
+      outputEventId: input.outputEventId,
+      disposition: input.disposition,
+      actorSource: input.actorSource ?? 'human',
+      actorSessionId: input.actorSessionId ?? null,
+      note: input.note ?? null,
+    })
+    .returning()
+    .get();
+}
+
+/** All review events for an execution, newest first. */
+export function getExecutionReviews(executionId: string): ExecutionReviewRecord[] {
+  return getDb()
+    .select()
+    .from(executionReviews)
+    .where(eq(executionReviews.executionId, executionId))
+    .orderBy(desc(executionReviews.createdAt), desc(executionReviews.id))
+    .all();
+}
+
+/** The current (latest) disposition for a specific output event, if any. */
+export function getLatestOutputReview(outputEventId: string): ExecutionReviewRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(executionReviews)
+      .where(eq(executionReviews.outputEventId, outputEventId))
+      .orderBy(desc(executionReviews.createdAt), desc(executionReviews.id))
+      .get() ?? null
+  );
+}
+
+/** Durable lifecycle signals for a task, for badges and guards. Runtime
+ * working/needs-input/stalled are layered on top at the UI from session
+ * activity; these are the parts derivable from stored state. */
+export function getTaskLifecycleSignals(taskId: string): {
+  blocked: boolean;
+  hasLiveExecution: boolean;
+  executionCount: number;
+} {
+  const task = getDb().select({ blockedOn: tasks.blockedOn }).from(tasks).where(eq(tasks.id, taskId)).get();
+  const execs = getTaskExecutions(taskId);
+  return {
+    blocked: isBlockerUnresolved(task?.blockedOn),
+    hasLiveExecution: execs.some((e) => e.status === 'active'),
+    executionCount: execs.length,
+  };
 }
 
 // ─── Notes ────────────────────────────────────────────────────

@@ -953,6 +953,13 @@ export const executions = sqliteTable(
 
     archivedAt: text(),
 
+    // The task this execution is doing, when it owns one. One owner per
+    // execution; a task may own many executions (several attempts = one
+    // In progress outcome). Nullable: taskless quick work stays valid, and
+    // incidental task references are links, not ownership. SET NULL on task
+    // delete so the execution and its transcript survive as history.
+    taskId: text().references((): AnySQLiteColumn => tasks.id, { onDelete: 'set null' }),
+
     // Rail pin — a transient working-set marker, non-null iff pinned. The
     // value is *when* it was pinned, which orders the rail's "Pinned" group
     // (most-recently-pinned first) and stays stable as agents work (a pin is
@@ -966,9 +973,40 @@ export const executions = sqliteTable(
   },
   (table) => [
     index('idx_executions_workspace_status').on(table.workspaceId, table.status),
+    // Owning-task lookups: "executions for task T" and the live-work guard.
+    index('idx_executions_task').on(table.taskId),
     uniqueIndex('uniq_executions_takeover_token')
       .on(table.takeoverToken)
       .where(sql`${table.takeoverToken} IS NOT NULL`),
+  ],
+);
+
+// ─── Execution Reviews ────────────────────────────────────────
+// Durable review-through for agent output. A review is recorded against the
+// EXACT output event being judged, so reading output (which only moves unread
+// state) never counts as review, and new output after the last reviewed output
+// creates a fresh Review obligation. Append-only; the newest row for an output
+// event is its current disposition.
+
+export const executionReviews = sqliteTable(
+  'execution_reviews',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references(() => executions.id, { onDelete: 'cascade' }),
+    // The chat_events output event this review dispositions. Not a FK so a
+    // pruned transcript event cannot orphan the review record.
+    outputEventId: text().notNull(),
+    disposition: text({ enum: ['accepted', 'changes_requested', 'dismissed'] }).notNull(),
+    actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull().default('human'),
+    actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+    note: text(),
+  },
+  (table) => [
+    index('idx_execution_reviews_execution').on(table.executionId, table.createdAt),
+    index('idx_execution_reviews_output').on(table.outputEventId),
   ],
 );
 

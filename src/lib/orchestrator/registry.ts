@@ -28,6 +28,9 @@ import {
   updateTask,
   completeTask,
   transitionTask,
+  attachExecutionToTask,
+  getTaskExecutions,
+  reviewExecutionOutput,
   type LifecycleActorMeta,
   listNotes,
   getNote,
@@ -292,15 +295,17 @@ const complete_task_action = defineAction({
     note: z.string().optional(),
     idempotency_key: z.string().min(1).optional(),
     expected_revision: z.number().int().nonnegative().optional(),
+    stop_owning_executions: z.boolean().optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (ctx, { id, note, idempotency_key, expected_revision }) => {
+  handler: (ctx, { id, note, idempotency_key, expected_revision, stop_owning_executions }) => {
     try {
       const result = completeTask(id, {
         note,
         idempotencyKey: idempotency_key,
         expectedRevision: expected_revision,
+        stopOwningExecutions: stop_owning_executions,
         meta: lifecycleActor(ctx),
       });
       if (!result) throw new ActionError('not_found', `Task not found: ${id}`);
@@ -321,18 +326,75 @@ const transition_task_action = defineAction({
     command: z.enum(TRANSITION_COMMANDS),
     idempotency_key: z.string().min(1).optional(),
     expected_revision: z.number().int().nonnegative().optional(),
+    stop_owning_executions: z.boolean().optional(),
     reason: z.string().optional(),
   },
   mutating: true,
   cli: { positional: ['id', 'command'] },
-  handler: (ctx, { id, command, idempotency_key, expected_revision, reason }) => {
+  handler: (ctx, { id, command, idempotency_key, expected_revision, stop_owning_executions, reason }) => {
     try {
       return transitionTask({
         taskId: id,
         command,
         idempotencyKey: idempotency_key ?? uuidv7(),
         expectedRevision: expected_revision,
+        stopOwningExecutions: stop_owning_executions,
         meta: { ...lifecycleActor(ctx), reason: reason ?? null },
+      });
+    } catch (err) {
+      throwAsActionError(err);
+    }
+  },
+});
+
+const attach_execution_to_task_action = defineAction({
+  name: 'attach_execution_to_task',
+  description:
+    'Record which task an execution is doing (ownership). One owner per execution, many executions per task. Pass task_id=null to detach. Attaching an execution already owned by a different task is a conflict. This links, it does not start: use transition_task start to move the task to In progress.',
+  params: {
+    execution_id: z.string().min(1),
+    task_id: z.string().min(1).nullable(),
+  },
+  mutating: true,
+  cli: { positional: ['execution_id', 'task_id'] },
+  handler: (_ctx, { execution_id, task_id }) => {
+    try {
+      return attachExecutionToTask(execution_id, task_id);
+    } catch (err) {
+      throwAsActionError(err);
+    }
+  },
+});
+
+const list_task_executions_action = defineAction({
+  name: 'list_task_executions',
+  description: 'List the executions a task owns, newest first.',
+  params: { task_id: z.string().min(1) },
+  cli: { positional: ['task_id'] },
+  handler: (_ctx, { task_id }) => getTaskExecutions(task_id),
+});
+
+const review_execution_action = defineAction({
+  name: 'review_execution',
+  description:
+    'Record a review disposition against an exact agent output event: accepted, changes_requested, or dismissed. Reading output is NOT review. New output after the last reviewed output creates a fresh obligation. To accept and finish the task in one step, review accepted then complete_task.',
+  params: {
+    execution_id: z.string().min(1),
+    output_event_id: z.string().min(1),
+    disposition: z.enum(['accepted', 'changes_requested', 'dismissed']),
+    note: z.string().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['execution_id', 'output_event_id', 'disposition'] },
+  handler: (ctx, { execution_id, output_event_id, disposition, note }) => {
+    try {
+      return reviewExecutionOutput({
+        executionId: execution_id,
+        outputEventId: output_event_id,
+        disposition,
+        actorSource: ctx.actor?.source ?? (ctx.remote ? 'ai' : 'human'),
+        actorSessionId: ctx.actor?.sessionId ?? null,
+        note,
       });
     } catch (err) {
       throwAsActionError(err);
@@ -1996,6 +2058,9 @@ export const actions = [
   update_task_action,
   complete_task_action,
   transition_task_action,
+  attach_execution_to_task_action,
+  list_task_executions_action,
+  review_execution_action,
   list_notes_action,
   get_note_action,
   list_backlinks_action,
