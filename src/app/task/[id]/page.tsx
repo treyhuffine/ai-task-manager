@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
+import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
@@ -337,15 +338,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                   <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[12px] pb-4 border-b border-border">
                     {/* Status */}
                     <span className="text-muted-foreground font-medium">Status</span>
-                    <span
-                      className={cn(
-                        'capitalize font-medium',
-                        task.status === 'done' && 'text-emerald-500',
-                        task.status === 'archived' && 'text-muted-foreground',
-                      )}
-                    >
-                      {task.status}
-                    </span>
+                    <LifecycleStatusControl taskId={task.id} status={task.status} className="-ml-1.5" />
 
                     {/* Energy */}
                     <span className="text-muted-foreground font-medium">Energy</span>

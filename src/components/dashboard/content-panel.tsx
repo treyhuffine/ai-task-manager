@@ -16,7 +16,7 @@ import { fileUIPartToAttachment } from '@/lib/chat/file-ui-part';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import type { PanelId, PanelTab, MorePanelTab } from '@/types/dashboard';
-import { TaskList } from '@/components/tasks/task-list';
+import { TaskSurface } from '@/components/tasks/task-surface';
 import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
@@ -1075,7 +1075,7 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === 'deck' && <DeckContainer />}
         {activeTab === 'chat' && <ChatContent panelId={panelId} isMobile={!!mobileTab} />}
-        {activeTab === 'tasks' && <TaskList />}
+        {activeTab === 'tasks' && <TaskSurface />}
         {activeTab === 'stream' && <StreamList />}
         {activeTab === 'notes' && <NoteList />}
         {activeTab === 'calendar' && <CalendarPanel />}

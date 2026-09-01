@@ -4,7 +4,7 @@
  * model, so the lane definitions live here once.
  */
 
-import type { TaskStatus } from './lifecycle';
+import { canApply, type LifecycleCommand, type TaskStatus } from './lifecycle';
 
 export type TaskLane = 'current' | 'todo' | 'consider' | 'done' | 'archived';
 
@@ -41,4 +41,33 @@ export function laneStatus(lane: TaskLane): TaskStatus {
 /** The lane a task's status belongs to. */
 export function laneForStatus(status: TaskStatus): TaskLane {
   return status === 'in_progress' ? 'current' : (status as TaskLane);
+}
+
+/**
+ * The semantic lifecycle command a Kanban cross-column drop maps to, or null if
+ * the move is illegal (the drop is rejected, never silently chained through an
+ * intermediate state). Same-column drops are reorders, not transitions, and
+ * also return null here. `complete` targets the Done column (recurrence-aware),
+ * `reopen` Done→Todo, `restore` Archived→Todo.
+ */
+export function columnDropCommand(from: TaskStatus, toStatus: TaskStatus): LifecycleCommand | null {
+  if (from === toStatus) return null;
+  switch (toStatus) {
+    case 'consider':
+      return canApply('move_to_consider', from) ? 'move_to_consider' : null;
+    case 'todo':
+      if (from === 'consider') return 'move_to_todo';
+      if (from === 'in_progress') return 'return_to_todo';
+      if (from === 'done') return 'reopen';
+      if (from === 'archived') return 'restore';
+      return null;
+    case 'in_progress':
+      return canApply('start', from) ? 'start' : null;
+    case 'done':
+      return canApply('complete', from) ? 'complete' : null;
+    case 'archived':
+      return canApply('archive', from) ? 'archive' : null;
+    default:
+      return null;
+  }
 }
