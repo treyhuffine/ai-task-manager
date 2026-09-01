@@ -23,7 +23,7 @@ import { getDb } from '@/lib/db';
 import { tasks, areas, taskCompletions } from '@/lib/db/schema';
 import type { DeckItem, DeckChange, DeckOrigin } from '@/lib/db/schema';
 import type { DeckRecord } from '@/db/types';
-import { eq, and, desc, sql, isNull, isNotNull, gte, lte, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, sql, isNull, isNotNull, gte, lte, inArray } from 'drizzle-orm';
 import { getLatestDeck, supersedeAndInsertDeck, getUserState } from '@/lib/db/queries';
 import { todayLocalDate } from '@/lib/deck/date';
 import {
@@ -126,10 +126,22 @@ export async function generateDeck(
   // Phase 1: Deterministic context (DB queries)
   // ═══════════════════════════════════════════════════════════════
 
+  // The generated daily stack draws only from READY TODO: status = todo, no
+  // unresolved blocker, and not snoozed past `now`. In progress work is
+  // deliberately excluded here — it belongs in Current Work, not the generated
+  // stack (see the Deck/attention contract). Recurrence readiness is the
+  // next-occurrence-due check below.
+  const nowIso = now.toISOString();
+  const readyGate = and(
+    eq(tasks.status, 'todo'),
+    isNull(tasks.blockedOn),
+    or(isNull(tasks.resurfaceAfter), lte(tasks.resurfaceAfter, nowIso)),
+  );
+
   const activeTasks = db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.status, 'active'), isNull(tasks.parentId), isNull(tasks.blockedOn)))
+    .where(and(readyGate, isNull(tasks.parentId)))
     .orderBy(sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt))
     .limit(DECK_GENERATION_TASK_LIMIT)
     .all();
@@ -137,14 +149,7 @@ export async function generateDeck(
   const deadlineTasks = db
     .select()
     .from(tasks)
-    .where(
-      and(
-        eq(tasks.status, 'active'),
-        isNotNull(tasks.hardDeadline),
-        lte(tasks.hardDeadline, sevenDaysFromNow),
-        isNull(tasks.blockedOn),
-      ),
-    )
+    .where(and(readyGate, isNotNull(tasks.hardDeadline), lte(tasks.hardDeadline, sevenDaysFromNow)))
     .orderBy(tasks.hardDeadline)
     .all();
 
@@ -153,10 +158,10 @@ export async function generateDeck(
     .from(tasks)
     .where(
       and(
-        eq(tasks.status, 'active'),
+        eq(tasks.status, 'todo'),
+        isNull(tasks.blockedOn),
         isNotNull(tasks.recurrence),
         lte(tasks.nextRecurrenceAt, todayStr),
-        isNull(tasks.blockedOn),
       ),
     )
     .all();
@@ -174,7 +179,7 @@ export async function generateDeck(
       ? db
           .select()
           .from(tasks)
-          .where(and(eq(tasks.status, 'active'), isNotNull(tasks.parentId)))
+          .where(and(inArray(tasks.status, ['todo', 'in_progress', 'consider']), isNotNull(tasks.parentId)))
           .all()
           .filter((s) => s.parentId && taskMap.has(s.parentId))
       : [];

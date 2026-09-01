@@ -80,7 +80,7 @@ async function main() {
     .leftJoin(areas, eq(tasks.areaId, areas.id))
     .all();
 
-  const activeTasks: DbTask[] = rows.filter((r) => r.status === 'active');
+  const activeTasks: DbTask[] = rows.filter((r) => r.status !== 'done' && r.status !== 'archived');
   const taskMap = new Map(activeTasks.map((t) => [t.id, t]));
 
   if (activeTasks.length === 0) {

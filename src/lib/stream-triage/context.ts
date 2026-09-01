@@ -98,7 +98,9 @@ async function candidatesForItem(
       } else if (merge.length < MERGE_CANDIDATE_LIMIT) {
         if (hit.entityType === 'task') {
           const task = getTask(hit.entityId);
-          if (task && task.status === 'active') {
+          // A stream item merges into an OPEN task (Consider/Todo/In progress),
+          // never a terminal one.
+          if (task && task.status !== 'done' && task.status !== 'archived') {
             merge.push({ entityType: 'task', entityId: task.id, title: task.title, score: round2(hit.score), updatedAt: task.updatedAt });
           }
         } else {

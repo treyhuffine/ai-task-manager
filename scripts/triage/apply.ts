@@ -44,7 +44,9 @@ const liveById = new Map(liveRows.map((r) => [r.id, r]));
 
 const stillActive = triagedIds.filter((id) => {
   const row = liveById.get(id);
-  return row && row.status === 'active';
+  // "Still active" = not terminal (the old `active` covered everything except
+  // done/archived; that is now the open set consider|todo|in_progress).
+  return row && row.status !== 'done' && row.status !== 'archived';
 });
 const skipped = triagedIds.length - stillActive.length;
 
@@ -67,7 +69,7 @@ for (const id of stillActive) {
 
 // Active tasks not in the triage file (created since triage ran).
 const triagedSet = new Set(stillActive);
-const orphaned = liveRows.filter((r) => r.status === 'active' && !triagedSet.has(r.id));
+const orphaned = liveRows.filter((r) => r.status !== 'done' && r.status !== 'archived' && !triagedSet.has(r.id));
 
 console.log('--- Plan ---');
 console.log(`  Triaged tasks still active: ${stillActive.length}`);
