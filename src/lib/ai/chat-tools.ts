@@ -44,9 +44,9 @@ const taskTools = {
     description: 'List tasks with optional filters. Use to see what the user has to do, find tasks in a specific area, or check completed work.',
     inputSchema: z.object({
       status: z.union([
-        z.enum(['active', 'done', 'archived']),
-        z.array(z.enum(['active', 'done', 'archived'])),
-      ]).optional().default('active').describe('Filter by status. Can be a single status or array.'),
+        z.enum(['consider', 'todo', 'in_progress', 'done', 'archived', 'active']),
+        z.array(z.enum(['consider', 'todo', 'in_progress', 'done', 'archived', 'active'])),
+      ]).optional().default('active').describe('Filter by status: consider, todo, in_progress, done, or archived. "active" is an alias for current work (the todo plus in_progress union) and is the default. Can be a single status or an array.'),
       areaId: z.string().optional().describe('Filter by area ID (UUID). Call listAreas first to get the ID.'),
       parentId: z.string().optional().describe('Filter by parent task ID to get subtasks'),
       energy: z.enum(['deep', 'light']).optional().describe('Filter by energy level'),
@@ -94,7 +94,7 @@ const taskTools = {
   }),
 
   createTask: tool({
-    description: 'Create a new task. Use when the user wants to add a todo, action item, goal, or reminder. IMPORTANT: areaId and parentId must be valid UUIDs. Call listAreas or listTasks first to look up the correct ID. Do NOT pass area names as areaId.',
+    description: 'Create a new task. Use when the user wants to add a todo, action item, goal, or reminder. New tasks land in Todo (the committed queue) by default. IMPORTANT: areaId and parentId must be valid UUIDs. Call listAreas or listTasks first to look up the correct ID. Do NOT pass area names as areaId.',
     inputSchema: z.object({
       title: z.string().describe('Short title for the task'),
       description: z.string().optional().describe('Brief description of what needs to be done'),
@@ -122,7 +122,7 @@ const taskTools = {
   }),
 
   updateTask: tool({
-    description: 'Update an existing task. Can change any field: title, description, status, energy, effort, deadline, etc.',
+    description: "Update an existing task's content and metadata: title, description, body, energy, effort, deadline, area, and so on. It cannot change status. Use completeTask to complete a task, and the transition path (transition_task) for other lifecycle moves.",
     inputSchema: z.object({
       id: z.string().describe('The task ID to update'),
       title: z.string().optional().describe('New title'),
@@ -130,7 +130,7 @@ const taskTools = {
       body: z.string().optional().describe('New body content (markdown)'),
       areaId: z.string().nullish().describe('Area UUID, or null to unset'),
       parentId: z.string().nullish().describe('Parent task UUID, or null to make top-level'),
-      status: z.enum(['active', 'done', 'archived']).optional().describe('New status'),
+      status: z.enum(['active', 'done', 'archived']).optional().describe('Deprecated and ignored. update_task cannot change status. Use completeTask to complete, or the transition path (transition_task) for other lifecycle moves.'),
       energy: z.enum(['deep', 'light']).nullish().describe('Energy level'),
       effort: z.enum(['trivial', 'small', 'medium', 'large', 'epic']).nullish().describe('Effort estimate'),
       hardDeadline: z.string().nullish().describe('Deadline (ISO date), or null to clear'),
@@ -157,7 +157,7 @@ const taskTools = {
   }),
 
   deleteTask: tool({
-    description: 'Delete a task permanently. Use with caution. Prefer archiving (updateTask with status: "archived") unless the user explicitly asks to delete.',
+    description: 'Delete a task permanently. Use with caution. Prefer archiving over deleting unless the user explicitly asks to delete.',
     inputSchema: z.object({
       id: z.string().describe('The task ID to delete'),
     }),

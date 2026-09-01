@@ -42,9 +42,10 @@ Both surfaces share the same action registry — same names, same params, same r
 - **Titles are imperatives.** "Ship the new MCP" — not "New MCP" or "MCP shipping".
 - **Task energy:** `deep` (focused heads-down) or `light` (low cognitive load). Omit if unsure.
 - **Task effort:** `trivial | small | medium | large | epic`. Default to `small` when unsure.
-- **Status values:** tasks are `active | done | archived`; notes are `active | archived`.
-- **Always use `complete_task` to mark done**, never `update_task` with `status: "done"`. Completion records a `task_completions` row and rolls recurring tasks to their next occurrence.
-- **Prefer archive over delete.** There is no delete action in the agent surface — this is intentional.
+- **Status values:** tasks are `consider | todo | in_progress | done | archived`. Notes are `active | archived`. "Current" (or "active") work is the derived union of `todo` plus `in_progress`, not a stored state. New tasks default to `todo`, use `consider` only for a tentative user-owned possibility.
+- **Change lifecycle with `transition_task`** (move to todo, move to consider, start, return to todo, reopen, archive, restore). `update_task` changes content and metadata only and cannot set status. Runtime and agent-run events never change a task's lifecycle on their own.
+- **Always use `complete_task` to mark done**, never `update_task`. Completion records a `task_completions` row and rolls recurring tasks to their next occurrence.
+- **Prefer archive over delete.** There is no delete action in the agent surface, this is intentional.
 - **Task vs. note:** if there's an action implied ("do X", "follow up with Y"), it's a task. If it's pure capture (an idea, a link, a quote, a reference), it's a note.
 - **Link notes to tasks** when the note is context for a specific task — pass `task_id` on create.
 - **Link to areas** when the user's active area is known — pass `area_id`. Don't guess areas; if unsure, leave it null and the user files it later.

@@ -42,14 +42,19 @@ export async function runSeed() {
   const taskIdByTitle = new Map<string, string>();
   let createdTasks = 0;
   for (const t of seedTasks) {
-    const { area_name, parent_title, ...rest } = t;
+    const { area_name, parent_title, blocked_on_title, ...rest } = t;
     const areaId = area_name ? areaIdByName.get(area_name) ?? null : null;
     const parentId = parent_title ? taskIdByTitle.get(parent_title) ?? null : null;
+    // `blockedOn` holds the blocking task's id (the query layer resolves it to
+    // a real dependency). Reference it here by title, like `parent_title`, and
+    // let the runner swap in the id of an earlier-created task.
+    const blockedOn = blocked_on_title ? taskIdByTitle.get(blocked_on_title) ?? null : null;
     const created = queries.createTask({
       ...rest,
       rawInput: rest.rawInput ?? rest.title,
       areaId,
       parentId,
+      ...(blockedOn ? { blockedOn } : {}),
     });
     taskIdByTitle.set(created.title, created.id);
     createdTasks++;
