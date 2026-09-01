@@ -59,7 +59,9 @@ export function WeekOverlay({ open, onOpenChange, initialDate, onSelectDay, onOp
   const [monday, setMonday] = useState(() => mondayOf(initialDate));
   const [mode, setMode] = useState<WeekMode>(readMode);
   const { data } = useDayShape(monday, 7);
-  const { data: tasks } = useTasks({ status: 'active' });
+  // The commitment calendar shows Todo and In progress deadlines. Consider
+  // stays off it (it uses resurface, not the calendar).
+  const { data: tasks } = useTasks({ status: ['todo', 'in_progress'] });
 
   // Hard deadlines are date-only strings — group once, both modes render them.
   const deadlinesByDate = useMemo(() => {
