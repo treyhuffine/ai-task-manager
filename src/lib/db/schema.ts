@@ -250,6 +250,10 @@ export interface TriageDraft {
   title?: string;
   body?: string;
   description?: string;
+  /** Task promotion only. `consider` parks it as a possibility, `todo` commits
+   * it to the queue. Defaults to `todo`. Consider drops commitment-bearing
+   * fields (deadline/reminder). */
+  status?: 'consider' | 'todo';
   areaId?: string | null;
   parentId?: string | null;
   taskId?: string | null;

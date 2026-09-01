@@ -531,12 +531,16 @@ const promote_stream_action = defineAction({
   name: 'promote_stream',
   description:
     'Promote a stream item into a NEW task or note. Shape the title yourself (imperative for ' +
-    "tasks). The item's raw text and attachments carry over unless overridden. Setting " +
-    'hardDeadline or reminderAt REQUIRES evidence quoting the exact source words. Pass pass_id ' +
-    'when working inside a sweep — policy may convert the call into a proposal.',
+    "tasks). The item's raw text and attachments carry over unless overridden. For tasks, choose " +
+    'status: "todo" (commit to the queue, the default) or "consider" (park as a possibility). ' +
+    'Consider drops any deadline/reminder. Setting hardDeadline or reminderAt REQUIRES evidence ' +
+    'quoting the exact source words. Pass pass_id when working inside a sweep — policy may convert ' +
+    'the call into a proposal.',
   params: {
     id: z.string().min(1),
     to: z.enum(['task', 'note']),
+    /** Task promotion only: `todo` (default, commit) or `consider` (park). */
+    status: z.enum(['consider', 'todo']).optional(),
     /** Shaped title. Tasks: imperative ("Ship the manifest"). Optional for notes. */
     title: z.string().optional(),
     /** Override body; defaults to the item's raw text. Clean voice transcripts here. */
@@ -567,6 +571,7 @@ const promote_stream_action = defineAction({
       draft: {
         title: input.title ?? (input.to === 'task' ? firstLineTitle(item.rawText) : undefined),
         body: input.body,
+        status: input.status,
         areaId: input.areaId ?? null,
         parentId: input.parentId ?? null,
         taskId: input.taskId ?? null,

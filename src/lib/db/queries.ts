@@ -2076,17 +2076,21 @@ function executeDecisionWithin(
   switch (decision.disposition) {
     case 'promote_task':
     case 'combine_task': {
+      // Consider is a possibility, not a commitment: it never carries a
+      // deadline or reminder. Todo (the default) may.
+      const toConsider = draft.status === 'consider';
       const task = createTask({
         rawInput: joinedRaw,
         title: draft.title!.trim(),
         body: draft.body ?? joinedRaw,
         description: draft.description ?? undefined,
+        status: toConsider ? 'consider' : 'todo',
         areaId: draft.areaId ?? null,
         parentId: draft.parentId ?? null,
         energy: draft.energy ?? null,
         effort: draft.effort ?? null,
-        hardDeadline: draft.hardDeadline ?? null,
-        reminderAt: draft.reminderAt ?? null,
+        hardDeadline: toConsider ? null : draft.hardDeadline ?? null,
+        reminderAt: toConsider ? null : draft.reminderAt ?? null,
         streamItemId: items[0]?.id ?? null,
         attachments: collectItemAttachments(items),
       });
