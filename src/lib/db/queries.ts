@@ -40,7 +40,7 @@ import type {
   TriggerRecord, CreateTriggerInput, UpdateTriggerInput,
   RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun,
   EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
-  TaskStatus, NoteStatus, Energy, Effort,
+  TaskStatus, Energy, Effort,
   NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput,
   WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
   NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
