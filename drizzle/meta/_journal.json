@@ -117,15 +117,8 @@
     {
       "idx": 16,
       "version": "6",
-      "when": 1788292105133,
-      "tag": "0016_fixed_joystick",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "6",
-      "when": 1788296380482,
-      "tag": "0017_thick_bromley",
+      "when": 1788299779744,
+      "tag": "0016_glossy_slapstick",
       "breakpoints": true
     }
   ]

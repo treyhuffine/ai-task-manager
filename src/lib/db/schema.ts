@@ -435,9 +435,19 @@ export const tasks = sqliteTable(
     // Canonical lifecycle status. Enum is type-level only in SQLite (no CHECK),
     // so `active` bytes from before the lifecycle model can still be READ back
     // and are normalized to `todo` at the read boundary until the backfill
-    // (scripts/backfill-task-lifecycle.ts) rewrites them. New rows default to
-    // `todo` — the committed queue. See src/lib/tasks/lifecycle.ts.
-    status: text({ enum: TASK_STATUSES }).notNull().default('todo'),
+    // (scripts/backfill-task-lifecycle.ts) rewrites them.
+    //
+    // The SQL-level default is deliberately left at the legacy `active` and is
+    // NEVER relied upon: every insert path (createTask) sets an explicit status
+    // and defaults new tasks to `todo`. We keep the SQL default unchanged on
+    // purpose — SQLite cannot ALTER a column default, so changing it would force
+    // a full table rebuild, which reassigns rowids and desyncs the tasks_fts
+    // index. Keeping it here lets drizzle generate purely additive migrations.
+    // See src/lib/tasks/lifecycle.ts (the app-level default) for the real rule.
+    // Raw SQL default (not `.default('active')`) because `active` is no longer
+    // in the type-level enum, but it IS the existing on-disk default we must
+    // leave untouched to keep the migration additive.
+    status: text({ enum: TASK_STATUSES }).notNull().default(sql`'active'`),
     // Monotonic lifecycle revision, bumped only by semantic transitions (never
     // by generic field edits). A transition may pass an expected revision so
     // one of two racing transitions wins and the other gets a stable conflict.

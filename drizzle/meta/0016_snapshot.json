@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c3f21380-9820-49d3-a0dd-dd74f346af5b",
+  "id": "ab9a14a7-7754-4d71-8474-ff80afa1e652",
   "prevId": "d3bf29cd-daff-4211-961c-f158165b2251",
   "tables": {
     "agent_harness_operations": {
@@ -1609,6 +1609,125 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "execution_reviews": {
+      "name": "execution_reviews",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        },
+        "execution_id": {
+          "name": "execution_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "output_event_id": {
+          "name": "output_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "disposition": {
+          "name": "disposition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_source": {
+          "name": "actor_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'human'"
+        },
+        "actor_session_id": {
+          "name": "actor_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_execution_reviews_execution": {
+          "name": "idx_execution_reviews_execution",
+          "columns": [
+            "execution_id",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "idx_execution_reviews_output": {
+          "name": "idx_execution_reviews_output",
+          "columns": [
+            "output_event_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "execution_reviews_execution_id_executions_id_fk": {
+          "name": "execution_reviews_execution_id_executions_id_fk",
+          "tableFrom": "execution_reviews",
+          "tableTo": "executions",
+          "columnsFrom": [
+            "execution_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "execution_reviews_actor_session_id_chat_sessions_id_fk": {
+          "name": "execution_reviews_actor_session_id_chat_sessions_id_fk",
+          "tableFrom": "execution_reviews",
+          "tableTo": "chat_sessions",
+          "columnsFrom": [
+            "actor_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "executions": {
       "name": "executions",
       "columns": {
@@ -1785,6 +1904,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "pinned_at": {
           "name": "pinned_at",
           "type": "text",
@@ -1799,6 +1925,13 @@
           "columns": [
             "workspace_id",
             "status"
+          ],
+          "isUnique": false
+        },
+        "idx_executions_task": {
+          "name": "idx_executions_task",
+          "columns": [
+            "task_id"
           ],
           "isUnique": false
         },
@@ -1831,6 +1964,19 @@
           "tableTo": "chat_sessions",
           "columnsFrom": [
             "takeover_chat_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "executions_task_id_tasks_id_fk": {
+          "name": "executions_task_id_tasks_id_fk",
+          "tableFrom": "executions",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "task_id"
           ],
           "columnsTo": [
             "id"
@@ -3810,7 +3956,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'todo'"
+          "default": "'active'"
         },
         "lifecycle_revision": {
           "name": "lifecycle_revision",
