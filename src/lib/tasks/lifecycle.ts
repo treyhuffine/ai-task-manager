@@ -254,3 +254,51 @@ export function considerBlockers(i: ConsiderPreconditionInputs): string[] {
  * generic updates with an actionable error.
  */
 export const CONSIDER_FORBIDDEN_FIELDS = ['hardDeadline', 'recurrence', 'reminderAt'] as const;
+
+// ─── Errors ───────────────────────────────────────────────────
+
+export type LifecycleErrorCode =
+  | 'not_found'
+  | 'invalid_transition'
+  | 'conflict'
+  | 'consider_precondition'
+  | 'active_execution';
+
+/**
+ * A lifecycle command that could not be applied. Carries a stable `code` so the
+ * REST, CLI, and MCP boundaries can map it to the right envelope (a conflict is
+ * a retryable optimistic-concurrency failure, not a bug) without string
+ * matching. Never thrown for a successful idempotent replay.
+ */
+export class TaskLifecycleError extends Error {
+  code: LifecycleErrorCode;
+  details?: unknown;
+  constructor(code: LifecycleErrorCode, message: string, details?: unknown) {
+    super(message);
+    this.name = 'TaskLifecycleError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
+export function isTaskLifecycleError(err: unknown): err is TaskLifecycleError {
+  return err instanceof TaskLifecycleError;
+}
+
+/** HTTP status for each lifecycle error code, for the REST boundary. */
+export const LIFECYCLE_ERROR_HTTP_STATUS: Record<LifecycleErrorCode, number> = {
+  not_found: 404,
+  invalid_transition: 422,
+  conflict: 409,
+  consider_precondition: 422,
+  active_execution: 409,
+};
+
+/** Orchestrator ActionError code for each lifecycle error code, for CLI/MCP. */
+export const LIFECYCLE_ERROR_ACTION_CODE: Record<LifecycleErrorCode, 'not_found' | 'invalid_params' | 'conflict' | 'unsupported'> = {
+  not_found: 'not_found',
+  invalid_transition: 'invalid_params',
+  conflict: 'conflict',
+  consider_precondition: 'invalid_params',
+  active_execution: 'conflict',
+};

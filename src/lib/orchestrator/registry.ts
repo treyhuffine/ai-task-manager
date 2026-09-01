@@ -12,14 +12,23 @@
 
 import fs from 'node:fs';
 import { z } from 'zod';
-import { defineAction, ActionError } from './types';
+import { uuidv7 } from 'uuidv7';
+import { defineAction, ActionError, type ActionContext } from './types';
 import { browserActions } from './browser-actions';
+import {
+  TASK_STATUSES,
+  TRANSITION_COMMANDS,
+  isTaskLifecycleError,
+  LIFECYCLE_ERROR_ACTION_CODE,
+} from '@/lib/tasks/lifecycle';
 import {
   listTasks,
   getTask,
   createTask,
   updateTask,
   completeTask,
+  transitionTask,
+  type LifecycleActorMeta,
   listNotes,
   getNote,
   createNote,
@@ -113,10 +122,34 @@ import {
 
 // ── Schema fragments ─────────────────────────────────────────────
 
-const taskStatus = z.enum(['active', 'done', 'archived']);
+// Read filters accept every canonical status plus the legacy `active` alias
+// (expanded to todo|in_progress by the query layer during the compat window).
+const taskStatusFilter = z.enum([...TASK_STATUSES, 'active']);
+// Generic creation may only start a task as a possibility (Consider) or a
+// commitment (Todo). In progress / Done / Archived are reached through the
+// semantic lifecycle commands (start / complete / archive), never at creation.
+const taskCreateStatus = z.enum(['consider', 'todo']);
 const taskEnergy = z.enum(['deep', 'light']);
 const taskEffort = z.enum(['trivial', 'small', 'medium', 'large', 'epic']);
 const noteStatus = z.enum(['active', 'archived']);
+
+/** Build a lifecycle actor meta from the action context provenance. */
+function lifecycleActor(ctx: ActionContext): LifecycleActorMeta {
+  return {
+    source: ctx.actor?.source ?? (ctx.remote ? 'ai' : 'human'),
+    actorSessionId: ctx.actor?.sessionId ?? null,
+    executionId: ctx.actor?.executionId ?? null,
+    runId: ctx.actor?.runId ?? null,
+  };
+}
+
+/** Map a query-layer lifecycle error to the orchestrator envelope. */
+function throwAsActionError(err: unknown): never {
+  if (isTaskLifecycleError(err)) {
+    throw new ActionError(LIFECYCLE_ERROR_ACTION_CODE[err.code], err.message);
+  }
+  throw err;
+}
 
 // Inputs mirror CreateTaskInput / CreateNoteInput but only expose the fields
 // it's safe for an agent to set. Derived/audit columns (createdAt, updatedAt,
@@ -128,7 +161,7 @@ const taskCreateShape = {
   areaId: z.string().nullable().optional(),
   workspaceId: z.string().nullable().optional(),
   parentId: z.string().nullable().optional(),
-  status: taskStatus.optional(),
+  status: taskCreateStatus.optional(),
   energy: taskEnergy.nullable().optional(),
   effort: taskEffort.nullable().optional(),
   hardDeadline: z.string().nullable().optional(),
@@ -189,7 +222,7 @@ const list_tasks_action = defineAction({
   name: 'list_tasks',
   description: 'List tasks with optional filters (status, area, parent, energy, text search).',
   params: {
-    status: z.union([taskStatus, z.array(taskStatus)]).optional(),
+    status: z.union([taskStatusFilter, z.array(taskStatusFilter)]).optional(),
     areaId: z.string().nullable().optional(),
     parentId: z.string().nullable().optional(),
     energy: taskEnergy.optional(),
@@ -225,20 +258,26 @@ const create_task_action = defineAction({
 
 const update_task_action = defineAction({
   name: 'update_task',
-  description: 'Update a task by id. All fields optional. Unspecified fields keep their value.',
+  description:
+    'Update a task by id (content and metadata only). All fields optional; unspecified fields keep their value. ' +
+    'Lifecycle status is NOT settable here — use transition_task (move_to_todo / move_to_consider / start / return_to_todo / reopen / archive / restore) or complete_task, so history, idempotency, and invariants hold.',
   params: {
     id: z.string().min(1),
+    // `status` is intentionally excluded — generic updates never change
+    // lifecycle. Any status a caller sends is dropped by Zod (unknown key).
     ...Object.fromEntries(
-      Object.entries(taskCreateShape).map(([k, v]) => [k, (v as z.ZodTypeAny).optional()]),
+      Object.entries(taskCreateShape)
+        .filter(([k]) => k !== 'status')
+        .map(([k, v]) => [k, (v as z.ZodTypeAny).optional()]),
     ),
-  } as typeof taskCreateShape & { id: z.ZodString },
+  } as Omit<typeof taskCreateShape, 'status'> & { id: z.ZodString },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, input) => {
+  handler: (ctx, input) => {
     const { id, ...rest } = input as { id: string } & Partial<z.infer<z.ZodObject<typeof taskCreateShape>>>;
     // Edits through the agent surface (CLI/MCP) are attributed to the agent
     // so the in-document chat can surface a reviewable diff + one-tap undo.
-    const row = updateTask(id, rest, { source: 'ai' });
+    const row = updateTask(id, rest, { source: ctx.actor?.source ?? 'ai' });
     if (!row) throw new ActionError('not_found', `Task not found: ${id}`);
     return row;
   },
@@ -247,17 +286,57 @@ const update_task_action = defineAction({
 const complete_task_action = defineAction({
   name: 'complete_task',
   description:
-    'Mark a task complete. Recurring tasks roll to the next occurrence instead of closing.',
+    'Complete a task (its outcome happened and was accepted). Records one completion. Recurring tasks advance to the next occurrence and return to Todo instead of closing. A completed agent run alone never completes a task. Safe under retry when given the same idempotency_key.',
   params: {
     id: z.string().min(1),
     note: z.string().optional(),
+    idempotency_key: z.string().min(1).optional(),
+    expected_revision: z.number().int().nonnegative().optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, { id, note }) => {
-    const result = completeTask(id, note);
-    if (!result) throw new ActionError('not_found', `Task not found: ${id}`);
-    return result;
+  handler: (ctx, { id, note, idempotency_key, expected_revision }) => {
+    try {
+      const result = completeTask(id, {
+        note,
+        idempotencyKey: idempotency_key,
+        expectedRevision: expected_revision,
+        meta: lifecycleActor(ctx),
+      });
+      if (!result) throw new ActionError('not_found', `Task not found: ${id}`);
+      return result;
+    } catch (err) {
+      if (err instanceof ActionError) throw err;
+      throwAsActionError(err);
+    }
+  },
+});
+
+const transition_task_action = defineAction({
+  name: 'transition_task',
+  description:
+    'Apply a semantic task lifecycle transition. Commands: move_to_todo (Consider->Todo, commit), move_to_consider (Todo->Consider, uncommit; rejected while the task has a deadline/recurrence/blocker/live execution), start (Consider|Todo->In progress), return_to_todo (In progress->Todo), reopen (Done->Todo), archive (Consider|Todo|In progress->Archived), restore (Archived->Todo). Use complete_task to finish. Safe under retry with the same idempotency_key; pass expected_revision for conflict detection.',
+  params: {
+    id: z.string().min(1),
+    command: z.enum(TRANSITION_COMMANDS),
+    idempotency_key: z.string().min(1).optional(),
+    expected_revision: z.number().int().nonnegative().optional(),
+    reason: z.string().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id', 'command'] },
+  handler: (ctx, { id, command, idempotency_key, expected_revision, reason }) => {
+    try {
+      return transitionTask({
+        taskId: id,
+        command,
+        idempotencyKey: idempotency_key ?? uuidv7(),
+        expectedRevision: expected_revision,
+        meta: { ...lifecycleActor(ctx), reason: reason ?? null },
+      });
+    } catch (err) {
+      throwAsActionError(err);
+    }
   },
 });
 
@@ -1911,6 +1990,7 @@ export const actions = [
   create_task_action,
   update_task_action,
   complete_task_action,
+  transition_task_action,
   list_notes_action,
   get_note_action,
   list_backlinks_action,

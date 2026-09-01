@@ -44,6 +44,20 @@ export async function PATCH(
     const { id } = await params;
     const body: UpdateTaskInput = await request.json();
 
+    // Generic PATCH updates content/metadata only. Lifecycle status changes go
+    // through POST /api/tasks/:id/transition (or /complete) so history,
+    // idempotency, and invariants hold. Reject a status here rather than
+    // silently dropping it, so a mis-wired caller finds out.
+    if ('status' in (body as Record<string, unknown>)) {
+      return Response.json(
+        {
+          error: 'status is not editable via PATCH. Use POST /api/tasks/:id/transition or /complete.',
+          code: 'invalid_transition',
+        },
+        { status: 422 },
+      );
+    }
+
     const row = updateTask(id, body);
     if (!row) {
       return Response.json({ error: 'Task not found' }, { status: 404 });

@@ -19,6 +19,18 @@ export interface ActionContext {
    * Security-sensitive actions may tighten behavior when remote=true.
    */
   remote: boolean;
+  /**
+   * Optional provenance so lifecycle history (and other audited writes) can
+   * attribute the human or agent, the chat session, and the execution/run
+   * behind a command. Populated by the transport when known; absent falls back
+   * to a transport-derived default (remote => ai, local => human).
+   */
+  actor?: {
+    source?: 'human' | 'ai' | 'system';
+    sessionId?: string | null;
+    executionId?: string | null;
+    runId?: string | null;
+  };
 }
 
 export class ActionError extends Error {

@@ -1,8 +1,15 @@
 import { NextRequest } from 'next/server';
 import { listTasks, createTask } from '@/lib/db/queries';
-import type { CreateTaskInput } from '@/db/types';
+import type { CreateTaskInput, TaskStatusFilter } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
 import { toTaskListDTOs } from '@/lib/api/dto/entity-list';
+import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
+
+// Read filters accept every canonical status plus the legacy `active` alias.
+const ACCEPTED_STATUS_FILTERS = new Set<string>([...TASK_STATUSES, 'active']);
+// Generic creation may only start a task as Consider or Todo. Other states are
+// reached through the lifecycle transition / complete endpoints.
+const CREATE_STATUSES = new Set<string>(['consider', 'todo']);
 
 // Compressed: this route can ship hundreds of KB of JSON, and Next 16
 // does not compress route handlers. See lib/api/compression.ts.
@@ -12,10 +19,13 @@ async function handleGET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
 
+    const rawStatus = params.get('status');
+    const statusFilter = rawStatus
+      ? (rawStatus.split(',').filter((s) => ACCEPTED_STATUS_FILTERS.has(s)) as TaskStatusFilter[])
+      : undefined;
+
     const rows = listTasks({
-      status: params.get('status')
-        ? (params.get('status')!.split(',') as ('active' | 'done' | 'archived')[])
-        : undefined,
+      status: statusFilter && statusFilter.length > 0 ? statusFilter : undefined,
       areaId: params.get('areaId') ?? undefined,
       parentId: params.get('parentId') ?? undefined,
       energy: (params.get('energy') as 'deep' | 'light') ?? undefined,
@@ -39,9 +49,18 @@ export async function POST(request: NextRequest) {
     const body: CreateTaskInput = await request.json();
 
     if (!body.title || !body.rawInput) {
+      return Response.json({ error: 'title and rawInput are required' }, { status: 400 });
+    }
+
+    // Reject a non-canonical or lifecycle-restricted create status at runtime,
+    // rather than trusting the TypeScript cast.
+    if (body.status != null && !CREATE_STATUSES.has(body.status)) {
       return Response.json(
-        { error: 'title and rawInput are required' },
-        { status: 400 }
+        {
+          error: `Cannot create a task directly as "${body.status}". Create it as consider or todo, then use the lifecycle transition / complete endpoints.`,
+          code: 'invalid_transition',
+        },
+        { status: 422 },
       );
     }
 

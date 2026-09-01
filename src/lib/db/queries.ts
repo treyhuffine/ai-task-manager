@@ -7,7 +7,7 @@ import nodePath from 'node:path';
 import os from 'node:os';
 import { getDb, getRawDb } from '@/lib/db';
 import {
-  tasks, notes, areas, stream, taskCompletions, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
+  tasks, notes, areas, stream, taskCompletions, taskLifecycleCommands, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
   workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -69,7 +69,20 @@ import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
-import { normalizeTaskStatus, type TaskStatus as LifecycleTaskStatus } from '@/lib/tasks/lifecycle';
+import {
+  normalizeTaskStatus,
+  canApply,
+  targetState,
+  transitionLabel,
+  availableCommands,
+  considerBlockers,
+  isTerminal,
+  TaskLifecycleError,
+  type TransitionCommand,
+  type LifecycleCommand,
+  type TaskStatus as LifecycleTaskStatus,
+} from '@/lib/tasks/lifecycle';
+import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import {
@@ -620,12 +633,19 @@ export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVers
       : undefined;
 
   const rest = withoutAttachments(input);
-  // Normalize any status a generic update carries so no `active` byte is ever
-  // (re)written. NOTE: lifecycle-sensitive status changes are moved off this
-  // generic path onto the semantic transition chokepoint in Phase 2 — this
-  // normalization is the compatibility-window backstop until then.
-  if (Object.prototype.hasOwnProperty.call(rest, 'status') && rest.status != null) {
-    rest.status = normalizeTaskStatus(rest.status);
+  // Generic updates NEVER change lifecycle status. The only sanctioned status
+  // path is the semantic chokepoint (transitionTask / completeTask), which
+  // bumps the revision, stamps lifecycle age, and writes the append-only
+  // ledger. Drop any status the caller sent, and warn if it would have moved
+  // the task — a mis-wired caller, not a silent lifecycle change.
+  if (Object.prototype.hasOwnProperty.call(rest, 'status')) {
+    const attempted = normalizeTaskStatus((rest as { status?: string }).status);
+    if (attempted !== existing.status) {
+      console.warn(
+        `[queries] updateTask ignored a status change for ${id} (${existing.status} -> ${attempted}); use transitionTask/completeTask.`,
+      );
+    }
+    delete (rest as { status?: unknown }).status;
   }
   const row = inEntityTx(() => {
     const updated = hydrateRow(db
@@ -661,52 +681,311 @@ export function deleteTask(id: string): boolean {
   return true;
 }
 
-export function completeTask(id: string, note?: string): { task: TaskRecord; recurring: boolean; nextRecurrenceAt?: string } | null {
-  const db = getDb();
+// ─── Lifecycle command chokepoint ─────────────────────────────
+// Every semantic lifecycle change (the transitions AND completion) funnels
+// through here so all of them share one discipline: an immediate transaction,
+// an optional expected-revision guard, a durable idempotency replay, an
+// append-only ledger row, provenance capture, and mirror sync. Generic
+// `update_task` never changes lifecycle status (see the guard in updateTask's
+// callers / REST parsing) — this is the only sanctioned status-mutation path.
 
-  const taskRaw = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
-  if (!taskRaw) return null;
-  const task = normalizeTaskRow(taskRaw);
+/** Provenance threaded from the mutation caller onto the lifecycle ledger. */
+export interface LifecycleActorMeta {
+  source?: EntityVersionSource; // 'human' | 'ai' | 'system'
+  actorSessionId?: string | null;
+  executionId?: string | null;
+  runId?: string | null;
+  reason?: string | null;
+}
 
-  const now = new Date().toISOString();
+export interface TransitionTaskInput {
+  taskId: string;
+  command: TransitionCommand;
+  /** Durable caller-supplied key. A retry with the same (task, key) replays the
+   * original recorded result rather than re-applying — safe across lost
+   * responses and even after the task later moved through other states. */
+  idempotencyKey: string;
+  /** Optimistic-concurrency guard. If provided and stale, throws `conflict`. */
+  expectedRevision?: number;
+  meta?: LifecycleActorMeta;
+}
 
-  if (task.recurrence) {
-    db.insert(taskCompletions).values({
+export interface LifecycleOutcome {
+  task: TaskRecord;
+  fromStatus: TaskStatus;
+  toStatus: TaskStatus;
+  revision: number;
+  recurring?: boolean;
+  nextRecurrenceAt?: string | null;
+  /** True when an idempotent replay returned the original recorded result. */
+  replayed: boolean;
+}
+
+/**
+ * A `blocked_on` reference is unresolved unless it names a task that is now
+ * terminal (Done/Archived). Free-text blockers that are not a known task id
+ * count as unresolved — we cannot prove resolution. Empty = not blocked.
+ */
+function isBlockerUnresolved(blockedOn: string | null | undefined): boolean {
+  if (!blockedOn) return false;
+  const dep = getDb().select({ status: tasks.status }).from(tasks).where(eq(tasks.id, blockedOn)).get();
+  if (!dep) return true;
+  return !isTerminal(normalizeTaskStatus(dep.status));
+}
+
+/**
+ * Whether an agent execution actively owns and is working this task. Wired in
+ * Phase 4 once `executions.task_id` exists; until then no execution owns a
+ * task, so no transition is blocked by live agent work.
+ */
+function hasLiveOwningExecution(_taskId: string): boolean {
+  return false;
+}
+
+function recordLifecycleCommand(
+  taskId: string,
+  idempotencyKey: string,
+  command: LifecycleCommand,
+  from: string,
+  to: string,
+  revision: number,
+  meta: LifecycleActorMeta | undefined,
+  result: LifecycleCommandResult,
+): void {
+  getDb()
+    .insert(taskLifecycleCommands)
+    .values({
       id: uuidv7(),
-      taskId: id,
-      completedAt: now,
-      note: note ?? null,
-    }).run();
+      taskId,
+      idempotencyKey,
+      command,
+      fromStatus: from,
+      toStatus: to,
+      revision,
+      actorSource: meta?.source ?? 'human',
+      actorSessionId: meta?.actorSessionId ?? null,
+      executionId: meta?.executionId ?? null,
+      runId: meta?.runId ?? null,
+      reason: meta?.reason ?? null,
+      result,
+    })
+    .run();
+}
 
-    const nextDate = computeNextRecurrence(task.recurrence, now);
+/** Look up a prior ledger row for an idempotent replay. */
+function priorLifecycleCommand(taskId: string, idempotencyKey: string) {
+  return getDb()
+    .select()
+    .from(taskLifecycleCommands)
+    .where(and(eq(taskLifecycleCommands.taskId, taskId), eq(taskLifecycleCommands.idempotencyKey, idempotencyKey)))
+    .get();
+}
 
-    const updated = hydrateRow(db
-      .update(tasks)
-      .set({ nextRecurrenceAt: nextDate, lastProgressAt: now, updatedAt: now })
-      .where(eq(tasks.id, id))
-      .returning()
-      .get());
+/**
+ * Apply a semantic lifecycle transition. The single sanctioned path for
+ * move_to_todo / move_to_consider / start / return_to_todo / reopen / archive /
+ * restore. Throws {@link TaskLifecycleError} with a stable code on not_found,
+ * invalid_transition, conflict, or consider_precondition. Never throws on an
+ * idempotent replay.
+ */
+export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
+  const { taskId, command, idempotencyKey } = input;
+  return inEntityTx(() => {
+    // 1. Idempotent replay — a retry of this exact command returns the original
+    //    result even if the task has since moved elsewhere.
+    const prior = priorLifecycleCommand(taskId, idempotencyKey);
+    if (prior) {
+      const task = getTask(taskId);
+      if (!task) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+      const res = prior.result;
+      return {
+        task,
+        fromStatus: res.fromStatus as TaskStatus,
+        toStatus: res.toStatus as TaskStatus,
+        revision: res.revision,
+        recurring: res.recurring,
+        nextRecurrenceAt: res.nextRecurrenceAt ?? null,
+        replayed: true,
+      };
+    }
 
-    void syncEntity('task', updated.id);
-    return { task: normalizeTaskRow(updated), recurring: true, nextRecurrenceAt: nextDate };
-  } else {
-    const updated = hydrateRow(db
-      .update(tasks)
-      .set({ status: 'done', completedAt: now, updatedAt: now })
-      .where(eq(tasks.id, id))
-      .returning()
-      .get());
+    // 2. Load and normalize.
+    const raw = hydrateRow(getDb().select().from(tasks).where(eq(tasks.id, taskId)).get());
+    if (!raw) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+    const task = normalizeTaskRow(raw);
+    const from = task.status;
 
-    db.insert(taskCompletions).values({
-      id: uuidv7(),
-      taskId: id,
-      completedAt: now,
-      note: note ?? null,
-    }).run();
+    // 3. Transition legality.
+    if (!canApply(command, from)) {
+      const valid = availableCommands(from).join(', ') || 'none';
+      throw new TaskLifecycleError(
+        'invalid_transition',
+        `Cannot ${transitionLabel(command)} a task that is ${from}. Valid actions from ${from}: ${valid}.`,
+        { from, command },
+      );
+    }
 
-    void syncEntity('task', updated.id);
-    return { task: normalizeTaskRow(updated), recurring: false };
-  }
+    // 4. Optimistic-concurrency guard.
+    if (input.expectedRevision != null && input.expectedRevision !== task.lifecycleRevision) {
+      throw new TaskLifecycleError(
+        'conflict',
+        `Task changed since it was loaded (expected revision ${input.expectedRevision}, now ${task.lifecycleRevision}). Reload and retry.`,
+        { expected: input.expectedRevision, actual: task.lifecycleRevision },
+      );
+    }
+
+    // 5. Consider preconditions — never silently cleared; surfaced instead.
+    if (command === 'move_to_consider') {
+      const reasons = considerBlockers({
+        hardDeadline: task.hardDeadline ?? null,
+        recurrence: task.recurrence ?? null,
+        hasUnresolvedBlocker: isBlockerUnresolved(task.blockedOn),
+        hasLiveOwningExecution: hasLiveOwningExecution(taskId),
+      });
+      if (reasons.length) {
+        throw new TaskLifecycleError(
+          'consider_precondition',
+          `Cannot move to Consider while this task has ${reasons.join(', ')}. Resolve or remove ${reasons.length > 1 ? 'those' : 'that'} first.`,
+          { reasons },
+        );
+      }
+    }
+
+    // 6. Apply. Status change stamps a fresh lifecycle age and bumps revision.
+    const to = targetState(command);
+    const now = new Date().toISOString();
+    const nextRevision = task.lifecycleRevision + 1;
+    const patch: Partial<typeof tasks.$inferInsert> = {
+      status: to,
+      lifecycleRevision: nextRevision,
+      lifecycleStateSince: now,
+      updatedAt: now,
+    };
+    // Reopen clears CURRENT completion fields; the task_completions history and
+    // its evidence are preserved.
+    if (command === 'reopen') patch.completedAt = null;
+
+    const updated = hydrateRow(getDb().update(tasks).set(patch).where(eq(tasks.id, taskId)).returning().get());
+
+    // 7. Ledger + mirror (status drives frontmatter and archive placement).
+    const result: LifecycleCommandResult = { fromStatus: from, toStatus: to, revision: nextRevision };
+    recordLifecycleCommand(taskId, idempotencyKey, command, from, to, nextRevision, input.meta, result);
+    void syncEntity('task', taskId);
+
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: to, revision: nextRevision, replayed: false };
+  }, true);
+}
+
+export interface CompleteTaskInput {
+  note?: string | null;
+  idempotencyKey?: string;
+  expectedRevision?: number;
+  meta?: LifecycleActorMeta;
+}
+
+/**
+ * Complete a task. The only completion command: it records exactly one
+ * `task_completions` occurrence and (for recurring tasks) advances recurrence
+ * and ends WIP by returning the task to Todo. Transactional, revision-bumping,
+ * and retry-safe via the same idempotency ledger as {@link transitionTask} — a
+ * retry with the same key never duplicates completion history or double-advances
+ * a recurrence. Returns null if the task does not exist; throws
+ * {@link TaskLifecycleError} on an illegal completion or a stale revision.
+ */
+export function completeTask(id: string, input: CompleteTaskInput = {}): LifecycleOutcome | null {
+  const idempotencyKey = input.idempotencyKey ?? uuidv7();
+  return inEntityTx(() => {
+    // Idempotent replay.
+    const prior = priorLifecycleCommand(id, idempotencyKey);
+    if (prior) {
+      const task = getTask(id);
+      if (!task) return null;
+      const res = prior.result;
+      return {
+        task,
+        fromStatus: res.fromStatus as TaskStatus,
+        toStatus: res.toStatus as TaskStatus,
+        revision: res.revision,
+        recurring: res.recurring,
+        nextRecurrenceAt: res.nextRecurrenceAt ?? null,
+        replayed: true,
+      };
+    }
+
+    const raw = hydrateRow(getDb().select().from(tasks).where(eq(tasks.id, id)).get());
+    if (!raw) return null;
+    const task = normalizeTaskRow(raw);
+    const from = task.status;
+
+    if (!canApply('complete', from)) {
+      const valid = availableCommands(from).join(', ') || 'none';
+      throw new TaskLifecycleError(
+        'invalid_transition',
+        `Cannot complete a task that is ${from}. Valid actions from ${from}: ${valid}.`,
+        { from, command: 'complete' },
+      );
+    }
+    if (input.expectedRevision != null && input.expectedRevision !== task.lifecycleRevision) {
+      throw new TaskLifecycleError(
+        'conflict',
+        `Task changed since it was loaded (expected revision ${input.expectedRevision}, now ${task.lifecycleRevision}). Reload and retry.`,
+        { expected: input.expectedRevision, actual: task.lifecycleRevision },
+      );
+    }
+
+    const now = new Date().toISOString();
+
+    // Exactly one completion occurrence, whether or not recurring.
+    getDb().insert(taskCompletions).values({ id: uuidv7(), taskId: id, completedAt: now, note: input.note ?? null }).run();
+
+    if (task.recurrence) {
+      // Recurring: record the occurrence, advance once, end WIP -> Todo. The
+      // cadence anchors to the scheduled occurrence, not completion time.
+      const nextDate = computeNextRecurrence(task.recurrence, now);
+      const statusChanged = from !== 'todo';
+      const nextRevision = statusChanged ? task.lifecycleRevision + 1 : task.lifecycleRevision;
+      const updated = hydrateRow(
+        getDb()
+          .update(tasks)
+          .set({
+            status: 'todo',
+            nextRecurrenceAt: nextDate,
+            lastProgressAt: now,
+            updatedAt: now,
+            lifecycleRevision: nextRevision,
+            ...(statusChanged ? { lifecycleStateSince: now } : {}),
+          })
+          .where(eq(tasks.id, id))
+          .returning()
+          .get(),
+      );
+      const result: LifecycleCommandResult = {
+        fromStatus: from,
+        toStatus: 'todo',
+        revision: nextRevision,
+        recurring: true,
+        nextRecurrenceAt: nextDate,
+      };
+      recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'todo', nextRevision, input.meta, result);
+      void syncEntity('task', id);
+      return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'todo', revision: nextRevision, recurring: true, nextRecurrenceAt: nextDate, replayed: false };
+    }
+
+    // Non-recurring: close it out.
+    const nextRevision = task.lifecycleRevision + 1;
+    const updated = hydrateRow(
+      getDb()
+        .update(tasks)
+        .set({ status: 'done', completedAt: now, updatedAt: now, lifecycleRevision: nextRevision, lifecycleStateSince: now })
+        .where(eq(tasks.id, id))
+        .returning()
+        .get(),
+    );
+    const result: LifecycleCommandResult = { fromStatus: from, toStatus: 'done', revision: nextRevision, recurring: false };
+    recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'done', nextRevision, input.meta, result);
+    void syncEntity('task', id);
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', revision: nextRevision, recurring: false, replayed: false };
+  }, true);
 }
 
 function computeNextRecurrence(recurrence: string, fromDate: string): string {

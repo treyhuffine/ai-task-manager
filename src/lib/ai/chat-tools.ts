@@ -173,14 +173,14 @@ const taskTools = {
   }),
 
   completeTask: tool({
-    description: 'Mark a task as done. For recurring tasks, this logs a completion and bumps the next recurrence date while keeping the task active.',
+    description: 'Mark a task as done (its outcome happened and was accepted). For recurring tasks, this logs one completion, advances the recurrence, and returns the task to Todo for the next occurrence.',
     inputSchema: z.object({
       id: z.string().describe('The task ID to complete'),
       note: z.string().optional().describe('Optional completion note'),
     }),
     execute: async ({ id, note }) => {
       try {
-        const result = completeTask(id, note);
+        const result = completeTask(id, { note, meta: { source: 'ai' } });
         if (!result) return { error: 'Task not found' };
         return {
           id: result.task.id,
