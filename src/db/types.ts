@@ -3,14 +3,14 @@
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
-  userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, notes, decks, apiKeys,
+  userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, taskLifecycleCommands, notes, decks, apiKeys,
   workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
-export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition } from '@/lib/db/schema';
+export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition, LifecycleCommandResult } from '@/lib/db/schema';
 
 /**
  * Override the `attachments` column type on a record. Drizzle infers the
@@ -88,6 +88,12 @@ export type TaskListRecord = TaskRecord & { subtaskCount: number; subtaskPreview
 export type CreateTaskInput = WithCamelAttachments<Omit<InferInsertModel<typeof tasks>, 'id'>>;
 export type UpdateTaskInput = Partial<CreateTaskInput>;
 export type TaskStatus = NonNullable<TaskRecord['status']>;
+/**
+ * Status accepted by read filters. Includes the legacy `active` alias, which
+ * the query layer expands to the derived current union `todo | in_progress`
+ * (and matches un-backfilled `active` bytes) during the compatibility window.
+ */
+export type TaskStatusFilter = TaskStatus | 'active';
 export type Energy = NonNullable<TaskRecord['energy']>;
 export type Effort = NonNullable<TaskRecord['effort']>;
 
@@ -95,6 +101,11 @@ export type Effort = NonNullable<TaskRecord['effort']>;
 
 export type TaskCompletionRecord = InferSelectModel<typeof taskCompletions>;
 export type CreateTaskCompletionInput = Omit<InferInsertModel<typeof taskCompletions>, 'id'>;
+
+// ─── Task Lifecycle Commands ──────────────────────────────────
+
+export type TaskLifecycleCommandRecord = InferSelectModel<typeof taskLifecycleCommands>;
+export type CreateTaskLifecycleCommandInput = Omit<InferInsertModel<typeof taskLifecycleCommands>, 'id'>;
 
 // ─── Notes ────────────────────────────────────────────────────
 
@@ -327,7 +338,7 @@ export interface AreaFilter {
 }
 
 export interface TaskFilter {
-  status?: TaskStatus | TaskStatus[];
+  status?: TaskStatusFilter | TaskStatusFilter[];
   areaId?: string | null;
   workspaceId?: string | null;
   parentId?: string | null;

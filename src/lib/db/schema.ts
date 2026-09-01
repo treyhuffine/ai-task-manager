@@ -11,6 +11,7 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import type { SnakeizeKeys } from '@/lib/case/keys';
+import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
 
 // ─── Attachments ──────────────────────────────────────────────
 // Generic file reference stored on any entity that can carry uploads.
@@ -427,9 +428,20 @@ export const tasks = sqliteTable(
     resurfaceAfter: text(),
     attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
     foldedHeadings: text({ mode: 'json' }).$type<string[]>().default([]),
-    status: text({ enum: ['active', 'done', 'archived'] })
-      .notNull()
-      .default('active'),
+    // Canonical lifecycle status. Enum is type-level only in SQLite (no CHECK),
+    // so `active` bytes from before the lifecycle model can still be READ back
+    // and are normalized to `todo` at the read boundary until the backfill
+    // (scripts/backfill-task-lifecycle.ts) rewrites them. New rows default to
+    // `todo` — the committed queue. See src/lib/tasks/lifecycle.ts.
+    status: text({ enum: TASK_STATUSES }).notNull().default('todo'),
+    // Monotonic lifecycle revision, bumped only by semantic transitions (never
+    // by generic field edits). A transition may pass an expected revision so
+    // one of two racing transitions wins and the other gets a stable conflict.
+    lifecycleRevision: integer().notNull().default(0),
+    // ISO timestamp the task entered its CURRENT status — powers current-state
+    // age (how long In progress / Blocked). Null for legacy rows until their
+    // first semantic transition: their state-entry time is unknown, not zero.
+    lifecycleStateSince: text(),
     sortKey: text(),
     blockedOn: text(),
     blockedSince: text(),
@@ -467,6 +479,73 @@ export const taskCompletions = sqliteTable(
     note: text(),
   },
   (table) => [index('idx_task_completions_task_id').on(table.taskId)],
+);
+
+// ─── Task Lifecycle Commands ──────────────────────────────────
+// Append-only ledger of every semantic lifecycle transition. Its job is
+// twofold: durable idempotency (a retried command with the same task-scoped
+// key returns the ORIGINAL recorded result instead of re-applying) and
+// provenance/history (who/what moved the task, when, and why). Never updated
+// in place. See src/lib/tasks/lifecycle.ts and the query chokepoint.
+
+/** Replayable outcome of a lifecycle command, stored so a lost response can be
+ * reconstructed byte-for-byte on retry. */
+export interface LifecycleCommandResult {
+  /** Canonical status the task held before the command. */
+  fromStatus: string;
+  /** Canonical status the task holds after the command. */
+  toStatus: string;
+  /** Lifecycle revision after the command applied. */
+  revision: number;
+  /** True when the command was a recurrence completion (recorded an occurrence
+   * and reset to todo rather than closing). */
+  recurring?: boolean;
+  /** Next occurrence timestamp when the command advanced a recurrence. */
+  nextRecurrenceAt?: string | null;
+  /** Owning execution created/attached by an agent-start variant, when any. */
+  executionId?: string | null;
+}
+
+export const taskLifecycleCommands = sqliteTable(
+  'task_lifecycle_commands',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    taskId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => tasks.id, { onDelete: 'cascade' }),
+    // Caller-supplied durable key. Unique PER TASK so a retry of the exact same
+    // command replays; the same key on a different task is a different command.
+    idempotencyKey: text().notNull(),
+    // Semantic command name (a LifecycleCommand). Freeform text, kept additive.
+    command: text().notNull(),
+    // Canonical states either side of the transition (text, not the enum, so a
+    // legacy source value recorded during the compatibility window is legible).
+    fromStatus: text().notNull(),
+    toStatus: text().notNull(),
+    // Lifecycle revision AFTER this command applied.
+    revision: integer().notNull(),
+    // Who authored it: human (UI / trusted CLI), ai (agent via MCP), system.
+    actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull().default('human'),
+    // Optional provenance, attributed when known.
+    actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, {
+      onDelete: 'set null',
+    }),
+    executionId: text().references((): AnySQLiteColumn => executions.id, {
+      onDelete: 'set null',
+    }),
+    runId: text().references((): AnySQLiteColumn => runs.id, { onDelete: 'set null' }),
+    reason: text(),
+    // Full replayable result (see LifecycleCommandResult).
+    result: text({ mode: 'json' }).$type<LifecycleCommandResult>().notNull(),
+  },
+  (table) => [
+    // The idempotency chokepoint: one row per (task, key). A retry hits this
+    // and returns `result` instead of re-applying.
+    uniqueIndex('uniq_task_lifecycle_commands_task_key').on(table.taskId, table.idempotencyKey),
+    // History for a task, newest first.
+    index('idx_task_lifecycle_commands_task').on(table.taskId, table.createdAt),
+  ],
 );
 
 // ─── Decks ────────────────────────────────────────────────────

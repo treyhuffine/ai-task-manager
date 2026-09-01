@@ -69,6 +69,7 @@ import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
+import { normalizeTaskStatus, type TaskStatus as LifecycleTaskStatus } from '@/lib/tasks/lifecycle';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import {
@@ -81,16 +82,49 @@ import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
+/**
+ * Normalize a just-read task row's status at the read boundary: legacy `active`
+ * bytes (and any unknown value) become `todo` so no surface downstream ever
+ * sees a non-canonical status. Cheap identity return when already canonical.
+ */
+function normalizeTaskRow<T extends { status: string }>(row: T): T {
+  const normalized = normalizeTaskStatus(row.status);
+  return normalized === row.status ? row : ({ ...row, status: normalized } as T);
+}
+
+/**
+ * Expand a status filter for the compatibility window. A legacy `active`
+ * filter means the derived current union `todo | in_progress`, and also matches
+ * any not-yet-backfilled `active` bytes still on disk so pre-backfill rows keep
+ * showing. Canonical values pass through unchanged.
+ */
+function expandStatusFilter(input: TaskFilter['status']): string[] {
+  const arr = Array.isArray(input) ? input : input ? [input] : [];
+  const out = new Set<string>();
+  for (const s of arr) {
+    if (s === 'active') {
+      out.add('todo');
+      out.add('in_progress');
+      out.add('active');
+    } else {
+      out.add(s);
+    }
+  }
+  return [...out];
+}
+
 export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   const db = getDb();
   const conditions: SQL[] = [];
 
   if (filter.status) {
-    const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
+    // Casts are runtime-safe: SQLite compares status as text, and the legacy
+    // `active` token is intentionally outside the canonical enum type.
+    const statuses = expandStatusFilter(filter.status);
     if (statuses.length === 1) {
-      conditions.push(eq(tasks.status, statuses[0]));
+      conditions.push(eq(tasks.status, statuses[0] as LifecycleTaskStatus));
     } else {
-      conditions.push(inArray(tasks.status, statuses));
+      conditions.push(inArray(tasks.status, statuses as LifecycleTaskStatus[]));
     }
   }
 
@@ -129,12 +163,13 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
     .limit(limit)
     .offset(offset)
     .all();
-  return rows.map((r) => hydrateRow(r));
+  return rows.map((r) => normalizeTaskRow(hydrateRow(r)));
 }
 
 export function getTask(id: string): TaskRecord | undefined {
   const db = getDb();
-  return hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
+  const row = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
+  return row ? normalizeTaskRow(row) : undefined;
 }
 
 /** Tasks carry free-form markdown in both `description` and `body`. The
@@ -538,7 +573,12 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
         ...rest,
         rawInput: input.rawInput ?? input.title,
         id: uuidv7(),
-        status: input.status ?? 'active',
+        // Generic creation defaults to Todo, the committed queue. A legacy
+        // `active` from an in-flight caller normalizes to Todo too.
+        status: normalizeTaskStatus(input.status ?? 'todo'),
+        // A freshly created task enters its status now, so its lifecycle age is
+        // known from creation (unlike mechanically backfilled legacy rows).
+        lifecycleStateSince: now,
         contextTags: input.contextTags ?? [],
         attachments: dehydrateAttachments(attachments) ?? [],
         timesDeferred: 0,
@@ -552,14 +592,15 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
   });
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
-  return row;
+  return normalizeTaskRow(row);
 }
 
 export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVersionMeta): TaskRecord | null {
   const db = getDb();
 
-  const existing = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
-  if (!existing) return null;
+  const existingRaw = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
+  if (!existingRaw) return null;
+  const existing = normalizeTaskRow(existingRaw);
 
   // Re-derive the manifest if body or description changed, or if the client
   // explicitly sent new attachment metadata. Otherwise preserve what's on disk.
@@ -579,6 +620,13 @@ export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVers
       : undefined;
 
   const rest = withoutAttachments(input);
+  // Normalize any status a generic update carries so no `active` byte is ever
+  // (re)written. NOTE: lifecycle-sensitive status changes are moved off this
+  // generic path onto the semantic transition chokepoint in Phase 2 — this
+  // normalization is the compatibility-window backstop until then.
+  if (Object.prototype.hasOwnProperty.call(rest, 'status') && rest.status != null) {
+    rest.status = normalizeTaskStatus(rest.status);
+  }
   const row = inEntityTx(() => {
     const updated = hydrateRow(db
       .update(tasks)
@@ -597,8 +645,8 @@ export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVers
   });
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
-  captureEntityVersion('task', row.id, taskSnapshot(existing), taskSnapshot(row), meta, existing.updatedAt);
-  return row;
+  captureEntityVersion('task', row.id, taskSnapshot(existing), taskSnapshot(normalizeTaskRow(row)), meta, existing.updatedAt);
+  return normalizeTaskRow(row);
 }
 
 export function deleteTask(id: string): boolean {
@@ -616,8 +664,9 @@ export function deleteTask(id: string): boolean {
 export function completeTask(id: string, note?: string): { task: TaskRecord; recurring: boolean; nextRecurrenceAt?: string } | null {
   const db = getDb();
 
-  const task = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
-  if (!task) return null;
+  const taskRaw = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
+  if (!taskRaw) return null;
+  const task = normalizeTaskRow(taskRaw);
 
   const now = new Date().toISOString();
 
@@ -639,7 +688,7 @@ export function completeTask(id: string, note?: string): { task: TaskRecord; rec
       .get());
 
     void syncEntity('task', updated.id);
-    return { task: updated, recurring: true, nextRecurrenceAt: nextDate };
+    return { task: normalizeTaskRow(updated), recurring: true, nextRecurrenceAt: nextDate };
   } else {
     const updated = hydrateRow(db
       .update(tasks)
@@ -656,7 +705,7 @@ export function completeTask(id: string, note?: string): { task: TaskRecord; rec
     }).run();
 
     void syncEntity('task', updated.id);
-    return { task: updated, recurring: false };
+    return { task: normalizeTaskRow(updated), recurring: false };
   }
 }
 
@@ -840,7 +889,10 @@ function taskSnapshot(t: TaskRecord): EntityVersionSnapshot {
     title: t.title ?? null,
     body: t.body ?? '',
     description: t.description ?? null,
-    status: t.status,
+    // Recorded for history/diff only, normalized so no snapshot preserves a
+    // legacy `active`. Lifecycle is NOT restored on revert (see
+    // snapshotToTaskInput) — reverting text never moves a task between lanes.
+    status: normalizeTaskStatus(t.status),
     energy: t.energy ?? null,
     effort: t.effort ?? null,
     hardDeadline: t.hardDeadline ?? null,
@@ -941,11 +993,14 @@ export function getEntityVersion(id: string): EntityVersionRecord | null {
 }
 
 function snapshotToTaskInput(snap: EntityVersionSnapshot): UpdateTaskInput {
+  // Content-only restore. Lifecycle `status` and completion metadata are
+  // deliberately NOT restored: an undo of an edit must never silently
+  // un-complete a task or move it between lanes. Lifecycle changes only ever
+  // happen through an explicit semantic transition command.
   return {
     ...(snap.title != null ? { title: snap.title } : {}),
     body: snap.body,
     description: snap.description ?? null,
-    ...(snap.status ? { status: snap.status as TaskStatus } : {}),
     energy: (snap.energy ?? null) as Energy | null,
     effort: (snap.effort ?? null) as Effort | null,
     hardDeadline: snap.hardDeadline ?? null,
@@ -958,11 +1013,12 @@ function snapshotToTaskInput(snap: EntityVersionSnapshot): UpdateTaskInput {
 }
 
 function snapshotToNoteInput(snap: EntityVersionSnapshot): UpdateNoteInput {
+  // Content-only restore (see snapshotToTaskInput). Note `status`
+  // (active/archived) is a lifecycle field and is not rewound by a content undo.
   return {
     title: snap.title,
     body: snap.body,
     url: snap.url ?? null,
-    ...(snap.status ? { status: snap.status as NoteStatus } : {}),
   };
 }
 
