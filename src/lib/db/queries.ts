@@ -7,7 +7,7 @@ import nodePath from 'node:path';
 import os from 'node:os';
 import { getDb, getRawDb } from '@/lib/db';
 import {
-  tasks, notes, areas, stream, taskCompletions, taskLifecycleCommands, executionReviews, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
+  tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
   workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -31,7 +31,7 @@ import type {
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
   AgentRecord, CreateAgentInput,
-  ExecutionRecord, ExecutionReviewRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
+  ExecutionRecord, ExecutionReviewRecord, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
@@ -591,7 +591,7 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
         status: normalizeTaskStatus(input.status ?? 'todo'),
         // A freshly created task enters its status now, so its lifecycle age is
         // known from creation (unlike mechanically backfilled legacy rows).
-        lifecycleStateSince: now,
+        statusChangedAt: now,
         contextTags: input.contextTags ?? [],
         attachments: dehydrateAttachments(attachments) ?? [],
         timesDeferred: 0,
@@ -705,8 +705,9 @@ export interface TransitionTaskInput {
    * original recorded result rather than re-applying — safe across lost
    * responses and even after the task later moved through other states. */
   idempotencyKey: string;
-  /** Optimistic-concurrency guard. If provided and stale, throws `conflict`. */
-  expectedRevision?: number;
+  /** Optimistic-concurrency guard: the status_changed_count the caller last
+   * saw. If provided and stale, throws `conflict`. */
+  expectedStatusChangedCount?: number;
   /** Coordinated stop: archive any live owning execution as part of this same
    * transaction before applying a terminal transition. Without it, archiving a
    * task with a live owning execution throws `active_execution`. */
@@ -718,7 +719,7 @@ export interface LifecycleOutcome {
   task: TaskRecord;
   fromStatus: TaskStatus;
   toStatus: TaskStatus;
-  revision: number;
+  statusChangedCount: number;
   recurring?: boolean;
   nextRecurrenceAt?: string | null;
   /** True when an idempotent replay returned the original recorded result. */
@@ -747,20 +748,29 @@ function hasLiveOwningExecution(taskId: string): boolean {
   const row = getDb()
     .select({ id: executions.id })
     .from(executions)
-    .where(and(eq(executions.taskId, taskId), eq(executions.status, 'active')))
+    .innerJoin(executionTasks, eq(executionTasks.executionId, executions.id))
+    .where(and(eq(executionTasks.taskId, taskId), eq(executions.status, 'active')))
     .get();
   return !!row;
 }
 
-/** Archive every live owning execution for a task (the coordinated-stop half of
+/** Archive every live execution owning a task (the coordinated-stop half of
  * "Stop agents and change status"). The runtime cancel of a running agent is a
  * separate UI/runtime concern; this is the durable stopped state. */
 function stopOwningExecutionsFor(taskId: string): void {
   const now = new Date().toISOString();
+  const owners = getDb()
+    .select({ id: executionTasks.executionId })
+    .from(executionTasks)
+    .innerJoin(executions, eq(executions.id, executionTasks.executionId))
+    .where(and(eq(executionTasks.taskId, taskId), eq(executions.status, 'active')))
+    .all()
+    .map((r) => r.id);
+  if (owners.length === 0) return;
   getDb()
     .update(executions)
     .set({ status: 'archived', archivedAt: now, pinnedAt: null, updatedAt: now })
-    .where(and(eq(executions.taskId, taskId), eq(executions.status, 'active')))
+    .where(inArray(executions.id, owners))
     .run();
 }
 
@@ -785,12 +795,12 @@ function recordLifecycleCommand(
   command: LifecycleCommand,
   from: string,
   to: string,
-  revision: number,
+  statusChangedCount: number,
   meta: LifecycleActorMeta | undefined,
   result: LifecycleCommandResult,
 ): void {
   getDb()
-    .insert(taskLifecycleCommands)
+    .insert(taskStatusChanges)
     .values({
       id: uuidv7(),
       taskId,
@@ -798,7 +808,7 @@ function recordLifecycleCommand(
       command,
       fromStatus: from,
       toStatus: to,
-      revision,
+      statusChangedCount,
       actorSource: meta?.source ?? 'human',
       actorSessionId: meta?.actorSessionId ?? null,
       executionId: meta?.executionId ?? null,
@@ -813,8 +823,8 @@ function recordLifecycleCommand(
 function priorLifecycleCommand(taskId: string, idempotencyKey: string) {
   return getDb()
     .select()
-    .from(taskLifecycleCommands)
-    .where(and(eq(taskLifecycleCommands.taskId, taskId), eq(taskLifecycleCommands.idempotencyKey, idempotencyKey)))
+    .from(taskStatusChanges)
+    .where(and(eq(taskStatusChanges.taskId, taskId), eq(taskStatusChanges.idempotencyKey, idempotencyKey)))
     .get();
 }
 
@@ -839,7 +849,7 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
         task,
         fromStatus: res.fromStatus as TaskStatus,
         toStatus: res.toStatus as TaskStatus,
-        revision: res.revision,
+        statusChangedCount: res.statusChangedCount,
         recurring: res.recurring,
         nextRecurrenceAt: res.nextRecurrenceAt ?? null,
         replayed: true,
@@ -863,11 +873,11 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
     }
 
     // 4. Optimistic-concurrency guard.
-    if (input.expectedRevision != null && input.expectedRevision !== task.lifecycleRevision) {
+    if (input.expectedStatusChangedCount != null && input.expectedStatusChangedCount !== task.statusChangedCount) {
       throw new TaskLifecycleError(
         'conflict',
-        `Task changed since it was loaded (expected revision ${input.expectedRevision}, now ${task.lifecycleRevision}). Reload and retry.`,
-        { expected: input.expectedRevision, actual: task.lifecycleRevision },
+        `Task changed since it was loaded (expected status-change count ${input.expectedStatusChangedCount}, now ${task.statusChangedCount}). Reload and retry.`,
+        { expected: input.expectedStatusChangedCount, actual: task.statusChangedCount },
       );
     }
 
@@ -897,11 +907,11 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
     // 6. Apply. Status change stamps a fresh lifecycle age and bumps revision.
     const to = targetState(command);
     const now = new Date().toISOString();
-    const nextRevision = task.lifecycleRevision + 1;
+    const nextCount = task.statusChangedCount + 1;
     const patch: Partial<typeof tasks.$inferInsert> = {
       status: to,
-      lifecycleRevision: nextRevision,
-      lifecycleStateSince: now,
+      statusChangedCount: nextCount,
+      statusChangedAt: now,
       updatedAt: now,
     };
     // Reopen clears CURRENT completion fields; the task_completions history and
@@ -911,18 +921,18 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
     const updated = hydrateRow(getDb().update(tasks).set(patch).where(eq(tasks.id, taskId)).returning().get());
 
     // 7. Ledger + mirror (status drives frontmatter and archive placement).
-    const result: LifecycleCommandResult = { fromStatus: from, toStatus: to, revision: nextRevision };
-    recordLifecycleCommand(taskId, idempotencyKey, command, from, to, nextRevision, input.meta, result);
+    const result: LifecycleCommandResult = { fromStatus: from, toStatus: to, statusChangedCount: nextCount };
+    recordLifecycleCommand(taskId, idempotencyKey, command, from, to, nextCount, input.meta, result);
     void syncEntity('task', taskId);
 
-    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: to, revision: nextRevision, replayed: false };
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: to, statusChangedCount: nextCount, replayed: false };
   }, true);
 }
 
 export interface CompleteTaskInput {
   note?: string | null;
   idempotencyKey?: string;
-  expectedRevision?: number;
+  expectedStatusChangedCount?: number;
   /** Coordinated stop of a live owning execution as part of completing. */
   stopOwningExecutions?: boolean;
   meta?: LifecycleActorMeta;
@@ -950,7 +960,7 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
         task,
         fromStatus: res.fromStatus as TaskStatus,
         toStatus: res.toStatus as TaskStatus,
-        revision: res.revision,
+        statusChangedCount: res.statusChangedCount,
         recurring: res.recurring,
         nextRecurrenceAt: res.nextRecurrenceAt ?? null,
         replayed: true,
@@ -970,11 +980,11 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
         { from, command: 'complete' },
       );
     }
-    if (input.expectedRevision != null && input.expectedRevision !== task.lifecycleRevision) {
+    if (input.expectedStatusChangedCount != null && input.expectedStatusChangedCount !== task.statusChangedCount) {
       throw new TaskLifecycleError(
         'conflict',
-        `Task changed since it was loaded (expected revision ${input.expectedRevision}, now ${task.lifecycleRevision}). Reload and retry.`,
-        { expected: input.expectedRevision, actual: task.lifecycleRevision },
+        `Task changed since it was loaded (expected status-change count ${input.expectedStatusChangedCount}, now ${task.statusChangedCount}). Reload and retry.`,
+        { expected: input.expectedStatusChangedCount, actual: task.statusChangedCount },
       );
     }
 
@@ -992,7 +1002,7 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
       // cadence anchors to the scheduled occurrence, not completion time.
       const nextDate = computeNextRecurrence(task.recurrence, now);
       const statusChanged = from !== 'todo';
-      const nextRevision = statusChanged ? task.lifecycleRevision + 1 : task.lifecycleRevision;
+      const nextCount = statusChanged ? task.statusChangedCount + 1 : task.statusChangedCount;
       const updated = hydrateRow(
         getDb()
           .update(tasks)
@@ -1001,8 +1011,8 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
             nextRecurrenceAt: nextDate,
             lastProgressAt: now,
             updatedAt: now,
-            lifecycleRevision: nextRevision,
-            ...(statusChanged ? { lifecycleStateSince: now } : {}),
+            statusChangedCount: nextCount,
+            ...(statusChanged ? { statusChangedAt: now } : {}),
           })
           .where(eq(tasks.id, id))
           .returning()
@@ -1011,29 +1021,29 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
       const result: LifecycleCommandResult = {
         fromStatus: from,
         toStatus: 'todo',
-        revision: nextRevision,
+        statusChangedCount: nextCount,
         recurring: true,
         nextRecurrenceAt: nextDate,
       };
-      recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'todo', nextRevision, input.meta, result);
+      recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'todo', nextCount, input.meta, result);
       void syncEntity('task', id);
-      return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'todo', revision: nextRevision, recurring: true, nextRecurrenceAt: nextDate, replayed: false };
+      return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'todo', statusChangedCount: nextCount, recurring: true, nextRecurrenceAt: nextDate, replayed: false };
     }
 
     // Non-recurring: close it out.
-    const nextRevision = task.lifecycleRevision + 1;
+    const nextCount = task.statusChangedCount + 1;
     const updated = hydrateRow(
       getDb()
         .update(tasks)
-        .set({ status: 'done', completedAt: now, updatedAt: now, lifecycleRevision: nextRevision, lifecycleStateSince: now })
+        .set({ status: 'done', completedAt: now, updatedAt: now, statusChangedCount: nextCount, statusChangedAt: now })
         .where(eq(tasks.id, id))
         .returning()
         .get(),
     );
-    const result: LifecycleCommandResult = { fromStatus: from, toStatus: 'done', revision: nextRevision, recurring: false };
-    recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'done', nextRevision, input.meta, result);
+    const result: LifecycleCommandResult = { fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false };
+    recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'done', nextCount, input.meta, result);
     void syncEntity('task', id);
-    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', revision: nextRevision, recurring: false, replayed: false };
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false, replayed: false };
   }, true);
 }
 
@@ -1062,43 +1072,66 @@ function computeNextRecurrence(recurrence: string, fromDate: string): string {
 }
 
 // ─── Task-owned executions & review ───────────────────────────
-// A task owns zero or many executions; an execution has zero or one owning
-// task. Taskless quick work stays valid. Reading output only moves unread
-// state; review is an explicit disposition tied to the exact output event.
+// Ownership is many-to-many via `execution_tasks`: a task can be worked by many
+// executions (several attempts = one In progress outcome), and an execution can
+// own many tasks (a batch with shared context). Taskless quick work has no rows.
+// Reading output only moves unread state; review is an explicit disposition tied
+// to the exact output event.
 
-/** Executions owned by a task, newest first. */
+/** Executions owning a task, newest first. */
 export function getTaskExecutions(taskId: string): ExecutionRecord[] {
   return getDb()
-    .select()
+    .select(getTableColumns(executions))
     .from(executions)
-    .where(eq(executions.taskId, taskId))
+    .innerJoin(executionTasks, eq(executionTasks.executionId, executions.id))
+    .where(eq(executionTasks.taskId, taskId))
     .orderBy(desc(executions.createdAt))
     .all();
 }
 
+/** Tasks an execution owns, newest ownership first. */
+export function getExecutionTasks(executionId: string): TaskRecord[] {
+  const rows = getDb()
+    .select(getTableColumns(tasks))
+    .from(tasks)
+    .innerJoin(executionTasks, eq(executionTasks.taskId, tasks.id))
+    .where(eq(executionTasks.executionId, executionId))
+    .orderBy(desc(executionTasks.createdAt))
+    .all();
+  return rows.map((r) => normalizeTaskRow(hydrateRow(r)));
+}
+
 /**
- * Set (or clear) an execution's owning task. Attaching an execution already
- * owned by a DIFFERENT task is a conflict — ownership is exclusive. Idempotent
- * when it already points at the same task.
+ * Record that an execution owns a task. Many-to-many, so it simply ensures the
+ * (execution, task) pair exists — idempotent, never a conflict. Both must exist.
  */
-export function attachExecutionToTask(executionId: string, taskId: string | null): ExecutionRecord {
+export function attachExecutionToTask(executionId: string, taskId: string): ExecutionTaskRecord {
   return inEntityTx(() => {
-    const exec = getDb().select().from(executions).where(eq(executions.id, executionId)).get();
+    const exec = getDb().select({ id: executions.id }).from(executions).where(eq(executions.id, executionId)).get();
     if (!exec) throw new TaskLifecycleError('not_found', `Execution ${executionId} not found.`);
-    if (taskId) {
-      const task = getDb().select({ id: tasks.id }).from(tasks).where(eq(tasks.id, taskId)).get();
-      if (!task) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
-      if (exec.taskId && exec.taskId !== taskId) {
-        throw new TaskLifecycleError('conflict', `Execution ${executionId} is already owned by task ${exec.taskId}.`, { current: exec.taskId });
-      }
-    }
+    const task = getDb().select({ id: tasks.id }).from(tasks).where(eq(tasks.id, taskId)).get();
+    if (!task) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+    const existing = getDb()
+      .select()
+      .from(executionTasks)
+      .where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId)))
+      .get();
+    if (existing) return existing;
     return getDb()
-      .update(executions)
-      .set({ taskId, updatedAt: new Date().toISOString() })
-      .where(eq(executions.id, executionId))
+      .insert(executionTasks)
+      .values({ id: uuidv7(), executionId, taskId })
       .returning()
       .get();
   });
+}
+
+/** Remove an ownership pair. Returns true if a row was removed. */
+export function detachExecutionFromTask(executionId: string, taskId: string): boolean {
+  const res = getDb()
+    .delete(executionTasks)
+    .where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId)))
+    .run();
+  return res.changes > 0;
 }
 
 export interface ReviewOutputInput {

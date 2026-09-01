@@ -44,6 +44,13 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - `updated_at` adds `.$onUpdate()` returning `(datetime('now'))` so it bumps on every write, not just insert. A plain default only fires on insert, leaving `updated_at` stuck equal to `created_at`.
 - Declare timestamps at table creation, never reorder them onto an existing table. Position is cosmetic and not worth a migration, and retrofitting a NOT-NULL timestamp onto a populated table is not cleanly autogeneratable (drizzle-kit either fails the ADD COLUMN or emits a broken rebuild). New timestamp columns go on nullable, then backfill, then enforce NOT NULL.
 
+## Column defaults
+
+- SQLite cannot `ALTER` a column default (there is no `SET`/`DROP DEFAULT`). Changing or removing a default is the one thing that forces drizzle-kit into a full table rebuild, which reassigns rowids and desyncs any external-content FTS5 index keyed by rowid (e.g. `tasks_fts`, `notes_fts`, `stream_fts`). So a default that later needs to change is a trap.
+- Use DB defaults freely for STRUCTURAL, invariant values: `(datetime('now'))` timestamps, empty JSON collections (`[]`), zero counters (`0`), and boolean flags. These never need to change.
+- Do NOT put a DB default on a column whose default encodes a POLICY or business choice that could change (e.g. an entity's initial status). Set that value explicitly in the query layer (as `createTask` does with `status: 'todo'`) and either omit the DB default or treat any pre-existing one as inert. That keeps the policy in one place and never requires a rebuild.
+- If you must change/remove a default on a populated table, do NOT accept drizzle's generated table rebuild. Hand-roll a rowid-safe column swap in the migration (`RENAME COLUMN x TO x_old` / `ADD COLUMN x ... DEFAULT ...` / `UPDATE x = x_old` / drop dependent indexes / `DROP COLUMN x_old` / recreate the indexes). Column-level ALTERs preserve rowids, so FTS stays intact. See `drizzle/0016_lyrical_network.sql`.
+
 ## Attachments
 
 One generic attachment system across the whole app:

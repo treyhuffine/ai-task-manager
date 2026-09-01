@@ -14,7 +14,7 @@ export interface LifecycleResult {
   task: TaskRecord;
   fromStatus: TaskStatus;
   toStatus: TaskStatus;
-  revision: number;
+  statusChangedCount: number;
   recurring?: boolean;
   nextRecurrenceAt?: string | null;
   replayed: boolean;
@@ -43,7 +43,7 @@ export const tasksApi = {
 
   complete(
     id: string,
-    opts: { note?: string; idempotencyKey?: string; expectedRevision?: number } = {},
+    opts: { note?: string; idempotencyKey?: string; expectedStatusChangedCount?: number } = {},
   ): Promise<LifecycleResult> {
     return api.post(`/tasks/${id}/complete`, opts);
   },
@@ -53,7 +53,7 @@ export const tasksApi = {
   transition(
     id: string,
     command: TransitionCommand,
-    opts: { idempotencyKey?: string; expectedRevision?: number; reason?: string } = {},
+    opts: { idempotencyKey?: string; expectedStatusChangedCount?: number; reason?: string } = {},
   ): Promise<LifecycleResult> {
     return api.post(`/tasks/${id}/transition`, { command, ...opts });
   },

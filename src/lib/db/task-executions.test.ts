@@ -29,21 +29,34 @@ async function setup() {
 }
 
 describe('task-owned executions', () => {
-  it('attaches an execution to a task, exclusively', async () => {
+  it('owns tasks many-to-many: an execution can own several tasks, a task several executions', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'Do the thing', rawInput: 'x' });
     const other = q.createTask({ title: 'Other', rawInput: 'y' });
     const exec = q.createExecution({ workspaceId: wsId });
+    const exec2 = q.createExecution({ workspaceId: wsId });
 
-    const owned = q.attachExecutionToTask(exec.id, task.id);
-    expect(owned.taskId).toBe(task.id);
+    q.attachExecutionToTask(exec.id, task.id);
     expect(q.getTaskExecutions(task.id).map((e) => e.id)).toEqual([exec.id]);
 
-    // Idempotent re-attach to the same task is fine.
-    expect(q.attachExecutionToTask(exec.id, task.id).taskId).toBe(task.id);
+    // Idempotent re-attach of the same pair.
+    const a = q.attachExecutionToTask(exec.id, task.id);
+    const b = q.attachExecutionToTask(exec.id, task.id);
+    expect(a.id).toBe(b.id);
+    expect(q.getTaskExecutions(task.id)).toHaveLength(1);
 
-    // Attaching to a different task is a conflict (exclusive ownership).
-    expect(() => q.attachExecutionToTask(exec.id, other.id)).toThrowError(/already owned/);
+    // Same execution can also own a SECOND task (a batch with shared context).
+    q.attachExecutionToTask(exec.id, other.id);
+    expect(q.getExecutionTasks(exec.id).map((t) => t.id).sort()).toEqual([task.id, other.id].sort());
+
+    // A task can be worked by a SECOND execution.
+    q.attachExecutionToTask(exec2.id, task.id);
+    expect(q.getTaskExecutions(task.id).map((e) => e.id).sort()).toEqual([exec.id, exec2.id].sort());
+
+    // Detach removes just that pair.
+    expect(q.detachExecutionFromTask(exec.id, other.id)).toBe(true);
+    expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]);
+    expect(q.detachExecutionFromTask(exec.id, other.id)).toBe(false);
   });
 
   it('blocks archiving a task with a live owning execution, unless coordinated', async () => {

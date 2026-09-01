@@ -6,7 +6,7 @@ import { isTaskLifecycleError, isTransitionCommand, LIFECYCLE_ERROR_HTTP_STATUS 
 /**
  * Apply a semantic lifecycle transition to a task. The only HTTP path (besides
  * /complete) that changes lifecycle status — generic PATCH cannot. Body:
- *   { command, idempotencyKey?, expectedRevision?, reason? }
+ *   { command, idempotencyKey?, expectedStatusChangedCount?, reason? }
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       taskId: id,
       command: body.command,
       idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : uuidv7(),
-      expectedRevision: typeof body.expectedRevision === 'number' ? body.expectedRevision : undefined,
+      expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
       meta: { source: 'human', reason: typeof body.reason === 'string' ? body.reason : null },
     });
 

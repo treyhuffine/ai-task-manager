@@ -3,8 +3,8 @@
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type {
-  userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, taskLifecycleCommands, notes, decks, apiKeys,
-  workspaces, referenceFolders, agents, executions, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys,
+  workspaces, referenceFolders, agents, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
@@ -102,10 +102,10 @@ export type Effort = NonNullable<TaskRecord['effort']>;
 export type TaskCompletionRecord = InferSelectModel<typeof taskCompletions>;
 export type CreateTaskCompletionInput = Omit<InferInsertModel<typeof taskCompletions>, 'id'>;
 
-// ─── Task Lifecycle Commands ──────────────────────────────────
+// ─── Task Status Changes ──────────────────────────────────────
 
-export type TaskLifecycleCommandRecord = InferSelectModel<typeof taskLifecycleCommands>;
-export type CreateTaskLifecycleCommandInput = Omit<InferInsertModel<typeof taskLifecycleCommands>, 'id'>;
+export type TaskStatusChangeRecord = InferSelectModel<typeof taskStatusChanges>;
+export type CreateTaskStatusChangeInput = Omit<InferInsertModel<typeof taskStatusChanges>, 'id'>;
 
 // ─── Notes ────────────────────────────────────────────────────
 
@@ -208,6 +208,8 @@ export type ExecutionStatus = ExecutionRecord['status'];
 export type ExecutionReviewRecord = InferSelectModel<typeof executionReviews>;
 export type CreateExecutionReviewInput = Omit<InferInsertModel<typeof executionReviews>, 'id' | 'createdAt' | 'updatedAt'>;
 export type ReviewDisposition = ExecutionReviewRecord['disposition'];
+
+export type ExecutionTaskRecord = InferSelectModel<typeof executionTasks>;
 
 // ─── Preview Targets ──────────────────────────────────────────
 

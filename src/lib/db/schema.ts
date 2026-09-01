@@ -437,25 +437,20 @@ export const tasks = sqliteTable(
     // and are normalized to `todo` at the read boundary until the backfill
     // (scripts/backfill-task-lifecycle.ts) rewrites them.
     //
-    // The SQL-level default is deliberately left at the legacy `active` and is
-    // NEVER relied upon: every insert path (createTask) sets an explicit status
-    // and defaults new tasks to `todo`. We keep the SQL default unchanged on
-    // purpose — SQLite cannot ALTER a column default, so changing it would force
-    // a full table rebuild, which reassigns rowids and desyncs the tasks_fts
-    // index. Keeping it here lets drizzle generate purely additive migrations.
-    // See src/lib/tasks/lifecycle.ts (the app-level default) for the real rule.
-    // Raw SQL default (not `.default('active')`) because `active` is no longer
-    // in the type-level enum, but it IS the existing on-disk default we must
-    // leave untouched to keep the migration additive.
-    status: text({ enum: TASK_STATUSES }).notNull().default(sql`'active'`),
-    // Monotonic lifecycle revision, bumped only by semantic transitions (never
-    // by generic field edits). A transition may pass an expected revision so
+    // New tasks default to `todo`. The SQL-level default is set to `todo` by a
+    // rowid-safe column swap in the migration (RENAME/ADD/UPDATE/DROP), NOT the
+    // full table rebuild drizzle would otherwise emit for a default change —
+    // SQLite's rebuild reassigns rowids and desyncs the tasks_fts index, while
+    // column-level ALTERs preserve rowids. See the migration for the swap.
+    status: text({ enum: TASK_STATUSES }).notNull().default('todo'),
+    // Monotonic counter, incremented on every status change. Its only job is
+    // optimistic concurrency: a transition may pass the count it last saw so
     // one of two racing transitions wins and the other gets a stable conflict.
-    lifecycleRevision: integer().notNull().default(0),
+    statusChangedCount: integer().notNull().default(0),
     // ISO timestamp the task entered its CURRENT status — powers current-state
     // age (how long In progress / Blocked). Null for legacy rows until their
     // first semantic transition: their state-entry time is unknown, not zero.
-    lifecycleStateSince: text(),
+    statusChangedAt: text(),
     sortKey: text(),
     blockedOn: text(),
     blockedSince: text(),
@@ -495,22 +490,22 @@ export const taskCompletions = sqliteTable(
   (table) => [index('idx_task_completions_task_id').on(table.taskId)],
 );
 
-// ─── Task Lifecycle Commands ──────────────────────────────────
-// Append-only ledger of every semantic lifecycle transition. Its job is
-// twofold: durable idempotency (a retried command with the same task-scoped
-// key returns the ORIGINAL recorded result instead of re-applying) and
-// provenance/history (who/what moved the task, when, and why). Never updated
-// in place. See src/lib/tasks/lifecycle.ts and the query chokepoint.
+// ─── Task Status Changes ──────────────────────────────────────
+// Append-only ledger of every semantic status change (lifecycle transition).
+// Its job is twofold: durable idempotency (a retried command with the same
+// task-scoped key returns the ORIGINAL recorded result instead of re-applying)
+// and provenance/history (who/what moved the task, when, and why). Never
+// updated in place. See src/lib/tasks/lifecycle.ts and the query chokepoint.
 
-/** Replayable outcome of a lifecycle command, stored so a lost response can be
- * reconstructed byte-for-byte on retry. */
+/** Replayable outcome of a status-change command, stored so a lost response can
+ * be reconstructed byte-for-byte on retry. */
 export interface LifecycleCommandResult {
   /** Canonical status the task held before the command. */
   fromStatus: string;
   /** Canonical status the task holds after the command. */
   toStatus: string;
-  /** Lifecycle revision after the command applied. */
-  revision: number;
+  /** The task's status_changed_count after the command applied. */
+  statusChangedCount: number;
   /** True when the command was a recurrence completion (recorded an occurrence
    * and reset to todo rather than closing). */
   recurring?: boolean;
@@ -520,8 +515,8 @@ export interface LifecycleCommandResult {
   executionId?: string | null;
 }
 
-export const taskLifecycleCommands = sqliteTable(
-  'task_lifecycle_commands',
+export const taskStatusChanges = sqliteTable(
+  'task_status_changes',
   {
     id: text().primaryKey(),
     ...timestamps,
@@ -537,8 +532,8 @@ export const taskLifecycleCommands = sqliteTable(
     // legacy source value recorded during the compatibility window is legible).
     fromStatus: text().notNull(),
     toStatus: text().notNull(),
-    // Lifecycle revision AFTER this command applied.
-    revision: integer().notNull(),
+    // The task's status_changed_count AFTER this command applied.
+    statusChangedCount: integer().notNull(),
     // Who authored it: human (UI / trusted CLI), ai (agent via MCP), system.
     actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull().default('human'),
     // Optional provenance, attributed when known.
@@ -556,9 +551,9 @@ export const taskLifecycleCommands = sqliteTable(
   (table) => [
     // The idempotency chokepoint: one row per (task, key). A retry hits this
     // and returns `result` instead of re-applying.
-    uniqueIndex('uniq_task_lifecycle_commands_task_key').on(table.taskId, table.idempotencyKey),
+    uniqueIndex('uniq_task_status_changes_task_key').on(table.taskId, table.idempotencyKey),
     // History for a task, newest first.
-    index('idx_task_lifecycle_commands_task').on(table.taskId, table.createdAt),
+    index('idx_task_status_changes_task').on(table.taskId, table.createdAt),
   ],
 );
 
@@ -963,12 +958,10 @@ export const executions = sqliteTable(
 
     archivedAt: text(),
 
-    // The task this execution is doing, when it owns one. One owner per
-    // execution; a task may own many executions (several attempts = one
-    // In progress outcome). Nullable: taskless quick work stays valid, and
-    // incidental task references are links, not ownership. SET NULL on task
-    // delete so the execution and its transcript survive as history.
-    taskId: text().references((): AnySQLiteColumn => tasks.id, { onDelete: 'set null' }),
+    // Ownership (which task(s) this execution is doing) lives in the
+    // `execution_tasks` join table, not a column here, so an execution can own
+    // several tasks (a batch with shared context) and a task can be worked by
+    // several executions.
 
     // Rail pin — a transient working-set marker, non-null iff pinned. The
     // value is *when* it was pinned, which orders the rail's "Pinned" group
@@ -983,11 +976,39 @@ export const executions = sqliteTable(
   },
   (table) => [
     index('idx_executions_workspace_status').on(table.workspaceId, table.status),
-    // Owning-task lookups: "executions for task T" and the live-work guard.
-    index('idx_executions_task').on(table.taskId),
     uniqueIndex('uniq_executions_takeover_token')
       .on(table.takeoverToken)
       .where(sql`${table.takeoverToken} IS NOT NULL`),
+  ],
+);
+
+// ─── Execution ↔ Task ownership ───────────────────────────────
+// Many-to-many: an execution can own several tasks (a batch that shares
+// context), and a task can be worked by several executions (several attempts =
+// one In progress outcome). Taskless quick work simply has no rows here.
+// Distinct from references/mentions (chat_refs), which are context, not
+// ownership. If this ever proves clunky it collapses cleanly back to a single
+// executions.task_id column.
+
+export const executionTasks = sqliteTable(
+  'execution_tasks',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+    taskId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => tasks.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    // One ownership row per (execution, task); re-attaching the same pair is a
+    // no-op, not a duplicate.
+    uniqueIndex('uniq_execution_tasks_pair').on(table.executionId, table.taskId),
+    // "executions owning task T" (the live-work guard) and "tasks an execution owns".
+    index('idx_execution_tasks_task').on(table.taskId),
+    index('idx_execution_tasks_execution').on(table.executionId),
   ],
 );
 

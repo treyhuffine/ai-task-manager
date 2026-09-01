@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ab9a14a7-7754-4d71-8474-ff80afa1e652",
+  "id": "f431e0bd-1b5b-4903-a0b3-3729a37cb4a8",
   "prevId": "d3bf29cd-daff-4211-961c-f158165b2251",
   "tables": {
     "agent_harness_operations": {
@@ -1728,6 +1728,103 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "execution_tasks": {
+      "name": "execution_tasks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        },
+        "execution_id": {
+          "name": "execution_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uniq_execution_tasks_pair": {
+          "name": "uniq_execution_tasks_pair",
+          "columns": [
+            "execution_id",
+            "task_id"
+          ],
+          "isUnique": true
+        },
+        "idx_execution_tasks_task": {
+          "name": "idx_execution_tasks_task",
+          "columns": [
+            "task_id"
+          ],
+          "isUnique": false
+        },
+        "idx_execution_tasks_execution": {
+          "name": "idx_execution_tasks_execution",
+          "columns": [
+            "execution_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "execution_tasks_execution_id_executions_id_fk": {
+          "name": "execution_tasks_execution_id_executions_id_fk",
+          "tableFrom": "execution_tasks",
+          "tableTo": "executions",
+          "columnsFrom": [
+            "execution_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "execution_tasks_task_id_tasks_id_fk": {
+          "name": "execution_tasks_task_id_tasks_id_fk",
+          "tableFrom": "execution_tasks",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "executions": {
       "name": "executions",
       "columns": {
@@ -1904,13 +2001,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "pinned_at": {
           "name": "pinned_at",
           "type": "text",
@@ -1925,13 +2015,6 @@
           "columns": [
             "workspace_id",
             "status"
-          ],
-          "isUnique": false
-        },
-        "idx_executions_task": {
-          "name": "idx_executions_task",
-          "columns": [
-            "task_id"
           ],
           "isUnique": false
         },
@@ -1964,19 +2047,6 @@
           "tableTo": "chat_sessions",
           "columnsFrom": [
             "takeover_chat_session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "executions_task_id_tasks_id_fk": {
-          "name": "executions_task_id_tasks_id_fk",
-          "tableFrom": "executions",
-          "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
           ],
           "columnsTo": [
             "id"
@@ -3586,8 +3656,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "task_lifecycle_commands": {
-      "name": "task_lifecycle_commands",
+    "task_status_changes": {
+      "name": "task_status_changes",
       "columns": {
         "id": {
           "name": "id",
@@ -3647,8 +3717,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "revision": {
-          "name": "revision",
+        "status_changed_count": {
+          "name": "status_changed_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -3699,16 +3769,16 @@
         }
       },
       "indexes": {
-        "uniq_task_lifecycle_commands_task_key": {
-          "name": "uniq_task_lifecycle_commands_task_key",
+        "uniq_task_status_changes_task_key": {
+          "name": "uniq_task_status_changes_task_key",
           "columns": [
             "task_id",
             "idempotency_key"
           ],
           "isUnique": true
         },
-        "idx_task_lifecycle_commands_task": {
-          "name": "idx_task_lifecycle_commands_task",
+        "idx_task_status_changes_task": {
+          "name": "idx_task_status_changes_task",
           "columns": [
             "task_id",
             "created_at"
@@ -3717,9 +3787,9 @@
         }
       },
       "foreignKeys": {
-        "task_lifecycle_commands_task_id_tasks_id_fk": {
-          "name": "task_lifecycle_commands_task_id_tasks_id_fk",
-          "tableFrom": "task_lifecycle_commands",
+        "task_status_changes_task_id_tasks_id_fk": {
+          "name": "task_status_changes_task_id_tasks_id_fk",
+          "tableFrom": "task_status_changes",
           "tableTo": "tasks",
           "columnsFrom": [
             "task_id"
@@ -3730,9 +3800,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "task_lifecycle_commands_actor_session_id_chat_sessions_id_fk": {
-          "name": "task_lifecycle_commands_actor_session_id_chat_sessions_id_fk",
-          "tableFrom": "task_lifecycle_commands",
+        "task_status_changes_actor_session_id_chat_sessions_id_fk": {
+          "name": "task_status_changes_actor_session_id_chat_sessions_id_fk",
+          "tableFrom": "task_status_changes",
           "tableTo": "chat_sessions",
           "columnsFrom": [
             "actor_session_id"
@@ -3743,9 +3813,9 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "task_lifecycle_commands_execution_id_executions_id_fk": {
-          "name": "task_lifecycle_commands_execution_id_executions_id_fk",
-          "tableFrom": "task_lifecycle_commands",
+        "task_status_changes_execution_id_executions_id_fk": {
+          "name": "task_status_changes_execution_id_executions_id_fk",
+          "tableFrom": "task_status_changes",
           "tableTo": "executions",
           "columnsFrom": [
             "execution_id"
@@ -3756,9 +3826,9 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "task_lifecycle_commands_run_id_runs_id_fk": {
-          "name": "task_lifecycle_commands_run_id_runs_id_fk",
-          "tableFrom": "task_lifecycle_commands",
+        "task_status_changes_run_id_runs_id_fk": {
+          "name": "task_status_changes_run_id_runs_id_fk",
+          "tableFrom": "task_status_changes",
           "tableTo": "runs",
           "columnsFrom": [
             "run_id"
@@ -3956,18 +4026,18 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'active'"
+          "default": "'todo'"
         },
-        "lifecycle_revision": {
-          "name": "lifecycle_revision",
+        "status_changed_count": {
+          "name": "status_changed_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "lifecycle_state_since": {
-          "name": "lifecycle_state_since",
+        "status_changed_at": {
+          "name": "status_changed_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

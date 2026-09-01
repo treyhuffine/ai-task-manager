@@ -122,8 +122,8 @@ export function useTransitionTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: TASKS_KEY,
-    mutationFn: ({ id, command, expectedRevision }: { id: string; command: TransitionCommand; expectedRevision?: number }) =>
-      tasksApi.transition(id, command, { idempotencyKey: newIdempotencyKey(), expectedRevision }),
+    mutationFn: ({ id, command, expectedStatusChangedCount }: { id: string; command: TransitionCommand; expectedStatusChangedCount?: number }) =>
+      tasksApi.transition(id, command, { idempotencyKey: newIdempotencyKey(), expectedStatusChangedCount }),
     onMutate: async ({ id, command }) => {
       const to = targetState(command);
       const extra = command === 'reopen' ? { completedAt: null } : {};

@@ -29,6 +29,7 @@ import {
   completeTask,
   transitionTask,
   attachExecutionToTask,
+  detachExecutionFromTask,
   getTaskExecutions,
   reviewExecutionOutput,
   type LifecycleActorMeta,
@@ -294,17 +295,17 @@ const complete_task_action = defineAction({
     id: z.string().min(1),
     note: z.string().optional(),
     idempotency_key: z.string().min(1).optional(),
-    expected_revision: z.number().int().nonnegative().optional(),
+    expected_status_changed_count: z.number().int().nonnegative().optional(),
     stop_owning_executions: z.boolean().optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (ctx, { id, note, idempotency_key, expected_revision, stop_owning_executions }) => {
+  handler: (ctx, { id, note, idempotency_key, expected_status_changed_count, stop_owning_executions }) => {
     try {
       const result = completeTask(id, {
         note,
         idempotencyKey: idempotency_key,
-        expectedRevision: expected_revision,
+        expectedStatusChangedCount: expected_status_changed_count,
         stopOwningExecutions: stop_owning_executions,
         meta: lifecycleActor(ctx),
       });
@@ -320,24 +321,24 @@ const complete_task_action = defineAction({
 const transition_task_action = defineAction({
   name: 'transition_task',
   description:
-    'Apply a semantic task lifecycle transition. Commands: move_to_todo (Consider->Todo, commit), move_to_consider (Todo->Consider, uncommit; rejected while the task has a deadline/recurrence/blocker/live execution), start (Consider|Todo->In progress), return_to_todo (In progress->Todo), reopen (Done->Todo), archive (Consider|Todo|In progress->Archived), restore (Archived->Todo). Use complete_task to finish. Safe under retry with the same idempotency_key; pass expected_revision for conflict detection.',
+    'Apply a semantic task lifecycle transition. Commands: move_to_todo (Consider->Todo, commit), move_to_consider (Todo->Consider, uncommit; rejected while the task has a deadline/recurrence/blocker/live execution), start (Consider|Todo->In progress), return_to_todo (In progress->Todo), reopen (Done->Todo), archive (Consider|Todo|In progress->Archived), restore (Archived->Todo). Use complete_task to finish. Safe under retry with the same idempotency_key; pass expected_status_changed_count for conflict detection.',
   params: {
     id: z.string().min(1),
     command: z.enum(TRANSITION_COMMANDS),
     idempotency_key: z.string().min(1).optional(),
-    expected_revision: z.number().int().nonnegative().optional(),
+    expected_status_changed_count: z.number().int().nonnegative().optional(),
     stop_owning_executions: z.boolean().optional(),
     reason: z.string().optional(),
   },
   mutating: true,
   cli: { positional: ['id', 'command'] },
-  handler: (ctx, { id, command, idempotency_key, expected_revision, stop_owning_executions, reason }) => {
+  handler: (ctx, { id, command, idempotency_key, expected_status_changed_count, stop_owning_executions, reason }) => {
     try {
       return transitionTask({
         taskId: id,
         command,
         idempotencyKey: idempotency_key ?? uuidv7(),
-        expectedRevision: expected_revision,
+        expectedStatusChangedCount: expected_status_changed_count,
         stopOwningExecutions: stop_owning_executions,
         meta: { ...lifecycleActor(ctx), reason: reason ?? null },
       });
@@ -350,10 +351,10 @@ const transition_task_action = defineAction({
 const attach_execution_to_task_action = defineAction({
   name: 'attach_execution_to_task',
   description:
-    'Record which task an execution is doing (ownership). One owner per execution, many executions per task. Pass task_id=null to detach. Attaching an execution already owned by a different task is a conflict. This links, it does not start: use transition_task start to move the task to In progress.',
+    'Record that an execution is doing a task (ownership). Many-to-many: an execution may own several tasks (a batch with shared context) and a task may be worked by several executions. Idempotent, never a conflict. This links, it does not start: use transition_task start to move the task to In progress.',
   params: {
     execution_id: z.string().min(1),
-    task_id: z.string().min(1).nullable(),
+    task_id: z.string().min(1),
   },
   mutating: true,
   cli: { positional: ['execution_id', 'task_id'] },
@@ -366,9 +367,21 @@ const attach_execution_to_task_action = defineAction({
   },
 });
 
+const detach_execution_from_task_action = defineAction({
+  name: 'detach_execution_from_task',
+  description: 'Remove an execution↔task ownership link. Does not change the task lifecycle or the execution.',
+  params: {
+    execution_id: z.string().min(1),
+    task_id: z.string().min(1),
+  },
+  mutating: true,
+  cli: { positional: ['execution_id', 'task_id'] },
+  handler: (_ctx, { execution_id, task_id }) => ({ removed: detachExecutionFromTask(execution_id, task_id) }),
+});
+
 const list_task_executions_action = defineAction({
   name: 'list_task_executions',
-  description: 'List the executions a task owns, newest first.',
+  description: 'List the executions owning a task, newest first.',
   params: { task_id: z.string().min(1) },
   cli: { positional: ['task_id'] },
   handler: (_ctx, { task_id }) => getTaskExecutions(task_id),
@@ -2059,6 +2072,7 @@ export const actions = [
   complete_task_action,
   transition_task_action,
   attach_execution_to_task_action,
+  detach_execution_from_task_action,
   list_task_executions_action,
   review_execution_action,
   list_notes_action,

@@ -13,7 +13,7 @@ export async function POST(
     const result = completeTask(id, {
       note: body.note,
       idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined,
-      expectedRevision: typeof body.expectedRevision === 'number' ? body.expectedRevision : undefined,
+      expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
       meta: { source: 'human' },
     });
 

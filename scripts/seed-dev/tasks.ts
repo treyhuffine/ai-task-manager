@@ -19,8 +19,8 @@
  * five: most work is `todo` (committed queue), a few open decisions are
  * `consider`, a couple are `in_progress` (one of them blocked), two are
  * `done`, one is `archived`, and two recurring tasks stay `todo` with a
- * `nextRecurrenceAt`. `lifecycleRevision` is a small positive integer on
- * rows that moved through states, and `lifecycleStateSince` records when a
+ * `nextRecurrenceAt`. `statusChangedCount` is a small positive integer on
+ * rows that moved through states, and `statusChangedAt` records when a
  * task entered its current status (createTask also stamps it at creation).
  */
 import type { CreateTaskInput } from '../../src/db/types';
@@ -58,8 +58,8 @@ export const tasks: SeedTask[] = [
     effort: 'small',
     status: 'done',
     completedAt: '2026-04-18T22:10:00Z',
-    lifecycleStateSince: '2026-04-18T22:10:00Z',
-    lifecycleRevision: 2,
+    statusChangedAt: '2026-04-18T22:10:00Z',
+    statusChangedCount: 2,
   },
   {
     title: 'Write 30-second quickstart',
@@ -78,8 +78,8 @@ export const tasks: SeedTask[] = [
     energy: 'deep',
     effort: 'medium',
     status: 'in_progress',
-    lifecycleStateSince: '2026-04-24T15:30:00Z',
-    lifecycleRevision: 1,
+    statusChangedAt: '2026-04-24T15:30:00Z',
+    statusChangedCount: 1,
   },
   {
     title: 'Send invites to 10 trusted friends',
@@ -127,8 +127,8 @@ export const tasks: SeedTask[] = [
     energy: 'deep',
     effort: 'medium',
     status: 'archived',
-    lifecycleStateSince: '2026-04-08T17:00:00Z',
-    lifecycleRevision: 1,
+    statusChangedAt: '2026-04-08T17:00:00Z',
+    statusChangedCount: 1,
   },
 
   // ─── Health ─────────────────────────────────────────────────────
@@ -151,8 +151,8 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'small',
     status: 'in_progress',
-    lifecycleStateSince: '2026-04-23T07:00:00Z',
-    lifecycleRevision: 1,
+    statusChangedAt: '2026-04-23T07:00:00Z',
+    statusChangedCount: 1,
     heartbeatDays: 1,
   },
   {
@@ -182,8 +182,8 @@ export const tasks: SeedTask[] = [
     effort: 'small',
     status: 'done',
     completedAt: '2026-04-15T19:00:00Z',
-    lifecycleStateSince: '2026-04-15T19:00:00Z',
-    lifecycleRevision: 2,
+    statusChangedAt: '2026-04-15T19:00:00Z',
+    statusChangedCount: 2,
   },
   {
     title: 'Lock dates with both work calendars',
@@ -201,8 +201,8 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'small',
     status: 'in_progress',
-    lifecycleStateSince: '2026-04-26T16:00:00Z',
-    lifecycleRevision: 1,
+    statusChangedAt: '2026-04-26T16:00:00Z',
+    statusChangedCount: 1,
     blocked_on_title: 'Lock dates with both work calendars',
     blockedSince: '2026-04-26T16:05:00Z',
   },
