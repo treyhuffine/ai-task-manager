@@ -25,8 +25,8 @@ import {
   useTasks,
   useUpdateTask,
   useDeleteTask,
-  useCompleteTask,
 } from '@/hooks/use-tasks';
+import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { tasksApi } from '@/lib/api/tasks';
@@ -83,7 +83,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const router = useRouter();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
-  const completeTask = useCompleteTask();
+  const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
 
@@ -258,22 +258,14 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
 
   const handleComplete = useCallback(() => {
     if (!taskId || !task) return;
-    if (task.status === 'done') {
-      updateTask.mutate({ id: taskId, status: 'active', completedAt: null } as Parameters<
-        typeof updateTask.mutate
-      >[0]);
-    } else {
-      completeTask.mutate({ id: taskId });
-    }
-  }, [taskId, task, updateTask, completeTask]);
+    lifecycle.toggle(taskId, task.status);
+  }, [taskId, task, lifecycle]);
 
   const handleArchive = useCallback(() => {
     if (!taskId) return;
-    updateTask.mutate({ id: taskId, status: 'archived' } as Parameters<
-      typeof updateTask.mutate
-    >[0]);
+    lifecycle.archive(taskId);
     onClose();
-  }, [taskId, updateTask, onClose]);
+  }, [taskId, lifecycle, onClose]);
 
   const handleDelete = useCallback(() => {
     if (!taskId) return;

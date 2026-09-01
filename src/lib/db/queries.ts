@@ -2321,6 +2321,17 @@ function entityEditedByHumanSince(
   );
 }
 
+/**
+ * System archive routed through the lifecycle chokepoint (never a raw status
+ * write). No-op when the task is already terminal. Used by internal undo paths.
+ */
+function archiveTaskSystem(taskId: string, reason: string): boolean {
+  const t = getTask(taskId);
+  if (!t || isTerminal(t.status)) return false;
+  transitionTask({ taskId, command: 'archive', idempotencyKey: uuidv7(), meta: { source: 'system', reason } });
+  return true;
+}
+
 /** Delete a created-from-stream task when safe, archive when it has grown
  *  children or completions. Undo must never destroy other work. */
 function removeCreatedTaskForUndo(taskId: string): 'deleted' | 'archived' | null {
@@ -2328,7 +2339,7 @@ function removeCreatedTaskForUndo(taskId: string): 'deleted' | 'archived' | null
   const childCount = db.select({ c: sql<number>`count(*)` }).from(tasks).where(eq(tasks.parentId, taskId)).get()?.c ?? 0;
   const completionCount = db.select({ c: sql<number>`count(*)` }).from(taskCompletions).where(eq(taskCompletions.taskId, taskId)).get()?.c ?? 0;
   if (childCount > 0 || completionCount > 0) {
-    updateTask(taskId, { status: 'archived' }, { source: 'system', summary: 'Archived by triage undo (task had grown)' });
+    archiveTaskSystem(taskId, 'Archived by triage undo (task had grown)');
     return 'archived';
   }
   return deleteTask(taskId) ? 'deleted' : null;
@@ -2363,7 +2374,7 @@ function reverseDecisionEffectsWithin(decision: TriageDecisionRecord): {
       } else if (entityEditedByHumanSince(decision.targetType, entityId, appliedAt)) {
         // Human work on top: archive, never delete.
         if (decision.targetType === 'task') {
-          updateTask(entityId, { status: 'archived' }, { source: 'system', summary: 'Archived (not deleted) by undo: you edited it after it was created' });
+          archiveTaskSystem(entityId, 'Archived (not deleted) by undo: you edited it after it was created');
         } else {
           updateNote(entityId, { status: 'archived' }, { source: 'system', summary: 'Archived (not deleted) by undo: you edited it after it was created' });
         }

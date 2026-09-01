@@ -308,7 +308,8 @@ describe('resolveEntityTitles (read-only)', () => {
       { type: 'note', id: 'missing' },
     ]);
     expect(titles).toEqual([
-      { type: 'task', id: t.id, title: 'My Task', status: 'active' },
+      // Tasks default to the canonical `todo` now; notes remain `active`.
+      { type: 'task', id: t.id, title: 'My Task', status: 'todo' },
       { type: 'note', id: n.id, title: 'My Note', status: 'active' },
     ]);
 

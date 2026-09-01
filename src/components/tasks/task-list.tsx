@@ -23,7 +23,9 @@ import { tasksApi } from '@/lib/api/tasks';
 import { backfillSortKeys, computeBucketPlacement, type Bucket } from '@/lib/utils/bucket-placement';
 import { Target, Filter, ArrowDownAz, Loader2, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useTasks, useUpdateTask, useCompleteTask } from '@/hooks/use-tasks';
+import { useTasks, useUpdateTask } from '@/hooks/use-tasks';
+import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
+import { TASK_LANES, laneStatus, type TaskLane } from '@/lib/tasks/lanes';
 import { useAreas } from '@/hooks/use-areas';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
@@ -39,7 +41,7 @@ import {
 import { TaskRow } from './task-row';
 import { cn } from '@/lib/utils';
 import { todayLocalDate } from '@/lib/deck/date';
-import type { TaskStatus, Energy } from '@/db/types';
+import type { Energy } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 type SortOption = 'sortKey' | 'lastViewedAt' | 'hardDeadline' | 'createdAt' | 'updatedAt';
@@ -56,7 +58,7 @@ export function TaskList() {
   const { theme, openTask } = useDashboard();
   const isDark = theme === 'dark';
 
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('active');
+  const [laneFilter, setLaneFilter] = useState<TaskLane | 'all'>('current');
   const [energyFilter, setEnergyFilter] = useState<Energy | 'all'>('all');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
   const [sortBy, setSortBy] = useState<SortOption>('lastViewedAt');
@@ -77,7 +79,7 @@ export function TaskList() {
   }, [highlightId]);
 
   const filter = {
-    ...(statusFilter !== 'all' ? { status: statusFilter as TaskStatus } : {}),
+    ...(laneFilter !== 'all' ? { status: laneStatus(laneFilter) } : {}),
     ...(energyFilter !== 'all' ? { energy: energyFilter as Energy } : {}),
     ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
     orderBy: sortBy,
@@ -87,12 +89,12 @@ export function TaskList() {
   const { data: tasks, isLoading, error } = useTasks(filter);
   const { data: areas } = useAreas();
   const updateTask = useUpdateTask();
+  const lifecycle = useTaskLifecycle();
 
   const areaLabel =
     areaFilter === 'all'
       ? 'All Areas'
       : areas?.find((a) => a.id === areaFilter)?.name ?? 'All Areas';
-  const completeTask = useCompleteTask();
   const queryKey = ['tasks', filter];
 
   const sensors = useSensors(
@@ -105,13 +107,11 @@ export function TaskList() {
 
   const handleComplete = useCallback((id: string) => {
     const task = tasks?.find(t => t.id === id);
-    if (task?.status === 'done') {
-      // Uncomplete: set back to active, clear completedAt
-      updateTask.mutate({ id, status: 'active', completedAt: null } as Parameters<typeof updateTask.mutate>[0]);
-    } else {
-      completeTask.mutate({ id });
-    }
-  }, [tasks, completeTask, updateTask]);
+    if (!task) return;
+    // Terminal -> reopen/restore, otherwise complete. Routed through the shared
+    // lifecycle actions (semantic commands), never a raw status write.
+    lifecycle.toggle(id, task.status);
+  }, [tasks, lifecycle]);
 
   const handleUpdate = useCallback((id: string, field: string, value: unknown) => {
     updateTask.mutate({ id, [field]: value } as Parameters<typeof updateTask.mutate>[0]);
@@ -128,8 +128,8 @@ export function TaskList() {
   }, [updateTask]);
 
   const handleArchive = useCallback((id: string) => {
-    updateTask.mutate({ id, status: 'archived' } as Parameters<typeof updateTask.mutate>[0]);
-  }, [updateTask]);
+    lifecycle.archive(id);
+  }, [lifecycle]);
 
   const handleDragIntercept = useCallback((taskId: string) => {
     if (sortBy === 'sortKey') return;
@@ -231,20 +231,21 @@ export function TaskList() {
         'px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0',
         isDark ? 'bg-card/50' : 'bg-muted'
       )}>
-        {/* Status filter — desktop inline segmented, mobile inside Filter dropdown */}
+        {/* Lane filter — desktop inline segmented, mobile inside Filter dropdown.
+            Current Work / Todo / Consider / Done / Archived / All. */}
         <div className="hidden md:flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
-          {(['active', 'done', 'archived', 'all'] as const).map((s) => (
+          {[...TASK_LANES, { key: 'all' as const, label: 'All' }].map((lane) => (
             <button
-              key={s}
-              onClick={() => { setStatusFilter(s); dismissSwitchBanner(); }}
+              key={lane.key}
+              onClick={() => { setLaneFilter(lane.key as TaskLane | 'all'); dismissSwitchBanner(); }}
               className={cn(
-                'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all',
-                statusFilter === s
+                'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all whitespace-nowrap',
+                laneFilter === lane.key
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {s}
+              {lane.label}
             </button>
           ))}
         </div>
@@ -277,14 +278,14 @@ export function TaskList() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
             <div className="md:hidden">
-              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Status</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Lane</DropdownMenuLabel>
               <DropdownMenuRadioGroup
-                value={statusFilter}
-                onValueChange={(v) => { setStatusFilter(v as TaskStatus | 'all'); dismissSwitchBanner(); }}
+                value={laneFilter}
+                onValueChange={(v) => { setLaneFilter(v as TaskLane | 'all'); dismissSwitchBanner(); }}
               >
-                <DropdownMenuRadioItem value="active" className="text-xs">Active</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="done" className="text-xs">Done</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="archived" className="text-xs">Archived</DropdownMenuRadioItem>
+                {TASK_LANES.map((lane) => (
+                  <DropdownMenuRadioItem key={lane.key} value={lane.key} className="text-xs">{lane.label}</DropdownMenuRadioItem>
+                ))}
                 <DropdownMenuRadioItem value="all" className="text-xs">All</DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />

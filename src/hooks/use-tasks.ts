@@ -1,12 +1,15 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { tasksApi } from '@/lib/api/tasks';
+import { apiErrorText } from '@/lib/api/client';
 import {
   optimisticPatch,
   optimisticRemove,
+  optimisticTransition,
   rollbackOptimistic,
   settleEntity,
 } from '@/lib/query/optimistic-entity';
+import { targetState, type TransitionCommand } from '@/lib/tasks/lifecycle';
 import type {
   CreateTaskInput,
   UpdateTaskInput,
@@ -14,6 +17,13 @@ import type {
   TaskRecord,
 } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
+
+/** A stable idempotency key per user action (safe re-fire on lost response). */
+function newIdempotencyKey(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 const TASKS_KEY = ['tasks'] as const;
 
@@ -81,14 +91,18 @@ export function useCompleteTask() {
   return useMutation({
     mutationKey: TASKS_KEY,
     mutationFn: ({ id, note }: { id: string; note?: string }) =>
-      tasksApi.complete(id, note),
+      tasksApi.complete(id, { note, idempotencyKey: newIdempotencyKey() }),
     onMutate: async ({ id }) => {
-      const patch = buildCompletePatch(qc, id);
-      // Recurring tasks are not "done" on completion — the server bumps
-      // nextRecurrenceAt and keeps them active, and we can't predict the next
-      // occurrence client-side. Skip the optimistic flip and let settle
-      // reconcile; a null patch means no snapshot to roll back.
-      return { snapshot: patch ? await optimisticPatch(qc, 'tasks', id, patch) : undefined };
+      // Recurring tasks are NOT "done" on completion — the server records the
+      // occurrence, advances recurrence, and returns the task to Todo, none of
+      // which we can predict client-side. Skip the optimistic flip and let
+      // settle reconcile (null snapshot = nothing to roll back). Non-recurring
+      // tasks flip to Done and leave their current lane immediately.
+      const cached = findCachedTask(qc, id);
+      if (cached?.recurrence) return { snapshot: undefined };
+      return {
+        snapshot: await optimisticTransition(qc, id, 'done', { completedAt: new Date().toISOString() }),
+      };
     },
     onError: (_err, _vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
@@ -99,14 +113,28 @@ export function useCompleteTask() {
 }
 
 /**
- * Read the task from whatever cache holds it (single-entity first, then any
- * list) to decide how to optimistically complete it. Returns null for recurring
- * tasks, which must not be flipped to `done`.
+ * Apply a semantic lifecycle transition (Start, Move to Todo/Consider, Return,
+ * Reopen, Archive, Restore). Optimistically moves the row out of the lane it
+ * left; settle places it in the destination lane. A stale-revision or
+ * precondition failure rolls back and surfaces the server's actionable message.
  */
-function buildCompletePatch(qc: QueryClient, id: string): Record<string, unknown> | null {
-  const cached = findCachedTask(qc, id);
-  if (cached?.recurrence) return null;
-  return { status: 'done', completedAt: new Date().toISOString() };
+export function useTransitionTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: TASKS_KEY,
+    mutationFn: ({ id, command, expectedRevision }: { id: string; command: TransitionCommand; expectedRevision?: number }) =>
+      tasksApi.transition(id, command, { idempotencyKey: newIdempotencyKey(), expectedRevision }),
+    onMutate: async ({ id, command }) => {
+      const to = targetState(command);
+      const extra = command === 'reopen' ? { completedAt: null } : {};
+      return { snapshot: await optimisticTransition(qc, id, to, extra) };
+    },
+    onError: (err, _vars, ctx) => {
+      rollbackOptimistic(qc, ctx?.snapshot);
+      toast.error(apiErrorText(err));
+    },
+    onSettled: () => settleEntity(qc, 'tasks'),
+  });
 }
 
 function findCachedTask(qc: QueryClient, id: string): TaskRecord | TaskListDTO | undefined {

@@ -16,7 +16,8 @@ import {
   Repeat,
   Sparkles,
 } from 'lucide-react';
-import { useTask, useUpdateTask, useDeleteTask, useCompleteTask } from '@/hooks/use-tasks';
+import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
+import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
@@ -53,7 +54,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const { data: parentTask } = useTask(task?.parentId ?? null);
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
-  const completeTask = useCompleteTask();
+  const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
 
@@ -152,22 +153,14 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
 
   const handleComplete = useCallback(() => {
     if (!taskId || !task) return;
-    if (task.status === 'done') {
-      updateTask.mutate({ id: taskId, status: 'active', completedAt: null } as Parameters<
-        typeof updateTask.mutate
-      >[0]);
-    } else {
-      completeTask.mutate({ id: taskId });
-    }
-  }, [taskId, task, updateTask, completeTask]);
+    lifecycle.toggle(taskId, task.status);
+  }, [taskId, task, lifecycle]);
 
   const handleArchive = useCallback(() => {
     if (!taskId) return;
-    updateTask.mutate({ id: taskId, status: 'archived' } as Parameters<
-      typeof updateTask.mutate
-    >[0]);
+    lifecycle.archive(taskId);
     router.push('/');
-  }, [taskId, updateTask, router]);
+  }, [taskId, lifecycle, router]);
 
   const handleDelete = useCallback(() => {
     if (!taskId) return;

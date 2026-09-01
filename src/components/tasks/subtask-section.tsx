@@ -2,7 +2,9 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { Check, ChevronRight, Plus, ArrowUpRight } from 'lucide-react'
-import { useTasks, useCreateTask, useCompleteTask, useUpdateTask } from '@/hooks/use-tasks'
+import { useTasks, useCreateTask } from '@/hooks/use-tasks'
+import { useTaskLifecycle } from '@/hooks/use-task-lifecycle'
+import type { TaskStatus } from '@/db/types'
 import { cn } from '@/lib/utils'
 
 interface SubtaskSectionProps {
@@ -13,8 +15,7 @@ interface SubtaskSectionProps {
 export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
   const { data: subtasks } = useTasks({ parentId: parentId })
   const createTask = useCreateTask()
-  const completeTask = useCompleteTask()
-  const updateTask = useUpdateTask()
+  const lifecycle = useTaskLifecycle()
 
   const [isExpanded, setIsExpanded] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
@@ -41,12 +42,8 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
   }, [newTitle, parentId, createTask])
 
   const handleToggleComplete = useCallback((id: string, currentStatus: string) => {
-    if (currentStatus === 'done') {
-      updateTask.mutate({ id, status: 'active', completedAt: null } as Parameters<typeof updateTask.mutate>[0])
-    } else {
-      completeTask.mutate({ id })
-    }
-  }, [completeTask, updateTask])
+    lifecycle.toggle(id, currentStatus as TaskStatus)
+  }, [lifecycle])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {

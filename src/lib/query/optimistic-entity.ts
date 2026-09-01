@@ -116,6 +116,71 @@ export async function optimisticRemove(
   return snapshot;
 }
 
+/**
+ * Does a task with `status` belong in a list whose query-key filter carried
+ * `filterStatus`? A missing filter (or the `all` sentinel) matches everything.
+ * The legacy `active` alias expands to the derived current union todo|in_progress.
+ */
+function statusMatchesFilter(status: string, filterStatus: unknown): boolean {
+  if (filterStatus == null) return true;
+  const raw = Array.isArray(filterStatus) ? filterStatus : [filterStatus];
+  if (raw.includes('all')) return true;
+  const expanded = new Set<string>();
+  for (const s of raw) {
+    if (s === 'active') {
+      expanded.add('todo');
+      expanded.add('in_progress');
+    } else if (typeof s === 'string') {
+      expanded.add(s);
+    }
+  }
+  return expanded.has(status);
+}
+
+/**
+ * Optimistically apply a lifecycle status change (Start, Archive, Reopen, ...).
+ * Patches `status` (+ any `extraPatch`, e.g. clearing `completedAt` on reopen)
+ * on the single-entity record, and for each filtered list decides membership
+ * from the list's OWN query-key filter: if the destination status still matches,
+ * the row is patched in place; otherwise it is removed so it disappears from the
+ * lane it left immediately. Placing the row into a newly-matching list it was
+ * not already in is left to {@link settleEntity}'s refetch. Returns a snapshot
+ * for {@link rollbackOptimistic}.
+ */
+export async function optimisticTransition(
+  qc: QueryClient,
+  id: string,
+  toStatus: string,
+  extraPatch: EntityPatch = {},
+): Promise<OptimisticSnapshot> {
+  await qc.cancelQueries({ queryKey: ['tasks'] });
+  const snapshot = qc.getQueriesData({ queryKey: ['tasks'] }) as OptimisticSnapshot;
+  const patch = { status: toStatus, ...extraPatch };
+
+  for (const [key, data] of qc.getQueriesData({ queryKey: ['tasks'] })) {
+    if (data == null) continue;
+    if (hasId(data, id)) {
+      qc.setQueryData(key, { ...data, ...patch });
+      continue;
+    }
+    if (Array.isArray(data)) {
+      const filter = (key as unknown[])[1] as { status?: unknown } | undefined;
+      const stays = statusMatchesFilter(toStatus, filter?.status);
+      const next = data.reduce<unknown[]>((acc, row) => {
+        if (hasId(row, id)) {
+          if (stays) acc.push({ ...row, ...patch });
+          // else: drop it from this lane
+        } else {
+          acc.push(row);
+        }
+        return acc;
+      }, []);
+      qc.setQueryData(key, next);
+    }
+  }
+  return snapshot;
+}
+
 /** Restore every cache entry captured in a snapshot (rollback on error). */
 export function rollbackOptimistic(qc: QueryClient, snapshot: OptimisticSnapshot | undefined) {
   if (!snapshot) return;

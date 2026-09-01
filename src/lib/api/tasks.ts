@@ -2,11 +2,23 @@ import { api } from './client';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import type {
   TaskRecord,
-  TaskListRecord,
   CreateTaskInput,
   UpdateTaskInput,
   TaskFilter,
+  TaskStatus,
 } from '@/db/types';
+import type { TransitionCommand } from '@/lib/tasks/lifecycle';
+
+/** Server outcome of a lifecycle command (transition or completion). */
+export interface LifecycleResult {
+  task: TaskRecord;
+  fromStatus: TaskStatus;
+  toStatus: TaskStatus;
+  revision: number;
+  recurring?: boolean;
+  nextRecurrenceAt?: string | null;
+  replayed: boolean;
+}
 
 export const tasksApi = {
   list(filter?: TaskFilter): Promise<TaskListDTO[]> {
@@ -29,7 +41,20 @@ export const tasksApi = {
     return api.delete(`/tasks/${id}`);
   },
 
-  complete(id: string, note?: string): Promise<{ task: TaskRecord; recurring: boolean; nextRecurrenceAt?: string }> {
-    return api.post(`/tasks/${id}/complete`, { note });
+  complete(
+    id: string,
+    opts: { note?: string; idempotencyKey?: string; expectedRevision?: number } = {},
+  ): Promise<LifecycleResult> {
+    return api.post(`/tasks/${id}/complete`, opts);
+  },
+
+  /** Apply a semantic lifecycle transition (move_to_todo / move_to_consider /
+   * start / return_to_todo / reopen / archive / restore). */
+  transition(
+    id: string,
+    command: TransitionCommand,
+    opts: { idempotencyKey?: string; expectedRevision?: number; reason?: string } = {},
+  ): Promise<LifecycleResult> {
+    return api.post(`/tasks/${id}/transition`, { command, ...opts });
   },
 };
