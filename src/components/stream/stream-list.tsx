@@ -246,10 +246,10 @@ export function StreamList() {
                   onOpenEntity={(type, id) => (type === 'task' ? openTask(id) : openNote(id))}
                   onKeepAsThought={() => decide.mutate({ disposition: 'journal', streamItemIds: [item.id] })}
                   onDismiss={() => decide.mutate({ disposition: 'dismiss', streamItemIds: [item.id] })}
-                  onPromoteTask={() => decide.mutate({
+                  onPromoteTask={(status) => decide.mutate({
                     disposition: 'promote_task',
                     streamItemIds: [item.id],
-                    draft: { title: item.rawText.trim().split('\n')[0]?.slice(0, 200) || 'Untitled', body: item.rawText },
+                    draft: { title: item.rawText.trim().split('\n')[0]?.slice(0, 200) || 'Untitled', body: item.rawText, status },
                   })}
                   onPromoteNote={() => decide.mutate({ disposition: 'promote_note', streamItemIds: [item.id] })}
                   onMergeTask={(taskId) => decide.mutate({
@@ -297,7 +297,7 @@ function StreamRow({
   onOpenEntity: (type: 'task' | 'note', id: string) => void;
   onKeepAsThought: () => void;
   onDismiss: () => void;
-  onPromoteTask: () => void;
+  onPromoteTask: (status: 'consider' | 'todo') => void;
   onPromoteNote: () => void;
   onMergeTask: (taskId: string) => void;
   onMergeNote: (noteId: string) => void;

@@ -28,6 +28,8 @@ export const triageDraftShape = {
   title: z.string().optional(),
   body: z.string().optional(),
   description: z.string().optional(),
+  // Task promotion: park as a possibility (consider) or commit (todo, default).
+  status: z.enum(['consider', 'todo']).optional(),
   areaId: z.string().nullable().optional(),
   parentId: z.string().nullable().optional(),
   taskId: z.string().nullable().optional(),

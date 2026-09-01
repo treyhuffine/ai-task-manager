@@ -17,7 +17,7 @@ import type { TaskStatus } from '@/db/types';
 // ─── Task promote/merge ─────────────────────────────────────
 
 interface TaskActionsProps {
-  onPromote: () => void;
+  onPromote: (status: 'consider' | 'todo') => void;
   onMerge: (taskId: string) => void;
 }
 
@@ -27,7 +27,8 @@ export function TaskActions({ onPromote, onMerge }: TaskActionsProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: tasks } = useTasks({ status: 'active' });
+  // Merge targets are open tasks (Consider / Todo / In progress).
+  const { data: tasks } = useTasks({ status: ['consider', 'todo', 'in_progress'] });
 
   const filtered = (tasks ?? []).filter(t =>
     t.title.toLowerCase().includes(query.toLowerCase())
@@ -60,11 +61,18 @@ export function TaskActions({ onPromote, onMerge }: TaskActionsProps) {
         {mode === 'menu' && (
           <div className="py-1">
             <button
-              onClick={() => { onPromote(); handleOpenChange(false); }}
+              onClick={() => { onPromote('todo'); handleOpenChange(false); }}
               className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-foreground hover:bg-muted transition-colors"
             >
-              <Plus size={12} className="text-primary" />
-              <span className="font-medium">New task</span>
+              <Plus size={12} className="text-blue-500" />
+              <span className="font-medium">Add to Todo</span>
+            </button>
+            <button
+              onClick={() => { onPromote('consider'); handleOpenChange(false); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-foreground hover:bg-muted transition-colors"
+            >
+              <Plus size={12} className="text-amber-500" />
+              <span className="font-medium">Save to Consider</span>
             </button>
             <button
               onClick={() => { setMode('search'); setTimeout(() => inputRef.current?.focus(), 0); }}

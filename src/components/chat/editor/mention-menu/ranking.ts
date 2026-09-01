@@ -98,13 +98,25 @@ function rankReferenceFiles(entries: FileMentionItem[], query: string): FileMent
     .map((s) => s.item)
 }
 
+/** Ambient ordering rank for the canonical lifecycle: In progress and Todo
+ * (current work) first, then Consider, then terminal. Legacy `active` sorts
+ * with the current group during the compatibility window. */
+function statusRank(status: string): number {
+  switch (status) {
+    case 'in_progress': return 0
+    case 'todo': return 1
+    case 'active': return 1
+    case 'consider': return 2
+    case 'done': return 3
+    case 'archived': return 4
+    default: return 5
+  }
+}
+
 export function rankTasks(tasks: TaskMentionItem[], query: string): TaskMentionItem[] {
   if (!query) {
-    // Active first; within each status keep stored order (server returns
-    // by recency).
-    const active = tasks.filter((t) => t.status === 'active')
-    const rest = tasks.filter((t) => t.status !== 'active')
-    return [...active, ...rest].slice(0, MAX_TASKS)
+    // Current work first, then Consider, then terminal; stable within a group.
+    return [...tasks].sort((a, b) => statusRank(a.status) - statusRank(b.status)).slice(0, MAX_TASKS)
   }
   const q = query.toLowerCase()
   return tasks
@@ -112,10 +124,8 @@ export function rankTasks(tasks: TaskMentionItem[], query: string): TaskMentionI
     .filter((s) => Number.isFinite(s.score))
     .sort((a, b) => {
       if (a.score !== b.score) return a.score - b.score
-      // Tiebreak: active tasks before done/archived.
-      const aActive = a.item.status === 'active' ? 0 : 1
-      const bActive = b.item.status === 'active' ? 0 : 1
-      return aActive - bActive
+      // Tiebreak: current work before Consider before terminal.
+      return statusRank(a.item.status) - statusRank(b.item.status)
     })
     .slice(0, MAX_TASKS)
     .map((s) => s.item)
