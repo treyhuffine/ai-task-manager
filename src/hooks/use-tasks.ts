@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { tasksApi } from '@/lib/api/tasks';
-import { apiErrorText } from '@/lib/api/client';
+import { apiErrorText, apiErrorCode } from '@/lib/api/client';
+import { useLifecycleGuard } from '@/components/tasks/lifecycle-guard';
 import {
   optimisticPatch,
   optimisticRemove,
@@ -114,6 +115,7 @@ export function useDeleteTask() {
 
 export function useCompleteTask() {
   const qc = useQueryClient();
+  const guard = useLifecycleGuard();
   return useMutation({
     mutationKey: TASKS_KEY,
     mutationFn: ({ id, note }: { id: string; note?: string }) =>
@@ -130,9 +132,15 @@ export function useCompleteTask() {
         snapshot: await optimisticTransition(qc, id, 'done', { completedAt: new Date().toISOString() }),
       };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
-      toast.error('Could not complete task');
+      // A live owning agent blocks completion — open the coordinated-stop modal
+      // instead of a dead-end toast.
+      if (apiErrorCode(err) === 'active_execution') {
+        guard.open({ taskId: vars.id, command: 'complete' });
+        return;
+      }
+      toast.error(apiErrorText(err));
     },
     onSettled: () => settleEntity(qc, 'tasks'),
   });
@@ -146,6 +154,7 @@ export function useCompleteTask() {
  */
 export function useTransitionTask() {
   const qc = useQueryClient();
+  const guard = useLifecycleGuard();
   return useMutation({
     mutationKey: TASKS_KEY,
     mutationFn: ({ id, command, expectedStatusChangedCount }: { id: string; command: TransitionCommand; expectedStatusChangedCount?: number }) =>
@@ -155,8 +164,13 @@ export function useTransitionTask() {
       const extra = command === 'reopen' ? { completedAt: null } : {};
       return { snapshot: await optimisticTransition(qc, id, to, extra) };
     },
-    onError: (err, _vars, ctx) => {
+    onError: (err, vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
+      // Archiving over a live owning agent opens the coordinated-stop modal.
+      if (apiErrorCode(err) === 'active_execution') {
+        guard.open({ taskId: vars.id, command: 'archive' });
+        return;
+      }
       toast.error(apiErrorText(err));
     },
     onSettled: () => settleEntity(qc, 'tasks'),

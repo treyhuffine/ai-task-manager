@@ -25,6 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       command: body.command,
       idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : uuidv7(),
       expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
+      stopOwningExecutions: body.stopOwningExecutions === true,
       meta: { source: 'human', reason: typeof body.reason === 'string' ? body.reason : null },
     });
 

@@ -44,9 +44,14 @@ export const tasksApi = {
 
   complete(
     id: string,
-    opts: { note?: string; idempotencyKey?: string; expectedStatusChangedCount?: number } = {},
+    opts: { note?: string; idempotencyKey?: string; expectedStatusChangedCount?: number; stopOwningExecutions?: boolean } = {},
   ): Promise<LifecycleResult> {
     return api.post(`/tasks/${id}/complete`, opts);
+  },
+
+  /** The executions currently owning a task (for the active-agent warning). */
+  executions(id: string): Promise<Array<{ id: string; label: string | null; status: string }>> {
+    return api.get(`/tasks/${id}/executions`);
   },
 
   /** Batch attention badges for the given task ids. */
@@ -65,7 +70,7 @@ export const tasksApi = {
   transition(
     id: string,
     command: TransitionCommand,
-    opts: { idempotencyKey?: string; expectedStatusChangedCount?: number; reason?: string } = {},
+    opts: { idempotencyKey?: string; expectedStatusChangedCount?: number; reason?: string; stopOwningExecutions?: boolean } = {},
   ): Promise<LifecycleResult> {
     return api.post(`/tasks/${id}/transition`, { command, ...opts });
   },

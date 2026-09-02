@@ -56,6 +56,15 @@ export function apiErrorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Stable machine-facing error code from a route's `{ code }` field, when present. */
+export function apiErrorCode(err: unknown): string | undefined {
+  if (err instanceof ApiError) {
+    const body = err.body as { code?: string } | null;
+    return body?.code;
+  }
+  return undefined;
+}
+
 /** Primitive values allowed as query params; arrays are comma-joined. */
 type QueryValue =
   | string

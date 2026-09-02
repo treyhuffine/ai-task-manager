@@ -14,6 +14,7 @@ export async function POST(
       note: body.note,
       idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined,
       expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
+      stopOwningExecutions: body.stopOwningExecutions === true,
       meta: { source: 'human' },
     });
 
