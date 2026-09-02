@@ -6,13 +6,15 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
+import { uuidv7 } from 'uuidv7';
 import {
-  listTasks, getTask, createTask, updateTask, deleteTask, completeTask,
+  listTasks, getTask, createTask, updateTask, deleteTask, completeTask, transitionTask,
   listNotes, getNote, createNote, updateNote, deleteNote, listBacklinks,
   listAreas, getArea, createArea, updateArea,
   getLatestDeck, updateDeck,
   getUserState, updateUserState,
 } from '@/lib/db/queries';
+import { TRANSITION_COMMANDS } from '@/lib/tasks/lifecycle';
 import { hybridSearchWithEntities } from '@/lib/embeddings/search';
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -130,7 +132,6 @@ const taskTools = {
       body: z.string().optional().describe('New body content (markdown)'),
       areaId: z.string().nullish().describe('Area UUID, or null to unset'),
       parentId: z.string().nullish().describe('Parent task UUID, or null to make top-level'),
-      status: z.enum(['active', 'done', 'archived']).optional().describe('Deprecated and ignored. update_task cannot change status. Use completeTask to complete, or the transition path (transition_task) for other lifecycle moves.'),
       energy: z.enum(['deep', 'light']).nullish().describe('Energy level'),
       effort: z.enum(['trivial', 'small', 'medium', 'large', 'epic']).nullish().describe('Effort estimate'),
       hardDeadline: z.string().nullish().describe('Deadline (ISO date), or null to clear'),
@@ -190,6 +191,38 @@ const taskTools = {
         };
       } catch (err) {
         return toolError('completeTask', err);
+      }
+    },
+  }),
+
+  transitionTask: tool({
+    description:
+      'Move a task through its lifecycle with a semantic command (the ONLY way to change status besides completeTask). ' +
+      'Commands: move_to_todo (commit a Consider idea to real work), move_to_consider (park it back as an idea — only if it has no deadline, recurrence, reminder, unresolved blocker, or live agent), ' +
+      'start (begin work, Consider/Todo -> In progress), return_to_todo (pause In progress back to Todo), reopen (a Done task -> Todo), archive (drop it, Todo/Consider/Done -> Archived), restore (un-archive -> Todo). ' +
+      'Use completeTask to finish a task, not archive. If an agent is actively working the task, archive is refused; ask the human to stop it first.',
+    inputSchema: z.object({
+      id: z.string().describe('The task ID to transition'),
+      command: z.enum(TRANSITION_COMMANDS).describe('The semantic lifecycle command'),
+      reason: z.string().optional().describe('Why (recorded on the lifecycle ledger)'),
+    }),
+    execute: async ({ id, command, reason }) => {
+      try {
+        const result = transitionTask({
+          taskId: id,
+          command,
+          idempotencyKey: uuidv7(),
+          meta: { source: 'ai', reason: reason ?? null },
+        });
+        return {
+          id: result.task.id,
+          title: result.task.title,
+          status: result.task.status,
+          from: result.fromStatus,
+          to: result.toStatus,
+        };
+      } catch (err) {
+        return toolError('transitionTask', err);
       }
     },
   }),
