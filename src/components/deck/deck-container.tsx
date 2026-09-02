@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
+import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useAreas } from '@/hooks/use-areas';
 import { DeckConductor } from './deck-conductor';
 import { CurrentWorkSection } from './current-work-section';
@@ -191,6 +192,7 @@ export function DeckContainer() {
   const { data: tasks } = useTasks({ status: 'active', limit: 50 });
   const { data: areas } = useAreas();
   const completeTask = useCompleteTask();
+  const lifecycle = useTaskLifecycle();
 
   const areaMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -442,6 +444,18 @@ export function DeckContainer() {
       completeTask.mutate({ id: item.taskId });
     }
   }, [plan, completeTask]);
+
+  // Start a Ready-Todo deck item: move it to In progress (persisted). It leaves
+  // the generated stack (it's no longer Ready Todo) and appears in Current Work.
+  const handleStart = useCallback((id: string) => {
+    if (!plan) return;
+    const item = plan.items.find(i => i.id === id);
+    if (!item) return;
+    const updated = { ...plan, items: plan.items.filter(i => i.id !== id) };
+    setPlan(updated);
+    if (plan.deckId) persistDeck(plan.deckId, updated);
+    lifecycle.start(item.taskId);
+  }, [plan, lifecycle]);
 
   const handleNotToday = useCallback((id: string) => {
     if (!plan) return;
@@ -748,6 +762,7 @@ export function DeckContainer() {
             <DeckStack
               items={filteredItems}
               onComplete={handleComplete}
+              onStart={handleStart}
               onNotToday={handleNotToday}
               onFocus={handleFocus}
               onReorder={handleReorder}

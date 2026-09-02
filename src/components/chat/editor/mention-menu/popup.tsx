@@ -1,5 +1,6 @@
 'use client'
 
+import { cn } from '@/lib/utils'
 import {
   useState,
   useEffect,
@@ -249,10 +250,28 @@ function RowBody({ item }: { item: MentionItem }) {
     )
   }
   if (item.kind === 'task' || item.kind === 'note') {
+    const tag =
+      item.kind === 'task' && item.status === 'consider'
+        ? 'Consider'
+        : item.kind === 'task' && item.status === 'in_progress'
+          ? 'In progress'
+          : null
     return (
-      <span className="text-[11px] text-foreground truncate min-w-0">
-        {item.title || (item.kind === 'task' ? 'Untitled task' : 'Untitled note')}
-      </span>
+      <>
+        <span className="text-[11px] text-foreground truncate min-w-0">
+          {item.title || (item.kind === 'task' ? 'Untitled task' : 'Untitled note')}
+        </span>
+        {tag && (
+          <span
+            className={cn(
+              'ml-auto shrink-0 rounded px-1 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide',
+              tag === 'Consider' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+            )}
+          >
+            {tag}
+          </span>
+        )}
+      </>
     )
   }
   if (item.kind === 'pr') {

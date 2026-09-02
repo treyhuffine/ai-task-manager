@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, Fragment } from 'react';
-import { GripVertical, Check, SkipForward, ChevronDown, ChevronRight, Crosshair, EyeOff, Eye, Clock } from 'lucide-react';
+import { GripVertical, Check, SkipForward, ChevronDown, ChevronRight, Crosshair, EyeOff, Eye, Clock, Play } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -185,6 +185,7 @@ function SortableDeckItemCard({
   item,
   index,
   onComplete,
+  onStart,
   onNotToday,
   onFocus,
   onSubtaskComplete,
@@ -194,6 +195,7 @@ function SortableDeckItemCard({
   item: DeckItem;
   index: number;
   onComplete: (id: string) => void;
+  onStart?: (id: string) => void;
   onNotToday: (id: string) => void;
   onFocus?: (id: string) => void;
   onSubtaskComplete: (itemId: string, subtaskId: string) => void;
@@ -252,6 +254,19 @@ function SortableDeckItemCard({
           </TooltipTrigger>
           <TooltipContent side="top">Done</TooltipContent>
         </Tooltip>
+        {onStart && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onStart(item.id)}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-muted transition-colors"
+              >
+                <Play className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Start (move to Current Work)</TooltipContent>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -284,6 +299,7 @@ function SortableDeckItemCard({
           title="Task actions"
           actions={[
             { id: 'done', label: 'Mark done', icon: Check, onClick: () => onComplete(item.id) },
+            ...(onStart ? [{ id: 'start', label: 'Start', icon: Play, onClick: () => onStart(item.id) } satisfies RowAction] : []),
             { id: 'not-today', label: 'Not today', icon: SkipForward, onClick: () => onNotToday(item.id) },
             ...(onFocus ? [{ id: 'focus', label: 'Focus', icon: Crosshair, onClick: () => onFocus(item.id) } satisfies RowAction] : []),
           ]}
@@ -360,6 +376,7 @@ function SortableDeckItemCard({
 interface DeckStackProps {
   items: DeckItem[];
   onComplete: (id: string) => void;
+  onStart?: (id: string) => void;
   onNotToday: (id: string) => void;
   onFocus?: (id: string) => void;
   onReorder: (items: DeckItem[]) => void;
@@ -368,7 +385,7 @@ interface DeckStackProps {
   onSubtaskFocus?: (itemId: string, subtaskId: string) => void;
 }
 
-export function DeckStack({ items, onComplete, onNotToday, onFocus, onReorder, onSubtaskComplete, onSubtaskDefer, onSubtaskFocus }: DeckStackProps) {
+export function DeckStack({ items, onComplete, onStart, onNotToday, onFocus, onReorder, onSubtaskComplete, onSubtaskDefer, onSubtaskFocus }: DeckStackProps) {
   const [hideBelowIndex, setHideBelowIndex] = useState<number | null>(null);
 
   const sensors = useSensors(
@@ -419,6 +436,7 @@ export function DeckStack({ items, onComplete, onNotToday, onFocus, onReorder, o
                   item={item}
                   index={i}
                   onComplete={onComplete}
+                  onStart={onStart}
                   onNotToday={onNotToday}
                   onFocus={onFocus}
                   onSubtaskComplete={onSubtaskComplete}
