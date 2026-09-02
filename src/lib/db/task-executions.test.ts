@@ -137,6 +137,30 @@ describe('task-owned executions', () => {
     expect(q.getExecution(exec.id)?.status).toBe('archived');
   });
 
+  it('a coordinated stop releases only the changed task; a shared execution keeps running', async () => {
+    const { q, wsId } = await setup();
+    const a = q.createTask({ title: 'A', rawInput: 'a' });
+    const b = q.createTask({ title: 'B', rawInput: 'b' });
+    const exec = q.createExecution({ workspaceId: wsId });
+    // One execution coordinating two tasks (a batch with shared context).
+    q.attachExecutionToTask(exec.id, a.id);
+    q.attachExecutionToTask(exec.id, b.id);
+
+    // Completing A with a coordinated stop must NOT kill the execution still
+    // working B — it releases only A's claim.
+    const result = q.completeTask(a.id, { idempotencyKey: 'ca', stopOwningExecutions: true });
+    expect(result?.toStatus).toBe('done');
+    expect(result?.stoppedExecutionIds).toEqual([]); // nothing stopped -> nothing to reap
+    expect(q.getExecution(exec.id)?.status).toBe('active'); // still running
+    expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([b.id]); // only B remains claimed
+    expect(q.getTaskLifecycleSignals(a.id).hasLiveExecution).toBe(false); // A released
+
+    // Now B is the sole task: stopping for B archives the execution.
+    const rb = q.transitionTask({ taskId: b.id, command: 'archive', idempotencyKey: 'ab', stopOwningExecutions: true });
+    expect(rb.stoppedExecutionIds).toEqual([exec.id]);
+    expect(q.getExecution(exec.id)?.status).toBe('archived');
+  });
+
   it('a replay reports no newly stopped executions', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'Owned', rawInput: 'x' });

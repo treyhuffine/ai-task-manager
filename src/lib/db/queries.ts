@@ -828,12 +828,20 @@ function hasLiveOwningExecution(taskId: string): boolean {
   return !!row;
 }
 
-/** Archive every live execution owning a task (the coordinated-stop half of
- * "Stop agents and change status") and return their ids. Marking the row
- * archived is the DURABLE stopped state, committed inside the lifecycle
- * transaction. Reaping the actual runtime (process kill + worktree teardown) is
- * an async side effect the caller performs after commit — see
- * `reapStoppedExecutions` in sessions/dispatch and the returned ids. */
+/**
+ * The coordinated-stop half of "Stop agent and change status", scoped to ONE
+ * task. For each live execution owning this task:
+ *   - if the execution also owns other tasks, RELEASE only this task's claim
+ *     (detach the ownership row) and leave the execution running — completing or
+ *     returning task A must never collateral-stop the agent still working tasks
+ *     B..F on the same shared execution;
+ *   - if this is the execution's sole task, it has nothing left to do, so stop
+ *     it: archive the row (the DURABLE stopped state, committed in this
+ *     transaction) and return its id so the caller reaps the runtime after
+ *     commit (see `reapStoppedExecutions`).
+ * Returns only the executions actually stopped (released-but-still-running ones
+ * are not reaped).
+ */
 function stopOwningExecutionsFor(taskId: string): string[] {
   const now = new Date().toISOString();
   const owners = getDb()
@@ -844,12 +852,31 @@ function stopOwningExecutionsFor(taskId: string): string[] {
     .all()
     .map((r) => r.id);
   if (owners.length === 0) return [];
-  getDb()
-    .update(executions)
-    .set({ status: 'archived', archivedAt: now, pinnedAt: null, updatedAt: now })
-    .where(inArray(executions.id, owners))
-    .run();
-  return owners;
+
+  const stopped: string[] = [];
+  for (const executionId of owners) {
+    const ownedCount = getDb()
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(executionTasks)
+      .where(eq(executionTasks.executionId, executionId))
+      .get()?.n ?? 0;
+    if (ownedCount > 1) {
+      // Shared execution: release only this task's claim; keep it running.
+      getDb()
+        .delete(executionTasks)
+        .where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId)))
+        .run();
+    } else {
+      // Sole task: nothing left for the execution to do — stop it.
+      getDb()
+        .update(executions)
+        .set({ status: 'archived', archivedAt: now, pinnedAt: null, updatedAt: now })
+        .where(eq(executions.id, executionId))
+        .run();
+      stopped.push(executionId);
+    }
+  }
+  return stopped;
 }
 
 /** Throw active_execution unless the caller opted into a coordinated stop, in
