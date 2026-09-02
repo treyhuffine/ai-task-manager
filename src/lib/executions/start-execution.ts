@@ -23,6 +23,9 @@ export interface StartExecutionArgs {
    * immediately, and the rail's ➕ never had a prompt to begin with.
    */
   message?: { content: string; attachments?: Attachment[] } | null;
+  /** "Start with agent": the task this execution owns. The server records
+   *  ownership and atomically Starts the task (Consider/Todo -> In progress). */
+  taskId?: string | null;
 }
 
 export interface StartedExecution {
@@ -67,6 +70,7 @@ export function startExecution(qc: QueryClient, args: StartExecutionArgs): Start
         model: args.model ?? null,
         modelVariant: args.modelVariant ?? null,
         effort: args.effort ?? null,
+        taskId: args.taskId ?? null,
       });
 
       // Seed before invalidating. The execution view is already mounted and
@@ -76,6 +80,8 @@ export function startExecution(qc: QueryClient, args: StartExecutionArgs): Start
       qc.invalidateQueries({ queryKey: ['workspaces', args.workspaceId, 'sessions'] });
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
+      // Start-with-agent moved the task to In progress + recorded ownership.
+      if (args.taskId) qc.invalidateQueries({ queryKey: ['tasks'] });
 
       const content = args.message?.content?.trim();
       if (content) {

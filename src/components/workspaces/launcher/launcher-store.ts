@@ -15,25 +15,39 @@ import { useSyncExternalStore } from 'react';
  * changeable chip, so opening from a row prefills that workspace while
  * still allowing a launch into a different one.
  */
+/** Optional seed for "Start with agent": the task this execution will own,
+ * plus its title/body which the modal turns into a context chip. */
+export interface LauncherSeed {
+  workspaceId?: string | null;
+  taskId?: string | null;
+  contextTitle?: string | null;
+  contextBody?: string | null;
+}
+
 interface LauncherState {
   open: boolean;
   workspaceId: string | null;
+  seed: LauncherSeed | null;
   /** Bumped on every open so the modal can reset its draft without an effect. */
   nonce: number;
 }
 
-let state: LauncherState = { open: false, workspaceId: null, nonce: 0 };
+let state: LauncherState = { open: false, workspaceId: null, seed: null, nonce: 0 };
 const listeners = new Set<() => void>();
 
 function emit() {
   for (const listener of listeners) listener();
 }
 
-/** Open the launcher, optionally seeded with a workspace. */
-export function openLauncher(workspaceId?: string | null): void {
+/** Open the launcher. Pass a workspace id (a seed, not a constraint) or a full
+ * seed object for "Start with agent". */
+export function openLauncher(arg?: string | LauncherSeed | null): void {
+  const seed: LauncherSeed | null =
+    typeof arg === 'string' ? { workspaceId: arg } : arg ?? null;
   state = {
     open: true,
-    workspaceId: workspaceId ?? state.workspaceId,
+    workspaceId: seed?.workspaceId ?? state.workspaceId,
+    seed,
     nonce: state.nonce + 1,
   };
   emit();

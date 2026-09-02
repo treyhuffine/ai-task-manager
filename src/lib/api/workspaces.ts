@@ -64,6 +64,9 @@ export const workspacesApi = {
       model?: string | null;
       modelVariant?: string | null;
       effort?: EffortLevel | null;
+      /** "Start with agent": the task this execution owns. Server records
+       *  ownership and atomically Starts the task (Consider/Todo -> In progress). */
+      taskId?: string | null;
     } = {},
   ): Promise<ChatSessionWithExecution> {
     return api.post<ChatSessionWithExecution>(`/workspaces/${id}/sessions`, {
@@ -76,6 +79,7 @@ export const workspacesApi = {
       model: options.model ?? null,
       modelVariant: options.modelVariant ?? null,
       effort: options.effort ?? null,
+      taskId: options.taskId ?? null,
     });
   },
 

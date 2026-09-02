@@ -75,7 +75,7 @@ import {
   type LaunchAgentSelection,
 } from './launch-controls';
 import { useLaunchSuggestions } from './use-launch-sources';
-import { closeLauncher, useLauncherStore } from './launcher-store';
+import { closeLauncher, useLauncherStore, type LauncherSeed } from './launcher-store';
 import { startExecution } from '@/lib/executions/start-execution';
 import { toast } from 'sonner';
 
@@ -113,11 +113,11 @@ const CHIP_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; c
  * they do today.
  */
 export function LaunchModal() {
-  const { open, workspaceId: seedWorkspaceId, nonce } = useLauncherStore();
-  return open ? <LaunchModalInner key={nonce} seedWorkspaceId={seedWorkspaceId} /> : null;
+  const { open, workspaceId: seedWorkspaceId, seed, nonce } = useLauncherStore();
+  return open ? <LaunchModalInner key={nonce} seedWorkspaceId={seedWorkspaceId} seed={seed} /> : null;
 }
 
-function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null }) {
+function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string | null; seed: LauncherSeed | null }) {
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { data: userState } = useUserState();
   const { setActiveView } = useDashboard();
@@ -133,7 +133,21 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
   // send" for the Start button. Pulling the text out happens once, at launch.
   const [hasContent, setHasContent] = useState(false);
   const [pendingUploads, setPendingUploads] = useState(false);
-  const [chips, setChips] = useState<LaunchChip[]>([]);
+  // "Start with agent" seeds a task context chip (folded into the prompt) and
+  // records ownership of the task via seed.taskId on launch.
+  const [chips, setChips] = useState<LaunchChip[]>(() =>
+    seed?.taskId
+      ? [
+          {
+            id: `context:task:${seed.taskId}`,
+            chipKind: 'context',
+            sourceKind: 'task',
+            label: seed.contextTitle ?? 'Task',
+            context: { heading: `Task: ${seed.contextTitle ?? ''}`.trim(), body: (seed.contextBody ?? '').trim() },
+          },
+        ]
+      : [],
+  );
   const [browseOpen, setBrowseOpen] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -466,6 +480,7 @@ function LaunchModalInner({ seedWorkspaceId }: { seedWorkspaceId: string | null 
           modelVariant: agent?.variant ?? null,
           effort,
           message: send ? { content, attachments: output.attachments } : null,
+          taskId: seed?.taskId ?? null,
         });
         persistPrefs();
         clearComposerIfSent(send);

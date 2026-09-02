@@ -19,6 +19,7 @@ import {
 import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
+import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
@@ -227,6 +228,9 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
 
               <div className="flex items-center gap-2">
                 {task && <EntityHistoryButton entityType="task" entityId={task.id} />}
+                {task && task.status !== 'done' && task.status !== 'archived' && (
+                  <StartWithAgentButton task={task} />
+                )}
                 {task && (
                   <button
                     onClick={handleComplete}

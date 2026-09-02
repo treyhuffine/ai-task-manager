@@ -6,6 +6,7 @@ import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { TaskBadges } from '@/components/tasks/task-badges';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
+import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import type { TaskAttentionSignals } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { cn } from '@/lib/utils';
@@ -69,6 +70,7 @@ export function CurrentWorkSection() {
               className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
               onClick={(e) => e.stopPropagation()}
             >
+              <StartWithAgentButton task={task} variant="icon" />
               <ActionButton title="Return to Todo" onClick={() => lifecycle.returnToTodo(task.id)}>
                 <CornerUpLeft size={13} />
               </ActionButton>

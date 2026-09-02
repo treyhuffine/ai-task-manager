@@ -28,6 +28,7 @@ import {
 } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
+import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { tasksApi } from '@/lib/api/tasks';
@@ -416,6 +417,9 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                   <Maximize2 size={14} />
                 </a>
 
+                {task && task.status !== 'done' && task.status !== 'archived' && (
+                  <StartWithAgentButton task={task} />
+                )}
                 {task && (
                   <button
                     onClick={handleComplete}

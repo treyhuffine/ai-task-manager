@@ -45,6 +45,7 @@ export async function POST(
       baseBranch?: string;
       prNumber?: number | null;
       liveMode?: boolean;
+      taskId?: string | null;
     } = await request.json().catch(() => ({}));
     if (!getWorkspace(id)) {
       return Response.json({ error: 'Workspace not found' }, { status: 404 });
@@ -78,6 +79,7 @@ export async function POST(
       baseBranch: body.baseBranch?.trim() || null,
       prNumber: typeof body.prNumber === 'number' ? body.prNumber : null,
       liveMode: !!body.liveMode,
+      taskId: typeof body.taskId === 'string' ? body.taskId : null,
     });
     return Response.json(row, { status: 201 });
   } catch (err) {

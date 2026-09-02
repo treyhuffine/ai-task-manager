@@ -32,6 +32,9 @@ import {
   getUserState,
   listChatSessions,
   createExecutionWithChat,
+  attachExecutionToTask,
+  transitionTask,
+  getTask,
   markExecutionSetupStarted,
   markExecutionSetupComplete,
   recordExecutionSetupError,
@@ -83,6 +86,12 @@ async function snapshotLiveBranchAndSha(cwd: string): Promise<{ branch: string |
 
 export interface DispatchExecutionSessionArgs {
   workspaceId: string;
+  /**
+   * The task this execution is doing, when launched via "Start with agent".
+   * Ownership is recorded and, if the task is Consider/Todo, it is atomically
+   * Started (moved to In progress) as part of dispatch — before the agent runs.
+   */
+  taskId?: string | null;
   /**
    * Pre-allocated session id. The launcher generates one up front so it can
    * close and route immediately, then create in the background — see
@@ -213,6 +222,28 @@ export async function dispatchExecutionSession(
     prNumber: prNumber,
     setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
   });
+
+  // Start with agent: record ownership and atomically Start the task (Consider/
+  // Todo -> In progress) now that the durable execution exists, and before the
+  // agent runs. Keyed to the execution so a retried dispatch never double-acts.
+  // Ownership is the load-bearing link; a lifecycle race (task already moved) is
+  // swallowed so it can't fail the launch.
+  if (args.taskId) {
+    try {
+      attachExecutionToTask(execution.id, args.taskId);
+      const task = getTask(args.taskId);
+      if (task && (task.status === 'consider' || task.status === 'todo')) {
+        transitionTask({
+          taskId: args.taskId,
+          command: 'start',
+          idempotencyKey: `start-with-agent:${execution.id}`,
+          meta: { source: 'human', executionId: execution.id },
+        });
+      }
+    } catch (err) {
+      console.error('[dispatch] start-with-agent ownership/start failed:', err);
+    }
+  }
 
   if (ws.isGit && !liveMode) {
     // Fire-and-forget. The promise resolves into the void; we record
