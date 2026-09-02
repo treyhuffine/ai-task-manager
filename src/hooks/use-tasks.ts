@@ -166,9 +166,11 @@ export function useTransitionTask() {
     },
     onError: (err, vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
-      // Archiving over a live owning agent opens the coordinated-stop modal.
+      // Archiving or returning to Todo over a live owning agent opens the
+      // coordinated-stop modal instead of a dead-end toast. Only those two
+      // transitions raise active_execution, so map to the one that did.
       if (apiErrorCode(err) === 'active_execution') {
-        guard.open({ taskId: vars.id, command: 'archive' });
+        guard.open({ taskId: vars.id, command: vars.command === 'return_to_todo' ? 'return_to_todo' : 'archive' });
         return;
       }
       toast.error(apiErrorText(err));

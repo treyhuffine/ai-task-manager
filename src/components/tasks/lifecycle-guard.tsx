@@ -10,8 +10,16 @@ import { apiErrorText } from '@/lib/api/client';
 
 export interface GuardRequest {
   taskId: string;
-  command: 'archive' | 'complete';
+  command: 'archive' | 'complete' | 'return_to_todo';
 }
+
+/** Per-command copy: the infinitive for the warning/button and the past tense
+ * for the success toast. Keeps the three coordinated-stop actions consistent. */
+const GUARD_ACTION: Record<GuardRequest['command'], { verb: string; done: string }> = {
+  complete: { verb: 'complete', done: 'completed the task' },
+  archive: { verb: 'archive', done: 'archived the task' },
+  return_to_todo: { verb: 'return to Todo', done: 'returned the task to Todo' },
+};
 
 interface GuardContextValue {
   /** Open the active-agent warning for a task whose archive/complete was
@@ -53,7 +61,7 @@ function ActiveAgentDialog({ req, onClose }: { req: GuardRequest | null; onClose
     enabled: !!req,
   });
 
-  const verb = req?.command === 'complete' ? 'complete' : 'archive';
+  const verb = req ? GUARD_ACTION[req.command].verb : 'archive';
   const count = execs?.length ?? 0;
 
   const proceed = async () => {
@@ -64,11 +72,11 @@ function ActiveAgentDialog({ req, onClose }: { req: GuardRequest | null; onClose
       if (req.command === 'complete') {
         await tasksApi.complete(req.taskId, { stopOwningExecutions: true, idempotencyKey: key });
       } else {
-        await tasksApi.transition(req.taskId, 'archive', { stopOwningExecutions: true, idempotencyKey: key });
+        await tasksApi.transition(req.taskId, req.command, { stopOwningExecutions: true, idempotencyKey: key });
       }
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['sessions'] });
-      toast.success(req.command === 'complete' ? 'Stopped the agent and completed the task' : 'Stopped the agent and archived the task');
+      toast.success(`Stopped the agent and ${GUARD_ACTION[req.command].done}`);
       onClose();
     } catch (e) {
       toast.error(apiErrorText(e));

@@ -38,6 +38,19 @@ import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import type { TaskStatus } from '@/db/types';
 import { cn } from '@/lib/utils';
 
+/** Match the server's task ordering: sortKey ASC with nulls last, then a stable
+ * createdAt DESC tiebreak. Keeps optimistic reorders from disagreeing with the
+ * refetched order when sortKeys are null/equal. */
+function compareBySortKey(a: TaskListDTO, b: TaskListDTO): number {
+  const ak = a.sortKey ?? null;
+  const bk = b.sortKey ?? null;
+  if (ak == null && bk == null) return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
+  if (ak == null) return 1;
+  if (bk == null) return -1;
+  const c = ak.localeCompare(bk);
+  return c !== 0 ? c : (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
+}
+
 type AreaMode = 'all' | 'none' | string; // 'all', 'none', or an area id
 
 /** One draggable card. */
@@ -212,10 +225,13 @@ export function TaskKanban() {
       } catch {
         key = generateKeyBetween(null, null);
       }
-      // Optimistic: reorder the column's cache and stamp the new key.
+      // Optimistic: reorder the column's cache and stamp the new key. Sort the
+      // SAME way the server does (sortKey ASC nulls last, then createdAt DESC),
+      // so a null-sortKey collision doesn't make cards jump when the refetch
+      // lands with the server's ordering.
       const qkey = ['tasks', { status: laneStatus(lane), orderBy: 'sortKey' }];
       qc.setQueryData<TaskListDTO[]>(qkey, (rows) =>
-        rows ? [...rows].map((r) => (r.id === movedId ? { ...r, sortKey: key } : r)).sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? '')) : rows,
+        rows ? [...rows].map((r) => (r.id === movedId ? { ...r, sortKey: key } : r)).sort(compareBySortKey) : rows,
       );
       tasksApi.update(movedId, { sortKey: key }).catch(() => qc.invalidateQueries({ queryKey: ['tasks'] }));
     },

@@ -157,6 +157,19 @@ export async function optimisticTransition(
   const snapshot = qc.getQueriesData({ queryKey: ['tasks'] }) as OptimisticSnapshot;
   const patch = { status: toStatus, ...extraPatch };
 
+  // The row being moved, from wherever it currently lives, so it can be INSERTED
+  // into the lane it now belongs to (not just dropped from the old one) — which
+  // is what stops a Kanban card from vanishing between drop and refetch.
+  let movingRow: Record<string, unknown> | undefined;
+  for (const [, data] of qc.getQueriesData({ queryKey: ['tasks'] })) {
+    if (Array.isArray(data)) {
+      const hit = data.find((r) => hasId(r, id));
+      if (hit) { movingRow = { ...(hit as Record<string, unknown>) }; break; }
+    } else if (data && hasId(data, id)) {
+      movingRow = { ...(data as Record<string, unknown>) };
+    }
+  }
+
   for (const [key, data] of qc.getQueriesData({ queryKey: ['tasks'] })) {
     if (data == null) continue;
     if (hasId(data, id)) {
@@ -166,6 +179,7 @@ export async function optimisticTransition(
     if (Array.isArray(data)) {
       const filter = (key as unknown[])[1] as { status?: unknown } | undefined;
       const stays = statusMatchesFilter(toStatus, filter?.status);
+      const had = data.some((row) => hasId(row, id));
       const next = data.reduce<unknown[]>((acc, row) => {
         if (hasId(row, id)) {
           if (stays) acc.push({ ...row, ...patch });
@@ -175,10 +189,26 @@ export async function optimisticTransition(
         }
         return acc;
       }, []);
+      // Newly belongs here but wasn't present: place it now. Restricted to pure
+      // status lanes (e.g. the Kanban's per-status queries) so we never wrongly
+      // insert into an area/parent/search-filtered list the row may not match.
+      if (stays && !had && movingRow && isPureStatusLane(filter)) {
+        next.push({ ...movingRow, ...patch });
+      }
       qc.setQueryData(key, next);
     }
   }
   return snapshot;
+}
+
+/** A list filter that constrains by status (and ordering) only — safe to place
+ * a row into purely by its new status. Anything narrower (area, parent, search)
+ * is skipped, since status alone cannot prove membership. */
+function isPureStatusLane(filter: unknown): boolean {
+  if (!filter || typeof filter !== 'object') return false;
+  const f = filter as Record<string, unknown>;
+  const constraining = ['areaId', 'parentId', 'workspaceId', 'q', 'search', 'taskId'];
+  return constraining.every((k) => f[k] == null);
 }
 
 /** Restore every cache entry captured in a snapshot (rollback on error). */

@@ -44,8 +44,10 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
 
   // Review-through is for TASK-OWNED executions. Taskless quick work keeps its
   // read/unread behavior (per the spec) and shows no review bar. Also hidden
-  // until the agent has produced output to disposition.
-  if (!ctx || !ctx.latestOutputEventId || !ctx.owningTaskId) return null;
+  // until the agent has produced output to disposition. A shared execution
+  // (several owned tasks) still shows the bar — only Accept-and-complete is
+  // withheld, since which task to complete is ambiguous.
+  if (!ctx || !ctx.latestOutputEventId || ctx.ownedTaskCount < 1) return null;
 
   const pending = review.isPending;
   const reviewed = ctx.latestDisposition;
