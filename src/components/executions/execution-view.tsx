@@ -25,6 +25,7 @@ import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionChatTabs } from './execution-chat-tabs';
 import { ExecutionTranscript } from './execution-transcript';
+import { ExecutionReviewBar } from './execution-review-bar';
 import { ExecutionComposer, type ExecutionComposerHandle } from './execution-composer';
 import { BackgroundTasksBar } from './background-tasks-bar';
 import { ExecutionTerminalPanel } from './execution-terminal-panel';
@@ -584,6 +585,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         isRunning={isRunning}
         voiceSentIds={voiceSentIds}
       />
+      {session.executionId && !isRunning && <ExecutionReviewBar executionId={session.executionId} />}
       {/* Pending input + composer share a single top border so they
           read as one connected input region. PendingInputArea returns
           null when nothing's pending, in which case the composer is

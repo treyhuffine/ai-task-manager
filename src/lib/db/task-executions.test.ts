@@ -110,6 +110,29 @@ describe('task-owned executions', () => {
     expect(q.getExecutionReviews(exec.id)).toHaveLength(3);
   });
 
+  it('review context names the single owning task; ambiguous when many', async () => {
+    const { q, wsId } = await setup();
+    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
+    const other = q.createTask({ title: 'Other', rawInput: 'y' });
+    const exec = q.createExecution({ workspaceId: wsId });
+
+    // No ownership, no output yet.
+    let ctx = q.getExecutionReviewContext(exec.id);
+    expect(ctx.owningTaskId).toBeNull();
+    expect(ctx.latestOutputEventId).toBeNull();
+    expect(ctx.hasUnreviewedOutput).toBe(false);
+
+    // One owner -> Accept-and-complete is unambiguous.
+    q.attachExecutionToTask(exec.id, task.id);
+    ctx = q.getExecutionReviewContext(exec.id);
+    expect(ctx.owningTaskId).toBe(task.id);
+    expect(ctx.owningTaskTitle).toBe('Owned');
+
+    // Two owners -> ambiguous, no single task to accept-and-complete.
+    q.attachExecutionToTask(exec.id, other.id);
+    expect(q.getExecutionReviewContext(exec.id).owningTaskId).toBeNull();
+  });
+
   it('surfaces the blocked signal from an unresolved blocker task', async () => {
     const { q } = await setup();
     const blocker = q.createTask({ title: 'Blocker', rawInput: 'b' });

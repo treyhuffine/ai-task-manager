@@ -31,7 +31,7 @@ import type {
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
   AgentRecord, CreateAgentInput,
-  ExecutionRecord, ExecutionReviewRecord, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
+  ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
@@ -1199,6 +1199,46 @@ export function getExecutionReviews(executionId: string): ExecutionReviewRecord[
     .where(eq(executionReviews.executionId, executionId))
     .orderBy(desc(executionReviews.createdAt), desc(executionReviews.id))
     .all();
+}
+
+/**
+ * Everything the review affordance needs for an execution: the latest output
+ * event to disposition, its current disposition (a fresh output after the last
+ * reviewed one is a new obligation), and the single owning task if any (so
+ * Accept-and-complete is offered only when unambiguous).
+ */
+export function getExecutionReviewContext(executionId: string): ExecutionReviewContext {
+  const sessionIds = getDb()
+    .select({ id: chatSessions.id })
+    .from(chatSessions)
+    .where(eq(chatSessions.executionId, executionId))
+    .all()
+    .map((s) => s.id);
+
+  let latestOutputEventId: string | null = null;
+  if (sessionIds.length > 0) {
+    const row = getDb()
+      .select({ id: chatEvents.id })
+      .from(chatEvents)
+      .where(and(inArray(chatEvents.sessionId, sessionIds), inArray(chatEvents.source, [...OUTCOME_SOURCES])))
+      .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
+      .limit(1)
+      .get();
+    latestOutputEventId = row?.id ?? null;
+  }
+
+  const owned = getExecutionTasks(executionId);
+  const owningTaskId = owned.length === 1 ? owned[0].id : null;
+  const owningTaskTitle = owned.length === 1 ? owned[0].title : null;
+  const latestDisposition = latestOutputEventId ? getLatestOutputReview(latestOutputEventId)?.disposition ?? null : null;
+
+  return {
+    latestOutputEventId,
+    owningTaskId,
+    owningTaskTitle,
+    latestDisposition,
+    hasUnreviewedOutput: !!latestOutputEventId && !latestDisposition,
+  };
 }
 
 /** The current (latest) disposition for a specific output event, if any. */

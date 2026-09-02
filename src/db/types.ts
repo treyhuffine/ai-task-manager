@@ -209,6 +209,16 @@ export type ExecutionReviewRecord = InferSelectModel<typeof executionReviews>;
 export type CreateExecutionReviewInput = Omit<InferInsertModel<typeof executionReviews>, 'id' | 'createdAt' | 'updatedAt'>;
 export type ReviewDisposition = ExecutionReviewRecord['disposition'];
 
+/** What the review affordance needs to render: the exact output to disposition,
+ * the single owning task (for Accept-and-complete), and the current state. */
+export interface ExecutionReviewContext {
+  latestOutputEventId: string | null;
+  owningTaskId: string | null;
+  owningTaskTitle: string | null;
+  latestDisposition: ReviewDisposition | null;
+  hasUnreviewedOutput: boolean;
+}
+
 export type ExecutionTaskRecord = InferSelectModel<typeof executionTasks>;
 
 /** Derived attention badges for a task (from its owning executions + blocker).
