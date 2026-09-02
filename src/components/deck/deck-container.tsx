@@ -6,6 +6,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
 import { useAreas } from '@/hooks/use-areas';
 import { DeckConductor } from './deck-conductor';
+import { CurrentWorkSection } from './current-work-section';
 import { DeckStack } from './deck-stack';
 import { DeckMoreOptions } from './deck-more-options';
 import { DeckTaskBrowser } from './deck-task-browser';
@@ -743,6 +744,7 @@ export function DeckContainer() {
                 {plan.framing}
               </p>
             )}
+            <CurrentWorkSection />
             <DeckStack
               items={filteredItems}
               onComplete={handleComplete}
