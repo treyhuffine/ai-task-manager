@@ -390,6 +390,27 @@ export function TaskList() {
         </div>
       )}
 
+      {/* Mobile lane switcher — Current Work / Todo / Consider without a menu */}
+      <div className="flex md:hidden items-center gap-1 overflow-x-auto border-b border-border px-3 py-1.5 no-scrollbar">
+        {[...TASK_LANES, { key: 'all' as const, label: 'All' }].map((lane) => {
+          const count = lane.key === 'all' ? undefined : counts?.[laneStatus(lane.key as TaskLane)];
+          return (
+            <button
+              key={lane.key}
+              onClick={() => { setLaneFilter(lane.key as TaskLane | 'all'); dismissSwitchBanner(); }}
+              aria-pressed={laneFilter === lane.key}
+              className={cn(
+                'flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap min-h-[28px]',
+                laneFilter === lane.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+              )}
+            >
+              {lane.label}
+              {count != null && count > 0 && <span className="ml-1 opacity-70">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Quick-create in the current lane */}
       {quickCreateLane && (
         <QuickCreateRow

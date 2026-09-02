@@ -8,6 +8,9 @@ import {
 } from 'lucide-react'
 import { useArea, useUpdateArea } from '@/hooks/use-areas'
 import { useTasks, useCreateTask } from '@/hooks/use-tasks'
+import { useTaskLifecycle } from '@/hooks/use-task-lifecycle'
+import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control'
+import type { TaskStatus } from '@/db/types'
 import { useNotes, useCreateNote } from '@/hooks/use-notes'
 import { useDashboard } from '@/contexts/dashboard-context'
 import {
@@ -40,6 +43,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
   const { openTask, openNote } = useDashboard()
   const updateArea = useUpdateArea()
   const createTask = useCreateTask()
+  const lifecycle = useTaskLifecycle()
   const createNote = useCreateNote()
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -355,21 +359,29 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
 
                     <div className="space-y-0.5">
                       {openTasks.map((task) => (
-                        <button
+                        <div
                           key={task.id}
-                          onClick={() => openTask(task.id)}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors hover:bg-card group"
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors hover:bg-card group"
                         >
-                          <div className={cn(
-                            'flex-shrink-0 w-3.5 h-3.5 rounded-full border',
-                            'border-muted-foreground/30',
-                          )} />
-                          <span className="text-[12px] font-medium text-foreground truncate">
-                            {task.title}
+                          <button
+                            onClick={() => lifecycle.toggle(task.id, task.status as TaskStatus)}
+                            title="Complete"
+                            aria-label="Complete task"
+                            className="flex-shrink-0"
+                          >
+                            <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/30 transition-colors hover:border-primary" />
+                          </button>
+                          <button onClick={() => openTask(task.id)} className="min-w-0 flex-1 text-left">
+                            <span className="text-[12px] font-medium text-foreground truncate block">
+                              {task.title}
+                            </span>
+                          </button>
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <LifecycleStatusControl taskId={task.id} status={task.status as TaskStatus} size="xs" />
                           </span>
                           {task.hardDeadline && (
                             <span className={cn(
-                              'ml-auto text-[9px] font-medium flex-shrink-0',
+                              'text-[9px] font-medium flex-shrink-0',
                               isPastDate(task.hardDeadline)
                                 ? 'text-destructive'
                                 : 'text-muted-foreground/50'
@@ -377,7 +389,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                               {formatLocalDate(task.hardDeadline, { month: 'short', day: 'numeric' })}
                             </span>
                           )}
-                        </button>
+                        </div>
                       ))}
 
                       {/* Inline add task */}
@@ -416,18 +428,24 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                             </span>
                           </div>
                           {doneTasks.map((task) => (
-                            <button
+                            <div
                               key={task.id}
-                              onClick={() => openTask(task.id)}
-                              className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-left transition-colors hover:bg-card opacity-50"
+                              className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors hover:bg-card opacity-60 hover:opacity-100"
                             >
-                              <div className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-primary border border-primary flex items-center justify-center">
+                              <button
+                                onClick={() => lifecycle.reopen(task.id)}
+                                title="Reopen"
+                                aria-label="Reopen task"
+                                className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-primary border border-primary flex items-center justify-center"
+                              >
                                 <Check size={8} strokeWidth={3} className="text-primary-foreground" />
-                              </div>
-                              <span className="text-[12px] font-medium text-muted-foreground line-through truncate">
-                                {task.title}
-                              </span>
-                            </button>
+                              </button>
+                              <button onClick={() => openTask(task.id)} className="min-w-0 flex-1 text-left">
+                                <span className="text-[12px] font-medium text-muted-foreground line-through truncate block">
+                                  {task.title}
+                                </span>
+                              </button>
+                            </div>
                           ))}
                         </>
                       )}

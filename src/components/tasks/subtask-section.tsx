@@ -25,6 +25,12 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
   const activeSubtasks = subtasks?.filter(t => t.status !== 'archived') ?? []
   const doneCount = activeSubtasks.filter(t => t.status === 'done').length
   const totalCount = activeSubtasks.length
+  // Child-state rollup for the header: e.g. "1 in progress · 3 todo · 2 done".
+  const rollup = (['in_progress', 'todo', 'consider', 'done'] as const)
+    .map((s) => ({ s, n: activeSubtasks.filter((t) => t.status === s).length }))
+    .filter((x) => x.n > 0)
+    .map((x) => `${x.n} ${x.s === 'in_progress' ? 'in progress' : x.s}`)
+    .join(' · ')
 
   const handleAdd = useCallback(() => {
     if (!newTitle.trim()) {
@@ -73,7 +79,10 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
           />
           Subtasks
           {totalCount > 0 && (
-            <span className="text-[10px] font-medium text-muted-foreground/60 normal-case tracking-normal">
+            <span
+              className="text-[10px] font-medium text-muted-foreground/60 normal-case tracking-normal"
+              title={rollup}
+            >
               {doneCount}/{totalCount}
             </span>
           )}

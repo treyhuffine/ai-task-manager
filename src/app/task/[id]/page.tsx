@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
+import { useParentGuard } from '@/hooks/use-parent-guard';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
@@ -57,6 +58,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const lifecycle = useTaskLifecycle();
+  const guardParent = useParentGuard(taskId);
   const chat = useDocumentChat('task', task ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
 
@@ -153,16 +155,19 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     [taskId, updateTask],
   );
 
-  const handleComplete = useCallback(() => {
+  const handleComplete = useCallback(async () => {
     if (!taskId || !task) return;
+    // Confirm before completing a parent that still has open children.
+    if ((task.status === 'todo' || task.status === 'in_progress') && !(await guardParent('complete'))) return;
     lifecycle.toggle(taskId, task.status);
-  }, [taskId, task, lifecycle]);
+  }, [taskId, task, lifecycle, guardParent]);
 
-  const handleArchive = useCallback(() => {
-    if (!taskId) return;
+  const handleArchive = useCallback(async () => {
+    if (!taskId || !task) return;
+    if (task.status !== 'done' && task.status !== 'archived' && !(await guardParent('archive'))) return;
     lifecycle.archive(taskId);
     router.push('/');
-  }, [taskId, lifecycle, router]);
+  }, [taskId, task, lifecycle, router, guardParent]);
 
   const handleDelete = useCallback(() => {
     if (!taskId) return;
