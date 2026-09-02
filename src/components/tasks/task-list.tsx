@@ -21,12 +21,13 @@ import {
 import { generateKeyBetween } from 'fractional-indexing';
 import { tasksApi } from '@/lib/api/tasks';
 import { backfillSortKeys, computeBucketPlacement, type Bucket } from '@/lib/utils/bucket-placement';
-import { Target, Filter, ArrowDownAz, Loader2, Search } from 'lucide-react';
+import { Target, Filter, ArrowDownAz, Loader2, Search, Plus } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useTasks, useUpdateTask } from '@/hooks/use-tasks';
+import { useTasks, useUpdateTask, useCreateTask, useTaskCounts, useTaskAttention } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
-import { TASK_LANES, laneStatus, type TaskLane } from '@/lib/tasks/lanes';
+import { TASK_LANES, LANE_BY_KEY, laneStatus, type TaskLane } from '@/lib/tasks/lanes';
 import { useAreas } from '@/hooks/use-areas';
+import type { TaskAttentionSignals } from '@/db/types';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
   DropdownMenu,
@@ -88,8 +89,34 @@ export function TaskList() {
   const queryClient = useQueryClient();
   const { data: tasks, isLoading, error } = useTasks(filter);
   const { data: areas } = useAreas();
+  const { data: counts } = useTaskCounts(areaFilter !== 'all' ? areaFilter : null);
   const updateTask = useUpdateTask();
+  const createTask = useCreateTask();
   const lifecycle = useTaskLifecycle();
+
+  // Attention badges only matter for In-progress work (Current Work lane).
+  const attentionIds = laneFilter === 'current' ? (tasks ?? []).map((t) => t.id) : [];
+  const { data: attention } = useTaskAttention(attentionIds);
+
+  // Quick-create in the lane, defaulting to the lane's semantics: Consider
+  // creates a possibility, Todo commits, Current Work creates a Todo then Starts
+  // it (so lifecycle history stays valid). Done/Archived do not offer creation.
+  const quickCreateLane = laneFilter !== 'all' && laneFilter !== 'done' && laneFilter !== 'archived' ? (laneFilter as TaskLane) : null;
+  const handleQuickCreate = useCallback(
+    async (title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed || !quickCreateLane) return;
+      const status = quickCreateLane === 'consider' ? 'consider' : 'todo';
+      const created = await createTask.mutateAsync({
+        title: trimmed,
+        rawInput: trimmed,
+        status,
+        ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
+      } as Parameters<typeof createTask.mutateAsync>[0]);
+      if (quickCreateLane === 'current' && created?.id) lifecycle.start(created.id);
+    },
+    [quickCreateLane, createTask, areaFilter, lifecycle],
+  );
 
   const areaLabel =
     areaFilter === 'all'
@@ -234,20 +261,26 @@ export function TaskList() {
         {/* Lane filter — desktop inline segmented, mobile inside Filter dropdown.
             Current Work / Todo / Consider / Done / Archived / All. */}
         <div className="hidden md:flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
-          {[...TASK_LANES, { key: 'all' as const, label: 'All' }].map((lane) => (
-            <button
-              key={lane.key}
-              onClick={() => { setLaneFilter(lane.key as TaskLane | 'all'); dismissSwitchBanner(); }}
-              className={cn(
-                'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all whitespace-nowrap',
-                laneFilter === lane.key
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {lane.label}
-            </button>
-          ))}
+          {[...TASK_LANES, { key: 'all' as const, label: 'All' }].map((lane) => {
+            const count = lane.key === 'all' ? undefined : counts?.[laneStatus(lane.key as TaskLane)];
+            return (
+              <button
+                key={lane.key}
+                onClick={() => { setLaneFilter(lane.key as TaskLane | 'all'); dismissSwitchBanner(); }}
+                className={cn(
+                  'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all whitespace-nowrap inline-flex items-center gap-1',
+                  laneFilter === lane.key
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {lane.label}
+                {count != null && count > 0 && (
+                  <span className={cn('tabular-nums', laneFilter === lane.key ? 'opacity-80' : 'opacity-50')}>{count}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Energy filter — desktop inline segmented, mobile inside Filter dropdown */}
@@ -357,6 +390,14 @@ export function TaskList() {
         </div>
       )}
 
+      {/* Quick-create in the current lane */}
+      {quickCreateLane && (
+        <QuickCreateRow
+          lane={quickCreateLane}
+          onCreate={handleQuickCreate}
+        />
+      )}
+
       {/* Task list */}
       <VirtualTaskList
         tasks={tasks}
@@ -373,6 +414,41 @@ export function TaskList() {
         highlightId={highlightId}
         onDragIntercept={handleDragIntercept}
         onPickBucket={handlePickBucket}
+        signals={attention}
+        emptyText={laneFilter !== 'all' ? LANE_BY_KEY[laneFilter as TaskLane]?.empty ?? 'No tasks found.' : 'No tasks found.'}
+      />
+    </div>
+  );
+}
+
+/* ── Quick-create row ── */
+
+function QuickCreateRow({ lane, onCreate }: { lane: TaskLane; onCreate: (title: string) => void }) {
+  const [value, setValue] = useState('');
+  const placeholder =
+    lane === 'consider'
+      ? 'Park a possibility in Consider…'
+      : lane === 'current'
+        ? 'Start a task in Current Work…'
+        : 'Add a task to Todo…';
+  const submit = () => {
+    if (!value.trim()) return;
+    onCreate(value);
+    setValue('');
+  };
+  return (
+    <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
+      <Plus size={13} className="text-muted-foreground flex-shrink-0" />
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+          if (e.key === 'Escape') setValue('');
+        }}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground/50"
       />
     </div>
   );
@@ -395,12 +471,14 @@ interface VirtualTaskListProps {
   highlightId: string | null;
   onDragIntercept: (id: string) => void;
   onPickBucket: (id: string, bucket: Bucket) => void;
+  signals?: Record<string, TaskAttentionSignals>;
+  emptyText: string;
 }
 
 function VirtualTaskList({
   tasks, isLoading, error, sensors, onDragEnd,
   onComplete, onUpdate, onSnooze, onArchive, onOpen,
-  dragEnabled, highlightId, onDragIntercept, onPickBucket,
+  dragEnabled, highlightId, onDragIntercept, onPickBucket, signals, emptyText,
 }: VirtualTaskListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -440,9 +518,9 @@ function VirtualTaskList({
         </div>
       )}
       {tasks && tasks.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
+        <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2 px-6 text-center">
           <Target size={20} className="opacity-30" />
-          <p className="text-[11px]">No tasks found</p>
+          <p className="text-[11px]">{emptyText}</p>
         </div>
       )}
       {tasks && tasks.length > 0 && (
@@ -477,6 +555,7 @@ function VirtualTaskList({
                       isHighlighted={task.id === highlightId}
                       onDragIntercept={onDragIntercept}
                       onPickBucket={onPickBucket}
+                      signals={signals?.[task.id]}
                     />
                   </div>
                 );

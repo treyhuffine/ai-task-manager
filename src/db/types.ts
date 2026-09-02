@@ -211,6 +211,17 @@ export type ReviewDisposition = ExecutionReviewRecord['disposition'];
 
 export type ExecutionTaskRecord = InferSelectModel<typeof executionTasks>;
 
+/** Derived attention badges for a task (from its owning executions + blocker).
+ * See getTaskAttentionSignals. */
+export interface TaskAttentionSignals {
+  blocked: boolean;
+  stalled: boolean;
+  review: boolean;
+  working: boolean;
+  hasLiveExecution: boolean;
+  executionCount: number;
+}
+
 // ─── Preview Targets ──────────────────────────────────────────
 
 export type PreviewTargetRecord = InferSelectModel<typeof previewTargets>;

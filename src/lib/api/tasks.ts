@@ -6,6 +6,7 @@ import type {
   UpdateTaskInput,
   TaskFilter,
   TaskStatus,
+  TaskAttentionSignals,
 } from '@/db/types';
 import type { TransitionCommand } from '@/lib/tasks/lifecycle';
 
@@ -46,6 +47,17 @@ export const tasksApi = {
     opts: { note?: string; idempotencyKey?: string; expectedStatusChangedCount?: number } = {},
   ): Promise<LifecycleResult> {
     return api.post(`/tasks/${id}/complete`, opts);
+  },
+
+  /** Batch attention badges for the given task ids. */
+  attention(ids: string[]): Promise<Record<string, TaskAttentionSignals>> {
+    if (ids.length === 0) return Promise.resolve({});
+    return api.get(`/tasks/attention`, { query: { ids: ids.join(',') } });
+  },
+
+  /** Task counts by canonical status, optionally within an area. */
+  counts(areaId?: string | null): Promise<Record<TaskStatus, number>> {
+    return api.get(`/tasks/counts`, { query: areaId ? { areaId } : undefined });
   },
 
   /** Apply a semantic lifecycle transition (move_to_todo / move_to_consider /

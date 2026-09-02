@@ -20,7 +20,7 @@ import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embe
 import { toFtsMatchQuery, normalizeFtsRank } from '@/lib/embeddings/fts-query';
 import { syncEntity, syncDeletion } from '@/lib/export/mirror';
 import type {
-  TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter,
+  TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals,
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
   AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
   StreamRecord, CreateStreamInput, UpdateStreamInput,
@@ -183,6 +183,30 @@ export function getTask(id: string): TaskRecord | undefined {
   const db = getDb();
   const row = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
   return row ? normalizeTaskRow(row) : undefined;
+}
+
+/**
+ * Count of tasks by canonical status, optionally within an area. Legacy `active`
+ * bytes fold into `todo`. Powers the lane count badges. Missing statuses are 0.
+ */
+export function getTaskStatusCounts(opts: { areaId?: string | null } = {}): Record<LifecycleTaskStatus, number> {
+  const conditions: SQL[] = [];
+  if (opts.areaId) conditions.push(eq(tasks.areaId, opts.areaId));
+  const rows = getDb()
+    .select({ status: tasks.status, c: sql<number>`count(*)` })
+    .from(tasks)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .groupBy(tasks.status)
+    .all();
+  const out: Record<LifecycleTaskStatus, number> = {
+    consider: 0,
+    todo: 0,
+    in_progress: 0,
+    done: 0,
+    archived: 0,
+  };
+  for (const r of rows) out[normalizeTaskStatus(r.status)] += r.c;
+  return out;
 }
 
 /** Tasks carry free-form markdown in both `description` and `body`. The
@@ -1204,6 +1228,68 @@ export function getTaskLifecycleSignals(taskId: string): {
     hasLiveExecution: execs.some((e) => e.status === 'active'),
     executionCount: execs.length,
   };
+}
+
+/**
+ * Derived attention badges for a task's Current-Work row. Blocked is the
+ * unresolved-blocker signal; the rest come from OWNING live executions:
+ *   - stalled: an owning execution failed setup / dispatch.
+ *   - review: an owning execution produced outcome output that has not been
+ *     reviewed since (a Review obligation — reading does not clear it).
+ *   - working: an agent execution is live on the task and neither stalled nor
+ *     awaiting review (per the spec, this means an agent owns and is pursuing
+ *     it, not necessarily streaming this instant).
+ * "Needs input" is intentionally absent: pending agent input is not durably
+ * tracked, so we do not fake it.
+ */
+export function getTaskAttentionSignals(taskId: string): TaskAttentionSignals {
+  const base = getTaskLifecycleSignals(taskId);
+  const owning = getDb()
+    .select({ id: executions.id, setupError: executions.setupError })
+    .from(executions)
+    .innerJoin(executionTasks, eq(executionTasks.executionId, executions.id))
+    .where(and(eq(executionTasks.taskId, taskId), eq(executions.status, 'active')))
+    .all();
+
+  if (owning.length === 0) {
+    return { ...base, stalled: false, review: false, working: false };
+  }
+
+  const stalled = owning.some((e) => !!e.setupError);
+
+  let review = false;
+  for (const exec of owning) {
+    const lastOutcome = getDb()
+      .select({ v: sql<string | null>`MAX(${chatSessions.lastOutcomeEventAt})` })
+      .from(chatSessions)
+      .where(eq(chatSessions.executionId, exec.id))
+      .get()?.v;
+    if (!lastOutcome) continue;
+    const lastReview = getDb()
+      .select({ v: sql<string | null>`MAX(${executionReviews.createdAt})` })
+      .from(executionReviews)
+      .where(eq(executionReviews.executionId, exec.id))
+      .get()?.v;
+    if (!lastReview || lastReview < lastOutcome) {
+      review = true;
+      break;
+    }
+  }
+
+  return {
+    ...base,
+    stalled,
+    review,
+    working: !stalled && !review,
+  };
+}
+
+/** Batch attention signals, keyed by task id. Bounded call sites (Current Work,
+ * visible In-progress rows), so per-task computation is fine. */
+export function getTasksAttentionSignals(taskIds: string[]): Record<string, TaskAttentionSignals> {
+  const out: Record<string, TaskAttentionSignals> = {};
+  for (const id of taskIds) out[id] = getTaskAttentionSignals(id);
+  return out;
 }
 
 // ─── Notes ────────────────────────────────────────────────────

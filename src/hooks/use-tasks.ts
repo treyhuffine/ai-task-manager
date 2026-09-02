@@ -42,6 +42,32 @@ export function useTask(id: string | null) {
   });
 }
 
+/**
+ * Attention badges (Blocked / Stalled / Review / Working) for a set of tasks.
+ * Meant for Current Work and visible In-progress rows. Polls lightly so a live
+ * agent's state (new output to review, a stall) surfaces without a reload.
+ */
+/** Task counts by canonical status (for lane count badges), optionally scoped
+ * to an area. Kept fresh as tasks move between lanes. */
+export function useTaskCounts(areaId?: string | null) {
+  return useQuery({
+    queryKey: [...TASKS_KEY, 'counts', areaId ?? null],
+    queryFn: () => tasksApi.counts(areaId),
+    staleTime: 5_000,
+  });
+}
+
+export function useTaskAttention(ids: string[]) {
+  const key = [...ids].sort().join(',');
+  return useQuery({
+    queryKey: [...TASKS_KEY, 'attention', key],
+    queryFn: () => tasksApi.attention(ids),
+    enabled: ids.length > 0,
+    refetchInterval: 20_000,
+    staleTime: 10_000,
+  });
+}
+
 export function useCreateTask() {
   const qc = useQueryClient();
   return useMutation({

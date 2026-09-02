@@ -22,9 +22,11 @@ import { BUCKET_OPTIONS, type Bucket } from '@/lib/utils/bucket-placement';
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/components/ui/popover';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { AreaSelect } from '@/components/shared/area-select';
+import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
+import { TaskBadges } from '@/components/tasks/task-badges';
 import { cn } from '@/lib/utils';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
-import type { Energy, Effort } from '@/db/types';
+import type { Energy, Effort, TaskAttentionSignals } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 const ENERGY_COLORS: Record<string, string> = {
@@ -70,11 +72,13 @@ interface TaskRowProps {
   isHighlighted?: boolean;
   onDragIntercept?: (id: string) => void;
   onPickBucket?: (id: string, bucket: Bucket) => void;
+  /** Derived attention badges, supplied for In-progress rows. */
+  signals?: TaskAttentionSignals | null;
 }
 
 export function TaskRow({
   task, onComplete, onUpdate, onSnooze, onArchive, onOpen,
-  dragEnabled = true, isHighlighted = false, onDragIntercept, onPickBucket,
+  dragEnabled = true, isHighlighted = false, onDragIntercept, onPickBucket, signals,
 }: TaskRowProps) {
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
@@ -186,6 +190,14 @@ export function TaskRow({
 
         {/* Metadata row */}
         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+          {/* Editable lifecycle status */}
+          <span onClick={(e) => e.stopPropagation()}>
+            <LifecycleStatusControl taskId={task.id} status={task.status} size="xs" />
+          </span>
+
+          {/* Derived attention badges (In progress) */}
+          <TaskBadges signals={signals} size="xs" />
+
           {/* Area */}
           <AreaSelect
             value={task.areaId}
