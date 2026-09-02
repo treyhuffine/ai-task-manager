@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { completeTask } from '@/lib/db/queries';
+import { reapStoppedExecutions } from '@/lib/sessions/dispatch';
 import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 export async function POST(
@@ -21,6 +22,9 @@ export async function POST(
     if (!result) {
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
+
+    // Reap the runtime of any owning execution the coordinated stop displaced.
+    await reapStoppedExecutions(result.stoppedExecutionIds);
 
     return Response.json(result);
   } catch (err) {

@@ -12,6 +12,11 @@ function cleanup() {
   }
 }
 
+/** The stable lifecycle error code off a thrown error, if any. */
+function codeOf(e: unknown): string | undefined {
+  return (e as { code?: string })?.code;
+}
+
 beforeEach(() => {
   cleanup();
   process.env.FLOW_DB_PATH = TEST_DB;
@@ -69,8 +74,8 @@ describe('task-owned executions', () => {
     let code: string | undefined;
     try {
       q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a1' });
-    } catch (e: any) {
-      code = e?.code;
+    } catch (e) {
+      code = codeOf(e);
     }
     expect(code).toBe('active_execution');
     expect(q.getTask(task.id)!.status).not.toBe('archived');
@@ -90,15 +95,100 @@ describe('task-owned executions', () => {
     let code: string | undefined;
     try {
       q.completeTask(task.id, { idempotencyKey: 'c1' });
-    } catch (e: any) {
-      code = e?.code;
+    } catch (e) {
+      code = codeOf(e);
     }
     expect(code).toBe('active_execution');
   });
 
+  it('accept-and-complete: stopOwningExecutions completes the task, stops the owner, and reports it', async () => {
+    const { q, wsId } = await setup();
+    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
+    const exec = q.createExecution({ workspaceId: wsId });
+    q.attachExecutionToTask(exec.id, task.id);
+
+    const result = q.completeTask(task.id, { idempotencyKey: 'cc1', stopOwningExecutions: true });
+    expect(result?.toStatus).toBe('done');
+    // The coordinated stop reports the execution it displaced (the route reaps
+    // its runtime after commit) and the row is durably archived in the same tx.
+    expect(result?.stoppedExecutionIds).toEqual([exec.id]);
+    expect(q.getExecution(exec.id)?.status).toBe('archived');
+    // No live owner remains -> nothing more to reap.
+    expect(q.getTaskLifecycleSignals(task.id).hasLiveExecution).toBe(false);
+  });
+
+  it('archive with stopOwningExecutions reports the stopped owner; without it, refuses', async () => {
+    const { q, wsId } = await setup();
+    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
+    const exec = q.createExecution({ workspaceId: wsId });
+    q.attachExecutionToTask(exec.id, task.id);
+
+    let code: string | undefined;
+    try {
+      q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a0' });
+    } catch (e) {
+      code = codeOf(e);
+    }
+    expect(code).toBe('active_execution');
+
+    const result = q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a1', stopOwningExecutions: true });
+    expect(result.toStatus).toBe('archived');
+    expect(result.stoppedExecutionIds).toEqual([exec.id]);
+    expect(q.getExecution(exec.id)?.status).toBe('archived');
+  });
+
+  it('a replay reports no newly stopped executions', async () => {
+    const { q, wsId } = await setup();
+    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
+    const exec = q.createExecution({ workspaceId: wsId });
+    q.attachExecutionToTask(exec.id, task.id);
+    const first = q.completeTask(task.id, { idempotencyKey: 'dup', stopOwningExecutions: true });
+    expect(first?.stoppedExecutionIds).toEqual([exec.id]);
+    const replay = q.completeTask(task.id, { idempotencyKey: 'dup', stopOwningExecutions: true });
+    expect(replay?.replayed).toBe(true);
+    expect(replay?.stoppedExecutionIds).toEqual([]);
+  });
+
+  it('rejects commitment-bearing fields on a Consider task, allows clearing and plain edits', async () => {
+    const { q } = await setup();
+    const task = q.createTask({ title: 'Idea', rawInput: 'x' });
+    q.transitionTask({ taskId: task.id, command: 'move_to_consider', idempotencyKey: 'k1' });
+
+    for (const [field, value] of [
+      ['hardDeadline', '2026-12-01T00:00:00.000Z'],
+      ['recurrence', 'weekly'],
+      ['reminderAt', '2026-12-01T00:00:00.000Z'],
+    ] as const) {
+      let code: string | undefined;
+      try {
+        q.updateTask(task.id, { [field]: value } as Parameters<typeof q.updateTask>[1]);
+      } catch (e) {
+        code = codeOf(e);
+      }
+      expect(code).toBe('consider_precondition');
+    }
+
+    // Clearing to null is fine, and non-commitment edits still apply.
+    expect(() => q.updateTask(task.id, { hardDeadline: null })).not.toThrow();
+    expect(q.updateTask(task.id, { title: 'Renamed idea' })?.title).toBe('Renamed idea');
+  });
+
   it('records review dispositions against an exact output event, newest wins', async () => {
     const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const exec = q.createExecution({ workspaceId: wsId });
+    // A real chat session for the execution, with two genuine output events.
+    const session = q.createChatSession({
+      type: 'execution',
+      agentId: agent.id,
+      workspaceId: wsId,
+      executionId: exec.id,
+      label: null,
+      status: 'active',
+    });
+    q.insertChatEvent({ id: 'evt-1', sessionId: session.id, role: 'assistant', source: 'agent', content: 'first output' });
+    q.insertChatEvent({ id: 'evt-2', sessionId: session.id, role: 'assistant', source: 'agent', content: 'second output' });
+
     const r1 = q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-1', disposition: 'changes_requested', note: 'tweak it' });
     expect(r1.disposition).toBe('changes_requested');
     q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-1', disposition: 'accepted' });
@@ -108,6 +198,16 @@ describe('task-owned executions', () => {
     expect(q.getLatestOutputReview('evt-2')!.disposition).toBe('dismissed');
     expect(q.getLatestOutputReview('evt-missing')).toBeNull();
     expect(q.getExecutionReviews(exec.id)).toHaveLength(3);
+
+    // A disposition can only target THIS execution's actual output — a foreign
+    // or non-output event id is rejected, not silently recorded.
+    let rejected: string | undefined;
+    try {
+      q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-not-mine', disposition: 'accepted' });
+    } catch (e) {
+      rejected = codeOf(e);
+    }
+    expect(rejected).toBe('not_found');
   });
 
   it('review context names the single owning task; ambiguous when many', async () => {

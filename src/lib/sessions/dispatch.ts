@@ -140,6 +140,20 @@ export class WorkspaceNotFoundForDispatch extends Error {
   }
 }
 
+/** A Start-with-agent dispatch named a task that cannot be started (missing, or
+ * already Done/Archived). Raised BEFORE the execution is minted so a dispatch
+ * never leaves an agent running against a terminal task. */
+export class TaskNotStartableForDispatch extends Error {
+  constructor(public taskId: string, public taskStatus: string) {
+    super(
+      taskStatus === 'not_found'
+        ? `Task not found: ${taskId}`
+        : `Cannot start an agent on a ${taskStatus} task. Only Consider, Todo, or In progress tasks can be started.`,
+    );
+    this.name = 'TaskNotStartableForDispatch';
+  }
+}
+
 /**
  * Create an execution session. The row is inserted immediately so the
  * client can navigate into the new ExecutionView and render its
@@ -200,6 +214,21 @@ export async function dispatchExecutionSession(
     liveBaseSha = snap.sha;
   }
 
+  // Start with agent: validate the task BEFORE minting the execution, so a
+  // dispatch can never leave an agent running against a Done/Archived task.
+  // Startable = Consider/Todo (Started -> In progress once the execution
+  // exists) or already In progress (the agent joins existing work; no
+  // transition needed). Anything else is rejected up front.
+  let startTaskStatus: string | null = null;
+  if (args.taskId) {
+    const task = getTask(args.taskId);
+    if (!task) throw new TaskNotStartableForDispatch(args.taskId, 'not_found');
+    if (task.status !== 'consider' && task.status !== 'todo' && task.status !== 'in_progress') {
+      throw new TaskNotStartableForDispatch(args.taskId, task.status);
+    }
+    startTaskStatus = task.status;
+  }
+
   // Create the execution artifact + its first chat atomically. For
   // worktree dispatches the execution starts with null worktree fields
   // and the background provisioner populates them ~2-5s later. For Live
@@ -223,25 +252,25 @@ export async function dispatchExecutionSession(
     setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
   });
 
-  // Start with agent: record ownership and atomically Start the task (Consider/
-  // Todo -> In progress) now that the durable execution exists, and before the
-  // agent runs. Keyed to the execution so a retried dispatch never double-acts.
-  // Ownership is the load-bearing link; a lifecycle race (task already moved) is
-  // swallowed so it can't fail the launch.
+  // Record ownership (the load-bearing link) and atomically Start the task
+  // (Consider/Todo -> In progress) now that the durable execution exists and
+  // before the agent runs. Keyed to the execution so a retried dispatch never
+  // double-acts. Only the transition is best-effort: a benign race (the task
+  // moved between the pre-check above and here) is swallowed so it can't fail
+  // the launch, but ownership itself always commits.
   if (args.taskId) {
-    try {
-      attachExecutionToTask(execution.id, args.taskId);
-      const task = getTask(args.taskId);
-      if (task && (task.status === 'consider' || task.status === 'todo')) {
+    attachExecutionToTask(execution.id, args.taskId);
+    if (startTaskStatus === 'consider' || startTaskStatus === 'todo') {
+      try {
         transitionTask({
           taskId: args.taskId,
           command: 'start',
           idempotencyKey: `start-with-agent:${execution.id}`,
           meta: { source: 'human', executionId: execution.id },
         });
+      } catch (err) {
+        console.error('[dispatch] start-with-agent transition failed (task moved?):', err);
       }
-    } catch (err) {
-      console.error('[dispatch] start-with-agent ownership/start failed:', err);
     }
   }
 
@@ -540,6 +569,32 @@ export async function archiveExecutionSession(
   await Promise.all(reapSessionIds.map((id) => closeAgentSession(id)));
 
   return getChatSessionWithExecution(args.sessionId);
+}
+
+/**
+ * Reap the RUNTIME of executions a lifecycle command durably stopped (a
+ * coordinated stop marks them archived inside the transaction and returns their
+ * ids as `stoppedExecutionIds`). This kills their agent/terminal processes and
+ * tears down their worktree — the side effect that makes "Stop agent and change
+ * status" actually stop the agent instead of only recording that it did.
+ *
+ * Called by the transition / complete / review routes AFTER the lifecycle
+ * transaction commits. Best-effort: the durable stopped state is already
+ * committed, so a reap failure is logged rather than surfaced (the process is,
+ * at worst, reaped on the next server restart).
+ */
+export async function reapStoppedExecutions(executionIds: string[]): Promise<void> {
+  for (const executionId of executionIds) {
+    try {
+      // Archiving any one of an execution's sessions cascades to the whole
+      // execution and reaps every session's processes; the worktree lives on
+      // the execution, so one call fully tears it down.
+      const [primary] = listChatSessions({ executionId });
+      if (primary) await archiveExecutionSession({ sessionId: primary.id, force: false });
+    } catch (err) {
+      console.error('[dispatch] reap stopped execution failed:', executionId, err);
+    }
+  }
 }
 
 export interface ContinueExecutionSessionArgs {

@@ -76,6 +76,7 @@ import {
   transitionLabel,
   availableCommands,
   considerBlockers,
+  CONSIDER_FORBIDDEN_FIELDS,
   isTerminal,
   TaskLifecycleError,
   type TransitionCommand,
@@ -632,12 +633,37 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
   return normalizeTaskRow(row);
 }
 
+/** Human labels for the commitment-bearing fields disallowed on Consider. */
+const CONSIDER_FIELD_LABELS: Record<(typeof CONSIDER_FORBIDDEN_FIELDS)[number], string> = {
+  hardDeadline: 'a deadline',
+  recurrence: 'a recurrence',
+  reminderAt: 'a reminder',
+};
+
 export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVersionMeta): TaskRecord | null {
   const db = getDb();
 
   const existingRaw = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
   if (!existingRaw) return null;
   const existing = normalizeTaskRow(existingRaw);
+
+  // Consider items carry no commitments. Reject setting a commitment-bearing
+  // field (deadline / recurrence / reminder) on a Consider task through generic
+  // update. The move_to_consider precondition already blocks entering Consider
+  // while such a field is set; this closes the "add it afterward" gap so the
+  // invariant holds in both directions rather than only on paper.
+  if (existing.status === 'consider') {
+    const offending = CONSIDER_FORBIDDEN_FIELDS.filter(
+      (f) => Object.prototype.hasOwnProperty.call(input, f) && (input as Record<string, unknown>)[f] != null,
+    );
+    if (offending.length) {
+      throw new TaskLifecycleError(
+        'consider_precondition',
+        `A Consider task cannot carry ${offending.map((f) => CONSIDER_FIELD_LABELS[f]).join(', ')}. Move it to Todo first, or leave ${offending.length > 1 ? 'those' : 'that'} unset.`,
+        { fields: offending },
+      );
+    }
+  }
 
   // Re-derive the manifest if body or description changed, or if the client
   // explicitly sent new attachment metadata. Otherwise preserve what's on disk.
@@ -748,6 +774,11 @@ export interface LifecycleOutcome {
   nextRecurrenceAt?: string | null;
   /** True when an idempotent replay returned the original recorded result. */
   replayed: boolean;
+  /** Executions durably stopped by a coordinated stop as part of this command.
+   * Empty unless `stopOwningExecutions` displaced live work. The caller reaps
+   * their runtime (process + worktree) after the transaction commits; a replay
+   * always returns [] because nothing new was stopped. */
+  stoppedExecutionIds: string[];
 }
 
 /**
@@ -779,9 +810,12 @@ function hasLiveOwningExecution(taskId: string): boolean {
 }
 
 /** Archive every live execution owning a task (the coordinated-stop half of
- * "Stop agents and change status"). The runtime cancel of a running agent is a
- * separate UI/runtime concern; this is the durable stopped state. */
-function stopOwningExecutionsFor(taskId: string): void {
+ * "Stop agents and change status") and return their ids. Marking the row
+ * archived is the DURABLE stopped state, committed inside the lifecycle
+ * transaction. Reaping the actual runtime (process kill + worktree teardown) is
+ * an async side effect the caller performs after commit — see
+ * `reapStoppedExecutions` in sessions/dispatch and the returned ids. */
+function stopOwningExecutionsFor(taskId: string): string[] {
   const now = new Date().toISOString();
   const owners = getDb()
     .select({ id: executionTasks.executionId })
@@ -790,21 +824,22 @@ function stopOwningExecutionsFor(taskId: string): void {
     .where(and(eq(executionTasks.taskId, taskId), eq(executions.status, 'active')))
     .all()
     .map((r) => r.id);
-  if (owners.length === 0) return;
+  if (owners.length === 0) return [];
   getDb()
     .update(executions)
     .set({ status: 'archived', archivedAt: now, pinnedAt: null, updatedAt: now })
     .where(inArray(executions.id, owners))
     .run();
+  return owners;
 }
 
 /** Throw active_execution unless the caller opted into a coordinated stop, in
- * which case stop the owning executions here. Used before terminal transitions. */
-function guardLiveExecutions(taskId: string, stop: boolean | undefined, action: string): void {
-  if (!hasLiveOwningExecution(taskId)) return;
+ * which case stop the owning executions here and return the ids stopped (for
+ * the caller to reap at runtime). Used before terminal transitions. */
+function guardLiveExecutions(taskId: string, stop: boolean | undefined, action: string): string[] {
+  if (!hasLiveOwningExecution(taskId)) return [];
   if (stop) {
-    stopOwningExecutionsFor(taskId);
-    return;
+    return stopOwningExecutionsFor(taskId);
   }
   throw new TaskLifecycleError(
     'active_execution',
@@ -877,6 +912,7 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
         recurring: res.recurring,
         nextRecurrenceAt: res.nextRecurrenceAt ?? null,
         replayed: true,
+        stoppedExecutionIds: [],
       };
     }
 
@@ -924,8 +960,9 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
 
     // 5b. Archiving is terminal — it cannot displace a live owning execution
     //     without an explicit coordinated stop.
+    let stoppedExecutionIds: string[] = [];
     if (command === 'archive') {
-      guardLiveExecutions(taskId, input.stopOwningExecutions, 'archive');
+      stoppedExecutionIds = guardLiveExecutions(taskId, input.stopOwningExecutions, 'archive');
     }
 
     // 6. Apply. Status change stamps a fresh lifecycle age and bumps revision.
@@ -949,7 +986,7 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
     recordLifecycleCommand(taskId, idempotencyKey, command, from, to, nextCount, input.meta, result);
     void syncEntity('task', taskId);
 
-    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: to, statusChangedCount: nextCount, replayed: false };
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: to, statusChangedCount: nextCount, replayed: false, stoppedExecutionIds };
   }, true);
 }
 
@@ -988,6 +1025,7 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
         recurring: res.recurring,
         nextRecurrenceAt: res.nextRecurrenceAt ?? null,
         replayed: true,
+        stoppedExecutionIds: [],
       };
     }
 
@@ -1013,8 +1051,10 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
     }
 
     // Completing is terminal — a live owning execution must be stopped first
-    // (or coordinated with stopOwningExecutions).
-    guardLiveExecutions(id, input.stopOwningExecutions, 'complete');
+    // (or coordinated with stopOwningExecutions). Accept-and-complete relies on
+    // this: accepting an agent's output ends its work, so completion stops the
+    // owning execution in the same transaction and reaps it after commit.
+    const stoppedExecutionIds = guardLiveExecutions(id, input.stopOwningExecutions, 'complete');
 
     const now = new Date().toISOString();
 
@@ -1051,7 +1091,7 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
       };
       recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'todo', nextCount, input.meta, result);
       void syncEntity('task', id);
-      return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'todo', statusChangedCount: nextCount, recurring: true, nextRecurrenceAt: nextDate, replayed: false };
+      return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'todo', statusChangedCount: nextCount, recurring: true, nextRecurrenceAt: nextDate, replayed: false, stoppedExecutionIds };
     }
 
     // Non-recurring: close it out.
@@ -1067,7 +1107,7 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
     const result: LifecycleCommandResult = { fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false };
     recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'done', nextCount, input.meta, result);
     void syncEntity('task', id);
-    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false, replayed: false };
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false, replayed: false, stoppedExecutionIds };
   }, true);
 }
 
@@ -1176,6 +1216,38 @@ export interface ReviewOutputInput {
 export function reviewExecutionOutput(input: ReviewOutputInput): ExecutionReviewRecord {
   const exec = getDb().select({ id: executions.id }).from(executions).where(eq(executions.id, input.executionId)).get();
   if (!exec) throw new TaskLifecycleError('not_found', `Execution ${input.executionId} not found.`);
+
+  // The output event must actually be an output event of THIS execution.
+  // Otherwise a stale or spoofed id could record a disposition against another
+  // execution's event (or a non-output event). Scope by the execution's own
+  // chat sessions and the outcome sources.
+  const sessionIds = getDb()
+    .select({ id: chatSessions.id })
+    .from(chatSessions)
+    .where(eq(chatSessions.executionId, input.executionId))
+    .all()
+    .map((s) => s.id);
+  const belongs =
+    sessionIds.length > 0 &&
+    !!getDb()
+      .select({ id: chatEvents.id })
+      .from(chatEvents)
+      .where(
+        and(
+          eq(chatEvents.id, input.outputEventId),
+          inArray(chatEvents.sessionId, sessionIds),
+          inArray(chatEvents.source, [...OUTCOME_SOURCES]),
+        ),
+      )
+      .get();
+  if (!belongs) {
+    throw new TaskLifecycleError(
+      'not_found',
+      `Output event ${input.outputEventId} is not a reviewable output of execution ${input.executionId}.`,
+      { executionId: input.executionId, outputEventId: input.outputEventId },
+    );
+  }
+
   return getDb()
     .insert(executionReviews)
     .values({

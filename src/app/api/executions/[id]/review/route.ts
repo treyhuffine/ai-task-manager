@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { reviewExecutionOutput, completeTask, getExecutionReviewContext } from '@/lib/db/queries';
+import { reapStoppedExecutions } from '@/lib/sessions/dispatch';
 import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 const DISPOSITIONS = new Set(['accepted', 'changes_requested', 'dismissed']);
@@ -37,11 +38,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     let task = null;
     if (body.completeTask === true && body.disposition === 'accepted' && ctx.owningTaskId) {
+      // Accepting an agent's output ends its work, so Accept-and-complete stops
+      // the owning execution as part of completing (otherwise the live owning
+      // execution would block completion) and reaps its runtime after commit.
       const result = completeTask(ctx.owningTaskId, {
         idempotencyKey: `accept-and-complete:${outputEventId}`,
+        stopOwningExecutions: true,
         meta: { source: 'human', executionId: id },
       });
       task = result?.task ?? null;
+      if (result) await reapStoppedExecutions(result.stoppedExecutionIds);
     }
 
     return Response.json({ review, task });

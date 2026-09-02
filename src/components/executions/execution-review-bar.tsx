@@ -31,7 +31,10 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
 
   const review = useMutation({
     mutationFn: (input: { disposition: ReviewDisposition; completeTask?: boolean }) =>
-      api.post(`/executions/${executionId}/review`, input),
+      // Send the exact output event this bar is showing, not "whatever is latest
+      // at click time" — otherwise output arriving between render and click would
+      // be dispositioned instead of the one the human actually reviewed.
+      api.post(`/executions/${executionId}/review`, { ...input, outputEventId: ctx?.latestOutputEventId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['executions', executionId, 'review-context'] });
       qc.invalidateQueries({ queryKey: ['tasks'] });

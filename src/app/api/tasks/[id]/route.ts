@@ -4,6 +4,7 @@ import { tasks } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getTask, updateTask, deleteTask } from '@/lib/db/queries';
 import type { UpdateTaskInput } from '@/db/types';
+import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 import { withCompression } from '@/lib/api/compression';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
@@ -65,6 +66,15 @@ export async function PATCH(
 
     return Response.json(row);
   } catch (err) {
+    // A Consider task rejecting a commitment-bearing field (deadline/recurrence/
+    // reminder) is a lifecycle precondition, not a server fault — map it to its
+    // stable code + status instead of a bare 400.
+    if (isTaskLifecycleError(err)) {
+      return Response.json(
+        { error: err.message, code: err.code, details: err.details },
+        { status: LIFECYCLE_ERROR_HTTP_STATUS[err.code] },
+      );
+    }
     console.error('[PATCH /api/tasks/:id]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }

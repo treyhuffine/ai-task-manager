@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
 import type { EffortLevel } from '@/db/types';
-import { dispatchExecutionSession, WorkspaceNotFoundForDispatch } from '@/lib/sessions/dispatch';
+import { dispatchExecutionSession, WorkspaceNotFoundForDispatch, TaskNotStartableForDispatch } from '@/lib/sessions/dispatch';
 import { withCompression } from '@/lib/api/compression';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -85,6 +85,12 @@ export async function POST(
   } catch (err) {
     if (err instanceof WorkspaceNotFoundForDispatch) {
       return Response.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+    if (err instanceof TaskNotStartableForDispatch) {
+      return Response.json(
+        { error: err.name, message: err.message },
+        { status: err.taskStatus === 'not_found' ? 404 : 409 },
+      );
     }
     // Surface library error names so the client can branch on them.
     const name = err instanceof Error ? err.name : 'Error';

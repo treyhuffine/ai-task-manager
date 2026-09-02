@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
 import { transitionTask } from '@/lib/db/queries';
+import { reapStoppedExecutions } from '@/lib/sessions/dispatch';
 import { isTaskLifecycleError, isTransitionCommand, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 /**
@@ -28,6 +29,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       stopOwningExecutions: body.stopOwningExecutions === true,
       meta: { source: 'human', reason: typeof body.reason === 'string' ? body.reason : null },
     });
+
+    // Reap the runtime of any execution the coordinated stop displaced, so
+    // "Stop agent and change status" actually terminates the agent (the DB
+    // already recorded it stopped inside the transaction).
+    await reapStoppedExecutions(result.stoppedExecutionIds);
 
     return Response.json(result);
   } catch (err) {
