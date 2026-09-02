@@ -241,7 +241,7 @@ export function TaskKanban() {
         // Reorder within the column.
         const ids = byLane[activeLane].map((t) => t.id);
         const from = ids.indexOf(String(active.id));
-        let to = overId.startsWith('col:') ? ids.length - 1 : ids.indexOf(overId);
+        const to = overId.startsWith('col:') ? ids.length - 1 : ids.indexOf(overId);
         if (from === -1 || to === -1 || from === to) return;
         const reordered = [...ids];
         reordered.splice(from, 1);

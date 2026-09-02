@@ -296,15 +296,24 @@ export function DeckContainer() {
 
   // ─── Filtered items ─────────────────────────────────────────
 
+  // Tasks that are In progress are shown by Current Work above the stack; a
+  // persisted deck item whose task has since started would otherwise appear in
+  // both places, so it is filtered out of the daily stack here.
+  const inProgressIds = useMemo(
+    () => new Set((tasks ?? []).filter(t => t.status === 'in_progress').map(t => t.id)),
+    [tasks],
+  );
+
   const filteredItems = useMemo(() => {
     if (!plan) return [];
     return plan.items.filter(item => {
+      if (inProgressIds.has(item.taskId)) return false;
       if (areaFilter && item.areaId !== areaFilter) return false;
       if (workMode && item.energy !== workMode) return false;
       if (filterDueToday && calendarDaysUntil(item.hardDeadline) !== 0) return false;
       return true;
     });
-  }, [plan, areaFilter, workMode, filterDueToday]);
+  }, [plan, areaFilter, workMode, filterDueToday, inProgressIds]);
 
   const dueTodayCount = useMemo(() => {
     if (!plan) return 0;
@@ -696,6 +705,15 @@ export function DeckContainer() {
       )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
+        {/* Current Work sits above every phase — what is actually underway must
+            stay visible whether or not a daily deck has been generated yet. It
+            self-hides when nothing is In progress. */}
+        {initialLoadDone && (
+          <div className="px-4 pt-3">
+            <CurrentWorkSection />
+          </div>
+        )}
+
         {/* ─── Loading: fetching latest deck ─── */}
         {phase === 'intake' && !initialLoadDone && (
           <div className="px-4 py-3">
@@ -758,7 +776,6 @@ export function DeckContainer() {
                 {plan.framing}
               </p>
             )}
-            <CurrentWorkSection />
             <DeckStack
               items={filteredItems}
               onComplete={handleComplete}
