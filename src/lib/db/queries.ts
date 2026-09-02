@@ -594,6 +594,22 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
   const db = getDb();
   const now = new Date().toISOString();
 
+  // Consider items carry no commitments — enforce it at creation too, not only
+  // on update, so a task can never be born in Consider with a deadline,
+  // recurrence, or reminder attached.
+  if (normalizeTaskStatus(input.status ?? 'todo') === 'consider') {
+    const offending = CONSIDER_FORBIDDEN_FIELDS.filter(
+      (f) => Object.prototype.hasOwnProperty.call(input, f) && (input as Record<string, unknown>)[f] != null,
+    );
+    if (offending.length) {
+      throw new TaskLifecycleError(
+        'consider_precondition',
+        `A Consider task cannot carry ${offending.map((f) => CONSIDER_FIELD_LABELS[f]).join(', ')}. Create it as Todo, or leave ${offending.length > 1 ? 'those' : 'that'} unset.`,
+        { fields: offending },
+      );
+    }
+  }
+
   // Body + description are the surfaces; attachments[] is a derived manifest.
   // Anything the client sent in `attachments` is treated as newly-uploaded
   // metadata and filtered through the body's references.
@@ -783,14 +799,17 @@ export interface LifecycleOutcome {
 
 /**
  * A `blocked_on` reference is unresolved unless it names a task that is now
- * terminal (Done/Archived). Free-text blockers that are not a known task id
- * count as unresolved — we cannot prove resolution. Empty = not blocked.
+ * DONE. An archived blocker does NOT resolve the dependency: archiving means the
+ * prerequisite was dropped, not delivered, so the dependent is still stuck and
+ * should surface for a human re-decision rather than silently unblock. Free-text
+ * blockers that are not a known task id count as unresolved — we cannot prove
+ * resolution. Empty = not blocked.
  */
 function isBlockerUnresolved(blockedOn: string | null | undefined): boolean {
   if (!blockedOn) return false;
   const dep = getDb().select({ status: tasks.status }).from(tasks).where(eq(tasks.id, blockedOn)).get();
   if (!dep) return true;
-  return !isTerminal(normalizeTaskStatus(dep.status));
+  return normalizeTaskStatus(dep.status) !== 'done';
 }
 
 /**
@@ -945,6 +964,7 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
     if (command === 'move_to_consider') {
       const reasons = considerBlockers({
         hardDeadline: task.hardDeadline ?? null,
+        reminderAt: task.reminderAt ?? null,
         recurrence: task.recurrence ?? null,
         hasUnresolvedBlocker: isBlockerUnresolved(task.blockedOn),
         hasLiveOwningExecution: hasLiveOwningExecution(taskId),
@@ -958,11 +978,18 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
       }
     }
 
-    // 5b. Archiving is terminal — it cannot displace a live owning execution
-    //     without an explicit coordinated stop.
+    // 5b. Archiving (terminal) and Return to Todo (leaving In progress) both
+    //     end the current work, so neither can displace a live owning execution
+    //     without an explicit coordinated stop — a live agent means the work is
+    //     still underway. Move to Consider is already covered by its own
+    //     precondition (a live owning execution is a Consider blocker).
     let stoppedExecutionIds: string[] = [];
-    if (command === 'archive') {
-      stoppedExecutionIds = guardLiveExecutions(taskId, input.stopOwningExecutions, 'archive');
+    if (command === 'archive' || command === 'return_to_todo') {
+      stoppedExecutionIds = guardLiveExecutions(
+        taskId,
+        input.stopOwningExecutions,
+        command === 'archive' ? 'archive' : 'return it to Todo',
+      );
     }
 
     // 6. Apply. Status change stamps a fresh lifecycle age and bumps revision.
@@ -1063,8 +1090,14 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
 
     if (task.recurrence) {
       // Recurring: record the occurrence, advance once, end WIP -> Todo. The
-      // cadence anchors to the scheduled occurrence, not completion time.
-      const nextDate = computeNextRecurrence(task.recurrence, now);
+      // cadence anchors to the SCHEDULED occurrence (nextRecurrenceAt), not the
+      // completion instant, so completing late does not drift the schedule. If
+      // that anchor is missing or a very late completion would place the next
+      // occurrence in the past, fall back to now so we never schedule an
+      // already-overdue occurrence.
+      const anchor = task.nextRecurrenceAt ?? now;
+      let nextDate = computeNextRecurrence(task.recurrence, anchor);
+      if (nextDate <= now) nextDate = computeNextRecurrence(task.recurrence, now);
       const statusChanged = from !== 'todo';
       const nextCount = statusChanged ? task.statusChangedCount + 1 : task.statusChangedCount;
       const updated = hydrateRow(
@@ -1274,12 +1307,16 @@ export function getExecutionReviews(executionId: string): ExecutionReviewRecord[
 }
 
 /**
- * Everything the review affordance needs for an execution: the latest output
- * event to disposition, its current disposition (a fresh output after the last
- * reviewed one is a new obligation), and the single owning task if any (so
- * Accept-and-complete is offered only when unambiguous).
+ * The latest reviewable output event of an execution and whether it still needs
+ * review, by the EXACT-event model: a disposition recorded against an older
+ * output event never clears a newer one. Shared by the review context and the
+ * task Review badge so both agree instead of one using timestamps.
  */
-export function getExecutionReviewContext(executionId: string): ExecutionReviewContext {
+function latestOutputReviewState(executionId: string): {
+  latestOutputEventId: string | null;
+  latestDisposition: ExecutionReviewRecord['disposition'] | null;
+  hasUnreviewedOutput: boolean;
+} {
   const sessionIds = getDb()
     .select({ id: chatSessions.id })
     .from(chatSessions)
@@ -1299,17 +1336,31 @@ export function getExecutionReviewContext(executionId: string): ExecutionReviewC
     latestOutputEventId = row?.id ?? null;
   }
 
+  const latestDisposition = latestOutputEventId ? getLatestOutputReview(latestOutputEventId)?.disposition ?? null : null;
+  return { latestOutputEventId, latestDisposition, hasUnreviewedOutput: !!latestOutputEventId && !latestDisposition };
+}
+
+/**
+ * Everything the review affordance needs for an execution: the latest output
+ * event to disposition, its current disposition (a fresh output after the last
+ * reviewed one is a new obligation), the single owning task if any (so
+ * Accept-and-complete is offered only when unambiguous), and whether any task is
+ * owned at all (so the review bar still shows for a shared execution).
+ */
+export function getExecutionReviewContext(executionId: string): ExecutionReviewContext {
+  const { latestOutputEventId, latestDisposition, hasUnreviewedOutput } = latestOutputReviewState(executionId);
+
   const owned = getExecutionTasks(executionId);
   const owningTaskId = owned.length === 1 ? owned[0].id : null;
   const owningTaskTitle = owned.length === 1 ? owned[0].title : null;
-  const latestDisposition = latestOutputEventId ? getLatestOutputReview(latestOutputEventId)?.disposition ?? null : null;
 
   return {
     latestOutputEventId,
     owningTaskId,
     owningTaskTitle,
+    ownedTaskCount: owned.length,
     latestDisposition,
-    hasUnreviewedOutput: !!latestOutputEventId && !latestDisposition,
+    hasUnreviewedOutput,
   };
 }
 
@@ -1369,24 +1420,11 @@ export function getTaskAttentionSignals(taskId: string): TaskAttentionSignals {
 
   const stalled = owning.some((e) => !!e.setupError);
 
-  let review = false;
-  for (const exec of owning) {
-    const lastOutcome = getDb()
-      .select({ v: sql<string | null>`MAX(${chatSessions.lastOutcomeEventAt})` })
-      .from(chatSessions)
-      .where(eq(chatSessions.executionId, exec.id))
-      .get()?.v;
-    if (!lastOutcome) continue;
-    const lastReview = getDb()
-      .select({ v: sql<string | null>`MAX(${executionReviews.createdAt})` })
-      .from(executionReviews)
-      .where(eq(executionReviews.executionId, exec.id))
-      .get()?.v;
-    if (!lastReview || lastReview < lastOutcome) {
-      review = true;
-      break;
-    }
-  }
+  // Review is the EXACT-event obligation: an owning execution's latest output
+  // event has no disposition. Same source of truth as the review bar, so the
+  // badge and the bar never disagree (a disposition on an older event does not
+  // clear a newer one, and reading never clears it).
+  const review = owning.some((e) => latestOutputReviewState(e.id).hasUnreviewedOutput);
 
   return {
     ...base,

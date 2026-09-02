@@ -38,6 +38,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     let task = null;
     if (body.completeTask === true && body.disposition === 'accepted' && ctx.owningTaskId) {
+      // Do not complete over newer, unreviewed output: if fresh output arrived
+      // after the event just accepted, the accepted event is no longer the
+      // latest, so completing would silently bury an unresolved obligation.
+      // Refuse and let the human review the newer output first.
+      const fresh = getExecutionReviewContext(id);
+      if (fresh.latestOutputEventId && fresh.latestOutputEventId !== outputEventId) {
+        return Response.json(
+          {
+            error: 'Newer output arrived after the event you accepted. Review the latest output before completing.',
+            code: 'conflict',
+            review,
+          },
+          { status: 409 },
+        );
+      }
       // Accepting an agent's output ends its work, so Accept-and-complete stops
       // the owning execution as part of completing (otherwise the live owning
       // execution would block completion) and reaps its runtime after commit.

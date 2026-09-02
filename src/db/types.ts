@@ -213,8 +213,14 @@ export type ReviewDisposition = ExecutionReviewRecord['disposition'];
  * the single owning task (for Accept-and-complete), and the current state. */
 export interface ExecutionReviewContext {
   latestOutputEventId: string | null;
+  /** The single owning task, or null when zero or many tasks are owned
+   * (Accept-and-complete is only unambiguous for exactly one). */
   owningTaskId: string | null;
   owningTaskTitle: string | null;
+  /** How many tasks this execution owns. The review bar shows whenever this is
+   * >= 1 (a shared execution still needs review); only Accept-and-complete is
+   * gated on owningTaskId being a single task. */
+  ownedTaskCount: number;
   latestDisposition: ReviewDisposition | null;
   hasUnreviewedOutput: boolean;
 }

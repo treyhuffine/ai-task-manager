@@ -147,6 +147,19 @@ function lifecycleActor(ctx: ActionContext): LifecycleActorMeta {
   };
 }
 
+/**
+ * Reap the runtime (process + worktree) of executions a coordinated stop
+ * displaced, so a CLI/MCP archive-or-complete with stop_owning_executions
+ * actually stops the agent — not just marks it archived. Dynamically imported
+ * so the CLI never eagerly loads the agent runtime unless a stop happened, and
+ * best-effort so a reap failure never fails the already-committed transition.
+ */
+async function reapStoppedForAction(ids: string[]): Promise<void> {
+  if (!ids?.length) return;
+  const mod = await import('@/lib/sessions/dispatch').catch(() => null);
+  if (mod) await mod.reapStoppedExecutions(ids);
+}
+
 /** Map a query-layer lifecycle error to the orchestrator envelope. */
 function throwAsActionError(err: unknown): never {
   if (isTaskLifecycleError(err)) {
@@ -300,7 +313,7 @@ const complete_task_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (ctx, { id, note, idempotency_key, expected_status_changed_count, stop_owning_executions }) => {
+  handler: async (ctx, { id, note, idempotency_key, expected_status_changed_count, stop_owning_executions }) => {
     try {
       const result = completeTask(id, {
         note,
@@ -310,6 +323,7 @@ const complete_task_action = defineAction({
         meta: lifecycleActor(ctx),
       });
       if (!result) throw new ActionError('not_found', `Task not found: ${id}`);
+      await reapStoppedForAction(result.stoppedExecutionIds);
       return result;
     } catch (err) {
       if (err instanceof ActionError) throw err;
@@ -332,9 +346,9 @@ const transition_task_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['id', 'command'] },
-  handler: (ctx, { id, command, idempotency_key, expected_status_changed_count, stop_owning_executions, reason }) => {
+  handler: async (ctx, { id, command, idempotency_key, expected_status_changed_count, stop_owning_executions, reason }) => {
     try {
-      return transitionTask({
+      const result = transitionTask({
         taskId: id,
         command,
         idempotencyKey: idempotency_key ?? uuidv7(),
@@ -342,6 +356,8 @@ const transition_task_action = defineAction({
         stopOwningExecutions: stop_owning_executions,
         meta: { ...lifecycleActor(ctx), reason: reason ?? null },
       });
+      await reapStoppedForAction(result.stoppedExecutionIds);
+      return result;
     } catch (err) {
       throwAsActionError(err);
     }

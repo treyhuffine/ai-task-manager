@@ -226,6 +226,7 @@ export function isDeckEligible(i: ReadyInputs): boolean {
 
 export interface ConsiderPreconditionInputs {
   hardDeadline: string | null;
+  reminderAt: string | null;
   recurrence: string | null;
   hasUnresolvedBlocker: boolean;
   hasLiveOwningExecution: boolean;
@@ -240,6 +241,7 @@ export interface ConsiderPreconditionInputs {
 export function considerBlockers(i: ConsiderPreconditionInputs): string[] {
   const reasons: string[] = [];
   if (i.hardDeadline) reasons.push('a hard deadline');
+  if (i.reminderAt) reasons.push('a reminder');
   if (i.recurrence) reasons.push('a recurrence');
   if (i.hasUnresolvedBlocker) reasons.push('an unresolved blocker');
   if (i.hasLiveOwningExecution) reasons.push('a live owning execution');

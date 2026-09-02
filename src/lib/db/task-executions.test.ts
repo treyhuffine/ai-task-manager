@@ -173,6 +173,70 @@ describe('task-owned executions', () => {
     expect(q.updateTask(task.id, { title: 'Renamed idea' })?.title).toBe('Renamed idea');
   });
 
+  it('rejects creating a Consider task that carries a commitment field', async () => {
+    const { q } = await setup();
+    let code: string | undefined;
+    try {
+      q.createTask({ title: 'Idea', rawInput: 'x', status: 'consider', hardDeadline: '2026-12-01T00:00:00.000Z' });
+    } catch (e) {
+      code = codeOf(e);
+    }
+    expect(code).toBe('consider_precondition');
+    // Without the commitment field it creates fine.
+    expect(q.createTask({ title: 'Idea', rawInput: 'x', status: 'consider' }).status).toBe('consider');
+  });
+
+  it('move_to_consider rejects a task that still has a reminder', async () => {
+    const { q } = await setup();
+    const task = q.createTask({ title: 'Has reminder', rawInput: 'x', reminderAt: '2026-12-01T00:00:00.000Z' });
+    let code: string | undefined;
+    try {
+      q.transitionTask({ taskId: task.id, command: 'move_to_consider', idempotencyKey: 'r1' });
+    } catch (e) {
+      code = codeOf(e);
+    }
+    expect(code).toBe('consider_precondition');
+  });
+
+  it('return_to_todo is refused over a live owning execution unless coordinated', async () => {
+    const { q, wsId } = await setup();
+    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
+    q.transitionTask({ taskId: task.id, command: 'start', idempotencyKey: 's1' });
+    const exec = q.createExecution({ workspaceId: wsId });
+    q.attachExecutionToTask(exec.id, task.id);
+
+    let code: string | undefined;
+    try {
+      q.transitionTask({ taskId: task.id, command: 'return_to_todo', idempotencyKey: 'rt0' });
+    } catch (e) {
+      code = codeOf(e);
+    }
+    expect(code).toBe('active_execution');
+
+    const out = q.transitionTask({ taskId: task.id, command: 'return_to_todo', idempotencyKey: 'rt1', stopOwningExecutions: true });
+    expect(out.toStatus).toBe('todo');
+    expect(out.stoppedExecutionIds).toEqual([exec.id]);
+    expect(q.getExecution(exec.id)?.status).toBe('archived');
+  });
+
+  it('an archived blocker keeps the dependent blocked; only Done resolves it', async () => {
+    const { q } = await setup();
+    const blocker = q.createTask({ title: 'Blocker', rawInput: 'b' });
+    const dependent = q.createTask({ title: 'Dependent', rawInput: 'd' });
+    q.updateTask(dependent.id, { blockedOn: blocker.id });
+    expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(true);
+
+    // Archiving the blocker does NOT resolve the dependency (it was dropped,
+    // not delivered) — the dependent stays blocked.
+    q.transitionTask({ taskId: blocker.id, command: 'archive', idempotencyKey: 'ab' });
+    expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(true);
+
+    // Completing it (restore then complete) does resolve it.
+    q.transitionTask({ taskId: blocker.id, command: 'restore', idempotencyKey: 'rb' });
+    q.completeTask(blocker.id, { idempotencyKey: 'cb' });
+    expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(false);
+  });
+
   it('records review dispositions against an exact output event, newest wins', async () => {
     const { q, wsId } = await setup();
     const agent = q.getOrCreateDefaultExecutor('claude_code');

@@ -164,15 +164,16 @@ describe('isReady / isDeckEligible', () => {
 });
 
 describe('considerBlockers (Todo -> Consider preconditions)', () => {
-  const clean = { hardDeadline: null, recurrence: null, hasUnresolvedBlocker: false, hasLiveOwningExecution: false };
+  const clean = { hardDeadline: null, reminderAt: null, recurrence: null, hasUnresolvedBlocker: false, hasLiveOwningExecution: false };
   it('allows the move when nothing commitment-bearing is present', () => {
     expect(considerBlockers(clean)).toEqual([]);
   });
   it('lists each commitment-bearing fact that blocks the move', () => {
     expect(considerBlockers({ ...clean, hardDeadline: '2026-12-31' })).toContain('a hard deadline');
+    expect(considerBlockers({ ...clean, reminderAt: '2026-12-31' })).toContain('a reminder');
     expect(considerBlockers({ ...clean, recurrence: 'weekly' })).toContain('a recurrence');
     expect(considerBlockers({ ...clean, hasUnresolvedBlocker: true })).toContain('an unresolved blocker');
     expect(considerBlockers({ ...clean, hasLiveOwningExecution: true })).toContain('a live owning execution');
-    expect(considerBlockers({ hardDeadline: 'x', recurrence: 'y', hasUnresolvedBlocker: true, hasLiveOwningExecution: true })).toHaveLength(4);
+    expect(considerBlockers({ hardDeadline: 'x', reminderAt: 'r', recurrence: 'y', hasUnresolvedBlocker: true, hasLiveOwningExecution: true })).toHaveLength(5);
   });
 });
