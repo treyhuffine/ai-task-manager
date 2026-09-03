@@ -423,7 +423,9 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 {task && task.status !== 'done' && task.status !== 'archived' && (
                   <StartWithAgentButton task={task} />
                 )}
-                {task && (
+                {/* Complete/Reopen only where it is the real action (not for
+                    Consider or Archived — change those with the status control). */}
+                {task && task.status !== 'consider' && task.status !== 'archived' && (
                   <button
                     onClick={handleComplete}
                     className={cn(

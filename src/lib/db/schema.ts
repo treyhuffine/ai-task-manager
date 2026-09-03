@@ -437,11 +437,16 @@ export const tasks = sqliteTable(
     // and are normalized to `todo` at the read boundary until the backfill
     // (scripts/backfill-task-lifecycle.ts) rewrites them.
     //
-    // New tasks default to `todo`. The SQL-level default is set to `todo` by a
-    // rowid-safe column swap in the migration (RENAME/ADD/UPDATE/DROP), NOT the
-    // full table rebuild drizzle would otherwise emit for a default change —
-    // SQLite's rebuild reassigns rowids and desyncs the tasks_fts index, while
-    // column-level ALTERs preserve rowids. See the migration for the swap.
+    // Initial status policy lives in the query layer (createTask writes 'todo'),
+    // per the repo rule — this DB default is INERT and never the source of the
+    // policy. It exists only because it is structurally forced: the column is
+    // NOT NULL, and a rowid-safe column swap (the only FTS-safe way to change the
+    // status default without rebuilding the table and desyncing tasks_fts) must
+    // ADD the NOT NULL column WITH a default. SQLite cannot then DROP that
+    // default without exactly the full-table rebuild we are avoiding. So the
+    // honest, harmless choice is a default matching the query-layer policy
+    // ('todo'), documented as the inert exception the "Column defaults" rule
+    // permits. See drizzle/0016 for the swap.
     status: text({ enum: TASK_STATUSES }).notNull().default('todo'),
     // Monotonic counter, incremented on every status change. Its only job is
     // optimistic concurrency: a transition may pass the count it last saw so

@@ -233,7 +233,11 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                 {task && task.status !== 'done' && task.status !== 'archived' && (
                   <StartWithAgentButton task={task} />
                 )}
-                {task && (
+                {/* Complete/Reopen only where it is the real action. Consider is
+                    not committed work and Archived is history — change those with
+                    the status control, so no button mislabels a no-op or a
+                    restore as "Complete". */}
+                {task && task.status !== 'consider' && task.status !== 'archived' && (
                   <button
                     onClick={handleComplete}
                     className={cn(
