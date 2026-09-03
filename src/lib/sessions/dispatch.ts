@@ -149,7 +149,9 @@ export class TaskNotStartableForDispatch extends Error {
     super(
       taskStatus === 'not_found'
         ? `Task not found: ${taskId}`
-        : `Cannot start an agent on a ${taskStatus} task. Only Consider, Todo, or In progress tasks can be started.`,
+        : taskStatus === 'conflict'
+          ? `Task ${taskId} changed before the agent could start. Reload and try again.`
+          : `Cannot start an agent on a ${taskStatus} task. Only Consider, Todo, or In progress tasks can be started.`,
     );
     this.name = 'TaskNotStartableForDispatch';
   }
@@ -177,6 +179,14 @@ export async function dispatchExecutionSession(
 ): Promise<ChatSessionWithExecution> {
   const ws = getWorkspace(args.workspaceId);
   if (!ws) throw new WorkspaceNotFoundForDispatch(args.workspaceId);
+
+  // Idempotent retry: a dispatch replayed with the same caller-provided session
+  // converges on the existing durable execution instead of creating a second
+  // one (or a taskless duplicate).
+  if (args.sessionId?.trim()) {
+    const existing = getChatSessionWithExecution(args.sessionId.trim());
+    if (existing) return existing;
+  }
 
   const userState = getUserState();
   const harness = args.harness
@@ -253,12 +263,13 @@ export async function dispatchExecutionSession(
     setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
   });
 
-  // Record ownership (the load-bearing link) and atomically Start the task
-  // (Consider/Todo -> In progress) now that the durable execution exists and
-  // before the agent runs. Keyed to the execution so a retried dispatch never
-  // double-acts. Only the transition is best-effort: a benign race (the task
-  // moved between the pre-check above and here) is swallowed so it can't fail
-  // the launch, but ownership itself always commits.
+  // Commit the durable Start-with-agent effects — associate the task with the
+  // execution, and Start it (Consider/Todo -> In progress) — BEFORE any runtime
+  // dispatch. Keyed to the session so a retry converges. If a lifecycle race
+  // (the task moved to terminal since the pre-check) makes Start illegal, roll
+  // the whole start back: detach and archive the just-created execution, and
+  // surface a conflict. A dispatch NEVER detaches the task and launches a
+  // taskless agent against a terminal task.
   if (args.taskId) {
     attachExecutionToTask(execution.id, args.taskId);
     if (startTaskStatus === 'consider' || startTaskStatus === 'todo') {
@@ -266,16 +277,14 @@ export async function dispatchExecutionSession(
         transitionTask({
           taskId: args.taskId,
           command: 'start',
-          idempotencyKey: `start-with-agent:${execution.id}`,
+          idempotencyKey: `start-with-agent:${sessionId}`,
           meta: { source: 'human', executionId: execution.id },
         });
       } catch (err) {
-        // A concurrent move made Start illegal (e.g. the task was archived
-        // between the pre-check and here). Don't leave the execution owning a
-        // task it cannot be working on — drop the ownership and run taskless
-        // rather than orphan a terminal task under a live agent.
-        console.error('[dispatch] start-with-agent transition failed; detaching ownership:', err);
         detachExecutionFromTask(execution.id, args.taskId);
+        archiveExecution(execution.id);
+        console.error('[dispatch] start-with-agent raced to a conflict; rolled back:', err);
+        throw new TaskNotStartableForDispatch(args.taskId, 'conflict');
       }
     }
   }
