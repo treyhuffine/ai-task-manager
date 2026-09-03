@@ -46,7 +46,7 @@ import type { ChatEventRecord, ChatEventSource, RunRecord } from '@/db/types';
  */
 export type RunActivity =
   /** Terminal — the run row has reached completed / failed / skipped. */
-  | { kind: 'terminal'; status: 'completed' | 'failed' | 'skipped' }
+  | { kind: 'terminal'; status: 'completed' | 'failed' | 'skipped' | 'cancelled' }
   /** Subprocess gone but the run row still says running — boot reaper
    *  will catch this, but the UI can surface it now. */
   | { kind: 'crashed'; lastEventAt: string | null }
@@ -110,8 +110,9 @@ export function observeRun(runId: string, now: Date = new Date()): RunObservatio
   const nowMs = now.getTime();
   const uptimeMs = run.startedAt ? Math.max(0, nowMs - new Date(run.startedAt).getTime()) : null;
 
-  // Terminal first — no need to probe further.
-  if (run.status === 'completed' || run.status === 'failed' || run.status === 'skipped') {
+  // Terminal first — no need to probe further. `cancelled` is a deliberate stop
+  // and is just as terminal as completed/failed/skipped.
+  if (run.status === 'completed' || run.status === 'failed' || run.status === 'skipped' || run.status === 'cancelled') {
     return {
       runId: run.id,
       status: run.status,

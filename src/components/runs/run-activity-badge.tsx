@@ -21,7 +21,7 @@ export function RunActivityBadge({
   terminalStatus,
 }: {
   runId: string;
-  terminalStatus?: 'completed' | 'failed' | 'skipped';
+  terminalStatus?: 'completed' | 'failed' | 'skipped' | 'cancelled';
 }) {
   const { data } = useRunObservation(terminalStatus ? null : runId);
 
@@ -77,12 +77,15 @@ export function RunActivityBadge({
   }
 }
 
-function TerminalBadge({ status }: { status: 'completed' | 'failed' | 'skipped' }) {
+function TerminalBadge({ status }: { status: 'completed' | 'failed' | 'skipped' | 'cancelled' }) {
   if (status === 'completed') {
     return <Pill tone="success">Completed</Pill>;
   }
   if (status === 'failed') {
     return <Pill tone="destructive">Failed</Pill>;
+  }
+  if (status === 'cancelled') {
+    return <Pill tone="mute">Cancelled</Pill>;
   }
   return <Pill tone="mute">Skipped</Pill>;
 }

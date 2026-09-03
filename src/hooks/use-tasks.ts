@@ -118,8 +118,17 @@ export function useCompleteTask() {
   const guard = useLifecycleGuard();
   return useMutation({
     mutationKey: TASKS_KEY,
-    mutationFn: ({ id, note }: { id: string; note?: string }) =>
-      tasksApi.complete(id, { note, idempotencyKey: newIdempotencyKey() }),
+    mutationFn: ({ id, note }: { id: string; note?: string }) => {
+      // Pass the revision the client last saw so two rapid completes (e.g. a
+      // recurring Todo->Todo double-click) can't both apply — the second sees a
+      // stale count and conflicts instead of recording a duplicate occurrence.
+      const cached = findCachedTask(qc, id) as { statusChangedCount?: number } | undefined;
+      return tasksApi.complete(id, {
+        note,
+        idempotencyKey: newIdempotencyKey(),
+        expectedStatusChangedCount: cached?.statusChangedCount,
+      });
+    },
     onMutate: async ({ id }) => {
       // Recurring tasks are NOT "done" on completion — the server records the
       // occurrence, advances recurrence, and returns the task to Todo, none of

@@ -59,8 +59,8 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     let code: string | undefined;
     try {
       q.transitionTask({ taskId: t.id, command: 'return_to_todo', idempotencyKey: 'k2', expectedStatusChangedCount: 0 });
-    } catch (e: any) {
-      code = e?.code;
+    } catch (e) {
+      code = (e as { code?: string })?.code;
     }
     expect(code).toBe('conflict');
   });
@@ -188,6 +188,46 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(cycleCode).toBe('invalid_params');
   });
 
+  it('monthly recurrence stays end-of-month across short months (Feb 28 -> Mar 31)', async () => {
+    const { q, db, schema } = await setup();
+    const t = q.createTask({ title: 'M', rawInput: 'x', recurrence: 'monthly' });
+    // End of February (a short month) — the next occurrence should return to the
+    // last day of the next month, not stick at the 28th.
+    db.update(schema.tasks).set({ nextRecurrenceAt: '2027-02-28T12:00:00.000Z' }).where(eq(schema.tasks.id, t.id)).run();
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    expect(c!.nextRecurrenceAt!.startsWith('2027-03-31')).toBe(true);
+  });
+
+  it('review gating compares timestamps as instants, not strings, across formats', async () => {
+    const { q, db, schema } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
+    const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-ts' }).id;
+    const exec = q.createExecution({ workspaceId: wsId });
+    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const task = q.createTask({ title: 'T', rawInput: 'x' });
+    q.attachExecutionToTask(exec.id, task.id);
+    // Pin the association + task epoch to a known ISO instant.
+    const anchor = '2026-09-03T11:00:00.000Z';
+    db.update(schema.executionTasks).set({ createdAt: anchor }).where(eq(schema.executionTasks.taskId, task.id)).run();
+    db.update(schema.tasks).set({ statusChangedAt: anchor }).where(eq(schema.tasks.id, task.id)).run();
+    // Output ONE HOUR LATER, in SQLite space-format (no zone). A lexicographic
+    // compare would call it "before" the ISO anchor (space < T); as an instant
+    // it is after -> review.
+    q.insertChatEvent({ id: 'o1', sessionId: session.id, role: 'assistant', source: 'agent', content: 'done', createdAt: '2026-09-03 12:00:00' });
+    expect(q.getTaskAttentionSignals(task.id).review).toBe(true);
+  });
+
+  it('a setup failure flags Stalled even with no running session', async () => {
+    const { q, db, schema } = await setup();
+    const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-st' }).id;
+    const exec = q.createExecution({ workspaceId: wsId });
+    // A setup failure leaves the execution active but not running.
+    db.update(schema.executions).set({ setupError: 'boom' }).where(eq(schema.executions.id, exec.id)).run();
+    const task = q.createTask({ title: 'T', rawInput: 'x' });
+    q.attachExecutionToTask(exec.id, task.id);
+    expect(q.getTaskAttentionSignals(task.id).stalled).toBe(true);
+  });
+
   it('reusing an idempotency key for a different command is a conflict', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
@@ -217,8 +257,8 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     let code: string | undefined;
     try {
       q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k2' });
-    } catch (e: any) {
-      code = e?.code;
+    } catch (e) {
+      code = (e as { code?: string })?.code;
     }
     expect(code).toBe('invalid_transition');
     q.transitionTask({ taskId: t.id, command: 'reopen', idempotencyKey: 'k3' });
@@ -234,8 +274,8 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     let code: string | undefined;
     try {
       q.transitionTask({ taskId: t.id, command: 'move_to_consider', idempotencyKey: 'k1' });
-    } catch (e: any) {
-      code = e?.code;
+    } catch (e) {
+      code = (e as { code?: string })?.code;
     }
     expect(code).toBe('consider_precondition');
   });
@@ -263,7 +303,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     const t = q.createTask({ title: 'X', rawInput: 'x' });
     q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
     // Attempt a status change through the generic path.
-    q.updateTask(t.id, { status: 'done' } as any);
+    q.updateTask(t.id, { status: 'done' } as Parameters<typeof q.updateTask>[1]);
     expect(q.getTask(t.id)!.status).toBe('in_progress');
   });
 });

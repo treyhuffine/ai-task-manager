@@ -75,6 +75,7 @@ import {
   listRuns,
   getRun,
   markRunFailed,
+  markRunCancelled,
   resetTriggerFailures,
   listNotificationChannels,
   getNotificationChannel,
@@ -1665,7 +1666,7 @@ const triggerConcurrencyPolicy = z.enum([
 ]);
 const triggerCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
-const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped']);
+const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped', 'cancelled']);
 const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
 
 /**
@@ -2050,7 +2051,7 @@ const get_run_action = defineAction({
 const cancel_run_action = defineAction({
   name: 'cancel_run',
   description:
-    'Best-effort cancel of an in-flight run. The agent receives SIGTERM via the executor. The run row is marked failed with status_reason=cancelled. Already-terminal runs return their current state unchanged.',
+    'Best-effort cancel of an in-flight run. The agent receives SIGTERM via the executor. The run row is marked cancelled (a deliberate stop, distinct from failed). Already-terminal runs return their current state unchanged.',
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
@@ -2070,13 +2071,7 @@ const cancel_run_action = defineAction({
         console.warn(`[cancel_run] abort failed for ${run.chatSessionId}:`, err);
       }
     }
-    return (
-      markRunFailed(id, {
-        errorCode: 'cancelled',
-        errorMessage: 'Cancelled by user',
-        statusReason: 'cancelled',
-      }) ?? run
-    );
+    return markRunCancelled(id, 'Cancelled by user') ?? run;
   },
 });
 

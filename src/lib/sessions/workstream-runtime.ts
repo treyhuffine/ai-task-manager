@@ -10,7 +10,7 @@ import * as executor from '@/lib/executor/adapter';
 import { listRunningSessions } from '@/lib/executor/status-snapshot';
 import {
   listChatSessions,
-  findActiveRunForExecution,
+  listRuns,
   markRunCancelled,
   insertChatEvent,
 } from '@/lib/db/queries';
@@ -36,10 +36,12 @@ export function runningSessionsForExecution(executionId: string): string[] {
 export async function stopExecutionAgent(executionId: string): Promise<{ ok: boolean; failures: string[] }> {
   const sessionIds = runningSessionsForExecution(executionId);
 
-  // Cancel the active run first (before the turn's own completion can land),
-  // so the durable record reflects a cancellation, not a completion.
-  const activeRun = findActiveRunForExecution(executionId);
-  if (activeRun) markRunCancelled(activeRun.id, 'Stopped by a coordinated task change');
+  // Cancel EVERY queued/running run of the execution first (an execution can
+  // have concurrent runs), before their turns' own completions can land, so the
+  // durable record reflects a cancellation, not a completion.
+  for (const run of listRuns({ executionId, status: ['queued', 'running'] })) {
+    markRunCancelled(run.id, 'Stopped by a coordinated task change');
+  }
 
   const failures: string[] = [];
   for (const sid of sessionIds) {

@@ -272,7 +272,7 @@ export default function TriggerDetailPage() {
 
 function RunRowSmall({ run }: { run: RunRecord }) {
   const terminal =
-    run.status === 'completed' || run.status === 'failed' || run.status === 'skipped'
+    run.status === 'completed' || run.status === 'failed' || run.status === 'skipped' || run.status === 'cancelled'
       ? run.status
       : undefined;
   return (

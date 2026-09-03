@@ -102,7 +102,7 @@ function RunRow({ run }: { run: RunRecord }) {
   // it polls and surfaces "Working", "Bash · 4 min", "Quiet · 12 min",
   // etc. — the actual signal, not just the wall-clock status.
   const terminal =
-    run.status === 'completed' || run.status === 'failed' || run.status === 'skipped'
+    run.status === 'completed' || run.status === 'failed' || run.status === 'skipped' || run.status === 'cancelled'
       ? run.status
       : undefined;
   return (

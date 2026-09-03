@@ -813,6 +813,20 @@ function isBlockerUnresolved(blockedOn: string | null | undefined): boolean {
   return normalizeTaskStatus(dep.status) !== 'done';
 }
 
+/**
+ * Parse a stored timestamp to epoch ms, tolerating both formats that appear in
+ * this DB: ISO 8601 (`2026-09-03T12:00:00.000Z`, from app writes) and SQLite's
+ * `datetime('now')` space form (`2026-09-03 12:00:00`, UTC, no zone). Comparing
+ * the two as strings is wrong — a space sorts before `T` — so any time
+ * comparison across sources must go through this. Returns 0 for null/unparseable.
+ */
+function tsToMs(ts: string | null | undefined): number {
+  if (!ts) return 0;
+  const iso = ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z';
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
 /** Non-terminal (Consider/Todo/In progress) child task ids of a parent, sorted
  * for stable set comparison. Terminal children never gate a parent. */
 function openChildIds(taskId: string): string[] {
@@ -1188,10 +1202,15 @@ function computeNextRecurrence(recurrence: string, fromDate: string): string {
   const addDays = (n: number) => date.setUTCDate(date.getUTCDate() + n);
   const addMonths = (n: number) => {
     const day = date.getUTCDate();
+    // If the anchor is the last day of its month, keep the cadence end-of-month
+    // (Jan 31 -> Feb 28 -> Mar 31), rather than sticking at the 28th once a short
+    // month clamps it. Otherwise clamp the day into the target month.
+    const origLastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+    const wasEndOfMonth = day === origLastDay;
     date.setUTCDate(1); // avoid overflow while we change the month
     date.setUTCMonth(date.getUTCMonth() + n);
     const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-    date.setUTCDate(Math.min(day, lastDay));
+    date.setUTCDate(wasEndOfMonth ? lastDay : Math.min(day, lastDay));
   };
 
   if (lower.includes('daily') || lower === '1d') addDays(1);
@@ -1514,24 +1533,30 @@ export function getTaskAttentionSignals(taskId: string, runningSessionIds?: Set<
     return { ...base, stalled: false, review: false, working: false };
   }
 
-  // Working/Stalled are RUNTIME signals: prefer the live running-session set
-  // (genuinely running) when the caller supplies it; otherwise fall back to the
-  // durable active-execution association.
+  // Working is a RUNTIME signal: prefer the live running-session set (genuinely
+  // running) when the caller supplies it; otherwise fall back to the durable
+  // active-execution association.
   const live = associations.filter((e) =>
     runningSessionIds
       ? executionSessionIds(e.id).some((sid) => runningSessionIds.has(sid))
       : e.status === 'active',
   );
-  const stalled = live.some((e) => !!e.setupError);
+  // Stalled is a setup FAILURE, which means the execution is active but NOT
+  // running — so it is checked across active associations, not just live ones
+  // (a stalled agent by definition has no live session).
+  const stalled = associations.some((e) => !!e.setupError && e.status === 'active');
 
   // Review: an associated execution's latest REVIEWABLE output is unreviewed AND
   // newer than both the association and the task's current-state epoch — so a
-  // shared checkpoint or an older run never falsely flags this task.
+  // shared checkpoint or an older run never falsely flags this task. Times are
+  // compared as instants (event times can be SQLite space-format while the
+  // association/epoch are ISO — a lexicographic compare across formats is wrong).
+  const gateMs = Math.max(tsToMs(epoch), 0);
   const review = associations.some((e) => {
     const s = latestOutputReviewState(e.id);
     if (!s.hasUnreviewedOutput || !s.latestOutputEventAt) return false;
-    const gate = e.associatedAt > epoch ? e.associatedAt : epoch;
-    return s.latestOutputEventAt > gate;
+    const gate = Math.max(tsToMs(e.associatedAt), gateMs);
+    return tsToMs(s.latestOutputEventAt) > gate;
   });
 
   return {
