@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
-import { transitionTask, getTask } from '@/lib/db/queries';
+import { transitionTask, getTask, lifecyclePreflight } from '@/lib/db/queries';
 import { coordinateLifecycleChange, type RuntimeChoice, type ScopeChange } from '@/lib/sessions/workstream';
 import { inProcessWorkstreamRuntime } from '@/lib/sessions/workstream-runtime';
 import { isTaskLifecycleError, isTransitionCommand, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
@@ -33,10 +33,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       body.runtimeChoice === 'keep_running' || body.runtimeChoice === 'stop_running_agent'
         ? body.runtimeChoice
         : undefined;
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : uuidv7();
+    const expectedStatusChangedCount = typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined;
+    const acknowledgedChildIds = Array.isArray(body.acknowledgedChildIds) ? body.acknowledgedChildIds : undefined;
+    const acknowledgedExecutionIds = Array.isArray(body.acknowledgedExecutionIds) ? body.acknowledgedExecutionIds : undefined;
 
-    // Coordinate the runtime side before the durable change. Only the commands
-    // that displace or uncommit current work need it.
-    if (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider') {
+    // Validate the command CAN apply before any runtime coordination, so a
+    // rejected command (stale revision, replay, open children, illegal move)
+    // never stops an agent or sends a scope-change message. A replay skips
+    // coordination entirely.
+    const pre = lifecyclePreflight({ taskId: id, command, idempotencyKey, expectedStatusChangedCount, acknowledgedChildIds });
+    if (!pre.replay && (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider')) {
       const task = getTask(id);
       const change: ScopeChange | undefined =
         command === 'archive'
@@ -49,6 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         kind: command === 'move_to_consider' ? 'uncommit' : 'displace',
         choice,
         change,
+        acknowledgedExecutionIds,
         runtime: inProcessWorkstreamRuntime,
       });
     }
@@ -56,9 +64,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const result = transitionTask({
       taskId: id,
       command,
-      idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : uuidv7(),
-      expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
-      acknowledgedChildIds: Array.isArray(body.acknowledgedChildIds) ? body.acknowledgedChildIds : undefined,
+      idempotencyKey,
+      expectedStatusChangedCount,
+      acknowledgedChildIds,
       meta: { source: 'human', reason: typeof body.reason === 'string' ? body.reason : null },
     });
 

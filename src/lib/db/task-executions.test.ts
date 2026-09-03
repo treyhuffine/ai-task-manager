@@ -149,6 +149,30 @@ describe('task-owned executions', () => {
     expect(uncommitCode).toBe('active_execution');
   });
 
+  it('coordination re-verifies the exact disclosed execution set', async () => {
+    const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
+    const a = q.createTask({ title: 'A', rawInput: 'a' });
+    const exec = q.createExecution({ workspaceId: wsId });
+    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    q.attachExecutionToTask(exec.id, a.id);
+    const runtime = {
+      async runningSessionIds() { return [session.id]; },
+      async stopExecution() { return { ok: true, failures: [] }; },
+      async notify() {},
+    };
+    // The disclosed set matches the live set -> proceeds.
+    await coordinateLifecycleChange({ taskId: a.id, kind: 'displace', choice: 'stop_running_agent', acknowledgedExecutionIds: [exec.id], runtime });
+    // A stale disclosed set -> re-disclose (conflict), never stop an undisclosed agent.
+    let code: string | undefined;
+    try {
+      await coordinateLifecycleChange({ taskId: a.id, kind: 'displace', choice: 'stop_running_agent', acknowledgedExecutionIds: ['someone-else'], runtime });
+    } catch (e) {
+      code = codeOf(e);
+    }
+    expect(code).toBe('active_execution');
+  });
+
   it('coordination is a no-op when nothing is genuinely running', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'A', rawInput: 'a' });
@@ -318,6 +342,38 @@ describe('task-owned executions', () => {
     // A top-level output IS reviewable.
     q.insertChatEvent({ id: 'top-out', sessionId: session.id, role: 'assistant', source: 'agent', content: 'final', createdAt: '2999-01-03T00:00:00.000Z' });
     expect(q.getExecutionReviewContext(exec.id).latestOutputEventId).toBe('top-out');
+  });
+
+  it('accept-and-complete is atomic and refuses to complete over newer output', async () => {
+    const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
+    const exec = q.createExecution({ workspaceId: wsId });
+    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const task = q.createTask({ title: 'T', rawInput: 'x' });
+    q.attachExecutionToTask(exec.id, task.id);
+    q.insertChatEvent({ id: 'out-1', sessionId: session.id, role: 'assistant', source: 'agent', content: 'done', createdAt: '2999-01-01 00:00:00' });
+
+    // Latest output + eligible task -> review recorded AND task completed, in one
+    // step, execution untouched.
+    const res = q.acceptOutputAndCompleteTask({ executionId: exec.id, outputEventId: 'out-1', taskId: task.id, idempotencyKey: 'ac1' });
+    expect(res.review.disposition).toBe('accepted');
+    expect(res.task!.status).toBe('done');
+    expect(q.getExecution(exec.id)?.status).toBe('active');
+
+    // Newer output arrives; reopen the task. Accepting the OLD event is a
+    // conflict and records neither the review nor the completion.
+    q.insertChatEvent({ id: 'out-2', sessionId: session.id, role: 'assistant', source: 'agent', content: 'more', createdAt: '2999-01-02 00:00:00' });
+    q.transitionTask({ taskId: task.id, command: 'reopen', idempotencyKey: 'ro' });
+    const reviewsBefore = q.getExecutionReviews(exec.id).length;
+    let code: string | undefined;
+    try {
+      q.acceptOutputAndCompleteTask({ executionId: exec.id, outputEventId: 'out-1', taskId: task.id, idempotencyKey: 'ac2' });
+    } catch (e) {
+      code = codeOf(e);
+    }
+    expect(code).toBe('conflict');
+    expect(q.getExecutionReviews(exec.id).length).toBe(reviewsBefore); // review not recorded
+    expect(q.getTask(task.id)!.status).toBe('todo'); // task not completed
   });
 
   it('review context names the single owning task; ambiguous when many', async () => {

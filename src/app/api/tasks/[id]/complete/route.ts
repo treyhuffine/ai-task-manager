@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { completeTask, getTask } from '@/lib/db/queries';
+import { completeTask, getTask, lifecyclePreflight } from '@/lib/db/queries';
 import { coordinateLifecycleChange, type RuntimeChoice } from '@/lib/sessions/workstream';
 import { inProcessWorkstreamRuntime } from '@/lib/sessions/workstream-runtime';
 import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
@@ -16,26 +16,36 @@ export async function POST(
       body.runtimeChoice === 'keep_running' || body.runtimeChoice === 'stop_running_agent'
         ? body.runtimeChoice
         : undefined;
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined;
+    const expectedStatusChangedCount = typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined;
+    const acknowledgedChildIds = Array.isArray(body.acknowledgedChildIds) ? body.acknowledgedChildIds : undefined;
+    const acknowledgedExecutionIds = Array.isArray(body.acknowledgedExecutionIds) ? body.acknowledgedExecutionIds : undefined;
 
-    // Completing displaces current work: coordinate a genuinely running
-    // workstream first (keep_running vs stop_running_agent), without ever
-    // stopping or detaching a shared execution as a side effect.
     const task = getTask(id);
-    if (task) {
+    if (!task) {
+      return Response.json({ error: 'Task not found' }, { status: 404 });
+    }
+
+    // Validate completion CAN apply (revision, replay, open children) BEFORE
+    // coordinating a genuinely running workstream, so a rejected completion
+    // never stops an agent. A replay skips coordination.
+    const pre = lifecyclePreflight({ taskId: id, command: 'complete', idempotencyKey, expectedStatusChangedCount, acknowledgedChildIds });
+    if (!pre.replay) {
       await coordinateLifecycleChange({
         taskId: id,
         kind: 'displace',
         choice,
         change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
+        acknowledgedExecutionIds,
         runtime: inProcessWorkstreamRuntime,
       });
     }
 
     const result = completeTask(id, {
       note: body.note,
-      idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined,
-      expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
-      acknowledgedChildIds: Array.isArray(body.acknowledgedChildIds) ? body.acknowledgedChildIds : undefined,
+      idempotencyKey,
+      expectedStatusChangedCount,
+      acknowledgedChildIds,
       meta: { source: 'human' },
     });
 

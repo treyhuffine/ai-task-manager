@@ -95,6 +95,10 @@ export interface CoordinateArgs {
   choice?: RuntimeChoice;
   /** Present only for `displace` keep-running — the message to send. */
   change?: ScopeChange;
+  /** The exact running-execution ids the user was shown when they chose. If the
+   * live set has changed since, coordination re-discloses instead of silently
+   * stopping (or keeping) a workstream the user never saw. */
+  acknowledgedExecutionIds?: string[];
   runtime: WorkstreamRuntime;
 }
 
@@ -129,6 +133,22 @@ export async function coordinateLifecycleChange(args: CoordinateArgs): Promise<v
       'An agent workstream is running on this task. Choose keep_running or stop_running_agent.',
       { running: workstreams, requiresChoice: true },
     );
+  }
+
+  // If the caller confirmed against a specific disclosed set, re-verify the live
+  // set is still exactly that — otherwise a workstream started since the user
+  // chose could be stopped (or kept) without disclosure.
+  if (args.acknowledgedExecutionIds) {
+    const current = new Set(workstreams.map((w) => w.executionId));
+    const ack = new Set(args.acknowledgedExecutionIds);
+    const changed = current.size !== ack.size || [...current].some((id) => !ack.has(id));
+    if (changed) {
+      throw new TaskLifecycleError(
+        'active_execution',
+        'The running workstreams changed since you confirmed. Review and choose again.',
+        { running: workstreams, requiresChoice: true },
+      );
+    }
   }
 
   if (args.choice === 'stop_running_agent') {

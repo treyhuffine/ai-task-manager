@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { reviewExecutionOutput, completeTask, getExecutionReviewContext, getExecutionTasks } from '@/lib/db/queries';
+import { reviewExecutionOutput, acceptOutputAndCompleteTask, getExecutionReviewContext, getExecutionTasks } from '@/lib/db/queries';
 import { isTaskLifecycleError, isTerminal, normalizeTaskStatus, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 const DISPOSITIONS = new Set(['accepted', 'changes_requested', 'dismissed']);
@@ -32,21 +32,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const wantsComplete = body.completeTask === true && body.disposition === 'accepted';
 
-    // Accept-and-complete: resolve and validate the single target task, and
-    // guard against completing over newer output — BEFORE recording anything,
-    // so a conflict records neither the acceptance nor the completion.
-    let targetTaskId: string | null = null;
+    // Accept-and-complete: record the acceptance AND complete one named task in
+    // ONE transaction. Resolve the single target task first; the atomic call
+    // then re-checks the event is still the latest reviewable output and the
+    // task is still eligible, so a conflict records neither half.
     if (wantsComplete) {
-      const associated = getExecutionTasks(id);
-      const eligible = associated.filter((t) => !isTerminal(normalizeTaskStatus(t.status)));
+      const eligible = getExecutionTasks(id).filter((t) => !isTerminal(normalizeTaskStatus(t.status)));
       const explicit = typeof body.taskId === 'string' ? body.taskId : null;
+      let targetTaskId: string;
       if (explicit) {
-        const match = eligible.find((t) => t.id === explicit);
-        if (!match) {
-          return Response.json(
-            { error: 'That task is not an eligible associated task of this execution.', code: 'invalid_params' },
-            { status: 422 },
-          );
+        if (!eligible.some((t) => t.id === explicit)) {
+          return Response.json({ error: 'That task is not an eligible associated task of this execution.', code: 'invalid_params' }, { status: 422 });
         }
         targetTaskId = explicit;
       } else if (eligible.length === 1) {
@@ -64,32 +60,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         );
       }
 
-      // The accepted event must still be the latest reviewable output — newer
-      // output means an unresolved obligation completion would bury.
-      if (ctx.latestOutputEventId && ctx.latestOutputEventId !== outputEventId) {
-        return Response.json(
-          {
-            error: 'Newer output arrived after the event you accepted. Review the latest output before completing.',
-            code: 'conflict',
-          },
-          { status: 409 },
-        );
-      }
-    }
-
-    // Complete first, then record the acceptance: a completion conflict records
-    // neither half, and the benign residual (task done, acceptance not yet
-    // recorded) is preferable to accepted-but-not-done. The execution is never
-    // stopped or detached — task lifecycle is independent of the workstream.
-    let task = null;
-    if (wantsComplete && targetTaskId) {
-      const result = completeTask(targetTaskId, {
+      const { review, task } = acceptOutputAndCompleteTask({
+        executionId: id,
+        outputEventId,
+        taskId: targetTaskId,
+        note: typeof body.note === 'string' ? body.note : null,
         idempotencyKey: `accept-and-complete:${outputEventId}:${targetTaskId}`,
-        meta: { source: 'human', executionId: id },
+        actorSource: 'human',
       });
-      task = result?.task ?? null;
+      return Response.json({ review, task });
     }
 
+    // Plain review disposition (accept / request changes / dismiss) — never
+    // changes any task by itself.
     const review = reviewExecutionOutput({
       executionId: id,
       outputEventId,
@@ -98,7 +81,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       actorSource: 'human',
     });
 
-    return Response.json({ review, task });
+    return Response.json({ review, task: null });
   } catch (err) {
     if (isTaskLifecycleError(err)) {
       return Response.json({ error: err.message, code: err.code, details: err.details }, { status: LIFECYCLE_ERROR_HTTP_STATUS[err.code] });

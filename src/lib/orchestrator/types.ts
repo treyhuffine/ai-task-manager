@@ -42,6 +42,9 @@ export class ActionError extends Error {
       | 'unsupported',
     message: string,
     public suggestion?: string,
+    /** Structured data the caller (agent) needs to recover — e.g. the running
+     * workstreams to choose between, or the open children to acknowledge. */
+    public details?: unknown,
   ) {
     super(message);
     this.name = 'ActionError';

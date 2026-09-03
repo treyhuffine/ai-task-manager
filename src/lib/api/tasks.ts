@@ -44,7 +44,7 @@ export const tasksApi = {
 
   complete(
     id: string,
-    opts: { note?: string; idempotencyKey?: string; expectedStatusChangedCount?: number; runtimeChoice?: 'keep_running' | 'stop_running_agent'; acknowledgedChildIds?: string[] } = {},
+    opts: { note?: string; idempotencyKey?: string; expectedStatusChangedCount?: number; runtimeChoice?: 'keep_running' | 'stop_running_agent'; acknowledgedChildIds?: string[]; acknowledgedExecutionIds?: string[] } = {},
   ): Promise<LifecycleResult> {
     return api.post(`/tasks/${id}/complete`, opts);
   },
@@ -70,7 +70,7 @@ export const tasksApi = {
   transition(
     id: string,
     command: TransitionCommand,
-    opts: { idempotencyKey?: string; expectedStatusChangedCount?: number; reason?: string; runtimeChoice?: 'keep_running' | 'stop_running_agent'; acknowledgedChildIds?: string[] } = {},
+    opts: { idempotencyKey?: string; expectedStatusChangedCount?: number; reason?: string; runtimeChoice?: 'keep_running' | 'stop_running_agent'; acknowledgedChildIds?: string[]; acknowledgedExecutionIds?: string[] } = {},
   ): Promise<LifecycleResult> {
     return api.post(`/tasks/${id}/transition`, { command, ...opts });
   },

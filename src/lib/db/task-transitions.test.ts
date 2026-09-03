@@ -228,6 +228,39 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(q.getTaskAttentionSignals(task.id).stalled).toBe(true);
   });
 
+  it('lifecyclePreflight validates without applying and detects replay', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'X', rawInput: 'x' });
+
+    // A valid, unseen command: applicable, not a replay, and NOT yet applied.
+    expect(q.lifecyclePreflight({ taskId: t.id, command: 'start', idempotencyKey: 'k1' })).toEqual({ replay: false });
+    expect(q.getTask(t.id)!.status).toBe('todo'); // preflight didn't apply anything
+
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
+    // Same key -> replay (so the route skips runtime coordination).
+    expect(q.lifecyclePreflight({ taskId: t.id, command: 'start', idempotencyKey: 'k1' })).toEqual({ replay: true });
+
+    // Stale revision -> conflict, before any runtime effect.
+    let code: string | undefined;
+    try {
+      q.lifecyclePreflight({ taskId: t.id, command: 'return_to_todo', idempotencyKey: 'k2', expectedStatusChangedCount: 0 });
+    } catch (e) {
+      code = (e as { code?: string }).code;
+    }
+    expect(code).toBe('conflict');
+
+    // Open children surface the child-ack conflict at preflight too.
+    const parent = q.createTask({ title: 'P', rawInput: 'p' });
+    q.createTask({ title: 'C', rawInput: 'c', parentId: parent.id });
+    let childCode: string | undefined;
+    try {
+      q.lifecyclePreflight({ taskId: parent.id, command: 'complete' });
+    } catch (e) {
+      childCode = (e as { code?: string }).code;
+    }
+    expect(childCode).toBe('conflict');
+  });
+
   it('reusing an idempotency key for a different command is a conflict', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });

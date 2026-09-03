@@ -28,6 +28,7 @@ import {
   updateTask,
   completeTask,
   transitionTask,
+  lifecyclePreflight,
   attachExecutionToTask,
   detachExecutionFromTask,
   getTaskExecutions,
@@ -175,7 +176,9 @@ async function coordinateForAction(args: {
 /** Map a query-layer lifecycle error to the orchestrator envelope. */
 function throwAsActionError(err: unknown): never {
   if (isTaskLifecycleError(err)) {
-    throw new ActionError(LIFECYCLE_ERROR_ACTION_CODE[err.code], err.message);
+    // Carry the structured details (running workstreams / open children) so an
+    // agent can retry with the right runtime_choice or acknowledged_child_ids.
+    throw new ActionError(LIFECYCLE_ERROR_ACTION_CODE[err.code], err.message, undefined, err.details);
   }
   throw err;
 }
@@ -332,14 +335,17 @@ const complete_task_action = defineAction({
     try {
       const task = getTask(id);
       if (!task) throw new ActionError('not_found', `Task not found: ${id}`);
-      // Completing displaces current work: coordinate a genuinely running
-      // workstream first, without ever stopping or detaching a shared execution.
-      await coordinateForAction({
-        taskId: id,
-        kind: 'displace',
-        choice: runtime_choice,
-        change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
-      });
+      // Validate BEFORE coordinating a running workstream, so a rejected
+      // completion never stops an agent. A replay skips coordination.
+      const pre = lifecyclePreflight({ taskId: id, command: 'complete', idempotencyKey: idempotency_key, expectedStatusChangedCount: expected_status_changed_count, acknowledgedChildIds: acknowledged_child_ids });
+      if (!pre.replay) {
+        await coordinateForAction({
+          taskId: id,
+          kind: 'displace',
+          choice: runtime_choice,
+          change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
+        });
+      }
       const result = completeTask(id, {
         note,
         idempotencyKey: idempotency_key,
@@ -375,9 +381,11 @@ const transition_task_action = defineAction({
   cli: { positional: ['id', 'command'] },
   handler: async (ctx, { id, command, idempotency_key, expected_status_changed_count, acknowledged_child_ids, runtime_choice, reason }) => {
     try {
-      // Coordinate the runtime side of displacing/uncommitting commands before
-      // the durable change; other commands need no coordination.
-      if (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider') {
+      const key = idempotency_key ?? uuidv7();
+      // Validate BEFORE coordinating a running workstream. A replay skips
+      // coordination; only displacing/uncommitting commands need it.
+      const pre = lifecyclePreflight({ taskId: id, command, idempotencyKey: key, expectedStatusChangedCount: expected_status_changed_count, acknowledgedChildIds: acknowledged_child_ids });
+      if (!pre.replay && (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider')) {
         const task = getTask(id);
         if (!task) throw new ActionError('not_found', `Task not found: ${id}`);
         const change = command === 'archive'
@@ -395,7 +403,7 @@ const transition_task_action = defineAction({
       const result = transitionTask({
         taskId: id,
         command,
-        idempotencyKey: idempotency_key ?? uuidv7(),
+        idempotencyKey: key,
         expectedStatusChangedCount: expected_status_changed_count,
         acknowledgedChildIds: acknowledged_child_ids,
         meta: { ...lifecycleActor(ctx), reason: reason ?? null },

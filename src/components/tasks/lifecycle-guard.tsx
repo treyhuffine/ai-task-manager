@@ -168,10 +168,13 @@ function RunningWorkstreamDialog({ req, onClose }: { req: GuardRequest | null; o
     setBusy(true);
     try {
       const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
+      // Re-issue with the EXACT execution set the user saw, so the server can
+      // reject if the running set changed rather than stop an undisclosed agent.
+      const acknowledgedExecutionIds = workstreams.map((w) => w.executionId);
       if (req.command === 'complete') {
-        await tasksApi.complete(req.taskId, { runtimeChoice: choice, idempotencyKey: key });
+        await tasksApi.complete(req.taskId, { runtimeChoice: choice, idempotencyKey: key, acknowledgedExecutionIds });
       } else {
-        await tasksApi.transition(req.taskId, req.command, { runtimeChoice: choice, idempotencyKey: key });
+        await tasksApi.transition(req.taskId, req.command, { runtimeChoice: choice, idempotencyKey: key, acknowledgedExecutionIds });
       }
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['sessions'] });

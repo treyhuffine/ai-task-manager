@@ -25,6 +25,9 @@ export interface DispatchEnvelope<T = unknown> {
     message: string;
     suggestion?: string;
     issues?: z.ZodIssue[];
+    /** Structured recovery data (e.g. running workstreams to choose between, or
+     * open children to acknowledge). */
+    details?: unknown;
   };
 }
 
@@ -64,7 +67,7 @@ export async function runAction(
       return {
         ok: false,
         action: name,
-        error: { code: err.code, message: err.message, suggestion: err.suggestion },
+        error: { code: err.code, message: err.message, suggestion: err.suggestion, details: err.details },
       };
     }
     const message = err instanceof Error ? err.message : String(err);

@@ -934,6 +934,82 @@ function priorLifecycleCommand(taskId: string, idempotencyKey: string) {
     .get();
 }
 
+export interface LifecyclePreflightInput {
+  taskId: string;
+  command: TransitionCommand | 'complete';
+  idempotencyKey?: string;
+  expectedStatusChangedCount?: number;
+  acknowledgedChildIds?: string[];
+}
+
+/**
+ * Validate a lifecycle command WITHOUT applying it, so a caller can run runtime
+ * coordination (stopping an agent, sending a scope-change message) only for a
+ * command that will actually apply — never stopping work for a command that then
+ * rejects on a stale revision, an idempotent replay, or open children.
+ *
+ * Returns `{ replay: true }` when this key was already applied (the caller should
+ * skip coordination and let the apply replay the recorded result). Throws
+ * {@link TaskLifecycleError} on any precondition failure. Returns `{ replay:
+ * false }` when the command is applicable now. This mirrors the checks the apply
+ * itself re-runs authoritatively inside its transaction.
+ */
+export function lifecyclePreflight(input: LifecyclePreflightInput): { replay: boolean } {
+  const { taskId, command } = input;
+  if (input.idempotencyKey) {
+    const prior = priorLifecycleCommand(taskId, input.idempotencyKey);
+    if (prior) {
+      if (prior.command !== command) {
+        throw new TaskLifecycleError(
+          'conflict',
+          `Idempotency key already used for "${prior.command}", cannot reuse it for "${command}".`,
+          { idempotencyKey: input.idempotencyKey, recordedCommand: prior.command, attemptedCommand: command },
+        );
+      }
+      return { replay: true };
+    }
+  }
+
+  const raw = hydrateRow(getDb().select().from(tasks).where(eq(tasks.id, taskId)).get());
+  if (!raw) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+  const task = normalizeTaskRow(raw);
+
+  if (!canApply(command, task.status)) {
+    const valid = availableCommands(task.status).join(', ') || 'none';
+    throw new TaskLifecycleError(
+      'invalid_transition',
+      `Cannot ${transitionLabel(command)} a task that is ${task.status}. Valid actions from ${task.status}: ${valid}.`,
+      { from: task.status, command },
+    );
+  }
+  if (input.expectedStatusChangedCount != null && input.expectedStatusChangedCount !== task.statusChangedCount) {
+    throw new TaskLifecycleError(
+      'conflict',
+      `Task changed since it was loaded (expected status-change count ${input.expectedStatusChangedCount}, now ${task.statusChangedCount}). Reload and retry.`,
+      { expected: input.expectedStatusChangedCount, actual: task.statusChangedCount },
+    );
+  }
+  if (command === 'move_to_consider') {
+    const reasons = considerBlockers({
+      hardDeadline: task.hardDeadline ?? null,
+      reminderAt: task.reminderAt ?? null,
+      recurrence: task.recurrence ?? null,
+      hasUnresolvedBlocker: isBlockerUnresolved(task.blockedOn),
+    });
+    if (reasons.length) {
+      throw new TaskLifecycleError(
+        'consider_precondition',
+        `Cannot move to Consider while this task has ${reasons.join(', ')}. Resolve or remove ${reasons.length > 1 ? 'those' : 'that'} first.`,
+        { reasons },
+      );
+    }
+  }
+  if (command === 'archive' || command === 'complete') {
+    guardOpenChildren(taskId, input.acknowledgedChildIds, command === 'complete' ? 'complete' : 'archive');
+  }
+  return { replay: false };
+}
+
 /**
  * Apply a semantic lifecycle transition. The single sanctioned path for
  * move_to_todo / move_to_consider / start / return_to_todo / reopen / archive /
@@ -1070,7 +1146,16 @@ export interface CompleteTaskInput {
  */
 export function completeTask(id: string, input: CompleteTaskInput = {}): LifecycleOutcome | null {
   const idempotencyKey = input.idempotencyKey ?? uuidv7();
-  return inEntityTx(() => {
+  return inEntityTx(() => completeTaskInTx(id, idempotencyKey, input), true);
+}
+
+/**
+ * The completion body, run WITHIN an existing entity transaction (it opens no
+ * transaction of its own), so it can be composed atomically with other writes —
+ * e.g. recording a review AND completing the task in one transaction for
+ * accept-and-complete. Never call this outside an active entity transaction.
+ */
+function completeTaskInTx(id: string, idempotencyKey: string, input: CompleteTaskInput): LifecycleOutcome | null {
     // Idempotent replay.
     const prior = priorLifecycleCommand(id, idempotencyKey);
     if (prior) {
@@ -1186,7 +1271,6 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
     recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'done', nextCount, input.meta, result);
     void syncEntity('task', id);
     return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false, replayed: false };
-  }, true);
 }
 
 /**
@@ -1374,6 +1458,67 @@ export function reviewExecutionOutput(input: ReviewOutputInput): ExecutionReview
     })
     .returning()
     .get();
+}
+
+export interface AcceptAndCompleteInput {
+  executionId: string;
+  /** The EXACT output event being accepted — never defaulted. */
+  outputEventId: string;
+  /** The single associated task being completed. */
+  taskId: string;
+  note?: string | null;
+  idempotencyKey: string;
+  actorSource?: EntityVersionSource;
+}
+
+/**
+ * Accept an execution's exact output AND complete one named associated task, in
+ * ONE transaction. Atomic: if the output is no longer the latest reviewable
+ * output (newer arrived) or the task is not an eligible associated task, neither
+ * the acceptance nor the completion is recorded. Never stops or detaches the
+ * execution and never touches any other associated task.
+ */
+export function acceptOutputAndCompleteTask(input: AcceptAndCompleteInput): { review: ExecutionReviewRecord; task: TaskRecord | null } {
+  return inEntityTx(() => {
+    // The accepted event must be the CURRENT latest reviewable output — inside
+    // this transaction nothing newer can land, so completing can't bury an
+    // unreviewed obligation.
+    const latest = latestReviewableOutputEvent(executionSessionIds(input.executionId));
+    if (!latest || latest.id !== input.outputEventId) {
+      throw new TaskLifecycleError(
+        'conflict',
+        'That output is no longer the latest reviewable output. Review the newest output before completing.',
+        { latestOutputEventId: latest?.id ?? null },
+      );
+    }
+    // The task must be an eligible (non-terminal) associated task.
+    const target = getExecutionTasks(input.executionId).find((t) => t.id === input.taskId);
+    if (!target || isTerminal(normalizeTaskStatus(target.status))) {
+      throw new TaskLifecycleError(
+        'invalid_params',
+        'That task is not an eligible associated task of this execution.',
+        { taskId: input.taskId },
+      );
+    }
+    // Record the acceptance and complete just that task, together.
+    const review = getDb()
+      .insert(executionReviews)
+      .values({
+        id: uuidv7(),
+        executionId: input.executionId,
+        outputEventId: input.outputEventId,
+        disposition: 'accepted',
+        actorSource: input.actorSource ?? 'human',
+        actorSessionId: null,
+        note: input.note ?? null,
+      })
+      .returning()
+      .get();
+    const outcome = completeTaskInTx(input.taskId, input.idempotencyKey, {
+      meta: { source: input.actorSource ?? 'human', executionId: input.executionId },
+    });
+    return { review, task: outcome?.task ?? null };
+  }, true);
 }
 
 /** All review events for an execution, newest first. */
