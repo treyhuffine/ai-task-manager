@@ -1352,6 +1352,22 @@ export function getTaskExecutions(taskId: string): ExecutionRecord[] {
     .all();
 }
 
+/**
+ * Continue-with-agent targets for a task: its non-archived associated
+ * executions that have a live chat session to resume, newest first. Zero means
+ * launch a new execution, one means resume it, several means offer a chooser.
+ * Archived executions are history, never automatic Continue targets.
+ */
+export function getTaskContinueTargets(taskId: string): { executionId: string; sessionId: string; label: string | null }[] {
+  const out: { executionId: string; sessionId: string; label: string | null }[] = [];
+  for (const e of getTaskExecutions(taskId)) {
+    if (e.status !== 'active') continue;
+    const session = listChatSessions({ executionId: e.id, status: 'active' })[0];
+    if (session) out.push({ executionId: e.id, sessionId: session.id, label: e.label });
+  }
+  return out;
+}
+
 /** Tasks an execution owns, newest ownership first. */
 export function getExecutionTasks(executionId: string): TaskRecord[] {
   const rows = getDb()

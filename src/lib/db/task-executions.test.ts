@@ -115,6 +115,24 @@ describe('task-owned executions', () => {
     expect(q.getTask(done.id)!.status).toBe('done'); // unchanged
   });
 
+  it('getTaskContinueTargets returns active associated executions with a session, excluding archived', async () => {
+    const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
+    const task = q.createTask({ title: 'T', rawInput: 'x' });
+
+    const exec = q.createExecution({ workspaceId: wsId });
+    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    q.attachExecutionToTask(exec.id, task.id);
+    expect(q.getTaskContinueTargets(task.id).map((t) => t.sessionId)).toEqual([session.id]);
+
+    // An archived execution is history, never a Continue target.
+    const arch = q.createExecution({ workspaceId: wsId });
+    q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: arch.id, label: null, status: 'active' });
+    q.attachExecutionToTask(arch.id, task.id);
+    q.archiveExecution(arch.id);
+    expect(q.getTaskContinueTargets(task.id).map((t) => t.executionId)).toEqual([exec.id]);
+  });
+
   it('coordination requires an explicit choice for a genuinely running workstream', async () => {
     const { q, wsId } = await setup();
     const agent = q.getOrCreateDefaultExecutor('claude_code');
