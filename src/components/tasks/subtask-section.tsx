@@ -114,21 +114,33 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
                 className="group flex items-center gap-2 py-1.5 px-1 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
                 onClick={() => onOpenTask?.(subtask.id)}
               >
-                {/* Checkbox */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleToggleComplete(subtask.id, subtask.status)
-                  }}
-                  className={cn(
-                    'flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
-                    isDone
-                      ? 'bg-primary border-primary text-primary-foreground'
-                      : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
-                  )}
-                >
-                  {isDone && <Check size={10} strokeWidth={3} />}
-                </button>
+                {/* Completion control — a Consider subtask is not committed
+                    work, so it shows a non-interactive marker rather than a
+                    checkbox that would silently do nothing. */}
+                {subtask.status === 'consider' ? (
+                  <span
+                    className="flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
+                    title="Consider — commit it with the status control"
+                    aria-hidden
+                  />
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleToggleComplete(subtask.id, subtask.status)
+                    }}
+                    title={isDone ? 'Reopen' : 'Complete'}
+                    aria-label={isDone ? 'Reopen subtask' : 'Complete subtask'}
+                    className={cn(
+                      'flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
+                      isDone
+                        ? 'bg-primary border-primary text-primary-foreground'
+                        : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
+                    )}
+                  >
+                    {isDone && <Check size={10} strokeWidth={3} />}
+                  </button>
+                )}
 
                 {/* Title */}
                 <span className={cn(

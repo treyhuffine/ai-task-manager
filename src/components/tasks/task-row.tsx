@@ -166,18 +166,31 @@ export function TaskRow({
         <GripVertical size={12} />
       </button>
 
-      {/* Checkbox */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
-        className={cn(
-          'mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
-          isDone
-            ? 'bg-primary border-primary text-primary-foreground'
-            : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
-        )}
-      >
-        {isDone && <Check size={10} strokeWidth={3} />}
-      </button>
+      {/* Completion control — only where completing/reopening is the real
+          action. Consider is not committed work (commit it via the status
+          control), and Archived is history, so neither shows a checkbox that
+          would silently do nothing or quietly restore. */}
+      {task.status === 'consider' || task.status === 'archived' ? (
+        <span
+          className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
+          title={task.status === 'consider' ? 'Consider — commit it with the status control' : 'Archived'}
+          aria-hidden
+        />
+      ) : (
+        <button
+          onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
+          title={isDone ? 'Reopen' : 'Complete'}
+          aria-label={isDone ? 'Reopen task' : 'Complete task'}
+          className={cn(
+            'mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
+            isDone
+              ? 'bg-primary border-primary text-primary-foreground'
+              : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
+          )}
+        >
+          {isDone && <Check size={10} strokeWidth={3} />}
+        </button>
+      )}
 
       {/* Content */}
       <div className="min-w-0 flex-1">
