@@ -54,6 +54,12 @@ export const tasksApi = {
     return api.get(`/tasks/${id}/executions`);
   },
 
+  /** Reorder a task within its lane, server-side and atomic, against the full
+   * sibling set (including Area-hidden cards). Pass the visible neighbor ids. */
+  reorder(id: string, opts: { prevId?: string | null; nextId?: string | null }): Promise<{ sortKey: string }> {
+    return api.post(`/tasks/${id}/reorder`, opts);
+  },
+
   /** Batch attention badges for the given task ids. */
   attention(ids: string[]): Promise<Record<string, TaskAttentionSignals>> {
     if (ids.length === 0) return Promise.resolve({});

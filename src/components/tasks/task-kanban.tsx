@@ -15,7 +15,6 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { generateKeyBetween } from 'fractional-indexing';
 import { toast } from 'sonner';
 import { Filter } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -37,19 +36,6 @@ import { STATUS_COLOR } from './lifecycle-status-control';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import type { TaskStatus } from '@/db/types';
 import { cn } from '@/lib/utils';
-
-/** Match the server's task ordering: sortKey ASC with nulls last, then a stable
- * createdAt DESC tiebreak. Keeps optimistic reorders from disagreeing with the
- * refetched order when sortKeys are null/equal. */
-function compareBySortKey(a: TaskListDTO, b: TaskListDTO): number {
-  const ak = a.sortKey ?? null;
-  const bk = b.sortKey ?? null;
-  if (ak == null && bk == null) return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
-  if (ak == null) return 1;
-  if (bk == null) return -1;
-  const c = ak.localeCompare(bk);
-  return c !== 0 ? c : (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
-}
 
 type AreaMode = 'all' | 'none' | string; // 'all', 'none', or an area id
 
@@ -214,28 +200,31 @@ export function TaskKanban() {
   );
 
   const persistReorder = useCallback(
-    (lane: TaskLane, orderedIds: string[], movedId: string) => {
+    async (lane: TaskLane, orderedIds: string[], movedId: string) => {
       const idx = orderedIds.indexOf(movedId);
-      const list = byLane[lane];
-      const prev = idx > 0 ? list.find((t) => t.id === orderedIds[idx - 1])?.sortKey ?? null : null;
-      const next = idx < orderedIds.length - 1 ? list.find((t) => t.id === orderedIds[idx + 1])?.sortKey ?? null : null;
-      let key: string;
-      try {
-        key = generateKeyBetween(prev ?? null, next ?? null);
-      } catch {
-        key = generateKeyBetween(null, null);
-      }
-      // Optimistic: reorder the column's cache and stamp the new key. Sort the
-      // SAME way the server does (sortKey ASC nulls last, then createdAt DESC),
-      // so a null-sortKey collision doesn't make cards jump when the refetch
-      // lands with the server's ordering.
+      // The visible neighbors the card was dropped between. The SERVER computes
+      // the new key against the FULL sibling set (including Area-hidden cards),
+      // normalizing null/duplicate keys, in one atomic transaction.
+      const prevId = idx > 0 ? orderedIds[idx - 1] : null;
+      const nextId = idx < orderedIds.length - 1 ? orderedIds[idx + 1] : null;
+      // Optimistic: show the dropped order immediately (the server's canonical
+      // keys land on the settle invalidate below).
       const qkey = ['tasks', { status: laneStatus(lane), orderBy: 'sortKey' }];
-      qc.setQueryData<TaskListDTO[]>(qkey, (rows) =>
-        rows ? [...rows].map((r) => (r.id === movedId ? { ...r, sortKey: key } : r)).sort(compareBySortKey) : rows,
-      );
-      tasksApi.update(movedId, { sortKey: key }).catch(() => qc.invalidateQueries({ queryKey: ['tasks'] }));
+      qc.setQueryData<TaskListDTO[]>(qkey, (rows) => {
+        if (!rows) return rows;
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        const reordered = orderedIds.map((id) => byId.get(id)).filter((r): r is TaskListDTO => !!r);
+        const rest = rows.filter((r) => !orderedIds.includes(r.id));
+        return [...reordered, ...rest];
+      });
+      try {
+        await tasksApi.reorder(movedId, { prevId, nextId });
+      } catch {
+        // fall through to reconcile
+      }
+      qc.invalidateQueries({ queryKey: ['tasks'] });
     },
-    [byLane, qc],
+    [qc],
   );
 
   const onDragEnd = useCallback(

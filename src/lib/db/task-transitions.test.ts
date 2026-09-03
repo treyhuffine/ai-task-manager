@@ -261,6 +261,26 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(childCode).toBe('conflict');
   });
 
+  it('reorderTaskInLane normalizes null keys and places a card at the requested position', async () => {
+    const { q } = await setup();
+    const a = q.createTask({ title: 'A', rawInput: 'a' });
+    const b = q.createTask({ title: 'B', rawInput: 'b' });
+    const c = q.createTask({ title: 'C', rawInput: 'c' });
+    expect(a.sortKey ?? null).toBeNull(); // fresh tasks have no sort key
+
+    // Move A to the very top (before the current first card). Null keys across
+    // the lane are normalized, and A lands before C.
+    const { sortKey } = q.reorderTaskInLane(a.id, null, c.id);
+    const cKey = q.getTask(c.id)!.sortKey!;
+    expect(sortKey < cKey).toBe(true);
+    expect([a.id, b.id, c.id].every((id) => q.getTask(id)!.sortKey != null)).toBe(true);
+
+    // Two previously-null cards can now actually be reordered relative to each other.
+    const bBefore = q.getTask(b.id)!.sortKey!;
+    q.reorderTaskInLane(b.id, a.id, c.id);
+    expect(q.getTask(b.id)!.sortKey).not.toBe(bBefore);
+  });
+
   it('reusing an idempotency key for a different command is a conflict', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });

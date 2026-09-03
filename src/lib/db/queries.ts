@@ -5,6 +5,7 @@
 
 import nodePath from 'node:path';
 import os from 'node:os';
+import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
@@ -751,6 +752,62 @@ export function deleteTask(id: string): boolean {
     .where(and(eq(entityVersions.entityType, 'task'), eq(entityVersions.entityId, id)))
     .run();
   return true;
+}
+
+/**
+ * Reorder a task within its status lane, atomically and against the COMPLETE
+ * sibling set (including tasks hidden by a client-side Area filter). The caller
+ * passes the visible neighbors it dropped between; the server computes the new
+ * key from the full, canonically-ordered set. Null or duplicate sort keys across
+ * the lane are normalized to fresh evenly-spaced keys FIRST (so neighbor keys
+ * are well-defined and two null-key cards can actually be reordered), then the
+ * moved task's key is placed between the neighbors — all in one transaction.
+ */
+export function reorderTaskInLane(taskId: string, prevId: string | null, nextId: string | null): { sortKey: string } {
+  return inEntityTx(() => {
+    const moved = getDb().select({ status: tasks.status }).from(tasks).where(eq(tasks.id, taskId)).get();
+    if (!moved) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+
+    // The full sibling set in this status, in the canonical order the lane uses.
+    const siblings = getDb()
+      .select({ id: tasks.id, sortKey: tasks.sortKey, createdAt: tasks.createdAt })
+      .from(tasks)
+      .where(eq(tasks.status, moved.status))
+      .orderBy(sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt))
+      .all();
+
+    // Normalize null/duplicate keys across the whole lane so every neighbor key
+    // is well-defined and distinct.
+    const keys = new Map<string, string>();
+    const seen = new Set<string>();
+    let needsNormalize = false;
+    for (const s of siblings) {
+      if (s.sortKey == null || seen.has(s.sortKey)) { needsNormalize = true; break; }
+      seen.add(s.sortKey);
+    }
+    if (needsNormalize && siblings.length > 0) {
+      const fresh = generateNKeysBetween(null, null, siblings.length);
+      siblings.forEach((s, i) => {
+        keys.set(s.id, fresh[i]);
+        getDb().update(tasks).set({ sortKey: fresh[i] }).where(eq(tasks.id, s.id)).run();
+      });
+    } else {
+      for (const s of siblings) if (s.sortKey != null) keys.set(s.id, s.sortKey);
+    }
+
+    const prevKey = prevId ? keys.get(prevId) ?? null : null;
+    const nextKey = nextId ? keys.get(nextId) ?? null : null;
+    let key: string;
+    try {
+      key = generateKeyBetween(prevKey, nextKey);
+    } catch {
+      // Neighbors out of order (stale client) — fall back to appending.
+      key = generateKeyBetween(keys.size ? [...keys.values()].sort().at(-1) ?? null : null, null);
+    }
+    getDb().update(tasks).set({ sortKey: key, updatedAt: new Date().toISOString() }).where(eq(tasks.id, taskId)).run();
+    void syncEntity('task', taskId);
+    return { sortKey: key };
+  });
 }
 
 // ─── Lifecycle command chokepoint ─────────────────────────────
