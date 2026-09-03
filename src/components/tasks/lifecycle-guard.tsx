@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, Bot, ListTree } from 'lucide-react';
 import { tasksApi } from '@/lib/api/tasks';
-import { apiErrorText } from '@/lib/api/client';
+import { apiErrorText, apiErrorCode, apiErrorDetails } from '@/lib/api/client';
 
 /** A genuinely-running workstream disclosed by the server, with the other live
  * tasks it is also working (the collateral of a Stop). */
@@ -16,102 +16,138 @@ export interface GuardWorkstream {
   otherTasks: { id: string; title: string; status: string }[];
 }
 
-export interface GuardRequest {
-  taskId: string;
-  command: 'archive' | 'complete' | 'return_to_todo';
-  /** The running workstreams the server reported behind the conflict. */
-  running: GuardWorkstream[];
-}
-
-/** Per-command copy: the infinitive for the warning/buttons and the past tense
- * for the success toast. */
-const GUARD_ACTION: Record<GuardRequest['command'], { verb: string; done: string }> = {
-  complete: { verb: 'complete', done: 'completed the task' },
-  archive: { verb: 'archive', done: 'archived the task' },
-  return_to_todo: { verb: 'return to Todo', done: 'returned the task to Todo' },
-};
-
-/** An open child of a parent whose complete/archive the server bounced pending
- * confirmation. */
+/** An open child of a parent whose complete/archive the server bounced. */
 export interface GuardChild {
   id: string;
   title: string;
   status: string;
 }
 
-export interface ChildConfirmRequest {
+export type RuntimeChoice = 'keep_running' | 'stop_running_agent';
+
+/** A lifecycle command that may need one or BOTH confirmations (open children,
+ * then a running workstream) before it can apply. */
+export interface GuardCommand {
   taskId: string;
-  command: 'archive' | 'complete';
-  openChildren: GuardChild[];
+  command: 'complete' | 'archive' | 'return_to_todo';
 }
+
+const VERB: Record<GuardCommand['command'], { verb: string; done: string }> = {
+  complete: { verb: 'complete', done: 'completed the task' },
+  archive: { verb: 'archive', done: 'archived the task' },
+  return_to_todo: { verb: 'return to Todo', done: 'returned the task to Todo' },
+};
 
 interface GuardContextValue {
-  /** Open the running-workstream warning for a task whose change was returned as
-   * a conflict because a genuinely running agent is associated with it. */
-  open: (req: GuardRequest) => void;
-  /** Open the open-children confirmation for a parent whose complete/archive the
-   * server bounced. Confirming re-issues the change with the acknowledged ids;
-   * children are left unchanged. */
-  openChildrenConfirm: (req: ChildConfirmRequest) => void;
+  /** Issue a guarded lifecycle command, resolving any confirmations it needs.
+   * Open children and a running workstream COMPOSE: it collects each
+   * acknowledgement in turn and re-issues with all of them, so a parent that has
+   * both can still be completed/archived. */
+  resolve: (cmd: GuardCommand) => Promise<void>;
 }
 
-const GuardContext = createContext<GuardContextValue>({ open: () => {}, openChildrenConfirm: () => {} });
+const GuardContext = createContext<GuardContextValue>({ resolve: async () => {} });
 
 export function useLifecycleGuard(): GuardContextValue {
   return useContext(GuardContext);
 }
 
+interface ChildAsk {
+  openChildren: GuardChild[];
+  command: GuardCommand['command'];
+  resolve: (ok: boolean) => void;
+}
+interface WorkstreamAsk {
+  running: GuardWorkstream[];
+  command: GuardCommand['command'];
+  resolve: (choice: RuntimeChoice | null) => void;
+}
+
 /**
- * Provides the running-workstream warning modal. When a task lifecycle change is
- * returned as a conflict because a genuinely running agent is associated with
- * it, the lifecycle hooks call `open()` with the disclosed workstreams instead
- * of showing a toast. The modal offers an explicit, non-silent choice: keep the
- * workstream running (change only the task) or stop the running agent (preserving
- * the execution), and lists every collateral task a Stop would leave underway.
+ * Provides the confirmation modals for guarded lifecycle changes. A single
+ * `resolve` loop issues the command and, on each server bounce, shows the right
+ * modal (open-children confirmation, or the running-workstream keep/stop
+ * choice), collects the acknowledgement, and re-issues with everything gathered
+ * so far. So a parent that has BOTH open children AND a running workstream is
+ * confirmed in two steps and then applied with both acknowledgements.
  */
 export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
-  const [req, setReq] = useState<GuardRequest | null>(null);
-  const [childReq, setChildReq] = useState<ChildConfirmRequest | null>(null);
-  const open = useCallback((r: GuardRequest) => setReq(r), []);
-  const openChildrenConfirm = useCallback((r: ChildConfirmRequest) => setChildReq(r), []);
+  const qc = useQueryClient();
+  const [childAsk, setChildAsk] = useState<ChildAsk | null>(null);
+  const [wsAsk, setWsAsk] = useState<WorkstreamAsk | null>(null);
+
+  const askChildren = useCallback(
+    (openChildren: GuardChild[], command: GuardCommand['command']) =>
+      new Promise<boolean>((res) => setChildAsk({ openChildren, command, resolve: (ok) => { setChildAsk(null); res(ok); } })),
+    [],
+  );
+  const askWorkstream = useCallback(
+    (running: GuardWorkstream[], command: GuardCommand['command']) =>
+      new Promise<RuntimeChoice | null>((res) => setWsAsk({ running, command, resolve: (c) => { setWsAsk(null); res(c); } })),
+    [],
+  );
+
+  const resolve = useCallback(
+    async (cmd: GuardCommand) => {
+      const acks: { acknowledgedChildIds?: string[]; runtimeChoice?: RuntimeChoice; acknowledgedExecutionIds?: string[] } = {};
+      // At most: children confirm, then workstream choice, then success.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
+        try {
+          if (cmd.command === 'complete') {
+            await tasksApi.complete(cmd.taskId, { ...acks, idempotencyKey: key });
+          } else {
+            await tasksApi.transition(cmd.taskId, cmd.command, { ...acks, idempotencyKey: key });
+          }
+          qc.invalidateQueries({ queryKey: ['tasks'] });
+          qc.invalidateQueries({ queryKey: ['sessions'] });
+          qc.invalidateQueries({ queryKey: ['executions'] });
+          toast.success(
+            acks.runtimeChoice === 'stop_running_agent'
+              ? `Stopped the agent and ${VERB[cmd.command].done}`
+              : acks.runtimeChoice === 'keep_running'
+                ? `Kept the workstream running and ${VERB[cmd.command].done}`
+                : `${VERB[cmd.command].done[0].toUpperCase()}${VERB[cmd.command].done.slice(1)}`,
+          );
+          return;
+        } catch (e) {
+          const code = apiErrorCode(e);
+          const details = apiErrorDetails<{ requiresChildAck?: boolean; openChildren?: GuardChild[]; requiresChoice?: boolean; running?: GuardWorkstream[] }>(e);
+          if (code === 'conflict' && details?.requiresChildAck) {
+            const ok = await askChildren(details.openChildren ?? [], cmd.command);
+            if (!ok) return;
+            acks.acknowledgedChildIds = (details.openChildren ?? []).map((c) => c.id);
+            continue;
+          }
+          if (code === 'active_execution' && details?.requiresChoice) {
+            const choice = await askWorkstream(details.running ?? [], cmd.command);
+            if (!choice) return;
+            acks.runtimeChoice = choice;
+            acks.acknowledgedExecutionIds = (details.running ?? []).map((w) => w.executionId);
+            continue;
+          }
+          toast.error(apiErrorText(e));
+          return;
+        }
+      }
+    },
+    [qc, askChildren, askWorkstream],
+  );
+
   return (
-    <GuardContext.Provider value={{ open, openChildrenConfirm }}>
+    <GuardContext.Provider value={{ resolve }}>
       {children}
-      <RunningWorkstreamDialog req={req} onClose={() => setReq(null)} />
-      <ChildrenConfirmDialog req={childReq} onClose={() => setChildReq(null)} />
+      <ChildrenConfirmDialog ask={childAsk} />
+      <RunningWorkstreamDialog ask={wsAsk} />
     </GuardContext.Provider>
   );
 }
 
-function ChildrenConfirmDialog({ req, onClose }: { req: ChildConfirmRequest | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  const verb = req?.command === 'complete' ? 'complete' : 'archive';
-  const n = req?.openChildren.length ?? 0;
-
-  const confirm = async () => {
-    if (!req) return;
-    setBusy(true);
-    try {
-      const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
-      const ackIds = req.openChildren.map((c) => c.id);
-      if (req.command === 'complete') {
-        await tasksApi.complete(req.taskId, { acknowledgedChildIds: ackIds, idempotencyKey: key });
-      } else {
-        await tasksApi.transition(req.taskId, 'archive', { acknowledgedChildIds: ackIds, idempotencyKey: key });
-      }
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-      toast.success(req.command === 'complete' ? 'Completed the task; subtasks left unchanged' : 'Archived the task; subtasks left unchanged');
-      onClose();
-    } catch (e) {
-      toast.error(apiErrorText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function ChildrenConfirmDialog({ ask }: { ask: ChildAsk | null }) {
+  const verb = ask ? VERB[ask.command].verb : 'complete';
+  const n = ask?.openChildren.length ?? 0;
   return (
-    <Dialog.Root open={!!req} onOpenChange={(o) => !o && !busy && onClose()}>
+    <Dialog.Root open={!!ask} onOpenChange={(o) => !o && ask?.resolve(false)}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/40" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 shadow-xl focus:outline-none">
@@ -119,7 +155,7 @@ function ChildrenConfirmDialog({ req, onClose }: { req: ChildConfirmRequest | nu
             <ListTree className="mt-0.5 flex-shrink-0 text-amber-500" size={18} />
             <div className="min-w-0">
               <Dialog.Title className="text-sm font-semibold text-foreground">
-                {verb === 'complete' ? 'Complete this task?' : 'Archive this task?'}
+                {verb === 'complete' ? 'Complete this task?' : verb === 'archive' ? 'Archive this task?' : 'Return this task to Todo?'}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-muted-foreground">
                 It has {n} open subtask{n > 1 ? 's' : ''}, which will be left unchanged.
@@ -128,7 +164,7 @@ function ChildrenConfirmDialog({ req, onClose }: { req: ChildConfirmRequest | nu
           </div>
           <div className="mt-3 max-h-40 overflow-y-auto rounded border border-border bg-muted/40 p-2">
             <ul className="space-y-0.5">
-              {(req?.openChildren ?? []).map((c) => (
+              {(ask?.openChildren ?? []).map((c) => (
                 <li key={c.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <ListTree size={10} className="flex-shrink-0" />
                   <span className="truncate">{c.title || 'Untitled'}</span>
@@ -137,16 +173,14 @@ function ChildrenConfirmDialog({ req, onClose }: { req: ChildConfirmRequest | nu
             </ul>
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            <button onClick={onClose} disabled={busy} className="rounded px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+            <button onClick={() => ask?.resolve(false)} className="rounded px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
               Cancel
             </button>
             <button
-              onClick={confirm}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
+              onClick={() => ask?.resolve(true)}
+              className="inline-flex items-center gap-1.5 rounded bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
             >
-              {busy && <Loader2 size={12} className="animate-spin" />}
-              {verb === 'complete' ? 'Complete anyway' : 'Archive anyway'}
+              {verb === 'complete' ? 'Complete anyway' : verb === 'archive' ? 'Archive anyway' : 'Return anyway'}
             </button>
           </div>
         </Dialog.Content>
@@ -155,46 +189,20 @@ function ChildrenConfirmDialog({ req, onClose }: { req: ChildConfirmRequest | nu
   );
 }
 
-function RunningWorkstreamDialog({ req, onClose }: { req: GuardRequest | null; onClose: () => void }) {
-  const qc = useQueryClient();
+function RunningWorkstreamDialog({ ask }: { ask: WorkstreamAsk | null }) {
   const [busy, setBusy] = useState(false);
+  const verb = ask ? VERB[ask.command].verb : 'change';
+  const workstreams = ask?.running ?? [];
 
-  const verb = req ? GUARD_ACTION[req.command].verb : 'change';
-  const workstreams = req?.running ?? [];
-  const collateral = workstreams.flatMap((w) => w.otherTasks);
-
-  const apply = async (choice: 'keep_running' | 'stop_running_agent') => {
-    if (!req) return;
-    setBusy(true);
-    try {
-      const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
-      // Re-issue with the EXACT execution set the user saw, so the server can
-      // reject if the running set changed rather than stop an undisclosed agent.
-      const acknowledgedExecutionIds = workstreams.map((w) => w.executionId);
-      if (req.command === 'complete') {
-        await tasksApi.complete(req.taskId, { runtimeChoice: choice, idempotencyKey: key, acknowledgedExecutionIds });
-      } else {
-        await tasksApi.transition(req.taskId, req.command, { runtimeChoice: choice, idempotencyKey: key, acknowledgedExecutionIds });
-      }
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-      qc.invalidateQueries({ queryKey: ['sessions'] });
-      qc.invalidateQueries({ queryKey: ['executions'] });
-      toast.success(
-        choice === 'keep_running'
-          ? `Kept the workstream running and ${GUARD_ACTION[req.command].done}`
-          : `Stopped the agent and ${GUARD_ACTION[req.command].done}`,
-      );
-      onClose();
-    } catch (e) {
-      // A stop that failed leaves the task unchanged and says so.
-      toast.error(apiErrorText(e));
-    } finally {
-      setBusy(false);
-    }
+  const choose = (choice: RuntimeChoice | null) => {
+    // The re-issue happens back in the resolve loop; just hand the choice back.
+    setBusy(choice === 'stop_running_agent');
+    ask?.resolve(choice);
+    setBusy(false);
   };
 
   return (
-    <Dialog.Root open={!!req} onOpenChange={(o) => !o && !busy && onClose()}>
+    <Dialog.Root open={!!ask} onOpenChange={(o) => !o && ask?.resolve(null)}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/40" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 shadow-xl focus:outline-none">
@@ -220,9 +228,7 @@ function RunningWorkstreamDialog({ req, onClose }: { req: GuardRequest | null; o
                   </div>
                   {w.otherTasks.length > 0 && (
                     <div className="mt-1 ml-5 space-y-0.5">
-                      <div className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                        Stopping also affects
-                      </div>
+                      <div className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">Stopping also affects</div>
                       {w.otherTasks.map((t) => (
                         <div key={t.id} className="flex items-center gap-1.5 text-muted-foreground">
                           <ListTree size={10} className="flex-shrink-0" />
@@ -237,22 +243,20 @@ function RunningWorkstreamDialog({ req, onClose }: { req: GuardRequest | null; o
           </div>
 
           <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <button onClick={onClose} disabled={busy} className="rounded px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+            <button onClick={() => choose(null)} disabled={busy} className="rounded px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
               Cancel
             </button>
             <button
-              onClick={() => apply('keep_running')}
+              onClick={() => choose('keep_running')}
               disabled={busy}
               className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-60"
             >
-              {busy && <Loader2 size={12} className="animate-spin" />}
               Keep running and {verb}
             </button>
             <button
-              onClick={() => apply('stop_running_agent')}
+              onClick={() => choose('stop_running_agent')}
               disabled={busy}
               className="inline-flex items-center gap-1.5 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"
-              title={collateral.length > 0 ? `Also stops work on ${collateral.length} other task${collateral.length > 1 ? 's' : ''}` : undefined}
             >
               {busy && <Loader2 size={12} className="animate-spin" />}
               Stop agent and {verb}
