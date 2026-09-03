@@ -5,13 +5,15 @@ import type { TaskAttentionSignals } from '@/db/types';
 import { cn } from '@/lib/utils';
 
 // Priority order (highest human-attention first), per the attention contract:
-// Blocked, then Stalled, then Review, then Working. ("Needs input" is omitted —
+// Blocked, then Update, then Stalled, then Working. ("Needs input" is omitted —
 // pending agent input is not durably tracked, so we do not fabricate it.)
+// The review signal reads as "Update" because it is an execution-level
+// workstream checkpoint, not proof this exact task needs task-scoped review.
 const BADGES = [
-  { key: 'blocked', label: 'Blocked', icon: Ban, cls: 'text-red-600 dark:text-red-400 bg-red-500/10' },
-  { key: 'stalled', label: 'Stalled', icon: AlertTriangle, cls: 'text-orange-600 dark:text-orange-400 bg-orange-500/10' },
-  { key: 'review', label: 'Review', icon: Eye, cls: 'text-violet-600 dark:text-violet-400 bg-violet-500/10' },
-  { key: 'working', label: 'Working', icon: Loader2, cls: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
+  { key: 'blocked', label: 'Blocked', title: 'Blocked by an unresolved dependency', icon: Ban, cls: 'text-red-600 dark:text-red-400 bg-red-500/10' },
+  { key: 'stalled', label: 'Stalled', title: 'The agent workstream stalled', icon: AlertTriangle, cls: 'text-orange-600 dark:text-orange-400 bg-orange-500/10' },
+  { key: 'review', label: 'Update', title: 'Workstream update — the agent posted output to review', icon: Eye, cls: 'text-violet-600 dark:text-violet-400 bg-violet-500/10' },
+  { key: 'working', label: 'Working', title: 'An agent is actively working this', icon: Loader2, cls: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
 ] as const;
 
 /**
@@ -41,7 +43,7 @@ export function TaskBadges({
             size === 'xs' ? 'text-[8.5px]' : 'text-[9.5px]',
             b.cls,
           )}
-          title={b.label}
+          title={b.title}
         >
           <b.icon
             size={size === 'xs' ? 9 : 10}

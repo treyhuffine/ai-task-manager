@@ -1313,29 +1313,27 @@ export function reviewExecutionOutput(input: ReviewOutputInput): ExecutionReview
   const exec = getDb().select({ id: executions.id }).from(executions).where(eq(executions.id, input.executionId)).get();
   if (!exec) throw new TaskLifecycleError('not_found', `Execution ${input.executionId} not found.`);
 
-  // The output event must actually be an output event of THIS execution.
-  // Otherwise a stale or spoofed id could record a disposition against another
-  // execution's event (or a non-output event). Scope by the execution's own
-  // chat sessions and the outcome sources.
-  const sessionIds = getDb()
-    .select({ id: chatSessions.id })
-    .from(chatSessions)
-    .where(eq(chatSessions.executionId, input.executionId))
-    .all()
-    .map((s) => s.id);
-  const belongs =
-    sessionIds.length > 0 &&
-    !!getDb()
-      .select({ id: chatEvents.id })
-      .from(chatEvents)
-      .where(
-        and(
-          eq(chatEvents.id, input.outputEventId),
-          inArray(chatEvents.sessionId, sessionIds),
-          inArray(chatEvents.source, [...OUTCOME_SOURCES]),
-        ),
-      )
-      .get();
+  // The output event must actually be a REVIEWABLE output of THIS execution: an
+  // outcome-source event in one of the execution's sessions that is not nested
+  // subagent narration. Otherwise a stale or spoofed id could record a
+  // disposition against another execution's event, a non-output event, or a
+  // subagent's line.
+  const sessionIds = executionSessionIds(input.executionId);
+  const evt =
+    sessionIds.length > 0
+      ? getDb()
+          .select({ id: chatEvents.id, sessionId: chatEvents.sessionId, parentCallId: chatEvents.externalParentToolCallId })
+          .from(chatEvents)
+          .where(
+            and(
+              eq(chatEvents.id, input.outputEventId),
+              inArray(chatEvents.sessionId, sessionIds),
+              inArray(chatEvents.source, [...OUTCOME_SOURCES]),
+            ),
+          )
+          .get()
+      : undefined;
+  const belongs = !!evt && (!evt.parentCallId || !isSubagentLaunchCall(evt.sessionId, evt.parentCallId));
   if (!belongs) {
     throw new TaskLifecycleError(
       'not_found',
@@ -1375,32 +1373,60 @@ export function getExecutionReviews(executionId: string): ExecutionReviewRecord[
  * output event never clears a newer one. Shared by the review context and the
  * task Review badge so both agree instead of one using timestamps.
  */
-function latestOutputReviewState(executionId: string): {
-  latestOutputEventId: string | null;
-  latestDisposition: ExecutionReviewRecord['disposition'] | null;
-  hasUnreviewedOutput: boolean;
-} {
-  const sessionIds = getDb()
+/**
+ * The newest REVIEWABLE output event across an execution's chat sessions. Uses
+ * the same predicate as `isOutcomeEvent` at insert time: an outcome-source event
+ * that is NOT nested subagent narration (a subagent's own text streamed onto the
+ * parent session tagged with the launching tool_use id is a nested actor talking
+ * to its caller, not the session answering the user, so it can never be the
+ * review target). Returns the id and time, or null.
+ */
+function latestReviewableOutputEvent(sessionIds: string[]): { id: string; createdAt: string } | null {
+  if (sessionIds.length === 0) return null;
+  const rows = getDb()
+    .select({
+      id: chatEvents.id,
+      sessionId: chatEvents.sessionId,
+      parentCallId: chatEvents.externalParentToolCallId,
+      createdAt: chatEvents.createdAt,
+    })
+    .from(chatEvents)
+    .where(and(inArray(chatEvents.sessionId, sessionIds), inArray(chatEvents.source, [...OUTCOME_SOURCES])))
+    .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
+    .limit(30)
+    .all();
+  for (const r of rows) {
+    if (!r.parentCallId || !isSubagentLaunchCall(r.sessionId, r.parentCallId)) {
+      return { id: r.id, createdAt: r.createdAt };
+    }
+  }
+  return null;
+}
+
+function executionSessionIds(executionId: string): string[] {
+  return getDb()
     .select({ id: chatSessions.id })
     .from(chatSessions)
     .where(eq(chatSessions.executionId, executionId))
     .all()
     .map((s) => s.id);
+}
 
-  let latestOutputEventId: string | null = null;
-  if (sessionIds.length > 0) {
-    const row = getDb()
-      .select({ id: chatEvents.id })
-      .from(chatEvents)
-      .where(and(inArray(chatEvents.sessionId, sessionIds), inArray(chatEvents.source, [...OUTCOME_SOURCES])))
-      .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
-      .limit(1)
-      .get();
-    latestOutputEventId = row?.id ?? null;
-  }
-
+function latestOutputReviewState(executionId: string): {
+  latestOutputEventId: string | null;
+  latestOutputEventAt: string | null;
+  latestDisposition: ExecutionReviewRecord['disposition'] | null;
+  hasUnreviewedOutput: boolean;
+} {
+  const latest = latestReviewableOutputEvent(executionSessionIds(executionId));
+  const latestOutputEventId = latest?.id ?? null;
   const latestDisposition = latestOutputEventId ? getLatestOutputReview(latestOutputEventId)?.disposition ?? null : null;
-  return { latestOutputEventId, latestDisposition, hasUnreviewedOutput: !!latestOutputEventId && !latestDisposition };
+  return {
+    latestOutputEventId,
+    latestOutputEventAt: latest?.createdAt ?? null,
+    latestDisposition,
+    hasUnreviewedOutput: !!latestOutputEventId && !latestDisposition,
+  };
 }
 
 /**
@@ -1468,40 +1494,61 @@ export function getTaskLifecycleSignals(taskId: string): {
  * "Needs input" is intentionally absent: pending agent input is not durably
  * tracked, so we do not fake it.
  */
-export function getTaskAttentionSignals(taskId: string): TaskAttentionSignals {
+export function getTaskAttentionSignals(taskId: string, runningSessionIds?: Set<string>): TaskAttentionSignals {
   const base = getTaskLifecycleSignals(taskId);
-  const owning = getDb()
-    .select({ id: executions.id, setupError: executions.setupError })
+  const task = getDb().select({ statusChangedAt: tasks.statusChangedAt }).from(tasks).where(eq(tasks.id, taskId)).get();
+  const epoch = task?.statusChangedAt ?? '';
+
+  // ALL associated executions, any status — an archived execution may still
+  // hold an unreviewed obligation (archive is a runtime concern, not a review
+  // one). Each carries its association time so output produced before a task was
+  // associated never lands a badge on it.
+  const associations = getDb()
+    .select({ id: executions.id, setupError: executions.setupError, status: executions.status, associatedAt: executionTasks.createdAt })
     .from(executions)
     .innerJoin(executionTasks, eq(executionTasks.executionId, executions.id))
-    .where(and(eq(executionTasks.taskId, taskId), eq(executions.status, 'active')))
+    .where(eq(executionTasks.taskId, taskId))
     .all();
 
-  if (owning.length === 0) {
+  if (associations.length === 0) {
     return { ...base, stalled: false, review: false, working: false };
   }
 
-  const stalled = owning.some((e) => !!e.setupError);
+  // Working/Stalled are RUNTIME signals: prefer the live running-session set
+  // (genuinely running) when the caller supplies it; otherwise fall back to the
+  // durable active-execution association.
+  const live = associations.filter((e) =>
+    runningSessionIds
+      ? executionSessionIds(e.id).some((sid) => runningSessionIds.has(sid))
+      : e.status === 'active',
+  );
+  const stalled = live.some((e) => !!e.setupError);
 
-  // Review is the EXACT-event obligation: an owning execution's latest output
-  // event has no disposition. Same source of truth as the review bar, so the
-  // badge and the bar never disagree (a disposition on an older event does not
-  // clear a newer one, and reading never clears it).
-  const review = owning.some((e) => latestOutputReviewState(e.id).hasUnreviewedOutput);
+  // Review: an associated execution's latest REVIEWABLE output is unreviewed AND
+  // newer than both the association and the task's current-state epoch — so a
+  // shared checkpoint or an older run never falsely flags this task.
+  const review = associations.some((e) => {
+    const s = latestOutputReviewState(e.id);
+    if (!s.hasUnreviewedOutput || !s.latestOutputEventAt) return false;
+    const gate = e.associatedAt > epoch ? e.associatedAt : epoch;
+    return s.latestOutputEventAt > gate;
+  });
 
   return {
     ...base,
     stalled,
     review,
-    working: !stalled && !review,
+    working: live.length > 0 && !stalled && !review,
   };
 }
 
 /** Batch attention signals, keyed by task id. Bounded call sites (Current Work,
- * visible In-progress rows), so per-task computation is fine. */
-export function getTasksAttentionSignals(taskIds: string[]): Record<string, TaskAttentionSignals> {
+ * visible In-progress rows), so per-task computation is fine. Pass the live
+ * running-session set so Working/Stalled reflect genuine runtime, not just an
+ * active-execution association. */
+export function getTasksAttentionSignals(taskIds: string[], runningSessionIds?: Set<string>): Record<string, TaskAttentionSignals> {
   const out: Record<string, TaskAttentionSignals> = {};
-  for (const id of taskIds) out[id] = getTaskAttentionSignals(id);
+  for (const id of taskIds) out[id] = getTaskAttentionSignals(id, runningSessionIds);
   return out;
 }
 

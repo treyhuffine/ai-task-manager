@@ -284,6 +284,42 @@ describe('task-owned executions', () => {
     expect(rejected).toBe('not_found');
   });
 
+  it('review badge respects association time — output older than the association does not flag', async () => {
+    const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
+    const exec = q.createExecution({ workspaceId: wsId });
+    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+
+    // Output produced far in the past.
+    q.insertChatEvent({ id: 'old-out', sessionId: session.id, role: 'assistant', source: 'agent', content: 'old', createdAt: '2000-01-01T00:00:00.000Z' });
+
+    // A task associated NOW (after that output) does not inherit its review.
+    const late = q.createTask({ title: 'Late', rawInput: 'x' });
+    q.attachExecutionToTask(exec.id, late.id);
+    expect(q.getTaskAttentionSignals(late.id).review).toBe(false);
+
+    // Fresh output after the association DOES flag it.
+    q.insertChatEvent({ id: 'new-out', sessionId: session.id, role: 'assistant', source: 'agent', content: 'new', createdAt: '2999-01-01T00:00:00.000Z' });
+    expect(q.getTaskAttentionSignals(late.id).review).toBe(true);
+  });
+
+  it('nested subagent narration is never the review target', async () => {
+    const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
+    const exec = q.createExecution({ workspaceId: wsId });
+    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    // A subagent-launch tool call + a subagent output nested under it.
+    q.insertChatEvent({ id: 'launch', sessionId: session.id, role: 'assistant', source: 'tool_call', toolName: 'Task', externalToolCallId: 'call-1', createdAt: '2999-01-01T00:00:00.000Z' });
+    q.insertChatEvent({ id: 'sub-out', sessionId: session.id, role: 'assistant', source: 'agent', content: 'subagent line', externalParentToolCallId: 'call-1', createdAt: '2999-01-02T00:00:00.000Z' });
+
+    // The only outcome-source event is nested subagent narration -> nothing to review.
+    expect(q.getExecutionReviewContext(exec.id).latestOutputEventId).toBeNull();
+
+    // A top-level output IS reviewable.
+    q.insertChatEvent({ id: 'top-out', sessionId: session.id, role: 'assistant', source: 'agent', content: 'final', createdAt: '2999-01-03T00:00:00.000Z' });
+    expect(q.getExecutionReviewContext(exec.id).latestOutputEventId).toBe('top-out');
+  });
+
   it('review context names the single owning task; ambiguous when many', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'Owned', rawInput: 'x' });
