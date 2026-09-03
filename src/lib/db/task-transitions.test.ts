@@ -91,6 +91,125 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(completions).toHaveLength(1);
   });
 
+  it('recurring Todo->Todo completion advances the lifecycle revision', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'Water', rawInput: 'x', recurrence: 'weekly' });
+    expect(t.statusChangedCount).toBe(0); // created Todo
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    // Stored status stays Todo, but the revision still advances so a concurrent
+    // or duplicate completion is detectable.
+    expect(c!.toStatus).toBe('todo');
+    expect(c!.statusChangedCount).toBe(1);
+    expect(q.getTask(t.id)!.statusChangedCount).toBe(1);
+  });
+
+  it('recurring completion preserves cadence phase when completed very late', async () => {
+    const { q, db, schema } = await setup();
+    const t = q.createTask({ title: 'Weekly', rawInput: 'x', recurrence: 'weekly' });
+    // A scheduled occurrence far in the past, on a known weekday (Wed).
+    const anchor = '2024-01-03T09:00:00.000Z';
+    db.update(schema.tasks).set({ nextRecurrenceAt: anchor }).where(eq(schema.tasks.id, t.id)).run();
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    const next = new Date(c!.nextRecurrenceAt!);
+    expect(next.getTime()).toBeGreaterThan(Date.now()); // landed in the future
+    expect(next.getUTCDay()).toBe(new Date(anchor).getUTCDay()); // same weekday (phase kept)
+    // And it is a whole number of weeks from the anchor, not reset to now+7.
+    const days = Math.round((next.getTime() - new Date(anchor).getTime()) / 86_400_000);
+    expect(days % 7).toBe(0);
+  });
+
+  it('monthly recurrence clamps to the last day of the month (Jan 31 -> Feb 28)', async () => {
+    const { q, db, schema } = await setup();
+    const t = q.createTask({ title: 'Monthly', rawInput: 'x', recurrence: 'monthly' });
+    // A future scheduled occurrence so it advances exactly once.
+    db.update(schema.tasks).set({ nextRecurrenceAt: '2027-01-31T12:00:00.000Z' }).where(eq(schema.tasks.id, t.id)).run();
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    expect(c!.nextRecurrenceAt!.startsWith('2027-02-28')).toBe(true);
+  });
+
+  it('completing/archiving a parent with open children needs an exact acknowledgement', async () => {
+    const { q } = await setup();
+    const parent = q.createTask({ title: 'Parent', rawInput: 'p' });
+    const child = q.createTask({ title: 'Child', rawInput: 'c', parentId: parent.id });
+
+    // Without acknowledgement -> conflict disclosing the open child.
+    let details: { requiresChildAck?: boolean; openChildren?: { id: string }[] } | undefined;
+    try {
+      q.completeTask(parent.id, { idempotencyKey: 'p1' });
+    } catch (e) {
+      details = (e as { details?: typeof details }).details;
+      expect((e as { code?: string }).code).toBe('conflict');
+    }
+    expect(details?.requiresChildAck).toBe(true);
+    expect(details?.openChildren?.map((c) => c.id)).toEqual([child.id]);
+
+    // A stale/wrong acknowledgement is still rejected.
+    let staleCode: string | undefined;
+    try {
+      q.completeTask(parent.id, { idempotencyKey: 'p2', acknowledgedChildIds: ['nonexistent'] });
+    } catch (e) {
+      staleCode = (e as { code?: string }).code;
+    }
+    expect(staleCode).toBe('conflict');
+
+    // The exact open-child set proceeds, leaving the child unchanged.
+    const done = q.completeTask(parent.id, { idempotencyKey: 'p3', acknowledgedChildIds: [child.id] });
+    expect(done!.toStatus).toBe('done');
+    expect(q.getTask(child.id)!.status).toBe('todo'); // child untouched
+
+    // A completed child no longer gates the parent.
+    q.completeTask(child.id, { idempotencyKey: 'cc' });
+    q.transitionTask({ taskId: parent.id, command: 'reopen', idempotencyKey: 're' });
+    const arch = q.transitionTask({ taskId: parent.id, command: 'archive', idempotencyKey: 'ar' });
+    expect(arch.toStatus).toBe('archived');
+  });
+
+  it('rejects a parent assignment that would create a cycle', async () => {
+    const { q } = await setup();
+    const a = q.createTask({ title: 'A', rawInput: 'a' });
+    const b = q.createTask({ title: 'B', rawInput: 'b', parentId: a.id });
+
+    // Self-parenting is rejected.
+    let selfCode: string | undefined;
+    try {
+      q.updateTask(a.id, { parentId: a.id });
+    } catch (e) {
+      selfCode = (e as { code?: string }).code;
+    }
+    expect(selfCode).toBe('invalid_params');
+
+    // Making A a child of its own descendant B would cycle -> rejected.
+    let cycleCode: string | undefined;
+    try {
+      q.updateTask(a.id, { parentId: b.id });
+    } catch (e) {
+      cycleCode = (e as { code?: string }).code;
+    }
+    expect(cycleCode).toBe('invalid_params');
+  });
+
+  it('reusing an idempotency key for a different command is a conflict', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'X', rawInput: 'x' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'shared' });
+    // Same key, different command -> conflict, not a silent replay of "start".
+    let code: string | undefined;
+    try {
+      q.transitionTask({ taskId: t.id, command: 'archive', idempotencyKey: 'shared' });
+    } catch (e) {
+      code = (e as { code?: string })?.code;
+    }
+    expect(code).toBe('conflict');
+    // And reusing it for complete is likewise rejected.
+    let completeCode: string | undefined;
+    try {
+      q.completeTask(t.id, { idempotencyKey: 'shared' });
+    } catch (e) {
+      completeCode = (e as { code?: string })?.code;
+    }
+    expect(completeCode).toBe('conflict');
+  });
+
   it('rejects an illegal transition (start on done) and reopen clears completedAt', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });

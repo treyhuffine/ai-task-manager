@@ -320,12 +320,14 @@ const complete_task_action = defineAction({
     note: z.string().optional(),
     idempotency_key: z.string().min(1).optional(),
     expected_status_changed_count: z.number().int().nonnegative().optional(),
+    acknowledged_child_ids: z.array(z.string()).optional()
+      .describe('Required to complete a parent with open children: the exact current open-child ids (returned in a prior conflict). Children are left unchanged.'),
     runtime_choice: z.enum(['keep_running', 'stop_running_agent']).optional()
       .describe('Required when a genuinely running workstream is associated with this task: keep_running changes only the task (and tells the agent its scope changed), stop_running_agent stops the running turn first (preserving the execution).'),
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: async (ctx, { id, note, idempotency_key, expected_status_changed_count, runtime_choice }) => {
+  handler: async (ctx, { id, note, idempotency_key, expected_status_changed_count, acknowledged_child_ids, runtime_choice }) => {
     try {
       const task = getTask(id);
       if (!task) throw new ActionError('not_found', `Task not found: ${id}`);
@@ -341,6 +343,7 @@ const complete_task_action = defineAction({
         note,
         idempotencyKey: idempotency_key,
         expectedStatusChangedCount: expected_status_changed_count,
+        acknowledgedChildIds: acknowledged_child_ids,
         meta: lifecycleActor(ctx),
       });
       if (!result) throw new ActionError('not_found', `Task not found: ${id}`);
@@ -361,13 +364,15 @@ const transition_task_action = defineAction({
     command: z.enum(TRANSITION_COMMANDS),
     idempotency_key: z.string().min(1).optional(),
     expected_status_changed_count: z.number().int().nonnegative().optional(),
+    acknowledged_child_ids: z.array(z.string()).optional()
+      .describe('Required to archive a parent with open children: the exact current open-child ids (returned in a prior conflict). Children are left unchanged.'),
     runtime_choice: z.enum(['keep_running', 'stop_running_agent']).optional()
       .describe('Required for archive/return_to_todo when a genuinely running workstream is associated: keep_running changes only the task, stop_running_agent stops the running turn first (preserving the execution).'),
     reason: z.string().optional(),
   },
   mutating: true,
   cli: { positional: ['id', 'command'] },
-  handler: async (ctx, { id, command, idempotency_key, expected_status_changed_count, runtime_choice, reason }) => {
+  handler: async (ctx, { id, command, idempotency_key, expected_status_changed_count, acknowledged_child_ids, runtime_choice, reason }) => {
     try {
       // Coordinate the runtime side of displacing/uncommitting commands before
       // the durable change; other commands need no coordination.
@@ -391,6 +396,7 @@ const transition_task_action = defineAction({
         command,
         idempotencyKey: idempotency_key ?? uuidv7(),
         expectedStatusChangedCount: expected_status_changed_count,
+        acknowledgedChildIds: acknowledged_child_ids,
         meta: { ...lifecycleActor(ctx), reason: reason ?? null },
       });
       return result;

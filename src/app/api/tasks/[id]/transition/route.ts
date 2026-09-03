@@ -58,6 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       command,
       idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : uuidv7(),
       expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
+      acknowledgedChildIds: Array.isArray(body.acknowledgedChildIds) ? body.acknowledgedChildIds : undefined,
       meta: { source: 'human', reason: typeof body.reason === 'string' ? body.reason : null },
     });
 

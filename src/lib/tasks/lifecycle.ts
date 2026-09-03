@@ -259,6 +259,7 @@ export const CONSIDER_FORBIDDEN_FIELDS = ['hardDeadline', 'recurrence', 'reminde
 
 export type LifecycleErrorCode =
   | 'not_found'
+  | 'invalid_params'
   | 'invalid_transition'
   | 'conflict'
   | 'consider_precondition'
@@ -288,6 +289,7 @@ export function isTaskLifecycleError(err: unknown): err is TaskLifecycleError {
 /** HTTP status for each lifecycle error code, for the REST boundary. */
 export const LIFECYCLE_ERROR_HTTP_STATUS: Record<LifecycleErrorCode, number> = {
   not_found: 404,
+  invalid_params: 422,
   invalid_transition: 422,
   conflict: 409,
   consider_precondition: 422,
@@ -297,6 +299,7 @@ export const LIFECYCLE_ERROR_HTTP_STATUS: Record<LifecycleErrorCode, number> = {
 /** Orchestrator ActionError code for each lifecycle error code, for CLI/MCP. */
 export const LIFECYCLE_ERROR_ACTION_CODE: Record<LifecycleErrorCode, 'not_found' | 'invalid_params' | 'conflict' | 'unsupported'> = {
   not_found: 'not_found',
+  invalid_params: 'invalid_params',
   invalid_transition: 'invalid_params',
   conflict: 'conflict',
   consider_precondition: 'invalid_params',

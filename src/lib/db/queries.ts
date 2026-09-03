@@ -663,6 +663,12 @@ export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVers
   if (!existingRaw) return null;
   const existing = normalizeTaskRow(existingRaw);
 
+  // Reject a parent assignment that would create a cycle, at the query boundary
+  // so no surface can build one.
+  if (Object.prototype.hasOwnProperty.call(input, 'parentId') && input.parentId && input.parentId !== existing.parentId) {
+    assertNoParentCycle(id, input.parentId);
+  }
+
   // Consider items carry no commitments. Reject setting a commitment-bearing
   // field (deadline / recurrence / reminder) on a Consider task through generic
   // update. The move_to_consider precondition already blocks entering Consider
@@ -774,6 +780,10 @@ export interface TransitionTaskInput {
   /** Optimistic-concurrency guard: the status_changed_count the caller last
    * saw. If provided and stale, throws `conflict`. */
   expectedStatusChangedCount?: number;
+  /** For `archive` on a parent with open children: the exact current open-child
+   * ids the caller confirmed. A missing or stale set throws `conflict` with the
+   * current open children. Children are never changed by acknowledging. */
+  acknowledgedChildIds?: string[];
   meta?: LifecycleActorMeta;
 }
 
@@ -801,6 +811,73 @@ function isBlockerUnresolved(blockedOn: string | null | undefined): boolean {
   const dep = getDb().select({ status: tasks.status }).from(tasks).where(eq(tasks.id, blockedOn)).get();
   if (!dep) return true;
   return normalizeTaskStatus(dep.status) !== 'done';
+}
+
+/** Non-terminal (Consider/Todo/In progress) child task ids of a parent, sorted
+ * for stable set comparison. Terminal children never gate a parent. */
+function openChildIds(taskId: string): string[] {
+  return getDb()
+    .select({ id: tasks.id, status: tasks.status })
+    .from(tasks)
+    .where(eq(tasks.parentId, taskId))
+    .all()
+    .filter((c) => !isTerminal(normalizeTaskStatus(c.status)))
+    .map((c) => c.id)
+    .sort();
+}
+
+/**
+ * Reject a parent assignment that would create a cycle: the new parent cannot be
+ * the task itself, nor any descendant of it. Walks the ancestor chain of the
+ * proposed parent (bounded) looking for the task. Enforced at the query boundary
+ * so no surface — UI, REST, CLI, or agent — can build a cycle.
+ */
+function assertNoParentCycle(taskId: string, newParentId: string): void {
+  if (newParentId === taskId) {
+    throw new TaskLifecycleError('invalid_params', 'A task cannot be its own parent.', { taskId });
+  }
+  let current: string | null = newParentId;
+  let guard = 0;
+  while (current && guard < 1000) {
+    const row: { parentId: string | null } | undefined = getDb()
+      .select({ parentId: tasks.parentId })
+      .from(tasks)
+      .where(eq(tasks.id, current))
+      .get();
+    if (!row) return; // unknown ancestor — no cycle through a missing row
+    if (row.parentId === taskId) {
+      throw new TaskLifecycleError('invalid_params', 'That parent is a descendant of this task (would create a cycle).', { taskId, newParentId });
+    }
+    current = row.parentId;
+    guard += 1;
+  }
+}
+
+/**
+ * Guard completing/archiving a parent that still has open children. When some
+ * exist, the caller must acknowledge the EXACT current open-child set; a missing
+ * or stale acknowledgement returns `conflict` with the current open children so
+ * the caller cannot unknowingly confirm a different set. Children are never
+ * changed here — acknowledging only lets the parent proceed.
+ */
+function guardOpenChildren(taskId: string, acknowledged: string[] | undefined, action: string): void {
+  const open = openChildIds(taskId);
+  if (open.length === 0) return;
+  const ackSorted = acknowledged ? [...acknowledged].sort() : null;
+  const matches = ackSorted != null && ackSorted.length === open.length && ackSorted.every((v, i) => v === open[i]);
+  if (!matches) {
+    const openChildren = getDb()
+      .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+      .from(tasks)
+      .where(inArray(tasks.id, open))
+      .all()
+      .map((t) => ({ id: t.id, title: t.title, status: normalizeTaskStatus(t.status) }));
+    throw new TaskLifecycleError(
+      'conflict',
+      `This task has ${open.length} open ${open.length === 1 ? 'child' : 'children'}. Confirm to ${action} it (children are left unchanged).`,
+      { requiresChildAck: true, openChildren },
+    );
+  }
 }
 
 
@@ -854,9 +931,18 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
   const { taskId, command, idempotencyKey } = input;
   return inEntityTx(() => {
     // 1. Idempotent replay — a retry of this exact command returns the original
-    //    result even if the task has since moved elsewhere.
+    //    result even if the task has since moved elsewhere. Reusing the SAME key
+    //    for a DIFFERENT command is a caller bug, not a retry: reject it rather
+    //    than silently replay the wrong recorded result.
     const prior = priorLifecycleCommand(taskId, idempotencyKey);
     if (prior) {
+      if (prior.command !== command) {
+        throw new TaskLifecycleError(
+          'conflict',
+          `Idempotency key already used for "${prior.command}", cannot reuse it for "${command}".`,
+          { idempotencyKey, recordedCommand: prior.command, attemptedCommand: command },
+        );
+      }
       const task = getTask(taskId);
       if (!task) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
       const res = prior.result;
@@ -918,6 +1004,12 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
     // at the route/runtime layer BEFORE this transaction — the durable
     // transition here never stops, archives, or detaches an execution.
 
+    // 5c. Archiving a parent with open children requires acknowledging the exact
+    //     current open-child set. Children are left unchanged.
+    if (command === 'archive') {
+      guardOpenChildren(taskId, input.acknowledgedChildIds, 'archive');
+    }
+
     // 6. Apply. Status change stamps a fresh lifecycle age and bumps revision.
     const to = targetState(command);
     const now = new Date().toISOString();
@@ -947,6 +1039,9 @@ export interface CompleteTaskInput {
   note?: string | null;
   idempotencyKey?: string;
   expectedStatusChangedCount?: number;
+  /** For completing a parent with open children: the exact current open-child
+   * ids the caller confirmed. Missing/stale throws `conflict`. */
+  acknowledgedChildIds?: string[];
   meta?: LifecycleActorMeta;
 }
 
@@ -965,6 +1060,14 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
     // Idempotent replay.
     const prior = priorLifecycleCommand(id, idempotencyKey);
     if (prior) {
+      // Same key previously used for a non-completion command is a caller bug.
+      if (prior.command !== 'complete') {
+        throw new TaskLifecycleError(
+          'conflict',
+          `Idempotency key already used for "${prior.command}", cannot reuse it for "complete".`,
+          { idempotencyKey, recordedCommand: prior.command, attemptedCommand: 'complete' },
+        );
+      }
       const task = getTask(id);
       if (!task) return null;
       const res = prior.result;
@@ -1005,23 +1108,29 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
     // keep-running vs stop-agent coordination for a genuinely running workstream
     // happens at the route/runtime layer before this transaction.
 
+    // Completing a parent with open children requires acknowledging the exact
+    // current open-child set. Children are left unchanged.
+    guardOpenChildren(id, input.acknowledgedChildIds, 'complete');
+
     const now = new Date().toISOString();
 
     // Exactly one completion occurrence, whether or not recurring.
     getDb().insert(taskCompletions).values({ id: uuidv7(), taskId: id, completedAt: now, note: input.note ?? null }).run();
 
     if (task.recurrence) {
-      // Recurring: record the occurrence, advance once, end WIP -> Todo. The
-      // cadence anchors to the SCHEDULED occurrence (nextRecurrenceAt), not the
-      // completion instant, so completing late does not drift the schedule. If
-      // that anchor is missing or a very late completion would place the next
-      // occurrence in the past, fall back to now so we never schedule an
-      // already-overdue occurrence.
+      // Recurring: record the occurrence, advance the schedule, end WIP -> Todo.
+      // The cadence anchors to the SCHEDULED occurrence (nextRecurrenceAt), not
+      // the completion instant, and advances in whole intervals until the first
+      // FUTURE occurrence — so completing late (even several intervals late)
+      // preserves phase and never schedules an already-overdue occurrence.
       const anchor = task.nextRecurrenceAt ?? now;
-      let nextDate = computeNextRecurrence(task.recurrence, anchor);
-      if (nextDate <= now) nextDate = computeNextRecurrence(task.recurrence, now);
+      const nextDate = nextFutureRecurrence(task.recurrence, anchor, now);
+      // Every successful recurring completion advances the monotonic lifecycle
+      // revision, even a Todo->Todo occurrence, so concurrent/duplicate
+      // completions are detectable. The status-age stamp only moves when the
+      // stored status actually changed.
       const statusChanged = from !== 'todo';
-      const nextCount = statusChanged ? task.statusChangedCount + 1 : task.statusChangedCount;
+      const nextCount = task.statusChangedCount + 1;
       const updated = hydrateRow(
         getDb()
           .update(tasks)
@@ -1066,28 +1175,60 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
   }, true);
 }
 
+/**
+ * Advance a date by one recurrence interval. UTC throughout (the values are ISO
+ * UTC instants) so cadence never drifts by a timezone offset. Month/year steps
+ * clamp to the last valid day of the target month, so Jan 31 monthly lands on
+ * Feb 28/29 and stays end-of-month instead of skidding into March.
+ */
 function computeNextRecurrence(recurrence: string, fromDate: string): string {
   const date = new Date(fromDate);
-  const lower = recurrence.toLowerCase();
+  const lower = recurrence.toLowerCase().trim();
 
-  if (lower.includes('daily') || lower === '1d') {
-    date.setDate(date.getDate() + 1);
-  } else if (lower.includes('weekly') || lower === '1w') {
-    date.setDate(date.getDate() + 7);
-  } else if (lower.includes('monthly') || lower === '1m') {
-    date.setMonth(date.getMonth() + 1);
-  } else if (lower.includes('yearly') || lower === '1y') {
-    date.setFullYear(date.getFullYear() + 1);
-  } else {
-    const match = lower.match(/^(\d+)d$/);
+  const addDays = (n: number) => date.setUTCDate(date.getUTCDate() + n);
+  const addMonths = (n: number) => {
+    const day = date.getUTCDate();
+    date.setUTCDate(1); // avoid overflow while we change the month
+    date.setUTCMonth(date.getUTCMonth() + n);
+    const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+    date.setUTCDate(Math.min(day, lastDay));
+  };
+
+  if (lower.includes('daily') || lower === '1d') addDays(1);
+  else if (lower.includes('weekly') || lower === '1w') addDays(7);
+  else if (lower.includes('monthly') || lower === '1m') addMonths(1);
+  else if (lower.includes('yearly') || lower === '1y') addMonths(12);
+  else {
+    const match = lower.match(/^(\d+)\s*([dwmy])$/);
     if (match) {
-      date.setDate(date.getDate() + parseInt(match[1], 10));
+      const n = parseInt(match[1], 10);
+      const unit = match[2];
+      if (unit === 'd') addDays(n);
+      else if (unit === 'w') addDays(n * 7);
+      else if (unit === 'm') addMonths(n);
+      else addMonths(n * 12);
     } else {
-      date.setDate(date.getDate() + 7);
+      addDays(7); // safe default for an unrecognized pattern
     }
   }
 
   return date.toISOString();
+}
+
+/**
+ * The next occurrence at or after "now", advancing from the SCHEDULED occurrence
+ * in whole intervals so the cadence's phase is preserved even when a completion
+ * is several intervals late (a 3-days-late daily task lands tomorrow, not in 3
+ * days). Bounded so a degenerate pattern can never loop forever.
+ */
+function nextFutureRecurrence(recurrence: string, scheduledAnchor: string, now: string): string {
+  let next = computeNextRecurrence(recurrence, scheduledAnchor);
+  let guard = 0;
+  while (next <= now && guard < 5000) {
+    next = computeNextRecurrence(recurrence, next);
+    guard += 1;
+  }
+  return next;
 }
 
 // ─── Task-owned executions & review ───────────────────────────

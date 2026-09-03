@@ -27,7 +27,6 @@ import {
   useDeleteTask,
 } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
-import { useParentGuard } from '@/hooks/use-parent-guard';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import { useQueryClient } from '@tanstack/react-query';
@@ -87,7 +86,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const lifecycle = useTaskLifecycle();
-  const guardParent = useParentGuard(taskId);
   const chat = useDocumentChat('task', task ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
 
@@ -260,18 +258,19 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     [taskId, updateTask],
   );
 
-  const handleComplete = useCallback(async () => {
+  // Open-children and running-workstream confirmations are enforced server-side
+  // and surfaced by the lifecycle hooks' guard modals, so every surface behaves
+  // the same — no per-surface pre-check here.
+  const handleComplete = useCallback(() => {
     if (!taskId || !task) return;
-    if ((task.status === 'todo' || task.status === 'in_progress') && !(await guardParent('complete'))) return;
     lifecycle.toggle(taskId, task.status);
-  }, [taskId, task, lifecycle, guardParent]);
+  }, [taskId, task, lifecycle]);
 
-  const handleArchive = useCallback(async () => {
+  const handleArchive = useCallback(() => {
     if (!taskId || !task) return;
-    if (task.status !== 'done' && task.status !== 'archived' && !(await guardParent('archive'))) return;
     lifecycle.archive(taskId);
     onClose();
-  }, [taskId, task, lifecycle, onClose, guardParent]);
+  }, [taskId, task, lifecycle, onClose]);
 
   const handleDelete = useCallback(() => {
     if (!taskId) return;

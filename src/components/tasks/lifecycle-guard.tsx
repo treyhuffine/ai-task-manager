@@ -31,13 +31,31 @@ const GUARD_ACTION: Record<GuardRequest['command'], { verb: string; done: string
   return_to_todo: { verb: 'return to Todo', done: 'returned the task to Todo' },
 };
 
+/** An open child of a parent whose complete/archive the server bounced pending
+ * confirmation. */
+export interface GuardChild {
+  id: string;
+  title: string;
+  status: string;
+}
+
+export interface ChildConfirmRequest {
+  taskId: string;
+  command: 'archive' | 'complete';
+  openChildren: GuardChild[];
+}
+
 interface GuardContextValue {
   /** Open the running-workstream warning for a task whose change was returned as
    * a conflict because a genuinely running agent is associated with it. */
   open: (req: GuardRequest) => void;
+  /** Open the open-children confirmation for a parent whose complete/archive the
+   * server bounced. Confirming re-issues the change with the acknowledged ids;
+   * children are left unchanged. */
+  openChildrenConfirm: (req: ChildConfirmRequest) => void;
 }
 
-const GuardContext = createContext<GuardContextValue>({ open: () => {} });
+const GuardContext = createContext<GuardContextValue>({ open: () => {}, openChildrenConfirm: () => {} });
 
 export function useLifecycleGuard(): GuardContextValue {
   return useContext(GuardContext);
@@ -53,12 +71,87 @@ export function useLifecycleGuard(): GuardContextValue {
  */
 export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
   const [req, setReq] = useState<GuardRequest | null>(null);
+  const [childReq, setChildReq] = useState<ChildConfirmRequest | null>(null);
   const open = useCallback((r: GuardRequest) => setReq(r), []);
+  const openChildrenConfirm = useCallback((r: ChildConfirmRequest) => setChildReq(r), []);
   return (
-    <GuardContext.Provider value={{ open }}>
+    <GuardContext.Provider value={{ open, openChildrenConfirm }}>
       {children}
       <RunningWorkstreamDialog req={req} onClose={() => setReq(null)} />
+      <ChildrenConfirmDialog req={childReq} onClose={() => setChildReq(null)} />
     </GuardContext.Provider>
+  );
+}
+
+function ChildrenConfirmDialog({ req, onClose }: { req: ChildConfirmRequest | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const verb = req?.command === 'complete' ? 'complete' : 'archive';
+  const n = req?.openChildren.length ?? 0;
+
+  const confirm = async () => {
+    if (!req) return;
+    setBusy(true);
+    try {
+      const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
+      const ackIds = req.openChildren.map((c) => c.id);
+      if (req.command === 'complete') {
+        await tasksApi.complete(req.taskId, { acknowledgedChildIds: ackIds, idempotencyKey: key });
+      } else {
+        await tasksApi.transition(req.taskId, 'archive', { acknowledgedChildIds: ackIds, idempotencyKey: key });
+      }
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success(req.command === 'complete' ? 'Completed the task; subtasks left unchanged' : 'Archived the task; subtasks left unchanged');
+      onClose();
+    } catch (e) {
+      toast.error(apiErrorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog.Root open={!!req} onOpenChange={(o) => !o && !busy && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/40" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 shadow-xl focus:outline-none">
+          <div className="flex items-start gap-3">
+            <ListTree className="mt-0.5 flex-shrink-0 text-amber-500" size={18} />
+            <div className="min-w-0">
+              <Dialog.Title className="text-sm font-semibold text-foreground">
+                {verb === 'complete' ? 'Complete this task?' : 'Archive this task?'}
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-xs text-muted-foreground">
+                It has {n} open subtask{n > 1 ? 's' : ''}, which will be left unchanged.
+              </Dialog.Description>
+            </div>
+          </div>
+          <div className="mt-3 max-h-40 overflow-y-auto rounded border border-border bg-muted/40 p-2">
+            <ul className="space-y-0.5">
+              {(req?.openChildren ?? []).map((c) => (
+                <li key={c.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <ListTree size={10} className="flex-shrink-0" />
+                  <span className="truncate">{c.title || 'Untitled'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button onClick={onClose} disabled={busy} className="rounded px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+              Cancel
+            </button>
+            <button
+              onClick={confirm}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
+            >
+              {busy && <Loader2 size={12} className="animate-spin" />}
+              {verb === 'complete' ? 'Complete anyway' : 'Archive anyway'}
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

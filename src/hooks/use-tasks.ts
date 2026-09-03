@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tansta
 import { toast } from 'sonner';
 import { tasksApi } from '@/lib/api/tasks';
 import { apiErrorText, apiErrorCode, apiErrorDetails } from '@/lib/api/client';
-import { useLifecycleGuard, type GuardWorkstream } from '@/components/tasks/lifecycle-guard';
+import { useLifecycleGuard, type GuardWorkstream, type GuardChild } from '@/components/tasks/lifecycle-guard';
 import {
   optimisticPatch,
   optimisticRemove,
@@ -135,11 +135,15 @@ export function useCompleteTask() {
     onError: (err, vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
       // A genuinely running workstream needs an explicit keep-running / stop
-      // choice — open the modal with the disclosed workstreams instead of a
-      // dead-end toast.
-      const details = apiErrorDetails<{ running?: GuardWorkstream[]; requiresChoice?: boolean }>(err);
+      // choice; a parent with open children needs one confirmation. Either opens
+      // its modal instead of a dead-end toast.
+      const details = apiErrorDetails<{ running?: GuardWorkstream[]; requiresChoice?: boolean; requiresChildAck?: boolean; openChildren?: GuardChild[] }>(err);
       if (apiErrorCode(err) === 'active_execution' && details?.requiresChoice) {
         guard.open({ taskId: vars.id, command: 'complete', running: details.running ?? [] });
+        return;
+      }
+      if (apiErrorCode(err) === 'conflict' && details?.requiresChildAck) {
+        guard.openChildrenConfirm({ taskId: vars.id, command: 'complete', openChildren: details.openChildren ?? [] });
         return;
       }
       toast.error(apiErrorText(err));
@@ -168,12 +172,16 @@ export function useTransitionTask() {
     },
     onError: (err, vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
-      // Archiving or returning to Todo over a genuinely running workstream needs
-      // the explicit keep-running / stop choice (Move to Consider is a hard
-      // reject, not a choice, so it falls through to a toast).
-      const details = apiErrorDetails<{ running?: GuardWorkstream[]; requiresChoice?: boolean }>(err);
+      // Archiving over a genuinely running workstream needs the keep/stop
+      // choice; archiving a parent with open children needs one confirmation.
+      // (Move to Consider is a hard reject, so it falls through to a toast.)
+      const details = apiErrorDetails<{ running?: GuardWorkstream[]; requiresChoice?: boolean; requiresChildAck?: boolean; openChildren?: GuardChild[] }>(err);
       if (apiErrorCode(err) === 'active_execution' && details?.requiresChoice && (vars.command === 'archive' || vars.command === 'return_to_todo')) {
         guard.open({ taskId: vars.id, command: vars.command, running: details.running ?? [] });
+        return;
+      }
+      if (apiErrorCode(err) === 'conflict' && details?.requiresChildAck && vars.command === 'archive') {
+        guard.openChildrenConfirm({ taskId: vars.id, command: 'archive', openChildren: details.openChildren ?? [] });
         return;
       }
       toast.error(apiErrorText(err));
