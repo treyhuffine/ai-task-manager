@@ -36,9 +36,13 @@ export function runningSessionsForExecution(executionId: string): string[] {
 export async function stopExecutionAgent(executionId: string): Promise<{ ok: boolean; failures: string[] }> {
   const sessionIds = runningSessionsForExecution(executionId);
 
-  // Cancel EVERY queued/running run of the execution first (an execution can
-  // have concurrent runs), before their turns' own completions can land, so the
-  // durable record reflects a cancellation, not a completion.
+  // Cancel EVERY queued/running run of the execution FIRST (an execution can
+  // have concurrent runs). This is deliberate: it must land before an
+  // interrupted turn's own completion path can, so the durable record is a
+  // cancellation and NEVER a completion (the acceptance criterion). A later
+  // close failure is reported honestly below rather than claiming success, so
+  // the only residual is a cancelled run whose process is confirmed-not-stopped
+  // — surfaced, not hidden.
   for (const run of listRuns({ executionId, status: ['queued', 'running'] })) {
     markRunCancelled(run.id, 'Stopped by a coordinated task change');
   }
@@ -50,7 +54,9 @@ export async function stopExecutionAgent(executionId: string): Promise<{ ok: boo
     } catch (err) {
       failures.push(`${sid} interrupt: ${msg(err)}`);
     }
-    const res = await executor.close(sid); // tear down the handle (DB record preserved)
+    // close tears down the process FIRST and only drops the cached handle on a
+    // clean close, so a failed close is reported (not a lost, untrackable proc).
+    const res = await executor.close(sid);
     if (!res.closed) failures.push(`${sid} close: ${res.error ?? 'unknown'}`);
   }
   return { ok: failures.length === 0, failures };

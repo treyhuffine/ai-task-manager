@@ -813,6 +813,18 @@ export async function stopTask(
  */
 export async function close(chatSessionId: string): Promise<{ closed: boolean; error?: string }> {
   const handle = agentSessions.get(chatSessionId);
+  // Close the process FIRST, while the handle is still tracked. If close fails
+  // the process may still be alive, so we keep the handle cached (still
+  // trackable / retryable) and DO NOT clear running state or the caches — losing
+  // the handle here would leave an untrackable live process. Only after a clean
+  // close (or no handle at all) do we drop the cached state.
+  if (handle) {
+    try {
+      await handle.close();
+    } catch (err) {
+      return { closed: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
   agentSessions.delete(chatSessionId);
   sessionInventories.delete(chatSessionId);
   advanceDispatchGeneration(chatSessionId);
@@ -823,13 +835,6 @@ export async function close(chatSessionId: string): Promise<{ closed: boolean; e
   clearStreamTurn(chatSessionId);
   clearReferenceFolderInstructions(chatSessionId);
   rejectAllForSession(chatSessionId, 'Session closed');
-  if (handle) {
-    try {
-      await handle.close();
-    } catch (err) {
-      return { closed: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
   return { closed: true };
 }
 
