@@ -24,6 +24,7 @@ import { RestartMenuItem } from './restart-menu-item';
 import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
 import { deriveExecutionHeaderStatus } from './execution-header-status';
+import { ExecutionTaskChips } from './execution-task-chips';
 import { resumeCommandForHarness } from '@/lib/agents/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 
@@ -725,6 +726,8 @@ export function ExecutionHeader({
           )}
         </div>
       </div>
+      {/* What this workstream is working — one task or several. */}
+      {session.executionId && <ExecutionTaskChips executionId={session.executionId} />}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
+import { runGit } from './git-gate';
 
 const execFileAsync = promisify(execFile);
 
@@ -162,10 +163,12 @@ async function readTrackedStats(
   const common = ['diff', '--numstat', '--no-color', '--no-ext-diff', '--find-renames'];
   for (const anchor of anchors) {
     try {
-      const { stdout } = await execFileAsync('git', [...common, '--merge-base', anchor], {
-        cwd: worktreePath,
-        maxBuffer: 16 * 1024 * 1024,
-      });
+      const { stdout } = await runGit(() =>
+        execFileAsync('git', [...common, '--merge-base', anchor], {
+          cwd: worktreePath,
+          maxBuffer: 16 * 1024 * 1024,
+        }),
+      );
       return parseNumstat(stdout);
     } catch {
       // Try the next anchor.
@@ -192,10 +195,11 @@ async function readTrackedStats(
 async function readUntrackedStats(worktreePath: string): Promise<WorktreeDiffStats> {
   let names: string[];
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['ls-files', '--others', '--exclude-standard', '-z'],
-      { cwd: worktreePath, maxBuffer: 16 * 1024 * 1024 },
+    const { stdout } = await runGit(() =>
+      execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+        cwd: worktreePath,
+        maxBuffer: 16 * 1024 * 1024,
+      }),
     );
     names = stdout.split('\0').filter((s) => s.length > 0);
   } catch {
