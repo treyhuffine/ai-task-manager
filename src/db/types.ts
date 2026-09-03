@@ -210,24 +210,24 @@ export type CreateExecutionReviewInput = Omit<InferInsertModel<typeof executionR
 export type ReviewDisposition = ExecutionReviewRecord['disposition'];
 
 /** What the review affordance needs to render: the exact output to disposition,
- * the single owning task (for Accept-and-complete), and the current state. */
+ * the sole associated task (for Accept-and-complete), and the current state. */
 export interface ExecutionReviewContext {
   latestOutputEventId: string | null;
-  /** The single owning task, or null when zero or many tasks are owned
+  /** The sole associated task, or null when zero or many tasks are associated
    * (Accept-and-complete is only unambiguous for exactly one). */
-  owningTaskId: string | null;
-  owningTaskTitle: string | null;
-  /** How many tasks this execution owns. The review bar shows whenever this is
-   * >= 1 (a shared execution still needs review); only Accept-and-complete is
-   * gated on owningTaskId being a single task. */
-  ownedTaskCount: number;
+  soleTaskId: string | null;
+  soleTaskTitle: string | null;
+  /** How many tasks this workstream is associated with. The review bar shows
+   * whenever this is >= 1 (a shared workstream still needs review); only
+   * Accept-and-complete is gated on soleTaskId being a single task. */
+  associatedTaskCount: number;
   latestDisposition: ReviewDisposition | null;
   hasUnreviewedOutput: boolean;
 }
 
 export type ExecutionTaskRecord = InferSelectModel<typeof executionTasks>;
 
-/** Derived attention badges for a task (from its owning executions + blocker).
+/** Derived attention badges for a task (from its associated workstreams + blocker).
  * See getTaskAttentionSignals. */
 export interface TaskAttentionSignals {
   blocked: boolean;

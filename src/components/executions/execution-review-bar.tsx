@@ -18,7 +18,7 @@ const DISPOSITION_LABEL: Record<ReviewDisposition, string> = {
  * Explicit review-through for an execution's latest output. Reading output only
  * clears unread; this is the disposition tied to the exact output event. New
  * output after the last reviewed output re-opens the obligation. When the
- * execution owns one task, Accept-and-complete is offered.
+ * workstream is associated with exactly one task, Accept-and-complete is offered.
  */
 export function ExecutionReviewBar({ executionId }: { executionId: string }) {
   const qc = useQueryClient();
@@ -53,12 +53,13 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
     onError: (e) => toast.error(apiErrorText(e)),
   });
 
-  // Review-through is for TASK-OWNED executions. Taskless quick work keeps its
-  // read/unread behavior (per the spec) and shows no review bar. Also hidden
-  // until the agent has produced output to disposition. A shared execution
-  // (several owned tasks) still shows the bar — only Accept-and-complete is
-  // withheld, since which task to complete is ambiguous.
-  if (!ctx || !ctx.latestOutputEventId || ctx.ownedTaskCount < 1) return null;
+  // Review-through is for workstreams associated with at least one task.
+  // Taskless quick work keeps its read/unread behavior (per the spec) and shows
+  // no review bar. Also hidden until the agent has produced output to
+  // disposition. A shared workstream (several associated tasks) still shows the
+  // bar — only Accept-and-complete is withheld, since which task to complete is
+  // ambiguous.
+  if (!ctx || !ctx.latestOutputEventId || ctx.associatedTaskCount < 1) return null;
 
   const pending = review.isPending;
   const reviewed = ctx.latestDisposition;

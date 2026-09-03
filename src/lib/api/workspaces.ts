@@ -64,8 +64,8 @@ export const workspacesApi = {
       model?: string | null;
       modelVariant?: string | null;
       effort?: EffortLevel | null;
-      /** "Start with agent": the task this execution owns. Server records
-       *  ownership and atomically Starts the task (Consider/Todo -> In progress). */
+      /** "Start with agent": the task this workstream is associated with. Server
+       *  records the association and atomically Starts the task (Consider/Todo -> In progress). */
       taskId?: string | null;
     } = {},
   ): Promise<ChatSessionWithExecution> {

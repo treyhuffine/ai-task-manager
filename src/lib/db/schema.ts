@@ -516,7 +516,7 @@ export interface LifecycleCommandResult {
   recurring?: boolean;
   /** Next occurrence timestamp when the command advanced a recurrence. */
   nextRecurrenceAt?: string | null;
-  /** Owning execution created/attached by an agent-start variant, when any. */
+  /** Workstream (execution) associated by an agent-start variant, when any. */
   executionId?: string | null;
 }
 
@@ -1008,10 +1008,10 @@ export const executionTasks = sqliteTable(
       .references((): AnySQLiteColumn => tasks.id, { onDelete: 'cascade' }),
   },
   (table) => [
-    // One ownership row per (execution, task); re-attaching the same pair is a
+    // One association row per (execution, task); re-attaching the same pair is a
     // no-op, not a duplicate.
     uniqueIndex('uniq_execution_tasks_pair').on(table.executionId, table.taskId),
-    // "executions owning task T" (the live-work guard) and "tasks an execution owns".
+    // "workstreams associated with task T" (the live-work guard) and "tasks a workstream is associated with".
     index('idx_execution_tasks_task').on(table.taskId),
     index('idx_execution_tasks_execution').on(table.executionId),
   ],

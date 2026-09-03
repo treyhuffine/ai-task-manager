@@ -23,8 +23,8 @@ export interface StartExecutionArgs {
    * immediately, and the rail's ➕ never had a prompt to begin with.
    */
   message?: { content: string; attachments?: Attachment[] } | null;
-  /** "Start with agent": the task this execution owns. The server records
-   *  ownership and atomically Starts the task (Consider/Todo -> In progress). */
+  /** "Start with agent": the task this workstream is associated with. The server
+   *  records the association and atomically Starts the task (Consider/Todo -> In progress). */
   taskId?: string | null;
 }
 

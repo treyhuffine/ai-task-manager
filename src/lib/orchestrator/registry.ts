@@ -419,7 +419,7 @@ const transition_task_action = defineAction({
 const attach_execution_to_task_action = defineAction({
   name: 'attach_execution_to_task',
   description:
-    'Record that an execution is doing a task (ownership). Many-to-many: an execution may own several tasks (a batch with shared context) and a task may be worked by several executions. Idempotent, never a conflict. This links, it does not start: use transition_task start to move the task to In progress.',
+    'Associate a workstream (execution) with a task. Many-to-many: a workstream may be associated with several tasks (a batch with shared context) and a task may be worked by several workstreams. Association is durable context, not ownership, and does not gate the task lifecycle. Idempotent, never a conflict. This links, it does not start: use transition_task start to move the task to In progress.',
   params: {
     execution_id: z.string().min(1),
     task_id: z.string().min(1),
@@ -437,7 +437,7 @@ const attach_execution_to_task_action = defineAction({
 
 const detach_execution_from_task_action = defineAction({
   name: 'detach_execution_from_task',
-  description: 'Remove an execution↔task ownership link. Does not change the task lifecycle or the execution.',
+  description: 'Remove a task↔workstream association. Does not change the task lifecycle or the workstream.',
   params: {
     execution_id: z.string().min(1),
     task_id: z.string().min(1),
@@ -449,7 +449,7 @@ const detach_execution_from_task_action = defineAction({
 
 const list_task_executions_action = defineAction({
   name: 'list_task_executions',
-  description: 'List the executions owning a task, newest first.',
+  description: 'List the workstreams (executions) associated with a task, newest first.',
   params: { task_id: z.string().min(1) },
   cli: { positional: ['task_id'] },
   handler: (_ctx, { task_id }) => getTaskExecutions(task_id),

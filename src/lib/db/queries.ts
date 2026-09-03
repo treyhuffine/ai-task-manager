@@ -1391,14 +1391,15 @@ function nextFutureRecurrence(recurrence: string, scheduledAnchor: string, now: 
   return next;
 }
 
-// ─── Task-owned executions & review ───────────────────────────
-// Ownership is many-to-many via `execution_tasks`: a task can be worked by many
-// executions (several attempts = one In progress outcome), and an execution can
-// own many tasks (a batch with shared context). Taskless quick work has no rows.
-// Reading output only moves unread state; review is an explicit disposition tied
-// to the exact output event.
+// ─── Task↔execution associations & review ─────────────────────
+// The association is many-to-many via `execution_tasks`: a task can be worked by
+// many workstreams (several attempts = one In progress outcome), and a workstream
+// can be associated with many tasks (a batch with shared context). Association is
+// durable context, not ownership: it does not gate the task's lifecycle and does
+// not claim liveness. Taskless quick work has no rows. Reading output only moves
+// unread state; review is an explicit disposition tied to the exact output event.
 
-/** Executions owning a task, newest first. */
+/** Workstreams associated with a task, newest first. */
 export function getTaskExecutions(taskId: string): ExecutionRecord[] {
   return getDb()
     .select(getTableColumns(executions))
@@ -1425,7 +1426,7 @@ export function getTaskContinueTargets(taskId: string): { executionId: string; s
   return out;
 }
 
-/** Tasks an execution owns, newest ownership first. */
+/** Tasks a workstream is associated with, newest association first. */
 export function getExecutionTasks(executionId: string): TaskRecord[] {
   const rows = getDb()
     .select(getTableColumns(tasks))
@@ -1438,8 +1439,9 @@ export function getExecutionTasks(executionId: string): TaskRecord[] {
 }
 
 /**
- * Record that an execution owns a task. Many-to-many, so it simply ensures the
- * (execution, task) pair exists — idempotent, never a conflict. Both must exist.
+ * Associate a workstream (execution) with a task. Many-to-many, so it simply
+ * ensures the (execution, task) pair exists — idempotent, never a conflict.
+ * Both must exist. This links durable context, it does not claim or start work.
  */
 export function attachExecutionToTask(executionId: string, taskId: string): ExecutionTaskRecord {
   return inEntityTx(() => {
@@ -1461,7 +1463,7 @@ export function attachExecutionToTask(executionId: string, taskId: string): Exec
   });
 }
 
-/** Remove an ownership pair. Returns true if a row was removed. */
+/** Remove a task↔workstream association pair. Returns true if a row was removed. */
 export function detachExecutionFromTask(executionId: string, taskId: string): boolean {
   const res = getDb()
     .delete(executionTasks)
@@ -1672,22 +1674,22 @@ function latestOutputReviewState(executionId: string): {
 /**
  * Everything the review affordance needs for an execution: the latest output
  * event to disposition, its current disposition (a fresh output after the last
- * reviewed one is a new obligation), the single owning task if any (so
- * Accept-and-complete is offered only when unambiguous), and whether any task is
- * owned at all (so the review bar still shows for a shared execution).
+ * reviewed one is a new obligation), the sole associated task if any (so
+ * Accept-and-complete is offered only when unambiguous), and how many tasks are
+ * associated at all (so the review bar still shows for a shared workstream).
  */
 export function getExecutionReviewContext(executionId: string): ExecutionReviewContext {
   const { latestOutputEventId, latestDisposition, hasUnreviewedOutput } = latestOutputReviewState(executionId);
 
-  const owned = getExecutionTasks(executionId);
-  const owningTaskId = owned.length === 1 ? owned[0].id : null;
-  const owningTaskTitle = owned.length === 1 ? owned[0].title : null;
+  const associated = getExecutionTasks(executionId);
+  const soleTaskId = associated.length === 1 ? associated[0].id : null;
+  const soleTaskTitle = associated.length === 1 ? associated[0].title : null;
 
   return {
     latestOutputEventId,
-    owningTaskId,
-    owningTaskTitle,
-    ownedTaskCount: owned.length,
+    soleTaskId,
+    soleTaskTitle,
+    associatedTaskCount: associated.length,
     latestDisposition,
     hasUnreviewedOutput,
   };
@@ -1724,13 +1726,14 @@ export function getTaskLifecycleSignals(taskId: string): {
 
 /**
  * Derived attention badges for a task's Current-Work row. Blocked is the
- * unresolved-blocker signal; the rest come from OWNING live executions:
- *   - stalled: an owning execution failed setup / dispatch.
- *   - review: an owning execution produced outcome output that has not been
+ * unresolved-blocker signal; the rest come from the task's associated live
+ * workstreams:
+ *   - stalled: an associated workstream failed setup / dispatch.
+ *   - review: an associated workstream produced outcome output that has not been
  *     reviewed since (a Review obligation — reading does not clear it).
- *   - working: an agent execution is live on the task and neither stalled nor
- *     awaiting review (per the spec, this means an agent owns and is pursuing
- *     it, not necessarily streaming this instant).
+ *   - working: an associated workstream is live on the task and neither stalled
+ *     nor awaiting review (per the spec, an agent is pursuing it, not
+ *     necessarily streaming this instant).
  * "Needs input" is intentionally absent: pending agent input is not durably
  * tracked, so we do not fake it.
  */

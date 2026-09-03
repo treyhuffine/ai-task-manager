@@ -30,7 +30,7 @@ longer change status.
 | Command | Source → target |
 |---|---|
 | `move_to_todo` | consider → todo |
-| `move_to_consider` | todo → consider (rejected while a deadline / recurrence / unresolved blocker / live owning execution is present) |
+| `move_to_consider` | todo → consider (rejected while a deadline / recurrence / unresolved blocker / live associated workstream is present) |
 | `start` | consider, todo → in_progress |
 | `return_to_todo` | in_progress → todo |
 | `complete` (via `complete_task`) | todo, in_progress → done (recurring: records one occurrence, advances, returns to todo) |
@@ -49,11 +49,12 @@ stable `conflict`. Every command is recorded in the append-only
 current-state age). Legacy rows keep it NULL until their first transition, so
 age is honestly unknown rather than faked.
 
-Execution ownership is many-to-many via the `execution_tasks` join table: an
-execution can own several tasks (a batch with shared context) and a task can be
-worked by several executions. It collapses cleanly back to a single column if
-that ever proves clunky. Reviews (`execution_reviews`) are keyed to the exact
-output event.
+The task↔workstream association is many-to-many via the `execution_tasks` join
+table: a workstream (execution) can be associated with several tasks (a batch
+with shared context) and a task can be worked by several workstreams. Association
+is durable context, not ownership: it does not gate the task lifecycle and does
+not claim live work. It collapses cleanly back to a single column if that ever
+proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event.
 
 ## Surfaces
 
