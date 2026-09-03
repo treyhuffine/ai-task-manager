@@ -32,7 +32,6 @@ import {
   getUserState,
   listChatSessions,
   createExecutionWithChat,
-  associateAndStartTask,
   getTask,
   markExecutionSetupStarted,
   markExecutionSetupComplete,
@@ -227,7 +226,7 @@ export async function dispatchExecutionSession(
   // fast (and cheaply) rather than create an execution we then roll back.
   // Startable = Consider/Todo (Started -> In progress once the execution exists)
   // or already In progress (the agent joins existing work). The authoritative
-  // check is re-run atomically in associateAndStartTask below.
+  // check is re-run atomically inside createExecutionWithChat's transaction.
   if (args.taskId) {
     const task = getTask(args.taskId);
     if (!task) throw new TaskNotStartableForDispatch(args.taskId, 'not_found');
@@ -242,39 +241,35 @@ export async function dispatchExecutionSession(
   // mode (or non-git workspaces) the path/branch/sha are populated up
   // front. The durable state lives on the execution; the chat just points
   // at it via executionId.
-  const { execution } = createExecutionWithChat({
-    workspaceId: args.workspaceId,
-    agentId: agent.id,
-    chatSessionId: sessionId,
-    // The three saved values are one tuple. Reuse model + effort only when
-    // their saved provider matches this execution's provider.
-    model: selection.model,
-    modelVariant: selection.variant,
-    effort: selection.effort,
-    label,
-    worktreePath: liveMode ? ws.cwd : null,
-    branchName: liveBranch,
-    baseSha: liveBaseSha,
-    prNumber: prNumber,
-    setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
-  });
-
-  // Commit the durable Start-with-agent effects — associate the task with the
-  // execution AND Start it (Consider/Todo -> In progress) — atomically, in one
-  // transaction, BEFORE any runtime dispatch. Keyed to the session so a retry
-  // converges. If a lifecycle race (the task moved to terminal since the
-  // pre-check) makes Start illegal, the association+start rolls back and we
-  // archive the just-created execution, then surface a conflict. A dispatch
-  // NEVER leaves an execution associated-but-not-started or launches a taskless
-  // agent against a terminal task.
-  if (args.taskId) {
-    try {
-      associateAndStartTask(execution.id, args.taskId, `start-with-agent:${sessionId}`);
-    } catch (err) {
-      archiveExecution(execution.id);
+  // Create the execution + chat AND (for Start-with-agent) associate + Start the
+  // task, all in ONE transaction. If a lifecycle race (the task moved to terminal
+  // since the pre-check) makes Start illegal, the whole thing rolls back — no
+  // orphan execution, no taskless launch — and we surface a conflict.
+  let execution: ReturnType<typeof createExecutionWithChat>['execution'];
+  try {
+    ({ execution } = createExecutionWithChat({
+      workspaceId: args.workspaceId,
+      agentId: agent.id,
+      chatSessionId: sessionId,
+      // The three saved values are one tuple. Reuse model + effort only when
+      // their saved provider matches this execution's provider.
+      model: selection.model,
+      modelVariant: selection.variant,
+      effort: selection.effort,
+      label,
+      worktreePath: liveMode ? ws.cwd : null,
+      branchName: liveBranch,
+      baseSha: liveBaseSha,
+      prNumber: prNumber,
+      setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
+      startTask: args.taskId ? { taskId: args.taskId, idempotencyKey: `start-with-agent:${sessionId}` } : undefined,
+    }));
+  } catch (err) {
+    if (args.taskId) {
       console.error('[dispatch] start-with-agent raced to a conflict; rolled back:', err);
       throw new TaskNotStartableForDispatch(args.taskId, 'conflict');
     }
+    throw err;
   }
 
   if (ws.isGit && !liveMode) {

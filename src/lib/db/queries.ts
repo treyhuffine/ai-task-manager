@@ -1365,54 +1365,6 @@ export function getExecutionTasks(executionId: string): TaskRecord[] {
 }
 
 /**
- * Associate a task with an execution AND Start it (Consider/Todo -> In progress)
- * in ONE transaction, for Start-with-agent. Atomic: a lifecycle race (the task
- * went terminal since the pre-check) rolls back the whole association+start and
- * throws `conflict`, so a dispatch never ends up associated-but-not-started or
- * started against a terminal task. Idempotent on the start key, and a no-op
- * start for an already In-progress task (the agent joins existing work).
- */
-export function associateAndStartTask(executionId: string, taskId: string, startIdempotencyKey: string): void {
-  inEntityTx(() => {
-    const raw = hydrateRow(getDb().select().from(tasks).where(eq(tasks.id, taskId)).get());
-    if (!raw) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
-    const task = normalizeTaskRow(raw);
-
-    // Associate (idempotent within the tx).
-    const already = getDb()
-      .select({ id: executionTasks.id })
-      .from(executionTasks)
-      .where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId)))
-      .get();
-    if (!already) {
-      getDb().insert(executionTasks).values({ id: uuidv7(), executionId, taskId }).run();
-    }
-
-    if (task.status === 'in_progress') return; // already underway — agent joins it
-    if (task.status !== 'consider' && task.status !== 'todo') {
-      throw new TaskLifecycleError('conflict', `Task ${taskId} is ${task.status}; it cannot be started.`, { from: task.status });
-    }
-
-    // Idempotent start: a retried dispatch with the same key does not re-apply.
-    if (priorLifecycleCommand(taskId, startIdempotencyKey)) return;
-
-    const now = new Date().toISOString();
-    const nextCount = task.statusChangedCount + 1;
-    getDb()
-      .update(tasks)
-      .set({ status: 'in_progress', statusChangedCount: nextCount, statusChangedAt: now, updatedAt: now })
-      .where(eq(tasks.id, taskId))
-      .run();
-    recordLifecycleCommand(taskId, startIdempotencyKey, 'start', task.status, 'in_progress', nextCount, { source: 'human', executionId }, {
-      fromStatus: task.status,
-      toStatus: 'in_progress',
-      statusChangedCount: nextCount,
-    });
-    void syncEntity('task', taskId);
-  }, true);
-}
-
-/**
  * Record that an execution owns a task. Many-to-many, so it simply ensures the
  * (execution, task) pair exists — idempotent, never a conflict. Both must exist.
  */
@@ -5387,6 +5339,11 @@ export function createExecutionWithChat(params: {
   modelVariant?: string | null;
   /** Optional preferred effort, normalized against the selected model. */
   effort?: ChatSessionRecord['effort'];
+  /** Start-with-agent: associate this task with the new execution AND Start it
+   * (Consider/Todo -> In progress) in the SAME transaction, so execution + chat
+   * + association + start commit atomically. A terminal race rolls everything
+   * back (no orphan execution) and throws `conflict`. */
+  startTask?: { taskId: string; idempotencyKey: string };
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const db = getDb();
   const now = new Date().toISOString();
@@ -5395,7 +5352,7 @@ export function createExecutionWithChat(params: {
     providerIdForHarness(agent?.harness),
     { model: params.model, variant: params.modelVariant, effort: params.effort },
   );
-  return db.transaction((tx) => {
+  const result = db.transaction((tx) => {
     const executionId = uuidv7();
     const execution = tx
       .insert(executions)
@@ -5440,8 +5397,38 @@ export function createExecutionWithChat(params: {
       })
       .returning()
       .get();
+
+    // Atomic Start-with-agent: associate + Start the task in this same
+    // transaction. A terminal race throws and rolls back the execution, chat,
+    // and association together — never an orphan or a taskless launch.
+    if (params.startTask) {
+      const { taskId, idempotencyKey } = params.startTask;
+      const t = tx.select({ status: tasks.status, count: tasks.statusChangedCount }).from(tasks).where(eq(tasks.id, taskId)).get();
+      if (!t) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+      const status = normalizeTaskStatus(t.status);
+      const already = tx.select({ id: executionTasks.id }).from(executionTasks).where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId))).get();
+      if (!already) tx.insert(executionTasks).values({ id: uuidv7(), executionId, taskId }).run();
+      if (status !== 'in_progress') {
+        if (status !== 'consider' && status !== 'todo') {
+          throw new TaskLifecycleError('conflict', `Task ${taskId} is ${status}; it cannot be started.`, { from: status });
+        }
+        const prior = tx.select({ id: taskStatusChanges.id }).from(taskStatusChanges).where(and(eq(taskStatusChanges.taskId, taskId), eq(taskStatusChanges.idempotencyKey, idempotencyKey))).get();
+        if (!prior) {
+          const nextCount = t.count + 1;
+          tx.update(tasks).set({ status: 'in_progress', statusChangedCount: nextCount, statusChangedAt: now, updatedAt: now }).where(eq(tasks.id, taskId)).run();
+          tx.insert(taskStatusChanges).values({
+            id: uuidv7(), taskId, idempotencyKey, command: 'start', fromStatus: status, toStatus: 'in_progress', statusChangedCount: nextCount,
+            actorSource: 'human', actorSessionId: null, executionId, runId: null, reason: null,
+            result: { fromStatus: status, toStatus: 'in_progress', statusChangedCount: nextCount },
+          }).run();
+        }
+      }
+    }
     return { execution, session };
   });
+  // Mirror sync for the started task (fire-and-forget, post-commit).
+  if (params.startTask) void syncEntity('task', params.startTask.taskId);
+  return result;
 }
 
 /**

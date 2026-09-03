@@ -93,29 +93,26 @@ describe('task-owned executions', () => {
     expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]); // still associated
   });
 
-  it('associateAndStartTask atomically associates + starts, and rolls back a terminal race', async () => {
+  it('createExecutionWithChat atomically associates + starts, rolling back a terminal race', async () => {
     const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const task = q.createTask({ title: 'T', rawInput: 'x' });
-    const exec = q.createExecution({ workspaceId: wsId });
-    q.associateAndStartTask(exec.id, task.id, 'start-1');
+    const { execution } = q.createExecutionWithChat({ workspaceId: wsId, agentId: agent.id, label: null, startTask: { taskId: task.id, idempotencyKey: 'start-1' } });
     expect(q.getTask(task.id)!.status).toBe('in_progress');
-    expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]);
-    // Idempotent on the key — no double-apply.
-    q.associateAndStartTask(exec.id, task.id, 'start-1');
-    expect(q.getTask(task.id)!.statusChangedCount).toBe(1);
+    expect(q.getExecutionTasks(execution.id).map((t) => t.id)).toEqual([task.id]);
 
-    // Starting a terminal task rolls back the association too (atomic).
+    // Starting a terminal task rolls back the association AND the execution.
     const done = q.createTask({ title: 'D', rawInput: 'y' });
     q.completeTask(done.id, { idempotencyKey: 'c1' });
-    const exec2 = q.createExecution({ workspaceId: wsId });
     let code: string | undefined;
     try {
-      q.associateAndStartTask(exec2.id, done.id, 'start-2');
+      q.createExecutionWithChat({ workspaceId: wsId, agentId: agent.id, label: null, startTask: { taskId: done.id, idempotencyKey: 'start-2' } });
     } catch (e) {
       code = codeOf(e);
     }
     expect(code).toBe('conflict');
-    expect(q.getExecutionTasks(exec2.id)).toHaveLength(0);
+    expect(q.getTaskExecutions(done.id)).toHaveLength(0); // rolled back
+    expect(q.getTask(done.id)!.status).toBe('done'); // unchanged
   });
 
   it('coordination requires an explicit choice for a genuinely running workstream', async () => {
