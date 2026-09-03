@@ -32,9 +32,7 @@ import {
   getUserState,
   listChatSessions,
   createExecutionWithChat,
-  attachExecutionToTask,
-  detachExecutionFromTask,
-  transitionTask,
+  associateAndStartTask,
   getTask,
   markExecutionSetupStarted,
   markExecutionSetupComplete,
@@ -225,19 +223,17 @@ export async function dispatchExecutionSession(
     liveBaseSha = snap.sha;
   }
 
-  // Start with agent: validate the task BEFORE minting the execution, so a
-  // dispatch can never leave an agent running against a Done/Archived task.
-  // Startable = Consider/Todo (Started -> In progress once the execution
-  // exists) or already In progress (the agent joins existing work; no
-  // transition needed). Anything else is rejected up front.
-  let startTaskStatus: string | null = null;
+  // Start with agent: validate the task BEFORE minting the execution, so we fail
+  // fast (and cheaply) rather than create an execution we then roll back.
+  // Startable = Consider/Todo (Started -> In progress once the execution exists)
+  // or already In progress (the agent joins existing work). The authoritative
+  // check is re-run atomically in associateAndStartTask below.
   if (args.taskId) {
     const task = getTask(args.taskId);
     if (!task) throw new TaskNotStartableForDispatch(args.taskId, 'not_found');
     if (task.status !== 'consider' && task.status !== 'todo' && task.status !== 'in_progress') {
       throw new TaskNotStartableForDispatch(args.taskId, task.status);
     }
-    startTaskStatus = task.status;
   }
 
   // Create the execution artifact + its first chat atomically. For
@@ -264,28 +260,20 @@ export async function dispatchExecutionSession(
   });
 
   // Commit the durable Start-with-agent effects — associate the task with the
-  // execution, and Start it (Consider/Todo -> In progress) — BEFORE any runtime
-  // dispatch. Keyed to the session so a retry converges. If a lifecycle race
-  // (the task moved to terminal since the pre-check) makes Start illegal, roll
-  // the whole start back: detach and archive the just-created execution, and
-  // surface a conflict. A dispatch NEVER detaches the task and launches a
-  // taskless agent against a terminal task.
+  // execution AND Start it (Consider/Todo -> In progress) — atomically, in one
+  // transaction, BEFORE any runtime dispatch. Keyed to the session so a retry
+  // converges. If a lifecycle race (the task moved to terminal since the
+  // pre-check) makes Start illegal, the association+start rolls back and we
+  // archive the just-created execution, then surface a conflict. A dispatch
+  // NEVER leaves an execution associated-but-not-started or launches a taskless
+  // agent against a terminal task.
   if (args.taskId) {
-    attachExecutionToTask(execution.id, args.taskId);
-    if (startTaskStatus === 'consider' || startTaskStatus === 'todo') {
-      try {
-        transitionTask({
-          taskId: args.taskId,
-          command: 'start',
-          idempotencyKey: `start-with-agent:${sessionId}`,
-          meta: { source: 'human', executionId: execution.id },
-        });
-      } catch (err) {
-        detachExecutionFromTask(execution.id, args.taskId);
-        archiveExecution(execution.id);
-        console.error('[dispatch] start-with-agent raced to a conflict; rolled back:', err);
-        throw new TaskNotStartableForDispatch(args.taskId, 'conflict');
-      }
+    try {
+      associateAndStartTask(execution.id, args.taskId, `start-with-agent:${sessionId}`);
+    } catch (err) {
+      archiveExecution(execution.id);
+      console.error('[dispatch] start-with-agent raced to a conflict; rolled back:', err);
+      throw new TaskNotStartableForDispatch(args.taskId, 'conflict');
     }
   }
 

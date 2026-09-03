@@ -1365,6 +1365,54 @@ export function getExecutionTasks(executionId: string): TaskRecord[] {
 }
 
 /**
+ * Associate a task with an execution AND Start it (Consider/Todo -> In progress)
+ * in ONE transaction, for Start-with-agent. Atomic: a lifecycle race (the task
+ * went terminal since the pre-check) rolls back the whole association+start and
+ * throws `conflict`, so a dispatch never ends up associated-but-not-started or
+ * started against a terminal task. Idempotent on the start key, and a no-op
+ * start for an already In-progress task (the agent joins existing work).
+ */
+export function associateAndStartTask(executionId: string, taskId: string, startIdempotencyKey: string): void {
+  inEntityTx(() => {
+    const raw = hydrateRow(getDb().select().from(tasks).where(eq(tasks.id, taskId)).get());
+    if (!raw) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
+    const task = normalizeTaskRow(raw);
+
+    // Associate (idempotent within the tx).
+    const already = getDb()
+      .select({ id: executionTasks.id })
+      .from(executionTasks)
+      .where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId)))
+      .get();
+    if (!already) {
+      getDb().insert(executionTasks).values({ id: uuidv7(), executionId, taskId }).run();
+    }
+
+    if (task.status === 'in_progress') return; // already underway — agent joins it
+    if (task.status !== 'consider' && task.status !== 'todo') {
+      throw new TaskLifecycleError('conflict', `Task ${taskId} is ${task.status}; it cannot be started.`, { from: task.status });
+    }
+
+    // Idempotent start: a retried dispatch with the same key does not re-apply.
+    if (priorLifecycleCommand(taskId, startIdempotencyKey)) return;
+
+    const now = new Date().toISOString();
+    const nextCount = task.statusChangedCount + 1;
+    getDb()
+      .update(tasks)
+      .set({ status: 'in_progress', statusChangedCount: nextCount, statusChangedAt: now, updatedAt: now })
+      .where(eq(tasks.id, taskId))
+      .run();
+    recordLifecycleCommand(taskId, startIdempotencyKey, 'start', task.status, 'in_progress', nextCount, { source: 'human', executionId }, {
+      fromStatus: task.status,
+      toStatus: 'in_progress',
+      statusChangedCount: nextCount,
+    });
+    void syncEntity('task', taskId);
+  }, true);
+}
+
+/**
  * Record that an execution owns a task. Many-to-many, so it simply ensures the
  * (execution, task) pair exists — idempotent, never a conflict. Both must exist.
  */
