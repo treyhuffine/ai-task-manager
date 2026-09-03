@@ -173,7 +173,7 @@ export function TaskRow({
       {task.status === 'consider' || task.status === 'archived' ? (
         <span
           className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
-          title={task.status === 'consider' ? 'Consider — commit it with the status control' : 'Archived'}
+          title={task.status === 'consider' ? 'Consider, commit it with the status control' : 'Archived'}
           aria-hidden
         />
       ) : (

@@ -45,7 +45,7 @@ export function StartWithAgentButton({
     // A durable, resolvable reference so the agent knows exactly which task it is
     // working, can read the full spec, and can change its lifecycle.
     const reference =
-      `You are working on task "${task.title}" — durable id ${task.id} (reference it as [[task:${task.id}]]). ` +
+      `You are working on task "${task.title}" (durable id ${task.id}, reference it as [[task:${task.id}]]). ` +
       `Use get_task for the complete spec, and complete_task / transition_task to change its lifecycle.`;
     const contextBody = [reference, desc, spec]
       .filter((s, i, arr) => s && arr.indexOf(s) === i) // drop blanks + duplicates

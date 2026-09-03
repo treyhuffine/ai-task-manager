@@ -198,6 +198,29 @@ describe('task-owned executions', () => {
     expect(code).toBe('active_execution');
   });
 
+  it('coordination fails honest (conflict) when liveness is unknown and a task has an active association', async () => {
+    const { q, wsId } = await setup();
+    const a = q.createTask({ title: 'A', rawInput: 'a' });
+    const exec = q.createExecution({ workspaceId: wsId }); // active
+    q.attachExecutionToTask(exec.id, a.id);
+    const unknown = {
+      async runningSessionIds() { return null; }, // server unreachable
+      async stopExecution() { return { ok: true, failures: [] }; },
+      async notify() {},
+    };
+    let code: string | undefined;
+    try {
+      await coordinateLifecycleChange({ taskId: a.id, kind: 'displace', runtime: unknown });
+    } catch (e) {
+      code = codeOf(e);
+    }
+    expect(code).toBe('conflict');
+
+    // A task with no active association proceeds even when liveness is unknown.
+    const b = q.createTask({ title: 'B', rawInput: 'b' });
+    await coordinateLifecycleChange({ taskId: b.id, kind: 'displace', runtime: unknown });
+  });
+
   it('coordination is a no-op when nothing is genuinely running', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'A', rawInput: 'a' });

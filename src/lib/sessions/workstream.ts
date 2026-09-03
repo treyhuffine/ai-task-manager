@@ -114,7 +114,20 @@ export interface CoordinateArgs {
  */
 export async function coordinateLifecycleChange(args: CoordinateArgs): Promise<void> {
   const running = await args.runtime.runningSessionIds();
-  if (running == null || running.length === 0) return; // nothing live -> proceed
+  if (running == null) {
+    // Liveness is UNKNOWN (the server that owns the live handles is unreachable).
+    // Fail honest, not open: if the task has an active associated execution that
+    // could be running, refuse rather than assume it's idle. With no such
+    // association there is nothing to coordinate, so proceed.
+    const hasActiveAssociation = getTaskExecutions(args.taskId).some((e) => e.status === 'active');
+    if (!hasActiveAssociation) return;
+    throw new TaskLifecycleError(
+      'conflict',
+      'Cannot verify whether an agent is running (the app server is unreachable). Start the app, or make this change from the app.',
+      { serverUnreachable: true },
+    );
+  }
+  if (running.length === 0) return; // nothing live -> proceed
   const workstreams = runningWorkstreamsFor(args.taskId, new Set(running));
   if (workstreams.length === 0) return; // none associated with this task -> proceed
 

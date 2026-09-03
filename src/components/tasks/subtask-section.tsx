@@ -120,7 +120,7 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
                 {subtask.status === 'consider' ? (
                   <span
                     className="flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
-                    title="Consider — commit it with the status control"
+                    title="Consider, commit it with the status control"
                     aria-hidden
                   />
                 ) : (

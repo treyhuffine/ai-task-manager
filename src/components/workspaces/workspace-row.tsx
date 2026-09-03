@@ -47,7 +47,18 @@ export function WorkspaceRow({
   const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const updateWs = useUpdateWorkspace();
   const expanded = !workspace.collapsed;
-  const { data: sessions } = useWorkspaceSessions(expanded ? workspace.id : null);
+  // Child rows are sourced from the shared rail query below, not a per-workspace
+  // `/sessions` fetch. `listRailSessions` is `listWorkspaceExecutions` scoped
+  // wider (same joins, same primary-chat dedup, same order), and the rail is
+  // already loaded here for the header counts, so filtering it by workspace
+  // reproduces the per-workspace list with zero extra requests — instead of one
+  // `/workspaces/:id/sessions` call per expanded workspace.
+  //
+  // Left wired but idle (passed null) rather than removed, so reverting is a
+  // two-line change: capture `const { data: sessions } = useWorkspaceSessions(
+  // expanded ? workspace.id : null)` here, and source `childSessions` from
+  // `sessions` again below.
+  useWorkspaceSessions(null);
   const { data: railData } = useRailSessions();
   const { data: areas } = useAreas();
 
@@ -71,10 +82,16 @@ export function WorkspaceRow({
 
   // Re-sort children client-side so the hottest row stays at the top
   // regardless of the API's stored order. Uses the same hotness key as
-  // the by-status view so the two surfaces agree on ordering.
+  // the by-status view so the two surfaces agree on ordering. Rows are the
+  // rail's, filtered to this workspace's active sessions (see the note above).
   const childSessions = useMemo(
-    () => sortSessionsHotnessDesc(sessions ?? []),
-    [sessions],
+    () =>
+      sortSessionsHotnessDesc(
+        (railData?.sessions ?? []).filter(
+          (s) => s.workspaceId === workspace.id && s.status === 'active',
+        ),
+      ),
+    [railData?.sessions, workspace.id],
   );
 
   // Per-state counts for the header dots. Computed off the rail data

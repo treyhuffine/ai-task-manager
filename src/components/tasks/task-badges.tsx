@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 const BADGES = [
   { key: 'blocked', label: 'Blocked', title: 'Blocked by an unresolved dependency', icon: Ban, cls: 'text-red-600 dark:text-red-400 bg-red-500/10' },
   { key: 'stalled', label: 'Stalled', title: 'The agent workstream stalled', icon: AlertTriangle, cls: 'text-orange-600 dark:text-orange-400 bg-orange-500/10' },
-  { key: 'review', label: 'Update', title: 'Workstream update — the agent posted output to review', icon: Eye, cls: 'text-violet-600 dark:text-violet-400 bg-violet-500/10' },
+  { key: 'review', label: 'Update', title: 'Workstream update. The agent posted output to review', icon: Eye, cls: 'text-violet-600 dark:text-violet-400 bg-violet-500/10' },
   { key: 'working', label: 'Working', title: 'An agent is actively working this', icon: Loader2, cls: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
 ] as const;
 

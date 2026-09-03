@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { List, LayoutGrid } from 'lucide-react';
 import { TaskList } from './task-list';
 import { TaskKanban } from './task-kanban';
@@ -15,16 +15,16 @@ const VIEW_KEY = 'flow.tasks.view';
  * model, the shared lifecycle actions, and the same guards.
  */
 export function TaskSurface() {
-  const [view, setView] = useState<View>('list');
-
-  useEffect(() => {
+  // Read the persisted view once at init (no setState-in-effect). Guarded for
+  // SSR; this surface renders client-side in the dashboard.
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === 'undefined') return 'list';
     try {
-      const v = localStorage.getItem(VIEW_KEY);
-      if (v === 'list' || v === 'board') setView(v);
+      return localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list';
     } catch {
-      /* ignore */
+      return 'list';
     }
-  }, []);
+  });
 
   const set = (v: View) => {
     setView(v);
