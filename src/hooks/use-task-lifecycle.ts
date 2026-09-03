@@ -16,7 +16,9 @@ export function useTaskLifecycle() {
 
   return {
     complete: (id: string, note?: string) => complete.mutate({ id, note }),
-    start: (id: string) => transition.mutate({ id, command: 'start' }),
+    /** Optional onSuccess lets a caller (e.g. the Deck) commit its own UI change
+     * only after the transition actually applied, not optimistically. */
+    start: (id: string, opts?: { onSuccess?: () => void }) => transition.mutate({ id, command: 'start' }, opts),
     archive: (id: string) => transition.mutate({ id, command: 'archive' }),
     restore: (id: string) => transition.mutate({ id, command: 'restore' }),
     reopen: (id: string) => transition.mutate({ id, command: 'reopen' }),

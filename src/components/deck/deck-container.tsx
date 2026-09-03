@@ -445,25 +445,34 @@ export function DeckContainer() {
   const handleComplete = useCallback((id: string) => {
     if (!plan) return;
     const item = plan.items.find(i => i.id === id);
-    if (item) {
-      setCompletedItems(prev => [...prev, item]);
-      const updated = { ...plan, items: plan.items.filter(i => i.id !== id) };
-      setPlan(updated);
-      if (plan.deckId) persistDeck(plan.deckId, updated);
-      completeTask.mutate({ id: item.taskId });
-    }
+    if (!item) return;
+    // Remove the card + persist the Deck ONLY after the completion actually
+    // applies. If a confirmation (open children / running workstream) is
+    // cancelled, the command never succeeds and the card stays put.
+    completeTask.mutate({ id: item.taskId }, {
+      onSuccess: () => {
+        setCompletedItems(prev => [...prev, item]);
+        const updated = { ...plan, items: plan.items.filter(i => i.id !== id) };
+        setPlan(updated);
+        if (plan.deckId) persistDeck(plan.deckId, updated);
+      },
+    });
   }, [plan, completeTask]);
 
   // Start a Ready-Todo deck item: move it to In progress (persisted). It leaves
   // the generated stack (it's no longer Ready Todo) and appears in Current Work.
+  // The card leaves only after the Start actually applies.
   const handleStart = useCallback((id: string) => {
     if (!plan) return;
     const item = plan.items.find(i => i.id === id);
     if (!item) return;
-    const updated = { ...plan, items: plan.items.filter(i => i.id !== id) };
-    setPlan(updated);
-    if (plan.deckId) persistDeck(plan.deckId, updated);
-    lifecycle.start(item.taskId);
+    lifecycle.start(item.taskId, {
+      onSuccess: () => {
+        const updated = { ...plan, items: plan.items.filter(i => i.id !== id) };
+        setPlan(updated);
+        if (plan.deckId) persistDeck(plan.deckId, updated);
+      },
+    });
   }, [plan, lifecycle]);
 
   const handleNotToday = useCallback((id: string) => {
@@ -557,6 +566,10 @@ export function DeckContainer() {
   }, [plan, enterFocusMode]);
 
   const handleSubtaskComplete = useCallback((itemId: string, subtaskId: string) => {
+    // Actually complete the child task (subtaskId IS the child task id), not just
+    // mark it locally. Optimistically reflect it; the tasks invalidation
+    // reconciles if the completion is rejected.
+    completeTask.mutate({ id: subtaskId });
     setPlan(prev => {
       if (!prev) return null;
       return {
@@ -568,7 +581,7 @@ export function DeckContainer() {
         ),
       };
     });
-  }, []);
+  }, [completeTask]);
 
   const handleSubtaskDefer = useCallback((itemId: string, subtaskId: string) => {
     setPlan(prev => {
@@ -593,7 +606,7 @@ export function DeckContainer() {
         title: subtask.title,
         project: item.parentTitle ? `${item.parentTitle}: ${item.title}` : item.title,
         context: item.rationale,
-        taskId: item.taskId,
+        taskId: subtaskId, // focus the CHILD task, not its parent
       });
     }
   }, [plan, enterFocusMode]);
