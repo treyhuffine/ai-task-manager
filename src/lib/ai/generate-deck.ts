@@ -24,6 +24,7 @@ import { tasks, areas, taskCompletions } from '@/lib/db/schema';
 import type { DeckItem, DeckChange, DeckOrigin } from '@/lib/db/schema';
 import type { DeckRecord } from '@/db/types';
 import { eq, and, or, desc, sql, isNull, isNotNull, gte, lte, inArray } from 'drizzle-orm';
+import { isReady, normalizeTaskStatus } from '@/lib/tasks/lifecycle';
 import { getLatestDeck, supersedeAndInsertDeck, getUserState } from '@/lib/db/queries';
 import { todayLocalDate } from '@/lib/deck/date';
 import {
@@ -132,10 +133,16 @@ export async function generateDeck(
   // stack (see the Deck/attention contract). Recurrence readiness is the
   // next-occurrence-due check below.
   const nowIso = now.toISOString();
+  // SQL PREFILTER — cheap and loose. The authoritative Ready check is the
+  // canonical `isReady` predicate applied in JS below, so blocker-resolution
+  // (only a Done blocker resolves) and recurrence-due are decided in exactly one
+  // place. The SQL still excludes the clear non-candidates, including a
+  // future-recurring Todo (recurrence set and its next occurrence not yet due) so
+  // it cannot leak through the ordinary Todo query.
   const readyGate = and(
     eq(tasks.status, 'todo'),
-    isNull(tasks.blockedOn),
     or(isNull(tasks.resurfaceAfter), lte(tasks.resurfaceAfter, nowIso)),
+    or(isNull(tasks.recurrence), isNull(tasks.nextRecurrenceAt), lte(tasks.nextRecurrenceAt, nowIso)),
   );
 
   const activeTasks = db
@@ -171,7 +178,28 @@ export async function generateDeck(
   for (const t of deadlineTasks) taskMap.set(t.id, t);
   for (const t of recurringDue) taskMap.set(t.id, t);
 
-  const allTasks = Array.from(taskMap.values());
+  const candidates = Array.from(taskMap.values());
+  // AUTHORITATIVE Ready filter — the single source of truth for eligibility.
+  // Resolve each candidate's blocker once (only a Done blocker resolves; an open
+  // or archived blocker still blocks), then keep Ready Todo per the canonical
+  // predicate. Every downstream deck path derives from this set.
+  const blockerIds = candidates.map((t) => t.blockedOn).filter((b): b is string => !!b);
+  const blockerStatus = new Map<string, string>();
+  if (blockerIds.length > 0) {
+    for (const b of db.select({ id: tasks.id, status: tasks.status }).from(tasks).where(inArray(tasks.id, blockerIds)).all()) {
+      blockerStatus.set(b.id, b.status);
+    }
+  }
+  const allTasks = candidates.filter((t) =>
+    isReady({
+      status: normalizeTaskStatus(t.status),
+      hasUnresolvedBlocker: !!t.blockedOn && blockerStatus.get(t.blockedOn) !== 'done',
+      resurfaceAfter: t.resurfaceAfter ?? null,
+      recurrence: t.recurrence ?? null,
+      nextRecurrenceAt: t.nextRecurrenceAt ?? null,
+      now: nowIso,
+    }),
+  );
 
   const parentIds = allTasks.map((t) => t.id);
   const allSubtasks =
@@ -411,12 +439,31 @@ export async function generateDeck(
   // Build the change log (carried / deferred / dropped / added)
   // ═══════════════════════════════════════════════════════════════
 
-  const deckItems: DeckItem[] = aiResponse.items.map((item) => ({
-    taskId: item.taskId,
-    rationale: item.rationale,
-    continuityContext: item.continuityContext,
-    source: 'ai' as const,
-  }));
+  // Revalidate + dedupe every model-returned id against the EXACT eligible set
+  // (the authoritative Ready Todo tasks) before persistence — the model can
+  // hallucinate or repeat an id, and only genuinely-eligible tasks belong in the
+  // stack. This also naturally caps the stack at however many are eligible.
+  const eligibleIds = new Set(allTasks.map((t) => t.id));
+  const usedIds = new Set<string>();
+  const deckItems: DeckItem[] = aiResponse.items
+    .filter((item) => {
+      if (!eligibleIds.has(item.taskId) || usedIds.has(item.taskId)) return false;
+      usedIds.add(item.taskId);
+      return true;
+    })
+    .map((item) => ({
+      taskId: item.taskId,
+      rationale: item.rationale,
+      continuityContext: item.continuityContext,
+      source: 'ai' as const,
+    }));
+
+  // Alternatives are likewise eligible-only and never duplicate a stack item.
+  const validatedAlternatives = (aiResponse.alternatives ?? []).filter((alt) => {
+    if (!eligibleIds.has(alt.taskId) || usedIds.has(alt.taskId)) return false;
+    usedIds.add(alt.taskId);
+    return true;
+  });
 
   const prevIdSet = new Set(previousDeckItems.map((p) => p.taskId));
   const newItemIds = new Set(deckItems.map((i) => i.taskId));
@@ -480,7 +527,7 @@ export async function generateDeck(
     contextTags: generationContext.contextTags ?? [],
     framing: aiResponse.framing ?? null,
     items: deckItems,
-    alternatives: aiResponse.alternatives,
+    alternatives: validatedAlternatives,
     searchContext: gatheredBrief || searchContext || null,
     model,
     origin: opts.origin ?? 'manual',
