@@ -6,6 +6,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useAreas } from '@/hooks/use-areas';
+import { isClientReadyTodo } from '@/lib/deck/client-ready';
 import { DeckConductor } from './deck-conductor';
 import { CurrentWorkSection } from './current-work-section';
 import { DeckStack } from './deck-stack';
@@ -189,7 +190,7 @@ export function DeckContainer() {
 
   // ─── Fetch real data ──────────────────────────────────────────
 
-  const { data: tasks } = useTasks({ status: 'active', limit: 50 });
+  const { data: tasks } = useTasks({ status: 'active', limit: 300 });
   const { data: areas } = useAreas();
   const completeTask = useCompleteTask();
   const lifecycle = useTaskLifecycle();
@@ -297,37 +298,41 @@ export function DeckContainer() {
   // ─── Filtered items ─────────────────────────────────────────
 
   // Tasks that are In progress are shown by Current Work above the stack; a
-  // persisted deck item whose task has since started would otherwise appear in
-  // both places, so it is filtered out of the daily stack here.
-  const inProgressIds = useMemo(
-    () => new Set((tasks ?? []).filter(t => t.status === 'in_progress').map(t => t.id)),
-    [tasks],
-  );
+  // Reconcile the persisted Deck against Ready state on every render: a deck item
+  // (stack or alternative) is only shown while its task is still Ready Todo. This
+  // is the client half of the shared Ready predicate, so a task that has since
+  // become In progress, Done, Archived, blocked, deferred (resurfaceAfter), or
+  // future-recurring drops out immediately, in both the stack and alternatives.
+  // A persisted item whose task is no longer in the active set (retired) drops.
+  const readyTaskIds = useMemo(() => {
+    return new Set((tasks ?? []).filter(t => isClientReadyTodo(t)).map(t => t.id));
+  }, [tasks]);
 
   const filteredItems = useMemo(() => {
     if (!plan) return [];
     return plan.items.filter(item => {
-      if (inProgressIds.has(item.taskId)) return false;
+      if (!readyTaskIds.has(item.taskId)) return false;
       if (areaFilter && item.areaId !== areaFilter) return false;
       if (workMode && item.energy !== workMode) return false;
       if (filterDueToday && calendarDaysUntil(item.hardDeadline) !== 0) return false;
       return true;
     });
-  }, [plan, areaFilter, workMode, filterDueToday, inProgressIds]);
+  }, [plan, areaFilter, workMode, filterDueToday, readyTaskIds]);
 
   const dueTodayCount = useMemo(() => {
     if (!plan) return 0;
-    return plan.items.filter(item => calendarDaysUntil(item.hardDeadline) === 0).length;
-  }, [plan]);
+    return plan.items.filter(item => readyTaskIds.has(item.taskId) && calendarDaysUntil(item.hardDeadline) === 0).length;
+  }, [plan, readyTaskIds]);
 
   const filteredAlternatives = useMemo(() => {
     if (!plan) return [];
     return plan.alternatives.filter(item => {
+      if (!readyTaskIds.has(item.taskId)) return false;
       if (areaFilter && item.areaId !== areaFilter) return false;
       if (workMode && item.energy !== workMode) return false;
       return true;
     });
-  }, [plan, areaFilter, workMode]);
+  }, [plan, areaFilter, workMode, readyTaskIds]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -368,7 +373,8 @@ export function DeckContainer() {
   const generateDeckFallback = useCallback(() => {
     if (!tasks) return;
 
-    const topLevel = tasks.filter(t => !t.parentId);
+    // Fallback draws from Ready Todo only, same as generation.
+    const topLevel = tasks.filter(t => !t.parentId && isClientReadyTodo(t));
     const deckTasks = topLevel.slice(0, 7);
     const altTasks = topLevel.slice(7, 12);
 

@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { parseLocalDate } from '@/lib/dates';
 import { useTasks } from '@/hooks/use-tasks';
 import { useAreas } from '@/hooks/use-areas';
+import { isClientReadyTodo } from '@/lib/deck/client-ready';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -45,7 +46,9 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
 
-    let result = tasks.filter(t => !t.parentId); // top-level only
+    // Only Ready Todo tasks can be added to the Deck (same shared predicate as
+    // generation): top-level, Todo, unblocked, not deferred, not future-recurring.
+    let result = tasks.filter(t => !t.parentId && isClientReadyTodo(t));
 
     if (query) {
       const q = query.toLowerCase();
