@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { reviewExecutionOutput, acceptOutputAndCompleteTask, getExecutionReviewContext, getExecutionTasks } from '@/lib/db/queries';
+import { reviewExecutionOutput, acceptOutputAndCompleteTask, getExecutionTasks } from '@/lib/db/queries';
 import { isTaskLifecycleError, isTerminal, normalizeTaskStatus, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 const DISPOSITIONS = new Set(['accepted', 'changes_requested', 'dismissed']);
@@ -24,10 +24,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return Response.json({ error: `Unknown disposition: ${String(body.disposition)}`, code: 'invalid_params' }, { status: 422 });
     }
 
-    const ctx = getExecutionReviewContext(id);
-    const outputEventId = typeof body.outputEventId === 'string' ? body.outputEventId : ctx.latestOutputEventId;
+    // The exact output event is required — never silently defaulted to "latest",
+    // so a review always disposes the event the caller actually saw.
+    const outputEventId = typeof body.outputEventId === 'string' ? body.outputEventId : null;
     if (!outputEventId) {
-      return Response.json({ error: 'No output event to review yet.', code: 'invalid_params' }, { status: 422 });
+      return Response.json({ error: 'outputEventId is required (the exact output being reviewed).', code: 'invalid_params' }, { status: 422 });
     }
 
     const wantsComplete = body.completeTask === true && body.disposition === 'accepted';

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Check, CheckCheck, MessageSquareDashed, EyeOff, Loader2 } from 'lucide-react';
 import { api, apiErrorText } from '@/lib/api/client';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import type { ExecutionReviewContext, ReviewDisposition } from '@/db/types';
 import { cn } from '@/lib/utils';
 
@@ -29,14 +30,24 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
     staleTime: 8_000,
   });
 
+  // The execution's associated tasks, so Accept-and-complete can offer a chooser
+  // when several are associated instead of hiding the action.
+  const { data: linkedTasks } = useQuery({
+    queryKey: ['executions', executionId, 'tasks'],
+    queryFn: () => api.get<{ id: string; title: string; status: string }[]>(`/executions/${executionId}/tasks`),
+    staleTime: 8_000,
+  });
+  const eligible = (linkedTasks ?? []).filter((t) => t.status !== 'done' && t.status !== 'archived');
+
   const review = useMutation({
-    mutationFn: (input: { disposition: ReviewDisposition; completeTask?: boolean }) =>
+    mutationFn: (input: { disposition: ReviewDisposition; completeTask?: boolean; taskId?: string }) =>
       // Send the exact output event this bar is showing, not "whatever is latest
       // at click time" — otherwise output arriving between render and click would
       // be dispositioned instead of the one the human actually reviewed.
       api.post(`/executions/${executionId}/review`, { ...input, outputEventId: ctx?.latestOutputEventId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['executions', executionId, 'review-context'] });
+      qc.invalidateQueries({ queryKey: ['executions', executionId, 'tasks'] });
       qc.invalidateQueries({ queryKey: ['tasks'] });
     },
     onError: (e) => toast.error(apiErrorText(e)),
@@ -91,16 +102,42 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
           icon={<Check size={12} />}
           tone="emerald"
         />
-        {ctx.owningTaskId && (
+        {eligible.length === 1 && (
           <ReviewButton
             label="Accept & complete"
             active={false}
             disabled={pending}
-            onClick={() => review.mutate({ disposition: 'accepted', completeTask: true })}
+            onClick={() => review.mutate({ disposition: 'accepted', completeTask: true, taskId: eligible[0].id })}
             icon={<CheckCheck size={12} />}
             tone="emerald-solid"
-            title={ctx.owningTaskTitle ? `Accept and complete “${ctx.owningTaskTitle}”` : 'Accept and complete the task'}
+            title={`Accept and complete “${eligible[0].title || 'the task'}”`}
           />
+        )}
+        {eligible.length > 1 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                disabled={pending}
+                title="Accept the output and complete one of the tasks this workstream is working"
+                className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+              >
+                <CheckCheck size={12} />
+                Accept & complete…
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-w-xs">
+              <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Complete which task?</div>
+              {eligible.map((t) => (
+                <DropdownMenuItem
+                  key={t.id}
+                  className="text-xs"
+                  onClick={() => review.mutate({ disposition: 'accepted', completeTask: true, taskId: t.id })}
+                >
+                  <span className="truncate">{t.title || 'Untitled'}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
     </div>

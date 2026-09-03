@@ -1563,24 +1563,27 @@ export function getExecutionReviews(executionId: string): ExecutionReviewRecord[
  */
 function latestReviewableOutputEvent(sessionIds: string[]): { id: string; createdAt: string } | null {
   if (sessionIds.length === 0) return null;
-  const rows = getDb()
-    .select({
-      id: chatEvents.id,
-      sessionId: chatEvents.sessionId,
-      parentCallId: chatEvents.externalParentToolCallId,
-      createdAt: chatEvents.createdAt,
-    })
+  // The newest outcome event that is NOT nested subagent narration, decided in
+  // SQL (a correlated NOT EXISTS against the launching tool_call) so no row cap
+  // can let enough nested output hide the real top-level result. Kept in sync
+  // with isSubagentTool.
+  const row = getDb()
+    .select({ id: chatEvents.id, createdAt: chatEvents.createdAt })
     .from(chatEvents)
-    .where(and(inArray(chatEvents.sessionId, sessionIds), inArray(chatEvents.source, [...OUTCOME_SOURCES])))
+    .where(
+      and(
+        inArray(chatEvents.sessionId, sessionIds),
+        inArray(chatEvents.source, [...OUTCOME_SOURCES]),
+        or(
+          isNull(chatEvents.externalParentToolCallId),
+          sql`NOT EXISTS (SELECT 1 FROM chat_events sub WHERE sub.session_id = ${chatEvents.sessionId} AND sub.external_tool_call_id = ${chatEvents.externalParentToolCallId} AND sub.source = 'tool_call' AND sub.tool_name IN ('Task', 'Agent', 'spawn_agent'))`,
+        ),
+      ),
+    )
     .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
-    .limit(30)
-    .all();
-  for (const r of rows) {
-    if (!r.parentCallId || !isSubagentLaunchCall(r.sessionId, r.parentCallId)) {
-      return { id: r.id, createdAt: r.createdAt };
-    }
-  }
-  return null;
+    .limit(1)
+    .get();
+  return row ? { id: row.id, createdAt: row.createdAt } : null;
 }
 
 function executionSessionIds(executionId: string): string[] {

@@ -19,6 +19,9 @@ function truncate(text: string, max: number): string {
 }
 
 export interface CondensedEvent {
+  /** The chat_event id. An overseeing agent needs it to review the exact output
+   * (review_execution takes an outputEventId), and to reference a specific row. */
+  id: string;
   at: string;
   /** user | agent | tool_call | tool_result | result | error | permission_request | question_request | … */
   kind: string;
@@ -44,7 +47,7 @@ export function condenseEvents(events: ChatEventRecord[]): CondensedEvent[] {
   const out: CondensedEvent[] = [];
   for (const e of events) {
     if (DROP_SOURCES.has(e.source)) continue;
-    const row: CondensedEvent = { at: e.createdAt, kind: e.source };
+    const row: CondensedEvent = { id: e.id, at: e.createdAt, kind: e.source };
     // Mark nested work so an overseeing agent doesn't read a subagent's
     // narration as the session's own answer. Reading a session mid-fan-out
     // otherwise returns dozens of rows that look identical to the reply.
