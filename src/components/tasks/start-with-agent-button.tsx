@@ -34,13 +34,29 @@ export function StartWithAgentButton({
   const live = task.status === 'in_progress';
   const label = live ? 'Continue with agent' : 'Start with agent';
 
-  const onClick = () =>
+  const onClick = () => {
+    const fullBody = (task.body ?? '').trim();
+    const excerpt = (task.bodyExcerpt ?? '').trim();
+    const desc = (task.description ?? '').trim();
+    // The complete body IS the spec — a short description must never replace it.
+    // Prefer the full body; fall back to the excerpt when a list row only
+    // carries one (the agent can still fetch the full body via get_task).
+    const spec = fullBody || excerpt;
+    // A durable, resolvable reference so the agent knows exactly which task it is
+    // working, can read the full spec, and can change its lifecycle.
+    const reference =
+      `You are working on task "${task.title}" — durable id ${task.id} (reference it as [[task:${task.id}]]). ` +
+      `Use get_task for the complete spec, and complete_task / transition_task to change its lifecycle.`;
+    const contextBody = [reference, desc, spec]
+      .filter((s, i, arr) => s && arr.indexOf(s) === i) // drop blanks + duplicates
+      .join('\n\n');
     openLauncher({
       taskId: task.id,
       workspaceId: task.workspaceId ?? undefined,
       contextTitle: task.title,
-      contextBody: task.description || task.body || task.bodyExcerpt || '',
+      contextBody,
     });
+  };
 
   if (variant === 'icon') {
     return (

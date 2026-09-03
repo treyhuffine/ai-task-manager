@@ -233,12 +233,7 @@ async function readUntrackedStats(worktreePath: string): Promise<WorktreeDiffSta
   return { files, additions, deletions: 0 };
 }
 
-/**
- * Diff stats for one worktree, or null when they can't be determined — the
- * worktree is gone from disk (archived, another device, deleted by hand) or no
- * anchor ref resolves. Never throws.
- */
-export async function readWorktreeDiffStats(
+async function computeWorktreeDiffStats(
   target: DiffStatsTarget,
 ): Promise<WorktreeDiffStats | null> {
   const { worktreePath } = target;
@@ -263,4 +258,59 @@ export async function readWorktreeDiffStats(
     additions: tracked.additions + untracked.additions,
     deletions: tracked.deletions + untracked.deletions,
   };
+}
+
+/**
+ * In-flight computations, keyed by the exact inputs that determine the result.
+ * A second caller that arrives while the same measurement is still running
+ * awaits the running promise instead of forking its own `git` processes.
+ *
+ * This is the server-side twin of TanStack Query's per-key fetch dedup: the
+ * client coalesces every rail row's badge request into batched POSTs, but two
+ * *independent* callers still reach the git layer separately — a second browser
+ * tab, the single-session GET route firing while the batch POST is mid-flight,
+ * or a window-focus refetch landing before the previous batch settled. Diff
+ * stats are the heaviest read the rail issues (two `git` spawns plus a disk
+ * read per untracked file), and they are exactly the requests that pile up
+ * "multiple at once", so collapsing concurrent duplicates is where the spawn
+ * savings are.
+ *
+ * Deliberately NOT a time-to-live cache. The badge has to move the instant an
+ * agent writes a file, and a TTL would stall it for the TTL window. Sharing
+ * only the *in-flight* promise never serves a result older than "computed just
+ * now", so freshness is identical to computing every call — we only avoid
+ * running the same measurement twice at the same moment.
+ */
+const inFlight = new Map<string, Promise<WorktreeDiffStats | null>>();
+
+/** Every input that changes the result participates in the identity. */
+function diffStatsKey(target: DiffStatsTarget): string {
+  return [target.worktreePath, target.baseBranch, target.baseSha, target.inPlace ? 1 : 0].join(
+    ' ',
+  );
+}
+
+/**
+ * Diff stats for one worktree, or null when they can't be determined — the
+ * worktree is gone from disk (archived, another device, deleted by hand) or no
+ * anchor ref resolves. Never throws.
+ *
+ * Concurrent calls with identical inputs share one computation; see `inFlight`.
+ */
+export function readWorktreeDiffStats(
+  target: DiffStatsTarget,
+): Promise<WorktreeDiffStats | null> {
+  const key = diffStatsKey(target);
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+
+  // `.finally` clears the slot on both fulfilment and rejection, so a failed
+  // measurement can't wedge every future caller onto a permanently-rejected
+  // promise. A caller that arrives in the tick between settle and cleanup gets
+  // the just-settled promise, which resolves immediately with a fresh value.
+  const promise = computeWorktreeDiffStats(target).finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, promise);
+  return promise;
 }

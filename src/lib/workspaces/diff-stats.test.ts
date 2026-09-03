@@ -258,6 +258,54 @@ describe('readWorktreeDiffStats', () => {
   }, TIMEOUT_MS);
 });
 
+describe('readWorktreeDiffStats coalescing', () => {
+  it('shares one in-flight computation across concurrent identical calls', async () => {
+    git('checkout', '-qb', 'feat');
+    write('a.txt', 'one\ntwo\nthree\nfour\n');
+    const baseSha = git('rev-parse', 'main');
+    const target = { worktreePath: repo, baseBranch: 'main', baseSha, inPlace: false };
+
+    const p1 = readWorktreeDiffStats(target);
+    // A distinct object with equal inputs, issued before the first settles:
+    // it must ride the first promise rather than fork its own git processes.
+    const p2 = readWorktreeDiffStats({ ...target });
+    expect(p1).toBe(p2);
+    expect(await p1).toEqual({ files: 1, additions: 1, deletions: 0 });
+  }, TIMEOUT_MS);
+
+  it('does not coalesce calls whose inputs differ', async () => {
+    const baseSha = git('rev-parse', 'main');
+    const p1 = readWorktreeDiffStats({
+      worktreePath: repo,
+      baseBranch: 'main',
+      baseSha,
+      inPlace: false,
+    });
+    // `inPlace` flips which ref anchors the diff, so the result can differ —
+    // these must not share a computation.
+    const p2 = readWorktreeDiffStats({
+      worktreePath: repo,
+      baseBranch: 'main',
+      baseSha,
+      inPlace: true,
+    });
+    expect(p1).not.toBe(p2);
+    await Promise.all([p1, p2]);
+  }, TIMEOUT_MS);
+
+  it('clears the shared slot after settling so a later call recomputes', async () => {
+    const baseSha = git('rev-parse', 'main');
+    const target = { worktreePath: repo, baseBranch: 'main', baseSha, inPlace: false };
+    const first = readWorktreeDiffStats(target);
+    await first;
+    // The first has settled and released the slot, so this is a fresh run,
+    // free to observe changes that landed in between.
+    const second = readWorktreeDiffStats(target);
+    expect(second).not.toBe(first);
+    await second;
+  }, TIMEOUT_MS);
+});
+
 describe('mapWithConcurrency', () => {
   it('preserves input order regardless of completion order', async () => {
     const out = await mapWithConcurrency([30, 10, 20, 0], 2, async (ms, i) => {
