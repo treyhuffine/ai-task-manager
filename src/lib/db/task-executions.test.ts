@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { coordinateLifecycleChange } from '@/lib/sessions/workstream';
 
 const TEST_DB = path.join(os.tmpdir(), `flow-task-exec-test-${process.pid}.db`);
 
@@ -15,6 +16,15 @@ function cleanup() {
 /** The stable lifecycle error code off a thrown error, if any. */
 function codeOf(e: unknown): string | undefined {
   return (e as { code?: string })?.code;
+}
+
+interface CoordDetails {
+  requiresChoice?: boolean;
+  stopFailed?: boolean;
+  running?: { executionId: string; otherTasks: { id: string; title: string; status: string }[] }[];
+}
+function detailsOf(e: unknown): CoordDetails | undefined {
+  return (e as { details?: CoordDetails })?.details;
 }
 
 beforeEach(() => {
@@ -64,113 +74,94 @@ describe('task-owned executions', () => {
     expect(q.detachExecutionFromTask(exec.id, other.id)).toBe(false);
   });
 
-  it('blocks archiving a task with a live owning execution, unless coordinated', async () => {
-    const { q, wsId } = await setup();
-    const task = q.createTask({ title: 'Owned task', rawInput: 'x' });
-    const exec = q.createExecution({ workspaceId: wsId });
-    q.attachExecutionToTask(exec.id, task.id);
-
-    // Archive is refused while an agent owns and is live.
-    let code: string | undefined;
-    try {
-      q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a1' });
-    } catch (e) {
-      code = codeOf(e);
-    }
-    expect(code).toBe('active_execution');
-    expect(q.getTask(task.id)!.status).not.toBe('archived');
-
-    // Coordinated stop archives the execution AND the task together.
-    const out = q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a2', stopOwningExecutions: true });
-    expect(out.toStatus).toBe('archived');
-    expect(q.getExecution(exec.id)!.status).toBe('archived');
-    expect(q.getTaskLifecycleSignals(task.id).hasLiveExecution).toBe(false);
-  });
-
-  it('blocks completing a task with a live owning execution', async () => {
-    const { q, wsId } = await setup();
-    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
-    const exec = q.createExecution({ workspaceId: wsId });
-    q.attachExecutionToTask(exec.id, task.id);
-    let code: string | undefined;
-    try {
-      q.completeTask(task.id, { idempotencyKey: 'c1' });
-    } catch (e) {
-      code = codeOf(e);
-    }
-    expect(code).toBe('active_execution');
-  });
-
-  it('accept-and-complete: stopOwningExecutions completes the task, stops the owner, and reports it', async () => {
+  it('task lifecycle is independent of execution lifecycle', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'Owned', rawInput: 'x' });
     const exec = q.createExecution({ workspaceId: wsId });
     q.attachExecutionToTask(exec.id, task.id);
 
-    const result = q.completeTask(task.id, { idempotencyKey: 'cc1', stopOwningExecutions: true });
-    expect(result?.toStatus).toBe('done');
-    // The coordinated stop reports the execution it displaced (the route reaps
-    // its runtime after commit) and the row is durably archived in the same tx.
-    expect(result?.stoppedExecutionIds).toEqual([exec.id]);
-    expect(q.getExecution(exec.id)?.status).toBe('archived');
-    // No live owner remains -> nothing more to reap.
-    expect(q.getTaskLifecycleSignals(task.id).hasLiveExecution).toBe(false);
+    // Completing / archiving / returning the task never blocks on, stops, or
+    // detaches the associated execution — the association is durable context.
+    const done = q.completeTask(task.id, { idempotencyKey: 'c1' });
+    expect(done?.toStatus).toBe('done');
+    expect(q.getExecution(exec.id)?.status).toBe('active');
+    expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]);
+
+    q.transitionTask({ taskId: task.id, command: 'reopen', idempotencyKey: 'r1' });
+    q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a1' });
+    expect(q.getExecution(exec.id)?.status).toBe('active'); // still running
+    expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]); // still associated
   });
 
-  it('archive with stopOwningExecutions reports the stopped owner; without it, refuses', async () => {
+  it('coordination requires an explicit choice for a genuinely running workstream', async () => {
     const { q, wsId } = await setup();
-    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
-    const exec = q.createExecution({ workspaceId: wsId });
-    q.attachExecutionToTask(exec.id, task.id);
-
-    let code: string | undefined;
-    try {
-      q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a0' });
-    } catch (e) {
-      code = codeOf(e);
-    }
-    expect(code).toBe('active_execution');
-
-    const result = q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a1', stopOwningExecutions: true });
-    expect(result.toStatus).toBe('archived');
-    expect(result.stoppedExecutionIds).toEqual([exec.id]);
-    expect(q.getExecution(exec.id)?.status).toBe('archived');
-  });
-
-  it('a coordinated stop releases only the changed task; a shared execution keeps running', async () => {
-    const { q, wsId } = await setup();
+    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const a = q.createTask({ title: 'A', rawInput: 'a' });
     const b = q.createTask({ title: 'B', rawInput: 'b' });
     const exec = q.createExecution({ workspaceId: wsId });
-    // One execution coordinating two tasks (a batch with shared context).
+    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     q.attachExecutionToTask(exec.id, a.id);
     q.attachExecutionToTask(exec.id, b.id);
 
-    // Completing A with a coordinated stop must NOT kill the execution still
-    // working B — it releases only A's claim.
-    const result = q.completeTask(a.id, { idempotencyKey: 'ca', stopOwningExecutions: true });
-    expect(result?.toStatus).toBe('done');
-    expect(result?.stoppedExecutionIds).toEqual([]); // nothing stopped -> nothing to reap
-    expect(q.getExecution(exec.id)?.status).toBe('active'); // still running
-    expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([b.id]); // only B remains claimed
-    expect(q.getTaskLifecycleSignals(a.id).hasLiveExecution).toBe(false); // A released
+    const notified: string[] = [];
+    let stopFail = false;
+    const runtime = {
+      async runningSessionIds() { return [session.id]; },
+      async stopExecution() { return stopFail ? { ok: false, failures: ['boom'] } : { ok: true, failures: [] }; },
+      async notify(executionId: string) { notified.push(executionId); },
+    };
 
-    // Now B is the sole task: stopping for B archives the execution.
-    const rb = q.transitionTask({ taskId: b.id, command: 'archive', idempotencyKey: 'ab', stopOwningExecutions: true });
-    expect(rb.stoppedExecutionIds).toEqual([exec.id]);
-    expect(q.getExecution(exec.id)?.status).toBe('archived');
+    // No choice -> requiresChoice conflict, disclosing the running workstream and
+    // its collateral task B.
+    let details: CoordDetails | undefined;
+    try {
+      await coordinateLifecycleChange({ taskId: a.id, kind: 'displace', runtime });
+    } catch (e) {
+      details = detailsOf(e);
+      expect(codeOf(e)).toBe('active_execution');
+    }
+    expect(details?.requiresChoice).toBe(true);
+    expect(details?.running?.[0]?.executionId).toBe(exec.id);
+    expect(details?.running?.[0]?.otherTasks?.map((t) => t.id)).toEqual([b.id]);
+
+    // keep_running -> notifies, proceeds.
+    await coordinateLifecycleChange({ taskId: a.id, kind: 'displace', choice: 'keep_running', change: { taskId: a.id, taskTitle: 'A', action: 'completed' }, runtime });
+    expect(notified).toEqual([exec.id]);
+
+    // stop_running_agent success -> proceeds; failure -> throws and blocks.
+    await coordinateLifecycleChange({ taskId: a.id, kind: 'displace', choice: 'stop_running_agent', runtime });
+    stopFail = true;
+    let stopFailed = false;
+    try {
+      await coordinateLifecycleChange({ taskId: a.id, kind: 'displace', choice: 'stop_running_agent', runtime });
+    } catch (e) {
+      stopFailed = detailsOf(e)?.stopFailed === true;
+    }
+    expect(stopFailed).toBe(true);
+
+    // Move to Consider is a hard reject while running (no keep/stop choice).
+    let uncommitCode: string | undefined;
+    try {
+      await coordinateLifecycleChange({ taskId: a.id, kind: 'uncommit', runtime });
+    } catch (e) {
+      uncommitCode = codeOf(e);
+    }
+    expect(uncommitCode).toBe('active_execution');
   });
 
-  it('a replay reports no newly stopped executions', async () => {
+  it('coordination is a no-op when nothing is genuinely running', async () => {
     const { q, wsId } = await setup();
-    const task = q.createTask({ title: 'Owned', rawInput: 'x' });
+    const task = q.createTask({ title: 'A', rawInput: 'a' });
     const exec = q.createExecution({ workspaceId: wsId });
     q.attachExecutionToTask(exec.id, task.id);
-    const first = q.completeTask(task.id, { idempotencyKey: 'dup', stopOwningExecutions: true });
-    expect(first?.stoppedExecutionIds).toEqual([exec.id]);
-    const replay = q.completeTask(task.id, { idempotencyKey: 'dup', stopOwningExecutions: true });
-    expect(replay?.replayed).toBe(true);
-    expect(replay?.stoppedExecutionIds).toEqual([]);
+    const runtime = {
+      async runningSessionIds() { return []; }, // associated but not running
+      async stopExecution() { return { ok: true, failures: [] }; },
+      async notify() {},
+    };
+    // No throw, no choice needed — an association is not live work.
+    await coordinateLifecycleChange({ taskId: task.id, kind: 'displace', runtime });
+    await coordinateLifecycleChange({ taskId: task.id, kind: 'uncommit', runtime });
   });
 
   it('rejects commitment-bearing fields on a Consider task, allows clearing and plain edits', async () => {
@@ -222,25 +213,20 @@ describe('task-owned executions', () => {
     expect(code).toBe('consider_precondition');
   });
 
-  it('return_to_todo is refused over a live owning execution unless coordinated', async () => {
+  it('return_to_todo at the DB layer is pure — it never touches the execution', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'Owned', rawInput: 'x' });
     q.transitionTask({ taskId: task.id, command: 'start', idempotencyKey: 's1' });
     const exec = q.createExecution({ workspaceId: wsId });
     q.attachExecutionToTask(exec.id, task.id);
 
-    let code: string | undefined;
-    try {
-      q.transitionTask({ taskId: task.id, command: 'return_to_todo', idempotencyKey: 'rt0' });
-    } catch (e) {
-      code = codeOf(e);
-    }
-    expect(code).toBe('active_execution');
-
-    const out = q.transitionTask({ taskId: task.id, command: 'return_to_todo', idempotencyKey: 'rt1', stopOwningExecutions: true });
+    // The runtime keep/stop choice is coordinated at the route; the durable
+    // transition itself just returns the task to Todo and leaves the execution
+    // and its association intact.
+    const out = q.transitionTask({ taskId: task.id, command: 'return_to_todo', idempotencyKey: 'rt1' });
     expect(out.toStatus).toBe('todo');
-    expect(out.stoppedExecutionIds).toEqual([exec.id]);
-    expect(q.getExecution(exec.id)?.status).toBe('archived');
+    expect(q.getExecution(exec.id)?.status).toBe('active');
+    expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]);
   });
 
   it('an archived blocker keeps the dependent blocked; only Done resolves it', async () => {

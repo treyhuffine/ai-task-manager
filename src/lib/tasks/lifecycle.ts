@@ -229,7 +229,6 @@ export interface ConsiderPreconditionInputs {
   reminderAt: string | null;
   recurrence: string | null;
   hasUnresolvedBlocker: boolean;
-  hasLiveOwningExecution: boolean;
 }
 
 /**
@@ -244,7 +243,6 @@ export function considerBlockers(i: ConsiderPreconditionInputs): string[] {
   if (i.reminderAt) reasons.push('a reminder');
   if (i.recurrence) reasons.push('a recurrence');
   if (i.hasUnresolvedBlocker) reasons.push('an unresolved blocker');
-  if (i.hasLiveOwningExecution) reasons.push('a live owning execution');
   return reasons;
 }
 

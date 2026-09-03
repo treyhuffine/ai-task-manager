@@ -1,17 +1,19 @@
 import type { NextRequest } from 'next/server';
-import { reviewExecutionOutput, completeTask, getExecutionReviewContext } from '@/lib/db/queries';
-import { reapStoppedExecutions } from '@/lib/sessions/dispatch';
-import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
+import { reviewExecutionOutput, completeTask, getExecutionReviewContext, getExecutionTasks } from '@/lib/db/queries';
+import { isTaskLifecycleError, isTerminal, normalizeTaskStatus, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 const DISPOSITIONS = new Set(['accepted', 'changes_requested', 'dismissed']);
 
 /**
- * Record a review disposition against an execution's output event. Reading is
- * NOT review — this is the explicit disposition. Body:
- *   { disposition, outputEventId?, note?, completeTask? }
- * `outputEventId` defaults to the execution's latest output event. When
- * `completeTask` is true and the execution owns exactly one task, that task is
- * completed too (Accept-and-complete).
+ * Record a review disposition against an execution's exact output event. Reading
+ * is NOT review — this is the explicit disposition. Body:
+ *   { disposition, outputEventId?, note?, completeTask?, taskId? }
+ *
+ * Review is execution-level and exact-event-based: accepting output changes no
+ * task by itself. Accept-and-complete is a convenience compound command — it
+ * names ONE eligible associated task, records the review AND completes just that
+ * task, leaves every other associated task unchanged, and keeps the execution
+ * running (it never stops or detaches the workstream).
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -28,6 +30,66 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return Response.json({ error: 'No output event to review yet.', code: 'invalid_params' }, { status: 422 });
     }
 
+    const wantsComplete = body.completeTask === true && body.disposition === 'accepted';
+
+    // Accept-and-complete: resolve and validate the single target task, and
+    // guard against completing over newer output — BEFORE recording anything,
+    // so a conflict records neither the acceptance nor the completion.
+    let targetTaskId: string | null = null;
+    if (wantsComplete) {
+      const associated = getExecutionTasks(id);
+      const eligible = associated.filter((t) => !isTerminal(normalizeTaskStatus(t.status)));
+      const explicit = typeof body.taskId === 'string' ? body.taskId : null;
+      if (explicit) {
+        const match = eligible.find((t) => t.id === explicit);
+        if (!match) {
+          return Response.json(
+            { error: 'That task is not an eligible associated task of this execution.', code: 'invalid_params' },
+            { status: 422 },
+          );
+        }
+        targetTaskId = explicit;
+      } else if (eligible.length === 1) {
+        targetTaskId = eligible[0].id;
+      } else {
+        return Response.json(
+          {
+            error: eligible.length === 0
+              ? 'This execution has no eligible associated task to complete.'
+              : 'This execution has several associated tasks. Name the taskId to complete.',
+            code: 'invalid_params',
+            eligibleTaskIds: eligible.map((t) => t.id),
+          },
+          { status: 422 },
+        );
+      }
+
+      // The accepted event must still be the latest reviewable output — newer
+      // output means an unresolved obligation completion would bury.
+      if (ctx.latestOutputEventId && ctx.latestOutputEventId !== outputEventId) {
+        return Response.json(
+          {
+            error: 'Newer output arrived after the event you accepted. Review the latest output before completing.',
+            code: 'conflict',
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    // Complete first, then record the acceptance: a completion conflict records
+    // neither half, and the benign residual (task done, acceptance not yet
+    // recorded) is preferable to accepted-but-not-done. The execution is never
+    // stopped or detached — task lifecycle is independent of the workstream.
+    let task = null;
+    if (wantsComplete && targetTaskId) {
+      const result = completeTask(targetTaskId, {
+        idempotencyKey: `accept-and-complete:${outputEventId}:${targetTaskId}`,
+        meta: { source: 'human', executionId: id },
+      });
+      task = result?.task ?? null;
+    }
+
     const review = reviewExecutionOutput({
       executionId: id,
       outputEventId,
@@ -36,39 +98,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       actorSource: 'human',
     });
 
-    let task = null;
-    if (body.completeTask === true && body.disposition === 'accepted' && ctx.owningTaskId) {
-      // Do not complete over newer, unreviewed output: if fresh output arrived
-      // after the event just accepted, the accepted event is no longer the
-      // latest, so completing would silently bury an unresolved obligation.
-      // Refuse and let the human review the newer output first.
-      const fresh = getExecutionReviewContext(id);
-      if (fresh.latestOutputEventId && fresh.latestOutputEventId !== outputEventId) {
-        return Response.json(
-          {
-            error: 'Newer output arrived after the event you accepted. Review the latest output before completing.',
-            code: 'conflict',
-            review,
-          },
-          { status: 409 },
-        );
-      }
-      // Accepting an agent's output ends its work, so Accept-and-complete stops
-      // the owning execution as part of completing (otherwise the live owning
-      // execution would block completion) and reaps its runtime after commit.
-      const result = completeTask(ctx.owningTaskId, {
-        idempotencyKey: `accept-and-complete:${outputEventId}`,
-        stopOwningExecutions: true,
-        meta: { source: 'human', executionId: id },
-      });
-      task = result?.task ?? null;
-      if (result) await reapStoppedExecutions(result.stoppedExecutionIds);
-    }
-
     return Response.json({ review, task });
   } catch (err) {
     if (isTaskLifecycleError(err)) {
-      return Response.json({ error: err.message, code: err.code }, { status: LIFECYCLE_ERROR_HTTP_STATUS[err.code] });
+      return Response.json({ error: err.message, code: err.code, details: err.details }, { status: LIFECYCLE_ERROR_HTTP_STATUS[err.code] });
     }
     console.error('[POST /api/executions/:id/review]', err);
     return Response.json({ error: String(err) }, { status: 400 });

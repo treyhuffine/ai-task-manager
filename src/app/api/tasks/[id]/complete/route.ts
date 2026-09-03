@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
-import { completeTask } from '@/lib/db/queries';
-import { reapStoppedExecutions } from '@/lib/sessions/dispatch';
+import { completeTask, getTask } from '@/lib/db/queries';
+import { coordinateLifecycleChange, type RuntimeChoice } from '@/lib/sessions/workstream';
+import { inProcessWorkstreamRuntime } from '@/lib/sessions/workstream-runtime';
 import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 export async function POST(
@@ -11,20 +12,35 @@ export async function POST(
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
 
+    const choice: RuntimeChoice | undefined =
+      body.runtimeChoice === 'keep_running' || body.runtimeChoice === 'stop_running_agent'
+        ? body.runtimeChoice
+        : undefined;
+
+    // Completing displaces current work: coordinate a genuinely running
+    // workstream first (keep_running vs stop_running_agent), without ever
+    // stopping or detaching a shared execution as a side effect.
+    const task = getTask(id);
+    if (task) {
+      await coordinateLifecycleChange({
+        taskId: id,
+        kind: 'displace',
+        choice,
+        change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
+        runtime: inProcessWorkstreamRuntime,
+      });
+    }
+
     const result = completeTask(id, {
       note: body.note,
       idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined,
       expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
-      stopOwningExecutions: body.stopOwningExecutions === true,
       meta: { source: 'human' },
     });
 
     if (!result) {
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
-
-    // Reap the runtime of any owning execution the coordinated stop displaced.
-    await reapStoppedExecutions(result.stoppedExecutionIds);
 
     return Response.json(result);
   } catch (err) {

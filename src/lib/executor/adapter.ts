@@ -805,8 +805,13 @@ export async function stopTask(
 /**
  * Tear down the cached AgentSession for a chat_session — used when we
  * archive the chat_session or want to force resume on next dispatch.
+ *
+ * Returns whether the underlying handle closed cleanly. Most callers ignore the
+ * result (best-effort recycling), but a coordinated "stop the running agent"
+ * needs to know honestly whether the process was actually torn down, so it can
+ * refuse to claim the agent stopped when the close failed.
  */
-export async function close(chatSessionId: string): Promise<void> {
+export async function close(chatSessionId: string): Promise<{ closed: boolean; error?: string }> {
   const handle = agentSessions.get(chatSessionId);
   agentSessions.delete(chatSessionId);
   sessionInventories.delete(chatSessionId);
@@ -819,8 +824,13 @@ export async function close(chatSessionId: string): Promise<void> {
   clearReferenceFolderInstructions(chatSessionId);
   rejectAllForSession(chatSessionId, 'Session closed');
   if (handle) {
-    try { await handle.close(); } catch { /* best-effort */ }
+    try {
+      await handle.close();
+    } catch (err) {
+      return { closed: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
+  return { closed: true };
 }
 
 /**

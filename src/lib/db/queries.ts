@@ -774,10 +774,6 @@ export interface TransitionTaskInput {
   /** Optimistic-concurrency guard: the status_changed_count the caller last
    * saw. If provided and stale, throws `conflict`. */
   expectedStatusChangedCount?: number;
-  /** Coordinated stop: archive any live owning execution as part of this same
-   * transaction before applying a terminal transition. Without it, archiving a
-   * task with a live owning execution throws `active_execution`. */
-  stopOwningExecutions?: boolean;
   meta?: LifecycleActorMeta;
 }
 
@@ -790,11 +786,6 @@ export interface LifecycleOutcome {
   nextRecurrenceAt?: string | null;
   /** True when an idempotent replay returned the original recorded result. */
   replayed: boolean;
-  /** Executions durably stopped by a coordinated stop as part of this command.
-   * Empty unless `stopOwningExecutions` displaced live work. The caller reaps
-   * their runtime (process + worktree) after the transaction commits; a replay
-   * always returns [] because nothing new was stopped. */
-  stoppedExecutionIds: string[];
 }
 
 /**
@@ -812,87 +803,6 @@ function isBlockerUnresolved(blockedOn: string | null | undefined): boolean {
   return normalizeTaskStatus(dep.status) !== 'done';
 }
 
-/**
- * Whether a non-archived agent execution owns this task. This is the durable
- * "live owning execution" signal used by the Consider precondition and the
- * terminal-transition guard. The finer runtime distinction (actively working
- * vs idle) is derived at the UI layer from session activity.
- */
-function hasLiveOwningExecution(taskId: string): boolean {
-  const row = getDb()
-    .select({ id: executions.id })
-    .from(executions)
-    .innerJoin(executionTasks, eq(executionTasks.executionId, executions.id))
-    .where(and(eq(executionTasks.taskId, taskId), eq(executions.status, 'active')))
-    .get();
-  return !!row;
-}
-
-/**
- * The coordinated-stop half of "Stop agent and change status", scoped to ONE
- * task. For each live execution owning this task:
- *   - if the execution also owns other tasks, RELEASE only this task's claim
- *     (detach the ownership row) and leave the execution running — completing or
- *     returning task A must never collateral-stop the agent still working tasks
- *     B..F on the same shared execution;
- *   - if this is the execution's sole task, it has nothing left to do, so stop
- *     it: archive the row (the DURABLE stopped state, committed in this
- *     transaction) and return its id so the caller reaps the runtime after
- *     commit (see `reapStoppedExecutions`).
- * Returns only the executions actually stopped (released-but-still-running ones
- * are not reaped).
- */
-function stopOwningExecutionsFor(taskId: string): string[] {
-  const now = new Date().toISOString();
-  const owners = getDb()
-    .select({ id: executionTasks.executionId })
-    .from(executionTasks)
-    .innerJoin(executions, eq(executions.id, executionTasks.executionId))
-    .where(and(eq(executionTasks.taskId, taskId), eq(executions.status, 'active')))
-    .all()
-    .map((r) => r.id);
-  if (owners.length === 0) return [];
-
-  const stopped: string[] = [];
-  for (const executionId of owners) {
-    const ownedCount = getDb()
-      .select({ n: sql<number>`COUNT(*)` })
-      .from(executionTasks)
-      .where(eq(executionTasks.executionId, executionId))
-      .get()?.n ?? 0;
-    if (ownedCount > 1) {
-      // Shared execution: release only this task's claim; keep it running.
-      getDb()
-        .delete(executionTasks)
-        .where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId)))
-        .run();
-    } else {
-      // Sole task: nothing left for the execution to do — stop it.
-      getDb()
-        .update(executions)
-        .set({ status: 'archived', archivedAt: now, pinnedAt: null, updatedAt: now })
-        .where(eq(executions.id, executionId))
-        .run();
-      stopped.push(executionId);
-    }
-  }
-  return stopped;
-}
-
-/** Throw active_execution unless the caller opted into a coordinated stop, in
- * which case stop the owning executions here and return the ids stopped (for
- * the caller to reap at runtime). Used before terminal transitions. */
-function guardLiveExecutions(taskId: string, stop: boolean | undefined, action: string): string[] {
-  if (!hasLiveOwningExecution(taskId)) return [];
-  if (stop) {
-    return stopOwningExecutionsFor(taskId);
-  }
-  throw new TaskLifecycleError(
-    'active_execution',
-    `An agent is working on this task. Stop it first, or ${action} and stop the agent together.`,
-    { taskId },
-  );
-}
 
 function recordLifecycleCommand(
   taskId: string,
@@ -958,7 +868,6 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
         recurring: res.recurring,
         nextRecurrenceAt: res.nextRecurrenceAt ?? null,
         replayed: true,
-        stoppedExecutionIds: [],
       };
     }
 
@@ -994,7 +903,6 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
         reminderAt: task.reminderAt ?? null,
         recurrence: task.recurrence ?? null,
         hasUnresolvedBlocker: isBlockerUnresolved(task.blockedOn),
-        hasLiveOwningExecution: hasLiveOwningExecution(taskId),
       });
       if (reasons.length) {
         throw new TaskLifecycleError(
@@ -1005,19 +913,10 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
       }
     }
 
-    // 5b. Archiving (terminal) and Return to Todo (leaving In progress) both
-    //     end the current work, so neither can displace a live owning execution
-    //     without an explicit coordinated stop — a live agent means the work is
-    //     still underway. Move to Consider is already covered by its own
-    //     precondition (a live owning execution is a Consider blocker).
-    let stoppedExecutionIds: string[] = [];
-    if (command === 'archive' || command === 'return_to_todo') {
-      stoppedExecutionIds = guardLiveExecutions(
-        taskId,
-        input.stopOwningExecutions,
-        command === 'archive' ? 'archive' : 'return it to Todo',
-      );
-    }
+    // Task lifecycle is independent of execution lifecycle. Displacing a
+    // genuinely running workstream (keep-running vs stop-agent) is coordinated
+    // at the route/runtime layer BEFORE this transaction — the durable
+    // transition here never stops, archives, or detaches an execution.
 
     // 6. Apply. Status change stamps a fresh lifecycle age and bumps revision.
     const to = targetState(command);
@@ -1040,7 +939,7 @@ export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
     recordLifecycleCommand(taskId, idempotencyKey, command, from, to, nextCount, input.meta, result);
     void syncEntity('task', taskId);
 
-    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: to, statusChangedCount: nextCount, replayed: false, stoppedExecutionIds };
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: to, statusChangedCount: nextCount, replayed: false };
   }, true);
 }
 
@@ -1048,8 +947,6 @@ export interface CompleteTaskInput {
   note?: string | null;
   idempotencyKey?: string;
   expectedStatusChangedCount?: number;
-  /** Coordinated stop of a live owning execution as part of completing. */
-  stopOwningExecutions?: boolean;
   meta?: LifecycleActorMeta;
 }
 
@@ -1079,7 +976,6 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
         recurring: res.recurring,
         nextRecurrenceAt: res.nextRecurrenceAt ?? null,
         replayed: true,
-        stoppedExecutionIds: [],
       };
     }
 
@@ -1104,11 +1000,10 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
       );
     }
 
-    // Completing is terminal — a live owning execution must be stopped first
-    // (or coordinated with stopOwningExecutions). Accept-and-complete relies on
-    // this: accepting an agent's output ends its work, so completion stops the
-    // owning execution in the same transaction and reaps it after commit.
-    const stoppedExecutionIds = guardLiveExecutions(id, input.stopOwningExecutions, 'complete');
+    // Task lifecycle is independent of execution lifecycle: completing a task
+    // never stops or detaches an execution still working other tasks. Any
+    // keep-running vs stop-agent coordination for a genuinely running workstream
+    // happens at the route/runtime layer before this transaction.
 
     const now = new Date().toISOString();
 
@@ -1151,7 +1046,7 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
       };
       recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'todo', nextCount, input.meta, result);
       void syncEntity('task', id);
-      return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'todo', statusChangedCount: nextCount, recurring: true, nextRecurrenceAt: nextDate, replayed: false, stoppedExecutionIds };
+      return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'todo', statusChangedCount: nextCount, recurring: true, nextRecurrenceAt: nextDate, replayed: false };
     }
 
     // Non-recurring: close it out.
@@ -1167,7 +1062,7 @@ export function completeTask(id: string, input: CompleteTaskInput = {}): Lifecyc
     const result: LifecycleCommandResult = { fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false };
     recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'done', nextCount, input.meta, result);
     void syncEntity('task', id);
-    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false, replayed: false, stoppedExecutionIds };
+    return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false, replayed: false };
   }, true);
 }
 
@@ -6591,6 +6486,28 @@ export function markRunFailed(
     errorCode: patch.errorCode,
     errorMessage: patch.errorMessage.slice(0, 2000),
     statusReason: patch.statusReason ?? null,
+  });
+}
+
+/**
+ * Mark a run cancelled — used when a human (or agent) stops a running agent
+ * turn as part of a coordinated "stop workstream and change task". A cancelled
+ * turn must never be recorded as a successful completion. Guarded to only affect
+ * a queued/running run, so it never overwrites a run that already finished.
+ */
+export function markRunCancelled(id: string, reason: string | null = null): RunRecord | null {
+  const current = getRun(id);
+  if (!current) return null;
+  if (current.status !== 'queued' && current.status !== 'running') return current;
+  const completedAt = new Date().toISOString();
+  const durationMs = current.startedAt
+    ? Math.max(0, new Date(completedAt).getTime() - new Date(current.startedAt).getTime())
+    : null;
+  return updateRun(id, {
+    status: 'cancelled',
+    completedAt,
+    durationMs,
+    statusReason: reason,
   });
 }
 

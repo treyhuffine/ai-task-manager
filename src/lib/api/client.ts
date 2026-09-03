@@ -57,6 +57,16 @@ export function apiErrorText(err: unknown): string {
 }
 
 /** Stable machine-facing error code from a route's `{ code }` field, when present. */
+/** The structured `details` an error envelope carried, if any (e.g. the running
+ * workstreams behind an `active_execution` conflict). */
+export function apiErrorDetails<T = unknown>(err: unknown): T | undefined {
+  if (err instanceof ApiError) {
+    const body = err.body as { details?: T } | null;
+    return body?.details;
+  }
+  return undefined;
+}
+
 export function apiErrorCode(err: unknown): string | undefined {
   if (err instanceof ApiError) {
     const body = err.body as { code?: string } | null;

@@ -1,13 +1,20 @@
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
-import { transitionTask } from '@/lib/db/queries';
-import { reapStoppedExecutions } from '@/lib/sessions/dispatch';
+import { transitionTask, getTask } from '@/lib/db/queries';
+import { coordinateLifecycleChange, type RuntimeChoice, type ScopeChange } from '@/lib/sessions/workstream';
+import { inProcessWorkstreamRuntime } from '@/lib/sessions/workstream-runtime';
 import { isTaskLifecycleError, isTransitionCommand, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 /**
  * Apply a semantic lifecycle transition to a task. The only HTTP path (besides
  * /complete) that changes lifecycle status — generic PATCH cannot. Body:
- *   { command, idempotencyKey?, expectedStatusChangedCount?, reason? }
+ *   { command, idempotencyKey?, expectedStatusChangedCount?, reason?, runtimeChoice? }
+ *
+ * Task lifecycle is independent of execution lifecycle. When Archive or Return
+ * to Todo would displace a genuinely running workstream (or Move to Consider is
+ * attempted while one runs), the change is coordinated FIRST: an unspecified
+ * `runtimeChoice` returns 409 with the running workstreams so the caller can
+ * choose keep_running or stop_running_agent.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -21,19 +28,38 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       );
     }
 
+    const command = body.command;
+    const choice: RuntimeChoice | undefined =
+      body.runtimeChoice === 'keep_running' || body.runtimeChoice === 'stop_running_agent'
+        ? body.runtimeChoice
+        : undefined;
+
+    // Coordinate the runtime side before the durable change. Only the commands
+    // that displace or uncommit current work need it.
+    if (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider') {
+      const task = getTask(id);
+      const change: ScopeChange | undefined =
+        command === 'archive'
+          ? { taskId: id, taskTitle: task?.title ?? '', action: 'archived' }
+          : command === 'return_to_todo'
+            ? { taskId: id, taskTitle: task?.title ?? '', action: 'returned to Todo' }
+            : undefined;
+      await coordinateLifecycleChange({
+        taskId: id,
+        kind: command === 'move_to_consider' ? 'uncommit' : 'displace',
+        choice,
+        change,
+        runtime: inProcessWorkstreamRuntime,
+      });
+    }
+
     const result = transitionTask({
       taskId: id,
-      command: body.command,
+      command,
       idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : uuidv7(),
       expectedStatusChangedCount: typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined,
-      stopOwningExecutions: body.stopOwningExecutions === true,
       meta: { source: 'human', reason: typeof body.reason === 'string' ? body.reason : null },
     });
-
-    // Reap the runtime of any execution the coordinated stop displaced, so
-    // "Stop agent and change status" actually terminates the agent (the DB
-    // already recorded it stopped inside the transaction).
-    await reapStoppedExecutions(result.stoppedExecutionIds);
 
     return Response.json(result);
   } catch (err) {

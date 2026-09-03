@@ -148,16 +148,27 @@ function lifecycleActor(ctx: ActionContext): LifecycleActorMeta {
 }
 
 /**
- * Reap the runtime (process + worktree) of executions a coordinated stop
- * displaced, so a CLI/MCP archive-or-complete with stop_owning_executions
- * actually stops the agent — not just marks it archived. Dynamically imported
- * so the CLI never eagerly loads the agent runtime unless a stop happened, and
- * best-effort so a reap failure never fails the already-committed transition.
+ * Coordinate the runtime side of a lifecycle change for the CLI/MCP surfaces,
+ * which do not own the live agent handles — running state and the stop/notify
+ * effects route through the server control path. Throws `ActionError` (via the
+ * lifecycle-error mapping) when a genuinely running workstream needs an explicit
+ * choice, or when a chosen stop failed, so the task is not changed.
  */
-async function reapStoppedForAction(ids: string[]): Promise<void> {
-  if (!ids?.length) return;
-  const mod = await import('@/lib/sessions/dispatch').catch(() => null);
-  if (mod) await mod.reapStoppedExecutions(ids);
+async function coordinateForAction(args: {
+  taskId: string;
+  kind: 'displace' | 'uncommit';
+  choice?: 'keep_running' | 'stop_running_agent';
+  change?: import('@/lib/sessions/workstream').ScopeChange;
+}): Promise<void> {
+  const [{ coordinateLifecycleChange }, { serverWorkstreamRuntime }] = await Promise.all([
+    import('@/lib/sessions/workstream'),
+    import('./server-client'),
+  ]);
+  try {
+    await coordinateLifecycleChange({ ...args, runtime: serverWorkstreamRuntime });
+  } catch (err) {
+    throwAsActionError(err);
+  }
 }
 
 /** Map a query-layer lifecycle error to the orchestrator envelope. */
@@ -309,21 +320,30 @@ const complete_task_action = defineAction({
     note: z.string().optional(),
     idempotency_key: z.string().min(1).optional(),
     expected_status_changed_count: z.number().int().nonnegative().optional(),
-    stop_owning_executions: z.boolean().optional(),
+    runtime_choice: z.enum(['keep_running', 'stop_running_agent']).optional()
+      .describe('Required when a genuinely running workstream is associated with this task: keep_running changes only the task (and tells the agent its scope changed), stop_running_agent stops the running turn first (preserving the execution).'),
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: async (ctx, { id, note, idempotency_key, expected_status_changed_count, stop_owning_executions }) => {
+  handler: async (ctx, { id, note, idempotency_key, expected_status_changed_count, runtime_choice }) => {
     try {
+      const task = getTask(id);
+      if (!task) throw new ActionError('not_found', `Task not found: ${id}`);
+      // Completing displaces current work: coordinate a genuinely running
+      // workstream first, without ever stopping or detaching a shared execution.
+      await coordinateForAction({
+        taskId: id,
+        kind: 'displace',
+        choice: runtime_choice,
+        change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
+      });
       const result = completeTask(id, {
         note,
         idempotencyKey: idempotency_key,
         expectedStatusChangedCount: expected_status_changed_count,
-        stopOwningExecutions: stop_owning_executions,
         meta: lifecycleActor(ctx),
       });
       if (!result) throw new ActionError('not_found', `Task not found: ${id}`);
-      await reapStoppedForAction(result.stoppedExecutionIds);
       return result;
     } catch (err) {
       if (err instanceof ActionError) throw err;
@@ -335,30 +355,47 @@ const complete_task_action = defineAction({
 const transition_task_action = defineAction({
   name: 'transition_task',
   description:
-    'Apply a semantic task lifecycle transition. Commands: move_to_todo (Consider->Todo, commit), move_to_consider (Todo->Consider, uncommit; rejected while the task has a deadline/recurrence/blocker/live execution), start (Consider|Todo->In progress), return_to_todo (In progress->Todo), reopen (Done->Todo), archive (Consider|Todo|In progress->Archived), restore (Archived->Todo). Use complete_task to finish. Safe under retry with the same idempotency_key; pass expected_status_changed_count for conflict detection.',
+    'Apply a semantic task lifecycle transition. Commands: move_to_todo (Consider->Todo, commit), move_to_consider (Todo->Consider, uncommit; rejected while the task has a deadline/recurrence/blocker or a genuinely running workstream), start (Consider|Todo->In progress), return_to_todo (In progress->Todo), reopen (Done->Todo), archive (Consider|Todo|In progress->Archived), restore (Archived->Todo). Task lifecycle is independent of execution lifecycle: a change never stops or detaches a shared execution. Use complete_task to finish. Safe under retry with the same idempotency_key; pass expected_status_changed_count for conflict detection.',
   params: {
     id: z.string().min(1),
     command: z.enum(TRANSITION_COMMANDS),
     idempotency_key: z.string().min(1).optional(),
     expected_status_changed_count: z.number().int().nonnegative().optional(),
-    stop_owning_executions: z.boolean().optional(),
+    runtime_choice: z.enum(['keep_running', 'stop_running_agent']).optional()
+      .describe('Required for archive/return_to_todo when a genuinely running workstream is associated: keep_running changes only the task, stop_running_agent stops the running turn first (preserving the execution).'),
     reason: z.string().optional(),
   },
   mutating: true,
   cli: { positional: ['id', 'command'] },
-  handler: async (ctx, { id, command, idempotency_key, expected_status_changed_count, stop_owning_executions, reason }) => {
+  handler: async (ctx, { id, command, idempotency_key, expected_status_changed_count, runtime_choice, reason }) => {
     try {
+      // Coordinate the runtime side of displacing/uncommitting commands before
+      // the durable change; other commands need no coordination.
+      if (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider') {
+        const task = getTask(id);
+        if (!task) throw new ActionError('not_found', `Task not found: ${id}`);
+        const change = command === 'archive'
+          ? { taskId: id, taskTitle: task.title ?? '', action: 'archived' as const }
+          : command === 'return_to_todo'
+            ? { taskId: id, taskTitle: task.title ?? '', action: 'returned to Todo' as const }
+            : undefined;
+        await coordinateForAction({
+          taskId: id,
+          kind: command === 'move_to_consider' ? 'uncommit' : 'displace',
+          choice: runtime_choice,
+          change,
+        });
+      }
       const result = transitionTask({
         taskId: id,
         command,
         idempotencyKey: idempotency_key ?? uuidv7(),
         expectedStatusChangedCount: expected_status_changed_count,
-        stopOwningExecutions: stop_owning_executions,
         meta: { ...lifecycleActor(ctx), reason: reason ?? null },
       });
-      await reapStoppedForAction(result.stoppedExecutionIds);
       return result;
     } catch (err) {
+      if (err instanceof ActionError) throw err;
       throwAsActionError(err);
     }
   },

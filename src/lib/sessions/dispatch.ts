@@ -577,50 +577,6 @@ export async function archiveExecutionSession(
   return getChatSessionWithExecution(args.sessionId);
 }
 
-/**
- * Reap the RUNTIME of executions a lifecycle command durably stopped (a
- * coordinated stop marks them archived inside the transaction and returns their
- * ids as `stoppedExecutionIds`). This kills their agent/terminal processes and
- * tears down their worktree — the side effect that makes "Stop agent and change
- * status" actually stop the agent instead of only recording that it did.
- *
- * Called by the transition / complete / review routes AFTER the lifecycle
- * transaction commits. Best-effort: the durable stopped state is already
- * committed, so a reap failure is logged rather than surfaced (the process is,
- * at worst, reaped on the next server restart).
- */
-export async function reapStoppedExecutions(executionIds: string[]): Promise<void> {
-  for (const executionId of executionIds) {
-    const sessions = listChatSessions({ executionId });
-
-    // 1. Kill the agent/terminal PROCESSES first. This is the part that must
-    //    happen for "stopped" to be true, so it cannot be gated behind the
-    //    worktree teardown below — a dirty worktree can make that fail, which
-    //    would otherwise leave the agent's subprocess running.
-    for (const s of sessions) {
-      try {
-        const full = getChatSessionWithExecution(s.id);
-        if (full) killAllForOwner(terminalOwnerId(full));
-        await closeAgentSession(s.id);
-      } catch (err) {
-        console.error('[dispatch] reap: process teardown failed for session', s.id, err);
-      }
-    }
-
-    // 2. Then tear down the worktree and finalize archive bookkeeping. The
-    //    process is already dead and the row already archived in the lifecycle
-    //    transaction, so a failure here is cosmetic cleanup, not a live agent.
-    const primary = sessions[0];
-    if (primary) {
-      try {
-        await archiveExecutionSession({ sessionId: primary.id, force: false });
-      } catch (err) {
-        console.error('[dispatch] reap: worktree teardown failed for execution', executionId, err);
-      }
-    }
-  }
-}
-
 export interface ContinueExecutionSessionArgs {
   sessionId: string;
   /**

@@ -21,6 +21,7 @@
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { ActionError } from './types';
+import type { WorkstreamRuntime, ScopeChange } from '@/lib/sessions/workstream';
 
 export function serverBaseUrl(): string {
   return getLocalBaseUrl();
@@ -98,3 +99,29 @@ export async function fetchLiveSignals(): Promise<LiveSignals | null> {
     return null;
   }
 }
+
+/**
+ * The {@link WorkstreamRuntime} for orchestrator handlers (CLI and MCP). Live
+ * running state and the runtime stop/notify effects are process-owned by the app
+ * server, so this routes them through the authenticated HTTP control path. When
+ * the server is unreachable, `runningSessionIds` reports null — meaning nothing
+ * can be running — so a lifecycle change with no live agent still proceeds
+ * offline, and a stop against a genuinely running agent surfaces as a conflict.
+ */
+export const serverWorkstreamRuntime: WorkstreamRuntime = {
+  async runningSessionIds() {
+    const signals = await fetchLiveSignals();
+    return signals ? signals.runningSessionIds : null;
+  },
+  stopExecution(executionId) {
+    return serverFetch<{ ok: boolean; failures: string[] }>(`/executions/${executionId}/stop-agent`, {
+      method: 'POST',
+    });
+  },
+  async notify(executionId, change: ScopeChange) {
+    await serverFetch(`/executions/${executionId}/notify-scope-change`, {
+      method: 'POST',
+      body: JSON.stringify(change),
+    });
+  },
+};

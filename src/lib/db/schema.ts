@@ -1808,9 +1808,12 @@ export const runs = sqliteTable(
 
     // Simple status enum — no awaiting_input/blocked vocabulary in V1
     // (multi-state action protocol is V2+). statusReason captures
-    // structured codes for skip/fail flavors.
+    // structured codes for skip/fail flavors. `cancelled` is a deliberate
+    // human/agent stop of a running turn — distinct from `failed`, and never
+    // recorded as `completed`. On SQLite a text enum is a TS hint with no DB
+    // CHECK, so adding a value needs no migration.
     status: text({
-      enum: ['queued', 'running', 'completed', 'failed', 'skipped'],
+      enum: ['queued', 'running', 'completed', 'failed', 'skipped', 'cancelled'],
     })
       .notNull()
       .default('queued'),
