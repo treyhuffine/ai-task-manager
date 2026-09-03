@@ -22,7 +22,11 @@ import { hybridSearchWithEntities } from '@/lib/embeddings/search';
 function toolError(toolName: string, err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`[tool:${toolName}]`, message, err);
-  return { error: message };
+  // Surface a lifecycle error's stable code + structured details (e.g. the open
+  // children to acknowledge, or a stale revision) so the agent can retry.
+  const code = (err as { code?: string })?.code;
+  const details = (err as { details?: unknown })?.details;
+  return { error: message, ...(code ? { code } : {}), ...(details ? { details } : {}) };
 }
 
 /** FK fields where empty strings would cause constraint failures. */
@@ -178,10 +182,11 @@ const taskTools = {
     inputSchema: z.object({
       id: z.string().describe('The task ID to complete'),
       note: z.string().optional().describe('Optional completion note'),
+      acknowledged_child_ids: z.array(z.string()).optional().describe('To complete a parent with open children: the exact current open-child ids (returned in a prior conflict). Children are left unchanged.'),
     }),
-    execute: async ({ id, note }) => {
+    execute: async ({ id, note, acknowledged_child_ids }) => {
       try {
-        const result = completeTask(id, { note, meta: { source: 'ai' } });
+        const result = completeTask(id, { note, acknowledgedChildIds: acknowledged_child_ids, meta: { source: 'ai' } });
         if (!result) return { error: 'Task not found' };
         return {
           id: result.task.id,
@@ -205,13 +210,15 @@ const taskTools = {
       id: z.string().describe('The task ID to transition'),
       command: z.enum(TRANSITION_COMMANDS).describe('The semantic lifecycle command'),
       reason: z.string().optional().describe('Why (recorded on the lifecycle ledger)'),
+      acknowledged_child_ids: z.array(z.string()).optional().describe('To archive a parent with open children: the exact current open-child ids (returned in a prior conflict). Children are left unchanged.'),
     }),
-    execute: async ({ id, command, reason }) => {
+    execute: async ({ id, command, reason, acknowledged_child_ids }) => {
       try {
         const result = transitionTask({
           taskId: id,
           command,
           idempotencyKey: uuidv7(),
+          acknowledgedChildIds: acknowledged_child_ids,
           meta: { source: 'ai', reason: reason ?? null },
         });
         return {

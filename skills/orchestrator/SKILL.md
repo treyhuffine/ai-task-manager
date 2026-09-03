@@ -16,7 +16,10 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 **MCP tools** (one per action):
 
 - Orientation: `describe_paths`, `describe_schema`, `list_skills`
-- Tasks: `list_tasks`, `get_task`, `create_task`, `update_task`, `complete_task`
+- Tasks: `list_tasks`, `get_task`, `create_task`, `update_task` (content/metadata only, never status), `transition_task` (move_to_todo / move_to_consider / start / return_to_todo / reopen / archive / restore), `complete_task`
+- Task lifecycle notes: status changes go through `transition_task` / `complete_task`, never `update_task`. Both are retry-safe with `idempotency_key`. Archiving/completing a parent with open children returns a conflict listing them, and you retry with `acknowledged_child_ids`. Archiving/returning a task with a genuinely running workstream returns a conflict, and you retry with `runtime_choice` (keep_running or stop_running_agent).
+- Task to execution: `attach_execution_to_task`, `detach_execution_from_task`, `list_task_executions`. An association is durable context (an execution may work many tasks, a task be worked by many executions), not exclusive ownership or proof of live work.
+- Execution review: `review_execution` records an exact-output disposition (accepted / changes_requested / dismissed). Pass the exact `output_event_id` (event ids come back in `get_session_messages`). Reading output never reviews it.
 - Notes: `list_notes`, `get_note`, `create_note`, `update_note`
 - Links: `list_backlinks`, `list_outgoing_links` (what links to / from a task or note; write `[[task:UUID]]` / `[[note:UUID]]` in a body to create durable links)
 - Stream: `list_stream`, `get_stream_item`, `create_stream_item`, `promote_stream`, `dismiss_stream`
