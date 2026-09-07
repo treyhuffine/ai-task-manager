@@ -118,7 +118,7 @@ describe('agent effort options', () => {
 
   it('rejects a model from the other provider namespace', () => {
     expect(explicitModelForProvider('claude', 'gpt-5.5').id).toBe('opus');
-    expect(explicitModelForProvider('codex', 'sonnet').id).toBe('gpt-5.5');
+    expect(explicitModelForProvider('codex', 'sonnet').id).toBe('gpt-6-astra');
   });
 
   it('accepts the Claude Code Fable alias', () => {

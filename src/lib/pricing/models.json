@@ -46,5 +46,11 @@
     "cached": 5,
     "cacheCreation": 50,
     "output": 200
+  },
+  "openai/gpt-6-astra": {
+    "input": 1000,
+    "cached": 100,
+    "cacheCreation": 1000,
+    "output": 5000
   }
 }

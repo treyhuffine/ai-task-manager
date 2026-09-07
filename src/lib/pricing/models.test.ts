@@ -37,6 +37,15 @@ describe('pricingFor', () => {
     expect(minor.input).toBeGreaterThan(0);
   });
 
+  it('resolves a GPT-6 variant id by its exact row (no minor version to strip)', () => {
+    // `gpt-6-astra` has no `.x` for the tier bridge to drop, so the table
+    // needs a literal row or Codex turns on Astra would record $0.
+    const astra = pricingFor('gpt-6-astra');
+    expect(astra).toEqual(pricingFor('openai/gpt-6-astra'));
+    expect(astra.input).toBeGreaterThan(0);
+    expect(astra.output).toBeGreaterThan(astra.input);
+  });
+
   it('returns zero pricing for an unknown model and warns once', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(pricingFor('nonexistent-model-9')).toEqual({

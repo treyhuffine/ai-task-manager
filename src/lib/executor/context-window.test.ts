@@ -29,6 +29,7 @@ describe('prettifyModelId', () => {
     expect(prettifyModelId('gpt-5.6-terra')).toBe('GPT-5.6 Terra');
     expect(prettifyModelId('gpt-5.6-luna')).toBe('GPT-5.6 Luna');
     expect(prettifyModelId('gpt-5.3-codex-spark')).toBe('GPT-5.3 Codex Spark');
+    expect(prettifyModelId('gpt-6-astra')).toBe('GPT-6 Astra');
   });
 
   it('falls back to the raw id when unrecognized', () => {
@@ -55,8 +56,10 @@ describe('resolveModelInfo', () => {
     expect(resolveModelInfo('claude-haiku-4-5-20251001')?.contextWindow).toBe(200_000);
   });
 
-  it('caps Codex at 400k', () => {
+  it('caps GPT-5 Codex models at 400k and GPT-6 at 1.05M', () => {
     expect(resolveModelInfo('gpt-5.4-mini')?.contextWindow).toBe(400_000);
+    expect(resolveModelInfo('gpt-5.6-sol')?.contextWindow).toBe(400_000);
+    expect(resolveModelInfo('gpt-6-astra')?.contextWindow).toBe(1_050_000);
   });
 
   it('returns label with a 0 cap (hides %) for unknown models', () => {

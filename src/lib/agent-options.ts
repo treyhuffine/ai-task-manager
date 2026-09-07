@@ -110,8 +110,9 @@ export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
     { id: 'fable', label: 'Fable', hint: 'latest' },
   ],
   codex: [
-    { id: 'gpt-5.5', label: '5.5', hint: 'Frontier model for complex coding, research, and real-world work' },
-    { id: 'gpt-5.6-sol', label: '5.6 Sol', hint: 'Latest frontier agentic coding model' },
+    { id: 'gpt-6-astra', label: '6 Astra', hint: 'Most capable model for complex, demanding work' },
+    { id: 'gpt-5.5', label: '5.5', hint: 'Proven previous-generation model for coding and general work' },
+    { id: 'gpt-5.6-sol', label: '5.6 Sol', hint: 'Reliable agentic workhorse for everyday tasks' },
     { id: 'gpt-5.6-terra', label: '5.6 Terra', hint: 'Balanced agentic coding model for everyday work' },
     { id: 'gpt-5.6-luna', label: '5.6 Luna', hint: 'Fast and affordable agentic coding model' },
     { id: 'gpt-5.4', label: '5.4', hint: 'Strong model for everyday coding' },

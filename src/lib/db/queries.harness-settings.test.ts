@@ -58,7 +58,13 @@ describe('ensureAgentHarnessSettings', () => {
 
   it('seeds only the current Codex models and leaves the superseded tail off', () => {
     const enabled = q.ensureAgentHarnessSettings('codex').enabledModels;
-    expect(enabled).toEqual(['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
+    expect(enabled).toEqual([
+      'gpt-6-astra',
+      'gpt-5.5',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+    ]);
     expect(enabled).not.toContain('gpt-5.4');
   });
 

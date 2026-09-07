@@ -39,7 +39,8 @@ const CONTEXT_CAPS: Array<{ test: RegExp; contextWindow: number }> = [
   { test: /sonnet-?4[._-](?:[6-9]|\d\d)/i, contextWindow: 1_000_000 },
   { test: /sonnet/i, contextWindow: 200_000 },
   { test: /haiku/i, contextWindow: 200_000 },
-  // OpenAI / Codex
+  // OpenAI / Codex. GPT-6 (Astra) ships a 1.05M window. GPT-5.x stays at 400k.
+  { test: /gpt-?6/i, contextWindow: 1_050_000 },
   { test: /gpt-?5/i, contextWindow: 400_000 },
 ];
 
@@ -59,6 +60,7 @@ const FAMILY_LABEL: Record<string, string> = {
  *   gpt-5.4-mini               → "GPT-5.4 mini"
  *   gpt-5.6-sol                → "GPT-5.6 Sol"
  *   gpt-5.3-codex-spark        → "GPT-5.3 Codex Spark"
+ *   gpt-6-astra                → "GPT-6 Astra"
  * Falls back to the raw id when nothing matches.
  */
 export function prettifyModelId(id: string): string {
@@ -72,7 +74,7 @@ export function prettifyModelId(id: string): string {
   const bareFamily = /^(opus|sonnet|haiku|fable)$/i.exec(id);
   if (bareFamily) return FAMILY_LABEL[bareFamily[1].toLowerCase()];
 
-  const gpt = /^gpt-?(\d+(?:\.\d+)?)(?:-(mini|nano|sol|terra|luna|codex-spark))?$/i.exec(id);
+  const gpt = /^gpt-?(\d+(?:\.\d+)?)(?:-(mini|nano|sol|terra|luna|astra|codex-spark))?$/i.exec(id);
   if (gpt) {
     const variant = gpt[2]?.toLowerCase() ?? null;
     const variantLabel = variant === 'mini' || variant === 'nano'

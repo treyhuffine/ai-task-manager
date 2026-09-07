@@ -3740,10 +3740,11 @@ export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSett
   // Claude's bundled entries are tier aliases rather than pinned versions, so
   // the whole set stays useful indefinitely and all of it is seeded. Codex's
   // list is a versioned catalog whose tail is superseded, so only the current
-  // models are seeded and the rest stay one toggle away in settings.
+  // models (Astra plus the 5.5 / 5.6 family) are seeded and the rest stay
+  // one toggle away in settings.
   const enabledModels = [...new Set([
     ...(preferred ? [preferred] : []),
-    ...bundled.slice(0, 4),
+    ...bundled.slice(0, 5),
   ])];
   return upsertAgentHarnessSettings({
     harness,
