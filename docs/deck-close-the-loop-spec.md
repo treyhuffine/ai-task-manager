@@ -28,9 +28,11 @@ against "glance and start."
 
 ## Current state (grounded)
 
-- **Generation** — `generateDeck` (`src/lib/ai/generate-deck.ts:113`): 3 phases, both AI
-  phases on `process.env.MODEL_STANDARD || 'gpt-5.4-mini'` (`:360`, `:392`) despite the
-  header describing phase 2 as "a small model." Task-window queries use UTC
+- **Generation** — `generateDeck` (`src/lib/ai/generate-deck.ts:113`): 3 phases. Both AI
+  phases now run through the default subscription harness
+  (`src/lib/harness/one-shot.ts`, see `docs/background-ai.md`) — the
+  `MODEL_STANDARD`-into-`openai(...)` wiring this section originally described is gone.
+  Task-window queries use UTC
   `toISOString().slice(0,10)` (`:119-123`) while `forDate` uses `todayLocalDate()`
   (`:293`) — two different day boundaries in one function.
 - **Reconciliation** — model decisions validated against the actual items array
@@ -215,20 +217,13 @@ against "glance and start."
 - Fallback decision if streak math balloons: ship count-for-period without streaks
   first — but the mock does not survive this pass either way.
 
-### 3.3 Right-size the models `[reuse]`
-- Phase 2 gathering: `process.env.MODEL_FAST || process.env.MODEL_STANDARD || fallback`
-  (`generate-deck.ts:360`) — matches the "small model" the file header already claims.
-- Phase 3 generation: `process.env.MODEL_CAPABLE || process.env.MODEL_STANDARD ||
-  fallback` (`:392`). The deck is the product's judgment surface; it gets the most
-  capable configured model, not the cheapest.
-- Fix the latent provider mismatch: `.env.example` ships `anthropic/`-prefixed model
-  ids (`MODEL_STANDARD=anthropic/claude-sonnet-4-6`) but `generate-deck.ts` feeds the
-  value straight into `openai(...)`. Route model resolution through the app's
-  provider-resolution seam so a prefixed id picks the right SDK; until then the deck
-  silently requires OpenAI ids and breaks on the documented defaults.
-- **Decision (tracked, out of scope here):** moving deck generation onto the harness
-  (orchestrator/agentex) like the rest of the product. This task only makes the current
-  pipeline honest; the harness move is a separate spec.
+### 3.3 Right-size the models `[superseded — harness move shipped]`
+The tracked decision at the bottom of this section happened: deck generation moved onto
+the subscription harness (`src/lib/harness/one-shot.ts`, `docs/background-ai.md`). Both
+AI phases run tier `standard` (the user's default agent model, or the CLI default), so
+the `MODEL_FAST`/`MODEL_CAPABLE` env plumbing and the `openai(...)` provider-mismatch
+fix proposed here are moot. If per-phase tiering still proves worthwhile, express it as
+one-shot `tier` choices (`fast` for gathering, `standard` for generation), not env vars.
 
 ## Phase 4 — Attention (the deck as the human lane of the loop)
 

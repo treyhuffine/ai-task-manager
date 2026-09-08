@@ -7,24 +7,21 @@ function toToolName(actionId: string): string {
 }
 
 /**
- * The owner's connector tools, filtered to READ-ONLY actions (no mutations).
+ * Tool names of the owner's READ-ONLY connector actions on connected
+ * toolkits. Filtered on the authoritative per-action `mutating` flag (not a
+ * name heuristic). Empty on any error or when nothing is connected.
  *
- * The deck consults connected services while *gathering context* — it must
- * never create, send, or delete anything in that pass. We filter on the
- * authoritative per-action `mutating` flag (not a name heuristic): build the
- * set of non-mutating action tool-names on connected toolkits, then keep only
- * those keys from the full ToolSet.
- *
- * Returns {} when nothing is connected or on any error — generation degrades to
- * "no external tools" rather than failing.
+ * Used two ways: as the key filter for `getReadOnlyConnectorTools`, and as
+ * the `mcp__connectors__<name>` allowlist when deck context gathering runs
+ * through a harness with the connectors MCP attached.
  */
-export async function getReadOnlyConnectorTools(
+export async function getReadOnlyConnectorToolNames(
   ownerId: string = getConnectorOwnerId(),
-): Promise<ToolSet> {
+): Promise<string[]> {
   try {
     const runtime = await getConnectorRuntime();
     const connections = await runtime.listConnections({ ownerId });
-    if (connections.length === 0) return {};
+    if (connections.length === 0) return [];
     const connectedProviders = new Set(connections.map((c) => c.providerId));
 
     const readOnly = new Set<string>();
@@ -34,7 +31,28 @@ export async function getReadOnlyConnectorTools(
         if (!a.mutating) readOnly.add(toToolName(a.id));
       }
     }
+    return [...readOnly];
+  } catch (err) {
+    console.warn('[deck] read-only connector tool names unavailable', err);
+    return [];
+  }
+}
 
+/**
+ * The owner's connector tools, filtered to READ-ONLY actions (no mutations).
+ *
+ * The deck consults connected services while *gathering context* — it must
+ * never create, send, or delete anything in that pass.
+ *
+ * Returns {} when nothing is connected or on any error — generation degrades to
+ * "no external tools" rather than failing.
+ */
+export async function getReadOnlyConnectorTools(
+  ownerId: string = getConnectorOwnerId(),
+): Promise<ToolSet> {
+  try {
+    const readOnly = new Set(await getReadOnlyConnectorToolNames(ownerId));
+    if (readOnly.size === 0) return {};
     const all = await getConnectorTools(ownerId);
     const filtered: ToolSet = {};
     for (const [name, t] of Object.entries(all)) {

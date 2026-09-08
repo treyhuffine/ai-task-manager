@@ -35,6 +35,13 @@ vi.mock('@/lib/attachments/save', () => ({
 vi.mock('@/lib/stt/transcribe', () => ({
   pickProvider: mocks.pickProvider,
   transcribe: mocks.transcribe,
+  // Mirrors the real helper: known ids pass through, everything else
+  // (null, removed providers) falls back to auto-pick.
+  resolveVoiceModel: async (preferred: string | null | undefined) => {
+    const { isKnownVoiceModel } = await import('@/constants/voice-models');
+    if (preferred && isKnownVoiceModel(preferred)) return preferred;
+    return mocks.pickProvider();
+  },
 }));
 
 vi.mock('@/lib/stream-triage/triggers', () => ({

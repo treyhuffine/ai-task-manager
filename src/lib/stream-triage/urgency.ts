@@ -7,7 +7,8 @@
  *
  *   1. Deterministic pre-scan for time/date language. No hits → wait_safe,
  *      zero model calls. The common case stays free.
- *   2. One small structured model call. Must cite exact source words;
+ *   2. One small structured call through the default subscription harness
+ *      (see src/lib/harness/one-shot.ts). Must cite exact source words;
  *      uncited urgency is discarded IN CODE, not by prompt trust.
  *   3. Outcomes: the strict urgent-reminder carve-out auto-creates the
  *      reminder task (explicit imperative + explicit time + cited
@@ -20,8 +21,7 @@
  */
 
 import { z } from 'zod';
-import { generateObject } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { runHarnessJson } from '@/lib/harness/one-shot';
 import {
   getStream,
   getUserState,
@@ -124,15 +124,17 @@ export async function runUrgencyLane(itemId: string): Promise<UrgencyOutcome> {
 
   let result: z.infer<typeof urgencyResultSchema>;
   try {
-    const model = process.env.MODEL_STANDARD || 'gpt-5.4-mini';
-    const generated = await generateObject({
-      model: openai(model),
+    result = await runHarnessJson({
+      label: 'stream-urgency',
+      tier: 'fast',
+      timeoutSec: 60,
       schema: urgencyResultSchema,
+      shape:
+        '{"verdict": "wait_safe" | "time_sensitive", "evidence"?: "<exact words quoted from the capture>", ' +
+        '"urgentReminder"?: {"title": "<imperative title>", "reminderAt": "<ISO 8601 datetime in the user timezone>"}}',
       system: URGENCY_SYSTEM_PROMPT,
       prompt: `Current time: ${new Date().toISOString()} (timezone: ${timezone})\n\nCapture:\n${item.rawText.slice(0, 4_000)}`,
-      temperature: 0,
     });
-    result = generated.object;
   } catch (err) {
     // Model unavailable but the pre-scan saw time language: still skip the
     // debounce so the batch brain looks at it right away.

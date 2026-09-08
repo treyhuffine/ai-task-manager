@@ -5,7 +5,8 @@
  * `message` plus optional `context`, and return a structured
  * `{ response, entities, innerSteps }` payload. External agents hit this to
  * read from or contribute to the user's productivity system; the app-side
- * agent routes the request via the same tools the in-app chat uses.
+ * agent runs on the user's default subscription harness and acts through
+ * the orchestrator action surface.
  *
  * Bearer auth is enforced globally by `src/middleware.ts`.
  *

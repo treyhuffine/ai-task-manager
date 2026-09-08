@@ -232,7 +232,9 @@ reversible so a wrong call is one tap to fix.
   deadline math surfacing; router learning across all connectors.
 
 ## Out of scope / deferred
-- Changing the deck's model provider (still OpenAI in `generate-deck.ts`); the
+- ~~Changing the deck's model provider~~ Done since: both AI phases in
+  `generate-deck.ts` run through the user's default subscription harness
+  (`src/lib/harness/one-shot.ts`), no direct model-API billing. The
   reconciliation step may later warrant a stronger model — separate decision.
 - The connectors/auth layer itself (separate in-flight effort; this spec only
   defines the read interface it must satisfy).

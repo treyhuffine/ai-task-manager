@@ -35,7 +35,7 @@ async function handleGET(request: NextRequest) {
     // Default single read: lazily ensure today's deck exists (the proactive
     // first-look guarantee), unless explicitly opted out with ?ensure=false.
     // Degrade gracefully — the common read must never 500 just because
-    // generation can't run (e.g. no OPENAI_API_KEY). Fall back to today's
+    // generation can't run (e.g. no agent harness CLI). Fall back to today's
     // active deck if one already exists, else the latest deck of any day so
     // the client can still render something (and tell, via forDate, that it
     // isn't today's).

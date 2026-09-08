@@ -3,13 +3,16 @@
  *
  * Used by both `/api/transcribe` (browser voice input) and
  * `/api/capture` (automation / iOS Shortcuts).
+ *
+ * Providers: Parakeet local (Docker sidecar) and Groq cloud, plus the
+ * browser's own Web Speech API on the client. OpenAI STT was removed
+ * deliberately — the only OpenAI API use in the app is embeddings.
  */
 
-import { getVoiceProvider, getVoiceModelName } from '@/constants/voice-models';
+import { getVoiceProvider, getVoiceModelName, isKnownVoiceModel } from '@/constants/voice-models';
 
 const LOCAL_STT_URL = process.env.LOCAL_SPEECH_TO_TEXT_URL ?? 'http://localhost:5092';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // ─── Provider health ─────────────────────────────────────────
 
@@ -25,7 +28,6 @@ export async function isLocalAvailable(): Promise<boolean> {
 export interface ProviderStatus {
   local: { available: boolean; configured: boolean };
   groq: { available: boolean; configured: boolean };
-  openai: { available: boolean; configured: boolean };
   web: { available: boolean; configured: boolean };
 }
 
@@ -34,7 +36,6 @@ export async function getProviderStatus(): Promise<ProviderStatus> {
   return {
     local: { available: localAvailable, configured: true },
     groq: { available: !!GROQ_API_KEY, configured: !!GROQ_API_KEY },
-    openai: { available: !!OPENAI_API_KEY, configured: !!OPENAI_API_KEY },
     web: { available: true, configured: true },
   };
 }
@@ -43,8 +44,18 @@ export async function getProviderStatus(): Promise<ProviderStatus> {
 export async function pickProvider(): Promise<string> {
   if (await isLocalAvailable()) return 'local/parakeet-tdt-0.6b-v3';
   if (GROQ_API_KEY) return 'groq/whisper-large-v3-turbo';
-  if (OPENAI_API_KEY) return 'openai/whisper-1';
   throw new Error('No speech-to-text provider available');
+}
+
+/**
+ * Resolve a preferred voice model to one that is actually usable: unknown
+ * or removed ids (e.g. a stored `openai/*` model from before OpenAI STT
+ * was removed) fall through to auto-pick. Throws when nothing is
+ * available, same as `pickProvider`.
+ */
+export async function resolveVoiceModel(preferred: string | null | undefined): Promise<string> {
+  if (preferred && isKnownVoiceModel(preferred)) return preferred;
+  return pickProvider();
 }
 
 // ─── Transcription ───────────────────────────────────────────
@@ -89,19 +100,12 @@ export async function transcribe(
       if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
       return (await res.json()).text ?? '';
     }
-    case 'openai': {
-      if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
-      const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-        body: form,
-        signal,
-      });
-      if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
-      return (await res.json()).text ?? '';
-    }
     case 'web':
       throw new Error('Web speech recognition is handled in the browser');
+    case 'openai':
+      throw new Error(
+        'OpenAI speech-to-text was removed. Pick Parakeet (local) or Groq in Settings → Voice.',
+      );
     default:
       throw new Error(`Unknown voice provider: ${provider}`);
   }

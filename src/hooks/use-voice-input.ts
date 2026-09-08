@@ -5,7 +5,7 @@ import { getVoiceProvider, DEFAULT_VOICE_MODEL } from '@/constants/voice-models'
 import { useUserState } from '@/hooks/use-user-state';
 import { api } from '@/lib/api/client';
 
-type VoiceProvider = 'local' | 'groq' | 'openai' | 'web' | null;
+type VoiceProvider = 'local' | 'groq' | 'web' | null;
 
 /**
  * How the browser will capture audio:
@@ -24,7 +24,6 @@ type VoiceStatus = 'idle' | 'starting' | 'recording' | 'stopping' | 'cancelling'
 export interface ProviderStatus {
   local: { available: boolean; configured: boolean };
   groq: { available: boolean; configured: boolean };
-  openai: { available: boolean; configured: boolean };
   web: { available: boolean; configured: boolean };
 }
 
@@ -134,8 +133,6 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
         serverProvider = 'local';
       } else if (status?.groq?.available) {
         serverProvider = 'groq';
-      } else if (status?.openai?.available) {
-        serverProvider = 'openai';
       }
 
       // Server provider wins — but only if the browser can actually record live audio.
@@ -171,7 +168,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
         provider: null,
         mode: null,
         reason:
-          'No speech-to-text provider available. Run `pnpm dev:stt` to start Parakeet, or configure GROQ_API_KEY / OPENAI_API_KEY.',
+          'No speech-to-text provider available. Run `pnpm dev:stt` to start Parakeet, or configure GROQ_API_KEY.',
       };
     }
 
@@ -398,7 +395,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     if (provider === 'web') {
       startWeb();
     } else if (provider) {
-      // local, groq, openai — all use server-side transcription
+      // local and groq both use server-side transcription
       startServerTranscription();
     }
   }, [provider, startServerTranscription, startWeb]);

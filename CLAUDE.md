@@ -61,7 +61,7 @@ One generic attachment system across the whole app:
 - Upload: `POST /api/attachments` (multipart, 50 MiB cap, mime allowlist). Serve: `GET /api/attachments/:file_name` (auth-protected).
 - Client helpers in `src/lib/attachments/client.ts` (`uploadAttachment`) and `src/lib/attachments/view.ts` (`attachmentUrl`).
 - Chat-specific: chat composers use `ChatInputEditor` + `FileChipNode` (Tiptap). Messages carry `[[file:<file_name>]]` markers inline in `content`; the matching `Attachment` lives in `chat_events.attachments`. Transcript renders chips via `MessageFileChip` (image thumb / expandable text / download), branching on mime.
-- Send-to-model: `src/lib/attachments/extract-text.ts` handles non-natively-readable formats (docx/xlsx/pptx via mammoth/xlsx/officeparser, audio via STT through `pickProvider`, svg as XML). Images route through `src/lib/attachments/normalize-image.ts` (HEIC→JPEG, downscale to API caps via sharp) before base64-inlining for the orchestrator chat. PDFs are native for Anthropic; `unpdf` extracts text for the OpenAI provider path. 200k-char per-attachment cap to bound context.
+- Send-to-model: every chat is a harness session, so `src/lib/attachments/expand-markers.ts` substitutes `[[file:...]]` markers with the absolute disk path when the harness reads the mime natively (text, code, images, PDF), or an inline `<attachment>` block of extracted text otherwise (`src/lib/attachments/extract-text.ts`: docx/xlsx/pptx via mammoth/xlsx/officeparser, audio via STT through `pickProvider`, svg as XML). 200k-char per-attachment cap to bound context.
 - See `docs/chat-sessions.md` for the chat-specific flow end-to-end.
 
 ## Client data layer (TanStack Query)
@@ -94,6 +94,10 @@ Data roots (precedence: explicit `FLOW_ROOT` > `--dev` auto-set > prod default):
 - `~/<app-short-id>-test/` — test (`pnpm smoke`, `pnpm smoke:agent`) — wiped on every run
 
 When NOT to add an action: behavior that belongs in the NL MCP (free-form interpretation), one-off CLI commands that aren't part of the agent surface (shared ones go in `src/cli/commands/`, contributor-specific scripts go in `/personal/`), or anything that duplicates an existing `queries.ts` function under a different name.
+
+## Background AI calls
+
+Server-side background AI (deck generation, the stream urgency lane, image-capture extraction, the NL MCP inner agent) runs through the user's default subscription harness via `src/lib/harness/one-shot.ts` (`runHarnessText` / `runHarnessJson`), never through a direct model API key. The only sanctioned direct OpenAI API use in the app is embeddings (`src/lib/embeddings/`). STT providers are Parakeet (local) and Groq only. New background AI features must use the one-shot helper. Full architecture: `docs/background-ai.md`.
 
 Invariants: action names are the public contract (renaming breaks every agent that learned them). Params are Zod raw shapes, not `z.object(...)` — the generators wrap. Names are `snake_case` on the wire. Every mutating action should be safe under retry.
 

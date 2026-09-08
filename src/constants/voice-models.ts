@@ -8,7 +8,7 @@ export interface VoiceModel {
   label: string
   description: string
   language: 'english' | 'multilingual'
-  provider: 'local' | 'groq' | 'openai' | 'web'
+  provider: 'local' | 'groq' | 'web'
   /** Env var that must be set for this provider to work */
   envKey: string | null
   speed: number   // 1-10 relative
@@ -100,38 +100,6 @@ export const VOICE_MODELS: VoiceModel[] = [
     accuracy: 8.5,
   },
 
-  // ─── OpenAI cloud ──────────────────────────────────────────
-  {
-    id: 'openai/gpt-4o-mini-transcribe',
-    label: 'GPT-4o Mini Transcribe (OpenAI)',
-    description: 'OpenAI recommended: 35% lower WER than Whisper, half the cost',
-    language: 'multilingual',
-    provider: 'openai',
-    envKey: 'OPENAI_API_KEY',
-    speed: 8,
-    accuracy: 9.5,
-  },
-  {
-    id: 'openai/gpt-4o-transcribe',
-    label: 'GPT-4o Transcribe (OpenAI)',
-    description: 'Highest accuracy OpenAI model: multilingual',
-    language: 'multilingual',
-    provider: 'openai',
-    envKey: 'OPENAI_API_KEY',
-    speed: 7,
-    accuracy: 10,
-  },
-  {
-    id: 'openai/whisper-1',
-    label: 'Whisper (OpenAI)',
-    description: 'Legacy OpenAI Whisper: supports word-level timestamps',
-    language: 'multilingual',
-    provider: 'openai',
-    envKey: 'OPENAI_API_KEY',
-    speed: 7,
-    accuracy: 8.5,
-  },
-
   // ─── Browser fallback ─────────────────────────────────────
   {
     id: 'web/speech-recognition',
@@ -146,5 +114,11 @@ export const VOICE_MODELS: VoiceModel[] = [
 ]
 
 export const VOICE_MODEL_MAP = new Map(VOICE_MODELS.map(m => [m.id, m]))
+
+/** Whether an id names a model in the current catalog. Ids of removed
+ *  providers (openai/*) fail this and fall back to auto-pick. */
+export function isKnownVoiceModel(modelId: string): boolean {
+  return VOICE_MODEL_MAP.has(modelId)
+}
 
 export const DEFAULT_VOICE_MODEL = 'local/parakeet-tdt-0.6b-v3'

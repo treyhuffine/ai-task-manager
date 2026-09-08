@@ -13,8 +13,9 @@
  *        so the saved audio shows up in the stream's attachments manifest.
  *
  *   2. Image file (multipart/form-data with `file` field, image/* MIME)
- *      → saves the image as an attachment (always), then calls GPT vision
- *        with an optional user-provided `text` field. The model decides
+ *      → saves the image as an attachment (always), then extracts its
+ *        content through the default subscription harness, with an optional
+ *        user-provided `text` field. The model decides
  *        whether the user text is additional content to append or an
  *        instruction on how to interpret the image, based on context.
  *      → creates a stream item with media='image'
@@ -29,8 +30,8 @@
 
 import { NextRequest } from 'next/server';
 import { createStream, getUserState } from '@/lib/db/queries';
-import { saveAttachment } from '@/lib/attachments/save';
-import { transcribe, pickProvider } from '@/lib/stt/transcribe';
+import { saveAttachment, attachmentPath } from '@/lib/attachments/save';
+import { transcribe, resolveVoiceModel } from '@/lib/stt/transcribe';
 import { extractImageContent } from '@/lib/capture/extract-image';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 import type { Attachment } from '@/db/types';
@@ -87,12 +88,10 @@ export async function POST(request: NextRequest) {
 
           let extracted: string | null = null;
           try {
-            const imageItems = await Promise.all(
-              files.map(async (file, idx) => ({
-                bytes: new Uint8Array(await file.arrayBuffer()),
-                mime: imageAttachments[idx].mimeType,
-              }))
-            );
+            const imageItems = imageAttachments.map((a) => ({
+              path: attachmentPath(a.fileName),
+              mime: a.mimeType,
+            }));
             extracted = await extractImageContent(imageItems, userText);
           } catch (err) {
             console.warn('[POST /api/capture] Image extraction failed, images saved.', err);
@@ -126,16 +125,15 @@ export async function POST(request: NextRequest) {
         const file = files[0];
         media = 'voice';
 
-        // Voice model priority: explicit param → user preference → auto-pick
+        // Voice model priority: explicit param → user preference → auto-pick.
+        // resolveVoiceModel drops removed/unknown ids (e.g. a stored openai/*
+        // model from before OpenAI STT was removed) down to auto-pick.
         const explicitModel = formData.get('voiceModel') as string | null;
-        let voiceModel: string | null = explicitModel || getUserState()?.voiceModel || null;
-
-        if (!voiceModel) {
-          try {
-            voiceModel = await pickProvider();
-          } catch {
-            // No provider available — fall through to save-only path
-          }
+        let voiceModel: string | null = null;
+        try {
+          voiceModel = await resolveVoiceModel(explicitModel || getUserState()?.voiceModel || null);
+        } catch {
+          // No provider available — fall through to save-only path
         }
 
         if (voiceModel) {

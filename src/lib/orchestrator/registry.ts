@@ -1116,8 +1116,8 @@ const update_deck_action = defineAction({
 const regenerate_deck_action = defineAction({
   name: 'regenerate_deck',
   description:
-    'Run the full AI prioritization pipeline and persist a fresh deck. Slow (two model calls) ' +
-    'and requires OPENAI_API_KEY. Optional context shapes the ranking (e.g. "low energy, 2 hours").',
+    'Run the full AI prioritization pipeline and persist a fresh deck. Slow (two model calls ' +
+    'through the default agent harness). Optional context shapes the ranking (e.g. "low energy, 2 hours").',
   params: {
     context: z.string().optional(),
     contextTags: z.array(z.string()).optional(),

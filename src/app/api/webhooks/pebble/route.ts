@@ -25,7 +25,7 @@ import {
 } from '@/lib/db/queries';
 import { attachmentPath, saveAttachment } from '@/lib/attachments/save';
 import { resolveMime } from '@/lib/attachments/mime';
-import { pickProvider, transcribe } from '@/lib/stt/transcribe';
+import { resolveVoiceModel, transcribe } from '@/lib/stt/transcribe';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 import {
   readLimitedRequestBody,
@@ -139,13 +139,11 @@ function attachmentReference(attachment: Attachment): string {
 }
 
 async function tryServerTranscription(audio: Blob): Promise<string | null> {
-  let voiceModel = getUserState()?.voiceModel ?? null;
-  if (!voiceModel) {
-    try {
-      voiceModel = await pickProvider();
-    } catch {
-      return null;
-    }
+  let voiceModel: string;
+  try {
+    voiceModel = await resolveVoiceModel(getUserState()?.voiceModel ?? null);
+  } catch {
+    return null;
   }
 
   try {

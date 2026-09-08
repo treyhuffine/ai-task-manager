@@ -167,7 +167,7 @@ interface ExecutionComposerProps {
  * newline.
  *
  * Voice input goes through the project's `useVoiceInput` hook, which
- * already handles the parakeet local STT, groq/openai cloud, and the
+ * already handles the parakeet local STT, groq cloud, and the
  * Web Speech API fallback. Transcripts append to the current input;
  * we honor the user's `voiceAutoSend` preference for whether to fire
  * immediately.

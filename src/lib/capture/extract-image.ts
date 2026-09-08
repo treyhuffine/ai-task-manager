@@ -2,10 +2,15 @@
  * Image-capture extraction, shared by POST /api/capture and the stream
  * retry route. Turns captured images (plus optional user text) into the
  * text a stream item carries.
+ *
+ * Runs through the default subscription harness (src/lib/harness/one-shot.ts)
+ * rather than a direct API call: the images are already saved to the
+ * attachments dir before extraction, so the harness reads them from disk
+ * with its own file tools (Claude's Read renders images to the model;
+ * Codex has its own image viewer).
  */
 
-import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { runHarnessText } from '@/lib/harness/one-shot';
 
 export const IMAGE_CAPTURE_SYSTEM_PROMPT = `You are the capture assistant for a personal productivity app. The user just snapped or uploaded an image they want added to their inbox. Your job is to turn it into useful text the user will see later when triaging.
 
@@ -26,31 +31,36 @@ The user may also provide a text field along with the image. That field can be o
 
 Output the text only, no preamble, no "Here is...", no meta-commentary. The text you produce will be saved verbatim as a stream item the user will read.`;
 
+export interface CapturedImage {
+  /** Absolute path of the saved attachment file. */
+  path: string;
+  mime: string;
+}
+
 export async function extractImageContent(
-  imageItems: { bytes: Uint8Array; mime: string }[],
+  images: CapturedImage[],
   userText: string | null,
 ): Promise<string> {
-  const model = process.env.MODEL_STANDARD || 'gpt-5.4-mini';
+  const fileList = images.map((img, i) => `${i + 1}. ${img.path} (${img.mime})`).join('\n');
+  const promptParts = [
+    userText?.trim() ? `User text accompanying the capture:\n${userText.trim()}` : null,
+    `The captured image${images.length > 1 ? 's are' : ' is'} saved at:\n${fileList}`,
+    'Open and look at each image, then output ONLY the extracted text as described above.',
+  ].filter(Boolean);
 
-  const contentSegments: Array<
-    { type: 'text'; text: string } | { type: 'image'; image: Uint8Array; mediaType: string }
-  > = [
-    ...(userText && userText.trim() ? [{ type: 'text' as const, text: userText.trim() }] : []),
-  ];
-
-  for (const item of imageItems) {
-    contentSegments.push({ type: 'image' as const, image: item.bytes, mediaType: item.mime });
-  }
-
-  const result = await generateText({
-    model: openai(model),
+  const { text } = await runHarnessText({
+    label: 'capture-image',
+    tier: 'standard',
+    // One turn per image read plus the final answer.
+    maxTurns: images.length + 2,
+    timeoutSec: 120,
     system: IMAGE_CAPTURE_SYSTEM_PROMPT,
-    messages: [
-      {
-        role: 'user',
-        content: contentSegments,
-      },
-    ],
+    prompt: promptParts.join('\n\n'),
+    // Reading the just-saved attachment files is the whole job — file
+    // viewing must not stall on a permission prompt. Edits stay denied;
+    // Bash stays available for harnesses that view images through a CLI.
+    skipPermissions: true,
+    disallowedTools: ['Write', 'Edit', 'NotebookEdit'],
   });
-  return result.text.trim();
+  return text;
 }

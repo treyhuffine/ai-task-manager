@@ -11,7 +11,6 @@ import { api } from '@/lib/api/client';
 const PROVIDER_LABELS: Record<string, { label: string; icon: typeof Server }> = {
   local: { label: 'Local', icon: Server },
   groq: { label: 'Cloud (Groq)', icon: Cloud },
-  openai: { label: 'Cloud (OpenAI)', icon: Cloud },
   web: { label: 'Browser', icon: Globe },
 };
 
@@ -147,7 +146,7 @@ export function VoiceSection() {
 
   const filteredModels = VOICE_MODELS.filter((m) => {
     if (activeTab === 'all') return true;
-    if (activeTab === 'cloud') return m.provider === 'groq' || m.provider === 'openai';
+    if (activeTab === 'cloud') return m.provider === 'groq';
     return m.provider === activeTab;
   });
 

@@ -7,15 +7,14 @@
  */
 
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import {
   getStream,
   updateStream,
   getUserState,
   streamRawTextIsPlaceholder,
 } from '@/lib/db/queries';
-import { getAttachmentsDir } from '@/lib/config/paths';
-import { transcribe, pickProvider } from '@/lib/stt/transcribe';
+import { attachmentPath } from '@/lib/attachments/save';
+import { transcribe, resolveVoiceModel } from '@/lib/stt/transcribe';
 import { extractImageContent } from '@/lib/capture/extract-image';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 import { triageErrorResponse } from '@/lib/stream-triage/http';
@@ -42,8 +41,8 @@ export async function POST(
       if (!audio) {
         return Response.json({ error: 'No saved audio to transcribe.', code: 'conflict' }, { status: 409 });
       }
-      const bytes = await fs.readFile(path.join(getAttachmentsDir(), audio.fileName));
-      const voiceModel = getUserState()?.voiceModel || (await pickProvider());
+      const bytes = await fs.readFile(attachmentPath(audio.fileName));
+      const voiceModel = await resolveVoiceModel(getUserState()?.voiceModel || null);
       const transcript = await transcribe(
         new Blob([new Uint8Array(bytes)], { type: audio.mimeType }),
         voiceModel,
@@ -59,12 +58,10 @@ export async function POST(
       if (images.length === 0) {
         return Response.json({ error: 'No saved images to read.', code: 'conflict' }, { status: 409 });
       }
-      const imageItems = await Promise.all(
-        images.map(async (a) => ({
-          bytes: new Uint8Array(await fs.readFile(path.join(getAttachmentsDir(), a.fileName))),
-          mime: a.mimeType,
-        })),
-      );
+      const imageItems = images.map((a) => ({
+        path: attachmentPath(a.fileName),
+        mime: a.mimeType,
+      }));
       const extracted = await extractImageContent(imageItems, null);
       const imageRefs = images
         .map((a) => `![${a.originalName}](/api/attachments/${a.fileName})`)

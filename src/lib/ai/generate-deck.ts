@@ -9,16 +9,19 @@
  * Three phases (see docs/deck-v2-spec.md):
  *   1. Deterministic context — DB queries for active/deadline/recurring
  *      tasks, areas, recent completions.
- *   2. AI context gathering — a small model runs hybrid search over the
- *      knowledge base for anything the task list alone doesn't surface.
- *   3. Structured generation — the standard model emits the ranked deck.
+ *   2. AI context gathering — an agentic pass runs hybrid search over the
+ *      knowledge base (plus read-only connector tools) for anything the
+ *      task list alone doesn't surface.
+ *   3. Structured generation — emits the ranked deck.
  *
- * Requires OPENAI_API_KEY (both AI phases run on OpenAI models).
+ * Both AI phases run through the user's default subscription harness
+ * (src/lib/harness/one-shot.ts) — no direct model-API billing. Phase 2's
+ * tools attach as MCP servers when the harness supports it (Claude);
+ * otherwise (Codex today) the call runs at the app root where the
+ * installed AGENTS.md surface routes the same actions through the CLI.
  */
 
-import { Output, generateText, tool, stepCountIs } from 'ai';
-import { openai } from '@ai-sdk/openai';
-import { z } from 'zod';
+import type { McpServerConfig, StreamEvent } from '@agentex/agent';
 import { getDb } from '@/lib/db';
 import { tasks, areas, taskCompletions } from '@/lib/db/schema';
 import type { DeckItem, DeckChange, DeckOrigin } from '@/lib/db/schema';
@@ -34,53 +37,68 @@ import {
   formatGap,
 } from '@/lib/deck/calendar';
 import { readDeckInstructions } from '@/lib/deck/instructions';
-import { getReadOnlyConnectorTools } from '@/lib/deck/connector-tools';
-import { hybridSearchWithEntities } from '@/lib/embeddings/search';
+import { getReadOnlyConnectorToolNames } from '@/lib/deck/connector-tools';
+import {
+  runHarnessText,
+  runHarnessJson,
+  resolveBackgroundHarness,
+  backgroundModelFor,
+  harnessSupportsMcp,
+} from '@/lib/harness/one-shot';
+import {
+  orchestratorMcpServer,
+  connectorsMcpServer,
+  ORCHESTRATOR_MCP_SERVER_NAME,
+  CONNECTORS_MCP_SERVER_NAME,
+} from '@/lib/orchestrator/harness-surface';
 import {
   DECK_GENERATION_TASK_LIMIT,
   DECK_SYSTEM_PROMPT,
+  DECK_RESPONSE_SHAPE,
   CONTEXT_GATHERING_PROMPT,
   type DeckGenerationContext,
   deckResponseSchema,
   buildDeckPrompt,
 } from '@/lib/ai/deck-generation';
 
-// ─── Search tool ────────────────────────────────────────────────
+// ─── Collect search results from harness tool events ────────────
 
-const searchKnowledgeBase = tool({
-  description:
-    "Search the user's knowledge base (tasks, notes, and stream-of-consciousness entries) using semantic + keyword hybrid search. Returns matching entities with relevance scores.",
-  inputSchema: z.object({
-    query: z.string().describe('Search query: a topic, keyword, or natural language phrase'),
-  }),
-  execute: async ({ query }) => {
-    try {
-      return await hybridSearchWithEntities(query, { limit: 8 });
-    } catch {
-      return [];
-    }
-  },
-});
-
-// ─── Collect search results from tool-use steps ─────────────────
-
-function collectSearchResults(
-  steps: { toolResults: Array<{ toolName: string; output: unknown }> }[],
-): string {
-  const results: unknown[] = [];
-  for (const step of steps) {
-    for (const tr of step.toolResults) {
-      if (tr.toolName === 'searchKnowledgeBase' && Array.isArray(tr.output)) {
-        results.push(...tr.output);
-      }
+/**
+ * Best-effort harvest of knowledge-base search hits out of a harness
+ * tool_result payload. Two shapes appear in the wild:
+ *   - MCP (Claude): the orchestrator `search` tool's result — a JSON array
+ *     of hydrated hits, possibly wrapped in the action envelope.
+ *   - CLI (Codex): shell output of `<cli> agent search`, which prints the
+ *     same array as JSON on stdout.
+ * Anything that doesn't parse into an array of {type,id,...} records is
+ * silently ignored — this only feeds the fallback context block.
+ */
+function collectHitsFromToolContent(content: string, into: Record<string, unknown>[]): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return;
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const envelope = parsed as Record<string, unknown>;
+    if (Array.isArray(envelope.result)) parsed = envelope.result;
+  }
+  if (!Array.isArray(parsed)) return;
+  for (const entry of parsed) {
+    if (entry && typeof entry === 'object' && 'type' in entry && 'id' in entry) {
+      into.push(entry as Record<string, unknown>);
     }
   }
+}
+
+function renderSearchHits(results: Record<string, unknown>[]): string {
   if (results.length === 0) return '';
 
   // Deduplicate by entity id
   const seen = new Set<string>();
   const unique = results.filter((r) => {
-    const id = (r as Record<string, unknown>).id as string;
+    const id = r.id as string;
     if (!id || seen.has(id)) return false;
     seen.add(id);
     return true;
@@ -358,51 +376,68 @@ export async function generateDeck(
   // connected, read-only tools, steered by their DECK.md instructions)
   // ═══════════════════════════════════════════════════════════════
 
-  // Deterministic time tool: the model decides WHETHER to consult the calendar
-  // (per DECK.md / the default policy), but the free/busy math stays exact.
-  // Reuse today's already-fetched blocks; fetch fresh for other dates.
-  const get_day_shape = tool({
-    description:
-      "The user's available work time for a date: busy calendar blocks, free gaps, and total free minutes — already computed. Use for anything about how much time they have; never do free/busy math yourself.",
-    inputSchema: z.object({
-      date: z.string().optional().describe('YYYY-MM-DD; defaults to today'),
-    }),
-    execute: async ({ date }) => {
-      const d = date || forDate;
-      try {
-        const blocks = d === forDate ? calendarBlocks : await getCalendarEventsForDay(d);
-        const g = d === forDate ? gaps : computeFreeGaps(blocks, { workdayStart, workdayEnd, date: d });
-        return {
-          date: d,
-          workday: `${workdayStart}-${workdayEnd}`,
-          calendarConnected: blocks.length > 0,
-          busy: blocks.map((b) => ({ start: b.start, end: b.end, title: b.title })),
-          freeGaps: g.map(formatGap),
-          freeMinutes: availableMinutes(g),
-        };
-      } catch {
-        return { date: d, calendarConnected: false, freeMinutes: null, note: 'calendar unavailable' };
-      }
-    },
-  });
-
-  // Read-only tools for the user's connected services ({} if none connected).
-  const connectorTools = await getReadOnlyConnectorTools();
-
-  const contextModel = process.env.MODEL_STANDARD || 'gpt-5.4-mini';
+  // The gathering pass runs through the default harness. Tools (the
+  // orchestrator `search` + `get_day_shape` actions and the user's
+  // read-only connector actions) attach as MCP servers when the harness
+  // supports it; otherwise the run sits at the app root where the
+  // installed AGENTS.md surface routes the same actions through the CLI
+  // (Bash stays available on that path for exactly this reason).
+  const providerType = resolveBackgroundHarness();
+  // Recorded on the persisted deck: which harness/model generated it.
+  const generationModel = `${providerType}/${backgroundModelFor(providerType, 'standard') ?? 'default'}`;
 
   let gatheredBrief = '';
   let searchContext = '';
   try {
-    const contextResult = await generateText({
-      model: openai(contextModel),
+    const searchHits: Record<string, unknown>[] = [];
+    const onEvent = (event: StreamEvent) => {
+      if (event.type !== 'tool_result' || event.isError) return;
+      collectHitsFromToolContent(event.content, searchHits);
+    };
+
+    let toolConfig: {
+      mcpServers?: McpServerConfig[];
+      allowedTools?: string[];
+      disallowedTools?: string[];
+      skipPermissions?: boolean;
+    };
+    if (harnessSupportsMcp(providerType)) {
+      const servers = [orchestratorMcpServer(), connectorsMcpServer()].filter(
+        (s): s is McpServerConfig => s !== null,
+      );
+      const connectorAllow = (await getReadOnlyConnectorToolNames()).map(
+        (name) => `mcp__${CONNECTORS_MCP_SERVER_NAME}__${name}`,
+      );
+      toolConfig = {
+        mcpServers: servers,
+        // Gathering is strictly read-only: search, day shape, and the
+        // non-mutating connector actions. Everything else is denied.
+        allowedTools: [
+          `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}__search`,
+          `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}__get_day_shape`,
+          ...connectorAllow,
+        ],
+        disallowedTools: ['Write', 'Edit', 'NotebookEdit', 'Bash'],
+      };
+    } else {
+      toolConfig = {
+        skipPermissions: true,
+        disallowedTools: ['Write', 'Edit', 'NotebookEdit'],
+      };
+    }
+
+    const contextResult = await runHarnessText({
+      label: 'deck-context',
+      tier: 'standard',
+      maxTurns: 12,
+      timeoutSec: 240,
       system: CONTEXT_GATHERING_PROMPT,
       prompt: basePrompt,
-      tools: { searchKnowledgeBase, get_day_shape, ...connectorTools },
-      stopWhen: stepCountIs(10),
+      onEvent,
+      ...toolConfig,
     });
-    gatheredBrief = contextResult.text?.trim() ?? '';
-    searchContext = collectSearchResults(contextResult.steps);
+    gatheredBrief = contextResult.text;
+    searchContext = renderSearchHits(searchHits);
   } catch (err) {
     // Gathering is best-effort — a tool/model hiccup must never block the deck.
     console.warn('[deck] context gathering failed, generating without live context', err);
@@ -421,19 +456,15 @@ export async function generateDeck(
       : '';
   const enrichedPrompt = `${basePrompt}${liveContext}`;
 
-  const model = process.env.MODEL_STANDARD || 'gpt-5.4-mini';
-
-  const result = await generateText({
-    model: openai(model),
-    output: Output.object({ schema: deckResponseSchema }),
+  const aiResponse = await runHarnessJson({
+    label: 'deck-generate',
+    tier: 'standard',
+    timeoutSec: 240,
+    schema: deckResponseSchema,
+    shape: DECK_RESPONSE_SHAPE,
     system: DECK_SYSTEM_PROMPT,
     prompt: enrichedPrompt,
   });
-
-  const aiResponse = result.output;
-  if (!aiResponse) {
-    throw new Error('Deck generation produced no output');
-  }
 
   // ═══════════════════════════════════════════════════════════════
   // Build the change log (carried / deferred / dropped / added)
@@ -529,7 +560,7 @@ export async function generateDeck(
     items: deckItems,
     alternatives: validatedAlternatives,
     searchContext: gatheredBrief || searchContext || null,
-    model,
+    model: generationModel,
     origin: opts.origin ?? 'manual',
     changes,
     calendarSnapshot: calendarBlocks,

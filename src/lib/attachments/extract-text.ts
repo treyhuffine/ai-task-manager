@@ -3,23 +3,23 @@
  *
  * The chat code paths use this to convert file attachments into a
  * shape any model can read: plain text wrapped in `<attachment>`
- * tags. Both the orchestrator chat (Anthropic/OpenAI via ai-sdk) and
- * the execution chat (Claude Code subprocess) use it for formats
- * that aren't natively model-readable:
+ * tags. Harness chats (orchestrator, content, execution — via
+ * `expand-markers.ts`) use it for formats that aren't natively
+ * model-readable:
  *
  *   - text/* and code/data files → read utf-8 directly
  *   - .docx (`mammoth`)            → extract raw text
  *   - .xlsx / .xls (`xlsx`)        → CSV per sheet
  *   - audio/*                      → transcribe via STT (parakeet
- *                                    local → groq → openai), if any
+ *                                    local → groq), if any
  *                                    provider is available
  *   - else                         → null (caller decides whether to
  *                                    skip, fall through to native
  *                                    handling, or warn)
  *
  * Native handling lives in the callers:
- *   - images and PDFs go through the model's multimodal path (URL
- *     for Claude Code Read; base64 for Anthropic/OpenAI APIs)
+ *   - images and PDFs go through the harness's own file reading
+ *     (the marker expands to the absolute disk path)
  *   - plain text could *also* go that route in theory, but inlining
  *     reads more naturally and dodges provider quirks
  */
@@ -54,9 +54,9 @@ const TEXT_INLINE_MIMES = new Set([
   'text/html',
   'application/json',
   'application/xml',
-  // SVG is XML — neither Anthropic nor OpenAI accept it as an image,
-  // and its source is more useful to the model than a rasterized
-  // version anyway (the model can reason about shapes + structure).
+  // SVG is XML — its source is more useful to the model than a
+  // rasterized version anyway (the model can reason about shapes +
+  // structure).
   'image/svg+xml',
 ]);
 
@@ -190,7 +190,7 @@ async function extractRaw(attachment: Attachment): Promise<ExtractResult | null>
     try {
       const bytes = await fs.readFile(path);
       // Reuse the existing transcribe() path so all four providers
-      // (parakeet local, groq, openai, web) flow through one place.
+      // (parakeet local, groq, web) flow through one place.
       // The Blob constructor preserves byte content; the file's mime
       // helps the provider pick a decoder.
       const blob = new Blob([new Uint8Array(bytes)], { type: mime });

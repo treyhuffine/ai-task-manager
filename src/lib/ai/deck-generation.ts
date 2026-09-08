@@ -85,14 +85,28 @@ export const deckResponseSchema = z.object({
 
 export type DeckResponse = z.infer<typeof deckResponseSchema>;
 
+/**
+ * The JSON shape shown to the model for structured generation through the
+ * harness (see runHarnessJson). Keep in lockstep with `deckResponseSchema`
+ * above — the schema validates, this string instructs.
+ */
+export const DECK_RESPONSE_SHAPE = `{
+  "items": [{"taskId": "<a task id from the provided task list>", "rationale": "<one sentence: why this task, why this position>", "continuityContext": "<brief recent-progress note like 'Last session: got OAuth working, error handling next'>" | null}],
+  "alternatives": [{"taskId": "<a task id from the provided task list>", "reason": "<why this did not make the deck but is worth knowing about>"}],
+  "framing": "<one-line summary of the recommended shape of the day>" | null,
+  "reconciliation": [{"taskId": "<a task id that was on the PREVIOUS deck>", "decision": "carry" | "defer" | "drop", "reason": "<one sentence explaining the call>"}]
+}
+Constraints: "items" has ${DECK_MIN_ITEMS}-${DECK_MAX_ITEMS} entries ranked most important first. "alternatives" has ${ALT_MIN_ITEMS}-${ALT_MAX_ITEMS} entries. "reconciliation" has one entry for EACH task on the previous deck (empty array if no previous deck was provided). "framing" is null unless the user context or task landscape meaningfully shapes the day.`;
+
 // ─── Context-gathering prompt (Phase 2) ─────────────────────────
 
 export const CONTEXT_GATHERING_PROMPT = `You are the context-gathering step in a task-prioritization pipeline for a personal productivity app. You receive the user's active tasks, areas, and today's context. Your job: gather any LIVE context that helps plan their day well, then write a short brief of it.
 
-Tools available to you:
-- searchKnowledgeBase: the user's own notes, stream entries, and tasks (semantic + keyword search).
-- get_day_shape: the user's available work time for a date — busy calendar blocks, free gaps, and total free minutes, ALREADY COMPUTED. Use this for anything about how much time they have. NEVER compute free/busy from raw calendar events yourself; call get_day_shape.
+Tools available to you (exact names vary by runtime — match by purpose):
+- A knowledge-base search tool (the orchestrator "search" action): the user's own notes, stream entries, and tasks (semantic + keyword search).
+- A day-shape tool (the orchestrator "get_day_shape" action): the user's available work time for a date — busy calendar blocks, free gaps, and total free minutes, ALREADY COMPUTED. Use this for anything about how much time they have. NEVER compute free/busy from raw calendar events yourself.
 - You may also have READ-ONLY tools for the user's connected services (calendars, task/issue trackers, docs, messaging, etc.). Only ever read/list/get — never create, send, or modify anything.
+- If none of these tools are available in this run, skip gathering and write the brief from the provided context alone.
 
 How much to consult:
 - The user's own instructions are the most important guidance. If a [Your Source Instructions] section is present, follow it — it says which sources to use and how, and it OVERRIDES everything below whenever they conflict.

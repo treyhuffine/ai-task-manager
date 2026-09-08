@@ -327,13 +327,7 @@ For execution chat (Claude Code subprocess via agentex), `expandMarkers` substit
 - The absolute disk path if Claude Code's Read tool handles the mime natively (text, code, images, PDF).
 - An inline `<attachment filename="...">…</attachment>` block carrying extracted text otherwise (docx, xlsx, pptx via mammoth/`xlsx`/officeparser; audio via STT through `pickProvider`).
 
-For orchestrator chat (Anthropic/OpenAI via ai-sdk), `inlineTextAttachments` rewrites file parts:
-
-- Text/code/json/svg → inlined as `<attachment>` tags.
-- docx/xlsx/pptx → extracted to text via the same extractor.
-- Audio → STT transcript, tagged `kind="audio-transcript"`.
-- Images → server-side normalized via `sharp` (HEIC→JPEG, downscale to Anthropic's 5 MiB/8000px caps), then base64-inlined.
-- PDFs → base64-inlined for Anthropic (native PDF support); text-extracted via `unpdf` for OpenAI (which doesn't accept PDF parts).
+Orchestrator and content chats are harness sessions too, so the same `expandMarkers` substitution covers them — there is no separate ai-sdk inlining path anymore. (The old `inlineTextAttachments` rewrite for direct-API Anthropic/OpenAI chat, including `sharp` image normalization and `unpdf` PDF extraction, was deleted along with the legacy `/api/chat` route.)
 
 A 200k-char cap applies to every extraction so a single large document can't blow the context window.
 
