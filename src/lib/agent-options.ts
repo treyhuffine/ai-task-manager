@@ -54,6 +54,13 @@ export interface ModelOption {
   enabled?: boolean;
   /** Typed in by the user (see `customModelOption`) rather than discovered. */
   custom?: boolean;
+  /**
+   * Bundled but off by default: a superseded/legacy model kept in the catalog
+   * so a session pinned to it still resolves, but not seeded into a fresh
+   * allowlist and not auto-enabled when the catalog gains a new model. The
+   * curated (non-legacy) entries are the ones we stand behind by default.
+   */
+  legacy?: boolean;
 }
 
 /**
@@ -115,9 +122,9 @@ export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
     { id: 'gpt-5.6-sol', label: '5.6 Sol', hint: 'Reliable agentic workhorse for everyday tasks' },
     { id: 'gpt-5.6-terra', label: '5.6 Terra', hint: 'Balanced agentic coding model for everyday work' },
     { id: 'gpt-5.6-luna', label: '5.6 Luna', hint: 'Fast and affordable agentic coding model' },
-    { id: 'gpt-5.4', label: '5.4', hint: 'Strong model for everyday coding' },
-    { id: 'gpt-5.4-mini', label: '5.4 Mini', hint: 'Small, fast, and cost-efficient model for simpler coding tasks' },
-    { id: 'gpt-5.3-codex-spark', label: '5.3 Codex Spark', hint: 'Ultra-fast coding model' },
+    { id: 'gpt-5.4', label: '5.4', hint: 'Strong model for everyday coding', legacy: true },
+    { id: 'gpt-5.4-mini', label: '5.4 Mini', hint: 'Small, fast, and cost-efficient model for simpler coding tasks', legacy: true },
+    { id: 'gpt-5.3-codex-spark', label: '5.3 Codex Spark', hint: 'Ultra-fast coding model', legacy: true },
   ],
   cursor: [],
   opencode: [],
@@ -422,4 +429,82 @@ export function modelsForProvider(id: ProviderId): ModelOption[] {
 /** The provider's flagship (first listed) model id — the sensible default pick. */
 export function defaultModelFor(id: ProviderId): string {
   return modelsForProvider(id)[0]?.id ?? '';
+}
+
+/** Every bundled model id for a provider, curated and legacy alike. */
+export function bundledModelIds(id: ProviderId): string[] {
+  return modelsForProvider(id).map((model) => model.id);
+}
+
+/**
+ * The bundled models we enable by default: everything except the legacy tail.
+ * Drives both the fresh-install seed and which newly shipped models auto-join
+ * an existing allowlist.
+ */
+export function curatedDefaultModelIds(id: ProviderId): string[] {
+  return modelsForProvider(id).filter((model) => !model.legacy).map((model) => model.id);
+}
+
+/**
+ * The bundled catalog as of the release that introduced known-model
+ * reconciliation. A settings row created before then carries no `knownModels`,
+ * so this frozen snapshot stands in as "what that row had already seen": a
+ * bundled model absent from here shipped afterwards and auto-enables, while a
+ * model present here but missing from the row's allowlist was the user's own
+ * choice and stays off. This is a historical fact — never edit it. New models
+ * are handled by the live reconcile, which advances `knownModels` forward.
+ */
+export const PRE_RECONCILE_BUNDLED_IDS: Record<AgentHarness, string[]> = {
+  claude_code: ['opus', 'sonnet', 'haiku', 'fable'],
+  codex: [
+    'gpt-5.5',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.3-codex-spark',
+  ],
+  cursor: [],
+  opencode: [],
+};
+
+export interface HarnessModelReconciliation {
+  enabledModels: string[];
+  knownModels: string[];
+  /** True when either the allowlist or the known snapshot actually moved. */
+  changed: boolean;
+}
+
+/**
+ * Fold newly shipped bundled models into an existing allowlist without ever
+ * re-enabling one the user turned off.
+ *
+ * `known` is the bundled catalog this row last reconciled against (null for a
+ * row that predates the feature → the frozen pre-reconcile snapshot). A curated
+ * bundled model that is absent from `known` shipped after the user last looked,
+ * so it joins the allowlist. A model the user disabled is already in `known`,
+ * so it is not "fresh" and is left off. `known` then advances to include the
+ * current bundled set so the next release repeats the trick exactly once.
+ */
+export function reconcileEnabledModels(
+  providerId: ProviderId,
+  enabled: readonly string[],
+  known: readonly string[] | null | undefined,
+): HarnessModelReconciliation {
+  const bundled = bundledModelIds(providerId);
+  const curated = new Set(curatedDefaultModelIds(providerId));
+  const seenBefore = known ?? PRE_RECONCILE_BUNDLED_IDS[providerHarnessKey(providerId)] ?? [];
+  const baseline = new Set(seenBefore);
+  const enabledSet = new Set(enabled);
+  const fresh = bundled.filter(
+    (id) => curated.has(id) && !baseline.has(id) && !enabledSet.has(id),
+  );
+  const knownModels = [...new Set([...seenBefore, ...bundled])];
+  const knownChanged = known == null || knownModels.length !== known.length;
+  return {
+    enabledModels: fresh.length > 0 ? [...enabled, ...fresh] : [...enabled],
+    knownModels,
+    changed: fresh.length > 0 || knownChanged,
+  };
 }

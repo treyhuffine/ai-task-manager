@@ -88,10 +88,13 @@ import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import {
+  bundledModelIds,
+  curatedDefaultModelIds,
   explicitAgentSelection,
   modelsForProvider,
   normalizeCustomModelId,
   providerIdForHarness,
+  reconcileEnabledModels,
 } from '@/lib/agent-options';
 import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
 
@@ -3733,23 +3736,36 @@ export function listAgentHarnessSettings(): AgentHarnessSettingsRecord[] {
  */
 export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSettingsRecord {
   const existing = getAgentHarnessSettings(harness);
-  if (existing) return existing;
+  if (existing) {
+    // Fold in any model bundled since this row was last touched, so a new
+    // release surfaces in the picker instead of hiding behind "Show more" —
+    // without re-enabling anything the user deliberately turned off.
+    const reconciled = reconcileEnabledModels(harness, existing.enabledModels, existing.knownModels);
+    if (!reconciled.changed) return existing;
+    return upsertAgentHarnessSettings({
+      ...existing,
+      enabledModels: reconciled.enabledModels,
+      knownModels: reconciled.knownModels,
+      // A row with no default yet adopts the flagship; an existing choice stands.
+      defaultModel: existing.defaultModel ?? reconciled.enabledModels[0] ?? null,
+    });
+  }
   const state = getUserState();
-  const bundled = modelsForProvider(harness).map((model) => model.id);
   const preferred = state?.defaultAgentHarness === harness ? state.defaultAgentModel : null;
-  // Claude's bundled entries are tier aliases rather than pinned versions, so
-  // the whole set stays useful indefinitely and all of it is seeded. Codex's
-  // list is a versioned catalog whose tail is superseded, so only the current
-  // models (Astra plus the 5.5 / 5.6 family) are seeded and the rest stay
-  // one toggle away in settings.
+  // Seed the curated (non-legacy) bundled models. Claude's are tier aliases
+  // that never go stale, so all of them are curated; Codex's superseded tail
+  // is flagged legacy and stays one toggle away in settings. `knownModels`
+  // records the whole bundled catalog as already seen, so the legacy tail is
+  // not later mistaken for a fresh model and auto-enabled.
   const enabledModels = [...new Set([
     ...(preferred ? [preferred] : []),
-    ...bundled.slice(0, 5),
+    ...curatedDefaultModelIds(harness),
   ])];
   return upsertAgentHarnessSettings({
     harness,
     enabledModels,
     customModels: [],
+    knownModels: bundledModelIds(harness),
     defaultModel: preferred && enabledModels.includes(preferred) ? preferred : enabledModels[0] ?? null,
     defaultVariant: null,
     defaultEffort: state?.defaultAgentHarness === harness && (harness === 'claude' || harness === 'codex')
@@ -3773,6 +3789,9 @@ export function upsertAgentHarnessSettings(
         // Omitted on the callers that only touch the allowlist, so the pinned
         // ids survive a plain model save instead of being reset to empty.
         ...(input.customModels ? { customModels: input.customModels } : {}),
+        // Same guard: an upsert that doesn't carry the known snapshot must not
+        // wipe it back to NULL and re-trigger reconciliation.
+        ...(input.knownModels !== undefined ? { knownModels: input.knownModels } : {}),
         defaultModel: input.defaultModel,
         defaultVariant: input.defaultVariant,
         defaultEffort: input.defaultEffort,
@@ -3807,12 +3826,17 @@ export function setEnabledHarnessModels(
     if (active === harness && enabledModels.length === 0) {
       throw new Error('The active harness must have at least one enabled model');
     }
+    // An explicit save means the user has now seen the whole current catalog,
+    // so advance the known snapshot: a curated model they left off is recorded
+    // as a decision and won't be re-added as "new" on the next reconcile.
+    const knownModels = reconcileEnabledModels(harness, enabledModels, existing?.knownModels).knownModels;
     const now = new Date().toISOString();
     return tx.insert(agentHarnessSettings)
       .values({
         id: `harness:${harness}`,
         harness,
         enabledModels,
+        knownModels,
         defaultModel,
         defaultVariant: existing?.defaultVariant,
         defaultEffort: existing?.defaultEffort,
@@ -3821,7 +3845,7 @@ export function setEnabledHarnessModels(
       })
       .onConflictDoUpdate({
         target: agentHarnessSettings.harness,
-        set: { enabledModels, defaultModel, updatedAt: now },
+        set: { enabledModels, knownModels, defaultModel, updatedAt: now },
       })
       .returning().get();
   });

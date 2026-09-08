@@ -139,6 +139,14 @@ export const agentHarnessSettings = sqliteTable('agent_harness_settings', {
    * verbatim instead of being resolved through a tier alias.
    */
   customModels: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+  /**
+   * The bundled catalog this row last reconciled against. A curated bundled
+   * model absent from here shipped after the user last looked and auto-joins
+   * `enabledModels`; a model the user turned off is already in here and stays
+   * off. NULL means the row predates reconciliation (see
+   * `PRE_RECONCILE_BUNDLED_IDS`). No default: NULL is a meaningful sentinel.
+   */
+  knownModels: text({ mode: 'json' }).$type<string[]>(),
   defaultModel: text(),
   defaultVariant: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),

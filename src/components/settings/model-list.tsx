@@ -83,10 +83,11 @@ function ProviderGroup({
 }) {
   const { connection } = useAgentConnection(providerId);
   const { models } = useAgentModels(providerId);
-  // The allowlist is a snapshot of the catalog at the moment it was last
-  // edited, so anything the provider shipped afterwards is invisible here
-  // through no decision of the user's. The catalog read backs the drawer below
-  // that keeps those models one click away instead of one settings trip away.
+  // Bundled models we ship auto-join the allowlist on upgrade (see
+  // reconcileEnabledModels), so a new default sits in the main list, not behind
+  // this drawer. The drawer still backs everything the *provider* discovers
+  // beyond our curated set — those stay one click away instead of one settings
+  // trip away — plus typing in an exact model id.
   const catalog = useAgentModels(providerId, { catalog: true });
   const save = useSaveHarnessModels();
   const removeCustom = useRemoveCustomModel();

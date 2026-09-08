@@ -56,7 +56,7 @@ describe('ensureAgentHarnessSettings', () => {
     ]);
   });
 
-  it('seeds only the current Codex models and leaves the superseded tail off', () => {
+  it('seeds only the curated Codex models and leaves the legacy tail off', () => {
     const enabled = q.ensureAgentHarnessSettings('codex').enabledModels;
     expect(enabled).toEqual([
       'gpt-6-astra',
@@ -66,6 +66,57 @@ describe('ensureAgentHarnessSettings', () => {
       'gpt-5.6-luna',
     ]);
     expect(enabled).not.toContain('gpt-5.4');
+  });
+
+  it('records the whole bundled catalog as known so the legacy tail is never mistaken for new', () => {
+    const row = q.ensureAgentHarnessSettings('codex');
+    expect(row.knownModels).toEqual([
+      'gpt-6-astra',
+      'gpt-5.5',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.3-codex-spark',
+    ]);
+  });
+
+  it('auto-enables a model bundled after a row was last seen, without re-adding user removals', () => {
+    // A row as it looked before astra shipped: no knownModels, and the user had
+    // already trimmed 5.5 out of the seeded set.
+    q.upsertAgentHarnessSettings({
+      harness: 'codex',
+      enabledModels: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+      customModels: [],
+      knownModels: undefined,
+      defaultModel: 'gpt-5.6-sol',
+      defaultVariant: null,
+      defaultEffort: null,
+      catalogRefreshedAt: null,
+    });
+
+    const row = q.ensureAgentHarnessSettings('codex');
+    expect(row.enabledModels).toContain('gpt-6-astra');      // shipped after → surfaces
+    expect(row.enabledModels).not.toContain('gpt-5.5');       // prior removal → respected
+    expect(row.enabledModels).not.toContain('gpt-5.4');       // legacy → never auto-on
+    expect(row.defaultModel).toBe('gpt-5.6-sol');             // default untouched
+    expect(row.knownModels).toContain('gpt-6-astra');         // snapshot advanced
+
+    // Reconciliation is one-shot: a second pass neither changes nor rewrites.
+    const again = q.ensureAgentHarnessSettings('codex');
+    expect(again.enabledModels).toEqual(row.enabledModels);
+    expect(again.updatedAt).toBe(row.updatedAt);
+  });
+
+  it('keeps a curated model off once the user turns it off after it shipped', () => {
+    q.ensureAgentHarnessSettings('codex'); // astra enabled + known covers it
+    q.setEnabledHarnessModels(
+      'codex',
+      ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+      'gpt-5.6-sol',
+    );
+    expect(q.ensureAgentHarnessSettings('codex').enabledModels).not.toContain('gpt-6-astra');
   });
 
   it('defaults to the flagship model of the seeded set', () => {
