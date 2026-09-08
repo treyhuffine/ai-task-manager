@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { Markdown } from '@tiptap/markdown';
 import Placeholder from '@tiptap/extension-placeholder';
 import { X, NotebookPen, Plus, Loader2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -27,10 +28,12 @@ const SAVE_DEBOUNCE_MS = 500;
 
 /**
  * The 📝-button slide-over. Single Tiptap editor over the viewer
- * column, auto-saves on debounce. The body is plain markdown text in
- * the DB; we render it via StarterKit with a placeholder. Promote /
- * Send-to-chat selection actions live in a thin toolbar above the
- * editor (visible whenever the user has a non-empty selection).
+ * column, auto-saves on debounce. The body is Markdown text in the DB,
+ * round-tripped through the @tiptap/markdown extension (getMarkdown on
+ * save, markdown.parse on load) so multi-line notes survive a remount —
+ * reloading the stored string as HTML collapsed every newline into one
+ * block. Promote / Send-to-chat selection actions live in a thin toolbar
+ * above the editor (visible whenever the user has a non-empty selection).
  *
  * Mounting is gated on `open` so the editor doesn't pay its setup cost
  * when nothing's visible.
@@ -111,11 +114,19 @@ function ScratchpadEditor({
         codeBlock: false,
         horizontalRule: false,
       }),
+      // Serialize/parse the body as Markdown, matching rich-editor.tsx.
+      // Enables editor.getMarkdown() on save and editor.markdown.parse()
+      // on load so paragraph breaks round-trip instead of collapsing.
+      Markdown,
       Placeholder.configure({
         placeholder: 'Jot quick thoughts for this session…',
       }),
     ],
     content: data?.scratchPad ?? '',
+    // Parse the stored string as Markdown, not HTML — otherwise Tiptap
+    // treats a bare string as HTML and collapses its newlines. Only
+    // meaningful when there's initial content at creation time.
+    ...(data?.scratchPad ? { contentType: 'markdown' as const } : {}),
     editorProps: {
       attributes: {
         class: cn(
@@ -129,7 +140,7 @@ function ScratchpadEditor({
     },
     onUpdate({ editor }) {
       hot('editor onUpdate Scratchpad');
-      const text = editor.getText();
+      const text = editor.getMarkdown();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       setStatus('saving');
       saveTimerRef.current = setTimeout(() => {
@@ -151,13 +162,19 @@ function ScratchpadEditor({
     },
   });
 
-  // Sync server content on first load.
+  // Sync server content on first load. The stored value is Markdown, so
+  // parse it as Markdown (not HTML) before setting it — reloading a bare
+  // string collapses its newlines into a single block. Compare against
+  // the editor's own Markdown so the "already in sync" guard stays honest.
   useEffect(() => {
     if (!editor || data == null) return;
-    if (editor.getText() === (data.scratchPad ?? '')) return;
+    const stored = data.scratchPad ?? '';
+    const currentMd = editor.getMarkdown();
+    if (currentMd === stored) return;
     if (lastSavedRef.current !== null) return; // already user-edited
-    editor.commands.setContent(data.scratchPad ?? '');
-    lastSavedRef.current = data.scratchPad ?? '';
+    const json = editor.markdown?.parse(stored);
+    if (json) editor.commands.setContent(json, { emitUpdate: false });
+    lastSavedRef.current = stored;
   }, [editor, data]);
 
   // Autofocus once Tiptap is mounted. The pane component only mounts
