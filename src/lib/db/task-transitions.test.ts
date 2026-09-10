@@ -36,7 +36,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(t.statusChangedCount).toBe(0);
     expect(t.statusChangedAt).toBeTruthy();
 
-    const s = q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
+    const s = q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
     expect(s.fromStatus).toBe('todo');
     expect(s.toStatus).toBe('in_progress');
     expect(s.statusChangedCount).toBe(1);
@@ -46,8 +46,8 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('replays an idempotent retry instead of re-applying', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
-    const again = q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
+    const again = q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
     expect(again.replayed).toBe(true);
     expect(again.statusChangedCount).toBe(1);
   });
@@ -55,10 +55,10 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('rejects a stale expected count with a conflict', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' }); // now count 1
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } }); // now count 1
     let code: string | undefined;
     try {
-      q.transitionTask({ taskId: t.id, command: 'return_to_todo', idempotencyKey: 'k2', expectedStatusChangedCount: 0 });
+      q.transitionTask({ taskId: t.id, command: 'return_to_todo', idempotencyKey: 'k2', expectedStatusChangedCount: 0, meta: { source: 'human' } });
     } catch (e) {
       code = (e as { code?: string })?.code;
     }
@@ -68,11 +68,11 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('completes non-recurring to done, and a retry never duplicates completion history', async () => {
     const { q, db, schema } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
-    const c = q.completeTask(t.id, { idempotencyKey: 'k2' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k2', meta: { source: 'human' } });
     expect(c!.toStatus).toBe('done');
     expect(c!.statusChangedCount).toBe(2);
-    const cAgain = q.completeTask(t.id, { idempotencyKey: 'k2' });
+    const cAgain = q.completeTask(t.id, { idempotencyKey: 'k2', meta: { source: 'human' } });
     expect(cAgain!.replayed).toBe(true);
     const completions = db.select().from(schema.taskCompletions).where(eq(schema.taskCompletions.taskId, t.id)).all();
     expect(completions).toHaveLength(1);
@@ -81,8 +81,8 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('recurring completion records one occurrence, advances, and returns to Todo', async () => {
     const { q, db, schema } = await setup();
     const t = q.createTask({ title: 'Water', rawInput: 'x', recurrence: 'weekly' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
-    const c = q.completeTask(t.id, { idempotencyKey: 'k2' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k2', meta: { source: 'human' } });
     expect(c!.recurring).toBe(true);
     expect(c!.toStatus).toBe('todo');
     expect(q.getTask(t.id)!.status).toBe('todo');
@@ -95,7 +95,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'Water', rawInput: 'x', recurrence: 'weekly' });
     expect(t.statusChangedCount).toBe(0); // created Todo
-    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
     // Stored status stays Todo, but the revision still advances so a concurrent
     // or duplicate completion is detectable.
     expect(c!.toStatus).toBe('todo');
@@ -109,7 +109,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // A scheduled occurrence far in the past, on a known weekday (Wed).
     const anchor = '2024-01-03T09:00:00.000Z';
     db.update(schema.tasks).set({ nextRecurrenceAt: anchor }).where(eq(schema.tasks.id, t.id)).run();
-    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
     const next = new Date(c!.nextRecurrenceAt!);
     expect(next.getTime()).toBeGreaterThan(Date.now()); // landed in the future
     expect(next.getUTCDay()).toBe(new Date(anchor).getUTCDay()); // same weekday (phase kept)
@@ -123,7 +123,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     const t = q.createTask({ title: 'Monthly', rawInput: 'x', recurrence: 'monthly' });
     // A future scheduled occurrence so it advances exactly once.
     db.update(schema.tasks).set({ nextRecurrenceAt: '2027-01-31T12:00:00.000Z' }).where(eq(schema.tasks.id, t.id)).run();
-    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
     expect(c!.nextRecurrenceAt!.startsWith('2027-02-28')).toBe(true);
   });
 
@@ -135,7 +135,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // Without acknowledgement -> conflict disclosing the open child.
     let details: { requiresChildAck?: boolean; openChildren?: { id: string }[] } | undefined;
     try {
-      q.completeTask(parent.id, { idempotencyKey: 'p1' });
+      q.completeTask(parent.id, { idempotencyKey: 'p1', meta: { source: 'human' } });
     } catch (e) {
       details = (e as { details?: typeof details }).details;
       expect((e as { code?: string }).code).toBe('conflict');
@@ -146,21 +146,21 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // A stale/wrong acknowledgement is still rejected.
     let staleCode: string | undefined;
     try {
-      q.completeTask(parent.id, { idempotencyKey: 'p2', acknowledgedChildIds: ['nonexistent'] });
+      q.completeTask(parent.id, { idempotencyKey: 'p2', acknowledgedChildIds: ['nonexistent'], meta: { source: 'human' } });
     } catch (e) {
       staleCode = (e as { code?: string }).code;
     }
     expect(staleCode).toBe('conflict');
 
     // The exact open-child set proceeds, leaving the child unchanged.
-    const done = q.completeTask(parent.id, { idempotencyKey: 'p3', acknowledgedChildIds: [child.id] });
+    const done = q.completeTask(parent.id, { idempotencyKey: 'p3', acknowledgedChildIds: [child.id], meta: { source: 'human' } });
     expect(done!.toStatus).toBe('done');
     expect(q.getTask(child.id)!.status).toBe('todo'); // child untouched
 
     // A completed child no longer gates the parent.
-    q.completeTask(child.id, { idempotencyKey: 'cc' });
-    q.transitionTask({ taskId: parent.id, command: 'reopen', idempotencyKey: 're' });
-    const arch = q.transitionTask({ taskId: parent.id, command: 'archive', idempotencyKey: 'ar' });
+    q.completeTask(child.id, { idempotencyKey: 'cc', meta: { source: 'human' } });
+    q.transitionTask({ taskId: parent.id, command: 'reopen', idempotencyKey: 're', meta: { source: 'human' } });
+    const arch = q.transitionTask({ taskId: parent.id, command: 'archive', idempotencyKey: 'ar', meta: { source: 'human' } });
     expect(arch.toStatus).toBe('archived');
   });
 
@@ -172,7 +172,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // Self-parenting is rejected.
     let selfCode: string | undefined;
     try {
-      q.updateTask(a.id, { parentId: a.id });
+      q.updateTask(a.id, { parentId: a.id }, { source: 'human' });
     } catch (e) {
       selfCode = (e as { code?: string }).code;
     }
@@ -181,7 +181,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // Making A a child of its own descendant B would cycle -> rejected.
     let cycleCode: string | undefined;
     try {
-      q.updateTask(a.id, { parentId: b.id });
+      q.updateTask(a.id, { parentId: b.id }, { source: 'human' });
     } catch (e) {
       cycleCode = (e as { code?: string }).code;
     }
@@ -194,14 +194,14 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // End of February (a short month) — the next occurrence should return to the
     // last day of the next month, not stick at the 28th.
     db.update(schema.tasks).set({ nextRecurrenceAt: '2027-02-28T12:00:00.000Z' }).where(eq(schema.tasks.id, t.id)).run();
-    const c = q.completeTask(t.id, { idempotencyKey: 'k1' });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
     expect(c!.nextRecurrenceAt!.startsWith('2027-03-31')).toBe(true);
   });
 
   it('review gating compares timestamps as instants, not strings, across formats', async () => {
     const { q, db, schema } = await setup();
     const agent = q.getOrCreateDefaultExecutor('claude_code');
-    const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-ts' }).id;
+    const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-ts', isGit: false }).id;
     const exec = q.createExecution({ workspaceId: wsId });
     const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     const task = q.createTask({ title: 'T', rawInput: 'x' });
@@ -219,7 +219,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
 
   it('a setup failure flags Stalled even with no running session', async () => {
     const { q, db, schema } = await setup();
-    const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-st' }).id;
+    const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-st', isGit: false }).id;
     const exec = q.createExecution({ workspaceId: wsId });
     // A setup failure leaves the execution active but not running.
     db.update(schema.executions).set({ setupError: 'boom' }).where(eq(schema.executions.id, exec.id)).run();
@@ -236,7 +236,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(q.lifecyclePreflight({ taskId: t.id, command: 'start', idempotencyKey: 'k1' })).toEqual({ replay: false });
     expect(q.getTask(t.id)!.status).toBe('todo'); // preflight didn't apply anything
 
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
     // Same key -> replay (so the route skips runtime coordination).
     expect(q.lifecyclePreflight({ taskId: t.id, command: 'start', idempotencyKey: 'k1' })).toEqual({ replay: true });
 
@@ -284,11 +284,11 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('reusing an idempotency key for a different command is a conflict', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'shared' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'shared', meta: { source: 'human' } });
     // Same key, different command -> conflict, not a silent replay of "start".
     let code: string | undefined;
     try {
-      q.transitionTask({ taskId: t.id, command: 'archive', idempotencyKey: 'shared' });
+      q.transitionTask({ taskId: t.id, command: 'archive', idempotencyKey: 'shared', meta: { source: 'human' } });
     } catch (e) {
       code = (e as { code?: string })?.code;
     }
@@ -296,7 +296,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // And reusing it for complete is likewise rejected.
     let completeCode: string | undefined;
     try {
-      q.completeTask(t.id, { idempotencyKey: 'shared' });
+      q.completeTask(t.id, { idempotencyKey: 'shared', meta: { source: 'human' } });
     } catch (e) {
       completeCode = (e as { code?: string })?.code;
     }
@@ -306,15 +306,15 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('rejects an illegal transition (start on done) and reopen clears completedAt', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
-    q.completeTask(t.id, { idempotencyKey: 'k1' });
+    q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
     let code: string | undefined;
     try {
-      q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k2' });
+      q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k2', meta: { source: 'human' } });
     } catch (e) {
       code = (e as { code?: string })?.code;
     }
     expect(code).toBe('invalid_transition');
-    q.transitionTask({ taskId: t.id, command: 'reopen', idempotencyKey: 'k3' });
+    q.transitionTask({ taskId: t.id, command: 'reopen', idempotencyKey: 'k3', meta: { source: 'human' } });
     const reopened = q.getTask(t.id)!;
     expect(reopened.status).toBe('todo');
     expect(reopened.completedAt).toBeNull();
@@ -326,7 +326,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     db.update(schema.tasks).set({ hardDeadline: '2026-12-31' }).where(eq(schema.tasks.id, t.id)).run();
     let code: string | undefined;
     try {
-      q.transitionTask({ taskId: t.id, command: 'move_to_consider', idempotencyKey: 'k1' });
+      q.transitionTask({ taskId: t.id, command: 'move_to_consider', idempotencyKey: 'k1', meta: { source: 'human' } });
     } catch (e) {
       code = (e as { code?: string })?.code;
     }
@@ -336,11 +336,11 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('records exactly one ledger row per applied command (none for replays or errors)', async () => {
     const { q, db, schema } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' }); // replay
-    q.completeTask(t.id, { idempotencyKey: 'k2' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } }); // replay
+    q.completeTask(t.id, { idempotencyKey: 'k2', meta: { source: 'human' } });
     try {
-      q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k3' }); // invalid on done
+      q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k3', meta: { source: 'human' } }); // invalid on done
     } catch {
       /* expected */
     }
@@ -354,9 +354,9 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
   it('generic updateTask never changes status', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
-    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1' });
+    q.transitionTask({ taskId: t.id, command: 'start', idempotencyKey: 'k1', meta: { source: 'human' } });
     // Attempt a status change through the generic path.
-    q.updateTask(t.id, { status: 'done' } as Parameters<typeof q.updateTask>[1]);
+    q.updateTask(t.id, { status: 'done' } as Parameters<typeof q.updateTask>[1], { source: 'human' });
     expect(q.getTask(t.id)!.status).toBe('in_progress');
   });
 });

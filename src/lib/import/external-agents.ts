@@ -15,6 +15,7 @@ import {
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
+import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import {
   chatEvents,
   chatSessions,
@@ -701,7 +702,7 @@ function createImportSkeleton(
       // sessions to the top of the rail.
       lastActivityAt: candidate.updatedAt,
       lastViewedAt: candidate.updatedAt,
-      permissionMode: 'bypass',
+      permissionMode: DEFAULT_PERMISSION_MODE,
       model: selection.model,
       effort: selection.effort,
       startedAt: candidate.startedAt,

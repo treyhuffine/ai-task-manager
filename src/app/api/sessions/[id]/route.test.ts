@@ -51,7 +51,7 @@ const existing = {
   executionId: null,
   execution: null,
   label: 'Chat',
-  permissionMode: 'bypass',
+  permissionMode: 'auto_all',
   prePlanMode: null,
   model: 'opus',
   modelVariant: null,

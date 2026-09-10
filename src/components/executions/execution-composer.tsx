@@ -26,8 +26,8 @@ import { buildRecallHistory } from '@/components/chat/editor/history-recall';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
+import { supportedPermissionModes as supportedModesFor } from '@/lib/executor/permission-map';
 import {
-  PERMISSION_MODES,
   type PermissionMode,
   type EffortLevel,
   type Attachment,
@@ -375,17 +375,10 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const canChangeEffort = runtime?.capabilities.sessionEffortChange.supported
       ?? (providerId === 'claude' || providerId === 'codex');
     const selectionControlsDisabled = updateSession.isPending || Boolean(isRunning);
-    const supportedPermissionModes = useMemo<PermissionMode[]>(() => {
-      if (providerId === 'cursor') {
-        return runtime?.capabilities.planMode.supported ? ['bypass', 'plan'] : ['bypass'];
-      }
-      if (providerId === 'opencode') {
-        return runtime?.capabilities.planMode.supported
-          ? ['bypass', 'default', 'plan']
-          : ['bypass', 'default'];
-      }
-      return [...PERMISSION_MODES];
-    }, [providerId, runtime?.capabilities.planMode.supported]);
+    const supportedPermissionModes = useMemo<PermissionMode[]>(
+      () => supportedModesFor(providerId ?? 'claude', runtime?.capabilities.planMode.supported ?? false),
+      [providerId, runtime?.capabilities.planMode.supported],
+    );
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOptions = effortOptionsForModel(harness, pinnedModelOption);
     const explicitEffort = explicitEffortForModel(

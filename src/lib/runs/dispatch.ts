@@ -18,6 +18,7 @@ import { existsSync as fsExistsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
 import { chatSessions as chatSessionsTable } from '@/lib/db/schema';
+import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import { eq } from 'drizzle-orm';
 import type {
   TriggerRecord,
@@ -305,6 +306,10 @@ function createChatForFire(
       executionId: execution?.id ?? null,
       label: trigger.name,
       status: 'active',
+      // Policy default set explicitly (this raw insert bypasses
+      // createChatSession, so it must not lean on the DB default). Keeps
+      // trigger-fired chats auto-allow rather than inheriting a stale default.
+      permissionMode: DEFAULT_PERMISSION_MODE,
       // Propagate the trigger's per-run overrides onto the chat so the
       // executor adapter's `ensureAgentSession` picks them up via the
       // session row (it reads model/effort/permissionMode/etc. fresh

@@ -1,1 +1,0 @@
-ALTER TABLE `chat_sessions` ADD `external_history_checkpoint` text;

@@ -192,6 +192,7 @@ export async function POST(
       entityType: entityType,
       entityId: entityId,
       hydrate: body.hydrate ?? true,
+      createdBy: 'user',
     });
     return Response.json({ ok: true }, { status: 201 });
   } catch (err) {

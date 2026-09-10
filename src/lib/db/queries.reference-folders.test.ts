@@ -98,6 +98,7 @@ describe('reference folder queries', () => {
         .insert(referenceFolders)
         .values({
           id: 'raw-both',
+          status: 'active',
           workspaceId: frontend.id,
           alias: 'raw-both',
           path: '/tmp/api',
@@ -108,7 +109,7 @@ describe('reference folder queries', () => {
     expect(() =>
       getDb()
         .insert(referenceFolders)
-        .values({ id: 'raw-neither', workspaceId: frontend.id, alias: 'raw-neither' })
+        .values({ id: 'raw-neither', status: 'active', workspaceId: frontend.id, alias: 'raw-neither' })
         .run(),
     ).toThrow(/CHECK constraint failed/i);
     expect(q.listReferenceFolders({ workspaceId: frontend.id })).toHaveLength(0);

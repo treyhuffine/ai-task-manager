@@ -1,1 +1,0 @@
-ALTER TABLE `executions` ADD `setup_warning` text;

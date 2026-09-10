@@ -28,6 +28,13 @@ type WithCamelAttachments<T> =
     ? Omit<T, 'attachments'> & (Record<string, never> extends Pick<T, 'attachments' & keyof T> ? { attachments?: Attachment[] | null } : { attachments: Attachment[] | null })
     : T;
 
+// The schema carries no policy defaults (initial status, modes, routing
+// policy), so InferInsertModel marks those columns required. The query-layer
+// creators own the values (`input.x ?? POLICY`), so the Create inputs make
+// them optional again. Authorship columns (actorSource/source/createdBy) are
+// deliberately NOT here: callers must always say who acted.
+type PolicyOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
 // ─── User State ────────────────────────────────────────────────
 
 export type UserStateRecord = InferSelectModel<typeof userState>;
@@ -40,14 +47,14 @@ export type AgentHarnessOperationRecord = InferSelectModel<typeof agentHarnessOp
 // ─── Areas ────────────────────────────────────────────────────
 
 export type AreaRecord = WithCamelAttachments<InferSelectModel<typeof areas>>;
-export type CreateAreaInput = WithCamelAttachments<Omit<InferInsertModel<typeof areas>, 'id'>>;
+export type CreateAreaInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof areas>, 'id'>, 'status'>>;
 export type UpdateAreaInput = Partial<CreateAreaInput>;
 export type AreaStatus = AreaRecord['status'];
 
 // ─── Stream ───────────────────────────────────────────────────
 
 export type StreamRecord = WithCamelAttachments<InferSelectModel<typeof stream>>;
-export type CreateStreamInput = WithCamelAttachments<Omit<InferInsertModel<typeof stream>, 'id'>>;
+export type CreateStreamInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof stream>, 'id'>, 'status' | 'source' | 'media' | 'origin'>>;
 export type UpdateStreamInput = Partial<CreateStreamInput>;
 export type StreamSource = StreamRecord['source'];
 export type StreamStatus = StreamRecord['status'];
@@ -55,7 +62,7 @@ export type StreamStatus = StreamRecord['status'];
 // ─── Stream Triage ────────────────────────────────────────────
 
 export type TriagePassRecord = InferSelectModel<typeof triagePasses>;
-export type CreateTriagePassInput = Omit<InferInsertModel<typeof triagePasses>, 'id'>;
+export type CreateTriagePassInput = PolicyOptional<Omit<InferInsertModel<typeof triagePasses>, 'id'>, 'status'>;
 export type TriagePassTrigger = TriagePassRecord['trigger'];
 export type TriagePassStatus = TriagePassRecord['status'];
 
@@ -85,7 +92,7 @@ export type StreamRecordWithOutcomes = StreamRecord & { outcomes: StreamOutcome[
 
 export type TaskRecord = WithCamelAttachments<InferSelectModel<typeof tasks>>;
 export type TaskListRecord = TaskRecord & { subtaskCount: number; subtaskPreview: string | null };
-export type CreateTaskInput = WithCamelAttachments<Omit<InferInsertModel<typeof tasks>, 'id'>>;
+export type CreateTaskInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof tasks>, 'id'>, 'status'>>;
 export type UpdateTaskInput = Partial<CreateTaskInput>;
 export type TaskStatus = NonNullable<TaskRecord['status']>;
 /**
@@ -110,7 +117,7 @@ export type CreateTaskStatusChangeInput = Omit<InferInsertModel<typeof taskStatu
 // ─── Notes ────────────────────────────────────────────────────
 
 export type NoteRecord = WithCamelAttachments<InferSelectModel<typeof notes>>;
-export type CreateNoteInput = WithCamelAttachments<Omit<InferInsertModel<typeof notes>, 'id'>>;
+export type CreateNoteInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof notes>, 'id'>, 'status'>>;
 export type UpdateNoteInput = Partial<CreateNoteInput>;
 export type NoteStatus = NonNullable<NoteRecord['status']>;
 
@@ -124,13 +131,13 @@ export type EntityVersionEntityType = EntityVersionRecord['entityType'];
 // ─── Decks ───────────────────────────────────────────────────
 
 export type DeckRecord = InferSelectModel<typeof decks>;
-export type CreateDeckInput = Omit<InferInsertModel<typeof decks>, 'id'>;
+export type CreateDeckInput = PolicyOptional<Omit<InferInsertModel<typeof decks>, 'id'>, 'origin'>;
 export type UpdateDeckInput = Partial<Omit<CreateDeckInput, 'createdAt'>>;
 
 // ─── API Keys ─────────────────────────────────────────────────
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
-export type CreateApiKeyInput = Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>;
+export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>, 'deviceType' | 'env'>;
 // Only user-editable metadata is exposed — secret material and audit timestamps
 // stay internal and cannot be mutated via the API.
 export type UpdateApiKeyInput = Partial<Pick<CreateApiKeyInput, 'name' | 'description' | 'deviceType'>>;
@@ -139,7 +146,7 @@ export type DeviceType = NonNullable<ApiKeyRecord['deviceType']>;
 // ─── Workspaces ───────────────────────────────────────────────
 
 export type WorkspaceRecord = WithCamelAttachments<InferSelectModel<typeof workspaces>>;
-export type CreateWorkspaceInput = WithCamelAttachments<Omit<InferInsertModel<typeof workspaces>, 'id'>>;
+export type CreateWorkspaceInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof workspaces>, 'id'>, 'status' | 'filesToCopy' | 'collapsed' | 'skipLiveConfirm' | 'browserEnabled'>>;
 export type UpdateWorkspaceInput = Partial<Omit<CreateWorkspaceInput, 'createdAt'>>;
 export type WorkspaceStatus = WorkspaceRecord['status'];
 export type { WorkspaceConnectorScope, WorkspaceConnectorScopeAccount } from '@/lib/db/schema';
@@ -158,7 +165,7 @@ export interface WorkspaceWithCounts extends WorkspaceRecord {
 // ─── Reference folders ────────────────────────────────────────
 
 export type ReferenceFolderRecord = InferSelectModel<typeof referenceFolders>;
-export type CreateReferenceFolderInput = Omit<InferInsertModel<typeof referenceFolders>, 'id'> & {
+export type CreateReferenceFolderInput = PolicyOptional<Omit<InferInsertModel<typeof referenceFolders>, 'id'>, 'status'> & {
   id?: string;
 };
 export type UpdateReferenceFolderInput = Partial<
@@ -194,14 +201,14 @@ export interface ResolvedReferenceFolder extends ReferenceFolderRecord {
 // ─── Agents ───────────────────────────────────────────────────
 
 export type AgentRecord = InferSelectModel<typeof agents>;
-export type CreateAgentInput = Omit<InferInsertModel<typeof agents>, 'id'>;
+export type CreateAgentInput = PolicyOptional<Omit<InferInsertModel<typeof agents>, 'id'>, 'status'>;
 export type UpdateAgentInput = Partial<Omit<CreateAgentInput, 'createdAt'>>;
 export type AgentKind = AgentRecord['kind'];
 
 // ─── Executions ───────────────────────────────────────────────
 
 export type ExecutionRecord = InferSelectModel<typeof executions>;
-export type CreateExecutionInput = Omit<InferInsertModel<typeof executions>, 'id'> & { id?: string };
+export type CreateExecutionInput = PolicyOptional<Omit<InferInsertModel<typeof executions>, 'id'>, 'status'> & { id?: string };
 export type UpdateExecutionInput = Partial<Omit<CreateExecutionInput, 'createdAt'>>;
 export type ExecutionStatus = ExecutionRecord['status'];
 
@@ -241,19 +248,19 @@ export interface TaskAttentionSignals {
 // ─── Preview Targets ──────────────────────────────────────────
 
 export type PreviewTargetRecord = InferSelectModel<typeof previewTargets>;
-export type CreatePreviewTargetInput = Omit<InferInsertModel<typeof previewTargets>, 'id'> & { id?: string };
+export type CreatePreviewTargetInput = PolicyOptional<Omit<InferInsertModel<typeof previewTargets>, 'id'>, 'pinned'> & { id?: string };
 export type UpdatePreviewTargetInput = Partial<Omit<CreatePreviewTargetInput, 'createdAt' | 'executionId'>>;
 
 // ─── Chat Sessions ────────────────────────────────────────────
 
 export type ChatSessionRecord = InferSelectModel<typeof chatSessions>;
-export type CreateChatSessionInput = Omit<InferInsertModel<typeof chatSessions>, 'id'>;
+export type CreateChatSessionInput = PolicyOptional<Omit<InferInsertModel<typeof chatSessions>, 'id'>, 'status' | 'permissionMode'>;
 export type UpdateChatSessionInput = Partial<Omit<CreateChatSessionInput, 'startedAt'>>;
 export type ChatSessionType = ChatSessionRecord['type'];
 export type ChatSessionStatus = ChatSessionRecord['status'];
 
 export type ExternalSessionImportRecord = InferSelectModel<typeof externalSessionImports>;
-export type CreateExternalSessionImportInput = Omit<InferInsertModel<typeof externalSessionImports>, 'id'>;
+export type CreateExternalSessionImportInput = PolicyOptional<Omit<InferInsertModel<typeof externalSessionImports>, 'id'>, 'status'>;
 export type UpdateExternalSessionImportInput = Partial<Omit<CreateExternalSessionImportInput, 'createdAt'>>;
 
 /**
@@ -287,7 +294,7 @@ export type ChatEventRecord = WithCamelAttachments<InferSelectModel<typeof chatE
 // ─── Chat Refs ────────────────────────────────────────────────
 
 export type ChatRefRecord = InferSelectModel<typeof chatRefs>;
-export type CreateChatRefInput = Omit<InferInsertModel<typeof chatRefs>, 'id'> & { id?: string };
+export type CreateChatRefInput = PolicyOptional<Omit<InferInsertModel<typeof chatRefs>, 'id'>, 'hydrate'> & { id?: string };
 export type UpdateChatRefInput = Partial<Omit<CreateChatRefInput, 'createdAt' | 'sessionId'>>;
 export type ChatRefEntityType = ChatRefRecord['entityType'];
 export type ChatRefCreatedBy = ChatRefRecord['createdBy'];
@@ -317,24 +324,25 @@ export const OUTCOME_SOURCES: ReadonlySet<ChatEventSource> = new Set([
 ]);
 
 /**
- * Permission modes for execution sessions.
+ * Permission modes for execution sessions. App-native vocabulary, decoupled
+ * from any single harness. Each adapter translates a mode into native flags in
+ * `src/lib/executor/permission-map.ts`.
  *
- * - `bypass`   — auto-allow every tool. No --permission-mode flag passed
- *                to Claude. Default for new sessions; matches the legacy
- *                Flow behavior where the executor never prompted.
- * - `default`  — Claude prompts via stdio for every mutating tool. The
- *                pending-input UI surfaces the prompt.
- * - `accept_edits` — Claude auto-allows Write/Edit/MultiEdit inside cwd;
- *                Bash/etc still prompt. Maps to `--permission-mode acceptEdits`.
- * - `plan`     — Claude refuses to mutate state and produces a plan for
- *                user approval. Maps to `--permission-mode plan`. Plus
- *                EnterPlanMode/ExitPlanMode tools become available.
+ * - `auto_all`   — auto-allow every tool, no prompts. Default for new sessions.
+ * - `auto_edits` — auto-allow workspace edits; prompt for shell/network/other.
+ * - `ask`        — prompt before every mutating tool. Reads run free.
+ * - `plan`       — read-only: propose a plan, make no changes.
  *
  * AskUserQuestion always surfaces to the user regardless of mode.
+ *
+ * The values live in `src/lib/permissions/modes.ts` (a leaf module the schema
+ * imports); `PermissionMode` stays derived from the schema column per the
+ * types-from-schema rule, and `PERMISSION_MODES` is re-exported here so callers
+ * keep importing both from `@/db/types`.
  */
 export type PermissionMode = NonNullable<ChatSessionRecord['permissionMode']>;
 
-export const PERMISSION_MODES = ['bypass', 'default', 'accept_edits', 'plan'] as const satisfies readonly PermissionMode[];
+export { PERMISSION_MODES } from '@/lib/permissions/modes';
 
 export type EffortLevel = NonNullable<ChatSessionRecord['effort']>;
 
@@ -343,7 +351,7 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] 
 // ─── Triggers ─────────────────────────────────────────────────
 
 export type TriggerRecord = InferSelectModel<typeof triggers>;
-export type CreateTriggerInput = Omit<InferInsertModel<typeof triggers>, 'id'> & { id?: string };
+export type CreateTriggerInput = PolicyOptional<Omit<InferInsertModel<typeof triggers>, 'id'>, 'concurrencyPolicy' | 'catchUpPolicy' | 'maxCatchUpRuns' | 'enabled'> & { id?: string };
 export type UpdateTriggerInput = Partial<Omit<CreateTriggerInput, 'createdAt'>>;
 export type TriggerKind = TriggerRecord['kind'];
 export type TriggerTargetKind = TriggerRecord['targetKind'];
@@ -354,7 +362,7 @@ export type TriggerLastRunStatus = NonNullable<TriggerRecord['lastRunStatus']>;
 // ─── Runs ─────────────────────────────────────────────────────
 
 export type RunRecord = InferSelectModel<typeof runs>;
-export type CreateRunInput = Omit<InferInsertModel<typeof runs>, 'id'> & { id?: string };
+export type CreateRunInput = PolicyOptional<Omit<InferInsertModel<typeof runs>, 'id'>, 'status'> & { id?: string };
 export type UpdateRunInput = Partial<Omit<CreateRunInput, 'createdAt' | 'queuedAt'>>;
 export type RunStatus = RunRecord['status'];
 export type RunTrigger = RunRecord['triggerKind'];
@@ -404,7 +412,7 @@ export interface StreamFilter {
 // ─── Notifications (docs/connectors-email-and-notifier-spec.md §2) ──
 
 export type NotificationChannelRecord = InferSelectModel<typeof notificationChannels>;
-export type CreateNotificationChannelInput = Omit<InferInsertModel<typeof notificationChannels>, 'id'> & { id?: string };
+export type CreateNotificationChannelInput = PolicyOptional<Omit<InferInsertModel<typeof notificationChannels>, 'id'>, 'enabled'> & { id?: string };
 export type UpdateNotificationChannelInput = Partial<Omit<CreateNotificationChannelInput, 'createdAt'>>;
 export type NotificationChannelKind = NotificationChannelRecord['kind'];
 
@@ -412,7 +420,7 @@ export type WebPushSubscriptionRecord = InferSelectModel<typeof webPushSubscript
 export type CreateWebPushSubscriptionInput = Omit<InferInsertModel<typeof webPushSubscriptions>, 'id'> & { id?: string };
 
 export type NotificationDeliveryRecord = InferSelectModel<typeof notificationDeliveries>;
-export type CreateNotificationDeliveryInput = Omit<InferInsertModel<typeof notificationDeliveries>, 'id'> & { id?: string };
+export type CreateNotificationDeliveryInput = PolicyOptional<Omit<InferInsertModel<typeof notificationDeliveries>, 'id'>, 'status'> & { id?: string };
 export type NotificationDeliveryStatus = NotificationDeliveryRecord['status'];
 
 // ─── Skill Usage ──────────────────────────────────────────────

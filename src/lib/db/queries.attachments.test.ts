@@ -55,7 +55,7 @@ describe('queries attachment derivation', () => {
     const updated = updateNote(created.id, {
       body: '![](/api/attachments/second.png)',
       attachments: [ATT('second.png')],
-    });
+    }, { source: 'human' });
     expect(updated?.attachments?.map((a) => a.fileName)).toEqual(['second.png']);
   });
 
@@ -65,7 +65,7 @@ describe('queries attachment derivation', () => {
       body: '![](/api/attachments/a.png)',
       attachments: [ATT('a.png')],
     });
-    const updated = updateNote(created.id, { title: 'new title' });
+    const updated = updateNote(created.id, { title: 'new title' }, { source: 'human' });
     expect(updated?.attachments?.map((a) => a.fileName)).toEqual(['a.png']);
   });
 

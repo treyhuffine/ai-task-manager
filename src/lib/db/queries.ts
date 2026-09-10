@@ -67,6 +67,8 @@ import {
   type ActivityReason,
 } from '@/lib/sessions/activity';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
+import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
+import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
@@ -660,7 +662,7 @@ const CONSIDER_FIELD_LABELS: Record<(typeof CONSIDER_FORBIDDEN_FIELDS)[number], 
   reminderAt: 'a reminder',
 };
 
-export function updateTask(id: string, input: UpdateTaskInput, meta?: EntityVersionMeta): TaskRecord | null {
+export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersionMeta): TaskRecord | null {
   const db = getDb();
 
   const existingRaw = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
@@ -823,7 +825,7 @@ export function reorderTaskInLane(taskId: string, prevId: string | null, nextId:
 
 /** Provenance threaded from the mutation caller onto the lifecycle ledger. */
 export interface LifecycleActorMeta {
-  source?: EntityVersionSource; // 'human' | 'ai' | 'system'
+  source: EntityVersionSource; // required — never silently guessed. 'human' | 'ai' | 'system'
   actorSessionId?: string | null;
   executionId?: string | null;
   runId?: string | null;
@@ -844,7 +846,7 @@ export interface TransitionTaskInput {
    * ids the caller confirmed. A missing or stale set throws `conflict` with the
    * current open children. Children are never changed by acknowledging. */
   acknowledgedChildIds?: string[];
-  meta?: LifecycleActorMeta;
+  meta: LifecycleActorMeta;
 }
 
 export interface LifecycleOutcome {
@@ -962,7 +964,7 @@ function recordLifecycleCommand(
   from: string,
   to: string,
   statusChangedCount: number,
-  meta: LifecycleActorMeta | undefined,
+  meta: LifecycleActorMeta,
   result: LifecycleCommandResult,
 ): void {
   getDb()
@@ -975,11 +977,11 @@ function recordLifecycleCommand(
       fromStatus: from,
       toStatus: to,
       statusChangedCount,
-      actorSource: meta?.source ?? 'human',
-      actorSessionId: meta?.actorSessionId ?? null,
-      executionId: meta?.executionId ?? null,
-      runId: meta?.runId ?? null,
-      reason: meta?.reason ?? null,
+      actorSource: meta.source,
+      actorSessionId: meta.actorSessionId ?? null,
+      executionId: meta.executionId ?? null,
+      runId: meta.runId ?? null,
+      reason: meta.reason ?? null,
       result,
     })
     .run();
@@ -1192,7 +1194,7 @@ export interface CompleteTaskInput {
   /** For completing a parent with open children: the exact current open-child
    * ids the caller confirmed. Missing/stale throws `conflict`. */
   acknowledgedChildIds?: string[];
-  meta?: LifecycleActorMeta;
+  meta: LifecycleActorMeta;
 }
 
 /**
@@ -1204,7 +1206,7 @@ export interface CompleteTaskInput {
  * a recurrence. Returns null if the task does not exist; throws
  * {@link TaskLifecycleError} on an illegal completion or a stale revision.
  */
-export function completeTask(id: string, input: CompleteTaskInput = {}): LifecycleOutcome | null {
+export function completeTask(id: string, input: CompleteTaskInput): LifecycleOutcome | null {
   const idempotencyKey = input.idempotencyKey ?? uuidv7();
   return inEntityTx(() => completeTaskInTx(id, idempotencyKey, input), true);
 }
@@ -1479,7 +1481,7 @@ export interface ReviewOutputInput {
   executionId: string;
   outputEventId: string;
   disposition: 'accepted' | 'changes_requested' | 'dismissed';
-  actorSource?: EntityVersionSource;
+  actorSource: EntityVersionSource;
   actorSessionId?: string | null;
   note?: string | null;
 }
@@ -1530,7 +1532,7 @@ export function reviewExecutionOutput(input: ReviewOutputInput): ExecutionReview
       executionId: input.executionId,
       outputEventId: input.outputEventId,
       disposition: input.disposition,
-      actorSource: input.actorSource ?? 'human',
+      actorSource: input.actorSource,
       actorSessionId: input.actorSessionId ?? null,
       note: input.note ?? null,
     })
@@ -1546,7 +1548,7 @@ export interface AcceptAndCompleteInput {
   taskId: string;
   note?: string | null;
   idempotencyKey: string;
-  actorSource?: EntityVersionSource;
+  actorSource: EntityVersionSource;
 }
 
 /**
@@ -1586,14 +1588,14 @@ export function acceptOutputAndCompleteTask(input: AcceptAndCompleteInput): { re
         executionId: input.executionId,
         outputEventId: input.outputEventId,
         disposition: 'accepted',
-        actorSource: input.actorSource ?? 'human',
+        actorSource: input.actorSource,
         actorSessionId: null,
         note: input.note ?? null,
       })
       .returning()
       .get();
     const outcome = completeTaskInTx(input.taskId, input.idempotencyKey, {
-      meta: { source: input.actorSource ?? 'human', executionId: input.executionId },
+      meta: { source: input.actorSource, executionId: input.executionId },
     });
     return { review, task: outcome?.task ?? null };
   }, true);
@@ -1883,7 +1885,7 @@ export function createNote(input: CreateNoteInput): NoteRecord {
   return row;
 }
 
-export function updateNote(id: string, input: UpdateNoteInput, meta?: EntityVersionMeta): NoteRecord | null {
+export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersionMeta): NoteRecord | null {
   const db = getDb();
 
   const existing = hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
@@ -1945,8 +1947,9 @@ export function deleteNote(id: string): boolean {
 
 /** Optional provenance for a version, threaded from the mutation caller. */
 export interface EntityVersionMeta {
-  /** Who authored the change. Defaults to 'human'. */
-  source?: EntityVersionSource;
+  /** Who authored the change. Required so authorship is never silently guessed
+   *  (see docs/schema-defaults.md, item 9). 'human' | 'ai' | 'system'. */
+  source: EntityVersionSource;
   /** The content chat session whose turn made the edit, when known. */
   actorSessionId?: string | null;
   /** Short human label for the change. */
@@ -2001,7 +2004,7 @@ function captureEntityVersion(
   entityId: string,
   before: EntityVersionSnapshot,
   after: EntityVersionSnapshot,
-  meta: EntityVersionMeta | undefined,
+  meta: EntityVersionMeta,
   baselineCreatedAt: string,
 ): void {
   if (snapshotsEqual(before, after)) return;
@@ -2031,10 +2034,10 @@ function captureEntityVersion(
         entityType,
         entityId,
         snapshot: after,
-        source: meta?.source ?? 'human',
-        actorSessionId: meta?.actorSessionId ?? null,
-        summary: meta?.summary ?? null,
-        revertedFromVersionId: meta?.revertedFromVersionId ?? null,
+        source: meta.source,
+        actorSessionId: meta.actorSessionId ?? null,
+        summary: meta.summary ?? null,
+        revertedFromVersionId: meta.revertedFromVersionId ?? null,
         createdAt: now,
       })
       .run();
@@ -2186,6 +2189,8 @@ function streamInsertValues(input: CreateStreamInput): typeof stream.$inferInser
     ...rest,
     id: uuidv7(),
     source: input.source ?? 'capture',
+    media: input.media ?? 'text',
+    origin: input.origin ?? 'internal',
     status: input.status ?? 'pending',
     attachments: dehydrateAttachments(attachments) ?? [],
     createdAt: input.createdAt ?? now,
@@ -3646,6 +3651,8 @@ export function supersedeAndInsertDeck(input: SupersedeDeckInput): DeckRecord {
       .values({
         ...input,
         id: uuidv7(),
+        // Policy default in the query layer (the schema carries none).
+        origin: input.origin ?? 'manual',
         replacesDeckId: prior[0]?.id ?? null,
         supersededAt: null,
       })
@@ -4031,7 +4038,10 @@ export function createApiKey(
 ): { key: ApiKeyRecord; token: GeneratedToken } {
   const db = getDb();
   const now = new Date().toISOString();
-  const token = generateToken(input.env ?? 'live');
+  // Defer to getTokenEnv() (env-aware: 'test' only under AUTH_TOKEN_ENV=test,
+  // else 'live') rather than hardcoding 'live', which would mislabel keys minted
+  // in a test environment. An explicit input.env still wins.
+  const token = generateToken(input.env);
 
   const key = db
     .insert(apiKeys)
@@ -4191,6 +4201,10 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
       slug,
       position,
       status: input.status ?? 'active',
+      filesToCopy: input.filesToCopy ?? DEFAULT_FILES_TO_COPY,
+      collapsed: input.collapsed ?? false,
+      skipLiveConfirm: input.skipLiveConfirm ?? false,
+      browserEnabled: input.browserEnabled ?? true,
       ...(inputAttachments !== undefined ? { attachments: dehydrateAttachments(inputAttachments) ?? [] } : {}),
       createdAt: now,
       updatedAt: now,
@@ -4476,6 +4490,9 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
         ...pickReferenceFolderFields(input),
         alias,
         workspaceId,
+        // Always born active — caller-supplied status is deliberately ignored
+        // (see "ignores caller-supplied status on create").
+        status: 'active',
         // `~` and relative paths are normalized here so every caller (route,
         // orchestrator action, test) stores the same absolute form.
         path: input.path ? normalizeReferencePath(input.path) : null,
@@ -5175,6 +5192,7 @@ export function createPreviewTarget(input: CreatePreviewTargetInput): PreviewTar
       ...input,
       id: input.id ?? uuidv7(),
       service: input.service ?? null,
+      pinned: input.pinned ?? false,
       createdAt: input.createdAt ?? now,
       updatedAt: input.updatedAt ?? now,
     })
@@ -5266,6 +5284,9 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
         ?? (input.externalSessionId ? providerId : null),
       id: input.id ?? uuidv7(),
       status: input.status ?? 'active',
+      // Policy default lives here, not the schema (inert DB backstop equals
+      // this). See docs/schema-defaults.md.
+      permissionMode: input.permissionMode ?? DEFAULT_PERMISSION_MODE,
       // Store ISO (UTC) rather than the SQLite `datetime('now')` default's
       // space-format, so `startedAt` sorts consistently against the ISO
       // outcome/unread timestamps it's compared with (see session-sort.ts).
@@ -5348,6 +5369,8 @@ export function createExternalSessionImport(
     .values({
       ...input,
       id: input.id ?? uuidv7(),
+      // Initial-state default in the query layer (inert DB backstop equals this).
+      status: input.status ?? 'importing',
       createdAt: input.createdAt ?? now,
       updatedAt: input.updatedAt ?? now,
     })
@@ -5485,6 +5508,9 @@ export function createExecutionWithChat(params: {
         executionId: executionId,
         label: params.label,
         status: 'active',
+        // Policy default lives here, not the schema. The DB default is an inert
+        // backstop kept equal to this. See docs/schema-defaults.md.
+        permissionMode: DEFAULT_PERMISSION_MODE,
         // ISO (UTC) to match the execution's timestamps and to sort
         // consistently against ISO outcome/unread timestamps (the SQLite
         // `datetime('now')` default would store the space-format instead).
@@ -6473,6 +6499,7 @@ export function createChatRef(input: CreateChatRefInput): ChatRefRecord {
     .values({
       ...input,
       id: input.id ?? uuidv7(),
+      hydrate: input.hydrate ?? true,
       createdAt: input.createdAt ?? new Date().toISOString(),
     })
     .onConflictDoNothing()
@@ -6595,12 +6622,12 @@ export function materializeEventRefs(
   eventId: string,
   sessionId: string,
   content: string,
-  opts?: { createdBy?: 'user' | 'agent' },
+  opts: { createdBy: 'user' | 'agent' },
 ): ChatRefRecord[] {
   deleteEventRefs(eventId);
   const markers = listEntityMarkers(content);
   const created: ChatRefRecord[] = [];
-  const createdBy = opts?.createdBy ?? 'user';
+  const createdBy = opts.createdBy;
   let position = 0;
   for (const m of markers) {
     if (m.kind === 'file') continue;
@@ -6631,7 +6658,7 @@ export function pinSessionRef(args: {
   entityId: string;
   position?: number;
   hydrate?: boolean;
-  createdBy?: 'user' | 'agent';
+  createdBy: 'user' | 'agent';
 }): ChatRefRecord {
   return createChatRef({
     sessionId: args.sessionId,
@@ -6640,7 +6667,7 @@ export function pinSessionRef(args: {
     entityId: args.entityId,
     position: args.position ?? 0,
     hydrate: args.hydrate ?? true,
-    createdBy: args.createdBy ?? 'user',
+    createdBy: args.createdBy,
   });
 }
 
@@ -6742,6 +6769,12 @@ export function createTrigger(input: CreateTriggerInput): TriggerRecord {
     .values({
       ...input,
       id: input.id ?? uuidv7(),
+      // Policy defaults live here, not the schema (which carries none).
+      enabled: input.enabled ?? true,
+      concurrencyPolicy: input.concurrencyPolicy ?? 'coalesce_if_active',
+      catchUpPolicy: input.catchUpPolicy ?? 'skip_missed',
+      maxCatchUpRuns: input.maxCatchUpRuns ?? 3,
+      timezone: input.timezone ?? 'UTC',
       createdAt: input.createdAt ?? now,
       updatedAt: input.updatedAt ?? now,
     })
@@ -6924,6 +6957,8 @@ export function createRun(input: CreateRunInput): RunRecord {
     .values({
       ...input,
       id: input.id ?? uuidv7(),
+      // Initial-state default in the query layer (inert DB backstop equals this).
+      status: input.status ?? 'queued',
       queuedAt: input.queuedAt ?? now,
       createdAt: input.createdAt ?? now,
     })
@@ -7111,7 +7146,7 @@ export function createNotificationChannel(input: CreateNotificationChannelInput)
   const now = new Date().toISOString();
   return db
     .insert(notificationChannels)
-    .values({ ...input, id: input.id ?? uuidv7(), createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now })
+    .values({ ...input, id: input.id ?? uuidv7(), enabled: input.enabled ?? true, createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now })
     .returning()
     .get();
 }
@@ -7184,7 +7219,7 @@ export function upsertDelivery(input: CreateNotificationDeliveryInput): boolean 
   const now = new Date().toISOString();
   const result = db
     .insert(notificationDeliveries)
-    .values({ ...input, id: input.id ?? uuidv7(), createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now })
+    .values({ ...input, id: input.id ?? uuidv7(), status: input.status ?? 'pending', createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now })
     .onConflictDoNothing({ target: [notificationDeliveries.dedupeKey, notificationDeliveries.channelId] })
     .run();
   return result.changes > 0;

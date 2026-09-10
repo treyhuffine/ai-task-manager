@@ -64,7 +64,7 @@ async function seedExecutionSession() {
   const wsId = uuidv7();
   getDb()
     .insert(workspaces)
-    .values({ id: wsId, name: 'OversightWs', slug: `ows-${Date.now()}`, cwd: '/tmp/ows', isGit: false })
+    .values({ id: wsId, name: 'OversightWs', slug: `ows-${Date.now()}`, cwd: '/tmp/ows', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true })
     .run();
   const agent = q.getOrCreateDefaultExecutor('claude_code');
   const { session } = q.createExecutionWithChat({

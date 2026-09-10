@@ -111,7 +111,7 @@ describe('entity links derivation', () => {
     const task = queries.createTask({ title: 't', body: `[[note:${a.id}]]` });
     expect(outgoingKeys(allEdges(getDb()), 'task', task.id)).toEqual([`note:${a.id}`]);
 
-    queries.updateTask(task.id, { body: `[[note:${b.id}]]` });
+    queries.updateTask(task.id, { body: `[[note:${b.id}]]` }, { source: 'human' });
     expect(outgoingKeys(allEdges(getDb()), 'task', task.id)).toEqual([`note:${b.id}`]);
   });
 
@@ -120,7 +120,7 @@ describe('entity links derivation', () => {
     const n = queries.createNote({ body: 'n' });
     const task = queries.createTask({ title: 't', body: `[[note:${n.id}]]` });
     const before = allEdges(getDb()).find((r) => r.sourceId === task.id);
-    queries.updateTask(task.id, { body: `[[note:${n.id}]]` });
+    queries.updateTask(task.id, { body: `[[note:${n.id}]]` }, { source: 'human' });
     const after = allEdges(getDb()).find((r) => r.sourceId === task.id);
     expect(before).toBeDefined();
     expect(after!.id).toBe(before!.id);
@@ -153,7 +153,7 @@ describe('entity links derivation', () => {
   it('keeps self-links in the data but filters them from the panel', async () => {
     const { queries, getDb } = await setup();
     const n = queries.createNote({ body: 'placeholder' });
-    queries.updateNote(n.id, { body: `self [[note:${n.id}]]` });
+    queries.updateNote(n.id, { body: `self [[note:${n.id}]]` }, { source: 'human' });
     expect(outgoingKeys(allEdges(getDb()), 'note', n.id)).toEqual([`note:${n.id}`]);
     expect(queries.listBacklinks('note', n.id)).toEqual([]);
   });
@@ -281,7 +281,7 @@ describe('listEntityLinksFor (combined single-transaction read)', () => {
     const hub = queries.createNote({ body: 'hub', title: 'Hub' });
     const linker = queries.createTask({ title: 'linker', body: `[[note:${hub.id}]]` });
     const target = queries.createNote({ body: 'target', title: 'Target' });
-    queries.updateNote(hub.id, { body: `hub links [[note:${target.id}]]` });
+    queries.updateNote(hub.id, { body: `hub links [[note:${target.id}]]` }, { source: 'human' });
 
     const result = queries.listEntityLinksFor('note', hub.id);
     expect(result.backlinks).toEqual([

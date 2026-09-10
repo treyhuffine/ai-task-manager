@@ -16,8 +16,7 @@ import { FilesToCopySection } from './files-to-copy-section';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
 import { ConnectorScopePicker } from './connector-scope-picker';
 import { Switch } from '@/components/ui/switch';
-
-const DEFAULT_FILES_TO_COPY = ['.env*'];
+import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
 
 interface WorkspaceCreateModalProps {
   open: boolean;

@@ -39,7 +39,7 @@ async function setup() {
   dbmod.resetDb();
   dbmod.getDb();
   const q = await import('@/lib/db/queries');
-  const ws = q.createWorkspace({ name: 'Test WS', cwd: '/tmp/flow-test-ws' });
+  const ws = q.createWorkspace({ name: 'Test WS', cwd: '/tmp/flow-test-ws', isGit: false });
   return { q, wsId: ws.id };
 }
 
@@ -82,13 +82,13 @@ describe('task↔workstream associations', () => {
 
     // Completing / archiving / returning the task never blocks on, stops, or
     // detaches the associated execution — the association is durable context.
-    const done = q.completeTask(task.id, { idempotencyKey: 'c1' });
+    const done = q.completeTask(task.id, { idempotencyKey: 'c1', meta: { source: 'human' } });
     expect(done?.toStatus).toBe('done');
     expect(q.getExecution(exec.id)?.status).toBe('active');
     expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]);
 
-    q.transitionTask({ taskId: task.id, command: 'reopen', idempotencyKey: 'r1' });
-    q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a1' });
+    q.transitionTask({ taskId: task.id, command: 'reopen', idempotencyKey: 'r1', meta: { source: 'human' } });
+    q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'a1', meta: { source: 'human' } });
     expect(q.getExecution(exec.id)?.status).toBe('active'); // still running
     expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]); // still associated
   });
@@ -103,7 +103,7 @@ describe('task↔workstream associations', () => {
 
     // Starting a terminal task rolls back the association AND the execution.
     const done = q.createTask({ title: 'D', rawInput: 'y' });
-    q.completeTask(done.id, { idempotencyKey: 'c1' });
+    q.completeTask(done.id, { idempotencyKey: 'c1', meta: { source: 'human' } });
     let code: string | undefined;
     try {
       q.createExecutionWithChat({ workspaceId: wsId, agentId: agent.id, label: null, startTask: { taskId: done.id, idempotencyKey: 'start-2' } });
@@ -254,7 +254,7 @@ describe('task↔workstream associations', () => {
   it('rejects commitment-bearing fields on a Consider task, allows clearing and plain edits', async () => {
     const { q } = await setup();
     const task = q.createTask({ title: 'Idea', rawInput: 'x' });
-    q.transitionTask({ taskId: task.id, command: 'move_to_consider', idempotencyKey: 'k1' });
+    q.transitionTask({ taskId: task.id, command: 'move_to_consider', idempotencyKey: 'k1', meta: { source: 'human' } });
 
     for (const [field, value] of [
       ['hardDeadline', '2026-12-01T00:00:00.000Z'],
@@ -263,7 +263,7 @@ describe('task↔workstream associations', () => {
     ] as const) {
       let code: string | undefined;
       try {
-        q.updateTask(task.id, { [field]: value } as Parameters<typeof q.updateTask>[1]);
+        q.updateTask(task.id, { [field]: value } as Parameters<typeof q.updateTask>[1], { source: 'human' });
       } catch (e) {
         code = codeOf(e);
       }
@@ -271,8 +271,8 @@ describe('task↔workstream associations', () => {
     }
 
     // Clearing to null is fine, and non-commitment edits still apply.
-    expect(() => q.updateTask(task.id, { hardDeadline: null })).not.toThrow();
-    expect(q.updateTask(task.id, { title: 'Renamed idea' })?.title).toBe('Renamed idea');
+    expect(() => q.updateTask(task.id, { hardDeadline: null }, { source: 'human' })).not.toThrow();
+    expect(q.updateTask(task.id, { title: 'Renamed idea' }, { source: 'human' })?.title).toBe('Renamed idea');
   });
 
   it('rejects creating a Consider task that carries a commitment field', async () => {
@@ -293,7 +293,7 @@ describe('task↔workstream associations', () => {
     const task = q.createTask({ title: 'Has reminder', rawInput: 'x', reminderAt: '2026-12-01T00:00:00.000Z' });
     let code: string | undefined;
     try {
-      q.transitionTask({ taskId: task.id, command: 'move_to_consider', idempotencyKey: 'r1' });
+      q.transitionTask({ taskId: task.id, command: 'move_to_consider', idempotencyKey: 'r1', meta: { source: 'human' } });
     } catch (e) {
       code = codeOf(e);
     }
@@ -303,14 +303,14 @@ describe('task↔workstream associations', () => {
   it('return_to_todo at the DB layer is pure — it never touches the execution', async () => {
     const { q, wsId } = await setup();
     const task = q.createTask({ title: 'Owned', rawInput: 'x' });
-    q.transitionTask({ taskId: task.id, command: 'start', idempotencyKey: 's1' });
+    q.transitionTask({ taskId: task.id, command: 'start', idempotencyKey: 's1', meta: { source: 'human' } });
     const exec = q.createExecution({ workspaceId: wsId });
     q.attachExecutionToTask(exec.id, task.id);
 
     // The runtime keep/stop choice is coordinated at the route; the durable
     // transition itself just returns the task to Todo and leaves the execution
     // and its association intact.
-    const out = q.transitionTask({ taskId: task.id, command: 'return_to_todo', idempotencyKey: 'rt1' });
+    const out = q.transitionTask({ taskId: task.id, command: 'return_to_todo', idempotencyKey: 'rt1', meta: { source: 'human' } });
     expect(out.toStatus).toBe('todo');
     expect(q.getExecution(exec.id)?.status).toBe('active');
     expect(q.getExecutionTasks(exec.id).map((t) => t.id)).toEqual([task.id]);
@@ -320,17 +320,17 @@ describe('task↔workstream associations', () => {
     const { q } = await setup();
     const blocker = q.createTask({ title: 'Blocker', rawInput: 'b' });
     const dependent = q.createTask({ title: 'Dependent', rawInput: 'd' });
-    q.updateTask(dependent.id, { blockedOn: blocker.id });
+    q.updateTask(dependent.id, { blockedOn: blocker.id }, { source: 'human' });
     expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(true);
 
     // Archiving the blocker does NOT resolve the dependency (it was dropped,
     // not delivered) — the dependent stays blocked.
-    q.transitionTask({ taskId: blocker.id, command: 'archive', idempotencyKey: 'ab' });
+    q.transitionTask({ taskId: blocker.id, command: 'archive', idempotencyKey: 'ab', meta: { source: 'human' } });
     expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(true);
 
     // Completing it (restore then complete) does resolve it.
-    q.transitionTask({ taskId: blocker.id, command: 'restore', idempotencyKey: 'rb' });
-    q.completeTask(blocker.id, { idempotencyKey: 'cb' });
+    q.transitionTask({ taskId: blocker.id, command: 'restore', idempotencyKey: 'rb', meta: { source: 'human' } });
+    q.completeTask(blocker.id, { idempotencyKey: 'cb', meta: { source: 'human' } });
     expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(false);
   });
 
@@ -350,10 +350,10 @@ describe('task↔workstream associations', () => {
     q.insertChatEvent({ id: 'evt-1', sessionId: session.id, role: 'assistant', source: 'agent', content: 'first output' });
     q.insertChatEvent({ id: 'evt-2', sessionId: session.id, role: 'assistant', source: 'agent', content: 'second output' });
 
-    const r1 = q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-1', disposition: 'changes_requested', note: 'tweak it' });
+    const r1 = q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-1', disposition: 'changes_requested', note: 'tweak it', actorSource: 'human' });
     expect(r1.disposition).toBe('changes_requested');
-    q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-1', disposition: 'accepted' });
-    q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-2', disposition: 'dismissed' });
+    q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-1', disposition: 'accepted', actorSource: 'human' });
+    q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-2', disposition: 'dismissed', actorSource: 'human' });
 
     expect(q.getLatestOutputReview('evt-1')!.disposition).toBe('accepted');
     expect(q.getLatestOutputReview('evt-2')!.disposition).toBe('dismissed');
@@ -364,7 +364,7 @@ describe('task↔workstream associations', () => {
     // or non-output event id is rejected, not silently recorded.
     let rejected: string | undefined;
     try {
-      q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-not-mine', disposition: 'accepted' });
+      q.reviewExecutionOutput({ executionId: exec.id, outputEventId: 'evt-not-mine', disposition: 'accepted', actorSource: 'human' });
     } catch (e) {
       rejected = codeOf(e);
     }
@@ -418,7 +418,7 @@ describe('task↔workstream associations', () => {
 
     // Latest output + eligible task -> review recorded AND task completed, in one
     // step, execution untouched.
-    const res = q.acceptOutputAndCompleteTask({ executionId: exec.id, outputEventId: 'out-1', taskId: task.id, idempotencyKey: 'ac1' });
+    const res = q.acceptOutputAndCompleteTask({ executionId: exec.id, outputEventId: 'out-1', taskId: task.id, idempotencyKey: 'ac1', actorSource: 'human' });
     expect(res.review.disposition).toBe('accepted');
     expect(res.task!.status).toBe('done');
     expect(q.getExecution(exec.id)?.status).toBe('active');
@@ -426,11 +426,11 @@ describe('task↔workstream associations', () => {
     // Newer output arrives; reopen the task. Accepting the OLD event is a
     // conflict and records neither the review nor the completion.
     q.insertChatEvent({ id: 'out-2', sessionId: session.id, role: 'assistant', source: 'agent', content: 'more', createdAt: '2999-01-02 00:00:00' });
-    q.transitionTask({ taskId: task.id, command: 'reopen', idempotencyKey: 'ro' });
+    q.transitionTask({ taskId: task.id, command: 'reopen', idempotencyKey: 'ro', meta: { source: 'human' } });
     const reviewsBefore = q.getExecutionReviews(exec.id).length;
     let code: string | undefined;
     try {
-      q.acceptOutputAndCompleteTask({ executionId: exec.id, outputEventId: 'out-1', taskId: task.id, idempotencyKey: 'ac2' });
+      q.acceptOutputAndCompleteTask({ executionId: exec.id, outputEventId: 'out-1', taskId: task.id, idempotencyKey: 'ac2', actorSource: 'human' });
     } catch (e) {
       code = codeOf(e);
     }
@@ -466,11 +466,11 @@ describe('task↔workstream associations', () => {
     const { q } = await setup();
     const blocker = q.createTask({ title: 'Blocker', rawInput: 'b' });
     const dependent = q.createTask({ title: 'Dependent', rawInput: 'd' });
-    q.updateTask(dependent.id, { blockedOn: blocker.id });
+    q.updateTask(dependent.id, { blockedOn: blocker.id }, { source: 'human' });
     expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(true);
 
     // Completing the blocker resolves the dependency.
-    q.completeTask(blocker.id, { idempotencyKey: 'bc' });
+    q.completeTask(blocker.id, { idempotencyKey: 'bc', meta: { source: 'human' } });
     expect(q.getTaskLifecycleSignals(dependent.id).blocked).toBe(false);
   });
 });

@@ -1,1 +1,0 @@
-ALTER TABLE `agent_harness_settings` ADD `known_models` text;

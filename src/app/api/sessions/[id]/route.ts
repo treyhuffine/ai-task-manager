@@ -9,6 +9,7 @@ import {
 } from '@/lib/db/queries';
 import { PERMISSION_MODES, EFFORT_LEVELS, type PermissionMode, type EffortLevel } from '@/db/types';
 import * as executor from '@/lib/executor/adapter';
+import { supportedPermissionModes } from '@/lib/executor/permission-map';
 import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
 import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
 import { getHarnessRuntime } from '@/lib/agents/runtime';
@@ -118,23 +119,19 @@ export async function PATCH(
       const providerId = providerIdForHarness(agent?.harness);
       const cwd = executor.resolveCwd(existing) ?? getAppRoot();
       const runtime = await getHarnessRuntime(providerId, { cwd });
-      if (mode === 'plan' && !runtime.capabilities.planMode.supported) {
-        return Response.json(
-          { error: runtime.capabilities.planMode.reason ?? 'Plan mode is unavailable for this harness' },
-          { status: 409 },
-        );
-      }
-      if ((mode === 'default' || mode === 'accept_edits') && !runtime.capabilities.permissionRequests.supported) {
-        return Response.json(
-          { error: runtime.capabilities.permissionRequests.reason ?? 'Permission prompts are unavailable for this harness' },
-          { status: 409 },
-        );
-      }
-      if (mode === 'accept_edits' && providerId === 'opencode') {
-        return Response.json(
-          { error: 'Accept edits mode is not available for OpenCode' },
-          { status: 409 },
-        );
+      // Single source of truth for the per-provider matrix (shared with the
+      // composer's picker) — see permission-map.ts. Reason text stays tailored.
+      const supported = supportedPermissionModes(providerId, runtime.capabilities.planMode.supported);
+      if (!supported.includes(mode)) {
+        const reason =
+          mode === 'plan'
+            ? (runtime.capabilities.planMode.reason ?? 'Plan mode is unavailable for this harness')
+            : (mode === 'ask' || mode === 'auto_edits') && !runtime.capabilities.permissionRequests.supported
+              ? (runtime.capabilities.permissionRequests.reason ?? 'Permission prompts are unavailable for this harness')
+              : mode === 'auto_edits'
+                ? 'Accept edits mode is not available for this harness'
+                : `${mode} mode is not available for this harness`;
+        return Response.json({ error: reason }, { status: 409 });
       }
       if (mode !== existing.permissionMode) {
         updates.permissionMode = mode;

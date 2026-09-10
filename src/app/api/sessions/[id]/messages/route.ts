@@ -169,7 +169,7 @@ export async function POST(
     // the references slide-over both work. Idempotent on retries.
     if (!isRetry) {
       try {
-        materializeEventRefs(row.id, id, content);
+        materializeEventRefs(row.id, id, content, { createdBy: 'user' });
       } catch (err) {
         console.warn(`[POST /api/sessions/:id/messages] materializeEventRefs failed:`, err);
       }
