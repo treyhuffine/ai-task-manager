@@ -21,6 +21,12 @@ import { APP_NAME } from '@/constants/app';
 import { DEFAULT_PORT, DEV_PORT, getRunningPort } from '@/lib/auth/port';
 import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
 import { probeHealth } from '../lib/server';
+import {
+  clearServerRuntimeIfOwned,
+  isProcessAlive,
+  readServerRuntime,
+  type ServerRuntimeMode,
+} from '@/lib/server-runtime/record';
 
 export interface StopOptions {
   port?: string;
@@ -40,10 +46,22 @@ export async function stopCommand(opts: StopOptions) {
     process.env[APP_ROOT_ENV] = getDevAppRoot();
   }
 
-  // Explicit --port wins; else the persisted lastPort for this root; else the
-  // mode default. The fallback matters because `pnpm dev` starts Next directly
-  // and never persists a lastPort, so a bare `stop --dev` must still find 42241.
-  const port = Number(opts.port ?? getRunningPort(opts.dev ? DEV_PORT : DEFAULT_PORT));
+  // Prefer the managed-instance record for this root: it carries the actual
+  // public port and whether the listener is HTTP or HTTPS (HTTP/2). An explicit
+  // --port still wins; otherwise fall back to the persisted lastPort/default so
+  // a `pnpm dev` server (which writes no record) is still found.
+  const record = readServerRuntime();
+  let mode: ServerRuntimeMode = 'http';
+  let port: number;
+  if (opts.port) {
+    port = Number(opts.port);
+    if (record && record.publicPort === port) mode = record.mode;
+  } else if (record && isProcessAlive(record.launcherPid)) {
+    port = record.publicPort;
+    mode = record.mode;
+  } else {
+    port = Number(getRunningPort(opts.dev ? DEV_PORT : DEFAULT_PORT));
+  }
   if (!Number.isFinite(port) || port <= 0) {
     log.error(`Invalid port: ${opts.port}`);
     outro('Aborted');
@@ -52,23 +70,45 @@ export async function stopCommand(opts: StopOptions) {
 
   const timeoutMs = Math.max(500, Number(opts.timeout ?? 5000));
 
-  // Confirm we're stopping our own server. If the port is occupied by
-  // something that doesn't answer /api/health like Flow does, bail rather
-  // than killing whatever it is.
-  const probe = await probeHealth(`http://127.0.0.1:${port}`);
-  if (probe.status === 'offline') {
-    log.info(`Nothing listening on port ${port}`);
-    outro('Done');
-    return;
-  }
-  if (probe.status !== 'ok') {
-    log.error(
-      `Port ${port} is in use, but doesn't look like ${APP_NAME} (${probe.status}` +
-        ('detail' in probe ? `: ${probe.detail}` : '') +
-        `). Refusing to kill it.`,
-    );
-    outro('Aborted');
-    process.exit(1);
+  // Confirm we're stopping our own server before signaling anything.
+  if (mode === 'https') {
+    // A self-signed HTTPS listener can't be validated with a plain HTTP health
+    // fetch. The gateway runs IN the launcher process, so the public-port
+    // listener PID must match the recorded launcher (a strong ownership proof).
+    const pid = findListenerPid(port);
+    if (!pid) {
+      log.info(`Nothing listening on port ${port}`);
+      clearRecordIfDead(record);
+      outro('Done');
+      return;
+    }
+    const parent = getParent(pid);
+    const ownedByLauncher =
+      !!record && (pid === record.launcherPid || parent?.pid === record.launcherPid);
+    if (!ownedByLauncher) {
+      log.error(
+        `Port ${port} is in use but does not match a known ${APP_NAME} HTTPS instance. Refusing to kill it.`,
+      );
+      outro('Aborted');
+      process.exit(1);
+    }
+  } else {
+    const probe = await probeHealth(`http://127.0.0.1:${port}`);
+    if (probe.status === 'offline') {
+      log.info(`Nothing listening on port ${port}`);
+      clearRecordIfDead(record);
+      outro('Done');
+      return;
+    }
+    if (probe.status !== 'ok') {
+      log.error(
+        `Port ${port} is in use, but doesn't look like ${APP_NAME} (${probe.status}` +
+          ('detail' in probe ? `: ${probe.detail}` : '') +
+          `). Refusing to kill it.`,
+      );
+      outro('Aborted');
+      process.exit(1);
+    }
   }
 
   const listenerPid = findListenerPid(port);
@@ -86,6 +126,17 @@ export async function stopCommand(opts: StopOptions) {
   const parent = getParent(listenerPid);
   if (parent && isFlowParent(parent.command)) {
     targets.unshift(parent.pid);
+  }
+  // In HTTP/2 mode the public listener is the launcher itself; a graceful signal
+  // runs its shutdown handler (which stops the Next child). But a forced kill
+  // won't, so also target the private Next child listener directly to avoid
+  // orphaning it.
+  if (mode === 'https' && record) {
+    const privatePort = portFromUrl(record.privateUpstreams.next);
+    if (privatePort) {
+      const nextPid = findListenerPid(privatePort);
+      if (nextPid && !targets.includes(nextPid)) targets.push(nextPid);
+    }
   }
 
   const s = spinner();
@@ -109,6 +160,7 @@ export async function stopCommand(opts: StopOptions) {
   const cleared = await waitForPortClear(port, timeoutMs);
   if (cleared) {
     s.stop(`Stopped ${APP_NAME} on port ${port}`);
+    clearRecordIfDead(record);
     outro('Done');
     return;
   }
@@ -126,6 +178,7 @@ export async function stopCommand(opts: StopOptions) {
     const finalCleared = await waitForPortClear(port, 2000);
     if (finalCleared) {
       log.success(`Stopped ${APP_NAME} on port ${port}`);
+      clearRecordIfDead(record);
       outro('Done');
       return;
     }
@@ -203,12 +256,36 @@ function isFlowParent(command: string): boolean {
   );
 }
 
+/**
+ * Wait until no process is LISTENing on the port. Port-based (not health-based)
+ * so it works identically for HTTP and self-signed HTTPS listeners — an HTTP
+ * health fetch to an HTTPS port would falsely read as "offline".
+ */
 async function waitForPortClear(port: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const probe = await probeHealth(`http://127.0.0.1:${port}`);
-    if (probe.status === 'offline') return true;
+    if (findListenerPid(port) === null) return true;
     await new Promise((r) => setTimeout(r, 200));
   }
   return false;
+}
+
+/** Extract the port from a `http://host:port` upstream URL, or null. */
+function portFromUrl(url: string): number | null {
+  try {
+    const p = Number(new URL(url).port);
+    return Number.isFinite(p) && p > 0 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clear the discovery record if its launcher is no longer alive. A forced kill
+ * bypasses the launcher's own shutdown cleanup, so `stop` reconciles the record.
+ */
+function clearRecordIfDead(record: ReturnType<typeof readServerRuntime>): void {
+  if (record && !isProcessAlive(record.launcherPid)) {
+    clearServerRuntimeIfOwned(record.runId);
+  }
 }

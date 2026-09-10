@@ -34,8 +34,7 @@ import { connectMcpClient, ingestMcpServer, type ConnectedMcpClient } from '@con
 import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getConfigDir } from '@/lib/config/paths';
-import { getStaticUrl, getRemoteBaseUrl } from '@/lib/auth/bootstrap';
-import { getRunningPort } from '@/lib/auth/port';
+import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { mcpServerStore, type McpServerStore, type McpServerAuth } from './mcp-servers';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { APP_NAME } from '@/constants/app';
@@ -70,7 +69,11 @@ function parseEnvList(value: string | undefined): string[] | undefined {
 export function getConnectorRedirectUri(): string {
   const explicit = process.env.CONNECTORS_REDIRECT_URI;
   if (explicit) return explicit;
-  const base = getRemoteBaseUrl() ?? getStaticUrl() ?? `http://localhost:${getRunningPort()}`;
+  // A configured remote tunnel wins (external providers must reach the callback);
+  // otherwise the canonical public origin. `getLocalBaseUrl()` resolves the
+  // public HTTPS origin under `--http2` (via the launcher override / runtime
+  // record) instead of the private Next port that `PORT` now points at.
+  const base = getRemoteBaseUrl() ?? getLocalBaseUrl();
   return `${base.replace(/\/+$/, '')}${CONNECTOR_CALLBACK_PATH}`;
 }
 

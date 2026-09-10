@@ -1,3 +1,5 @@
+import type { ChildProcess } from 'node:child_process';
+import nodeTls from 'node:tls';
 import { intro, outro, log, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import getPort from 'get-port';
@@ -11,6 +13,15 @@ import {
   buildPairingUrl,
 } from '@/lib/auth/bootstrap';
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
+import { resolveHttp2Enabled, isChainTrustFailure, certCoversHost } from '@/lib/config/http2';
+import {
+  PUBLIC_BASE_URL_ENV,
+  clearServerRuntimeIfOwned,
+  newRunId,
+  publishServerRuntime,
+  readLiveServerRuntime,
+} from '@/lib/server-runtime/record';
+import type { Http2GatewayHandle } from '../http2-gateway/index';
 import { resetDb } from '@/lib/db';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { getIsOnboarded, markOnboarded } from '@/lib/config/onboarded';
@@ -51,6 +62,12 @@ export interface StartOptions {
   /** Enables the client-side hot-path render/effect tracker. Propagated to the
    *  Next child as NEXT_PUBLIC_HOT=1 so it's inlined into the client bundle. */
   hot?: boolean;
+  /** `true` from --http2, `false` from --no-http2, undefined otherwise.
+   *  Resolved against FLOW_HTTP2 in `resolveHttp2Enabled`. */
+  http2?: boolean;
+  /** Supplied certificate/key pair for HTTP/2 (both required together). */
+  tlsCert?: string;
+  tlsKey?: string;
 }
 
 interface PortlessConfig {
@@ -112,6 +129,23 @@ export async function startCommand(opts: StartOptions) {
   // sticking around after a previous portless run.
   setStaticUrl(portless?.url ?? null);
 
+  // Resolve HTTP/2 mode: explicit --http2/--no-http2 > FLOW_HTTP2 > disabled.
+  let http2Enabled = false;
+  try {
+    http2Enabled = resolveHttp2Enabled(opts);
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  // The built-in HTTP/2 gateway and portless are two different frontends. In
+  // V1 an ambiguous combination is rejected rather than stacking TLS proxies.
+  if (http2Enabled && portless) {
+    log.error(
+      '`--http2` and `--portless` are two different frontends. Choose one: run `--http2` for the built-in HTTPS gateway, or `--portless` for the portless.sh frontend.',
+    );
+    process.exit(1);
+  }
+
   // Dev and prod default to different ports so both can run at once. An explicit
   // `-p` always wins; otherwise `--dev` picks DEV_PORT and prod picks DEFAULT_PORT.
   const preferredPort = Number(opts.port ?? (opts.dev ? DEV_PORT : DEFAULT_PORT));
@@ -152,6 +186,29 @@ export async function startCommand(opts: StartOptions) {
     }
   } catch (err) {
     log.warn(`Skill auto-install skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Resolve any live managed instance for this root first: never start a second
+  // backend against a running one. If the requested mode differs, report the
+  // running mode and that a switch needs a stop/start (mode changes are not
+  // live in V1). This also covers HTTPS instances, which a plain HTTP health
+  // fetch can't validate.
+  const live = readLiveServerRuntime();
+  if (live) {
+    const desiredMode = http2Enabled ? 'https' : 'http';
+    if (live.mode !== desiredMode) {
+      log.warn(
+        `Already running at ${live.publicBaseUrl} in ${live.mode.toUpperCase()} mode. ` +
+          `Switching to ${desiredMode.toUpperCase()} needs a restart: run \`${APP_SHORT_ID} stop\`, then start again.`,
+      );
+      outro('Left the running instance unchanged');
+      return;
+    }
+    const url = buildPairingUrl(info.plaintext, live.publicBaseUrl);
+    log.success(`Already running at ${live.publicBaseUrl}`);
+    if (opts.open) await openBrowser(url);
+    outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
+    return;
   }
 
   // Short-circuit: our server is already up. Probe the public URL — under
@@ -198,53 +255,176 @@ export async function startCommand(opts: StartOptions) {
     voiceStarted = await bringUpVoice(s);
   }
 
-  // Port allocation: only when we own the binding. Under portless, the proxy
-  // picks a random port (4000-4999) and injects $PORT to the child Next, so
-  // we'd be allocating something we never use — and persisting the wrong port
-  // would confuse out-of-process commands like `pair`. Pass 0 as a sentinel
-  // (unused by startNextServer in that branch).
-  let port = 0;
-  if (!portless) {
-    port = await getPort({ port: preferredPort });
-    if (port !== preferredPort) {
-      log.warn(`Port ${preferredPort} in use, using ${port}`);
-    }
-    process.env.PORT = String(port);
-    setRunningPort(port);
-  }
-
-  s.start(
-    portless
-      ? `Starting dev server via portless (${portless.url})`
-      : opts.dev
-        ? 'Starting dev server'
-        : 'Starting server',
-  );
-  const child = startNextServer({
-    port,
-    dev: opts.dev,
-    portlessName: portless?.name,
-  });
-  child.on('error', (err) => {
-    log.error(`Server failed to start: ${err.message}`);
-    process.exit(1);
-  });
-  // Wait against the public URL — under portless the proxy needs its backend
-  // up before /api/health succeeds; without portless this is just localhost.
-  //
   // Dev cold-boots are slow and unbounded-ish: Turbopack compiles the whole app
   // on first run (the "Ready in Xs" line alone can be 35s+), and Next compiles
-  // routes lazily, so the first /api/health hit lands well after "Ready". A tight
-  // ceiling here makes the CLI report a timeout and exit 1 while the spawned Next
-  // child keeps booting in the background and eventually works — confusing. Give
+  // routes lazily, so the first /api/health hit lands well after "Ready". Give
   // dev a generous ceiling. Portless adds proxy startup on top of either mode.
   const readyTimeoutMs = opts.dev ? 120_000 : portless ? 120_000 : 90_000;
-  await waitForServer(getLocalBaseUrl(), readyTimeoutMs);
-  s.stop(`Server ready at ${getLocalBaseUrl()}`);
 
-  // Rebuild against the now-bound port. `info.pairingUrl` was computed in
-  // `ensureLocalToken()` before `process.env.PORT` was set, so it carries the
-  // default port (e.g. 4224) even when the dev server bound 42241.
+  const runId = newRunId();
+  let child: ChildProcess;
+  let gateway: Http2GatewayHandle | null = null;
+  let mode: 'http' | 'https' = 'http';
+  let publicBaseUrl: string;
+  let publicPort = 0;
+  let privateNextUrl: string;
+
+  if (http2Enabled) {
+    mode = 'https';
+    // Resolve TLS material: a supplied pair (--tls-cert/--tls-key) or the
+    // generated local CA/leaf. Generation changes no system trust — that is the
+    // separate, explicit `tls trust` step.
+    let tls;
+    try {
+      const tlsMod = await import('@/lib/config/tls');
+      tls = await tlsMod.resolveTlsMaterial({ certPath: opts.tlsCert, keyPath: opts.tlsKey });
+    } catch (err) {
+      log.error(`TLS configuration error: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+    if (tls.source === 'generated') {
+      log.info(
+        pc.dim(
+          `Using a generated local certificate (leaf valid until ${tls.notAfter
+            .toISOString()
+            .slice(0, 10)}). If your browser does not trust it yet, run \`${APP_SHORT_ID} tls trust\`.`,
+        ),
+      );
+    }
+
+    // Distinct public (browser-facing) and private (Next) ports. Next binds
+    // loopback-only; the launcher reports the public HTTPS origin via the env
+    // override rather than PORT, which Next overwrites with its private port.
+    publicPort = await getPort({ port: preferredPort });
+    if (publicPort !== preferredPort) log.warn(`Port ${preferredPort} in use, using ${publicPort}`);
+    const privatePort = await getPort();
+    publicBaseUrl = `https://localhost:${publicPort}`;
+    privateNextUrl = `http://127.0.0.1:${privatePort}`;
+
+    // Validate a supplied certificate covers the public host up front and
+    // independently of the readiness probe — an untrusted-issuer error can mask
+    // a hostname mismatch in the TLS handshake, so check it here where the
+    // browser's own rejection is predictable.
+    if (tls.source === 'supplied') {
+      const host = new URL(publicBaseUrl).hostname;
+      if (!certCoversHost(tls.cert, host)) {
+        // Nothing has been spawned yet — fail fast before starting Next/gateway.
+        log.error(
+          `Supplied --tls-cert does not cover the public host "${host}". ` +
+            `The browser would reject it. Provide a certificate valid for ${host}.`,
+        );
+        process.exit(1);
+      }
+    }
+
+    process.env[PUBLIC_BASE_URL_ENV] = publicBaseUrl;
+    setRunningPort(publicPort);
+
+    s.start('Starting server (HTTP/2)');
+    child = startNextServer({ port: privatePort, dev: opts.dev, hostname: '127.0.0.1' });
+    child.on('error', (err) => {
+      log.error(`Server failed to start: ${err.message}`);
+      process.exit(1);
+    });
+    await waitForServer(privateNextUrl, readyTimeoutMs);
+
+    const { startHttp2Gateway } = await import('../http2-gateway/index');
+    try {
+      gateway = await startHttp2Gateway({
+        publicPort,
+        publicBaseUrl,
+        upstreamHost: '127.0.0.1',
+        upstreamPort: privatePort,
+        tls,
+        onLog: (m) => log.message(pc.dim(m)),
+      });
+    } catch (err) {
+      log.error(`HTTP/2 gateway failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      if (!child.killed) child.kill('SIGTERM');
+      process.exit(1);
+    }
+
+    // Readiness requires a real h2 negotiation through the public listener, not
+    // just a reachable HTTPS URL. A generated CA must always validate, so a
+    // failed probe is fatal. A supplied certificate may chain to an authority
+    // this local probe cannot see (e.g. an mkcert CA in the OS store), so trust
+    // the supplied bundle plus the system roots and, if it still cannot be
+    // validated locally, warn and proceed — the user vouched for it and the
+    // browser may trust it. Validation is never globally disabled.
+    const probeCa =
+      tls.source === 'supplied' ? [tls.probeCa, ...nodeTls.rootCertificates] : tls.probeCa;
+    const probe = await gateway.probe(probeCa);
+    if (!probe.ok) {
+      // Only a supplied cert whose failure is specifically an untrusted chain is
+      // allowed to proceed (the browser may trust a CA our probe cannot see).
+      // A generated cert, a failed health check, an h2 negotiation failure, or a
+      // connection error is always fatal — never bypass those.
+      const trustChainIssue = tls.source === 'supplied' && isChainTrustFailure(probe.detail);
+      if (!trustChainIssue) {
+        log.error(
+          `HTTP/2 readiness probe failed (protocol=${probe.negotiatedProtocol ?? 'none'}, ` +
+            `status=${probe.status ?? 'n/a'}${probe.detail ? `, ${probe.detail}` : ''}). ` +
+            `Retry, or start with \`--no-http2\`.`,
+        );
+        await gateway.close(2000).catch(() => {});
+        if (!child.killed) child.kill('SIGTERM');
+        process.exit(1);
+      }
+      log.warn(
+        `Could not validate the supplied certificate's chain locally (${probe.detail}). ` +
+          `Proceeding since you supplied it explicitly. Make sure your browser trusts it.`,
+      );
+      s.stop(`Server ready at ${publicBaseUrl}`);
+    } else {
+      s.stop(`Server ready at ${publicBaseUrl} (negotiated ${probe.negotiatedProtocol})`);
+    }
+  } else {
+    // Existing direct-HTTP path (including portless). Under portless the proxy
+    // picks a random port and injects $PORT to the child; we pass 0 as an unused
+    // sentinel and never persist a port for it.
+    let port = 0;
+    if (!portless) {
+      port = await getPort({ port: preferredPort });
+      if (port !== preferredPort) log.warn(`Port ${preferredPort} in use, using ${port}`);
+      process.env.PORT = String(port);
+      setRunningPort(port);
+    }
+    s.start(
+      portless
+        ? `Starting dev server via portless (${portless.url})`
+        : opts.dev
+          ? 'Starting dev server'
+          : 'Starting server',
+    );
+    child = startNextServer({ port, dev: opts.dev, portlessName: portless?.name });
+    child.on('error', (err) => {
+      log.error(`Server failed to start: ${err.message}`);
+      process.exit(1);
+    });
+    await waitForServer(getLocalBaseUrl(), readyTimeoutMs);
+    s.stop(`Server ready at ${getLocalBaseUrl()}`);
+    publicBaseUrl = getLocalBaseUrl();
+    publicPort = port;
+    privateNextUrl = portless ? publicBaseUrl : `http://localhost:${port}`;
+  }
+
+  // Publish the discovery/ownership record after readiness so `stop`, `pair`,
+  // and URL helpers can find this instance. Skip portless: the launcher does
+  // not own the portless-assigned port, and legacy staticUrl already covers it.
+  if (!portless) {
+    publishServerRuntime({
+      version: 1,
+      runId,
+      launcherPid: process.pid,
+      startedAt: new Date().toISOString(),
+      mode,
+      http2: http2Enabled,
+      publicBaseUrl,
+      publicPort,
+      privateUpstreams: { next: privateNextUrl },
+    });
+  }
+
   const url = buildPairingUrl(info.plaintext);
   if (opts.open) {
     await openBrowser(url);
@@ -259,7 +439,10 @@ export async function startCommand(opts: StartOptions) {
   const shutdown = async (signal: NodeJS.Signals) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    // Tear down in reverse order of startup: Next first, then voice.
+    // Clear our discovery record first (only if it is still ours), then drain
+    // the gateway, then Next, then voice.
+    if (!portless) clearServerRuntimeIfOwned(runId);
+    if (gateway) await gateway.close(5000).catch(() => {});
     if (!child.killed) child.kill(signal);
     if (voiceStarted) {
       await stopVoiceService().catch(() => {});
@@ -273,6 +456,9 @@ export async function startCommand(opts: StartOptions) {
   await new Promise<void>((resolve) => {
     child.on('exit', () => resolve());
   });
+  // Child exited on its own (crash or external kill): tidy up owned state.
+  if (!portless) clearServerRuntimeIfOwned(runId);
+  if (gateway) await gateway.close(3000).catch(() => {});
 }
 
 /**

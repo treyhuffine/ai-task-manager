@@ -16,6 +16,7 @@ import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 import { hashToken } from '@/lib/auth/tokens';
 import { createApiKey, findApiKeyByHash } from '@/lib/db/queries';
 import { getRunningPort, setRunningPort } from '@/lib/auth/port';
+import { PUBLIC_BASE_URL_ENV, readLiveServerRuntime } from '@/lib/server-runtime/record';
 
 // Re-exported so existing importers (`@/lib/auth/bootstrap`) keep working.
 export { getRunningPort, setRunningPort };
@@ -39,7 +40,28 @@ export function setStaticUrl(url: string | null): void {
   writeAuthConfig({ staticUrl: url });
 }
 
+/**
+ * The canonical public base URL for this instance, with no trailing slash.
+ *
+ * Resolution order (see docs/optional-http2.md §5). Next overwrites
+ * `process.env.PORT` with its private listening port, so port-derived URLs are
+ * wrong under a fronting gateway — the launcher-set override and the managed
+ * record carry the true public origin:
+ *   1. `FLOW_PUBLIC_BASE_URL` — launcher override for the current process.
+ *   2. A live managed-instance record (HTTP/2 or plain HTTP launches publish it).
+ *   3. Legacy `staticUrl` (portless), retained as a configured fallback only.
+ *   4. `http://localhost:<runningPort>` — the original direct-Next default.
+ *
+ * A dead-instance record is ignored so an old HTTPS run cannot force a later
+ * direct `pnpm dev` launch to advertise HTTPS.
+ */
 export function getLocalBaseUrl(): string {
+  const override = process.env[PUBLIC_BASE_URL_ENV]?.trim();
+  if (override) return override.replace(/\/+$/, '');
+
+  const record = readLiveServerRuntime();
+  if (record) return record.publicBaseUrl;
+
   return getStaticUrl() ?? `http://localhost:${getRunningPort()}`;
 }
 
@@ -60,6 +82,12 @@ export function getLanIp(): string | null {
 }
 
 export function getLanBaseUrl(): string | null {
+  // The built-in HTTP/2 gateway binds loopback only and its certificate does not
+  // cover a LAN address, so there is no reachable LAN URL in that mode. Report
+  // none rather than emit an unreachable link (also avoids leaking the private
+  // Next port that `getRunningPort()` returns inside the gateway'd server).
+  const record = readLiveServerRuntime();
+  if (record?.mode === 'https' && record.http2) return null;
   const ip = getLanIp();
   return ip ? `http://${ip}:${getRunningPort()}` : null;
 }

@@ -17,6 +17,9 @@ export interface StartServerOptions {
    *  reachable at `<name>.localhost`. Caller is responsible for verifying
    *  portless is installed (see `isPortlessInstalled`). */
   portlessName?: string;
+  /** Bind address for Next (`next -H <hostname>`). Used by the HTTP/2 gateway
+   *  to keep the Next upstream loopback-only on a private port. */
+  hostname?: string;
 }
 
 export function startNextServer(opts: StartServerOptions): ChildProcess {
@@ -36,7 +39,9 @@ export function startNextServer(opts: StartServerOptions): ChildProcess {
     );
   }
 
-  return spawn(process.execPath, [nextBin, subcommand, '-p', String(opts.port)], {
+  const args = [nextBin, subcommand, '-p', String(opts.port)];
+  if (opts.hostname) args.push('-H', opts.hostname);
+  return spawn(process.execPath, args, {
     stdio: ['ignore', 'inherit', 'inherit'],
     env: { ...process.env, PORT: String(opts.port) },
   });

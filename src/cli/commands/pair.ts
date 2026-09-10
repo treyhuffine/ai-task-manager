@@ -32,8 +32,19 @@ import {
 } from '@/lib/auth/bootstrap';
 import { createApiKey } from '@/lib/db/queries';
 import type { DeviceType } from '@/db/types';
+import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import { probeHealth } from '../lib/server';
 import { renderTerminalQr } from '../lib/qr';
+
+/**
+ * True when the live instance is the built-in HTTP/2 (HTTPS) gateway, which
+ * binds loopback only and whose certificate does not cover a LAN address. LAN
+ * pairing must be reported unavailable rather than emitting an unreachable URL.
+ */
+function isHttp2LoopbackMode(): boolean {
+  const rec = readLiveServerRuntime();
+  return !!rec && rec.mode === 'https' && rec.http2;
+}
 
 const BASE_URL_EXAMPLE = `https://${APP_SHORT_ID}.example.com`;
 
@@ -103,24 +114,38 @@ export async function pairCommand(opts: PairOptions = {}) {
   // URL — under portless that's `https://<name>.localhost`, otherwise it's
   // `http://localhost:<lastPort>`. If the server answers with a different
   // port (only meaningful for direct localhost), refresh our cache.
+  //
+  // A live discovery record is published only after readiness, so trust it and
+  // skip the fetch probe — a plain HTTP/1.1 fetch cannot validate the built-in
+  // HTTP/2 mode's self-signed HTTPS listener and would print a false warning.
   const baseUrl = getLocalBaseUrl();
-  const probe = await probeHealth(baseUrl);
-  if (probe.status === 'ok') {
-    const cachedPort = getRunningPort();
-    if (probe.info.port !== cachedPort) setRunningPort(probe.info.port);
-  } else {
-    printProbeWarning(baseUrl, probe);
+  if (!readLiveServerRuntime()) {
+    const probe = await probeHealth(baseUrl);
+    if (probe.status === 'ok') {
+      const cachedPort = getRunningPort();
+      if (probe.info.port !== cachedPort) setRunningPort(probe.info.port);
+    } else {
+      printProbeWarning(baseUrl, probe);
+    }
   }
 
   const chosen = chooseBase(opts);
   if (!chosen) {
-    // Only possible when --lan is explicit but no non-loopback interface
-    // was found. --local always succeeds (localhost is always available).
-    console.error(
-      pc.red(
-        `No LAN address available on this machine. Try without \`--lan\`, or pass \`--local\` for localhost.`,
-      ),
-    );
+    // Reached when --lan is explicit but no LAN URL can be offered — either no
+    // non-loopback interface, or the loopback-only HTTP/2 gateway is active.
+    if (opts.lan && isHttp2LoopbackMode()) {
+      console.error(
+        pc.red(
+          'LAN pairing is unavailable in HTTP/2 mode: the built-in gateway is loopback-only and its certificate does not cover a LAN address. Use `--local`, or configure a remote tunnel / LAN frontend with a valid certificate.',
+        ),
+      );
+    } else {
+      console.error(
+        pc.red(
+          `No LAN address available on this machine. Try without \`--lan\`, or pass \`--local\` for localhost.`,
+        ),
+      );
+    }
     process.exit(1);
   }
 
@@ -183,9 +208,11 @@ function gatherAlternates(
   const normalize = (u: string) => u.replace(/\/+$/, '');
   const seen = new Set<string>([normalize(primary.base)]);
 
+  // The loopback-only HTTP/2 gateway cannot serve a LAN URL, so never offer one.
+  const lanBase = isHttp2LoopbackMode() ? null : getLanBaseUrl();
   const all: Array<{ label: string; base: string | null }> = [
     { label: 'Remote', base: getRemoteBaseUrl() },
-    { label: 'Same network', base: getLanBaseUrl() },
+    { label: 'Same network', base: lanBase },
     { label: 'This machine', base: getLocalBaseUrl() },
   ];
 
@@ -226,7 +253,9 @@ function chooseBase(opts: PairOptions): Chosen | null {
   if (opts.local) {
     return { label: 'This machine', base: getLocalBaseUrl(), source: 'local' };
   }
+  const http2Loopback = isHttp2LoopbackMode();
   if (opts.lan) {
+    if (http2Loopback) return null; // caller reports LAN unavailable in HTTP/2 mode
     const lan = getLanBaseUrl();
     if (!lan) return null;
     return { label: 'Same network', base: lan, source: 'lan' };
@@ -237,9 +266,11 @@ function chooseBase(opts: PairOptions): Chosen | null {
     return { label: 'Remote', base: tunnel, source: 'tunnel' };
   }
 
-  const lan = getLanBaseUrl();
-  if (lan) {
-    return { label: 'Same network', base: lan, source: 'lan' };
+  if (!http2Loopback) {
+    const lan = getLanBaseUrl();
+    if (lan) {
+      return { label: 'Same network', base: lan, source: 'lan' };
+    }
   }
 
   return { label: 'This machine', base: getLocalBaseUrl(), source: 'local' };

@@ -16,6 +16,7 @@ import { registerTriggerCommands } from './commands/trigger';
 import { registerTakeoverCommand } from './commands/takeover';
 import { registerResumeCommand } from './commands/resume';
 import { registerBrowserCommands } from './commands/browser';
+import { registerTlsCommand } from './commands/tls';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -41,6 +42,10 @@ program
     '--portless [name]',
     `front the dev server with portless.sh at <name>.localhost (default: ${APP_SHORT_ID})`,
   )
+  .option('--http2', 'front the app with the built-in HTTPS/HTTP2 gateway')
+  .option('--no-http2', 'use the direct HTTP startup path (overrides FLOW_HTTP2)')
+  .option('--tls-cert <path>', 'use an existing certificate instead of generating one (requires --tls-key)')
+  .option('--tls-key <path>', 'private key for --tls-cert')
   .option('--hot', 'enable the client-side hot-path tracker (sets NEXT_PUBLIC_HOT=1)')
   .action(startCommand);
 
@@ -89,6 +94,7 @@ registerTriggerCommands(program);
 registerTakeoverCommand(program);
 registerResumeCommand(program);
 registerBrowserCommands(program);
+registerTlsCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
