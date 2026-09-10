@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react';
 import { Command } from 'cmdk';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import {
@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { NoteIcon } from '@/components/shared/note-icon';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useSearch } from '@/hooks/use-search';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useCreateTask } from '@/hooks/use-tasks';
@@ -76,7 +77,18 @@ export function SearchOverlay() {
   const [open, setOpen] = useState(false);
   const [rawQuery, setRawQuery] = useState('');
   const { searchQuery, typeFilter, isCommand } = parseQuery(rawQuery);
-  const { data: results, isLoading } = useSearch(isCommand ? '' : searchQuery);
+
+  // Defer the query so we fire one request per settle, not one per keystroke.
+  // Command mode ('>') is purely local — it filters PALETTE_COMMANDS and never
+  // touches the network.
+  const deferredQuery = useDeferredValue(isCommand ? '' : searchQuery);
+
+  // One debounced request per settle. `useSearch` defaults to hybrid (semantic +
+  // keyword) and keeps the previous hits visible while refining, so the list
+  // updates in place rather than reflowing. The skeleton below covers the wait.
+  const { data, isFetching } = useSearch(deferredQuery);
+  const results = data ?? [];
+
   const { openTask, openNote, toggleTheme, theme, setPanelTab, triggerVoiceChat } = useDashboard();
   const createTask = useCreateTask();
   const createNote = useCreateNote();
@@ -86,8 +98,15 @@ export function SearchOverlay() {
 
   // Filter results by type if prefix is active
   const filteredResults = typeFilter
-    ? results?.filter((r) => r.entityType === typeFilter)
+    ? results.filter((r) => r.entityType === typeFilter)
     : results;
+
+  const hasQuery = !isCommand && searchQuery.trim().length > 0;
+  const hasResults = filteredResults.length > 0;
+  // The deferred query trails the input while React catches up; treat that lag
+  // (and any in-flight fetch) as "still searching" so we show the skeleton
+  // rather than a premature "no results".
+  const isSearching = hasQuery && (deferredQuery !== searchQuery || isFetching);
 
   const handleSelect = useCallback((entityType: string, id: string) => {
     if (entityType === 'task') openTask(id);
@@ -217,7 +236,7 @@ export function SearchOverlay() {
             placeholder={isCommand ? 'Type a command...' : 'Search or type > for commands...'}
             className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground"
           />
-          {isLoading && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
+          {hasQuery && isFetching && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
           {typeFilter && (
             <span className="px-1.5 py-0.5 bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider rounded">
               {typeFilter}
@@ -230,13 +249,12 @@ export function SearchOverlay() {
 
         {/* Results */}
         <Command.List ref={listRef} className="max-h-[60vh] overflow-y-auto">
-          <Command.Empty className="p-8 text-center text-muted-foreground text-[11px]">
-            {searchQuery.length > 0
-              ? `No results for \u201c${searchQuery}\u201d`
-              : isCommand
-                ? 'No matching commands'
-                : 'Type to search across tasks, notes, and stream'}
-          </Command.Empty>
+          {/* Command mode ('>') keeps cmdk's built-in empty state. */}
+          {isCommand && (
+            <Command.Empty className="p-8 text-center text-muted-foreground text-[11px]">
+              No matching commands
+            </Command.Empty>
+          )}
 
           {/* ── Commands (> prefix) ─────────────────────────── */}
           {isCommand && (
@@ -289,17 +307,32 @@ export function SearchOverlay() {
             </Command.Group>
           )}
 
-          {/* ── Search results ────────────────────────────── */}
-          {!isCommand && filteredResults && filteredResults.length > 0 && (
-            <Command.Group heading="Results" className={GROUP_CLASS}>
-              {filteredResults.map((result) => (
-                <SearchResultItem
-                  key={`${result.entityType}-${result.id}`}
-                  result={result}
-                  onSelect={handleSelect}
-                />
-              ))}
-            </Command.Group>
+          {/* ── Idle hint (empty query, no recents yet) ─────── */}
+          {!isCommand && searchQuery.length === 0 && (!recents || recents.length === 0) && (
+            <p className="p-8 text-center text-muted-foreground text-[11px]">
+              Type to search across tasks, notes, and stream
+            </p>
+          )}
+
+          {/* ── Search: results → skeleton → empty ──────────── */}
+          {hasQuery && (
+            hasResults ? (
+              <Command.Group heading="Results" className={GROUP_CLASS}>
+                {filteredResults.map((result) => (
+                  <SearchResultItem
+                    key={`${result.entityType}-${result.id}`}
+                    result={result}
+                    onSelect={handleSelect}
+                  />
+                ))}
+              </Command.Group>
+            ) : isSearching ? (
+              <SearchResultsSkeleton />
+            ) : (
+              <p className="p-8 text-center text-muted-foreground text-[11px]">
+                No results for {'“'}{searchQuery}{'”'}
+              </p>
+            )
           )}
         </Command.List>
 
@@ -361,5 +394,28 @@ function SearchResultItem({
         </div>
       </div>
     </Command.Item>
+  );
+}
+
+// ── Loading skeleton ─────────────────────────────────────────
+// Shown while a search is in flight and we don't yet have results for the
+// current query, so the palette never flashes "no results" mid-keystroke.
+// Row shape mirrors SearchResultItem (icon + title + meta line).
+
+const SKELETON_WIDTHS = ['72%', '54%', '81%', '61%', '68%'];
+
+function SearchResultsSkeleton() {
+  return (
+    <div className="px-2 py-1" aria-hidden>
+      {SKELETON_WIDTHS.map((width, i) => (
+        <div key={i} className="flex items-start gap-3 px-2 py-2">
+          <Skeleton className="mt-0.5 size-3.5 flex-shrink-0 rounded-md" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="h-3 rounded" style={{ width }} />
+            <Skeleton className="h-2.5 w-2/5 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
