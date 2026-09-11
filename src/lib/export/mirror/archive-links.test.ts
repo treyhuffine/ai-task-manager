@@ -59,8 +59,8 @@ describe('archive-aware mirror links', () => {
     await sync('task', task.id);
     await sync('note', note.id);
 
-    q.updateTask(task.id, { title: 'Renamed task' });
-    q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'archive' });
+    q.updateTask(task.id, { title: 'Renamed task' }, { source: 'human' });
+    q.transitionTask({ taskId: task.id, command: 'archive', idempotencyKey: 'archive', meta: { source: 'human' } });
     await sync('task', task.id);
     const archivedTask = file('task', 'Renamed task', task.id, true);
     expect(fs.existsSync(archivedTask)).toBe(true);
@@ -69,15 +69,15 @@ describe('archive-aware mirror links', () => {
     expect(fs.readFileSync(file('note', note.title, note.id), 'utf8')).toContain(`[[${mirrorLinkPath('task', 'Renamed task', task.id, true)}]]`);
     expect(fs.readFileSync(archivedTask, 'utf8')).toContain(`../../attachments/${image.fileName}`);
 
-    q.updateNote(note.id, { status: 'archived' });
+    q.updateNote(note.id, { status: 'archived' }, { source: 'human' });
     await sync('note', note.id);
     expect(fs.readFileSync(file('task', linker.title, linker.id), 'utf8')).toContain(`[[${mirrorLinkPath('note', note.title, note.id, true)}]]`);
     expect(fs.readFileSync(file('note', linkedNote.title, linkedNote.id), 'utf8')).toContain(`[[${mirrorLinkPath('note', note.title, note.id, true)}]]`);
     expect(fs.readFileSync(file('task', linker.title, linker.id), 'utf8')).toContain(`\`[[note:${note.id}]]\``);
     expect(fs.readFileSync(file('note', note.title, note.id, true), 'utf8')).toContain(`../../attachments/${image.fileName}`);
 
-    q.transitionTask({ taskId: task.id, command: 'restore', idempotencyKey: 'restore' });
-    q.updateNote(note.id, { status: 'active' });
+    q.transitionTask({ taskId: task.id, command: 'restore', idempotencyKey: 'restore', meta: { source: 'human' } });
+    q.updateNote(note.id, { status: 'active' }, { source: 'human' });
     await sync('task', task.id);
     await sync('note', note.id);
     const restored = fs.readFileSync(file('task', linker.title, linker.id), 'utf8');
@@ -108,7 +108,7 @@ describe('archive-aware mirror links', () => {
       { streamId: stream.id, entityType: 'note', entityId: note.id, relation: 'created' },
     ]);
     q.updateArea(area.id, { status: 'archived' });
-    q.transitionTask({ taskId: parent.id, command: 'archive', idempotencyKey: 'parent-archive', acknowledgedChildIds: [child.id] });
+    q.transitionTask({ taskId: parent.id, command: 'archive', idempotencyKey: 'parent-archive', acknowledgedChildIds: [child.id], meta: { source: 'human' } });
     q.updateStream(stream.id, { status: 'dismissed' });
     await sync('area', area.id);
     await sync('task', parent.id);
@@ -120,7 +120,7 @@ describe('archive-aware mirror links', () => {
       expect(content).toContain('.archive/streams/');
       expect(content).toContain('> Capture image ![](../attachments/capture.png)');
     }
-    q.updateNote(note.id, { status: 'archived' });
+    q.updateNote(note.id, { status: 'archived' }, { source: 'human' });
     await sync('note', note.id);
     const streamFile = file('stream', stream.rawText.slice(0, 40), stream.id, true);
     expect(fs.readFileSync(streamFile, 'utf8')).toContain(`[[${mirrorLinkPath('note', note.title, note.id, true)}]]`);
@@ -128,9 +128,9 @@ describe('archive-aware mirror links', () => {
     expect(fs.readFileSync(file('note', note.title, note.id, true), 'utf8')).toContain('> Capture image ![](../../attachments/capture.png)');
 
     q.updateArea(area.id, { status: 'active' });
-    q.transitionTask({ taskId: parent.id, command: 'restore', idempotencyKey: 'parent-restore' });
+    q.transitionTask({ taskId: parent.id, command: 'restore', idempotencyKey: 'parent-restore', meta: { source: 'human' } });
     q.updateStream(stream.id, { status: 'pending' });
-    q.updateNote(note.id, { status: 'active' });
+    q.updateNote(note.id, { status: 'active' }, { source: 'human' });
     await sync('area', area.id);
     await sync('task', parent.id);
     await sync('stream', stream.id);
