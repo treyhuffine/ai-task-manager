@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { APP_SHORT_ID } from '@/constants/app';
+import { APP_ROOT_ENV, CONFIG_DIR_ENV } from '@/lib/config/paths';
 import {
   getAuthConfigDir,
   getAuthConfigPath,
@@ -15,6 +16,8 @@ const isPosix = process.platform !== 'win32';
 let tmpHome: string;
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
+let prevRoot: string | undefined;
+let prevConfigDir: string | undefined;
 
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'auth-config-test-'));
@@ -22,6 +25,13 @@ beforeEach(() => {
   prevUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
+  // This file tests the HOME-derived default paths, so the env overrides —
+  // including the suite-wide sandbox root from src/test/setup-env.ts — must
+  // be cleared for resolution to fall through to the faked HOME.
+  prevRoot = process.env[APP_ROOT_ENV];
+  prevConfigDir = process.env[CONFIG_DIR_ENV];
+  delete process.env[APP_ROOT_ENV];
+  delete process.env[CONFIG_DIR_ENV];
 });
 
 afterEach(() => {
@@ -29,6 +39,10 @@ afterEach(() => {
   else process.env.HOME = prevHome;
   if (prevUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = prevUserProfile;
+  if (prevRoot === undefined) delete process.env[APP_ROOT_ENV];
+  else process.env[APP_ROOT_ENV] = prevRoot;
+  if (prevConfigDir === undefined) delete process.env[CONFIG_DIR_ENV];
+  else process.env[CONFIG_DIR_ENV] = prevConfigDir;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
