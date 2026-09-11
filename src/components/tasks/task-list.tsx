@@ -62,7 +62,7 @@ export function TaskList() {
   const [laneFilter, setLaneFilter] = useState<TaskLane | 'all'>('current');
   const [energyFilter, setEnergyFilter] = useState<Energy | 'all'>('all');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
-  const [sortBy, setSortBy] = useState<SortOption>('lastViewedAt');
+  const [sortBy, setSortBy] = useState<SortOption>('sortKey');
   const [switchedFromSort, setSwitchedFromSort] = useState<SortOption | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
@@ -356,8 +356,8 @@ export function TaskList() {
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => { setSortBy(v as SortOption); dismissSwitchBanner(); }}>
-              <DropdownMenuRadioItem value="lastViewedAt" className="text-xs">Last viewed</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="sortKey" className="text-xs">Priority Order</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="lastViewedAt" className="text-xs">Last viewed</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="hardDeadline" className="text-xs">Deadline</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="createdAt" className="text-xs">Created</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="updatedAt" className="text-xs">Updated</DropdownMenuRadioItem>
