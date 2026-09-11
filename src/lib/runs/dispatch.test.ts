@@ -28,7 +28,7 @@ vi.mock('@/lib/executor/adapter', () => ({
   ExecutorError: class extends Error {},
 }));
 
-const TEST_DB = path.join(os.tmpdir(), `flow-dispatch-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-dispatch-test-${process.pid}.db`);
 
 // The first test in this file pays the full cold migration cost in its body;
 // under full-suite parallel-worker CPU contention that can exceed the 5s
@@ -40,7 +40,7 @@ beforeEach(() => {
     const p = TEST_DB + suffix;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
 });
 
 afterAll(() => {

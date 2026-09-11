@@ -1,5 +1,5 @@
 /**
- * `flow browser` commands: the operational surface for the agent browser.
+ * `ri browser` commands: the operational surface for the agent browser.
  *
  *   open <url>   open a headed window so you can sign into a site (alias: login)
  *   profiles     list the logged-in profiles the agent can use
@@ -9,7 +9,7 @@
  *   stop         the kill switch: close the agent browser
  *
  * The agent-facing verbs (browser_read, browser_act) are orchestrator actions,
- * reachable as `flow agent browser_read ...`. These commands are for the human.
+ * reachable as `ri agent browser_read ...`. These commands are for the human.
  *
  * A profile is a separate logged-in identity (its own cookie jar). Omit
  * --profile to use the configured default (initially "agent").

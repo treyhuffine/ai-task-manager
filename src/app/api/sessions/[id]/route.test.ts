@@ -39,7 +39,7 @@ vi.mock('@/lib/agents/runtime', () => ({
 }));
 
 vi.mock('@/lib/config/paths', () => ({
-  getAppRoot: () => '/tmp/flow-test',
+  getAppRoot: () => '/tmp/ri-test',
 }));
 
 import { PATCH } from './route';

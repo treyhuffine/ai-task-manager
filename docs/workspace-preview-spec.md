@@ -2,7 +2,7 @@
 
 Self-contained plan for testing a workspace's running app from any
 browser — laptop, phone, tablet — without cloning the repo, without
-installing the runtime, without exposing dev ports. Flow runs a
+installing the runtime, without exposing dev ports. Ri runs a
 reverse proxy on its existing origin and the execution view embeds
 it as an iframe. The user clicks "Start preview," types (or accepts)
 the dev command for that workspace, and the app appears in-place
@@ -21,17 +21,17 @@ preview replaces the need for takeover entirely.
 ### Two modes, one proxy
 
 The proxy itself is mode-agnostic — it forwards HTTP to a local port.
-What differs is who owns the dev-server process and how Flow learns
+What differs is who owns the dev-server process and how Ri learns
 about its port:
 
-- **Command mode (default).** Flow spawns and supervises the
+- **Command mode (default).** Ri spawns and supervises the
   workspace's `preview_command`, scrapes the port from stdout, and
   owns lifecycle (start, stop, crash detection, startup sweep of
   orphans). Self-contained — works with no external tools installed.
 - **Portless mode (optional upgrade).** If the user has installed
-  [Portless](https://github.com/vercel-labs/portless), Flow reads
+  [Portless](https://github.com/vercel-labs/portless), Ri reads
   `~/.portless/routes.json` to discover the workspace's app + port,
-  and forwards there. Portless owns the process. Flow's supervisor,
+  and forwards there. Portless owns the process. Ri's supervisor,
   port scraper, and startup sweep are bypassed entirely. Worktree
   hostnames (`<branch>.<app>.localhost`) come for free from Portless's
   built-in convention.
@@ -44,14 +44,14 @@ surfaced as hints in the UI when we detect it on the host.
 The workspace already runs on the host machine — that's where the
 worktree, the agent process, and the agent's terminal live. If the
 agent runs `pnpm dev`, the dev server is sitting on some local port
-on the same machine Flow is running on. Flow can already read the
-terminal output, so Flow already knows (or can learn) which port.
+on the same machine Ri is running on. Ri can already read the
+terminal output, so Ri already knows (or can learn) which port.
 
 The only thing missing is a path from the user's remote browser to
-that local port. We give it one: a reverse-proxy route on Flow's
+that local port. We give it one: a reverse-proxy route on Ri's
 own origin that forwards to the dev server. No new ports exposed,
-no DNS setup, no tunnel per workspace, no extra cert. The Flow URL
-the user already has — `https://flow-host:4224`, `https://flow.tail.ts`,
+no DNS setup, no tunnel per workspace, no extra cert. The Ri URL
+the user already has — `https://ri-host:4224`, `https://ri.tail.ts`,
 ngrok, whatever — covers it.
 
 Critically, this is **framework-agnostic.** The proxy speaks HTTP
@@ -68,8 +68,8 @@ on framework.
    workspace's running app inline, next to Files / Diff / Terminal.
 2. Works with any dev server that binds to a local TCP port and
    speaks HTTP — no per-framework code paths.
-3. Same-origin with Flow so authentication is uniform and remote
-   browsers reach it through the existing Flow URL.
+3. Same-origin with Ri so authentication is uniform and remote
+   browsers reach it through the existing Ri URL.
 4. One button starts and stops the preview process; the dev port
    is auto-detected from the process's stdout (command mode), or
    read directly from `routes.json` (Portless mode).
@@ -79,7 +79,7 @@ on framework.
    chrome.
 7. Detect Portless and surface it as an upgrade path — workspace
    that opts in gets cleaner URLs, free worktree isolation, zero
-   spawn/supervise code on Flow's side, and automatic Tailscale
+   spawn/supervise code on Ri's side, and automatic Tailscale
    sharing for remote test devices.
 
 ## Non-goals (v1)
@@ -104,10 +104,10 @@ on framework.
 
 | Topic                            | Decision                                                                          |
 |----------------------------------|-----------------------------------------------------------------------------------|
-| Proxy mount                      | Subpath on Flow origin: `/preview/<workspace-id>/*`                               |
+| Proxy mount                      | Subpath on Ri origin: `/preview/<workspace-id>/*`                               |
 | HTTP-only at launch              | Yes. WebSocket returns 502 with `preview_websocket_unsupported`.                  |
 | Path-prefix strategy             | Inject `<base href="/preview/<id>/">` into HTML. Document framework base-path config. |
-| Two preview modes                | `command` (Flow-supervised, default) and `portless` (Portless-owned).             |
+| Two preview modes                | `command` (Ri-supervised, default) and `portless` (Portless-owned).             |
 | Mode default                     | `command`. Portless is opt-in with detection-based hints in the UI.               |
 | Portless discovery               | Read `~/.portless/routes.json` directly (`fs.watch` for live updates). No CLI shelling. |
 | Portless hostname derivation     | `<workspace>` for main worktree, `<branch>.<workspace>` for linked — matches Portless. |
@@ -119,9 +119,9 @@ on framework.
 | Port override (command mode)     | `preview_port_override` column on `workspaces`. Nullable.                         |
 | Mode storage                     | `preview_mode` column on `workspaces`: `'command' \| 'portless' \| null` (auto).  |
 | Hostname override (portless)     | `portless_hostname` column on `workspaces`. Nullable; otherwise derived.          |
-| Process owner (command mode)     | Flow daemon spawns and supervises one subprocess per workspace.                   |
-| Process owner (portless)         | Portless. Flow does not spawn or supervise. Detects via `proxy.pid` + routes.json. |
-| Process lifetime                 | Command: until Stop / pane close / Flow shutdown. Portless: owned by Portless.    |
+| Process owner (command mode)     | Ri daemon spawns and supervises one subprocess per workspace.                   |
+| Process owner (portless)         | Portless. Ri does not spawn or supervise. Detects via `proxy.pid` + routes.json. |
+| Process lifetime                 | Command: until Stop / pane close / Ri shutdown. Portless: owned by Portless.    |
 | Auth into the iframe             | Short-lived preview token in query → `Set-Cookie` scoped to `/preview/<id>/`.     |
 | Schema delta                     | Four new columns on `workspaces`; runtime state lives in memory only.             |
 | UI placement                     | Sibling pane in execution view alongside Files / Diff / Terminal.                 |
@@ -144,7 +144,7 @@ differs. Mode resolution happens per-request based on the workspace's
 ┌──────────────────────────────────────────────────────────────┐
 │  Remote browser                                              │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Flow UI (chat / tree / diff / terminal / preview)      │  │
+│  │  Ri UI (chat / tree / diff / terminal / preview)      │  │
 │  │  ┌──────────────────────────────────────────────────┐  │  │
 │  │  │  <iframe src="/preview/ws_abc/?_pt=tok_xyz">     │  │  │
 │  │  │  ┌──────────────────────────────────────────┐    │  │  │
@@ -158,7 +158,7 @@ differs. Mode resolution happens per-request based on the workspace's
 ┌──────────────────────────────────────────────────────────────┐
 │  Host machine                                                │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Flow server (port 4224)                                │  │
+│  │  Ri server (port 4224)                                │  │
 │  │  ┌──────────────────────────────────────────────────┐  │  │
 │  │  │  /preview/<ws-id>/[...path] route handler        │  │  │
 │  │  │  - validates preview token / cookie              │  │  │
@@ -198,7 +198,7 @@ differs. Mode resolution happens per-request based on the workspace's
 ┌──────────────────────────────────────────────────────────────┐
 │  Host machine                                                │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Flow server (port 4224)                                │  │
+│  │  Ri server (port 4224)                                │  │
 │  │  ┌──────────────────────────────────────────────────┐  │  │
 │  │  │  /preview/<ws-id>/[...path] route handler        │  │  │
 │  │  │  - resolves mode → portless                      │  │  │
@@ -211,7 +211,7 @@ differs. Mode resolution happens per-request based on the workspace's
 │                            │ reads                           │
 │                            ▼                                 │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  ~/.portless/routes.json (file, watched by Flow)        │  │
+│  │  ~/.portless/routes.json (file, watched by Ri)        │  │
 │  │  [{hostname, port, pid, tailscaleUrl?, ...}, ...]       │  │
 │  └─────────────────────────▲─────────────────────────────┘  │
 │                            │ writes                           │
@@ -222,9 +222,9 @@ differs. Mode resolution happens per-request based on the workspace's
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Flow never spawns anything in Portless mode. The user runs
+Ri never spawns anything in Portless mode. The user runs
 `portless run` (or `portless <name> <cmd>`) inside the worktree;
-Portless registers a route; Flow reads the route and proxies.
+Portless registers a route; Ri reads the route and proxies.
 
 ### Proxy route
 
@@ -240,12 +240,12 @@ export const runtime = 'nodejs';
 Per-request logic:
 
 1. **Auth.** Accept either:
-   - A valid preview cookie `flow.preview.<workspace-id>` (set on a
+   - A valid preview cookie `ri.preview.<workspace-id>` (set on a
      prior request).
    - The `_pt=<token>` query param (the iframe's initial src includes
      this). On success, set the cookie via `Set-Cookie` with
      `Path=/preview/<ws-id>/; HttpOnly; SameSite=Lax`.
-   - As a fallback, the standard Flow bearer header — useful for
+   - As a fallback, the standard Ri bearer header — useful for
      debugging via curl.
    On failure, return 401 with a small HTML body that explains the
    pane needs to be reopened.
@@ -270,7 +270,7 @@ Per-request logic:
    - Strip hop-by-hop headers from the inbound request (`connection`,
      `keep-alive`, `proxy-*`, `te`, `trailer`, `transfer-encoding`,
      `upgrade`).
-   - Strip Flow's own auth headers/cookies before forwarding.
+   - Strip Ri's own auth headers/cookies before forwarding.
    - In Portless mode, overwrite `Host` to the portless hostname.
    - For `Upgrade: websocket` requests, short-circuit with
      `502 preview_websocket_unsupported` (we documented this).
@@ -422,8 +422,8 @@ manually?" affordance.
 ### Portless integration
 
 `src/lib/preview/portless.ts` — small read-only adapter over
-Portless's on-disk state. Flow never writes to Portless's files;
-Portless owns them. Flow watches and reads.
+Portless's on-disk state. Ri never writes to Portless's files;
+Portless owns them. Ri watches and reads.
 
 ```ts
 type PortlessRoute = {
@@ -472,7 +472,7 @@ The result is cached for 10s — auto-detection is consulted on every
 workspace settings open and pane mount, but we don't need to stat
 the filesystem on every cache hit.
 
-**Hostname derivation.** Mirrors Portless's own convention so Flow
+**Hostname derivation.** Mirrors Portless's own convention so Ri
 and Portless agree without coordination:
 
 - Main worktree: `<workspace-name>` (sanitized to DNS-safe form).
@@ -484,7 +484,7 @@ derivation is also exposed in workspace settings as the
 auto-populated default value of the override input.
 
 **No process management.** No spawn, no kill, no log capture in
-Portless mode. The user runs `portless run` themselves; Flow simply
+Portless mode. The user runs `portless run` themselves; Ri simply
 proxies whatever shows up in `routes.json`. The supervisor module
 (`src/lib/preview/supervisor.ts`) is bypassed entirely when a
 workspace is in Portless mode.
@@ -510,9 +510,9 @@ Resolution at read time:
 Why scalar columns vs a JSON blob: cheap to read, simple to set
 from the UI, matches the existing scalar-column pattern. The
 runtime port and process state live in memory only — no need to
-persist them; on Flow restart, command-mode previews are all
+persist them; on Ri restart, command-mode previews are all
 stopped and the user restarts them on demand. Portless state is
-owned by Portless and persists across Flow restarts for free.
+owned by Portless and persists across Ri restarts for free.
 
 ### API routes
 
@@ -585,7 +585,7 @@ Flow:
 2. UI sets iframe `src="/preview/<id>/?_pt=<token>"`.
 3. First request arrives at the proxy. Handler validates token
    against the supervisor's in-memory token map. If valid, sets
-   cookie `flow.preview.<id>=<cookie-token>` with
+   cookie `ri.preview.<id>=<cookie-token>` with
    `Path=/preview/<id>/; HttpOnly; SameSite=Lax; Max-Age=86400`.
 4. Subsequent requests use the cookie; the `_pt` query param can
    be stripped from the URL via History API but the cookie covers
@@ -593,11 +593,11 @@ Flow:
 5. On Stop or process crash, the token is invalidated.
 
 Tokens live in the supervisor's memory, not the database — they
-share lifetime with the process and disappear on Flow restart
+share lifetime with the process and disappear on Ri restart
 (which is fine; previews don't survive restart either).
 
 The cookie is path-scoped to `/preview/<id>/` so it doesn't leak
-across workspaces or to the rest of Flow.
+across workspaces or to the rest of Ri.
 
 ### Action / pane integration
 
@@ -618,7 +618,7 @@ states differ.
 
 **Shared:**
 
-- **Iframe area:** `<iframe src="/preview/<id>/?_pt=<token>" sandbox="allow-scripts allow-forms allow-popups allow-same-origin" />`. Same-origin since the proxy is on the Flow origin; `allow-same-origin` keeps cookies and storage working inside the app.
+- **Iframe area:** `<iframe src="/preview/<id>/?_pt=<token>" sandbox="allow-scripts allow-forms allow-popups allow-same-origin" />`. Same-origin since the proxy is on the Ri origin; `allow-same-origin` keeps cookies and storage working inside the app.
 - **Header strip:** [URL bar showing `/preview/<id>/<current-path>` — read-only in v1] [Refresh button] [Open-in-new-tab button] [Settings cog opens workspace preview config].
 - The Tailscale URL (when present in Portless mode) is **not** in the pane header — it lives in the execution view header's 3-dot overflow popover, since it's a workspace-wide concept rather than a pane-specific one. See `ExecutionHeader` integration below.
 
@@ -695,13 +695,13 @@ phase if users ask.
 
 ## CLI commands
 
-None in v1. The Flow CLI doesn't need to know about preview — it's
+None in v1. The Ri CLI doesn't need to know about preview — it's
 entirely a server-side feature. If we add CLI surface later, likely
 candidates:
 
-- `flow preview start <workspace>` — start a workspace's preview
+- `ri preview start <workspace>` — start a workspace's preview
   from the laptop without opening the UI (command mode only).
-- `flow preview logs <workspace>` — tail logs (command mode only).
+- `ri preview logs <workspace>` — tail logs (command mode only).
 
 Portless mode users use Portless's own CLI directly:
 
@@ -711,7 +711,7 @@ Portless mode users use Portless's own CLI directly:
 - `portless prune` — clean orphans.
 - `portless get <name>` — print the URL.
 
-Flow's UI surfaces these commands as copy-paste hints in the
+Ri's UI surfaces these commands as copy-paste hints in the
 Portless-mode empty state rather than wrapping them.
 
 ## Build phases
@@ -752,7 +752,7 @@ one is stable.
 
 ### Phase 4 — Polish (command mode)
 
-- [ ] Process auto-cleanup on Flow shutdown (SIGTERM all supervised processes).
+- [ ] Process auto-cleanup on Ri shutdown (SIGTERM all supervised processes).
 - [ ] Startup sweep: scan `<brain>/preview/*.pid`, verify command, kill orphaned process groups.
 - [ ] Log strip: line virtualization if it grows large; default-collapsed if status is healthy.
 - [ ] Surface the `<base href>` value near the URL strip with a copy button + brief tooltip explaining the base-path knob for the user's framework.
@@ -777,8 +777,8 @@ Adds the second mode without touching the supervisor.
 - [ ] Pane: add Portless-mode empty states (no route, stale route). Hide start/stop and log strip when mode is `portless`.
 - [ ] `ExecutionHeader` 3-dot popover: add "Open on Tailscale" and "Copy Tailscale URL" items, gated on `tailscaleUrl` being present.
 - [ ] Migration of existing workspaces: leave `preview_mode = null` (auto-detect). No backfill needed.
-- [ ] End-to-end manual test: install Portless on the host, `portless run` a Next app in one worktree and a Flask app in another, verify both load through Flow's proxy from a remote browser.
-- [ ] End-to-end manual test: a workspace with Portless route registered but Flow set to Command mode — verify it doesn't accidentally pick up the portless route.
+- [ ] End-to-end manual test: install Portless on the host, `portless run` a Next app in one worktree and a Flask app in another, verify both load through Ri's proxy from a remote browser.
+- [ ] End-to-end manual test: a workspace with Portless route registered but Ri set to Command mode — verify it doesn't accidentally pick up the portless route.
 
 ### Out of scope (deferred to a later spec)
 
@@ -787,8 +787,8 @@ Adds the second mode without touching the supervisor.
 - Auto-restart on crash (command mode). Portless mode users restart in their terminal.
 - Detect dev server already running on a known port (skip spawn) — in command mode. Less relevant in Portless mode since Portless owns the spawn.
 - Preset commands (`pnpm dev`, `npm start`) in the settings UI.
-- Portless install / setup flow inside Flow. We link out to portless.sh and let the user install via npm. No in-app installer in v1.
-- Reading per-app Portless config (`portless.json`, `package.json#portless`) to pre-populate Flow's workspace settings. Future: we could parse these files in the worktree and auto-fill `portless_hostname`.
+- Portless install / setup flow inside Ri. We link out to portless.sh and let the user install via npm. No in-app installer in v1.
+- Reading per-app Portless config (`portless.json`, `package.json#portless`) to pre-populate Ri's workspace settings. Future: we could parse these files in the worktree and auto-fill `portless_hostname`.
 
 ## Files
 
@@ -830,13 +830,13 @@ Adds the second mode without touching the supervisor.
 - **Preview command exits immediately.** Supervisor sees exit within 1s and marks `crashed`. UI shows logs + Restart. No retry loop.
 - **Dev server binds to a unix socket / pipe (no TCP).** Out of scope; the proxy is TCP-only. If demand arises, supervisor can detect via lsof and the proxy can switch to a unix socket fetch backend.
 - **Dev server prints port to a file rather than stdout.** Out of scope in v1; user sets `preview_port_override` manually.
-- **App makes `fetch('/api/...')` from JS.** Browser hits Flow's `/api/...`, not the dev server's. User configures their dev server with a matching base path (knob list above) and rebuilds. Without it, dynamic JS-issued absolute paths break.
-- **App uses cookies with `Path=/`.** Cookie is set on Flow's origin's root path, leaks across workspaces and to Flow itself. Mitigation: the proxy could rewrite outgoing `Set-Cookie` headers to scope `Path` to `/preview/<id>/`. Add in polish if it causes issues; for v1 we accept the leak since dev cookies are short-lived and the user controls both ends.
+- **App makes `fetch('/api/...')` from JS.** Browser hits Ri's `/api/...`, not the dev server's. User configures their dev server with a matching base path (knob list above) and rebuilds. Without it, dynamic JS-issued absolute paths break.
+- **App uses cookies with `Path=/`.** Cookie is set on Ri's origin's root path, leaks across workspaces and to Ri itself. Mitigation: the proxy could rewrite outgoing `Set-Cookie` headers to scope `Path` to `/preview/<id>/`. Add in polish if it causes issues; for v1 we accept the leak since dev cookies are short-lived and the user controls both ends.
 - **Multiple workspaces on the same default port.** Second framework fails to bind to 3000, picks an alternate. Supervisor scrapes the alternate from stdout. No special handling needed.
 - **User changes `preview_command` while preview is running.** UI shows "Restart to apply" banner. New command takes effect only on next Stop+Start.
 - **`<base>` injection misses the `<head>` tag.** Server sent malformed HTML or used a non-standard structure. Transform falls back to passing through unmodified. App may have broken relative URLs; user works around it with a real base-path config.
-- **Flow restarts while preview is running.** Supervisor state is in-memory, so processes are orphaned. On boot, supervisor starts empty. Orphans need to be killed manually (or via Flow's existing process-group teardown if we register them with the OS process group). Phase 4 should add a startup sweep: scan for orphaned children of the previous PID and reap.
-- **User opens two browser tabs of Flow against the same workspace.** Both iframes share the same preview process and same token. Each is independently authed via cookie. No collision.
+- **Ri restarts while preview is running.** Supervisor state is in-memory, so processes are orphaned. On boot, supervisor starts empty. Orphans need to be killed manually (or via Ri's existing process-group teardown if we register them with the OS process group). Phase 4 should add a startup sweep: scan for orphaned children of the previous PID and reap.
+- **User opens two browser tabs of Ri against the same workspace.** Both iframes share the same preview process and same token. Each is independently authed via cookie. No collision.
 - **Dev server takes 60s to start (Rails, big monorepo Vite, slow Docker image).** Port detection timeout is 30s; relax to a per-workspace timeout setting if needed, or let the user set the port manually. Process keeps running either way; user can refresh once they see it bind.
 - **WebSocket / EventSource subscription from the dev app.** WS → 502 with a clear error. SSE *should* pass through since the proxy streams response bodies; not explicitly tested in v1.
 - **Open in new tab → URL is `/preview/<id>/` without `_pt`.** Cookie is path-scoped to `/preview/<id>/` and SameSite=Lax, so the new tab inherits it. Works as long as the cookie hasn't expired.
@@ -863,7 +863,7 @@ new tab.
    Portless route has a `tailscaleUrl` → iframe that URL directly.
    Browser is on the user's tailnet, so MagicDNS + the per-app
    Tailscale cert make it reachable with full fidelity.
-4. Mixed-content guard: HTTPS Flow + HTTP candidate → path proxy.
+4. Mixed-content guard: HTTPS Ri + HTTP candidate → path proxy.
    Browsers block the embed otherwise.
 5. Anything else (ngrok, LAN IP, custom domain) → path proxy.
 
@@ -875,9 +875,9 @@ new tab.
 - The dev app's hardcoded absolute URLs (`ROOT_URL=https://myapp.localhost`)
   match the actual iframe origin → no CORS errors fetching
   `manifest.json` or other same-origin assets.
-- The iframe is now a *different* origin from Flow, so SOP
-  isolates everything: the dev app's JavaScript can't read Flow's
-  `localStorage['flow.token']` and can't issue authenticated
+- The iframe is now a *different* origin from Ri, so SOP
+  isolates everything: the dev app's JavaScript can't read Ri's
+  `localStorage['ri.token']` and can't issue authenticated
   `fetch('/api/...')` calls. The cross-user credential exfiltration
   scenario from the Trust boundary section disappears for
   direct-embed mode.
@@ -900,24 +900,24 @@ can hover for an explanation of the trade-off.
 phone / a laptop on the road, start your dev server with
 `portless <name> --tailscale <cmd>` instead of just `portless <name> <cmd>`.
 The Tailscale URL gets registered in `~/.portless/routes.json`,
-Flow's status route surfaces it as `tailscale_url`, the resolver
-picks it for any browser hitting Flow via `*.ts.net`. Without
+Ri's status route surfaces it as `tailscale_url`, the resolver
+picks it for any browser hitting Ri via `*.ts.net`. Without
 `--tailscale`, remote browsers still see the path proxy — same as
 today.
 
 ### Trust boundary: same-origin iframe
 
-The preview iframe is on Flow's own origin (we proxy the dev app under
+The preview iframe is on Ri's own origin (we proxy the dev app under
 `/preview/<workspace-id>/`). Because we set `allow-same-origin` in the
 sandbox (required for the dev app's cookies, fetch, and storage to
 work), the dev app's JavaScript runs with **same-origin privileges**
 inside the user's browser. Concretely it can:
 
-- Read `localStorage` and `sessionStorage` on Flow's origin —
-  including the `flow.token` API token kept there by the API client.
+- Read `localStorage` and `sessionStorage` on Ri's origin —
+  including the `ri.token` API token kept there by the API client.
 - Issue `fetch('/api/...')` requests that automatically include the
   user's session cookie.
-- Read non-HttpOnly cookies on Flow's origin.
+- Read non-HttpOnly cookies on Ri's origin.
 
 This is a fundamental property of subpath-mounted same-origin
 iframes and is not fixable while we mount under `/preview/<id>/`. The
@@ -926,18 +926,18 @@ two mitigations we apply within that constraint:
 1. Outbound `Set-Cookie` rewriter (`src/lib/preview/rewrite-set-cookie.ts`)
    forces `Path=/preview/<id>/`, drops `Domain=`, and refuses
    reserved cookie names so the dev app can't set cookies that fire
-   on Flow's `/api/*` routes or impersonate Flow's session.
+   on Ri's `/api/*` routes or impersonate Ri's session.
 2. Inbound cookies and `Authorization` headers are filtered before
-   forwarding so we don't leak Flow's auth credentials into the dev
+   forwarding so we don't leak Ri's auth credentials into the dev
    server's request log.
 
 **Operational guidance:** treat preview the same as letting code run
-on Flow's origin. Only point preview at dev servers running code you
+on Ri's origin. Only point preview at dev servers running code you
 trust. For multi-tenant or sharing-with-untrusted-parties scenarios,
 hold this back until subdomain isolation lands.
 
 **Future hardening — subdomain isolation.** Mount preview at
-`<workspace-id>.preview.<flow-host>` instead of `/preview/<id>/`.
+`<workspace-id>.preview.<ri-host>` instead of `/preview/<id>/`.
 Removes the localStorage / fetch access entirely (different origin
 under SOP) and makes path-prefix rewriting unnecessary. Requires
 wildcard DNS + wildcard TLS cert, which is non-trivial for users on
@@ -946,20 +946,20 @@ demand justifies the operational cost.
 
 ### Portless-specific edge cases
 
-- **`routes.json` mid-write during a Flow read.** Portless writes the whole file atomically inside its `routes.lock`. JSON parse failure is rare but possible if the OS reports the file before the new bytes are durably written. Flow retries the read once after 10ms; if still bad, returns the previous in-memory snapshot.
-- **Portless proxy daemon dies but dev servers keep running.** `routes.json` is stale-ish but the `pid` entries still point at live processes. Flow's lookup finds them and the proxy still works. `portless prune` is the user's recourse.
-- **Workspace's portless hostname collides with another workspace.** Both worktrees register the same hostname, last one wins in Portless. Flow's derivation includes the branch prefix for linked worktrees, so this only happens if two workspaces share both name and branch. Surface as a settings-screen warning when detected.
-- **Workspace renamed in Flow.** Derived hostname changes. If the user already ran `portless run` under the old name, Flow loses the route lookup. Settings UI shows "Expected hostname `<new>` — no route. (Running as `<old>`? Re-run `portless run`.)"
-- **User has `PORTLESS_STATE_DIR` set in their shell but not in Flow's environment.** Flow looks in `~/.portless` and sees no proxy; mode resolution falls back to command. The detect logic reads `process.env.PORTLESS_STATE_DIR`, so the user just needs to start Flow from a shell with the same env. Document this in the settings hint.
-- **Portless route has `tailscaleUrl` but Flow's host isn't on the user's Tailnet.** Doesn't matter — Flow doesn't try to reach the Tailnet URL itself; it only surfaces it to the user as a clickable link. The user's browser does or doesn't reach it based on their own network.
+- **`routes.json` mid-write during a Ri read.** Portless writes the whole file atomically inside its `routes.lock`. JSON parse failure is rare but possible if the OS reports the file before the new bytes are durably written. Ri retries the read once after 10ms; if still bad, returns the previous in-memory snapshot.
+- **Portless proxy daemon dies but dev servers keep running.** `routes.json` is stale-ish but the `pid` entries still point at live processes. Ri's lookup finds them and the proxy still works. `portless prune` is the user's recourse.
+- **Workspace's portless hostname collides with another workspace.** Both worktrees register the same hostname, last one wins in Portless. Ri's derivation includes the branch prefix for linked worktrees, so this only happens if two workspaces share both name and branch. Surface as a settings-screen warning when detected.
+- **Workspace renamed in Ri.** Derived hostname changes. If the user already ran `portless run` under the old name, Ri loses the route lookup. Settings UI shows "Expected hostname `<new>` — no route. (Running as `<old>`? Re-run `portless run`.)"
+- **User has `PORTLESS_STATE_DIR` set in their shell but not in Ri's environment.** Ri looks in `~/.portless` and sees no proxy; mode resolution falls back to command. The detect logic reads `process.env.PORTLESS_STATE_DIR`, so the user just needs to start Ri from a shell with the same env. Document this in the settings hint.
+- **Portless route has `tailscaleUrl` but Ri's host isn't on the user's Tailnet.** Doesn't matter — Ri doesn't try to reach the Tailnet URL itself; it only surfaces it to the user as a clickable link. The user's browser does or doesn't reach it based on their own network.
 - **Workspace explicitly pinned to Portless mode, but Portless not installed.** Settings UI surfaces a red banner: "Portless not detected on this host. Install it or switch to Command mode." Proxy returns 503 `portless_not_running` with the same explanation inside the iframe.
-- **Workspace explicitly pinned to Command mode, but Portless also has a route registered for the same hostname.** Flow respects the explicit pin — uses the supervisor, ignores the Portless route. No mixing.
-- **Portless's local TLS CA isn't trusted on this machine.** Doesn't affect Flow at all — we don't talk to Portless over TLS; we go straight to the loopback port from `routes.json`. The user's browser only sees Flow's certs, never Portless's.
-- **Multiple Node processes reading `routes.json` concurrently.** All readers are independent; the file is reread on watcher events. No coordination needed between Flow instances or between Flow and other tools.
+- **Workspace explicitly pinned to Command mode, but Portless also has a route registered for the same hostname.** Ri respects the explicit pin — uses the supervisor, ignores the Portless route. No mixing.
+- **Portless's local TLS CA isn't trusted on this machine.** Doesn't affect Ri at all — we don't talk to Portless over TLS; we go straight to the loopback port from `routes.json`. The user's browser only sees Ri's certs, never Portless's.
+- **Multiple Node processes reading `routes.json` concurrently.** All readers are independent; the file is reread on watcher events. No coordination needed between Ri instances or between Ri and other tools.
 
 ## Reference paths
 
-### Inside Flow
+### Inside Ri
 
 - Existing route pattern (auth + streaming): `src/app/api/sessions/[id]/messages/route.ts`
 - Middleware: `middleware.ts`
@@ -979,5 +979,5 @@ demand justifies the operational cost.
 - npm package: `portless` — published, exports `RouteStore`, `RouteInfo`, types from the package main (`dist/index.js`). Could be added as a runtime dep if we want type-safe access to the routes file format; otherwise we read `routes.json` directly and define our own types.
 - Routes file shape: `~/.portless/routes.json` — JSON array of `{ hostname, port, pid, tailscaleUrl?, tailscaleHttpsPort?, tailscaleFunnel? }`. Source-of-truth: `packages/portless/src/routes.ts` and `types.ts` in the repo.
 - State dir override: `PORTLESS_STATE_DIR` env var (default `~/.portless`).
-- Other state files (for reference, not used by Flow): `proxy.pid`, `proxy.port`, `routes.lock` (directory used for write-side locking; Flow doesn't write).
+- Other state files (for reference, not used by Ri): `proxy.pid`, `proxy.port`, `routes.lock` (directory used for write-side locking; Ri doesn't write).
 - Agent skill (useful for documenting our portless integration in the open-source release): https://github.com/vercel-labs/portless/blob/main/skills/portless/SKILL.md

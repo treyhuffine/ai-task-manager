@@ -1,4 +1,4 @@
-# Performance Root Cause: Why Flow Feels Terrible in Prod
+# Performance Root Cause: Why Ri Feels Terrible in Prod
 
 Date: 2026-07-22. Method: empirical measurement (curl timing matrix, headless browser waterfall, tunnel throughput experiments) followed by a 42-agent adversarially-verified source audit across ai-task-manager, beamd, and tunnel-server. 36 findings confirmed, 0 refuted.
 

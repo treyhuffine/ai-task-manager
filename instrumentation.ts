@@ -117,7 +117,7 @@ export async function register() {
     console.warn('[setup] orphaned-setup reset failed', err);
   }
 
-  // Reap orphaned preview processes from a prior Flow run that crashed
+  // Reap orphaned preview processes from a prior Ri run that crashed
   // or restarted without a clean stop. The PID files we wrote at spawn
   // time tell us what to look for; we kill the process group only when
   // the live command line still matches what we recorded, so PID
@@ -164,7 +164,7 @@ export async function register() {
     console.warn('[calendar] provider init failed', err);
   }
 
-  // Best-effort: stop every supervised preview when Flow is asked to
+  // Best-effort: stop every supervised preview when Ri is asked to
   // exit cleanly. SIGTERM/SIGINT only — Node can't intercept SIGKILL.
   // Lives in a dynamically-imported module because Next.js's Edge
   // runtime build statically rejects `process.once` / `process.exit`
@@ -177,7 +177,7 @@ export async function register() {
     console.warn('[preview] shutdown hook init failed', err);
   }
 
-  // "Keep Flow reachable": when the user opted in, re-open the app's own beamd
+  // "Keep Ri reachable": when the user opted in, re-open the app's own beamd
   // tunnel at boot and keep it alive, so a headless/remote box stays reachable
   // across restarts without a manual settings click. No-op unless opted in and
   // beamd is logged in. Background; never blocks startup.

@@ -47,7 +47,7 @@ const ALLOWED_TRIGGERS = new Set([
   'test-event',
 ]);
 
-type TranscriptionSource = 'pebble' | 'flow' | null;
+type TranscriptionSource = 'pebble' | 'ri' | null;
 
 interface PebbleRecording {
   recordedAt: number;
@@ -173,7 +173,7 @@ async function completeServerTranscription(input: {
 
   const rawText = `${transcript}\n\n${attachmentReference(input.attachment)}`;
   const audit = JSON.parse(input.externalPayload) as Record<string, unknown>;
-  audit.transcriptionSource = 'flow';
+  audit.transcriptionSource = 'ri';
 
   try {
     const row = updateStream(input.rowId, {

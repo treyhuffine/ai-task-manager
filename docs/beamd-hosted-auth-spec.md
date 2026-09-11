@@ -1,31 +1,31 @@
-# Hosted beamd auth — the Flow-side spec
+# Hosted beamd auth — the Ri-side spec
 
 Status: **design**. Captures how remote-preview onboarding should work against
 *hosted* beamd, where the OSS/self-hosted path was built first and the hosted
 specifics were never fully thought through. Companion to
-[`beamd-device-code-contract.md`](./beamd-device-code-contract.md) (what Flow
+[`beamd-device-code-contract.md`](./beamd-device-code-contract.md) (what Ri
 needs from the beamd *CLI*) and [`preview-system-spec.md`](./preview-system-spec.md)
-(the preview system overall). This doc is the Flow-side product + integration
+(the preview system overall). This doc is the Ri-side product + integration
 view; the device-code contract is the wire detail.
 
 ## TL;DR
 
-- Keep the credential model: **Flow owns nothing.** The login lives in beamd's
-  shared `~/.beamd/` store; Flow is just another client (human + agent + Flow,
+- Keep the credential model: **Ri owns nothing.** The login lives in beamd's
+  shared `~/.beamd/` store; Ri is just another client (human + agent + Ri,
   one machine, one credential). Nothing here changes that.
 - The hosted gaps that the OSS path glosses over are three: **token source**,
   **token lifecycle**, and the **edge ≠ dashboard** split.
 - The aligned hosted on-ramp is **device-code (browser-approve) login that mints
   a durable workspace key**, folding into the existing connect → resolve → QR
-  flow with no Flow rework. Token-paste stays as the always-available fallback.
-- Flow must run a beamd **new enough** to (a) read the account format and (b)
+  flow with no Ri rework. Token-paste stays as the always-available fallback.
+- Ri must run a beamd **new enough** to (a) read the account format and (b)
   speak `--device --json`. The binary-resolution + skew-legibility work for (a)
   shipped — see [Binary & version compatibility](#binary--version-compatibility).
 
 ## Why hosted is different from OSS
 
 The OSS/self-hosted path (already built) is: the user runs their own beamd edge,
-copies its static token, and pastes `server` + `token` into Flow, which runs
+copies its static token, and pastes `server` + `token` into Ri, which runs
 `beamd login --server <edge> --token <token>` and verifies with `beamd check`.
 Three assumptions in that flow quietly break for hosted:
 
@@ -36,12 +36,12 @@ Three assumptions in that flow quietly break for hosted:
 - **Hosted:** the token is a **workspace API key minted by the hosted
   dashboard**. The user has to go get it. There's no on-ramp for someone who has
   never used beamd — which is most hosted users, whose *only* relationship with
-  beamd is "previews inside Flow."
+  beamd is "previews inside Ri."
 
 ### 2. Token lifecycle — session vs durable
 
 The stored account can be one of two kinds, and they are not interchangeable for
-Flow's use:
+Ri's use:
 
 - **`kind: session`** — a short(er)-lived token from an interactive login. It can
   expire, at which point previews silently 401 and the machine reads as
@@ -49,7 +49,7 @@ Flow's use:
 - **`kind: api-key`** (durable) — a long-lived workspace key with no interactive
   expiry.
 
-Flow runs unattended (the agent opens tunnels on its own, lazy-start brings
+Ri runs unattended (the agent opens tunnels on its own, lazy-start brings
 previews up on first view). It must therefore connect with a **durable key**, not
 a session token. Observed in the wild: a `~/.beamd/accounts/<edge>.yaml` with
 `kind: session` — exactly the footgun. **Requirement:** the hosted connect path
@@ -75,17 +75,17 @@ copy was updated to say "set Server to the edge host the dashboard shows you."
 **Goals**
 
 - A first-run user with no beamd key can connect remote preview in one approval,
-  from inside Flow, without leaving to find a token.
+  from inside Ri, without leaving to find a token.
 - The resulting credential is durable (survives restarts, no silent expiry).
 - The same flow works for the terminal-first user (they may already be logged in;
-  Flow inherits it and never asks again).
-- Zero new Flow-owned credential surface — `~/.beamd/` stays the single source of
-  truth, shared by human + agent + Flow.
+  Ri inherits it and never asks again).
+- Zero new Ri-owned credential surface — `~/.beamd/` stays the single source of
+  truth, shared by human + agent + Ri.
 
 **Non-goals**
 
-- Flow storing, proxying, or refreshing tokens. (Still no.)
-- A Flow-owned config file for beamd. The active provider lives in `preview.json`;
+- Ri storing, proxying, or refreshing tokens. (Still no.)
+- A Ri-owned config file for beamd. The active provider lives in `preview.json`;
   the credential lives only in beamd's store.
 - Multi-account / per-execution credentials. One machine, one beamd account.
 
@@ -99,19 +99,19 @@ them when the machine isn't connected yet.
 Not connected
    │  user clicks "Connect" (or "Open on your phone" → connect inline)
    ▼
-Flow spawns:  beamd login --server <edge> --device --json     (NDJSON stream)
+Ri spawns:  beamd login --server <edge> --device --json     (NDJSON stream)
    │
    ├─ first line {event:"device_code_unsupported"} ──► fall back to TOKEN PASTE form
    │
    └─ first line {event:"pending", verification_uri_complete, user_code, …}
-          │  Flow shows: the user_code + an "Approve in beamd" button
-          │  (same machine → Flow can open the browser itself)
+          │  Ri shows: the user_code + an "Approve in beamd" button
+          │  (same machine → Ri can open the browser itself)
           ▼
       user approves in browser (durable key minted under their workspace)
           │
           ├─ {event:"connected", server, slug}  ──► credential persisted in ~/.beamd/
           │        │
-          │        ▼  Flow flips activeProvider → beamd, re-resolves, shows QR
+          │        ▼  Ri flips activeProvider → beamd, re-resolves, shows QR
           │      CONNECTED → QR / live preview
           │
           └─ {event:"error", code:"expired"|"denied"|"timeout"} ──► show reason + retry
@@ -125,19 +125,19 @@ adds the **hosted product requirements** on top of it:
    (`kind: api-key`-equivalent), not a session token — see lifecycle above.
 2. The approval page is hosted (the dashboard origin, e.g. `*.beamd.ai`); the
    minted key authorizes against the **edge** (`*.beamd.run`). The CLI hides this
-   split from Flow — Flow only ever passes the edge `--server` and consumes the
+   split from Ri — Ri only ever passes the edge `--server` and consumes the
    two events.
 
 ### Edge discovery
 
-To spare the user the edge-vs-dashboard trap entirely, the ideal is that Flow
+To spare the user the edge-vs-dashboard trap entirely, the ideal is that Ri
 does **not** ask for a server at all in the hosted path:
 
-- Option A (preferred): a well-known hosted edge default. Flow ships the canonical
+- Option A (preferred): a well-known hosted edge default. Ri ships the canonical
   hosted edge host (e.g. `beamd.run`) so "Connect to hosted beamd" needs zero
   text entry — just approve. Self-hosted users still get the manual server field.
 - Option B: the device-code `pending` event (or a discovery call) returns the
-  edge `baseDomain`, and Flow stores/uses that. The user picks "hosted" vs
+  edge `baseDomain`, and Ri stores/uses that. The user picks "hosted" vs
   "self-hosted (enter edge)", nothing more.
 
 Until one of these lands, the connect form keeps the manual **edge host** field
@@ -154,7 +154,7 @@ This is deliberately a *small* change because the surrounding flow already exist
 - The device-code stream is driven by a new server route (e.g.
   `POST /api/preview/settings/connect-device`) that spawns the CLI, relays the
   `pending` object to the client, and resolves on the terminal event. The client
-  shows `user_code` + an approve link and waits. **No token ever touches Flow.**
+  shows `user_code` + an approve link and waits. **No token ever touches Ri.**
 - On `connected`, reuse the existing `onConnected` hook: flip `activeProvider` to
   `beamd` and re-resolve the preview URL straight to the QR (`qr-code.tsx`) — the
   same path the token flow uses today.
@@ -168,16 +168,16 @@ shared-store reads — is unchanged.
 
 Device-code requires a beamd that ships `--device --json`, and reading a
 hosted-written account requires a beamd new enough to parse its on-disk format.
-Both are the same underlying concern: **Flow must run a current-enough beamd.**
+Both are the same underlying concern: **Ri must run a current-enough beamd.**
 
 The resolution + legibility half of this is **done** (the (b) work):
 
 - `resolveBeamdBin()` (`src/lib/preview/beamd/cli.ts`) now **prefers a
-  user-installed `beamd` on PATH** over Flow's bundled copy, skipping
+  user-installed `beamd` on PATH** over Ri's bundled copy, skipping
   `node_modules/.bin` shims and anything resolving into the bundled package. The
   store's on-disk format tracks the newest CLI that writes it, and an older CLI
   can't read a newer store — so deferring to the user's own beamd avoids a silent
-  misread. `FLOW_BEAMD_BIN` still overrides everything.
+  misread. `RI_BEAMD_BIN` still overrides everything.
 - `beamdBinInfo()` reports the resolved binary + version + an `outdated` flag, and
   the settings/test responses now carry `beamd.bin` and a `beamd.error` reason.
   A version-skew account (old binary, newer store) surfaces as a legible
@@ -202,7 +202,7 @@ machine is already logged in. The only correctness fixes folded in now:
 - (Recommended) when the dashboard mints a **session** token, surface a hint that
   a durable workspace key is preferred for unattended use.
 
-## What Flow builds vs what beamd/hosted must provide
+## What Ri builds vs what beamd/hosted must provide
 
 **beamd (CLI + hosted edge) already provides** what's needed for device-code —
 the *interactive* `beamd login` (no `--token`) prints a verification URL + code
@@ -215,10 +215,10 @@ approval page (`staging.beamd.ai/device`). Remaining beamd-side **nice-to-haves*
       one-click `verification_uri_complete`.
 - [ ] Approved device-code mints a **durable** workspace credential, not a
       `kind: session` token (so unattended hosts don't silently expire).
-- [ ] (Edge discovery) a hosted edge default / discoverable `baseDomain` so Flow
+- [ ] (Edge discovery) a hosted edge default / discoverable `baseDomain` so Ri
       needn't ask for a server.
 
-**Flow builds** (no rework of the credential model) — **built and wired**;
+**Ri builds** (no rework of the credential model) — **built and wired**;
 device-code runs today by driving the interactive `beamd login`:
 
 - [x] `POST /api/preview/settings/connect-device` — spawns `beamdLoginDevice`,
@@ -254,18 +254,18 @@ device-code runs today by driving the interactive `beamd login`:
 > exercised headlessly. The API-key path remains the fallback for OSS/static
 > edges (surfaced as `unsupported`). beamd's headless `--device --json` stays a
 > future robustness upgrade, not a blocker. (0.0.5 also landed the project-config
-> rename `.beamd`→`beamd.yaml` + a `beamd link` command — transparent to Flow.)
+> rename `.beamd`→`beamd.yaml` + a `beamd link` command — transparent to Ri.)
 
 ## Acceptance criteria
 
 - A machine with **no** prior beamd login connects hosted remote preview via a
-  single browser approval initiated inside Flow, ending on a working QR — with no
-  token copy-paste and nothing stored by Flow.
-- The resulting `~/.beamd/` credential is durable: a Flow restart and an
+  single browser approval initiated inside Ri, ending on a working QR — with no
+  token copy-paste and nothing stored by Ri.
+- The resulting `~/.beamd/` credential is durable: a Ri restart and an
   agent-initiated `beamd open` both succeed days later with no re-auth.
 - A terminal user already logged in is never prompted to connect again.
 - If the resolved beamd is too old for device-code (or for the account format),
-  Flow says so specifically and points at the fix — never a silent failure.
+  Ri says so specifically and points at the fix — never a silent failure.
 - Self-hosted/OSS continues to work unchanged via the token-paste fallback.
 
 ## Open questions
@@ -274,5 +274,5 @@ device-code runs today by driving the interactive `beamd login`:
   be fixed before edge discovery can be hidden from the user.
 - Durable-key **scopes**: what role/permissions should the device-code-minted key
   carry (owner vs preview-only)? Least-privilege for an unattended preview client.
-- Should Flow **proactively warn** when an existing account is `kind: session`
+- Should Ri **proactively warn** when an existing account is `kind: session`
   (nudge re-connect for a durable key), or only act on actual expiry?

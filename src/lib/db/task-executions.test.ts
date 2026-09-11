@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { coordinateLifecycleChange } from '@/lib/sessions/workstream';
 
-const TEST_DB = path.join(os.tmpdir(), `flow-task-exec-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-task-exec-test-${process.pid}.db`);
 
 function cleanup() {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -29,8 +29,8 @@ function detailsOf(e: unknown): CoordDetails | undefined {
 
 beforeEach(() => {
   cleanup();
-  process.env.FLOW_DB_PATH = TEST_DB;
-  process.env.FLOW_MIRROR_DISABLED = '1';
+  process.env.RI_DB_PATH = TEST_DB;
+  process.env.RI_MIRROR_DISABLED = '1';
 });
 afterAll(cleanup);
 
@@ -39,7 +39,7 @@ async function setup() {
   dbmod.resetDb();
   dbmod.getDb();
   const q = await import('@/lib/db/queries');
-  const ws = q.createWorkspace({ name: 'Test WS', cwd: '/tmp/flow-test-ws', isGit: false });
+  const ws = q.createWorkspace({ name: 'Test WS', cwd: '/tmp/ri-test-ws', isGit: false });
   return { q, wsId: ws.id };
 }
 

@@ -434,7 +434,7 @@ export function useLaunchSources({
       });
     }
 
-    // Provider sessions that ran in THIS checkout and aren't in Flow yet.
+    // Provider sessions that ran in THIS checkout and aren't in Ri yet.
     // Scoped by cwd because "resume the Claude session I just ran in this
     // repo" is the case worth surfacing here; the cross-machine bulk
     // migration stays in Settings → Imports where it belongs.
@@ -484,7 +484,7 @@ export function useLaunchSources({
       groups.push({
         id: 'external',
         kind: 'external',
-        label: 'Not in Flow yet',
+        label: 'Not in Ri yet',
         isLoading: discovery.isLoading,
         isFetching: discovery.isFetching,
         error: errorMessage(discovery.error),

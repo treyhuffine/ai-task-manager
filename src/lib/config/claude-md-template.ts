@@ -4,7 +4,7 @@
  * Written by `ensureAppRoot()` when the file is missing — orientation for a
  * walk-up agent session opened in the data root before any orchestrator
  * chat exists. The content sits inside a managed region (agentex's
- * `upsertManagedBlock`, tag `flow`) so the orchestrator harness surface can
+ * `upsertManagedBlock`, tag `ri`) so the orchestrator harness surface can
  * later swap the managed block per mode (see
  * `src/lib/orchestrator/harness-surface.ts`, which calls
  * `installInstructions` with the same tag) while anything the user adds
@@ -20,11 +20,11 @@ import { AGENT_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
 /**
  * Managed-region marker tag. Shared between the first-init write here and
  * the per-session `installInstructions` calls in harness-surface, so both
- * target the same `<!-- flow:managed:* -->` region. Also matches the
+ * target the same `<!-- ri:managed:* -->` region. Also matches the
  * pre-0.0.21 hand-rolled markers, so existing installs migrate cleanly on
  * the next write (agentex's marker regex absorbs the old comment text).
  */
-export const FLOW_MANAGED_TAG = APP_SHORT_ID;
+export const RI_MANAGED_TAG = APP_SHORT_ID;
 
 /** Base orientation brief — the managed content written on first init. */
 export function renderBaseBrief(): string {
@@ -60,7 +60,7 @@ source repo. That's a different role with different conventions.`;
 }
 
 /**
- * First-init CLAUDE.md content: the base brief inside the `flow` managed
+ * First-init CLAUDE.md content: the base brief inside the `ri` managed
  * region. This is the create-from-nothing case, so it's a trivial local
  * wrap — we deliberately do NOT import agentex's `upsertManagedBlock` here.
  * `ensureAppRoot` (paths.ts) pulls this module into the CLI's *static*
@@ -76,5 +76,5 @@ source repo. That's a different role with different conventions.`;
  */
 export function renderAppRootClaudeMd(): string {
   const body = renderBaseBrief().trim();
-  return `<!-- ${FLOW_MANAGED_TAG}:managed:start -->\n${body}\n<!-- ${FLOW_MANAGED_TAG}:managed:end -->\n`;
+  return `<!-- ${RI_MANAGED_TAG}:managed:start -->\n${body}\n<!-- ${RI_MANAGED_TAG}:managed:end -->\n`;
 }

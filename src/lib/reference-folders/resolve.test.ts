@@ -23,7 +23,7 @@ describe('reference folder resolution', () => {
   const saveEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-refresolve-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-refresolve-'));
     for (const k of [appRootEnv, dbPathEnv, mirrorDisabledEnv]) saveEnv[k] = process.env[k];
     process.env[appRootEnv] = tmpDir;
     process.env[dbPathEnv] = path.join(tmpDir, 'data.db');

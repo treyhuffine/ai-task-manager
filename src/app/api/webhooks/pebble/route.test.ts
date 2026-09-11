@@ -506,7 +506,7 @@ describe('POST /api/webhooks/pebble', () => {
     const update = mocks.updateStream.mock.calls[0][1];
     expect(JSON.parse(update.externalPayload)).toMatchObject({
       transcription: null,
-      transcriptionSource: 'flow',
+      transcriptionSource: 'ri',
     });
     expect(mocks.onStreamCaptured).toHaveBeenCalledWith('stream-1');
   });

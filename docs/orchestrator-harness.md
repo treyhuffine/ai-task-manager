@@ -23,18 +23,18 @@ clobbering what works.
 2. Sends go through the normal sessions API (`POST /api/sessions/:id/messages`)
    into `executor.dispatch` — the same adapter executions use.
 3. `resolveCwd` resolves sessions without a workspace to the **app data root**
-   (`~/flow`, `~/flow-dev` in dev). This is also what un-broke scheduled
+   (`~/ri`, `~/ri-dev` in dev). This is also what un-broke scheduled
    `targetKind='orchestrator'` fires, which previously threw
    `Session has no resolvable cwd`.
 4. Before spawn, `ensureAgentSession` installs the **surface**
    (`src/lib/orchestrator/harness-surface.ts`):
    - `CLAUDE.md` + `AGENTS.md` at the data root — the role brief (domain
      model, entity-marker syntax, conventions, mode-specific tool guidance).
-     Content sits inside `<!-- flow:managed -->` markers; user edits outside
+     Content sits inside `<!-- ri:managed -->` markers; user edits outside
      the markers survive regeneration.
    - The skills-mode CLI command **bakes the data root inline**
-     (`FLOW_ROOT='…' pnpm --silent --dir <repo> cli:dev` in dev,
-     `FLOW_ROOT='…' flow` in prod). The harness's Bash tool starts a fresh
+     (`RI_ROOT='…' pnpm --silent --dir <repo> cli:dev` in dev,
+     `RI_ROOT='…' ri` in prod). The harness's Bash tool starts a fresh
      shell from the user's profile — server env does NOT reach CLI
      subprocesses, and without the inline root a skills-mode write lands in
      the default (prod) brain. Caught live by the level-4 smoke.

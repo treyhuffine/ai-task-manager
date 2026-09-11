@@ -23,7 +23,7 @@
  * Usage:
  *   pnpm unarchive:imports --dry-run              # preview (prod home ~/<app>)
  *   pnpm unarchive:imports                        # apply
- *   FLOW_ROOT=~/flow-dev pnpm unarchive:imports   # against the dev home
+ *   RI_ROOT=~/ri-dev pnpm unarchive:imports       # against the dev home
  */
 
 import pc from 'picocolors';

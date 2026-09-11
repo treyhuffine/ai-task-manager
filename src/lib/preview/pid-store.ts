@@ -1,7 +1,7 @@
 /**
  * Crash-safe PID tracking for command-mode preview processes.
  *
- * Why: the supervisor's process map lives in memory. If Flow crashes,
+ * Why: the supervisor's process map lives in memory. If Ri crashes,
  * restarts, or `tsx` reloads on save, that map is gone — but the dev
  * server processes the supervisor spawned are still running, holding
  * their ports, leaking RAM. On next boot we'd happily spawn another set.
@@ -13,7 +13,7 @@
  *      id (one supervised process per worktree/service). Persisted before
  *      the process is even running, so we never have a kid we don't know about.
  *   2. **At clean exit / stop**, delete the file.
- *   3. **On Flow boot**, scan the directory for stale entries:
+ *   3. **On Ri boot**, scan the directory for stale entries:
  *      - If the pid is dead, just unlink the file.
  *      - If the pid is alive AND its command line matches the stored
  *        command, kill the process group (SIGTERM + grace + SIGKILL).

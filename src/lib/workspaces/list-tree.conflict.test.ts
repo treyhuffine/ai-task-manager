@@ -45,7 +45,7 @@ describe('listTree conflict detection', () => {
   let baseSha: string;
 
   beforeAll(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'flow-listtree-conflict-'));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ri-listtree-conflict-'));
     git(dir, 'init', '-b', 'main');
     await fs.writeFile(path.join(dir, 'shared.txt'), 'line1\nbase\nline3\n');
     await fs.writeFile(path.join(dir, 'other.txt'), 'unchanged\n');
@@ -109,7 +109,7 @@ describe('listTree conflict detection is git-index driven (matches VS Code)', ()
     // that merely carries conflict markers (no in-progress merge) shows as a
     // normal change, exactly like VS Code's "Merge Changes" group. The
     // resolver still parses these markers if the user opens the file.
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'flow-listtree-markers-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ri-listtree-markers-'));
     try {
       git(dir, 'init', '-b', 'main');
       await fs.writeFile(path.join(dir, 'a.txt'), 'hello\n');

@@ -3,7 +3,7 @@
  * network. Opt-in and gated on a browser being installed, so the default
  * `pnpm test` stays fast and deterministic.
  *
- *   FLOW_BROWSER_E2E=1 pnpm test src/lib/browser/browser.integration.test.ts
+ *   RI_BROWSER_E2E=1 pnpm test src/lib/browser/browser.integration.test.ts
  *   (or `pnpm test:browser`)
  */
 
@@ -21,7 +21,7 @@ import { importCookies } from './cookie-import';
 import { saveAttachment, attachmentPath } from '@/lib/attachments/save';
 import { writeAuthConfig } from '@/lib/auth/config-file';
 
-const RUN = process.env.FLOW_BROWSER_E2E === '1' && detectBrowsers().length > 0;
+const RUN = process.env.RI_BROWSER_E2E === '1' && detectBrowsers().length > 0;
 const T = 30_000;
 
 function ref(snapshot: string, needle: string): string {
@@ -35,8 +35,8 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
   let root: string;
 
   beforeAll(async () => {
-    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'flow-browser-e2e-')));
-    process.env.FLOW_ROOT = root;
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-browser-e2e-')));
+    process.env.RI_ROOT = root;
     const session = await getSession({ headless: true });
     await (await getActivePage(session)).goto('about:blank');
   }, 45_000);
@@ -190,7 +190,7 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
   );
 
   it(
-    'download is captured as a Flow attachment',
+    'download is captured as a Ri attachment',
     async () => {
       const { session, page } = await blankPage();
       await page.setContent('<a aria-label="DL" download="r.txt" href="data:text/plain,Body">d</a>');
@@ -203,7 +203,7 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
   );
 
   it(
-    'upload sets a file input from a Flow attachment',
+    'upload sets a file input from a Ri attachment',
     async () => {
       const { session, page } = await blankPage();
       const att = await saveAttachment({ data: Buffer.from('hi'), originalName: 'u.txt' });
@@ -296,7 +296,7 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
   it.skipIf(process.platform !== 'darwin')(
     'cookie import errors cleanly for a missing profile (no Keychain)',
     async () => {
-      await expect(importCookies({ domain: 'example.com', chromeProfile: '__flow_nope__' })).rejects.toMatchObject({
+      await expect(importCookies({ domain: 'example.com', chromeProfile: '__ri_nope__' })).rejects.toMatchObject({
         code: 'not_found',
       });
     },

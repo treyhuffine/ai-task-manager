@@ -19,10 +19,10 @@ Turn on **Reconnect automatically on startup** to have the app re-open that tunn
 
 ### Tunnel names and collisions
 
-A Beamd tunnel is reached at `https://<name>.<beamd domain>`, and the name is unique per edge. The default name comes from the app id (`flow`, or `flow-dev` in development), which is identical on every install. So the second machine you run the app on gets:
+A Beamd tunnel is reached at `https://<name>.<beamd domain>`, and the name is unique per edge. The default name comes from the app id (`ri`, or `ri-dev` in development), which is identical on every install. So the second machine you run the app on gets:
 
 ```
-open failed: 502 Bad Gateway: name_taken: flow.beamd.run is taken
+open failed: 502 Bad Gateway: name_taken: ri.beamd.run is taken
 ```
 
 That is not a bug, it means your other machine already holds the name. Give each machine its own under **Remote base URL > Advanced: Beamd tunnel name**. Names are single DNS labels: lowercase letters, numbers and hyphens, up to 63 characters, no dots.
@@ -32,7 +32,7 @@ Renaming is safe to do while a tunnel is live. The new name is opened first, the
 For headless installs where there is no UI to click, set the name at launch instead:
 
 ```bash
-FLOW_TUNNEL_NAME=flow-vps flow start
+RI_TUNNEL_NAME=ri-vps ri start
 ```
 
 The env var wins over the saved setting and makes the settings field read-only, so the running config is never a lie.
@@ -56,7 +56,7 @@ ngrok http --url=your-name.ngrok-free.app 4224
 Then point pairing at it:
 
 ```bash
-flow pair --set-url https://your-name.ngrok-free.app
+ri pair --set-url https://your-name.ngrok-free.app
 ```
 
 Pros: real cert, permanent URL, works over any network, zero DNS config.
@@ -64,7 +64,7 @@ Cons: free tier has a warning interstitial on first visit for unverified visitor
 
 ### 2. Cloudflare Tunnel — the right default if you'll buy a domain
 
-Completely free forever: unlimited bandwidth, unlimited tunnels, real cert auto-issued, no warning page, no rate limits, permanent URL under a domain you control (`flow.yourdomain.com`).
+Completely free forever: unlimited bandwidth, unlimited tunnels, real cert auto-issued, no warning page, no rate limits, permanent URL under a domain you control (`ri.yourdomain.com`).
 
 The only cost is a domain (~$10/yr at [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/), sold at-cost with no markup). That same domain works for any other project you ever do, so it's not really a tunnel cost — it's a one-time "I own a domain now" cost.
 
@@ -73,15 +73,15 @@ Prereq: domain on Cloudflare DNS (buy at Cloudflare Registrar for ~$10/yr, or mo
 ```bash
 brew install cloudflared
 cloudflared tunnel login                        # browser auth
-cloudflared tunnel create flow                  # creates tunnel
-cloudflared tunnel route dns flow flow.yourdomain.com
-cloudflared tunnel run --url http://localhost:4224 flow
+cloudflared tunnel create ri                    # creates tunnel
+cloudflared tunnel route dns ri ri.yourdomain.com
+cloudflared tunnel run --url http://localhost:4224 ri
 ```
 
 Then:
 
 ```bash
-flow pair --set-url https://flow.yourdomain.com
+ri pair --set-url https://ri.yourdomain.com
 ```
 
 Pros: the most "real" setup. Works from anywhere. No middleman branding.
@@ -98,7 +98,7 @@ If you want the app reachable only from your own devices, not the public interne
 brew install --cask tailscale-app
 # Sign in, then:
 tailscale serve --bg --https=443 http://localhost:4224
-flow pair --set-url https://<machine>.<tailnet>.ts.net
+ri pair --set-url https://<machine>.<tailnet>.ts.net
 ```
 
 One-time prereq: enable HTTPS in the admin console at https://login.tailscale.com/admin/dns → "Enable HTTPS…".
@@ -132,7 +132,7 @@ Self-hosted option (free after VPS cost, most reliable long-term):
 If you just want to browse the app from another device on the same Wi-Fi and you don't need voice:
 
 ```bash
-flow pair --lan     # prints the http://192.168.x.x URL + QR
+ri pair --lan     # prints the http://192.168.x.x URL + QR
 ```
 
 Pros: zero setup.
@@ -154,13 +154,13 @@ Cons: **no voice input on mobile** (secure-context requirement). HTTP only. Only
 Each URL is a distinct origin in the browser — the auth token lives in `localStorage` against that origin. When you switch (e.g. LAN HTTP → HTTPS via Tailscale), existing paired devices need to pair again on the new origin:
 
 ```bash
-flow pair
+ri pair
 ```
 
 Old URLs keep working if you leave them configured. The new QR/URL just covers the new origin.
 
 ## Notes
 
-- The pairing URL persists across reboots via `flow pair --set-url`. Clear with `--clear-url`.
+- The pairing URL persists across reboots via `ri pair --set-url`. Clear with `--clear-url`.
 - The CLI prints multiple reachable addresses (Remote / LAN / localhost) whenever possible, so paired devices always have a working fallback.
 - Voice transcription itself runs server-side (Parakeet via Docker), so the phone only needs to record and upload — HTTPS is purely for the `getUserMedia` gate.

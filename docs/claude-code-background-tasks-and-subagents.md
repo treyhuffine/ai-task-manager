@@ -1,9 +1,9 @@
-# Claude Code Background Tasks & Subagents — How They Work, How They Surface, and What Flow Does With Them
+# Claude Code Background Tasks & Subagents — How They Work, How They Surface, and What Ri Does With Them
 
 > **Purpose.** A standalone reference for how Claude Code represents background tasks and
 > subagents across three surfaces — the persisted JSONL transcript, the headless
 > `--output-format stream-json` stdio stream, and the interactive terminal TUI — plus how
-> the open-source CLI constructs/injects them, and exactly where Flow captures vs. drops
+> the open-source CLI constructs/injects them, and exactly where Ri captures vs. drops
 > them today. Written so we never have to re-derive this.
 
 ## Provenance (where this was found, for re-review)
@@ -45,10 +45,10 @@ when the session goes idle. The interactive CLI layers visibility on top (status
 modal, 1s output polling, OS notifications); the headless SDK path exposes the same lifecycle as
 `task_started/progress/updated/notification` events.
 
-**Flow today:** captures the events into `chat_events.raw` but renders none of them (the render
+**Ri today:** captures the events into `chat_events.raw` but renders none of them (the render
 allowlist is an empty set), recognizes the `Task`/`Agent` tool enough to show a "subagent" pill +
 count, and does **not** populate parent linkage on the live path. Surfacing background agents in
-Flow is ~90% a presentation change, not a capture change. See §7–§8.
+Ri is ~90% a presentation change, not a capture change. See §7–§8.
 
 ---
 
@@ -369,14 +369,14 @@ dialogs. Treat as directionally-right, exact component unconfirmed.
 | **Persisted JSONL** | a synthetic `type:"user"` entry, content `<task-notification>…</task-notification>` (§1) |
 | **Headless `--stream-json`** | `system/task_started\|progress\|updated\|notification` events + the synthetic user turn (§2) |
 | **Interactive CLI** | queued `task-notification` → idle-gated auto-resume; live `/tasks` modal + "N in background" status + OS bell (§5) |
-| **Flow today** | events land in `chat_events.raw`; **nothing renders them**; no status surface, no idle-resume UI (§7) |
+| **Ri today** | events land in `chat_events.raw`; **nothing renders them**; no status surface, no idle-resume UI (§7) |
 
 ---
 
-## 7. How **Flow** handles this today
+## 7. How **Ri** handles this today
 
-Flow does **not** spawn `claude` directly. It uses the **`@agentex/agent` SDK** (v0.0.21), which
-wraps the CLI subprocess, parses the JSONL internally, and hands Flow structured `StreamEvent`s.
+Ri does **not** spawn `claude` directly. It uses the **`@agentex/agent` SDK** (v0.0.21), which
+wraps the CLI subprocess, parses the JSONL internally, and hands Ri structured `StreamEvent`s.
 
 ### 7.1 Invocation
 
@@ -386,14 +386,14 @@ wraps the CLI subprocess, parses the JSONL internally, and hands Flow structured
   surface modes — `harness_mcp` (`--mcp-config` + `--strict-mcp-config`, blocks Write/Edit) and
   `harness_skills` (`--add-dir` skill dirs); `extraArgs` (e.g. `--append-system-prompt`).
   MCP config at `src/lib/orchestrator/harness-surface.ts:364-387`.
-- Flow does **not** pass `--output-format stream-json` itself — agentex owns the wire format.
+- Ri does **not** pass `--output-format stream-json` itself — agentex owns the wire format.
 
 ### 7.2 Event parsing → `chat_events`
 
 `src/lib/executor/adapter.ts:984-1217` (`parseStreamEvent`, `mapUnknownEvent`). agentex's
 `StreamEvent` union → `chat_events.source`:
 
-| agentex `StreamEvent` | Flow `source` | Notes |
+| agentex `StreamEvent` | Ri `source` | Notes |
 |---|---|---|
 | `system` | `system` | content = subtype; `task_started`/`task_notification`/`init`/… land in `raw` |
 | `assistant` | `agent` | rendered |
@@ -411,7 +411,7 @@ Realtime fan-out: `src/app/api/sessions/[id]/stream/route.ts:75-84` (SSE kinds: 
 Two ingestion paths exist (`docs/chat-sessions.md`): **live agentex StreamEvents** (app-spawned)
 and **on-disk reconciliation** (`parseFileEntry`, for imported/drift). They dedup at the DB level.
 
-### 7.3 What Flow does with subagents today
+### 7.3 What Ri does with subagents today
 
 - ✅ Recognizes the tool: `src/lib/executions/tool-display.ts:219-220`
   (`case 'Task' → {glyph:'task', verb:'Subagent', kind:'subagent'}`); `isSubagentTool` at 255-258;
@@ -430,7 +430,7 @@ and **on-disk reconciliation** (`parseFileEntry`, for imported/drift). They dedu
 
 ---
 
-## 8. Recommended changes for Flow (grounded in the CLI blueprint)
+## 8. Recommended changes for Ri (grounded in the CLI blueprint)
 
 Scoped to the high-leverage, low-risk slice (the data is already captured — this is mostly presentation):
 
@@ -446,7 +446,7 @@ Scoped to the high-leverage, low-risk slice (the data is already captured — th
    `subagents/agent-<id>.jsonl` (or polls `getTaskOutputDelta`-style) for the full child transcript.
 4. **Status surface modeled on the CLI:** a persistent "N agents running ▸ <desc> (tokens, last
    tool)" pill on the execution — the analog of `BriefIdleStatus` + `/tasks`.
-5. **Idle-resume parity (only if Flow lets background agents inject):** mirror the CLI's
+5. **Idle-resume parity (only if Ri lets background agents inject):** mirror the CLI's
    `useQueueProcessor` idle gate (`!isQueryActive && queue.length > 0`) with `priority:'later'`,
    so a background completion auto-continues a session without preempting user input.
 
@@ -483,7 +483,7 @@ exact thing missing from the transcript that started this investigation.
 | Ctrl+B mid-query handling | `src/screens/REPL.tsx` | 2525-2583 |
 | Terminal/OS notifications | `src/ink/useTerminalNotification.ts` · `src/services/notifier.ts` | 25-126 · 18-104 |
 
-**Flow** (`/Users/treyhuffine/dynamism/ai-task-manager`):
+**Ri** (`/Users/treyhuffine/dynamism/ai-task-manager`):
 
 | Concern | File | Lines |
 |---|---|---|

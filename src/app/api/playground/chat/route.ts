@@ -13,7 +13,7 @@
 import { streamText, stepCountIs, convertToModelMessages, type UIMessage } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
-import { createFlowMcpClient } from '@/lib/mcp/client';
+import { createRiMcpClient } from '@/lib/mcp/client';
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { getRunningPort } from '@/lib/auth/port';
 export const maxDuration = 120;
@@ -44,9 +44,9 @@ export async function POST(req: Request) {
   const port = getRunningPort();
   const baseUrl = `http://localhost:${port}`;
 
-  let mcp: Awaited<ReturnType<typeof createFlowMcpClient>>;
+  let mcp: Awaited<ReturnType<typeof createRiMcpClient>>;
   try {
-    mcp = await createFlowMcpClient(baseUrl, token);
+    mcp = await createRiMcpClient(baseUrl, token);
   } catch (err) {
     console.error('[playground] failed to connect to MCP server', err);
     return Response.json({ error: 'Failed to connect to MCP server.' }, { status: 502 });

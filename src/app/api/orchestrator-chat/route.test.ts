@@ -17,7 +17,7 @@ import { GET } from './route';
  * doesn't flake the first test body.
  */
 
-const TEST_DB = path.join(os.tmpdir(), `flow-orch-seed-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-orch-seed-test-${process.pid}.db`);
 vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
 
 function wipe() {
@@ -29,7 +29,7 @@ function wipe() {
 
 beforeEach(() => {
   wipe();
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
   resetDb();
 });
 

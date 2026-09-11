@@ -4,7 +4,7 @@ interface RuntimeRedactionState {
   redactor: ReturnType<typeof createRedactor>;
 }
 
-const STATE_KEY = Symbol.for('@flow/agent-runtime-redactor');
+const STATE_KEY = Symbol.for('@ri/agent-runtime-redactor');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: RuntimeRedactionState };
 if (!globalRef[STATE_KEY]) globalRef[STATE_KEY] = { redactor: createRedactor() };
 

@@ -2,7 +2,7 @@
  * Laptop-local CLI preferences. Separate from the per-origin browser
  * localStorage prefs because:
  *
- *  - The browser preference is per-origin (one setting per Flow
+ *  - The browser preference is per-origin (one setting per Ri
  *    instance the user connects to).
  *  - The CLI preference is per-machine (which editor on THIS laptop).
  *

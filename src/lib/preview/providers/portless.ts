@@ -1,6 +1,6 @@
 /**
  * PortlessProvider — wraps the read-only Portless adapter. Portless owns the
- * process + TLS; Flow just reads `~/.portless/routes.json`. So this provider
+ * process + TLS; Ri just reads `~/.portless/routes.json`. So this provider
  * doesn't manage the dev server (`managesLocalServer: false`): the user runs
  * `portless <name> <dev command>` in the worktree (matching the worktree's
  * basename, which is our preview name), and we surface the `<name>.localhost`

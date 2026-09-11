@@ -29,7 +29,7 @@ export interface ClientLocation {
   hostname: string;
 }
 
-export const HOST_ORIGINS_KEY = 'flow.client.host-origins';
+export const HOST_ORIGINS_KEY = 'ri.client.host-origins';
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -78,11 +78,11 @@ export function useClientLocation(): ClientLocation {
     function onLocal() {
       setLocation(readLocation());
     }
-    window.addEventListener('flow:host-origins-changed', onLocal);
+    window.addEventListener('ri:host-origins-changed', onLocal);
 
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('flow:host-origins-changed', onLocal);
+      window.removeEventListener('ri:host-origins-changed', onLocal);
     };
   }, []);
 
@@ -101,7 +101,7 @@ export function setHostnameClaim(hostname: string, claimed: boolean): void {
     : current.filter((h) => h !== hostname);
   try {
     window.localStorage.setItem(HOST_ORIGINS_KEY, JSON.stringify(next));
-    window.dispatchEvent(new Event('flow:host-origins-changed'));
+    window.dispatchEvent(new Event('ri:host-origins-changed'));
   } catch {
     // ignore
   }

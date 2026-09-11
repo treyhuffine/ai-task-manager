@@ -43,7 +43,7 @@ program
     `front the dev server with portless.sh at <name>.localhost (default: ${APP_SHORT_ID})`,
   )
   .option('--http2', 'front the app with the built-in HTTPS/HTTP2 gateway')
-  .option('--no-http2', 'use the direct HTTP startup path (overrides FLOW_HTTP2)')
+  .option('--no-http2', 'use the direct HTTP startup path (overrides RI_HTTP2)')
   .option('--tls-cert <path>', 'use an existing certificate instead of generating one (requires --tls-key)')
   .option('--tls-key <path>', 'private key for --tls-cert')
   .option('--hot', 'enable the client-side hot-path tracker (sets NEXT_PUBLIC_HOT=1)')

@@ -3,9 +3,9 @@
  *
  * Used by:
  *   • CLI `probeHealth` — confirms our app is the thing listening on a port
- *     so `flow pair` / `flow start` don't print URLs for a foreign process.
+ *     so `ri pair` / `ri start` don't print URLs for a foreign process.
  *   • Web UI "Test connection" — called cross-origin on the user's remote
- *     base URL to confirm it routes back to a flow server.
+ *     base URL to confirm it routes back to a Ri server.
  *
  * Response body is intentionally minimal ({ ok, app, port }) — nothing an
  * unauthenticated caller couldn't infer from a 401 or port scan, so it's

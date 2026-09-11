@@ -1,24 +1,24 @@
-# beamd device-code login — the contract Flow needs
+# beamd device-code login — the contract Ri needs
 
 Status: **proposal for beamd** (not yet implemented there). This is what beamd
-must expose for Flow to turn remote-preview onboarding from "paste an API key"
+must expose for Ri to turn remote-preview onboarding from "paste an API key"
 into "click Connect → approve in your browser → done." Written from first
 principles against what the `beamd` CLI does today — treat beamd's own docs as
 drafts, not ground truth.
 
 ## Why
 
-Today Flow connects a machine to beamd by running `beamd login --server S
---token T`. That stores a credential in `~/.beamd/` and Flow verifies it with
+Today Ri connects a machine to beamd by running `beamd login --server S
+--token T`. That stores a credential in `~/.beamd/` and Ri verifies it with
 `beamd check`. It works, but the human has to *already have a key* and paste it.
 There's no on-ramp for someone who has never used beamd.
 
 beamd's CLI already has the right primitive — `beamd login` **without** `--token`
 is meant to do a device-code dance (browser approves, no copy-paste). Two things
-block Flow from driving it:
+block Ri from driving it:
 
 1. **It's interactive.** `beamd login` prints a verification URL + user code to a
-   TTY and blocks. There's no machine-readable mode, so a GUI like Flow can't
+   TTY and blocks. There's no machine-readable mode, so a GUI like Ri can't
    show the code, open the browser, and detect completion without scraping
    stdout (fragile).
 2. **The edge must advertise it.** If the server doesn't advertise device-code in
@@ -27,10 +27,10 @@ block Flow from driving it:
 
 This contract fixes (1). (2) is an edge/hosted-side decision — see the bottom.
 
-## What Flow needs from the CLI
+## What Ri needs from the CLI
 
 A **headless, scriptable device-code login**. Same effect as `beamd login`
-today (writes `~/.beamd/`, no Flow-stored credential), but drivable by a program.
+today (writes `~/.beamd/`, no Ri-stored credential), but drivable by a program.
 Preferred shape: one long-running command that streams two JSON events.
 
 ```
@@ -39,7 +39,7 @@ beamd login --server <host> --device --json
 
 - Resolves the edge's auth discovery. If the edge does **not** offer device-code,
   exit non-zero with `{"error":"device_code_unsupported","detail":"...","hint":"pass --token"}`
-  so Flow can fall back to the token form automatically.
+  so Ri can fall back to the token form automatically.
 - Otherwise immediately writes **one JSON object per line** (NDJSON) to stdout:
 
   1. The pending challenge, as soon as it's issued:
@@ -67,20 +67,20 @@ beamd login --server <host> --device --json
 - `--insecure` keeps its current meaning (skip TLS verify for a self-signed
   self-hosted edge).
 
-### How Flow drives it
+### How Ri drives it
 
 1. Spawn the command. Read the first NDJSON line.
 2. If it's `device_code_unsupported`, silently fall back to the token paste form.
 3. If it's `pending`, render the flow: show `user_code`, a "Open beamd to approve"
    button → `verification_uri_complete`, and a "waiting for approval…" spinner.
-   (On the same machine Flow can even open the browser itself.)
+   (On the same machine Ri can even open the browser itself.)
 4. Block on the process's terminal event. `connected` → flip the UI to connected
    and re-resolve the preview URL (straight to the QR). `error` → show the reason
    with a retry.
 
-No polling endpoint to call from Flow, no token to store, no stdout scraping —
-beamd owns the poll loop, Flow just consumes two events. This composes cleanly
-with everything Flow already has: the connected state is read the same way
+No polling endpoint to call from Ri, no token to store, no stdout scraping —
+beamd owns the poll loop, Ri just consumes two events. This composes cleanly
+with everything Ri already has: the connected state is read the same way
 (`beamd status` / `beamd check`), and the agent on the same machine inherits the
 login for free.
 
@@ -93,7 +93,7 @@ beamd login --server <host> --device --json --begin   # prints the `pending` obj
 beamd login --device --json --wait                     # blocks, prints the terminal event, exits 0/non-zero
 ```
 
-Slightly more state to manage on Flow's side, but equivalent. The single
+Slightly more state to manage on Ri's side, but equivalent. The single
 streaming command is preferred.
 
 ## What the edge / hosted side must do (out of scope for the CLI)
@@ -106,15 +106,15 @@ For device-code to be *offered* at all, the edge must:
   credential that lands in `~/.beamd/`.
 - Mint that credential under the user's account/workspace (the hosted dashboard).
 
-Until a reachable edge offers this, Flow keeps using the token paste path (which
+Until a reachable edge offers this, Ri keeps using the token paste path (which
 is already good: verified-on-connect, guided, with a one-tap "Use Beamd" when the
 machine is already logged in). The moment an edge advertises device-code and the
-CLI ships `--device --json`, Flow's connect step becomes one-click with **no Flow
+CLI ships `--device --json`, Ri's connect step becomes one-click with **no Ri
 rework** — it's the same "connect → resolve → QR" flow, just a nicer first step.
 
 ## Non-goals
 
-- Flow will never store or proxy the credential. `~/.beamd/` stays the single
-  source of truth, shared by human + agent + Flow.
-- No new Flow-owned config file. The active provider lives in `preview.json`;
+- Ri will never store or proxy the credential. `~/.beamd/` stays the single
+  source of truth, shared by human + agent + Ri.
+- No new Ri-owned config file. The active provider lives in `preview.json`;
   the credential lives only in beamd's store.

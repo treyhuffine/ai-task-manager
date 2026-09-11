@@ -14,7 +14,7 @@ vi.mock('@/lib/executor/adapter', () => ({
   ExecutorError: class extends Error {},
 }));
 
-const TEST_DB = path.join(os.tmpdir(), `flow-registry-oversight-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-registry-oversight-test-${process.pid}.db`);
 // Isolated app root so readAuthConfig/getLocalBaseUrl can never reach the
 // developer's real config.json (or their running server) from a test.
 let TEST_ROOT: string;
@@ -25,10 +25,10 @@ beforeEach(() => {
     const p = TEST_DB + suffix;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  process.env.FLOW_DB_PATH = TEST_DB;
-  TEST_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-oversight-root-'));
-  prevRoot = process.env.FLOW_ROOT;
-  process.env.FLOW_ROOT = TEST_ROOT;
+  process.env.RI_DB_PATH = TEST_DB;
+  TEST_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-oversight-root-'));
+  prevRoot = process.env.RI_ROOT;
+  process.env.RI_ROOT = TEST_ROOT;
 });
 
 afterAll(() => {
@@ -36,8 +36,8 @@ afterAll(() => {
     const p = TEST_DB + suffix;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  if (prevRoot === undefined) delete process.env.FLOW_ROOT;
-  else process.env.FLOW_ROOT = prevRoot;
+  if (prevRoot === undefined) delete process.env.RI_ROOT;
+  else process.env.RI_ROOT = prevRoot;
 });
 
 async function resetDb() {

@@ -23,7 +23,7 @@ import os from 'node:os';
 import { APP_SHORT_ID } from '@/constants/app';
 import { AsyncSemaphore } from '@/lib/util/async-semaphore';
 
-/** `FLOW_GIT_CONCURRENCY` (prefix tracks the app id, like the path overrides). */
+/** `RI_GIT_CONCURRENCY` (prefix tracks the app id, like the path overrides). */
 const ENV_KEY = `${APP_SHORT_ID.toUpperCase()}_GIT_CONCURRENCY`;
 
 /**

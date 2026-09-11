@@ -8,7 +8,7 @@
  *
  *   pnpm backfill:lifecycle                 # dry-run (default) against the resolved data root
  *   pnpm backfill:lifecycle -- --apply      # actually write, after a snapshot
- *   FLOW_ROOT=~/flow-dev pnpm backfill:lifecycle -- --apply
+ *   RI_ROOT=~/ri-dev pnpm backfill:lifecycle -- --apply
  *
  * Safety (single-user profile — no resumable-receipt ledger, but still safe):
  *   - Dry-run is the default. Nothing is written without --apply.
@@ -107,8 +107,8 @@ const unknowns = [...allSeen].filter(isUnknown);
 console.log(pc.bold('\nTask lifecycle backfill'));
 console.log(`  data root: ${pc.cyan(root)}`);
 console.log(`  database:  ${dbPath}`);
-if (!process.env.FLOW_ROOT && !process.env.FLOW_DB_PATH) {
-  console.log(pc.yellow('  ! No FLOW_ROOT / FLOW_DB_PATH set — this is the PRODUCTION home.'));
+if (!process.env.RI_ROOT && !process.env.RI_DB_PATH) {
+  console.log(pc.yellow('  ! No RI_ROOT / RI_DB_PATH set — this is the PRODUCTION home.'));
 }
 console.log(`  mode:      ${apply ? pc.red('APPLY (will write)') : pc.green('dry-run (default)')}`);
 

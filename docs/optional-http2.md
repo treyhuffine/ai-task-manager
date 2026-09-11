@@ -8,7 +8,7 @@ verified in this environment.
 
 ## What it does
 
-With `--http2`, Flow fronts the app with a built-in TLS listener that negotiates
+With `--http2`, Ri fronts the app with a built-in TLS listener that negotiates
 `h2` (or HTTPS/1.1 for older clients) on the public app port and relays to the
 normal Next server over HTTP/1.1 on a private loopback port. Ordinary requests and
 long-lived SSE streams then share multiplexed HTTP/2 connections instead of
@@ -17,7 +17,7 @@ route, hook, or schema changes. The default startup path is unchanged and never
 initializes any TLS or gateway code.
 
 ```
-Browser --HTTPS/h2--> Flow gateway (public port, in the launcher process)
+Browser --HTTPS/h2--> Ri gateway (public port, in the launcher process)
                           |
                           +--HTTP/1.1 loopback--> Next (private port, 127.0.0.1)
 ```
@@ -26,25 +26,25 @@ Browser --HTTPS/h2--> Flow gateway (public port, in the launcher process)
 
 ```sh
 # Enable the built-in HTTPS + HTTP/2 gateway.
-flow start --http2
+ri start --http2
 
-# Force the direct HTTP path (overrides FLOW_HTTP2).
-flow start --no-http2
+# Force the direct HTTP path (overrides RI_HTTP2).
+ri start --no-http2
 
 # Environment equivalents.
-FLOW_HTTP2=1 flow start
-FLOW_HTTP2=0 flow start
+RI_HTTP2=1 ri start
+RI_HTTP2=0 ri start
 
 # Bring your own certificate instead of the generated one.
-flow start --http2 --tls-cert /path/cert.pem --tls-key /path/key.pem
+ri start --http2 --tls-cert /path/cert.pem --tls-key /path/key.pem
 
 # Install / remove browser+OS trust for the generated local CA (explicit only).
-flow tls trust
-flow tls untrust
-flow tls status
+ri tls trust
+ri tls untrust
+ri tls status
 ```
 
-Precedence: explicit CLI flag, then `FLOW_HTTP2`, then disabled. Switching modes
+Precedence: explicit CLI flag, then `RI_HTTP2`, then disabled. Switching modes
 requires a stop/start; the launcher refuses to start a second backend against a
 live instance and reports the running mode. `--http2` and `--portless` are two
 different frontends and cannot be combined in V1.
@@ -53,10 +53,10 @@ different frontends and cannot be combined in V1.
 
 | Location | Responsibility |
 | --- | --- |
-| `src/lib/config/http2.ts` | Flag resolution (`--http2`/`FLOW_HTTP2`). |
+| `src/lib/config/http2.ts` | Flag resolution (`--http2`/`RI_HTTP2`). |
 | `src/lib/config/tls.ts` | CA/leaf generation (`@peculiar/x509`), supplied-cert loading, atomic versioned publish, renewal, lock. |
 | `src/lib/config/tls-trust/` | Native trust adapters, ownership manifest + journaling, per-target results. |
-| `src/cli/commands/tls.ts` | `flow tls trust|untrust|status` (lazy-imports the TLS modules). |
+| `src/cli/commands/tls.ts` | `ri tls trust|untrust|status` (lazy-imports the TLS modules). |
 | `src/cli/http2-gateway/` | TLS/HTTP2 listener, streaming proxy, header translation, upgrade forwarding, readiness probe, bounded pools. |
 | `src/lib/server-runtime/record.ts` | Generic discovery/ownership record under `getWorkDir()`, public-URL resolution input. |
 
@@ -68,7 +68,7 @@ process ownership), `src/cli/lib/server.ts` (loopback bind for Next),
 
 ## Decisions made on open points
 
-- **In-process gateway.** The gateway runs inside the `flow start` launcher via a
+- **In-process gateway.** The gateway runs inside the `ri start` launcher via a
   lazy dynamic `import()`, not as a separate child process. This gives the
   simplest ownership model (one child to supervise: Next) and satisfies the
   "disabled path does not initialize TLS/gateway code" requirement because the
@@ -166,7 +166,7 @@ A follow-up review found deeper trust-ownership and a few remaining edge bugs
 A further review was right on two things I had wrongly dismissed, plus more edge cases:
 
 - **The dependency isolation WAS broken (corrected).** My earlier init-marker
-  measured Flow's own `tls.ts` body (which stayed deferred), but esbuild hoists a
+  measured Ri's own `tls.ts` body (which stayed deferred), but esbuild hoists a
   bare `import 'reflect-metadata'` to eager execution — so the libraries loaded on
   the default path even though `tls.ts`'s body did not run. Fixed by moving all
   `@peculiar/x509` + `reflect-metadata` usage into `tls-x509.ts` and loading it
@@ -227,9 +227,9 @@ developer's working machine and are not exercised by `pnpm test`. The following
 matrix must be run in disposable VMs / fresh browser profiles before advertising a
 target as supported. Record the actual OS and browser versions.
 
-For each target: create a fresh CA, observe browser rejection, `flow tls trust`,
+For each target: create a fresh CA, observe browser rejection, `ri tls trust`,
 confirm a trusted browser negotiates `h2` for real app requests and SSE, then
-`flow tls untrust` and confirm rejection in a fresh browser process. An unrelated
+`ri tls untrust` and confirm rejection in a fresh browser process. An unrelated
 sentinel CA must survive install and removal.
 
 - [ ] macOS system keychain + real Safari (machine-wide store → disposable host/VM).

@@ -1,7 +1,7 @@
 /**
  * Verifies the note/task change-versioning + revert backbone end-to-end
  * against the real DB (the same path the dev server uses). Run with:
- *   FLOW_ROOT="$HOME/flow-dev" pnpm tsx scripts/verify-entity-versions.ts
+ *   RI_ROOT="$HOME/ri-dev" pnpm tsx scripts/verify-entity-versions.ts
  *
  * Leaves its test note in place (dev convention) so the result is visible
  * in the UI.

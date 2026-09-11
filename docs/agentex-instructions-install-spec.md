@@ -1,7 +1,7 @@
 # Spec: agentex `installInstructions` — cross-runtime instruction files
 
 **Status:** proposed. Written against `@agentex/agent@0.0.20`.
-**Audience:** the agentex repo's coding agent. (Flow = host app embedding agentex sessions; see `docs/orchestrator-harness.md`.)
+**Audience:** the agentex repo's coding agent. (Ri = host app embedding agentex sessions; see `docs/orchestrator-harness.md`.)
 **One-liner:** the instruction-file twin of `installSkills` — drop a brief into the right per-runtime filename(s), with a **managed-region merge** that preserves user edits.
 
 ---
@@ -15,13 +15,13 @@ agentex already centralizes "where does each runtime discover skills" (`installS
 | Claude Code | `CLAUDE.md` |
 | Codex / Gemini / Cursor / OpenCode / Pi | `AGENTS.md` |
 
-Today `resolveInstructions(path)` only **reads** a file. Every host that wants to *install* an orientation brief hand-rolls: the per-runtime filename mapping, the global-vs-workspace location logic, and — the actually-hard part — merging into an existing file without clobbering the user's own edits. Flow re-implements all three in `src/lib/config/claude-md-template.ts` + `src/lib/orchestrator/harness-surface.ts`.
+Today `resolveInstructions(path)` only **reads** a file. Every host that wants to *install* an orientation brief hand-rolls: the per-runtime filename mapping, the global-vs-workspace location logic, and — the actually-hard part — merging into an existing file without clobbering the user's own edits. Ri re-implements all three in `src/lib/config/claude-md-template.ts` + `src/lib/orchestrator/harness-surface.ts`.
 
 ## Priority order (this determines host adoption)
 
-1. **P0 — managed-region merge.** Without it the installer just overwrites, and any host with user-editable instruction files (Flow included) can't use it. This is the reuse that justifies the feature.
+1. **P0 — managed-region merge.** Without it the installer just overwrites, and any host with user-editable instruction files (Ri included) can't use it. This is the reuse that justifies the feature.
 2. **P1 — per-runtime filename mapping + location logic.** The `installSkills`-shaped ergonomics.
-3. **P2 — symlink mode.** A convenience for one-source-of-truth hosts. Opt-in, default off. **Flow will not use it** (see Non-goals) but it's harmless to offer.
+3. **P2 — symlink mode.** A convenience for one-source-of-truth hosts. Opt-in, default off. **Ri will not use it** (see Non-goals) but it's harmless to offer.
 
 ## Proposed API
 
@@ -96,7 +96,7 @@ This is the load-bearing behavior — spec it precisely, because it's the part h
 - **`skipped`:** if the merged result equals current file bytes, don't write (keeps mtimes stable; avoids sync churn).
 - File mode `0600` on create (these can carry tokens/PII in some hosts).
 
-Reference implementation to match: Flow's `upsertManagedBlock` in `src/lib/config/claude-md-template.ts` already does exactly this (markers, replace-inside, preserve-outside, prepend-if-absent). It's ~30 lines — happy to hand it over verbatim as the starting point.
+Reference implementation to match: Ri's `upsertManagedBlock` in `src/lib/config/claude-md-template.ts` already does exactly this (markers, replace-inside, preserve-outside, prepend-if-absent). It's ~30 lines — happy to hand it over verbatim as the starting point.
 
 ### Symlink semantics (P2)
 
@@ -113,8 +113,8 @@ Reference implementation to match: Flow's `upsertManagedBlock` in `src/lib/confi
 - `symlink: true` → one real file + N symlinks; a pre-existing real file at a target yields `conflict`, not overwrite.
 - `location: 'workspace'` writes under `{cwd}/`; `'global'` under `~/`.
 
-## Non-goals / Flow's intended use
+## Non-goals / Ri's intended use
 
-- **Flow will call this with `managed: true, symlink: false`** and then delete its own `upsertManagedBlock` + the dual-write in `harness-surface.ts`. We keep two real files (per-runtime user edits + `brain/` is git-tracked/synced, where symlinks break).
+- **Ri will call this with `managed: true, symlink: false`** and then delete its own `upsertManagedBlock` + the dual-write in `harness-surface.ts`. We keep two real files (per-runtime user edits + `brain/` is git-tracked/synced, where symlinks break).
 - Not a templating engine — `content` is rendered by the host. (agentex's `renderTemplate` stays separate.)
 - Not coupled to `ProviderConfig.instructionsFile` — that's the per-spawn `--append-system-prompt-file` path (system-prompt injection). This is the on-disk, walk-up-discoverable, user-editable brief. Different layer; both should exist.

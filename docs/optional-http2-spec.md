@@ -9,17 +9,17 @@ Implementation decisions updated on 2026-09-10 following implementer review. HTT
 
 ## 1. Objective
 
-Add actual browser-facing HTTP/2 to Flow as an optional, removable server feature. Keep the existing HTTP APIs and SSE streams. Do not replace SSE with WebSockets or redesign how components receive updates.
+Add actual browser-facing HTTP/2 to Ri as an optional, removable server feature. Keep the existing HTTP APIs and SSE streams. Do not replace SSE with WebSockets or redesign how components receive updates.
 
 With HTTP/2 enabled, ordinary requests and long-lived SSE streams can share multiplexed connections instead of competing for the browser's small HTTP/1.1 connection pool. This addresses connection contention. It does not make React rendering or git computation faster.
 
-Flow manages the HTTP/2 listener itself. Users do not install Portless, Caddy, or another proxy. The default remains the current HTTP/1.1 startup path.
+Ri manages the HTTP/2 listener itself. Users do not install Portless, Caddy, or another proxy. The default remains the current HTTP/1.1 startup path.
 
 ## 2. Architecture
 
 ```mermaid
 flowchart LR
-  Browser[Browser or Electron renderer] -->|HTTPS with HTTP/2| Gateway[Optional Flow HTTP/2 gateway]
+  Browser[Browser or Electron renderer] -->|HTTPS with HTTP/2| Gateway[Optional Ri HTTP/2 gateway]
   Gateway -->|HTTP/1.1 over loopback| Next[Normal Next.js server]
   Next --> App[Existing routes, SSE streams, queries, and agents]
 ```
@@ -48,22 +48,22 @@ The following commands are proposed additions, not existing functionality:
 
 ```sh
 # Enable built-in HTTPS and HTTP/2.
-flow start --http2
+ri start --http2
 
 # Disable built-in HTTP/2 and HTTPS, preserving the live-transport setting.
-flow start --no-http2
+ri start --no-http2
 
 # Development uses its normal isolated root and public port.
-flow start --dev --http2
+ri start --dev --http2
 
 # Environment equivalents for a service or launcher.
-FLOW_HTTP2=1 flow start
-FLOW_HTTP2=0 flow start
+RI_HTTP2=1 ri start
+RI_HTTP2=0 ri start
 ```
 
-Precedence: explicit CLI option, then `FLOW_HTTP2`, then disabled. Accept only documented boolean environment values. Keep the setting at runtime, without `NEXT_PUBLIC_*`, a Next rebuild, or a database migration. Existing `pnpm dev` and direct `next start` commands retain their behavior.
+Precedence: explicit CLI option, then `RI_HTTP2`, then disabled. Accept only documented boolean environment values. Keep the setting at runtime, without `NEXT_PUBLIC_*`, a Next rebuild, or a database migration. Existing `pnpm dev` and direct `next start` commands retain their behavior.
 
-The HTTP/2 setting never selects SSE versus WebSockets. Once both features exist, `flow start --http2 --realtime-transport sse` uses native SSE over HTTP/2, while `flow start --no-http2 --realtime-transport websocket` retains the realtime gateway over plain HTTP. Do not alter one setting while toggling the other.
+The HTTP/2 setting never selects SSE versus WebSockets. Once both features exist, `ri start --http2 --realtime-transport sse` uses native SSE over HTTP/2, while `ri start --no-http2 --realtime-transport websocket` retains the realtime gateway over plain HTTP. Do not alter one setting while toggling the other.
 
 Changing mode requires stopping and restarting the server in V1. The launcher must not start a second backend against the same data root when an instance is already running. It reports the existing mode and the restart requirement.
 
@@ -79,39 +79,39 @@ Browsers use HTTP/2 over HTTPS. Serving unencrypted HTTP/2 on localhost is not a
 
 Support two certificate sources:
 
-1. A Flow-generated local CA and localhost certificate, with a separate explicit trust step.
+1. A Ri-generated local CA and localhost certificate, with a separate explicit trust step.
 2. A user-supplied certificate/key pair, allowing an existing trusted local certificate setup to be reused.
 
 Proposed explicit controls:
 
 ```sh
 # Generate the local certificate if necessary and explicitly request OS trust.
-flow tls trust
+ri tls trust
 
 # Use an existing certificate instead of generating one.
-flow start --http2 --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
+ri start --http2 --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
 
-# Explicitly remove only Flow's own trust entry.
-flow tls untrust
+# Explicitly remove only Ri's own trust entry.
+ri tls untrust
 ```
 
 Trust installation may need an operating-system permission prompt. Explain that it allows the browser to trust this local app's HTTPS certificate. Never silently install a root certificate during ordinary startup, require Portless, or advise bypassing a certificate warning.
 
-Store generated files under `getConfigDir()/tls/`, using the path helpers. Generate a unique key per installation, use restrictive permissions, and track the identity of Flow's own trust entry. Use a suitable X.509 generation library rather than assuming every machine has a compatible OpenSSL executable. Do not bundle a shared private key.
+Store generated files under `getConfigDir()/tls/`, using the path helpers. Generate a unique key per installation, use restrictive permissions, and track the identity of Ri's own trust entry. Use a suitable X.509 generation library rather than assuming every machine has a compatible OpenSSL executable. Do not bundle a shared private key.
 
 ### Certificate generation decision
 
 Use `@peculiar/x509` with Node's built-in WebCrypto implementation and its required `reflect-metadata` dependency, loaded inside the lazy TLS module. Add and pin released versions compatible with the app's supported Node runtime through pnpm. Do not add a separate cryptographic implementation when Node provides the required algorithms. Verify both development imports and the bundled CLI entry point.
 
-Generate a CA key and a separate server key for this Flow config root. Use RSA 2048 with SHA-256, cryptographically random positive certificate serials, a five-year CA, and a 90-day leaf renewed when fewer than 30 days remain. Backdate the validity start slightly for clock skew. Mark the CA with critical CA basic constraints, path length zero, and certificate-signing usage. Mark the leaf as non-CA with TLS server-auth usage and appropriate RSA signing/key-encipherment usage. The leaf must not outlive its CA. Verify the certificate/key match and publish them as an atomic pair, for example through a versioned directory and atomic manifest pointer replacement. Two independent file renames are insufficient. Serialize initialization/renewal for the same config root.
+Generate a CA key and a separate server key for this Ri config root. Use RSA 2048 with SHA-256, cryptographically random positive certificate serials, a five-year CA, and a 90-day leaf renewed when fewer than 30 days remain. Backdate the validity start slightly for clock skew. Mark the CA with critical CA basic constraints, path length zero, and certificate-signing usage. Mark the leaf as non-CA with TLS server-auth usage and appropriate RSA signing/key-encipherment usage. The leaf must not outlive its CA. Verify the certificate/key match and publish them as an atomic pair, for example through a versioned directory and atomic manifest pointer replacement. Two independent file renames are insufficient. Serialize initialization/renewal for the same config root.
 
 Keep directories owner-only and private keys owner-readable/writable on POSIX systems, with equivalent restricted current-user ACLs on Windows. Never import a private key into a browser trust store. Losing the local CA key must not silently generate and trust a new authority. Report that a new explicit trust operation is needed.
 
-Flow does not require a user-installed certificate generator. Certificates previously created by mkcert remain valid supplied-certificate inputs. The built-in mechanism uses the library and native adapters below, rather than downloading or bundling mkcert platform binaries. The earlier draft did not prohibit mkcert explicitly, but this is the selected dependency boundary.
+Ri does not require a user-installed certificate generator. Certificates previously created by mkcert remain valid supplied-certificate inputs. The built-in mechanism uses the library and native adapters below, rather than downloading or bundling mkcert platform binaries. The earlier draft did not prohibit mkcert explicitly, but this is the selected dependency boundary.
 
 ### Native trust adapters and supported targets
 
-Implement small platform adapters with inspect, install, and remove operations. The explicit `flow tls trust` command authorizes trust setup for the detected supported targets and reports each result. Request native authorization only where the selected store needs it. Do not run the application itself elevated, capture a password, install packages, edit browser policy, or perform trust operations during ordinary startup.
+Implement small platform adapters with inspect, install, and remove operations. The explicit `ri tls trust` command authorizes trust setup for the detected supported targets and reports each result. Request native authorization only where the selected store needs it. Do not run the application itself elevated, capture a password, install packages, edit browser policy, or perform trust operations during ordinary startup.
 
 | Target | V1 mechanism |
 | --- | --- |
@@ -121,7 +121,7 @@ Implement small platform adapters with inspect, install, and remove operations. 
 | Fedora/RHEL family | An owned PEM anchor in `/etc/pki/ca-trust/source/anchors/`, then `update-ca-trust extract` |
 | Linux Chromium/Firefox | Existing current-user NSS databases, through an already installed NSS `certutil` |
 
-These native trust-store paths are platform conventions, not Flow data-root paths. Give Linux anchor files a unique installation identifier. Invoke native tools with fixed argument arrays or a fixed script accepting parameters, never shell-interpolated certificate paths. Restrict elevated operations to the exact public certificate/store changes and native trust-bundle refresh.
+These native trust-store paths are platform conventions, not Ri data-root paths. Give Linux anchor files a unique installation identifier. Invoke native tools with fixed argument arrays or a fixed script accepting parameters, never shell-interpolated certificate paths. Restrict elevated operations to the exact public certificate/store changes and native trust-bundle refresh.
 
 For Linux Chromium, detect its active database using the documented legacy-path precedence: existing `~/.pki/nssdb`, otherwise existing `~/.local/share/pki/nssdb`. Read Firefox's current-user profile configuration. Do not create arbitrary profile databases, modify other users' profiles, or assume sandboxed browser packaging uses native-profile paths. Packaged browsers or distributions outside the tested targets get an explicit unsupported-target result and manual public-CA import instructions.
 
@@ -147,7 +147,7 @@ The implementation report must state the OS/browser versions actually tested and
 
 The generated leaf covers the supported local names/addresses, including localhost and loopback IPs. The gateway binds loopback by default. LAN hostnames, remote devices, and custom domains need certificates valid and trusted for those clients. Do not imply that trusting a certificate on the host makes it trusted on a phone.
 
-Renew the leaf before expiry using the existing local CA where possible. Replacing the CA requires a new explicit trust operation. `flow tls untrust` removes only the matching Flow-generated entry, never a supplied certificate or another application's CA.
+Renew the leaf before expiry using the existing local CA where possible. Replacing the CA requires a new explicit trust operation. `ri tls untrust` removes only the matching Ri-generated entry, never a supplied certificate or another application's CA.
 
 Default HTTP/1.1 startup creates no certificates and changes no trust settings. Noninteractive HTTP/2 startup never attempts an invisible trust installation. It reports missing/invalid certificate configuration clearly. Local certificate generation and OS trust are distinct states.
 
@@ -174,9 +174,9 @@ Next's existing middleware continues authenticating API requests and SSE connect
 
 Next may build `NextRequest.url` using its private hostname/port. Rewrite an absolute Location header only if it targets an exact launcher-owned private upstream authority, substituting the validated public HTTPS origin while retaining its path/query/fragment. In a composed deployment, these are the known realtime gateway and Next authorities. Preserve unrelated external OAuth redirects. Test both connector OAuth callback families. Do not rewrite arbitrary response bodies.
 
-Generated absolute URLs, pairing, QR links, and health information must use the public scheme and port. Add a launcher-set public base URL override through the existing URL helpers, or reuse it if another deployment feature has already introduced it. Pass the same canonical origin through each explicitly configured trusted loopback proxy hop. Do not rely on `PORT` alone, since Next overwrites it with its private listening port. Audit direct `process.env.PORT` readers, auto-tunnel targets, harness self-calls, preview port allocation, and `flow stop`.
+Generated absolute URLs, pairing, QR links, and health information must use the public scheme and port. Add a launcher-set public base URL override through the existing URL helpers, or reuse it if another deployment feature has already introduced it. Pass the same canonical origin through each explicitly configured trusted loopback proxy hop. Do not rely on `PORT` alone, since Next overwrites it with its private listening port. Audit direct `process.env.PORT` readers, auto-tunnel targets, harness self-calls, preview port allocation, and `ri stop`.
 
-Use the launcher-set environment variable `FLOW_PUBLIC_BASE_URL` for the current process. Reuse the existing `getLocalBaseUrl()` and public-port helpers as the resolution boundary, rather than adding feature-specific URL reconstruction at call sites.
+Use the launcher-set environment variable `RI_PUBLIC_BASE_URL` for the current process. Reuse the existing `getLocalBaseUrl()` and public-port helpers as the resolution boundary, rather than adding feature-specific URL reconstruction at call sites.
 
 Persist managed-instance discovery in one versioned `getWorkDir()/server-runtime.json` record, shared with the process ownership required in section 6. Include a unique run ID, launcher process identity, start time, deployment mode, canonical public base URL/port, and owned private listener addresses. The file contains no auth token or TLS private key. Publish it atomically only after readiness through the public listener succeeds. Use the explicit candidate URL for startup probes and the environment override inside Next before that point.
 
@@ -194,7 +194,7 @@ Support ordinary HTTPS HTTP/1.1 Upgrade forwarding to the fixed configured next 
 
 Make actual Chrome and Safari HMR a first integration check, before completing trust-store adapters: negotiate `h2` for page/API traffic, open the HMR socket over HTTP/1.1, edit a component, verify Fast Refresh and preserved client state, then test reconnect and a reload. Use an isolated fixture/dev data root and an explicitly configured test certificate. Report actual browser versions and handshake protocol. Generic WebSocket echo tests alone do not prove Next HMR works. Fix proxy/HMR routing errors within this scope. A verified browser incompatibility is a concrete finding to resolve in the design, not permission to silently disable dev mode or add an unbounded RFC 8441 project. Do not declare dev support complete without this test.
 
-Portless and existing HTTPS tunnels remain independent deployment options. Do not automatically stack TLS gateways. In V1, reject an ambiguous combination such as `flow start --http2 --portless` with a clear explanation to choose one frontend. Existing proxy users can retain the normal Next upstream and obtain HTTP/2 from their proxy.
+Portless and existing HTTPS tunnels remain independent deployment options. Do not automatically stack TLS gateways. In V1, reject an ambiguous combination such as `ri start --http2 --portless` with a clear explanation to choose one frontend. Existing proxy users can retain the normal Next upstream and obtain HTTP/2 from their proxy.
 
 Do not repoint an HTTP-only tunnel client at the new TLS listener. Preserve its existing backend target when supported, or report that the built-in HTTP/2 mode and that tunnel configuration cannot be combined yet. Local mode must not silently break existing remote links. Validate the supported combinations before shipping.
 
@@ -208,7 +208,7 @@ Cleanup may remove the runtime record only if its run ID still belongs to the st
 
 Track active HTTP/2 sessions. During shutdown, stop accepting new work, request graceful session closure, then destroy remaining sessions and upstreams after a bounded deadline. Persistent SSE streams must not prevent server shutdown indefinitely.
 
-`flow stop` must discover and stop the HTTP or HTTPS instance correctly. Preserve normal voice-service ownership. Check that the listener is Flow before signaling processes, as the current implementation does.
+`ri stop` must discover and stop the HTTP or HTTPS instance correctly. Preserve normal voice-service ownership. Check that the listener is Ri before signaling processes, as the current implementation does.
 
 An HTTP/2 failure does not authorize an automatic downgrade of a browser's HTTPS request to plaintext HTTP. `allowHTTP1` provides HTTPS HTTP/1.1 compatibility, not a certificate bypass. On gateway failure, report the error and offer the explicit restart with HTTP/2 disabled. This is separate from WebSocket-to-SSE fallback, which preserves the current HTTPS origin and HTTP deployment.
 
@@ -270,7 +270,7 @@ Acceptance checks:
 - Hop-by-hop headers are removed, valid Content-Encoding and Set-Cookie values survive, and OAuth callbacks do not redirect to a private backend address.
 - Browser certificate trust is explicit. Expired, wrong-host, or mismatched certificates fail visibly. Supplied certificates are never overwritten or untrusted by cleanup.
 - An HTTPS HTTP/1.1 client still works through the gateway. Development HMR works in the supported browsers while page requests negotiate h2.
-- `flow stop` works in both modes. Failed startup and forced shutdown leave no duplicate backend against the same root.
+- `ri stop` works in both modes. Failed startup and forced shutdown leave no duplicate backend against the same root.
 - Switching off requires no rebuild or data migration. HTTP works after the restart without HSTS or stale URL settings forcing HTTPS.
 - If Electron coverage is added, verify the exact local pin accepts the owned server and rejects a replacement certificate without altering system trust.
 - Standalone HTTP/2 builds and runs without the WebSocket feature. When both exist, verify all four setting combinations, independent rollback/removal, correct public origins, upgrade forwarding, and a single backend. HTTP/2-only startup must not advertise a realtime WebSocket capability.
@@ -303,7 +303,7 @@ A 25% improvement in interactive API p95 under a workload that demonstrably queu
 
 ## 12. Rollback and removal
 
-Operational rollback: restart with `flow start --no-http2` or remove `FLOW_HTTP2=1`, preserving any independent live-transport option. The CLI opens the selected deployment's HTTP pairing URL and replaces the stored HTTPS entry point. If WebSockets remain enabled, the realtime gateway becomes the public HTTP listener and the browser uses `ws:`. With both features disabled, startup is direct Next. Certificates may remain unused until an explicit untrust/cleanup action.
+Operational rollback: restart with `ri start --no-http2` or remove `RI_HTTP2=1`, preserving any independent live-transport option. The CLI opens the selected deployment's HTTP pairing URL and replaces the stored HTTPS entry point. If WebSockets remain enabled, the realtime gateway becomes the public HTTP listener and the browser uses `ws:`. With both features disabled, startup is direct Next. Certificates may remain unused until an explicit untrust/cleanup action.
 
 Code removal: delete the HTTP/2 gateway, TLS commands/config, flag branch, build entry, and their dedicated dependencies/tests. Retain generic public-URL plumbing, launcher support, and dependencies still used by other features. The independent WebSocket feature must continue building and running if present. App components, APIs, SSE, agents, and stored data require no transport rewrite.
 

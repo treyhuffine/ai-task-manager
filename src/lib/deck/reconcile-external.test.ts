@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { DeckItem, CalendarBlock } from '@/db/types';
 
-const TEST_DB = path.join(os.tmpdir(), `flow-deck-reconcile-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-deck-reconcile-test-${process.pid}.db`);
 const DATE = '2026-06-18';
 
 function rm() {
@@ -16,7 +16,7 @@ function rm() {
 
 beforeEach(() => {
   rm();
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
 });
 
 afterEach(async () => {

@@ -2,7 +2,7 @@
  * "Test connection" — `beamd check --json` authenticates the machine's beamd
  * account against the edge (no tunnel registered, no agent spawned) and
  * reports `{ server, slug, baseDomain }`. Resolves the same `~/.beamd/`
- * account everything else uses; Flow passes no `--config`.
+ * account everything else uses; Ri passes no `--config`.
  */
 
 import { beamdCheck, beamdBinInfo, BeamdCliError } from '@/lib/preview/beamd/cli';

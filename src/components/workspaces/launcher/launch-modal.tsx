@@ -414,7 +414,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
 
       if (continuation) {
         // Continue an existing chat rather than creating an execution. A
-        // provider session that isn't in Flow yet gets adopted first — one
+        // provider session that isn't in Ri yet gets adopted first — one
         // key, on demand, which is the single-session half of what the bulk
         // Settings → Imports panel does across every project at once.
         let needsReactivate = continuation.archived;

@@ -1,8 +1,8 @@
-# Flow
+# Ri
 
 The work OS for the human + agent era.
 
-Agents are becoming co-workers, not co-pilots. The bottleneck is no longer doing the work — it's deciding what to do, handing it off cleanly, and reviewing what comes back. Flow is the system for all three.
+Agents are becoming co-workers, not co-pilots. The bottleneck is no longer doing the work — it's deciding what to do, handing it off cleanly, and reviewing what comes back. Ri is the system for all three.
 
 > **Status:** pre-1.0, actively evolving. APIs, schema, and the project name itself may still change.
 
@@ -10,7 +10,7 @@ Agents are becoming co-workers, not co-pilots. The bottleneck is no longer doing
 
 Every task tool puts you in two roles: the worker *and* the system administrator. Tagging, prioritizing, weekly reviews, snoozing — maintenance compounds until you abandon the system. With agents in the loop, the overhead doubles: now you're administrating their work too.
 
-Flow's design constraint is to keep only enough structure for an agent to engage cleanly, and let AI handle the rest. You capture and execute. The system routes, triages, and resurfaces. Agents pick up clearly-defined work on their own, and surface back into one place when they need a decision.
+Ri's design constraint is to keep only enough structure for an agent to engage cleanly, and let AI handle the rest. You capture and execute. The system routes, triages, and resurfaces. Agents pick up clearly-defined work on their own, and surface back into one place when they need a decision.
 
 The fuller product thinking lives in [`docs/prd.md`](docs/prd.md).
 
@@ -38,7 +38,7 @@ The fuller product thinking lives in [`docs/prd.md`](docs/prd.md).
 ```bash
 pnpm install
 pnpm approve-builds       # one-time: allow better-sqlite3 + sqlite-vec to compile native bindings
-pnpm dev                  # Next dev, brain at ~/flow-dev, port 42241
+pnpm dev                  # Next dev, brain at ~/ri-dev, port 42241
 ```
 
 Open [http://localhost:42241](http://localhost:42241).
@@ -49,58 +49,58 @@ Agent features run through your existing Claude Code or Codex CLI (subscription 
 
 ## Running the CLI (prod)
 
-The `flow` CLI is the canonical entry point. It bootstraps the brain (auth, skills, voice) and runs the production Next.js server.
+The `ri` CLI is the canonical entry point. It bootstraps the brain (auth, skills, voice) and runs the production Next.js server.
 
 From the repo, the simplest path is:
 
 ```bash
 pnpm install
 pnpm build                # Next.js production build
-pnpm cli:dev start        # run the CLI from source against ~/flow + next start
+pnpm cli:dev start        # run the CLI from source against ~/ri + next start
 ```
 
-`pnpm cli:dev` is `tsx src/cli/index.ts` — the CLI itself runs from source, but it spawns a real `next start` against your production build, against the prod brain at `~/flow`. No global install, no bundling step.
+`pnpm cli:dev` is `tsx src/cli/index.ts` — the CLI itself runs from source, but it spawns a real `next start` against your production build, against the prod brain at `~/ri`. No global install, no bundling step.
 
 Other CLI commands work the same way:
 
 ```bash
-pnpm cli:dev start --dev          # dev brain (~/flow-dev) + next dev — skip pnpm build
+pnpm cli:dev start --dev          # dev brain (~/ri-dev) + next dev — skip pnpm build
 pnpm cli:dev start --no-voice     # skip the STT sidecar
 pnpm cli:dev pair                 # mint a device key + show pairing URL/QR
 pnpm cli:dev doctor               # diagnostics
 pnpm cli:dev agent <action>       # drive the typed agent surface from the shell
 ```
 
-If you want a real `flow` binary on your PATH (still from this repo, no npm publish):
+If you want a real `ri` binary on your PATH (still from this repo, no npm publish):
 
 ```bash
 pnpm cli:build            # bundle the CLI to ./dist/cli/index.mjs (also runs on install via `prepare`)
-pnpm link --global        # symlink the `flow` bin from this repo
-flow start                # works from anywhere
+pnpm link --global        # symlink the `ri` bin from this repo
+ri start                  # works from anywhere
 ```
 
-`./dist` is a build artifact, not source, so it is gitignored and never committed. The `prepare` hook rebuilds it on every `pnpm install`, so a fresh clone gets a working binary automatically. Re-run `pnpm cli:build` after CLI changes to refresh the bundle the symlink points at. To undo the link: `pnpm unlink --global flow`.
+`./dist` is a build artifact, not source, so it is gitignored and never committed. The `prepare` hook rebuilds it on every `pnpm install`, so a fresh clone gets a working binary automatically. Re-run `pnpm cli:build` after CLI changes to refresh the bundle the symlink points at. To undo the link: `pnpm unlink --global ri`.
 
 ## Two ways to run dev
 
 | Command | What it does | Use for |
 |---|---|---|
-| `pnpm dev` | `next dev` only, brain preset to `~/flow-dev` | Fast UI iteration, no bootstrap |
+| `pnpm dev` | `next dev` only, brain preset to `~/ri-dev` | Fast UI iteration, no bootstrap |
 | `pnpm cli:dev start --dev` | Full CLI: bootstrap + Next dev + optional voice | Realistic dev — what end users see |
-| `pnpm cli:dev start` | Full CLI against `~/flow` (prod brain, dev tooling) | Daily personal use without rebuilding |
+| `pnpm cli:dev start` | Full CLI against `~/ri` (prod brain, dev tooling) | Daily personal use without rebuilding |
 
 ## Data roots
 
-Flow keeps independent brains so dev never touches your real data:
+Ri keeps independent brains so dev never touches your real data:
 
 ```
-explicit FLOW_ROOT       > --dev auto-set (~/flow-dev) > prod default (~/flow)
+explicit RI_ROOT > --dev auto-set (~/ri-dev) > prod default (~/ri)
 
-flow start               → ~/flow         (prod)
-flow start --dev         → ~/flow-dev     (dev)
-pnpm dev                 → ~/flow-dev     (script preset)
-pnpm smoke               → ~/flow-test    (wiped on every run)
-FLOW_ROOT=~/x flow start → ~/x             (explicit wins)
+ri start             → ~/ri        (prod)
+ri start --dev       → ~/ri-dev    (dev)
+pnpm dev             → ~/ri-dev    (script preset)
+pnpm smoke           → ~/ri-test   (wiped on every run)
+RI_ROOT=~/x ri start → ~/x         (explicit wins)
 ```
 
 Each home is a single directory. Content lives at the **root** — `data.db`, the markdown mirror (`tasks/`, `notes/`, `areas/`, `streams/`), and `attachments/` — so the whole home is the unit you sync (git recommended). Machine-local plumbing is tucked into two hidden subdirs: `.config/` (auth token + settings — precious, never synced) and `.work/` (regenerable scratch: worktrees, clones, tmp, backups — disposable, never synced). Resolve paths through `src/lib/config/paths.ts` — never hardcode the data root path.
@@ -114,7 +114,7 @@ Installs predating this layout (content under a `brain/` subfolder) convert with
 There are two distinct agent surfaces — don't conflate them:
 
 - **Typed action registry** (`src/lib/orchestrator/registry.ts`) — one definition per action, generates both:
-  - The CLI: `flow agent <action> [params]` (JSON to stdout)
+  - The CLI: `ri agent <action> [params]` (JSON to stdout)
   - The HTTP MCP server at `/api/orchestrator/[transport]`
 - **Natural-language MCP** at `/api/[transport]` — two tools (`query` / `update`) that route through `runMcpAgent` for free-form interpretation.
 
@@ -122,13 +122,13 @@ Every handler dispatches through `src/lib/db/queries.ts` — never raw SQL. The 
 
 ### Skills
 
-`skills/orchestrator/SKILL.md` teaches Claude Code, Codex, and compatible harnesses how to use the action surface. It ships as a template: the installed skill name is composed from `APP_SHORT_ID` (`AGENT_SKILL_NAME` in `src/constants/app.ts`, currently `agent-work-tasks-notes_flow`), materialized into `.work/skills/` with the name substituted, so a rebrand propagates from one constant. The `{{SKILL_NAME}}` placeholder in the template is the only source of the name — nothing hardcodes the short id.
+`skills/orchestrator/SKILL.md` teaches Claude Code, Codex, and compatible harnesses how to use the action surface. It ships as a template: the installed skill name is composed from `APP_SHORT_ID` (`AGENT_SKILL_NAME` in `src/constants/app.ts`, currently `agent-work-tasks-notes_ri`), materialized into `.work/skills/` with the name substituted, so a rebrand propagates from one constant. The `{{SKILL_NAME}}` placeholder in the template is the only source of the name — nothing hardcodes the short id.
 
 By default the skill installs into `~/.claude/skills/` and `~/.agents/skills/`, so agents can manage your tasks and notes from any project. This is the default because it removes an onboarding decision most users can't meaningfully answer. Individual repositories are never written into either way. To scope it back to sessions the app launches from its own directory, use **Settings → Agents → Task and note access** (the app-root install is always present regardless). The CLI installs the app-root copy during bootstrap; the global copy is toggled via `PUT /api/agent/skills/global`.
 
 ### Device pairing
 
-The web app uses cookie-based session auth. Other devices (a phone, the CLI on another machine, an agent) pair via `flow pair` — a one-time URL/QR exchange that mints a per-device API key. Middleware enforces `Authorization: Bearer <key>` on `/api/*`.
+The web app uses cookie-based session auth. Other devices (a phone, the CLI on another machine, an agent) pair via `ri pair` — a one-time URL/QR exchange that mints a per-device API key. Middleware enforces `Authorization: Bearer <key>` on `/api/*`.
 
 ### Capture integrations
 
@@ -142,17 +142,17 @@ Authoritative schema is `src/lib/db/schema.ts`. Drizzle-derived types live in `s
 
 ```bash
 # dev
-pnpm dev                  # Next dev only, ~/flow-dev
+pnpm dev                  # Next dev only, ~/ri-dev
 pnpm cli:dev start --dev  # full CLI in dev mode
-pnpm dev:reseed           # reseed ~/flow-dev (preserves auth + paired devices; rm -rf ~/flow-dev for a true reset)
+pnpm dev:reseed           # reseed ~/ri-dev (preserves auth + paired devices; rm -rf ~/ri-dev for a true reset)
 pnpm dev:seed             # additive seed
-pnpm dev:reset            # wipe ~/flow-dev only
+pnpm dev:reset            # wipe ~/ri-dev only
 
 # voice (optional)
 pnpm dev:stt              # Parakeet STT sidecar (Docker)
 
 # tests
-pnpm smoke                # bootstrap smoke (~5s, ~/flow-test)
+pnpm smoke                # bootstrap smoke (~5s, ~/ri-test)
 pnpm smoke:agent          # end-to-end: dev server + headless Claude
 pnpm test                 # vitest
 pnpm ts                   # typecheck
@@ -186,7 +186,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the full set of project rules.
 ```
 src/
   app/                 # Next.js App Router (pages + /api routes)
-  cli/                 # `flow` CLI: start, pair, doctor, agent, voice, …
+  cli/                 # `ri` CLI: start, pair, doctor, agent, voice, …
   components/          # React UI
   lib/
     ai/                # provider adapters, agent prompts, deck generation

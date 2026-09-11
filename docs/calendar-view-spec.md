@@ -25,7 +25,7 @@ One shared day model, rendered at three densities:
 
 ## Principles (decided)
 
-1. **Render time like a calendar, manage it like Flow.** Hour-as-vertical-axis
+1. **Render time like a calendar, manage it like Ri.** Hour-as-vertical-axis
    is the familiar encoding people already read fluently — keep it. What we do
    NOT build is event-management chrome (create/edit/RSVP UI, drag-to-create).
    Event management stays conversational (later phase, out of scope here).
@@ -308,7 +308,7 @@ segmented `Day | Week` control, plan-layer eye toggle (Lucide `Eye`/`EyeOff`,
 tooltip `Show planned tasks` / `Hide planned tasks`), refresh button (tooltip
 `Updated {h:mm}`, click = `fresh` refetch), and a stale/degraded indicator dot
 reusing the same rules as the HUD button. Plan-layer state persists to
-`localStorage['flow.calendar.showPlanLayer']`, default `true`, shared by all
+`localStorage['ri.calendar.showPlanLayer']`, default `true`, shared by all
 surfaces.
 
 **Empty state** (`status === 'no_providers'`): centered `Calendar` icon +
@@ -430,7 +430,7 @@ route). Toast with `Undo` restores the previous items array (one-shot,
 client-held).
 
 Because `DeckContainer` holds local state (no shared query cache), define one
-CustomEvent: **`flow:deck-changed`**. `CalendarPanel` dispatches it after any
+CustomEvent: **`ri:deck-changed`**. `CalendarPanel` dispatches it after any
 slot write. `DeckContainer` listens and re-runs its `GET /deck` load.
 `DeckContainer` also dispatches it after its own mutations (done, reorder,
 regenerate, revert) and `CalendarPanel`'s TanStack `['deck', 'active']` query
@@ -474,7 +474,7 @@ copy rule), no hardcoded product or user names (open-source rule).
 ## Decisions (resolved here so implementation has zero ambiguity)
 
 - Hour height **48px**, snap **15 min**, week starts **Monday**.
-- Plan layer default **on**, persisted at `flow.calendar.showPlanLayer`,
+- Plan layer default **on**, persisted at `ri.calendar.showPlanLayer`,
   shared across tab, strip, and peek.
 - Gap-fill affordance threshold **30 min**, strip gap label threshold
   **45 min**, candidate count **3**.
@@ -610,7 +610,7 @@ run `pnpm test`. Order within a phase is the dependency order.
 
 - [x] **2.1** `[new]` `[ui]` `src/components/calendar/calendar-panel.tsx`:
   header (date nav, Day|Week segmented, plan-layer eye toggle persisted to
-  `flow.calendar.showPlanLayer`, refresh + `Updated {h:mm}` tooltip,
+  `ri.calendar.showPlanLayer`, refresh + `Updated {h:mm}` tooltip,
   stale/degraded dot), empty state with `openSettings('connectors')`, view
   switching. Deck data via TanStack `['deck', 'active']`.
 - [x] **2.2** `[reuse]` `[ui]` `content-panel.tsx`: route `activeTab ===
@@ -638,12 +638,12 @@ run `pnpm test`. Order within a phase is the dependency order.
   `src/lib/deck/reconcile-external.ts`.
 - [x] **3.2** `[new]` `[ui]` Slot mutation plumbing in `calendar-panel.tsx`:
   recompute-items + `api.patch('/deck/' + deckId, {items})`, one-shot `Undo`
-  toast, dispatch `flow:deck-changed`. `DeckContainer`: listen →
+  toast, dispatch `ri:deck-changed`. `DeckContainer`: listen →
   re-run the `GET /deck` load; dispatch the same event after its own
   mutations. `CalendarPanel` invalidates `['deck', 'active']` on it.
 - [x] **3.3** `[new]` `[ui]` `slot-popover.tsx`: `Focus` · `Done` ·
   `Not today` · `Clear slot` (reuse deck action handlers' API calls, then
-  `flow:deck-changed`).
+  `ri:deck-changed`).
 - [x] **3.4** `[new]` `[ui]` `gap-fill-popover.tsx` per §C (threshold 30m,
   top 3 by deck order, copy as specified).
 - [x] **3.5** `[new]` `[ui]` `unslotted-tray.tsx` + drag-to-slot within
@@ -800,7 +800,7 @@ small follow-up when wanted.
 right (surfaces hide, deck sizes to manual minutes, `get_day_shape` returns
 `no_providers`) — the gap was discovery. The rule: **invite once, where the
 value would appear, dismiss forever; chrome never nags.** Three pieces: a
-dismissible one-line invite in the deck strip's slot (`flow.calendar.inviteDismissed`,
+dismissible one-line invite in the deck strip's slot (`ri.calendar.inviteDismissed`,
 permanent), a skippable Connect step in the onboarding wizard (calendar-only
 scopes, Google + Microsoft), and the HUD stays silent until a calendar
 exists. Supporting mechanics: `POST /connectors/connect` accepts a

@@ -16,7 +16,7 @@ function setup() {
   const calls: FakeHttpCall[] = [];
   const http = fakeHttp(async (call) => {
     calls.push(call);
-    if (call.url.includes('/getMe')) return { json: { ok: true, result: { id: 4242, username: 'flow_bot' } } };
+    if (call.url.includes('/getMe')) return { json: { ok: true, result: { id: 4242, username: 'ri_bot' } } };
     if (call.url.includes('/sendMessage')) return { json: { ok: true, result: { message_id: 7, chat: { id: 99 } } } };
     return { json: { ok: true, result: {} } };
   });
@@ -41,7 +41,7 @@ describe('telegram', () => {
     const s = setup();
     const conn = await s.runtime.connectDirect('telegram', { credential: { type: 'custom', values: { token: 'BOTTOKEN' } } });
     expect(conn.accountId).toBe('4242'); // from getMe
-    expect(conn.label).toBe('flow_bot');
+    expect(conn.label).toBe('ri_bot');
     // identify hit /botBOTTOKEN/getMe (path-embedded auth)
     expect(s.calls.some((c) => c.url === 'https://api.telegram.org/botBOTTOKEN/getMe')).toBe(true);
   });

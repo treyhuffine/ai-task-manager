@@ -9,7 +9,7 @@
 The right architecture is:
 
 1. **Connectors remain the action/delivery layer.** They know how to call Telegram, Slack,
-   Gmail, Outlook, etc. They should not know what a Flow notification is.
+   Gmail, Outlook, etc. They should not know what a Ri notification is.
 2. **Notifier lives in the app.** It decides when an app event should reach the user, which
    channels are eligible, how the event is rendered, and how delivery is retried/audited.
 3. **Preference/config data can stay simple.** JSON arrays for small lists are right-sized

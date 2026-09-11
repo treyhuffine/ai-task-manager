@@ -3,7 +3,7 @@
  *
  * Explicit browser-certificate trust management for the optional HTTP/2 mode
  * (see docs/optional-http2.md §4). Trust is only ever changed here, never as a
- * side effect of `flow start`. The heavy TLS modules are dynamically imported
+ * side effect of `ri start`. The heavy TLS modules are dynamically imported
  * inside each action so the default CLI boot never initializes them.
  */
 

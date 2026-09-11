@@ -116,7 +116,7 @@ export interface ReconcileResult {
 interface ReconcileState {
   inFlight: Set<string>;
 }
-const STATE_KEY = Symbol.for('@flow/reconcile-state');
+const STATE_KEY = Symbol.for('@ri/reconcile-state');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: ReconcileState };
 if (!globalRef[STATE_KEY]) globalRef[STATE_KEY] = { inFlight: new Set() };
 const state = globalRef[STATE_KEY]!;

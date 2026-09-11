@@ -5,7 +5,7 @@
  * standing up a live Tiptap editor in a DOM environment.
  */
 
-export const DRAFT_STORAGE_PREFIX = 'flow:chat-draft:';
+export const DRAFT_STORAGE_PREFIX = 'ri:chat-draft:';
 export const DRAFT_SAVE_DEBOUNCE_MS = 300;
 
 export type DraftStorageAction = 'save' | 'remove' | 'skip';

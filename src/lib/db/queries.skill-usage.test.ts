@@ -28,7 +28,7 @@ const mirrorDisabledEnv = `${APP_SHORT_ID.toUpperCase()}_MIRROR_DISABLED`;
 const saveEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-skill-usage-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-skill-usage-'));
   for (const k of [appRootEnv, dbPathEnv, mirrorDisabledEnv]) saveEnv[k] = process.env[k];
   process.env[appRootEnv] = tmpDir;
   process.env[dbPathEnv] = path.join(tmpDir, 'data.db');

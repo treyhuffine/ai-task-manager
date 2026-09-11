@@ -42,7 +42,7 @@ function registerTriggerCommand(program: Command) {
     .option('--prompt-file <path>', 'Path to a file containing the prompt text.')
     .option('--description <text>', 'Short description (shown alongside the name).')
     // ── Friendly cadence ──
-    .option('--manual', 'No automatic firing. Only fires via `flow trigger run`.')
+    .option('--manual', 'No automatic firing. Only fires via `ri trigger run`.')
     .option('--hourly', 'Fire at the top of every hour.')
     .option('--daily-at <time>', 'Fire daily at HH:MM (e.g. 09:00).')
     .option('--weekly-on <day>', 'Weekday: monday|tuesday|... (use with --at).')
@@ -150,7 +150,7 @@ function registerTriggerCommand(program: Command) {
       );
       unwrapAndPrint(envelope);
       // --wait poll loop omitted for V1 — the run row is durable in
-      // the DB; `flow run show <id>` covers the status check.
+      // the DB; `ri run show <id>` covers the status check.
     });
 
   trigger
@@ -523,7 +523,7 @@ function humanize(iso: string): string {
 /**
  * Single-line interactive prompt. Uses `readline.question` so a normal
  * Enter terminates the line; the previous implementation waited for
- * stdin `end`, which only fires on EOF (Ctrl-D) and made `flow trigger
+ * stdin `end`, which only fires on EOF (Ctrl-D) and made `ri trigger
  * delete <name>` hang forever.
  */
 function readLine(prompt = ''): Promise<string> {

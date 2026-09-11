@@ -42,7 +42,7 @@ describe('imported chat sync', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-import-sync-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-import-sync-'));
     claudeHome = path.join(root, 'claude');
     project = path.join(root, 'project');
     fs.mkdirSync(project, { recursive: true });
@@ -57,9 +57,9 @@ describe('imported chat sync', () => {
     const env = {
       CLAUDE_CONFIG_DIR: claudeHome,
       CODEX_HOME: path.join(root, 'codex'),
-      FLOW_ROOT: path.join(root, 'flow-root'),
-      FLOW_DB_PATH: path.join(root, 'flow.db'),
-      FLOW_MIRROR_DISABLED: '1',
+      RI_ROOT: path.join(root, 'ri-root'),
+      RI_DB_PATH: path.join(root, 'ri.db'),
+      RI_MIRROR_DISABLED: '1',
     };
     for (const [key, value] of Object.entries(env)) {
       savedEnv[key] = process.env[key];
@@ -253,7 +253,7 @@ describe('imported chat sync', () => {
     const after = q.getChatSessionWithExecution(chatSessionId)!;
     expect(after.setupStartedAt).toBeNull();
     expect(after.worktreePath).toBeNull();
-    expect(fs.existsSync(path.join(root, 'flow-root', '.work', 'worktrees'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'ri-root', '.work', 'worktrees'))).toBe(false);
   });
 
   it('never dispatches from a chat that is still mirroring an import', async () => {

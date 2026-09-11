@@ -42,7 +42,7 @@ const VALID_TARGETS: ReadonlySet<OpenTarget> = new Set([
  * Whether the request is allowed to spawn a process on the host.
  *
  * The Bearer middleware authenticates; this *additionally* requires the
- * `x-flow-host` header, which the web client sends only when it considers
+ * `x-ri-host` header, which the web client sends only when it considers
  * itself the host (loopback or a user-claimed Tailscale/LAN hostname — see
  * `useClientLocation`). Requiring a custom header instead of trusting the
  * forgeable `Host` header is deliberate: it doubles as a CSRF guard. A
@@ -54,7 +54,7 @@ const VALID_TARGETS: ReadonlySet<OpenTarget> = new Set([
  * never sends the header.
  */
 function isHostSpawnAllowed(request: NextRequest): boolean {
-  return request.headers.get('x-flow-host') === '1';
+  return request.headers.get('x-ri-host') === '1';
 }
 
 type ConfineResult =

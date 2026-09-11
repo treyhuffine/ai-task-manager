@@ -51,7 +51,7 @@ export interface LaunchSourceItem {
   number?: number | null;
   /** Git ref a base chip should fork from (branch name). */
   ref?: string | null;
-  /** Flow chat to continue into. */
+  /** Ri chat to continue into. */
   sessionId?: string | null;
   /**
    * Chat is archived, so continuing it has to reactivate it first. The
@@ -60,7 +60,7 @@ export interface LaunchSourceItem {
    * edge one.
    */
   archived?: boolean | null;
-  /** Provider session not yet in Flow — imported on demand at launch. */
+  /** Provider session not yet in Ri — imported on demand at launch. */
   externalKey?: string | null;
   externalSource?: ExternalAgentSource | null;
   /** Display name of the connector a `connector` item came from ("Todoist"). */
@@ -78,7 +78,7 @@ export interface LaunchBase {
 }
 
 export interface LaunchContinuation {
-  /** An existing Flow chat. Null when this is a not-yet-imported provider session. */
+  /** An existing Ri chat. Null when this is a not-yet-imported provider session. */
   sessionId: string | null;
   /** Import key for a provider session that has to be adopted first. */
   externalKey: string | null;
@@ -330,7 +330,7 @@ export const DEFAULT_LAUNCH_PREFS: LaunchPrefs = {
   model: null,
 };
 
-const PREFS_KEY = 'flow.launcher.prefs.v1';
+const PREFS_KEY = 'ri.launcher.prefs.v1';
 
 type PrefsMap = Record<string, LaunchPrefs>;
 

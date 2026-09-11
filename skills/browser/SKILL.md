@@ -5,7 +5,7 @@ description: Use when a task needs a real web browser, reading a page a plain fe
 
 # Agent browser
 
-Flow has a built-in browser the agent drives over the Chrome DevTools Protocol. It reads and acts on real web pages using the sign-ins the user set up in a dedicated agent browser profile. This is not `web_fetch`. Use it when the content needs a real, possibly logged-in, browser.
+Ri has a built-in browser the agent drives over the Chrome DevTools Protocol. It reads and acts on real web pages using the sign-ins the user set up in a dedicated agent browser profile. This is not `web_fetch`. Use it when the content needs a real, possibly logged-in, browser.
 
 ## When to use it, and when not to
 
@@ -20,7 +20,7 @@ The browser never wants a guessed selector or a coordinate. You read a page, it 
 2. Pick an element from the snapshot and act on its ref: `browser_act(kind: "click", ref: "e12")`, or `browser_act(kind: "type", ref: "e7", text: "...")`.
 3. Every act returns the fresh page state, so you always act against what is on screen now. Re-read if the page changed a lot or a ref stops resolving.
 
-Read modes: `snapshot` (default, to act on), `text` (a clean article body, the readability extraction), `screenshot` (a marked image for canvas, closed shadow DOM, or anything the tree cannot express), `pdf` (files the page as a Flow attachment).
+Read modes: `snapshot` (default, to act on), `text` (a clean article body, the readability extraction), `screenshot` (a marked image for canvas, closed shadow DOM, or anything the tree cannot express), `pdf` (files the page as a Ri attachment).
 
 Act kinds: `click`, `type`, `press`, `hover`, `select`, `scroll`, `wait`, `upload`, `back`, `forward`, `reload`, `evaluate` (JS, trusted local only). Use `browser_batch` to run a known sequence (type, type, click) in one round-trip. Pass an `idempotency_key` on an act so a retry never submits twice.
 
@@ -38,7 +38,7 @@ If a `browser_read` or `browser_act` result carries a `blocked` field (kind `log
 
 ## Files
 
-A download the browser triggers is captured straight into Flow attachments and returned on the act result. To upload, pass a Flow attachment: `browser_act(kind: "upload", ref, attachment: "<fileName>")`.
+A download the browser triggers is captured straight into Ri attachments and returned on the act result. To upload, pass a Ri attachment: `browser_act(kind: "upload", ref, attachment: "<fileName>")`.
 
 ## Safety
 

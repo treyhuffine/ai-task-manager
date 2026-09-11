@@ -1,7 +1,7 @@
 /**
  * Managed-instance discovery + ownership record.
  *
- * One generic runtime record per data root, written by `flow start` after the
+ * One generic runtime record per data root, written by `ri start` after the
  * public listener is confirmed healthy and read by out-of-process commands
  * (`pair`, `stop`, health/URL helpers) that need to know *where* and *how* the
  * running instance is reachable. It is deliberately NOT a user settings store:
@@ -31,7 +31,7 @@ import { getWorkDir, ensureWorkDir } from '@/lib/config/paths';
  * overwrites `process.env.PORT` with its private port, so `PORT` alone is
  * insufficient). Highest-precedence input to `getLocalBaseUrl()`.
  */
-export const PUBLIC_BASE_URL_ENV = 'FLOW_PUBLIC_BASE_URL';
+export const PUBLIC_BASE_URL_ENV = 'RI_PUBLIC_BASE_URL';
 
 /** Deployment mode of the public listener. `https` implies the HTTP/2 gateway. */
 export type ServerRuntimeMode = 'http' | 'https';
@@ -40,7 +40,7 @@ export interface ServerRuntimeRecord {
   version: 1;
   /** Unique per managed launch. Ownership key for cleanup. */
   runId: string;
-  /** PID of the `flow start` launcher process that owns the listener chain. */
+  /** PID of the `ri start` launcher process that owns the listener chain. */
   launcherPid: number;
   /** ISO timestamp of publication (after readiness). */
   startedAt: string;

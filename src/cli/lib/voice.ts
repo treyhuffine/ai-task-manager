@@ -33,7 +33,7 @@ export function getVoiceContext(overrideService?: string): VoiceContext {
 }
 
 function resolveComposeFile(): string {
-  const override = process.env.FLOW_VOICE_COMPOSE;
+  const override = process.env.RI_VOICE_COMPOSE;
   if (override) return override;
   // Dev layout: submodule at repo root.
   // TODO(publish): when shipping via npx, bundle docker-compose.yml into `dist/`
@@ -53,7 +53,7 @@ export async function isDockerAvailable(timeoutMs = 5000): Promise<boolean> {
     };
     // A wedged Docker daemon makes `docker info` hang indefinitely — the CLI
     // is installed, so the 'error' event never fires and we'd wait forever
-    // (this blocked `flow start` mid-preflight). Bound it: if the daemon
+    // (this blocked `ri start` mid-preflight). Bound it: if the daemon
     // doesn't answer in time, treat Docker as unavailable and SIGKILL the
     // stuck probe so we don't leak a zombie `docker info` on every start.
     const timer = setTimeout(() => {

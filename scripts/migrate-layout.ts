@@ -9,8 +9,8 @@
  * Usage:
  *   pnpm migrate:layout --dry-run          # preview (prod home ~/<app>)
  *   pnpm migrate:layout                    # move (prod home)
- *   FLOW_ROOT=~/flow-dev pnpm migrate:layout --dry-run
- *   FLOW_ROOT=~/flow-dev pnpm migrate:layout
+ *   RI_ROOT=~/ri-dev pnpm migrate:layout --dry-run
+ *   RI_ROOT=~/ri-dev pnpm migrate:layout
  */
 
 import pc from 'picocolors';

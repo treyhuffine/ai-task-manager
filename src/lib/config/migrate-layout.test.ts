@@ -9,7 +9,7 @@ let root: string;
 let prevRoot: string | undefined;
 
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-migrate-test-'));
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-migrate-test-'));
   prevRoot = process.env[APP_ROOT_ENV];
   process.env[APP_ROOT_ENV] = root;
 });
@@ -118,19 +118,19 @@ describe('migrateLayout', () => {
     expect(read('.config/config.json')).toBe('NEW');
   });
 
-  it('is skipped entirely when FLOW_DB_PATH is set (advanced custom DB)', () => {
+  it('is skipped entirely when RI_DB_PATH is set (advanced custom DB)', () => {
     write('brain/data.db', 'DB');
     write('config.json', 'TOKEN');
-    const prev = process.env.FLOW_DB_PATH;
-    process.env.FLOW_DB_PATH = path.join(root, 'custom.db');
+    const prev = process.env.RI_DB_PATH;
+    process.env.RI_DB_PATH = path.join(root, 'custom.db');
     try {
       const result = migrateLayout();
       expect(result.migrated).toBe(false);
       expect(exists('brain/data.db')).toBe(true); // untouched
       expect(exists('.config')).toBe(false);
     } finally {
-      if (prev === undefined) delete process.env.FLOW_DB_PATH;
-      else process.env.FLOW_DB_PATH = prev;
+      if (prev === undefined) delete process.env.RI_DB_PATH;
+      else process.env.RI_DB_PATH = prev;
     }
   });
 });

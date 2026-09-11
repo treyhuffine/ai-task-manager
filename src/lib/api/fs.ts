@@ -99,7 +99,7 @@ async function postOpen(body: Record<string, unknown>): Promise<OpenInResult> {
     await api.post<{ ok: true }>(
       '/fs/open',
       body,
-      clientIsHost() ? { headers: { 'x-flow-host': '1' } } : undefined,
+      clientIsHost() ? { headers: { 'x-ri-host': '1' } } : undefined,
     );
     return { ok: true };
   } catch (err) {

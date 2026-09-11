@@ -135,11 +135,11 @@ function resolveCommand(target: OpenTarget, path: string, opts?: OpenInOptions):
 
 /**
  * Spawn a detached GUI process and resolve once we know the outcome.
- * Sanitized env stops Flow's Next worker plumbing (TURBOPACK=1,
+ * Sanitized env stops Ri's Next worker plumbing (TURBOPACK=1,
  * __NEXT_PRIVATE_ORIGIN, NEXT_PRIVATE_WORKER, PORT=4224, …) from leaking
  * into the spawned editor's process tree — otherwise any terminal opened
  * inside the editor inherits those and every `next dev` there thinks it's
- * a Flow worker.
+ * a Ri worker.
  */
 function spawnDetached(bin: string, args: string[]): Promise<OpenInTargetResult> {
   return new Promise((resolve) => {

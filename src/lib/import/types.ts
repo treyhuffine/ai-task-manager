@@ -57,7 +57,7 @@ export interface ExternalAgentImportFailure {
   error: string;
 }
 
-/** Which Flow chat a requested key ended up as, imported or already present. */
+/** Which Ri chat a requested key ended up as, imported or already present. */
 export interface ExternalAgentImportedSession {
   key: string;
   chatSessionId: string;

@@ -27,7 +27,7 @@
  *
  * Usage:
  *   pnpm smoke:harness
- *   FLOW_ROOT=~/my-custom-test pnpm smoke:harness
+ *   RI_ROOT=~/my-custom-test pnpm smoke:harness
  */
 
 import { spawn } from 'node:child_process';

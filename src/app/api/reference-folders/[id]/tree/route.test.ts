@@ -48,7 +48,7 @@ describe('GET /api/reference-folders/:id/tree', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-reftree-route-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-reftree-route-'));
     getReferenceFolder.mockReset();
   });
 

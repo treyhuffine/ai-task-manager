@@ -90,13 +90,13 @@ function writeStore(value: StoredFile): void {
 
 export interface CursorCredentialStatus {
   configured: boolean;
-  source: 'flow_store' | 'environment' | 'none';
+  source: 'ri_store' | 'environment' | 'none';
   updatedAt: string | null;
 }
 
 export function cursorCredentialStatus(): CursorCredentialStatus {
   const cursor = readStore().credentials.cursor;
-  if (cursor) return { configured: true, source: 'flow_store', updatedAt: cursor.updatedAt };
+  if (cursor) return { configured: true, source: 'ri_store', updatedAt: cursor.updatedAt };
   if (process.env.CURSOR_API_KEY) return { configured: true, source: 'environment', updatedAt: null };
   return { configured: false, source: 'none', updatedAt: null };
 }

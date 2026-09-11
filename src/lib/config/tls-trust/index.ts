@@ -1,7 +1,7 @@
 /**
  * Trust orchestration (see docs/optional-http2.md §4). Ties the CA material,
  * the ownership manifest, and the native adapters together for the explicit
- * `flow tls trust` / `flow tls untrust` commands. Trust is NEVER performed as a
+ * `ri tls trust` / `ri tls untrust` commands. Trust is NEVER performed as a
  * side effect of ordinary startup.
  */
 
@@ -80,11 +80,11 @@ function entryIdentifier(adapter: TrustAdapter, ctx: TrustContext): string {
     case 'windows-user-root':
       return `thumbprint:${ctx.caFingerprintSha1}`;
     case 'linux-debian':
-      return `/usr/local/share/ca-certificates/flow-local-ca-${ctx.installId}.crt`;
+      return `/usr/local/share/ca-certificates/ri-local-ca-${ctx.installId}.crt`;
     case 'linux-fedora':
-      return `/etc/pki/ca-trust/source/anchors/flow-local-ca-${ctx.installId}.pem`;
+      return `/etc/pki/ca-trust/source/anchors/ri-local-ca-${ctx.installId}.pem`;
     default:
-      return `nickname:Flow Local CA ${ctx.installId.slice(0, 8)}`;
+      return `nickname:Ri Local CA ${ctx.installId.slice(0, 8)}`;
   }
 }
 

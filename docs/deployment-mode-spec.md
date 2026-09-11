@@ -1,14 +1,14 @@
 # Deployment Mode: Solo vs Team
 
-Self-contained plan for splitting Flow into two deployment modes —
+Self-contained plan for splitting Ri into two deployment modes —
 **solo** (the current single-trusted-user behavior) and **team**
 (multi-user shared instance) — and gating features that aren't yet
 team-safe behind the mode flag.
 
 The immediate motivation is the preview pane. The preview feature
-executes user-supplied commands on the Flow host and serves the
+executes user-supplied commands on the Ri host and serves the
 result through a same-origin iframe, which is fine for a solo
-developer running their own Flow but unsafe to expose to teammates
+developer running their own Ri but unsafe to expose to teammates
 (see `docs/workspace-preview-spec.md` — "Trust boundary" section).
 Rather than block multi-user setups entirely until we ship subdomain-
 isolated previews and command sandboxing, this spec introduces a
@@ -18,7 +18,7 @@ opt out the same way.
 
 ## The architectural premise
 
-Flow's current trust model is "the user owns the host." A single
+Ri's current trust model is "the user owns the host." A single
 operator runs the daemon, owns the API tokens, sets the workspace
 commands, edits the cwd, reads the logs. Every authenticated request
 acts with the operator's full authority.
@@ -26,7 +26,7 @@ acts with the operator's full authority.
 Adding teammates without rethinking that model is unsafe: the
 preview pane in particular gives any teammate code execution on the
 shared host (`preview_command`) and credential exfiltration via the
-iframe (`localStorage['flow.token']` is reachable by the dev app's
+iframe (`localStorage['ri.token']` is reachable by the dev app's
 JavaScript since the iframe is same-origin).
 
 Rather than retrofit per-user scoping into every surface at once, we
@@ -75,9 +75,9 @@ are hidden and refused at the API layer.
 | Mode values                        | `'solo' \| 'team'`. No third option in v1.                                                |
 | Default                            | `'solo'` (preserves existing behavior for everyone who isn't doing something new).        |
 | Where it lives                     | `config.json` at the app root: `{ "mode": "solo" \| "team" }`.                            |
-| How it's set                       | Edit `config.json`, or `<cli> mode set <solo\|team>`, or `FLOW_MODE` env var.             |
+| How it's set                       | Edit `config.json`, or `<cli> mode set <solo\|team>`, or `RI_MODE` env var.             |
 | Read timing                        | Once at server boot (instrumentation), cached for the process lifetime.                   |
-| Precedence                         | `FLOW_MODE` env var > `config.json` > default.                                            |
+| Precedence                         | `RI_MODE` env var > `config.json` > default.                                            |
 | Hot-reloadable                     | No. Restart required. Prevents privilege escalation via config write.                     |
 | What's gated in team mode (v1)     | Preview pane (UI hidden) + preview API routes (403). Nothing else changes in v1.          |
 | Per-feature opt-in                 | `allow_unsafe_preview: true` in config — UI shows red banner. Off by default.             |
@@ -92,25 +92,25 @@ are hidden and refused at the API layer.
 `src/lib/config/mode.ts` — single-source-of-truth helper:
 
 ```ts
-export type FlowMode = 'solo' | 'team';
+export type RiMode = 'solo' | 'team';
 
-export interface FlowModeConfig {
-  mode: FlowMode;
+export interface RiModeConfig {
+  mode: RiMode;
   /** Allow individual unsafe features in team mode. v1: preview only. */
   allow_unsafe_preview: boolean;
 }
 
-export function getFlowMode(): FlowModeConfig;
+export function getRiMode(): RiModeConfig;
 ```
 
 Resolution order on first call (cached for process lifetime):
 
-1. `FLOW_MODE` env var, if set to `solo` or `team`. (Ops-level override.)
+1. `RI_MODE` env var, if set to `solo` or `team`. (Ops-level override.)
 2. `config.json` fields `mode` and `allow_unsafe_preview`.
 3. Defaults: `mode='solo'`, `allow_unsafe_preview=false`.
 
 The cache means the value is stable across requests — no fs reads
-on the hot path. Restarting Flow is the supported way to change the
+on the hot path. Restarting Ri is the supported way to change the
 mode; consistent with the "no runtime toggling" decision.
 
 ### Where the gate is enforced
@@ -119,7 +119,7 @@ mode; consistent with the "no runtime toggling" decision.
 `src/app/preview/[workspace]/[[...path]]/route.ts`):
 
 ```ts
-const { mode, allow_unsafe_preview } = getFlowMode();
+const { mode, allow_unsafe_preview } = getRiMode();
 if (mode === 'team' && !allow_unsafe_preview) {
   return Response.json(
     {
@@ -158,7 +158,7 @@ Public-ish (read-only, no secrets), but still behind the standard
 bearer-token middleware — no reason to leak deployment posture to
 unauthenticated probers.
 
-`use-flow-mode` hook on the client caches this for the session
+`use-ri-mode` hook on the client caches this for the session
 (staleTime: Infinity) and feeds it to the UI components that need
 to gate themselves. Mode changes require a server restart anyway,
 so caching aggressively is fine.
@@ -180,7 +180,7 @@ mode. Don't share preview URLs with teammates.").
 `config`, or `default`).
 
 `<cli> mode set solo|team` — write to `config.json`. Refuses if
-`FLOW_MODE` env var is set (won't be effective until the env var is
+`RI_MODE` env var is set (won't be effective until the env var is
 cleared).
 
 `<cli> mode set team --allow-unsafe-preview` — explicit opt-in.
@@ -189,9 +189,9 @@ cleared).
 
 One phase. Estimated <1 day of work, mostly plumbing.
 
-- [ ] `src/lib/config/mode.ts` — `getFlowMode()` + cache + env/config/default resolution.
+- [ ] `src/lib/config/mode.ts` — `getRiMode()` + cache + env/config/default resolution.
 - [ ] `src/app/api/system/mode/route.ts` — return the resolved config.
-- [ ] `src/hooks/use-flow-mode.ts` — TanStack Query wrapper, staleTime: Infinity.
+- [ ] `src/hooks/use-ri-mode.ts` — TanStack Query wrapper, staleTime: Infinity.
 - [ ] Gate the proxy route in `src/app/preview/[workspace]/[[...path]]/route.ts`.
 - [ ] Gate every `/api/workspaces/[id]/preview/*` route.
 - [ ] Hide the Preview tab in `src/components/executions/viewer-area.tsx`.
@@ -210,7 +210,7 @@ One phase. Estimated <1 day of work, mostly plumbing.
 - `docs/deployment-mode-spec.md` (this doc)
 - `src/lib/config/mode.ts`
 - `src/app/api/system/mode/route.ts`
-- `src/hooks/use-flow-mode.ts`
+- `src/hooks/use-ri-mode.ts`
 - `src/cli/commands/mode.ts`
 - `src/components/shared/mode-badge.tsx` (footer chip)
 
@@ -229,19 +229,19 @@ One phase. Estimated <1 day of work, mostly plumbing.
 
 ## Edge cases
 
-- **`FLOW_MODE` set to a garbage value.** Treat as default (solo) and log a warning on boot. Don't crash.
-- **Mode changes while clients have stale `useFlowMode` cache.** A teammate viewing the UI when the operator restarts in a new mode sees stale state until they refresh. The API itself enforces — they can't actually execute team-gated actions even if the UI lets them try.
+- **`RI_MODE` set to a garbage value.** Treat as default (solo) and log a warning on boot. Don't crash.
+- **Mode changes while clients have stale `useRiMode` cache.** A teammate viewing the UI when the operator restarts in a new mode sees stale state until they refresh. The API itself enforces — they can't actually execute team-gated actions even if the UI lets them try.
 - **CLI runs against a host with mismatched mode.** CLI doesn't need to know the host's mode; it just calls APIs. The host is the source of truth.
 - **Per-feature opt-in (`allow_unsafe_preview: true`).** Logged at boot ("⚠ team mode with allow_unsafe_preview enabled"). Footer chip turns amber. Visible enough that an operator who forgot they enabled it will notice.
 - **Team mode without `allow_unsafe_preview`, workspaces have leftover preview commands.** The data is preserved (no destructive migration); it's just inert. Switching back to solo mode brings the previews back live.
-- **Tests that exercise preview run in solo mode.** Test fixtures set `FLOW_MODE=solo` (or just rely on the default).
+- **Tests that exercise preview run in solo mode.** Test fixtures set `RI_MODE=solo` (or just rely on the default).
 
 ## What "team-safe" means for future features
 
 A feature can stay enabled in team mode only if all of these hold:
 
-1. **No code execution on the Flow host on behalf of a teammate's input.** Preview's `preview_command` and `cwd` fail this — anyone who can edit a workspace gets RCE on the daemon's host.
-2. **No iframe (or anything else) that runs untrusted code on Flow's origin.** Subpath-mounted same-origin iframes give the inner code access to Flow's `localStorage` and ambient session cookie. Subdomain isolation lifts this; until then, no in-Flow iframes of arbitrary content.
+1. **No code execution on the Ri host on behalf of a teammate's input.** Preview's `preview_command` and `cwd` fail this — anyone who can edit a workspace gets RCE on the daemon's host.
+2. **No iframe (or anything else) that runs untrusted code on Ri's origin.** Subpath-mounted same-origin iframes give the inner code access to Ri's `localStorage` and ambient session cookie. Subdomain isolation lifts this; until then, no in-Ri iframes of arbitrary content.
 3. **API responses are scoped to the requester's workspaces / sessions / files.** If feature X's endpoint returns global rows by workspace_id without checking ownership, X is not team-safe yet.
 4. **Outputs (logs, transcripts, attachments) are similarly scoped.**
 

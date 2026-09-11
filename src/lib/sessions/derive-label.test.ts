@@ -10,7 +10,7 @@ vi.mock('@agentex/agent', () => ({
   commandInventoryFromEvent: () => null,
 }));
 
-const TEST_DB = path.join(os.tmpdir(), `flow-derive-label-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-derive-label-test-${process.pid}.db`);
 
 beforeEach(() => {
   executeMock.mockReset();
@@ -18,7 +18,7 @@ beforeEach(() => {
     const p = TEST_DB + suffix;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
 });
 
 afterAll(() => {

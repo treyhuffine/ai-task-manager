@@ -12,7 +12,7 @@
  */
 import { useEffect } from 'react';
 
-const EVENT_NAME = 'flow:open-file';
+const EVENT_NAME = 'ri:open-file';
 
 export interface OpenFileDetail {
   /** Absolute or worktree-relative path. */

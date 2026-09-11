@@ -205,7 +205,7 @@ function ensureCosineEmbeddingIndex(sqlite: Database.Database): void {
   if (usesCosine(row.sql)) return;
 
   const migrate = sqlite.transaction(() => {
-    // Another Flow process may have completed the migration while this
+    // Another Ri process may have completed the migration while this
     // connection waited for the writer lock.
     if (usesCosine(readDefinition()?.sql)) return;
 

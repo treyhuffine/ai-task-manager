@@ -171,7 +171,7 @@ export async function moveWipToWorktree(args: {
     return { moved: true, conflict: false, stashMessage: null };
   }
 
-  const stashMessage = `flow-wip-handoff-${Date.now()}`;
+  const stashMessage = `ri-wip-handoff-${Date.now()}`;
 
   try {
     await execFileAsync(

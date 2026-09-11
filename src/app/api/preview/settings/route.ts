@@ -4,9 +4,9 @@
  *   GET → { activeProvider, manualTemplate, providers[], beamd: {connected, server} }
  *   PUT { activeProvider?, manualTemplate?, connect?:{server,token,insecure}, disconnect? }
  *
- * beamd is NOT credential-managed by Flow. "Connect" drives `beamd login`,
+ * beamd is NOT credential-managed by Ri. "Connect" drives `beamd login`,
  * which writes the machine's shared `~/.beamd/` account — the same one the
- * human at a terminal and the agent in a worktree use. Flow stores no token.
+ * human at a terminal and the agent in a worktree use. Ri stores no token.
  */
 
 import type { NextRequest } from 'next/server';
@@ -33,13 +33,13 @@ async function snapshot() {
     server = status.server?.trim() ? status.server : null;
     // Skew signature, no network needed: a current profile that isn't a simple
     // name (it's a `host:port` written by a newer beamd) but no resolved server
-    // → the beamd Flow resolves to is too old to read this account.
+    // → the beamd Ri resolves to is too old to read this account.
     if (!server && status.profile && /[.:]/.test(status.profile)) {
       error = {
         code: 'beamd_cli_outdated',
         message:
-          "Flow's beamd is older than the beamd that set up this machine, so it can't read the account. " +
-          'Update Flow (or install a current beamd, Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.',
+          "Ri's beamd is older than the beamd that set up this machine, so it can't read the account. " +
+          'Update Ri (or install a current beamd, Ri will use it), or set RI_BEAMD_BIN to your beamd binary.',
       };
     }
     if (server) {
@@ -105,7 +105,7 @@ export async function PUT(request: NextRequest) {
       writePreviewSettings({ manualTemplate: body.manualTemplate ?? null });
     }
 
-    // Connect/disconnect drive beamd's own store (~/.beamd), not a Flow file.
+    // Connect/disconnect drive beamd's own store (~/.beamd), not a Ri file.
     if (body.disconnect) {
       await beamdLogout();
     } else if (body.connect) {

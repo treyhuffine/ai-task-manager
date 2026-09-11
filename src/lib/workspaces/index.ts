@@ -45,10 +45,10 @@ export interface WorktreeScriptResult {
 
 /**
  * Run a worktree lifecycle script (setup / teardown) as `sh -lc` in the
- * worktree. Flow stays strategy-agnostic — the project's command decides what
+ * worktree. Ri stays strategy-agnostic — the project's command decides what
  * happens (install deps, clone caches, migrate, codegen, …). The source
  * checkout and worktree context are exported so scripts can reach the original
- * repo (e.g. `cp -c "$FLOW_SOURCE_CHECKOUT_PATH/node_modules" node_modules`).
+ * repo (e.g. `cp -c "$RI_SOURCE_CHECKOUT_PATH/node_modules" node_modules`).
  *
  * Returns the result rather than throwing — callers decide whether a failure
  * is fatal (setup) or best-effort (teardown).
@@ -61,15 +61,15 @@ export async function runWorktreeScript(opts: {
   /** Generous default — installs can be slow. */
   timeoutMs?: number;
 }): Promise<WorktreeScriptResult> {
-  // Sanitize like supervised dev servers do — drop Flow's Next worker plumbing
+  // Sanitize like supervised dev servers do — drop Ri's Next worker plumbing
   // (TURBOPACK, PORT, …) and NODE_ENV so the setup command (e.g. `yarn install`)
-  // runs in a clean, dev-appropriate env instead of inheriting Flow's server
-  // env. The FLOW_* context vars are re-added explicitly (sanitize strips the
-  // FLOW_ prefix, then applies these).
+  // runs in a clean, dev-appropriate env instead of inheriting Ri's server
+  // env. The RI_* context vars are re-added explicitly (sanitize strips the
+  // RI_ prefix, then applies these).
   const env = sanitizeChildEnv({
-    FLOW_SOURCE_CHECKOUT_PATH: opts.sourceCheckoutPath,
-    FLOW_WORKTREE_PATH: opts.worktreePath,
-    ...(opts.branch ? { FLOW_BRANCH_NAME: opts.branch } : {}),
+    RI_SOURCE_CHECKOUT_PATH: opts.sourceCheckoutPath,
+    RI_WORKTREE_PATH: opts.worktreePath,
+    ...(opts.branch ? { RI_BRANCH_NAME: opts.branch } : {}),
   });
   try {
     const { stdout, stderr } = await execFileAsync('sh', ['-lc', opts.command], {
@@ -577,7 +577,7 @@ export async function archiveSessionWorktree(args: {
   session: WorktreePointer;
   /** Workspace teardown script, run in the worktree before removal (optional). */
   teardownCommand?: string | null;
-  /** Source checkout path, exported to the teardown script as $FLOW_SOURCE_CHECKOUT_PATH. */
+  /** Source checkout path, exported to the teardown script as $RI_SOURCE_CHECKOUT_PATH. */
   sourceCheckoutPath?: string;
   force?: boolean;
 }): Promise<void> {

@@ -136,7 +136,7 @@ async function handleResultEvent(
 // globally on toolCallId because the cache survives within the chat's
 // short turn lifetime; clearing happens implicitly on consume.
 
-const STATE_KEY = Symbol.for('@flow/tool-call-name-cache');
+const STATE_KEY = Symbol.for('@ri/tool-call-name-cache');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: Map<string, string> };
 if (!globalRef[STATE_KEY]) globalRef[STATE_KEY] = new Map();
 const toolCallNames = globalRef[STATE_KEY]!;

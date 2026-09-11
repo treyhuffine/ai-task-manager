@@ -6,11 +6,11 @@ import { serverBaseUrl } from './server-client';
 import { PUBLIC_BASE_URL_ENV, publishServerRuntime } from '@/lib/server-runtime/record';
 
 let tmpRoot: string;
-const saved = { port: process.env.PORT, pub: process.env[PUBLIC_BASE_URL_ENV], work: process.env.FLOW_WORK_DIR };
+const saved = { port: process.env.PORT, pub: process.env[PUBLIC_BASE_URL_ENV], work: process.env.RI_WORK_DIR };
 
 beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-sc-'));
-  process.env.FLOW_WORK_DIR = path.join(tmpRoot, '.work');
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-sc-'));
+  process.env.RI_WORK_DIR = path.join(tmpRoot, '.work');
   delete process.env.PORT;
   delete process.env[PUBLIC_BASE_URL_ENV];
 });
@@ -20,8 +20,8 @@ afterEach(() => {
   else process.env.PORT = saved.port;
   if (saved.pub === undefined) delete process.env[PUBLIC_BASE_URL_ENV];
   else process.env[PUBLIC_BASE_URL_ENV] = saved.pub;
-  if (saved.work === undefined) delete process.env.FLOW_WORK_DIR;
-  else process.env.FLOW_WORK_DIR = saved.work;
+  if (saved.work === undefined) delete process.env.RI_WORK_DIR;
+  else process.env.RI_WORK_DIR = saved.work;
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 });
 

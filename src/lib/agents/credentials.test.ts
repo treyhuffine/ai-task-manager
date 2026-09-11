@@ -16,7 +16,7 @@ describe('Cursor credential store', () => {
   let previousCursorKey: string | undefined;
 
   beforeEach(() => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-cursor-credentials-'));
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-cursor-credentials-'));
     previousConfig = process.env[CONFIG_DIR_ENV];
     previousCursorKey = process.env.CURSOR_API_KEY;
     process.env[CONFIG_DIR_ENV] = directory;
@@ -34,7 +34,7 @@ describe('Cursor credential store', () => {
   it('seals the key on disk and only opens it at the process boundary', async () => {
     await setCursorApiKey('cursor-secret-value');
 
-    expect(cursorCredentialStatus()).toMatchObject({ configured: true, source: 'flow_store' });
+    expect(cursorCredentialStatus()).toMatchObject({ configured: true, source: 'ri_store' });
     expect(await openCursorApiKey()).toBe('cursor-secret-value');
 
     const store = path.join(directory, 'agents', 'credentials.json');

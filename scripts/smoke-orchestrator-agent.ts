@@ -20,7 +20,7 @@
  *
  * Usage:
  *   pnpm smoke:agent
- *   FLOW_ROOT=~/my-custom-test pnpm smoke:agent
+ *   RI_ROOT=~/my-custom-test pnpm smoke:agent
  */
 
 import { spawn } from 'node:child_process';
@@ -120,7 +120,7 @@ async function main() {
     }
     console.log(); // newline after streamed output
 
-    // Query the test DB in-process. Uses FLOW_ROOT which is already set.
+    // Query the test DB in-process. Uses RI_ROOT which is already set.
     const { listTasks } = await import('../src/lib/db/queries');
     const tasks = listTasks({ q: 'smoke-test-' });
     const match = tasks.find((t) => t.title === MARKER);

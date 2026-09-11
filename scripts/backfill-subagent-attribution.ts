@@ -34,7 +34,7 @@
  * Usage:
  *   pnpm backfill:subagents --dry-run       # preview (prod home ~/<app>)
  *   pnpm backfill:subagents                 # apply
- *   FLOW_ROOT=~/flow-dev pnpm backfill:subagents
+ *   RI_ROOT=~/ri-dev pnpm backfill:subagents
  *   pnpm backfill:subagents --message-ids   # also recover message ids
  */
 
@@ -101,11 +101,11 @@ function main() {
 
   console.log(pc.bold(`Subagent attribution backfill${dryRun ? pc.yellow(' (dry run)') : ''}`));
   console.log(pc.dim(`  db: ${dbPath}`));
-  if (!dryRun && !process.env.FLOW_ROOT && !process.env.FLOW_DB_PATH) {
+  if (!dryRun && !process.env.RI_ROOT && !process.env.RI_DB_PATH) {
     // No env override means `getDbPath()` resolved the production home. Say
     // so plainly — running this from a dev shell otherwise looks like a dev
     // operation while it edits real data.
-    console.log(pc.yellow('  ⚠ no FLOW_ROOT/FLOW_DB_PATH set — this is the production home.'));
+    console.log(pc.yellow('  ⚠ no RI_ROOT/RI_DB_PATH set — this is the production home.'));
   }
 
   const db = new Database(dbPath);

@@ -103,7 +103,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     label: 'Imports',
     icon: Download,
     title: 'Import agent history',
-    description: 'Bring local projects and chats from Claude Code and Codex into Flow.',
+    description: 'Bring local projects and chats from Claude Code and Codex into Ri.',
   },
   {
     id: 'notifications',

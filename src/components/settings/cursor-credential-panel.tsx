@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 
 interface CredentialStatus {
   configured: boolean;
-  source: 'flow_store' | 'environment' | 'none';
+  source: 'ri_store' | 'environment' | 'none';
 }
 
 export function CursorCredentialPanel() {
@@ -46,7 +46,7 @@ export function CursorCredentialPanel() {
         <KeyRound size={13} /> Cursor API key
       </div>
       <p className="text-[10.5px] text-muted-foreground">
-        Stored locally in Flow&apos;s protected credential store. The key is only opened when Cursor starts.
+        Stored locally in Ri&apos;s protected credential store. The key is only opened when Cursor starts.
       </p>
       <div className="flex gap-2">
         <Input
@@ -60,7 +60,7 @@ export function CursorCredentialPanel() {
         <Button size="sm" disabled={!key.trim() || save.isPending} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="animate-spin" />} Save
         </Button>
-        {status.data?.source === 'flow_store' && (
+        {status.data?.source === 'ri_store' && (
           <Button size="icon-sm" variant="outline" disabled={clear.isPending} onClick={() => clear.mutate()} title="Remove stored key">
             <Trash2 />
           </Button>
@@ -68,7 +68,7 @@ export function CursorCredentialPanel() {
       </div>
       {status.data?.configured && (
         <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
-          Configured through {status.data.source === 'flow_store' ? 'Flow' : 'CURSOR_API_KEY'}
+          Configured through {status.data.source === 'ri_store' ? 'Ri' : 'CURSOR_API_KEY'}
         </p>
       )}
     </div>

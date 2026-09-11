@@ -50,7 +50,7 @@ describe('agent effort options', () => {
     ).toEqual(['low', 'medium', 'high', 'xhigh']);
   });
 
-  // Flow holds only canonical ids. The per-CLI rename (Claude spells this top
+  // Ri holds only canonical ids. The per-CLI rename (Claude spells this top
   // rung `ultracode`) happens in agentex at the flag boundary, so a second
   // mapping here would be a competing source of truth for the same fact.
   it('keeps Claude on its provider-supported levels', () => {

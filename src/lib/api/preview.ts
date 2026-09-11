@@ -75,7 +75,7 @@ export type DeviceConnectEvent =
   | { phase: 'unsupported'; code: string; message: string }
   | { phase: 'error'; code: string; message: string };
 
-/** Which beamd binary Flow resolves to + its version — for skew legibility. */
+/** Which beamd binary Ri resolves to + its version — for skew legibility. */
 export interface BeamdBinInfo {
   path: string;
   source: 'env' | 'path' | 'bundled-native' | 'bundled-shim' | 'fallback';
@@ -88,9 +88,9 @@ export interface PreviewSettings {
   activeProvider: string;
   manualTemplate: string | null;
   /** beamd connection state — driven by the machine's `~/.beamd/` account,
-   *  not a Flow-stored credential. `error` carries the reason when not
+   *  not a Ri-stored credential. `error` carries the reason when not
    *  connected (e.g. a version-skew `beamd_cli_outdated`); `bin` reports which
-   *  beamd binary Flow is using. */
+   *  beamd binary Ri is using. */
   beamd: {
     connected: boolean;
     server: string | null;

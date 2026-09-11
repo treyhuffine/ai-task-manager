@@ -6,7 +6,7 @@
  * Three pieces, all idempotent and safe to re-run at session spawn:
  *
  *   1. CLAUDE.md + AGENTS.md at the app root — the role brief. Written via
- *      agentex's `installInstructions` (managed-region merge, tag `flow`)
+ *      agentex's `installInstructions` (managed-region merge, tag `ri`)
  *      so app upgrades regenerate the block while user additions outside it
  *      survive.
  *   2. Per-session ProviderConfig fields (`orchestratorSessionConfig`) —
@@ -39,7 +39,7 @@ import path from 'node:path';
 // in registry.ts / skills.ts.
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
-import { renderBaseBrief, FLOW_MANAGED_TAG } from '@/lib/config/claude-md-template';
+import { renderBaseBrief, RI_MANAGED_TAG } from '@/lib/config/claude-md-template';
 import {
   APP_ROOT_ENV,
   DB_PATH_ENV,
@@ -505,8 +505,8 @@ export interface InstalledSurface {
  * The CLAUDE.md + AGENTS.md merge is delegated to agentex's
  * `installInstructions`: it owns the per-runtime filename mapping
  * (claude → CLAUDE.md, codex → AGENTS.md) and the managed-region merge that
- * preserves user content outside the markers. `managedTag: FLOW_MANAGED_TAG`
- * ('flow') targets the same region our first-init write uses AND the
+ * preserves user content outside the markers. `managedTag: RI_MANAGED_TAG`
+ * ('ri') targets the same region our first-init write uses AND the
  * pre-0.0.21 hand-rolled markers, so existing installs migrate on the next
  * write rather than gaining a second block.
  */
@@ -523,7 +523,7 @@ export async function installOrchestratorSurface(mode: OrchestratorMode): Promis
     location: 'workspace',
     cwd: root,
     runtimes: ['claude', 'codex', 'cursor', 'opencode'],
-    managedTag: FLOW_MANAGED_TAG,
+    managedTag: RI_MANAGED_TAG,
   });
   removeStaleMcpConfig(root);
 

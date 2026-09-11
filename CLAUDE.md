@@ -87,10 +87,10 @@ Handler rules:
 - **No `console.log` in handlers** — CLI uses stdout for results, MCP returns structured content.
 - **Branch on `ctx.remote`** for security-sensitive work: `false` = trusted local CLI, `true` = untrusted HTTP. Default to `true` behavior when unset.
 
-Data roots (precedence: explicit `FLOW_ROOT` > `--dev` auto-set > prod default):
+Data roots (precedence: explicit `RI_ROOT` > `--dev` auto-set > prod default):
 
 - `~/<app-short-id>/` — prod, real data home
-- `~/<app-short-id>-dev/` — dev (`pnpm dev`, `flow start --dev`)
+- `~/<app-short-id>-dev/` — dev (`pnpm dev`, `ri start --dev`)
 - `~/<app-short-id>-test/` — test (`pnpm smoke`, `pnpm smoke:agent`) — wiped on every run
 
 When NOT to add an action: behavior that belongs in the NL MCP (free-form interpretation), one-off CLI commands that aren't part of the agent surface (shared ones go in `src/cli/commands/`, contributor-specific scripts go in `/personal/`), or anything that duplicates an existing `queries.ts` function under a different name.

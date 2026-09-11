@@ -11,7 +11,7 @@ import os from 'node:os';
 import { isNotifierDelivery } from './caller';
 import type { NotificationChannelAdapter, NotificationEvent } from './types';
 
-const TEST_DB = path.join(os.tmpdir(), `flow-notify-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-notify-test-${process.pid}.db`);
 
 function cleanup() {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -22,7 +22,7 @@ function cleanup() {
 
 beforeEach(() => {
   cleanup();
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
 });
 afterAll(cleanup);
 

@@ -51,12 +51,12 @@ Pretending these don't matter is the kind of thinking that makes tools feel like
 
 ## Filesystem Shape
 
-The mirror's default root is the app's user-data directory (e.g. `~/flow/`).
+The mirror's default root is the app's user-data directory (e.g. `~/ri/`).
 Type folders live **directly** in the root — no `mirror/` wrapper — so the
 path is as short and flat as possible:
 
 ```
-<home>/                               # the data home; override via FLOW_ROOT
+<home>/                               # the data home; override via RI_ROOT
 ├── README.md                         # explains the mirror + which files are internal
 ├── notes/
 │   ├── meeting-prep-thursday--<uuid>.md
@@ -127,7 +127,7 @@ task_title: Prepare for quarterly review
 context_tags: [prep, quarterly]
 created_at: 2026-04-17T08:15:32.000Z
 updated_at: 2026-04-17T09:42:11.000Z
-managed_by: flow
+managed_by: ri
 ---
 
 <!-- Managed by the app. Edits here are overwritten on next sync. -->
@@ -191,7 +191,7 @@ Three triggers, same logic:
 
 1. **On startup** — app boots, reconciler sweeps.
 2. **Every 15 minutes** — timer runs in-app. (Eventually moves to a daemon; same behavior.)
-3. **On-demand CLI** — `flow export` forces a full sync when debugging or after a crash.
+3. **On-demand CLI** — `ri export` forces a full sync when debugging or after a crash.
 
 Algorithm, no cursor:
 
@@ -230,15 +230,15 @@ Single source of truth (the FK on stream), no drift risk, no schema change for t
 
 Two related commands, different jobs:
 
-- **`flow export`** — force a full sync of the live mirror *right now*.
-  Idempotent and safe to run anytime. Subcommands: `flow export status`
-  (counts per type) and `flow export path` (print the mirror root).
-- **`flow snapshot`** — write a one-shot timestamped snapshot to
+- **`ri export`** — force a full sync of the live mirror *right now*.
+  Idempotent and safe to run anytime. Subcommands: `ri export status`
+  (counts per type) and `ri export path` (print the mirror root).
+- **`ri snapshot`** — write a one-shot timestamped snapshot to
   `<user-data-dir>/snapshots/<app>-snapshot-<date>/`. Use for offline archives,
   migrations between machines, or pointing Obsidian at a frozen copy.
 
 The mirror runs automatically (live inline writes + every-15-min reconcile).
-You shouldn't need `flow export` in normal use — only when debugging drift
+You shouldn't need `ri export` in normal use — only when debugging drift
 or recovering from a crash.
 
 ## Signaling the Mirror is Read-Only

@@ -10,13 +10,13 @@ import {
 import type { PreviewProvider, PreviewContext } from './types';
 
 const ctx: PreviewContext = {
-  cwd: '/tmp/flow-a3f9',
-  worktreeName: 'flow-a3f9',
+  cwd: '/tmp/ri-a3f9',
+  worktreeName: 'ri-a3f9',
   service: null,
   port: 3000,
   workspaceId: 'ws1',
   executionId: 'ex1',
-  previewName: 'flow-a3f9',
+  previewName: 'ri-a3f9',
 };
 
 function makePlugin(id: string, url: string): PreviewProvider {

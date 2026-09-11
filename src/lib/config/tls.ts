@@ -64,7 +64,7 @@ function caCertPath(): string {
 export function getCaCertPath(): string {
   return caCertPath();
 }
-/** Ensure the local CA exists (no leaf), for a standalone `flow tls trust`. */
+/** Ensure the local CA exists (no leaf), for a standalone `ri tls trust`. */
 export async function ensureCaGenerated(): Promise<void> {
   await withTlsLock(async () => {
     await ensureCa();

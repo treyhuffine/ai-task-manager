@@ -1,7 +1,7 @@
 /**
- * Boot-managed "keep Flow reachable" tunnel.
+ * Boot-managed "keep Ri reachable" tunnel.
  *
- * Flow's own beamd tunnel was only ever opened by a manual click in settings.
+ * Ri's own beamd tunnel was only ever opened by a manual click in settings.
  * On a headless remote box that's a chicken-and-egg: you need the tunnel to
  * reach the UI that opens the tunnel. When the user opts in (`autoTunnel` in
  * config.json) we open the app tunnel at boot and re-open it whenever it drops
@@ -51,7 +51,7 @@ function reportFailure(err: unknown): void {
 }
 
 /**
- * The port Flow is actually listening on at boot. Mirrors the base-url route:
+ * The port Ri is actually listening on at boot. Mirrors the base-url route:
  * explicit PORT env wins, else the persisted running port, else the
  * env-appropriate default. (No request URL to consult at boot.)
  */
@@ -89,7 +89,7 @@ async function ensureTunnelUp(): Promise<void> {
   }
   const { url, name } = await openAndSaveBeamdBaseUrl(resolvePort());
   lastFailureCode = null;
-  console.log(`[auto-tunnel] Flow reachable at ${url} (tunnel "${name}")`);
+  console.log(`[auto-tunnel] Ri reachable at ${url} (tunnel "${name}")`);
 }
 
 /**

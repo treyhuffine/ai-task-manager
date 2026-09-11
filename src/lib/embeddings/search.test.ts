@@ -11,7 +11,7 @@ vi.mock('./embed', () => ({
   generateEmbedding: mocks.generateEmbedding,
 }));
 
-const ENV_KEYS = ['FLOW_ROOT', 'FLOW_DB_PATH', 'FLOW_MIRROR_DISABLED'] as const;
+const ENV_KEYS = ['RI_ROOT', 'RI_DB_PATH', 'RI_MIRROR_DISABLED'] as const;
 
 function unitVector(dimension: number): Float32Array {
   const vector = new Float32Array(1536);
@@ -24,15 +24,15 @@ describe('vector search', () => {
   let savedEnv: Record<(typeof ENV_KEYS)[number], string | undefined>;
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-vector-search-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-vector-search-'));
     savedEnv = {
-      FLOW_ROOT: process.env.FLOW_ROOT,
-      FLOW_DB_PATH: process.env.FLOW_DB_PATH,
-      FLOW_MIRROR_DISABLED: process.env.FLOW_MIRROR_DISABLED,
+      RI_ROOT: process.env.RI_ROOT,
+      RI_DB_PATH: process.env.RI_DB_PATH,
+      RI_MIRROR_DISABLED: process.env.RI_MIRROR_DISABLED,
     };
-    process.env.FLOW_ROOT = path.join(root, 'flow-root');
-    process.env.FLOW_DB_PATH = path.join(root, 'flow.db');
-    process.env.FLOW_MIRROR_DISABLED = '1';
+    process.env.RI_ROOT = path.join(root, 'ri-root');
+    process.env.RI_DB_PATH = path.join(root, 'ri.db');
+    process.env.RI_MIRROR_DISABLED = '1';
     mocks.generateEmbedding.mockReset();
     vi.resetModules();
   });

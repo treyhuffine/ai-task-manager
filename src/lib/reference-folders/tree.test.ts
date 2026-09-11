@@ -17,7 +17,7 @@ describe('listReferenceTree', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-reftree-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-reftree-'));
   });
 
   afterEach(() => {
@@ -115,7 +115,7 @@ describe('listReferenceTree', () => {
 
   it('does not follow symlinks out of the folder', async () => {
     write('real/a.txt');
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-reftree-out-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-reftree-out-'));
     fs.writeFileSync(path.join(outside, 'escaped.txt'), 'x');
     try {
       fs.symlinkSync(outside, path.join(tmpDir, 'link'));

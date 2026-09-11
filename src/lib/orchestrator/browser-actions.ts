@@ -1,6 +1,6 @@
 /**
  * Native agent browser actions. Registered into the orchestrator registry, so
- * they light up on both the CLI (`flow agent browser_...`) and the HTTP MCP.
+ * they light up on both the CLI (`ri agent browser_...`) and the HTTP MCP.
  *
  * Small, stable surface: two verbs the agent drives (`browser_read`,
  * `browser_act`) plus operational actions. See docs/browser-capability-proposal.md.
@@ -110,7 +110,7 @@ async function goto(url: string, profile: string, headless: boolean) {
 export const browser_read_action = defineAction({
   name: 'browser_read',
   description:
-    'Read a web page through the agent browser. Navigates when a url is given, then returns the page. mode "snapshot" (default) is the accessibility tree with [ref=..] ids to act on, "text" is the readable article body, "screenshot" is a set-of-marks image for canvas or shadow-DOM pages, "pdf" files the page as a Flow attachment. Reads are ungated within the login scope you curate. If a login or challenge wall is detected, the result carries a "blocked" field: hand back to the user, do not try to log in. profile selects which logged-in identity to use (default "agent").',
+    'Read a web page through the agent browser. Navigates when a url is given, then returns the page. mode "snapshot" (default) is the accessibility tree with [ref=..] ids to act on, "text" is the readable article body, "screenshot" is a set-of-marks image for canvas or shadow-DOM pages, "pdf" files the page as a Ri attachment. Reads are ungated within the login scope you curate. If a login or challenge wall is detected, the result carries a "blocked" field: hand back to the user, do not try to log in. profile selects which logged-in identity to use (default "agent").',
   params: {
     url: z.string().url().optional(),
     profile: profileParam,
@@ -153,7 +153,7 @@ export const browser_read_action = defineAction({
 export const browser_act_action = defineAction({
   name: 'browser_act',
   description:
-    'Perform one interaction on the current tab: click, type, press, hover, select, scroll, wait, upload, evaluate, back, forward, or reload. Target with ref (an aria-ref id like e12 from a snapshot read) or a mark id (m3 from a screenshot read). wait can take a selector or a wait_for load state, not only ms. evaluate runs a JS expression (fn) and is restricted to trusted local callers. Pass an idempotency_key so a retry never repeats a side effect. Set accept_dialog=true (with dialog_text for a prompt) to accept a JS dialog the action triggers, otherwise dialogs are dismissed. The result includes the new page state, downloads (as Flow attachments), a dialog it triggered, a blocked signal, and newTab if it opened one (the active tab switches to it).',
+    'Perform one interaction on the current tab: click, type, press, hover, select, scroll, wait, upload, evaluate, back, forward, or reload. Target with ref (an aria-ref id like e12 from a snapshot read) or a mark id (m3 from a screenshot read). wait can take a selector or a wait_for load state, not only ms. evaluate runs a JS expression (fn) and is restricted to trusted local callers. Pass an idempotency_key so a retry never repeats a side effect. Set accept_dialog=true (with dialog_text for a prompt) to accept a JS dialog the action triggers, otherwise dialogs are dismissed. The result includes the new page state, downloads (as Ri attachments), a dialog it triggered, a blocked signal, and newTab if it opened one (the active tab switches to it).',
   mutating: true,
   params: {
     profile: profileParam,

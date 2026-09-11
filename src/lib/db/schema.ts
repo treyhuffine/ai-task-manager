@@ -725,16 +725,16 @@ export const workspaces = sqliteTable(
       .$type<WorkspaceConnectorScope[]>()
       .notNull()
       .default([]),
-    // Worktree lifecycle scripts (all optional). Flow runs each as `sh -lc` in
-    // the execution's worktree, with $FLOW_SOURCE_CHECKOUT_PATH /
-    // $FLOW_WORKTREE_PATH / $FLOW_BRANCH_NAME exported. Flow stays
+    // Worktree lifecycle scripts (all optional). Ri runs each as `sh -lc` in
+    // the execution's worktree, with $RI_SOURCE_CHECKOUT_PATH /
+    // $RI_WORKTREE_PATH / $RI_BRANCH_NAME exported. Ri stays
     // strategy-agnostic — the project decides what these do (install deps, copy
     // caches, run migrations, codegen, …).
     //   setupCommand    — runs once after the worktree is created (post file-copy).
     //   teardownCommand — runs on archive, before the worktree is removed.
     setupCommand: text(),
     teardownCommand: text(),
-    // The dev command that *starts* the worktree's server for previews. Flow runs
+    // The dev command that *starts* the worktree's server for previews. Ri runs
     // it in the worktree, auto-assigns a stable port (injected as `PORT`), and
     // confirms it's listening. How a preview is *reached* (localhost vs a remote
     // provider) is a global setting, not a per-workspace mode — see
@@ -936,7 +936,7 @@ export const executions = sqliteTable(
     }),
 
     // Manually-pasted preview URLs (BYO tunnel — ngrok/cloudflared/whatever).
-    // The user runs their own tunnel and pastes the URL; Flow stores it and
+    // The user runs their own tunnel and pastes the URL; Ri stores it and
     // the ManualProvider serves it for the preview. A small list so a
     // multi-service worktree can carry one URL per service (`service: null`
     // is the default/only service). See docs/preview-system-spec.md §6 and
@@ -1046,8 +1046,8 @@ export interface PreviewUrl {
 // record for the preview system: how to (re)start the dev server, the
 // stable port it should listen on, and the DNS label its tunnel is named
 // after. This is the source of truth for "what should be running" — only
-// Flow knows the start command, and a tunnel to a dead port is a useless
-// URL, so Flow owns desired state and beamd stays stateless about it.
+// Ri knows the start command, and a tunnel to a dead port is a useless
+// URL, so Ri owns desired state and beamd stays stateless about it.
 //
 //   - The start command comes from the workspace (`workspaces.startCommand`):
 //     one source of truth, so lazy revival can always (re)launch the server.

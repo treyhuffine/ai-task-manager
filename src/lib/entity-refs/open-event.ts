@@ -11,7 +11,7 @@
 import { useEffect } from 'react';
 import type { EntityMarker } from './parse-markers';
 
-const EVENT_NAME = 'flow:open-reference';
+const EVENT_NAME = 'ri:open-reference';
 
 export interface OpenReferenceDetail {
   marker: Exclude<EntityMarker, { kind: 'file' }>;

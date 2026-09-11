@@ -7,7 +7,7 @@
  * sync, just like at runtime. Areas are deduped by name (re-runnable);
  * tasks and notes are not — pair with `dev:reset` for a clean slate.
  *
- * Defaults `FLOW_ROOT` to the dev root if not set, so this is safe to run
+ * Defaults `RI_ROOT` to the dev root if not set, so this is safe to run
  * casually without env management.
  */
 import { fileURLToPath } from 'node:url';

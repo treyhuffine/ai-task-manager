@@ -1,7 +1,7 @@
 /**
  * In-process session registry for the agent browser.
  *
- * Actions are separate calls, but within one Flow server (or one CLI process)
+ * Actions are separate calls, but within one Ri server (or one CLI process)
  * they share this module singleton. A session caches the CDP connection and the
  * per-session state that has to survive between calls: the active tab,
  * idempotency results, the last set-of-marks map, captured downloads, dialog
@@ -42,7 +42,7 @@ export interface BrowserSession {
   appliedKeys: Map<string, unknown>;
   /** The last screenshot read's set-of-marks, for mark-based acting. */
   marks: Map<string, Mark>;
-  /** Downloads captured into Flow attachments, in order. */
+  /** Downloads captured into Ri attachments, in order. */
   capturedDownloads: Attachment[];
   reportedDownloads: number;
   downloadsStarted: number;

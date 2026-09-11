@@ -2,10 +2,10 @@
  * The agent browser: connect-or-launch over CDP.
  *
  * The persistent, stateful thing is the browser process itself (its cookies,
- * its tabs). Flow is a thin client that connects to it, it does not own a
+ * its tabs). Ri is a thin client that connects to it, it does not own a
  * browser daemon. See docs/browser-capability-proposal.md, section 3.
  *
- * Detection is unambiguous because Flow owns the profile. We launch the chosen
+ * Detection is unambiguous because Ri owns the profile. We launch the chosen
  * Chromium with remote debugging pointed at the agent profile dir, and Chromium
  * writes the live port into `<profile>/DevToolsActivePort`. "Is one open?" is
  * then: read that file, probe `/json/version` on the port. A DevTools response
@@ -200,7 +200,7 @@ async function waitForPortFile(profileDir: string, aliveCheck?: () => boolean): 
       throw new ActionError(
         'unsupported',
         'The agent browser exited before it became ready.',
-        'Run `flow browser doctor` to check the browser install.',
+        'Run `ri browser doctor` to check the browser install.',
       );
     }
     await new Promise((r) => setTimeout(r, 150));
@@ -208,7 +208,7 @@ async function waitForPortFile(profileDir: string, aliveCheck?: () => boolean): 
   throw new ActionError(
     'unsupported',
     'The agent browser did not become ready in time.',
-    'Run `flow browser doctor` to check the browser install.',
+    'Run `ri browser doctor` to check the browser install.',
   );
 }
 
@@ -231,7 +231,7 @@ async function recoverProfile(opts: OpenOptions, profileDir: string): Promise<vo
 /**
  * Spawn the chosen Chromium detached, pointed at the agent profile, with a
  * DevTools port. Detached + unref so the browser outlives this process, which
- * is what makes it a browser Flow connects to rather than a child it owns.
+ * is what makes it a browser Ri connects to rather than a child it owns.
  */
 async function launch(opts: OpenOptions): Promise<string> {
   const resolved = resolveChromium(opts.executablePath);
@@ -311,7 +311,7 @@ export async function openOrConnect(opts: OpenOptions = {}): Promise<AgentBrowse
       throw new ActionError(
         'unsupported',
         'Could not connect to the agent browser: the CDP handshake stalled twice, once against a relaunched browser.',
-        'Run `flow browser doctor`, or `flow browser close` and try again.',
+        'Run `ri browser doctor`, or `ri browser close` and try again.',
       );
     }
   }

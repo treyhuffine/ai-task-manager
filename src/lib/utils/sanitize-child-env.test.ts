@@ -11,7 +11,7 @@ describe('sanitizeChildEnv', () => {
     '__NEXT_PRIVATE_ORIGIN', '__NEXT_PROCESSED_ENV', '__NEXT_OTHER_FUTURE',
     'PORTLESS_URL', 'PORTLESS_TAILSCALE_URL', 'PORTLESS_APP_PORT',
     'NODE_EXTRA_CA_CERTS',
-    'FLOW_ROOT', 'FLOW_BRAIN_PATH', 'FLOW_OTHER',
+    'RI_ROOT', 'RI_BRAIN_PATH', 'RI_OTHER',
     'NEXT_PUBLIC_KEEP_ME', 'NEXT_PRIVATE_REMOVE_ME', 'CUSTOM_USER_VAR',
   ];
 
@@ -85,14 +85,14 @@ describe('sanitizeChildEnv', () => {
     expect(env.NODE_EXTRA_CA_CERTS).toBeUndefined();
   });
 
-  it('strips all FLOW_* vars by prefix', () => {
-    process.env.FLOW_ROOT = '/x';
-    process.env.FLOW_BRAIN_PATH = '/y';
-    process.env.FLOW_OTHER = 'anything';
+  it('strips all RI_* vars by prefix', () => {
+    process.env.RI_ROOT = '/x';
+    process.env.RI_BRAIN_PATH = '/y';
+    process.env.RI_OTHER = 'anything';
     const env = sanitizeChildEnv();
-    expect(env.FLOW_ROOT).toBeUndefined();
-    expect(env.FLOW_BRAIN_PATH).toBeUndefined();
-    expect(env.FLOW_OTHER).toBeUndefined();
+    expect(env.RI_ROOT).toBeUndefined();
+    expect(env.RI_BRAIN_PATH).toBeUndefined();
+    expect(env.RI_OTHER).toBeUndefined();
   });
 
   it('preserves PATH, HOME, and unrelated user vars', () => {

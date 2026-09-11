@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // `@beamd/cli` is a binary launcher — Flow resolves its native per-platform
+  // `@beamd/cli` is a binary launcher — Ri resolves its native per-platform
   // binary via `require.resolve` and execs it. It must stay external so the
   // production build doesn't bundle/rewrite that resolution (which breaks the
   // launch in `next start`). Same rationale as the native deps below.

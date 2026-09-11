@@ -33,7 +33,7 @@ import { WeekView, type DeadlineMarker } from './week-view';
 
 type WeekMode = 'grid' | 'list';
 
-const MODE_KEY = 'flow.calendar.weekMode';
+const MODE_KEY = 'ri.calendar.weekMode';
 
 function readMode(): WeekMode {
   if (typeof window === 'undefined') return 'grid';

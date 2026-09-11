@@ -1,6 +1,6 @@
 # Next.js Bug: App Router Route Handlers Are Never Gzipped by `next start`
 
-Status: confirmed upstream bug, unfixed as of Next 16.2.11 (latest stable, checked 2026-07-22). Affects every App Router app that serves JSON from route handlers behind bare `next start`. Flow works around it app-side (see `docs/perf-root-cause.md`, fix 3).
+Status: confirmed upstream bug, unfixed as of Next 16.2.11 (latest stable, checked 2026-07-22). Affects every App Router app that serves JSON from route handlers behind bare `next start`. Ri works around it app-side (see `docs/perf-root-cause.md`, fix 3).
 
 ## Summary
 
@@ -63,11 +63,11 @@ curl -sv -H "Accept-Encoding: gzip" http://localhost:3000/ -o /dev/null
 # -> Content-Encoding: gzip (pages compress fine)
 ```
 
-Measured on Flow prod: `/api/tasks` is 976KB raw and would be 256KB gzipped (3.8x).
+Measured on Ri prod: `/api/tasks` is 976KB raw and would be 256KB gzipped (3.8x).
 
 ## Why almost nobody notices
 
-Deployments on Vercel get compression applied at their CDN edge, downstream of Next, so the broken middleware is invisible to every Vercel customer. Self-hosters behind nginx, Caddy, or Cloudflare are similarly masked by proxy-level compression. The bug only bites bare `next start` with nothing compressing in front, and even then nothing logs the silent filter bail. Flow hit it because prod serves `next start` directly through a tunnel that forwards bytes verbatim.
+Deployments on Vercel get compression applied at their CDN edge, downstream of Next, so the broken middleware is invisible to every Vercel customer. Self-hosters behind nginx, Caddy, or Cloudflare are similarly masked by proxy-level compression. The bug only bites bare `next start` with nothing compressing in front, and even then nothing logs the silent filter bail. Ri hit it because prod serves `next start` directly through a tunnel that forwards bytes verbatim.
 
 ## Upstream history (checked 2026-07-22)
 
@@ -79,7 +79,7 @@ No one in any thread has posted the actual mechanism (array Content-Type vs stri
 
 ## Workarounds
 
-1. **In-handler gzip (Flow's choice).** A `jsonResponse(data, request)` helper that stringifies, and when the body exceeds ~4KB and the request accepts gzip, returns gzipped bytes with `Content-Encoding: gzip`, explicit `Content-Length` (also eliminates chunked transfer), and `Vary: Accept-Encoding` on both branches. Verified working on Next 16: 593,781 bytes to 4,881 in the repro. `gzipSync` blocks the event loop ~10-30ms at 1MB, fine at this scale. This helper is also the natural seam for ETag/304 support.
+1. **In-handler gzip (Ri's choice).** A `jsonResponse(data, request)` helper that stringifies, and when the body exceeds ~4KB and the request accepts gzip, returns gzipped bytes with `Content-Encoding: gzip`, explicit `Content-Length` (also eliminates chunked transfer), and `Vary: Accept-Encoding` on both branches. Verified working on Next 16: 593,781 bytes to 4,881 in the repro. `gzipSync` blocks the event loop ~10-30ms at 1MB, fine at this scale. This helper is also the natural seam for ETag/304 support.
 2. **Compressing reverse proxy** in front of `next start` (nginx, Caddy). Works, adds an infra layer to operate.
-3. **Compress at the tunnel/CDN edge.** For Flow, beamd's edge can gzip any identity-encoded compressible response (perf plan fix 9). Fixes the class for every tunneled origin, not just this app.
+3. **Compress at the tunnel/CDN edge.** For Ri, beamd's edge can gzip any identity-encoded compressible response (perf plan fix 9). Fixes the class for every tunneled origin, not just this app.
 4. **patch-package** on `base-http/node.js` `appendHeader` or on the compressible check. Fragile across Next upgrades, not chosen.

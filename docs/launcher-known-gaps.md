@@ -16,7 +16,7 @@ them:
 ```
 /Users/…/startups/insiderfinance                      ← listed (47 sessions)
 /Users/…/conductor/workspaces/insiderfinance/berlin   ← not listed
-/Users/…/flow/.work/worktrees/insiderfinance/…-7e1c20 ← not listed
+/Users/…/ri/.work/worktrees/insiderfinance/…-7e1c20 ← not listed
 ```
 
 Since agents in this app run in worktrees, a meaningful share of history is

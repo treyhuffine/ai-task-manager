@@ -106,7 +106,7 @@ const AGENT_ACTIVITY_SOURCES: ReadonlySet<ChatEventSource> = new Set([
 
 /** Per-session timestamp of the last redispatch attempt (success or
  *  failure). Stored on globalThis so HMR doesn't fragment the map. */
-const REDISPATCH_STATE_KEY = Symbol.for('@flow/health-redispatch-throttle');
+const REDISPATCH_STATE_KEY = Symbol.for('@ri/health-redispatch-throttle');
 interface RedispatchThrottle { lastAttempt: Map<string, number> }
 const redispatchGlobal = globalThis as unknown as { [REDISPATCH_STATE_KEY]?: RedispatchThrottle };
 if (!redispatchGlobal[REDISPATCH_STATE_KEY]) {

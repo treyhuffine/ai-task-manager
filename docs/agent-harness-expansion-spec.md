@@ -39,24 +39,24 @@ Review reconciliation:
 
 ### Saved-history implementation status, 2026-07-14
 
-Agentex 0.0.31 adds the provider-neutral `savedHistory` contract and an OpenCode implementation. Flow uses it to discover, import, and explicitly synchronize archived or active root OpenCode chats. Claude and Codex historical imports continue to use Agentex `localHistory`.
+Agentex 0.0.31 adds the provider-neutral `savedHistory` contract and an OpenCode implementation. Ri uses it to discover, import, and explicitly synchronize archived or active root OpenCode chats. Claude and Codex historical imports continue to use Agentex `localHistory`.
 
-Cursor remains live execution only. Its CLI support, resume behavior, model discovery, and Cursor-routed Grok models are unchanged. Flow does not inspect Cursor's private saved-history state or advertise Cursor history import without a stable supported source contract.
+Cursor remains live execution only. Its CLI support, resume behavior, model discovery, and Cursor-routed Grok models are unchanged. Ri does not inspect Cursor's private saved-history state or advertise Cursor history import without a stable supported source contract.
 
 The historical import boundary is:
 
 - Agentex owns provider discovery, OpenCode service authentication, provider history reads, normalization, stable event identity, and opaque checkpoints.
-- Flow owns explicit user selection, the provider-qualified import ledger, archived chat persistence, synchronization status, transactional replacement, and Settings UI.
+- Ri owns explicit user selection, the provider-qualified import ledger, archived chat persistence, synchronization status, transactional replacement, and Settings UI.
 - Imported history sync is explicit in Settings in this pass. Background, startup, imported-chat-open sync, and an existing-user release prompt are deferred.
-- Agentex 0.0.31 is complete on local `main`. Flow is tested against that local build, but its package and lockfile must move from 0.0.30 to the published 0.0.31 before release.
+- Agentex 0.0.31 is complete on local `main`. Ri is tested against that local build, but its package and lockfile must move from 0.0.30 to the published 0.0.31 before release.
 
 The full implemented contract and task list are in `docs/external-agent-history-import-spec.md`.
 
 ### Live harness implementation status, 2026-07-13
 
-Agentex 0.0.28 is installed from the registry with no workspace override. Flow now contains the four-harness registry, effective runtime probing, model discovery and allowlists, Cursor encrypted credentials, OpenCode provider configuration, executor integration, durable OpenCode history reconciliation, onboarding, settings, and composer support described by this specification.
+Agentex 0.0.28 is installed from the registry with no workspace override. Ri now contains the four-harness registry, effective runtime probing, model discovery and allowlists, Cursor encrypted credentials, OpenCode provider configuration, executor integration, durable OpenCode history reconciliation, onboarding, settings, and composer support described by this specification.
 
-Verification completed in Flow:
+Verification completed in Ri:
 
 - Production build passed, including TypeScript and 105 generated application routes
 - Targeted lint passed with no errors. One unrelated pre-existing unused-helper warning remains in `src/lib/db/queries.ts`
@@ -67,13 +67,13 @@ Verification completed in Flow:
 
 Remaining release verification:
 
-- Run the Flow UI smoke path with a currently supported OpenCode binary
-- Run the Flow UI smoke path with a Cursor binary that supports model listing and the required stream protocol
+- Run the Ri UI smoke path with a currently supported OpenCode binary
+- Run the Ri UI smoke path with a Cursor binary that supports model listing and the required stream protocol
 - The local verification host currently has Cursor 2025.09.18-7ae6800 and no OpenCode binary. Its Cursor profile should correctly report upgrade-required instead of executing
 
 OpenCode resume command decision:
 
-- OpenCode resume inside Flow is implemented through Agentex using the stored external session ID
+- OpenCode resume inside Ri is implemented through Agentex using the stored external session ID
 - The settings and execution UI intentionally do not display a standalone OpenCode CLI resume command
 - The current OpenCode adapter uses an authenticated service-backed lifecycle, and no equivalent truthful standalone CLI template is exposed by the public Agentex contract
 - `resumeCommandTemplate: null` is therefore capability-honest, not an unfinished plumbing task
@@ -1173,7 +1173,7 @@ Backend behavior:
 - OAuth begin uses the provider authorize endpoint and returns a redacted flow record
 - OAuth complete uses the provider callback endpoint and an app-issued flow ID
 - Do not expose OpenCode's provider method index as the app flow identity
-- Flow IDs are random, single-use, expire after 10 minutes, and are bound to provider, cwd context, protocol profile, and pooled server instance
+- Ri IDs are random, single-use, expire after 10 minutes, and are bound to provider, cwd context, protocol profile, and pooled server instance
 - Code-based flows accept the user-returned code and automatic browser flows complete without a code
 - A process restart expires in-memory auth flows and returns a typed restart-required response
 - Disconnect is enabled only when the effective protocol profile exposes a safe programmatic removal operation
@@ -1323,7 +1323,7 @@ The contract must guarantee that provider, auth-method, and auth-flow responses 
 
 `setApiKey` maps to OpenCode's documented generic auth write endpoint. `beginOAuth` and `completeOAuth` map its stateful OAuth protocol. `disconnect` must throw a typed unsupported error when no safe programmatic removal operation exists.
 
-Agentex owns a bounded in-memory flow store. Flow records are random-ID keyed, single-use, expire after 10 minutes, and bind the provider, runtime context, protocol profile, and pooled server instance. A missing record returns a typed expired-or-restarted error.
+Agentex owns a bounded in-memory flow store. Ri records are random-ID keyed, single-use, expire after 10 minutes, and bind the provider, runtime context, protocol profile, and pooled server instance. A missing record returns a typed expired-or-restarted error.
 
 ### 11.4 Capability metadata
 
@@ -2227,8 +2227,8 @@ The implemented kill switches are public build-time environment variables so
 the browser and server share the same visible harness set:
 
 ```text
-NEXT_PUBLIC_FLOW_OPENCODE_ENABLED
-NEXT_PUBLIC_FLOW_CURSOR_ENABLED
+NEXT_PUBLIC_RI_OPENCODE_ENABLED
+NEXT_PUBLIC_RI_CURSOR_ENABLED
 ```
 
 Semantics:

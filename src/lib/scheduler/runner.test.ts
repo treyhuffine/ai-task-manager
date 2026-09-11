@@ -19,8 +19,8 @@ vi.mock('@/lib/executor/adapter', () => ({
   ExecutorError: class extends Error {},
 }));
 
-const TEST_DB = path.join(os.tmpdir(), `flow-runner-test-${process.pid}.db`);
-const TEST_BRAIN = path.join(os.tmpdir(), `flow-runner-brain-${process.pid}`);
+const TEST_DB = path.join(os.tmpdir(), `ri-runner-test-${process.pid}.db`);
+const TEST_BRAIN = path.join(os.tmpdir(), `ri-runner-brain-${process.pid}`);
 
 beforeEach(() => {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -29,8 +29,8 @@ beforeEach(() => {
   }
   fs.rmSync(TEST_BRAIN, { recursive: true, force: true });
   fs.mkdirSync(TEST_BRAIN, { recursive: true });
-  process.env.FLOW_DB_PATH = TEST_DB;
-  process.env.FLOW_BRAIN_PATH = TEST_BRAIN;
+  process.env.RI_DB_PATH = TEST_DB;
+  process.env.RI_BRAIN_PATH = TEST_BRAIN;
 });
 
 afterAll(() => {

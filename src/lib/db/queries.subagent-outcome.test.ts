@@ -22,7 +22,7 @@ describe('subagent events and the unread signal', () => {
   const previous: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-subagent-outcome-'));
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-subagent-outcome-'));
     previous[dbEnv] = process.env[dbEnv];
     previous[rootEnv] = process.env[rootEnv];
     process.env[dbEnv] = path.join(directory, 'data.db');
@@ -174,7 +174,7 @@ describe('the outcome gate keys on the parent tool, not the tag', () => {
   const previous: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-outcome-parent-'));
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-outcome-parent-'));
     previous[dbEnv] = process.env[dbEnv];
     previous[rootEnv] = process.env[rootEnv];
     process.env[dbEnv] = path.join(directory, 'data.db');

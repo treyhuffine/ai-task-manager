@@ -2,7 +2,7 @@
  * ManualProvider — "run your own tunnel and paste the URL." Reads the
  * `previewUrls` list off the execution (set in the execution view), matching
  * the service. Falls back to a global URL template (`{name}` / `{port}`)
- * when no explicit URL is set. Flow doesn't manage the server here
+ * when no explicit URL is set. Ri doesn't manage the server here
  * (`managesLocalServer: false`) — the URL points at whatever the user is
  * running.
  */

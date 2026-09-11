@@ -27,7 +27,7 @@ interface BucketSectionProps {
   children: ReactNode;
 }
 
-const STORAGE_PREFIX = 'flow.rail.bucket.';
+const STORAGE_PREFIX = 'ri.rail.bucket.';
 
 /**
  * Collapsible bucket header + body. The header carries more visual

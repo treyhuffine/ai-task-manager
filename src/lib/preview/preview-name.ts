@@ -22,9 +22,9 @@ export const MAX_LABEL_LENGTH = 63;
  * Build the preview name (a single DNS label) for a worktree, optionally
  * scoped to a service.
  *
- *   previewName('flow-a3f9')        === 'flow-a3f9'
- *   previewName('flow-a3f9', 'api') === 'flow-a3f9-api'
- *   previewName('Flow_A3F9', 'Web') === 'flow-a3f9-web'
+ *   previewName('ri-a3f9')        === 'ri-a3f9'
+ *   previewName('ri-a3f9', 'api') === 'ri-a3f9-api'
+ *   previewName('Ri_A3F9', 'Web') === 'ri-a3f9-web'
  *
  * Any character outside `[a-z0-9-]` becomes a hyphen; runs of hyphens
  * collapse; leading/trailing hyphens are trimmed; the result is lowercased

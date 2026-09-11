@@ -66,7 +66,7 @@ The edge's `httputil.ReverseProxy` has no FlushInterval, and Go forces immediate
 
 The ReverseProxy forwards backend bytes verbatim (no compression code exists in `internal/`). Combined with the Next bug (B1), 976KB rides the constrained hop where 256KB would.
 
-**Fix.** Opt-in edge gzip in ModifyResponse: when the inbound request accepted gzip, the backend sent no Content-Encoding, and Content-Type is compressible, wrap in `gzip.Writer` (flate.BestSpeed), strip Content-Length, set Content-Encoding + Vary, skip text/event-stream and upgrades. Scope note: this helps identity-encoded responses only (~3.8x on API JSON). The already-gzipped static chunks gain nothing, their slowness is A1/A2. Defense in depth for every tunneled origin, not just Flow.
+**Fix.** Opt-in edge gzip in ModifyResponse: when the inbound request accepted gzip, the backend sent no Content-Encoding, and Content-Type is compressible, wrap in `gzip.Writer` (flate.BestSpeed), strip Content-Length, set Content-Encoding + Vary, skip text/event-stream and upgrades. Scope note: this helps identity-encoded responses only (~3.8x on API JSON). The already-gzipped static chunks gain nothing, their slowness is A1/A2. Defense in depth for every tunneled origin, not just Ri.
 
 ---
 

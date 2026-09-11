@@ -6,7 +6,7 @@
  * one account runs the app on two machines: the second `open` comes back
  * `name_taken`. That's why the name is overridable, in precedence order:
  *
- *   1. `FLOW_TUNNEL_NAME` env  — headless boxes, docker, CI.
+ *   1. `RI_TUNNEL_NAME` env  — headless boxes, docker, CI.
  *   2. `tunnelName` in config.json — the Advanced field in settings.
  *   3. `<app-short-id>` (`-dev` in development) — the default.
  *
@@ -27,7 +27,7 @@ export interface BeamdBaseUrlResult {
 }
 
 /** Env override, checked before config.json. */
-export const TUNNEL_NAME_ENV = 'FLOW_TUNNEL_NAME';
+export const TUNNEL_NAME_ENV = 'RI_TUNNEL_NAME';
 
 /** The name used when nothing is overridden — stable per install + env. */
 export function defaultBeamdTunnelName(env = process.env.NODE_ENV): string {

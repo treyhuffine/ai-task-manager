@@ -18,7 +18,7 @@ let tmp: string;
 
 beforeAll(() => {
   x509.cryptoProvider.set(globalThis.crypto as Crypto);
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-supcert-'));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-supcert-'));
 });
 
 /** Mint a self-signed cert with explicit validity + SAN host, write cert+key to disk. */

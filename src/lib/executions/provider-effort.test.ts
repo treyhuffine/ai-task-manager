@@ -5,7 +5,7 @@ import {
   writeProviderEffort,
 } from './provider-effort';
 
-const KEY = 'flow.agent.effort.v1';
+const KEY = 'ri.agent.effort.v1';
 
 function stubStorage(initial: Record<string, string> = {}) {
   const store = new Map(Object.entries(initial));

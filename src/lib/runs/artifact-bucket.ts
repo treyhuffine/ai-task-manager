@@ -22,7 +22,7 @@ interface State {
   byRun: Map<string, Map<string, RunArtifactRef>>;
 }
 
-const STATE_KEY = Symbol.for('@flow/run-artifact-bucket');
+const STATE_KEY = Symbol.for('@ri/run-artifact-bucket');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: State };
 if (!globalRef[STATE_KEY]) {
   globalRef[STATE_KEY] = { bySession: new Map(), byRun: new Map() };

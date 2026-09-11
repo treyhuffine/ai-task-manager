@@ -47,7 +47,7 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - [ ] Drizzle migration 1 cont'd: add `chat_sessions.execution_id` nullable FK with `ON DELETE SET NULL` (preserves transcripts when an execution is hard-deleted as a safety net)
 - [ ] Write the bridge helper `getChatSessionWithExecution(id)` in `src/lib/db/queries.ts` per spec §3.3 — returns a flattened shape so existing call sites can swap `getChatSession(id)` → `getChatSessionWithExecution(id)` with no field-name changes
 - [ ] Write named write helpers in `queries.ts` per spec §3.3: `markExecutionSetupStarted`, `markExecutionSetupComplete`, `recordExecutionSetupError`, `clearExecutionSetupError`, `setExecutionPR`, `startExecutionTakeover`, `clearExecutionTakeover`, `archiveExecution`, `unarchiveExecution`. These force every write across the boundary explicitly — avoid the "silent write problem" where someone updates `setup_error` on the wrong row
-- [ ] Write `scripts/migrate-executions.ts` per spec §3.1 — idempotent, transactional inserts per row, read-back verification, manifest written to `~/flow/backups/executions-migration-<ts>.json`
+- [ ] Write `scripts/migrate-executions.ts` per spec §3.1 — idempotent, transactional inserts per row, read-back verification, manifest written to `~/ri/backups/executions-migration-<ts>.json`
 - [ ] Follow the safe migration sequence in spec §3.2: stop app → `sqlite3 .backup` (NOT `cp` — better-sqlite3 runs WAL) → schema migration → backup → run script → dogfood → backup → destructive column-drop migration
 - [ ] Update reads: switch all call sites that read worktree_path / branch_name / base_sha / pr_number / setup_* / takeover_* from `chat_sessions` to `getChatSessionWithExecution`. Grep each column name to find them all
 - [ ] Update writes: switch all call sites that write those columns to the named write helpers from above
@@ -62,7 +62,7 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - [ ] No code reads or writes worktree state from `chat_sessions` directly (grep + check script verify)
 - [ ] An end-to-end execution (commit + push + PR + takeover round-trip) works identically post-lift
 - [ ] A `chat_session` with `type='execution' AND status='active'` always has `execution_id` set; orchestrator/content chats have it NULL; historical orphaned chats (execution hard-deleted) may have `type='execution'` with `execution_id=NULL` (read-only artifact)
-- [ ] Manifest file at `~/flow/backups/executions-migration-<ts>.json` documents every chat session's migration outcome
+- [ ] Manifest file at `~/ri/backups/executions-migration-<ts>.json` documents every chat session's migration outcome
 
 **Depends on:** nothing (lands first)
 
@@ -88,7 +88,7 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - [ ] Add `chat_sessions.created_by_run_id` FK (nullable, `ON DELETE SET NULL`) — the column means "the run that created this chat," not "the run this chat is about." Subsequent iterating runs go through `runs.chat_session_id`. `chat_sessions.execution_id` was already added by task #26 (the executions lift)
 - [ ] Add `user_state.monthly_budget_usd` column (nullable real)
 - [ ] Run `pnpm db:generate` to create the migration file
-- [ ] Run `pnpm db:push` against `~/flow-dev` to verify it applies cleanly
+- [ ] Run `pnpm db:push` against `~/ri-dev` to verify it applies cleanly
 - [ ] Verify Drizzle Studio shows the new tables / columns
 
 **Acceptance:**
@@ -337,7 +337,7 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 
 ## #18 — Skills harness-agnostic loading
 
-**Goal:** skills authored in `<brain>/skills/` or `<workspace>/.flow/skills/` work across Claude Code, Codex, OpenClaw.
+**Goal:** skills authored in `<brain>/skills/` or `<workspace>/.ri/skills/` work across Claude Code, Codex, OpenClaw.
 
 **Files:**
 - Touches `@agentex/agent` integration in `src/lib/executor/adapter.ts`
@@ -347,7 +347,7 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - [ ] Audit current `listInstalledSkills()` behavior — exactly what paths does it read, what does it produce?
 - [ ] Implement (or extend) so it reads from:
   - Global: `<brain>/skills/<name>/SKILL.md`
-  - Workspace: `<workspace>/.flow/skills/<name>/SKILL.md` (when dispatching against a workspace)
+  - Workspace: `<workspace>/.ri/skills/<name>/SKILL.md` (when dispatching against a workspace)
 - [ ] On dispatch, translate to the harness-specific layout the underlying CLI expects:
   - Claude Code: copy/symlink to `<workspace>/.claude/skills/<name>/SKILL.md` (or `~/.claude/skills/` for global)
   - Codex / OpenClaw: their equivalents
@@ -355,8 +355,8 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - [ ] If the gap is bigger than expected, file a follow-up ticket and ship a minimal version that works on Claude Code first
 
 **Acceptance:**
-- [ ] Author a global skill at `~/flow-dev/skills/test-skill/SKILL.md` → orchestrator dispatched against any workspace can invoke it by description
-- [ ] Author a workspace skill at `<workspace>/.flow/skills/test-skill/SKILL.md` (same name) → workspace-scoped dispatch sees the workspace version, brain-scoped sees the global
+- [ ] Author a global skill at `~/ri-dev/skills/test-skill/SKILL.md` → orchestrator dispatched against any workspace can invoke it by description
+- [ ] Author a workspace skill at `<workspace>/.ri/skills/test-skill/SKILL.md` (same name) → workspace-scoped dispatch sees the workspace version, brain-scoped sees the global
 - [ ] Skills appear in the orchestrator's `listInstalledSkills()` inventory at session boot
 
 **Depends on:** none (can ship anytime)
@@ -387,7 +387,7 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - [ ] Action names are public contract — once shipped, don't rename. Double-check naming before merging
 
 **Acceptance:**
-- [ ] Each action callable via CLI: `flow agent <action> [params]`
+- [ ] Each action callable via CLI: `ri agent <action> [params]`
 - [ ] Each action callable via HTTP MCP at `/api/orchestrator/[transport]`
 - [ ] `create_schedule` rejects invalid cron expressions
 - [ ] `cancel_run` on a running run terminates within 10s
@@ -488,22 +488,22 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - Wire into `src/cli/index.ts`
 
 **Steps:**
-- [ ] `flow schedule create` — flags: `--name`, `--cron`/`--every`/`--at`, `--prompt` (or `--prompt-file`), `--agent`, `--workspace`, `--timezone`, `--skills <list>` (no `--strategy` flag — dispatch behavior is derived from kind + target_kind)
-- [ ] `flow schedule list` — pretty table: name, cadence, next, last, enabled
-- [ ] `flow schedule show <id-or-name>` — full detail incl. next 5 fires, last 5 runs
-- [ ] `flow schedule run <id-or-name> [--wait]` — fire immediately; `--wait` blocks until terminal
-- [ ] `flow schedule pause <id-or-name>` / `flow schedule resume <id-or-name>`
-- [ ] `flow schedule edit <id-or-name> --prompt ... --cron ...`
-- [ ] `flow schedule delete <id-or-name>` — confirm prompt unless `--force`
-- [ ] `flow runs [--unread] [--status <s>] [--schedule <id>] [--limit N]`
-- [ ] `flow run show <run-id>` — incl. cost, transcript path
-- [ ] `flow run cancel <run-id>`
-- [ ] `flow spend` — today / week / month totals
-- [ ] `flow spend --by agent|schedule` — grouped
+- [ ] `ri schedule create` — flags: `--name`, `--cron`/`--every`/`--at`, `--prompt` (or `--prompt-file`), `--agent`, `--workspace`, `--timezone`, `--skills <list>` (no `--strategy` flag — dispatch behavior is derived from kind + target_kind)
+- [ ] `ri schedule list` — pretty table: name, cadence, next, last, enabled
+- [ ] `ri schedule show <id-or-name>` — full detail incl. next 5 fires, last 5 runs
+- [ ] `ri schedule run <id-or-name> [--wait]` — fire immediately; `--wait` blocks until terminal
+- [ ] `ri schedule pause <id-or-name>` / `ri schedule resume <id-or-name>`
+- [ ] `ri schedule edit <id-or-name> --prompt ... --cron ...`
+- [ ] `ri schedule delete <id-or-name>` — confirm prompt unless `--force`
+- [ ] `ri runs [--unread] [--status <s>] [--schedule <id>] [--limit N]`
+- [ ] `ri run show <run-id>` — incl. cost, transcript path
+- [ ] `ri run cancel <run-id>`
+- [ ] `ri spend` — today / week / month totals
+- [ ] `ri spend --by agent|schedule` — grouped
 - [ ] All commands route through orchestrator actions from task #19
 
 **Acceptance:**
-- [ ] Full flow: `flow schedule create … --name test --cron "* * * * *"` → `flow schedule list` shows it → wait 1 min → `flow runs --schedule test` shows the fire → `flow schedule delete test`
+- [ ] Full flow: `ri schedule create … --name test --cron "* * * * *"` → `ri schedule list` shows it → wait 1 min → `ri runs --schedule test` shows the fire → `ri schedule delete test`
 - [ ] Name-based lookups work for create/show/edit/delete/run/pause
 
 **Depends on:** #19
@@ -524,7 +524,7 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 - [ ] No schema change
 
 **Acceptance:**
-- [ ] Fresh `flow-dev` brain has the decisions section in `MEMORY.md`
+- [ ] Fresh `ri-dev` brain has the decisions section in `MEMORY.md`
 - [ ] Manually create a note titled "Decision: use SQLite" → appears in notes list, and when filter chip selected, only Decision-prefixed notes show
 
 **Depends on:** none (independent)

@@ -2,7 +2,7 @@
  * Reachability picker — two modes, nothing else.
  *
  * A preview is reached one of two ways:
- *   - **local**: the viewing browser is on the same machine as Flow (the
+ *   - **local**: the viewing browser is on the same machine as Ri (the
  *     Mini), so the dev server's loopback URL (`http://localhost:<port>`) is
  *     directly reachable.
  *   - **remote**: anywhere else (laptop, phone) → the active remote
@@ -10,7 +10,7 @@
  *
  * The old path-proxy (`/preview/<id>/`) and its base-tag / Set-Cookie
  * rewriting are gone: both modes embed a real, different-origin URL, so
- * there's no fidelity loss and no trust-boundary leak into Flow's origin.
+ * there's no fidelity loss and no trust-boundary leak into Ri's origin.
  */
 
 import type { PreviewState } from '@/lib/api/preview';
@@ -40,7 +40,7 @@ function readBrowserLocation(): BrowserLocation | null {
   return { hostname: window.location.hostname, protocol: window.location.protocol };
 }
 
-/** Is the viewing browser on the same host as Flow? */
+/** Is the viewing browser on the same host as Ri? */
 export function isLocalViewer(loc: BrowserLocation | null = readBrowserLocation()): boolean {
   if (!loc) return false;
   const h = loc.hostname.toLowerCase();

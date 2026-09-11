@@ -8,15 +8,15 @@ import { allocatePort, isPortListening } from './net';
 // Keep the pid-store writes off the real brain dir during tests.
 let tmpRoot: string;
 beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-sup-test-'));
-  process.env.FLOW_ROOT = tmpRoot;
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-sup-test-'));
+  process.env.RI_ROOT = tmpRoot;
 });
 
 const startedKeys: string[] = [];
 afterEach(async () => {
   const sup = getSupervisor();
   await Promise.all(startedKeys.splice(0).map((k) => sup.stop(k)));
-  delete process.env.FLOW_ROOT;
+  delete process.env.RI_ROOT;
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
 });
 

@@ -1,5 +1,5 @@
 /**
- * Toggle "keep Flow reachable" auto-tunnel.
+ * Toggle "keep Ri reachable" auto-tunnel.
  *
  *   POST { enabled: boolean } → { tunnel, lan, local, autoTunnel }
  *

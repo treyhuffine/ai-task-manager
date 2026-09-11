@@ -130,7 +130,7 @@ export const MODEL_OPTIONS: Record<AgentHarness, ModelOption[]> = {
   opencode: [],
 };
 
-/** Where a catalog came from: the harness itself, or Flow's bundled fallback. */
+/** Where a catalog came from: the harness itself, or Ri's bundled fallback. */
 export type AgentModelSource = 'provider' | 'config';
 
 export interface AgentModelsResponse {

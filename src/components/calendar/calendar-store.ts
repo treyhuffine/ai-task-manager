@@ -5,7 +5,7 @@
  * the panel isn't mounted yet when the request fires.
  */
 
-export const CALENDAR_GOTO_EVENT = 'flow:calendar-goto';
+export const CALENDAR_GOTO_EVENT = 'ri:calendar-goto';
 
 let pendingDate: string | null = null;
 

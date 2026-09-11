@@ -5,9 +5,9 @@
   "scripts": {
     "postinstall": "node scripts/fetch-symbols-icons.mjs",
     "prepare": "tsup",
-    "dev": "FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-42241}",
-    "dev:hot": "NEXT_PUBLIC_HOT=1 FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-42241}",
-    "dev:web": "FLOW_ROOT=${FLOW_ROOT:-$HOME/flow-dev} next dev --port ${PORT:-42241}",
+    "dev": "RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
+    "dev:hot": "NEXT_PUBLIC_HOT=1 RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
+    "dev:web": "RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",
     "build": "next build",
     "start": "next start",
@@ -48,10 +48,10 @@
     "dev:reseed": "tsx scripts/seed-dev/reseed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:browser": "FLOW_BROWSER_E2E=1 vitest run src/lib/browser/browser.integration.test.ts"
+    "test:browser": "RI_BROWSER_E2E=1 vitest run src/lib/browser/browser.integration.test.ts"
   },
   "bin": {
-    "flow": "./dist/cli/index.mjs"
+    "ri": "./dist/cli/index.mjs"
   },
   "files": [
     "dist",

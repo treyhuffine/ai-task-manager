@@ -51,7 +51,7 @@ export interface ActInput {
   key?: string;
   /** option values for `select`. */
   values?: string[];
-  /** Flow attachment fileName for `upload`. */
+  /** Ri attachment fileName for `upload`. */
   attachmentFile?: string;
   /** milliseconds for `wait`/scroll delta, or timeout for a selector/state wait. */
   ms?: number;

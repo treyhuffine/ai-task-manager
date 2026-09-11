@@ -1,19 +1,19 @@
 # External Agent History Import and Sync
 
-Status: implemented, pending Agentex 0.0.31 publication and final Flow dependency update
+Status: implemented, pending Agentex 0.0.31 publication and final Ri dependency update
 
 Date: 2026-07-14
 
 Repositories:
 
-- Flow: `~/dynamism/ai-task-manager`
+- Ri: `~/dynamism/ai-task-manager`
 - Agent runtime: `~/dynamism/agentex`
 
 This document is both the implementation specification and the task list. It replaces the earlier Claude and Codex only draft. The status markers below describe the code as of 2026-07-14.
 
 ## 1. Outcome
 
-Flow lets a person discover, import, and explicitly synchronize useful saved conversations from:
+Ri lets a person discover, import, and explicitly synchronize useful saved conversations from:
 
 - Claude Code
 - Codex CLI and Codex Desktop rollouts
@@ -21,13 +21,13 @@ Flow lets a person discover, import, and explicitly synchronize useful saved con
 
 Cursor remains a supported live execution harness, including Cursor-routed Grok models, but it is not a saved-history import source. Cursor does not currently expose a stable public saved-history interface that Agentex can support honestly.
 
-The external tool remains the source of truth. Flow stores a normalized, read-only projection so imported history is searchable and remains readable if the original source later disappears.
+The external tool remains the source of truth. Ri stores a normalized, read-only projection so imported history is searchable and remains readable if the original source later disappears.
 
 The ownership boundary is strict:
 
 - Agentex owns provider-specific discovery, history reads, event normalization, stable event identity, source fingerprints or opaque checkpoints, runtime authentication, and compatibility with provider format changes.
-- Flow owns user selection, workspace mapping, the import ledger, transactional persistence, synchronization policy, status, API routes, and UI.
-- Flow does not walk provider directories or call OpenCode history endpoints directly.
+- Ri owns user selection, workspace mapping, the import ledger, transactional persistence, synchronization policy, status, API routes, and UI.
+- Ri does not walk provider directories or call OpenCode history endpoints directly.
 - Neither repository writes to an imported source session.
 
 ## 2. Release state
@@ -38,22 +38,22 @@ The ownership boundary is strict:
 | Codex local history API | Complete | Uses Agentex `localHistory` |
 | OpenCode saved history API | Complete locally | Added in Agentex 0.0.31 |
 | Cursor saved history import | Excluded | No stable supported source contract |
-| Flow import ledger and migration | Complete | Migration `0004_broad_rachel_grey.sql` |
-| Flow Claude, Codex, and OpenCode discovery | Complete | Provider failures stay isolated |
+| Ri import ledger and migration | Complete | Migration `0004_broad_rachel_grey.sql` |
+| Ri Claude, Codex, and OpenCode discovery | Complete | Provider failures stay isolated |
 | Initial import | Complete | Explicit selection only |
 | Repeatable manual sync | Complete | Settings sync actions and refresh API |
 | Background or on-open sync | Deferred | Existing live-session reconciliation is separate |
 | Existing-user release prompt | Deferred | No prompt-version persistence in this pass |
 | Agentex publication | Blocked on release action | Publish 0.0.31 from Agentex |
-| Flow registry dependency | Blocked on publication | Update package and lockfile from 0.0.30 to 0.0.31 |
+| Ri registry dependency | Blocked on publication | Update package and lockfile from 0.0.30 to 0.0.31 |
 
-Agentex 0.0.31 is implemented on local `main`. Flow is validated against that local build. A clean Flow install still resolves 0.0.30 until 0.0.31 is published and the lockfile is refreshed.
+Agentex 0.0.31 is implemented on local `main`. Ri is validated against that local build. A clean Ri install still resolves 0.0.30 until 0.0.31 is published and the lockfile is refreshed.
 
 ## 3. Product decisions
 
 ### 3.1 Import is deliberate
 
-Opening Settings performs discovery. Flow persists nothing until the person selects chats and chooses Import.
+Opening Settings performs discovery. Ri persists nothing until the person selects chats and chooses Import.
 
 Imported chats can later be selected again and synchronized. The UI also provides a per-chat Sync or Retry action.
 
@@ -69,9 +69,9 @@ This pass does not:
 
 Claude and Codex are file-backed sources. Agentex discovers and reads their local transcript stores through `provider.localHistory`.
 
-OpenCode is a service-backed source. Agentex starts or reuses an authenticated local OpenCode service and uses `provider.savedHistory`. Flow receives provider-neutral session metadata and normalized events. It does not receive OpenCode storage paths or database details.
+OpenCode is a service-backed source. Agentex starts or reuses an authenticated local OpenCode service and uses `provider.savedHistory`. Ri receives provider-neutral session metadata and normalized events. It does not receive OpenCode storage paths or database details.
 
-Cursor is excluded from saved-history discovery. Flow can start, resume, and live-capture Cursor sessions through Agentex, but it does not inspect Cursor's private local state for archived conversations.
+Cursor is excluded from saved-history discovery. Ri can start, resume, and live-capture Cursor sessions through Agentex, but it does not inspect Cursor's private local state for archived conversations.
 
 ### 3.3 Main useful sessions only
 
@@ -87,9 +87,9 @@ Provider bookkeeping, probes, empty sessions, and subagent-only records are excl
 
 Initial import creates an archived execution and an archived execution chat with `surface_kind = 'imported_agent'`.
 
-The transcript is read-only in Flow. A future Continue action may create a new Flow-owned chat with a handoff, but it must not append to the imported source session.
+The transcript is read-only in Ri. A future Continue action may create a new Ri-owned chat with a handoff, but it must not append to the imported source session.
 
-Imported events preserve provider timestamps and useful raw payloads. Flow renders them through the normal transcript view and indexes message-bearing rows through its existing database search path.
+Imported events preserve provider timestamps and useful raw payloads. Ri renders them through the normal transcript view and indexes message-bearing rows through its existing database search path.
 
 ### 3.5 Provider-qualified identity
 
@@ -111,9 +111,9 @@ Historical imports do not occupy the live binding columns. Their provenance and 
 
 ### 3.6 Missing source behavior
 
-If an imported source disappears, Flow keeps the imported transcript and marks the ledger `missing` only after that provider completed a successful enumeration.
+If an imported source disappears, Ri keeps the imported transcript and marks the ledger `missing` only after that provider completed a successful enumeration.
 
-If discovery fails because authentication, the provider service, or its response is broken, Flow preserves the prior status. A failed enumeration is not evidence that every old source was deleted.
+If discovery fails because authentication, the provider service, or its response is broken, Ri preserves the prior status. A failed enumeration is not evidence that every old source was deleted.
 
 If a source working directory no longer exists, initial import creates an archived placeholder workspace. It does not create a broken active project.
 
@@ -206,9 +206,9 @@ Discovery and reading have hard limits on pages, sessions, messages, and respons
 
 ### 4.4 Checkpoint behavior
 
-OpenCode checkpoints are opaque to Flow. The current checkpoint version includes a canonical SHA-256 revision for the source message represented by the checkpoint.
+OpenCode checkpoints are opaque to Ri. The current checkpoint version includes a canonical SHA-256 revision for the source message represented by the checkpoint.
 
-This matters for active sessions. OpenCode can mutate the tail message after an earlier sync. An incremental read rejects a checkpoint whose source revision no longer matches. Flow then requests `bounded_full_resync` and replaces only the imported external projection after the replacement has been staged successfully.
+This matters for active sessions. OpenCode can mutate the tail message after an earlier sync. An incremental read rejects a checkpoint whose source revision no longer matches. Ri then requests `bounded_full_resync` and replaces only the imported external projection after the replacement has been staged successfully.
 
 A deleted session produces a stable `source_missing` error for saved-history reads. Existing attachment behavior remains backward compatible.
 
@@ -220,7 +220,7 @@ Derived providers wrap saved-history options with their environment and configur
 
 Agentex exports all saved-history types, `HistoryCheckpoint`, and `CapabilityStatus` from the package root. Public type tests protect those exports.
 
-## 5. Flow data model
+## 5. Ri data model
 
 ### 5.1 `external_session_imports`
 
@@ -280,7 +280,7 @@ Imported events use the existing unique key:
 
 `ON CONFLICT DO NOTHING` makes incremental replay idempotent. Replacement sync deletes only rows with an external event ID in that imported chat. It does not delete unrelated app-owned rows.
 
-## 6. Flow workflows
+## 6. Ri workflows
 
 ### 6.1 Discovery
 
@@ -305,7 +305,7 @@ provider.savedHistory.discover({
 })
 ```
 
-Flow then:
+Ri then:
 
 1. Validates absolute working directories and bounded external IDs.
 2. Deduplicates by provider-qualified source identity.
@@ -319,7 +319,7 @@ Different worktrees are not merged merely because they share a Git remote.
 
 ### 6.2 Initial import
 
-For each selected source Flow:
+For each selected source Ri:
 
 1. Resolves the opaque key against a fresh trusted server-side discovery result.
 2. Reuses a workspace whose normalized `cwd` matches.
@@ -335,7 +335,7 @@ Each selected chat is an independent unit. One failed source does not roll back 
 
 Claude and Codex synchronization uses Agentex fingerprints and reads.
 
-Before treating source growth as append-only, Flow verifies the SHA-256 hash of the previously synchronized prefix. It forces a full staged replay when:
+Before treating source growth as append-only, Ri verifies the SHA-256 hash of the previously synchronized prefix. It forces a full staged replay when:
 
 - The path changed
 - The source shrank
@@ -343,13 +343,13 @@ Before treating source growth as append-only, Flow verifies the SHA-256 hash of 
 - The old prefix hash changed
 - A legacy row has an offset but no verified hash
 
-Flow fingerprints before and after reading. Size, nanosecond mtime, and full SHA must remain stable. If the source changes during the read, the pending window is discarded and the sync fails.
+Ri fingerprints before and after reading. Size, nanosecond mtime, and full SHA must remain stable. If the source changes during the read, the pending window is discarded and the sync fails.
 
-The committed offset advances to stable EOF, including provider records that normalize to no Flow event.
+The committed offset advances to stable EOF, including provider records that normalize to no Ri event.
 
 ### 6.3.1 Commit windows
 
-Transcript size is unbounded in practice: a long agent session can reach hundreds of megabytes, several times that once normalized. Flow therefore never holds a whole transcript in memory. Normalized events accumulate to a fixed byte budget and are then committed as one window, so memory tracks the window size rather than the source size.
+Transcript size is unbounded in practice: a long agent session can reach hundreds of megabytes, several times that once normalized. Ri therefore never holds a whole transcript in memory. Normalized events accumulate to a fixed byte budget and are then committed as one window, so memory tracks the window size rather than the source size.
 
 Each window leaves the ledger describing exactly the prefix it committed: `sync_offset` and `source_size` at the window boundary, and `source_content_sha256` over `[0, boundary)`. Consequences:
 
@@ -375,7 +375,7 @@ The first window of a replacement deletes the old external rows in the same tran
 
 ### 6.5 Concurrency
 
-Flow serializes import or sync work by provider-qualified ledger identity. Two requests for the same source cannot stage from the same old state and commit out of order.
+Ri serializes import or sync work by provider-qualified ledger identity. Two requests for the same source cannot stage from the same old state and commit out of order.
 
 Requests for different imported sources may run concurrently. Database transactions remain the final atomic boundary for transcript and checkpoint updates.
 
@@ -394,13 +394,13 @@ Public UI status is:
 
 Failed synchronization stores a bounded safe error string. It does not expose secrets or transcript content in normal logs.
 
-## 7. Flow API and UI
+## 7. Ri API and UI
 
 ### 7.1 API
 
 `GET /api/imports/agents`
 
-- Probes and discovers Claude, Codex, and OpenCode on the Flow host
+- Probes and discovers Claude, Codex, and OpenCode on the Ri host
 - Returns source summaries, projects, sessions, import status, and opaque keys
 - Does not expose transcript paths or credentials
 
@@ -421,7 +421,7 @@ Failed synchronization stores a bounded safe error string. It does not expose se
 
 ```json
 {
-  "chatSessionIds": ["flow-chat-id"]
+  "chatSessionIds": ["ri-chat-id"]
 }
 ```
 
@@ -446,14 +446,14 @@ The import panel:
 - Keeps missing-only imported chats visible
 - Reports imported and synchronized outcomes separately
 
-The panel text states that Flow reads local history without changing it.
+The panel text states that Ri reads local history without changing it.
 
 ## 8. Safety invariants
 
 The implementation must preserve all of these:
 
 1. Provider source stores are read-only.
-2. Flow never appends a prompt to an imported source session.
+2. Ri never appends a prompt to an imported source session.
 3. Browser responses never reveal trusted transcript paths or credentials.
 4. Source identity includes provider type.
 5. Missing status requires a completed provider enumeration.
@@ -497,7 +497,7 @@ Release gate:
 - Focused saved-history tests pass
 - Full Agentex suite passes
 
-### 9.2 Flow
+### 9.2 Ri
 
 Required coverage:
 
@@ -559,7 +559,7 @@ Release gate:
 - [x] Pass typecheck, build, focused tests, and full suite.
 - [ ] Publish `@agentex/agent` 0.0.31.
 
-### Flow schema and migration
+### Ri schema and migration
 
 - [x] Add `external_session_imports`.
 - [x] Add provider-qualified ledger uniqueness.
@@ -570,11 +570,11 @@ Release gate:
 - [x] Backfill provider type for existing live bindings.
 - [x] Add a 0003 to 0004 migration fixture covering imported and live rows.
 
-### Flow service and API
+### Ri service and API
 
 - [x] Use Agentex `localHistory` for Claude and Codex.
 - [x] Use Agentex `savedHistory` for OpenCode.
-- [x] Remove provider storage parsing from Flow import code.
+- [x] Remove provider storage parsing from Ri import code.
 - [x] Add provider-qualified opaque selection keys.
 - [x] Add ledger-aware discovery and missing rows.
 - [x] Add explicit initial import.
@@ -589,7 +589,7 @@ Release gate:
 - [x] Add the refresh-by-chat endpoint.
 - [x] Enforce selection bounds and bound staging memory by commit window.
 
-### Flow UI
+### Ri UI
 
 - [x] Add OpenCode to the import source cards.
 - [x] Keep imported chats selectable.
@@ -606,10 +606,10 @@ Release gate:
 - [x] Update chat-session architecture ownership notes.
 - [x] Update the harness expansion spec with OpenCode history and Cursor scope.
 - [ ] Publish Agentex 0.0.31.
-- [ ] Update Flow `package.json` to `@agentex/agent: ^0.0.31`.
+- [ ] Update Ri `package.json` to `@agentex/agent: ^0.0.31`.
 - [ ] Refresh `pnpm-lock.yaml` from the registry package.
 - [ ] Perform a clean install validation.
-- [ ] Run final Flow full suite and production build against the registry package.
+- [ ] Run final Ri full suite and production build against the registry package.
 - [ ] Smoke test Settings discovery, OpenCode import, OpenCode sync, Claude import, and Codex import with real supported binaries.
 
 ## 11. Deferred task list
@@ -619,8 +619,8 @@ These are not hidden launch requirements for this pass:
 - [ ] Add background, startup, or imported-chat-open synchronization if product usage warrants it.
 - [ ] Add a one-time existing-user discovery prompt and persisted dismissal version.
 - [ ] Add search, pagination, or virtualization inside the import catalog for unusually large stores.
-- [ ] Add a Continue action that creates a new Flow-owned chat with an explicit handoff.
-- [ ] Add cross-process database compare-and-swap if Flow moves from one local server process to multiple concurrent writers.
+- [ ] Add a Continue action that creates a new Ri-owned chat with an explicit handoff.
+- [ ] Add cross-process database compare-and-swap if Ri moves from one local server process to multiple concurrent writers.
 - [ ] Add Cursor saved-history import only after Cursor exposes a stable supported history API or Agentex can define a durable compatibility contract with acceptable maintenance risk.
 - [ ] Add provider-specific diagnostics UI without exposing transcript content or secrets.
 
@@ -628,26 +628,26 @@ These are not hidden launch requirements for this pass:
 
 This implementation is ready to ship when:
 
-1. A clean Flow install resolves published Agentex 0.0.31 or newer.
-2. Settings discovers eligible Claude, Codex, and OpenCode chats on the Flow host.
+1. A clean Ri install resolves published Agentex 0.0.31 or newer.
+2. Settings discovers eligible Claude, Codex, and OpenCode chats on the Ri host.
 3. A person can import selected chats without changing any provider source.
 4. Imported chats appear archived with provider provenance and useful event fidelity.
 5. A person can explicitly sync one or several imported chats.
 6. File append, rewrite, truncation, and concurrent mutation paths cannot corrupt the prior projection.
 7. OpenCode incremental and full-resync paths cannot corrupt the prior projection.
-8. A missing source remains readable in Flow.
+8. A missing source remains readable in Ri.
 9. Provider discovery failure does not falsely mark all prior imports missing.
 10. Concurrent sync requests for one source cannot roll history or checkpoints backward.
 11. Legacy prototype imports migrate without losing their transcripts.
 12. Cursor is presented honestly as live execution only, not as an import source.
-13. Agentex and Flow release gates pass against the published dependency.
+13. Agentex and Ri release gates pass against the published dependency.
 
 ## 13. Final architecture
 
 ```text
 Claude files ----> Agentex localHistory ----+
                                              |
-Codex files -----> Agentex localHistory -----+--> Flow discovery/import service
+Codex files -----> Agentex localHistory -----+--> Ri discovery/import service
                                              |      |
 OpenCode API ----> Agentex savedHistory -----+      +--> external_session_imports
                                                     +--> archived execution/chat
@@ -656,4 +656,4 @@ OpenCode API ----> Agentex savedHistory -----+      +--> external_session_import
 Cursor ----------> Agentex live execution only
 ```
 
-Agentex knows provider history formats. Flow knows product persistence and synchronization policy. The browser sees projects, chats, status, and opaque keys. It never becomes a provider transcript parser or a credential boundary.
+Agentex knows provider history formats. Ri knows product persistence and synchronization policy. The browser sees projects, chats, status, and opaque keys. It never becomes a provider transcript parser or a credential boundary.

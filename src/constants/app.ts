@@ -1,6 +1,6 @@
-export const APP_NAME = 'Flow';
+export const APP_NAME = 'Ri';
 export const APP_DESCRIPTION = 'Productivity framework for humans <> agents';
-export const APP_SHORT_ID = 'flow';
+export const APP_SHORT_ID = 'ri';
 
 /**
  * Installed name of the shipped agent skill that teaches any agent to drive

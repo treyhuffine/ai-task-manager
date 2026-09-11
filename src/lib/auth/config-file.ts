@@ -21,7 +21,7 @@ export interface AuthConfig {
   /** Last port the server was started on. Written by `start`, read by `pair`
    *  so the CLI shows the right port even when invoked from a different shell. */
   lastPort: number | null;
-  /** Stable local hostname fronting the dev server (e.g. `https://flow.localhost`
+  /** Stable local hostname fronting the dev server (e.g. `https://ri.localhost`
    *  via portless). Written by `start --portless`, cleared by `start` without it.
    *  When set, `getLocalBaseUrl()` prefers it over `http://localhost:<port>`. */
   staticUrl: string | null;

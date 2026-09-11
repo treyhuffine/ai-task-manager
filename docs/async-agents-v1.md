@@ -15,7 +15,7 @@ V1 ships **scheduled tasks**. One new tick, two new tables, one new column.
 - **Runs** — one row per execution; status enum kept simple (`queued | running | completed | failed | skipped`)
 - **Scheduled runs surface as executions** in the existing 4-col view with a trigger badge — no new UI tab
 - **Review = existing unread machinery** — `last_outcome_event_at` > `last_viewed_at` is the inbox; no new state
-- **Skills** at harness-agnostic paths (`<brain>/skills/`, `<workspace>/.flow/skills/`); executor adapter handles per-provider translation
+- **Skills** at harness-agnostic paths (`<brain>/skills/`, `<workspace>/.ri/skills/`); executor adapter handles per-provider translation
 - **Webhook intake** at `/api/triggers/:public_id` with HMAC-SHA256
 - **Cost capture + budget guardrails** from `@agentex/agent`'s `result` event
 - **Decisions as notes** — no new entity
@@ -157,7 +157,7 @@ Each schedule has: `prompt`, `agent_id`, `target_kind` (`workspace` or `orchestr
 
 **`agent_id` default (form-level, not schema-level):** when `target_kind='orchestrator'`, default to the orchestrator agent. When `target_kind='workspace'`, default to the workspace's bound executor agent. User can override per schedule.
 
-**`name` uniqueness:** unique-within-scope, where brain-level (workspace_id IS NULL) is its own scope. Implemented as **two partial unique indexes**, not a single composite, because SQLite treats NULLs in unique indexes as distinct — a plain `UNIQUE(workspace_id, name)` would silently allow duplicate brain-level names. CLI commands (`flow schedule pause morning-triage`) use name within scope; ids are the canonical reference but names are the human handle. See §6 for the exact index syntax.
+**`name` uniqueness:** unique-within-scope, where brain-level (workspace_id IS NULL) is its own scope. Implemented as **two partial unique indexes**, not a single composite, because SQLite treats NULLs in unique indexes as distinct — a plain `UNIQUE(workspace_id, name)` would silently allow duplicate brain-level names. CLI commands (`ri schedule pause morning-triage`) use name within scope; ids are the canonical reference but names are the human handle. See §6 for the exact index syntax.
 
 **Concurrency policy** (when a previous run is still active):
 - `forbid_concurrent` — skip this fire
@@ -219,7 +219,7 @@ The app runs on Claude Code, Codex, and OpenClaw via `@agentex/agent`. Hardcodin
 | Scope     | Location                                       | Notes                                                |
 |-----------|------------------------------------------------|------------------------------------------------------|
 | Global    | `<brain>/skills/<name>/SKILL.md`               | User's library, available everywhere                 |
-| Workspace | `<workspace>/.flow/skills/<name>/SKILL.md`     | Codebase-specific, **committed to git** by default   |
+| Workspace | `<workspace>/.ri/skills/<name>/SKILL.md`     | Codebase-specific, **committed to git** by default   |
 
 Format follows the Claude Code convention (YAML frontmatter + markdown body) so existing skill libraries port:
 
@@ -472,20 +472,20 @@ V1 keeps it small — read + manage schedules + runs. No agent-only actions (tho
 ### 8.1 CLI
 
 ```bash
-flow schedule create \
+ri schedule create \
   --name "morning-triage" \
   --cron "0 9 * * 1-5" \
   --prompt "Triage stream items captured overnight" \
   --agent default
-flow schedule list / show / pause / edit / delete
-flow schedule run <id> [--wait]
+ri schedule list / show / pause / edit / delete
+ri schedule run <id> [--wait]
 
-flow runs                          # all runs, paginated
-flow runs --unread                 # what needs my attention
-flow run show / cancel
+ri runs                          # all runs, paginated
+ri runs --unread                 # what needs my attention
+ri run show / cancel
 
-flow spend                         # today/week/month
-flow spend --by agent / schedule
+ri spend                         # today/week/month
+ri spend --by agent / schedule
 ```
 
 ### 8.2 Dashboard
@@ -528,11 +528,11 @@ One ship, no internal gates.
 9. **Budget guardrails** — `user_state.monthly_budget_usd` + threshold check on dispatch + auto-pause schedules at 100%
 10. **Cron parsing** via `croner` + `computeNextRun()` helper
 11. **Webhook endpoint** `/api/triggers/:public_id` with HMAC verification
-12. **Skills harness-agnostic loading** — complete `@agentex/agent` integration to read from `<brain>/skills/` and `<workspace>/.flow/skills/`, translate to per-harness layout on dispatch. Detail what specifically is missing today as a follow-up ticket during this step
+12. **Skills harness-agnostic loading** — complete `@agentex/agent` integration to read from `<brain>/skills/` and `<workspace>/.ri/skills/`, translate to per-harness layout on dispatch. Detail what specifically is missing today as a follow-up ticket during this step
 13. **Schedules CRUD UI** + creation form with NL → cron translator
 14. **Runs view extension** — trigger badge + filter pills + bundled groups
 15. **TopHud extension** — active runs, spend, unread, budget %
-16. **CLI surface** for everything (`flow schedule …`, `flow runs …`, `flow spend …`)
+16. **CLI surface** for everything (`ri schedule …`, `ri runs …`, `ri spend …`)
 17. **Decisions convention** — seed `MEMORY.md` template + add "Decisions" filter to notes list
 18. **Failure surfacing** — banner on schedules with `consecutive_failures >= 3`; no auto-pause (silent failure is worse than surfaced failure)
 

@@ -209,7 +209,7 @@ interface ExecutorState {
   sessionInventories: Map<string, RuntimeCommandInventory>;
 }
 
-const STATE_KEY = Symbol.for('@flow/executor-state');
+const STATE_KEY = Symbol.for('@ri/executor-state');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: ExecutorState };
 
 if (!globalRef[STATE_KEY]) {
@@ -1163,7 +1163,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
 
   // Layer in author-neutral user-skill paths:
   //   - Global: <brain>/skills/<name>/SKILL.md
-  //   - Workspace: <workspace>/.flow/skills/<name>/SKILL.md (workspace wins
+  //   - Workspace: <workspace>/.ri/skills/<name>/SKILL.md (workspace wins
   //     on name collision). See src/lib/executor/skills.ts.
   const skillDirs = resolveSkillDirsForSession(args.cwd);
   if (skillDirs.length > 0) config.skillDirs = skillDirs;

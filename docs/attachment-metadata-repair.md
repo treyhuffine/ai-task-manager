@@ -5,9 +5,9 @@ Copying a note body preserves attachment URLs but can create manifest stubs with
 Use the trusted local orchestrator action when another existing note has the authoritative upload metadata:
 
 ```sh
-flow agent describe_paths
-flow agent repair_note_attachment_metadata --input '{"source_note_id":"<original-note-id>","target_note_id":"<copied-note-id>","file_names":["<storage-filename>.png"]}'
-flow agent get_note <copied-note-id>
+ri agent describe_paths
+ri agent repair_note_attachment_metadata --input '{"source_note_id":"<original-note-id>","target_note_id":"<copied-note-id>","file_names":["<storage-filename>.png"]}'
+ri agent get_note <copied-note-id>
 ```
 
 The required parameters are `source_note_id`, `target_note_id`, and `file_names` (1 to 100 distinct storage filenames, never paths). The result includes `sourceNoteId`, `targetNoteId`, `repairedFileNames`, and `unchangedFileNames`. HTTP MCP and unspecified remote contexts return `unsupported`.

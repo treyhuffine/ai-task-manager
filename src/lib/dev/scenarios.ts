@@ -269,7 +269,7 @@ export const SCENARIOS: Scenario[] = [
     live: {
       mode: 'ask',
       prompt:
-        'Use the Write tool to create a file at /tmp/flow-dev-scratch/example.ts with the content `export const greeting = "hello world";`. Then say done.',
+        'Use the Write tool to create a file at /tmp/ri-dev-scratch/example.ts with the content `export const greeting = "hello world";`. Then say done.',
     },
   },
   {
@@ -320,7 +320,7 @@ export const SCENARIOS: Scenario[] = [
     live: {
       mode: 'auto_edits',
       prompt:
-        'Create a file at /tmp/flow-dev-scratch/notes.md with the content "# notes\\n\\nfirst entry". Then run `wc -l /tmp/flow-dev-scratch/notes.md` to count its lines.',
+        'Create a file at /tmp/ri-dev-scratch/notes.md with the content "# notes\\n\\nfirst entry". Then run `wc -l /tmp/ri-dev-scratch/notes.md` to count its lines.',
     },
   },
   {
@@ -331,7 +331,7 @@ export const SCENARIOS: Scenario[] = [
     live: {
       mode: 'ask',
       prompt:
-        'Create /tmp/flow-dev-scratch/two.md with content "two". Then run `cat /tmp/flow-dev-scratch/two.md`.',
+        'Create /tmp/ri-dev-scratch/two.md with content "two". Then run `cat /tmp/ri-dev-scratch/two.md`.',
     },
   },
 
@@ -363,7 +363,7 @@ export const SCENARIOS: Scenario[] = [
         { source: 'tool_call', toolName: 'Grep', toolInput: { pattern: 'TODO', path: '/src' } },
         { source: 'tool_result', content: '12 matches in 4 files' },
         { source: 'tool_call', toolName: 'Bash', toolInput: { command: 'ls /tmp' } },
-        { source: 'tool_result', content: 'flow-dev-scratch\nfile.txt\nlog.json' },
+        { source: 'tool_result', content: 'ri-dev-scratch\nfile.txt\nlog.json' },
       ],
     },
   },

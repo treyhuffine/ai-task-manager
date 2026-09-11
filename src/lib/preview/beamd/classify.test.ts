@@ -10,10 +10,10 @@ describe('classifyError', () => {
   it('maps a name collision to beamd_name_taken and names the host', () => {
     // Verbatim wording from a second machine opening the default name.
     const err = classifyError(
-      failed('open failed: 502 Bad Gateway: name_taken: flow-trey.beamd.run is taken'),
+      failed('open failed: 502 Bad Gateway: name_taken: ri-trey.beamd.run is taken'),
     );
     expect(err.code).toBe('beamd_name_taken');
-    expect(err.message).toContain('flow-trey.beamd.run');
+    expect(err.message).toContain('ri-trey.beamd.run');
   });
 
   it('still classifies a collision when no hostname is in the message', () => {

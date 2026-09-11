@@ -2,15 +2,15 @@
 
 > **Status — shipped.** Both steps below are implemented in `@agentex/agent`
 > (Claude provider). This doc now records *what landed* and *where the line is
-> drawn* between the library and Flow, rather than proposing changes.
+> drawn* between the library and Ri, rather than proposing changes.
 >
 > - **Step 1 — `session.stopTask(taskId)`** + `capabilities.stopTask` — stop one
 >   background task without touching the rest of the session.
 > - **Step 2 — `getClaudeTaskDetails(event)`** — a stateless typed accessor that
->   decodes the `task_*` lifecycle events Flow already receives.
+>   decodes the `task_*` lifecycle events Ri already receives.
 >
 > Anything stateful — collapsing a task's events into one live status, a task
-> registry, reconnect snapshots — is **deliberately Flow's job, not the
+> registry, reconnect snapshots — is **deliberately Ri's job, not the
 > library's** (see §4). The library forwards and decodes; it does not interpret.
 >
 > **Verified (2026-06-23).** Checked against the agentex **source**
@@ -25,7 +25,7 @@
 Claude Code can run work that **outlives the turn that started it** — most
 importantly a backgrounded shell (`task_type: 'local_bash'`, e.g. a dev server),
 but also async subagents. The CLI exposes a full task lifecycle and a per-task
-stop over its control channel; the two steps surface those to Flow.
+stop over its control channel; the two steps surface those to Ri.
 
 | # | What | Library surface | Status |
 |---|------|-----------------|--------|
@@ -42,10 +42,10 @@ What you render is entirely your call on the consumer side.
 
 ## 1. Motivation: what we're building
 
-A read-only "background processes" panel in Flow's execution view: list the
+A read-only "background processes" panel in Ri's execution view: list the
 agent's live background tasks (a `next dev` server it spun up, a long test
 watcher, an async subagent), show each one's status, and offer a **Stop**
-button. The data path is Flow's existing one — `createSession({ onEvent })` →
+button. The data path is Ri's existing one — `createSession({ onEvent })` →
 `StreamEvent` → `chat_events` → SSE → browser. No new storage; we render events
 we already receive.
 
@@ -96,7 +96,7 @@ interface StopTaskResult {
 
 ### What it unblocks
 
-Flow's panel gets a real **Stop** button — one targeted call, no model
+Ri's panel gets a real **Stop** button — one targeted call, no model
 round-trip, no `close()` collateral, no out-of-band `lsof`/`kill` against a PID
 we don't own.
 
@@ -174,7 +174,7 @@ createSession({
 
 ---
 
-## 4. Deliberately **not** in the library (Flow's side)
+## 4. Deliberately **not** in the library (Ri's side)
 
 These were considered and intentionally left out — they're fast-moving,
 opinionated, or stateful, and the library is meant to forward + decode, not
@@ -183,21 +183,21 @@ interpret.
 - **The task reducer / "what's running right now" / `listTasks()`.** Collapsing
   `started → progress → updated(patch) → notification` into one live status per
   task is a small state machine that bakes in an opinion (what "running" means,
-  how to merge two status enums). It lives in Flow, next to the panel that
+  how to merge two status enums). It lives in Ri, next to the panel that
   renders it, so it can evolve with the CLI without a library release.
   - It also *can't* be authoritative in the library anyway: there is **no
     control-request to query tasks** — the CLI's accepted subtypes are
     `stop_task`, `interrupt`, `get_settings`, `set_model`, `rewind_files`, the
     `mcp_*` family, etc., with nothing like `list_tasks`. Any registry could
-    only mirror what was observed on the stream — a derived cache Flow can keep
+    only mirror what was observed on the stream — a derived cache Ri can keep
     itself, with the same reconnect cold-start either way.
   - Evidence this churns: `task_updated` didn't exist in CLI 2.1.70 and appeared
     by 2.1.187, which also added `subagent_type` / `workflow_name`. A reducer is
     a standing bet against a moving schema — keep that bet in the product.
 - **Tailing a background server's full output for a live log view.** That's the
-  per-task `.output` / `subagents/agent-*.jsonl` file on disk — a Flow-side read
+  per-task `.output` / `subagents/agent-*.jsonl` file on disk — a Ri-side read
   if we ever want a byte-level log. agentex shouldn't grow a file-tailing API.
-- **The browser SSE / panel UI.** Entirely Flow's surface.
+- **The browser SSE / panel UI.** Entirely Ri's surface.
 - **Deciding *which* tasks are worth showing** (servers vs. transient
   subagents) and **how chatty to be** (`task_progress` fires repeatedly — key on
   `taskId`, show the latest). Product policy; filter on `taskType`/`phase`
@@ -211,4 +211,4 @@ interpret.
 > (`session.stopTask(taskId)`, gated by `capabilities.stopTask`) and exposes a
 > stateless typed decoder for the `task_*` lifecycle events
 > (`getClaudeTaskDetails(event)`). It does **not** reduce, store, or list tasks —
-> that opinionated, fast-moving state stays in Flow.
+> that opinionated, fast-moving state stays in Ri.

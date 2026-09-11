@@ -89,7 +89,7 @@ export type HealthProbe =
 /**
  * Probe `/api/health` at a given base URL.
  *
- * Accepts either `http://localhost:4224` or `https://flow.localhost` — the
+ * Accepts either `http://localhost:4224` or `https://ri.localhost` — the
  * latter is used when the dev server is fronted by a static-hostname proxy
  * (portless.sh, caddy, etc.) and the underlying port is allocated by the
  * proxy rather than known to us.

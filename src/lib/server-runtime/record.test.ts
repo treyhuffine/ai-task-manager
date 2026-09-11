@@ -30,8 +30,8 @@ function makeRecord(overrides: Partial<ServerRuntimeRecord> = {}): ServerRuntime
 }
 
 beforeAll(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-rec-'));
-  process.env.FLOW_WORK_DIR = path.join(tmpRoot, '.work');
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-rec-'));
+  process.env.RI_WORK_DIR = path.join(tmpRoot, '.work');
 });
 
 afterAll(() => {

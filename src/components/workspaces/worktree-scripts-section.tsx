@@ -3,13 +3,13 @@
 import { useStackDetection } from '@/hooks/use-workspaces';
 
 /**
- * Worktree lifecycle scripts for a workspace — all optional. Flow runs each as
- * `sh -lc` in the execution's worktree, exporting $FLOW_SOURCE_CHECKOUT_PATH /
- * $FLOW_WORKTREE_PATH / $FLOW_BRANCH_NAME. Flow stays strategy-agnostic: the
+ * Worktree lifecycle scripts for a workspace — all optional. Ri runs each as
+ * `sh -lc` in the execution's worktree, exporting $RI_SOURCE_CHECKOUT_PATH /
+ * $RI_WORKTREE_PATH / $RI_BRANCH_NAME. Ri stays strategy-agnostic: the
  * project's command decides what happens.
  *
  *   Setup    — once, after the worktree is created (install deps, copy caches…).
- *   Start    — the dev server Flow supervises for previews (auto-assigned PORT).
+ *   Start    — the dev server Ri supervises for previews (auto-assigned PORT).
  *   Teardown — on archive, before the worktree is removed.
  *
  * `cwd` (when given) drives lockfile-based suggestions for the Setup/Start
@@ -52,7 +52,7 @@ export function WorktreeScriptsSection({
         hint={
           <>
             Runs once after the worktree is created. A fresh worktree has no installed dependencies. Install or copy what
-            it needs here. <code className="font-mono">$FLOW_SOURCE_CHECKOUT_PATH</code> points at the original checkout.
+            it needs here. <code className="font-mono">$RI_SOURCE_CHECKOUT_PATH</code> points at the original checkout.
           </>
         }
       />
@@ -63,7 +63,7 @@ export function WorktreeScriptsSection({
         placeholder={startPlaceholder}
         hint={
           <>
-            The dev command Flow runs in each worktree to start its preview. Flow assigns a stable port (injected as{' '}
+            The dev command Ri runs in each worktree to start its preview. Ri assigns a stable port (injected as{' '}
             <code className="font-mono">PORT</code>) and waits for it to listen.
           </>
         }

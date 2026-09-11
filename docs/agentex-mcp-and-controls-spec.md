@@ -1,8 +1,8 @@
 # Spec: agentex MCP attachment + session controls
 
-**Status:** SHIPPED upstream as `@agentex/agent@0.0.20` (2026-06-06) and consumed by Flow — orchestrator sessions now pass typed `mcpServers`/`strictMcpConfig`/`disallowedTools` (`src/lib/orchestrator/harness-surface.ts`, `orchestratorSessionConfig`); Flow's `extraArgs` is down to the permission-mode flag and the host-staged `tmp/orchestrator-mcp.json` is gone (agentex stages its own 0600 config). `includePartialMessages`/`assistant_delta` shipped too but Flow doesn't consume deltas yet. Kept for the rationale record. Originally written against `@agentex/agent@0.0.19`, validated against Claude Code CLI 2.1.165.
-**Audience:** the agentex repo's coding agent. Everything here was found while wiring Flow's orchestrator onto harness sessions (Flow = host app embedding agentex sessions; see `docs/orchestrator-harness.md` in the Flow repo for the consumer side).
-**Priorities:** P0 is a shipped bug. P1s are features Flow currently fakes through `extraArgs` and wants first-class. P2 is a smaller correctness ask.
+**Status:** SHIPPED upstream as `@agentex/agent@0.0.20` (2026-06-06) and consumed by Ri — orchestrator sessions now pass typed `mcpServers`/`strictMcpConfig`/`disallowedTools` (`src/lib/orchestrator/harness-surface.ts`, `orchestratorSessionConfig`); Ri's `extraArgs` is down to the permission-mode flag and the host-staged `tmp/orchestrator-mcp.json` is gone (agentex stages its own 0600 config). `includePartialMessages`/`assistant_delta` shipped too but Ri doesn't consume deltas yet. Kept for the rationale record. Originally written against `@agentex/agent@0.0.19`, validated against Claude Code CLI 2.1.165.
+**Audience:** the agentex repo's coding agent. Everything here was found while wiring Ri's orchestrator onto harness sessions (Ri = host app embedding agentex sessions; see `docs/orchestrator-harness.md` in the Ri repo for the consumer side).
+**Priorities:** P0 is a shipped bug. P1s are features Ri currently fakes through `extraArgs` and wants first-class. P2 is a smaller correctness ask.
 
 ---
 
@@ -29,7 +29,7 @@ There is no `--mcp-server` flag in Claude Code (checked 2.1.165; not present in 
                             ignoring all other MCP configurations
 ```
 
-So any consumer setting `config.mcpServers` today gets a spawn with an unknown flag. Nobody has noticed because the field is effectively unused — Flow attaches MCP via `extraArgs: ['--mcp-config', <file>]` specifically to route around this.
+So any consumer setting `config.mcpServers` today gets a spawn with an unknown flag. Nobody has noticed because the field is effectively unused — Ri attaches MCP via `extraArgs: ['--mcp-config', <file>]` specifically to route around this.
 
 Also: `McpServerConfig` is stdio-only (`{name, command, args?, env?}`), while Claude supports HTTP/SSE servers (`{type: 'http', url, headers}`) — which is the shape hosts embedding a local server actually need.
 
@@ -65,7 +65,7 @@ export type McpServerConfig =
      `mcp-config.json` the same way (same dir is fine), **mode 0600**, and
      clean it up wherever the skills dir is cleaned up.
    - **Do not pass inline JSON in argv.** HTTP server headers carry bearer
-     tokens; argv is world-readable via `ps`. This is the reason Flow uses a
+     tokens; argv is world-readable via `ps`. This is the reason Ri uses a
      file too.
 
 3. **Add `strictMcpConfig?: boolean`** to `ProviderConfig` → `--strict-mcp-config`.
@@ -100,7 +100,7 @@ export type McpServerConfig =
 
 ## P1 — First-class tool allow/deny
 
-Flow runs orchestrator sessions that must never edit files directly (writes go
+Ri runs orchestrator sessions that must never edit files directly (writes go
 through its action surface). Today it passes:
 
 ```ts
@@ -170,7 +170,7 @@ Semantics — the contract that keeps existing consumers safe:
 - Off by default. When off, the flag isn't passed and parser behavior is
   unchanged.
 - Thinking deltas: do **not** promise prose. Claude ≥2.1.155 withholds thinking
-  text (signature-only) — see Flow's `docs/agentex-thinking-capture-spec.md`.
+  text (signature-only) — see Ri's `docs/agentex-thinking-capture-spec.md`.
   If `thinking_delta` chunks ever carry text again, emitting a parallel
   `thinking_delta` event under the same flag is welcome, but spec it as
   best-effort.
@@ -193,8 +193,8 @@ Semantics — the contract that keeps existing consumers safe:
 `BaseStreamEventFields.eventId` is `null` for codex (the CLI emits no per-event
 uuid), and `messageId` (`item_N`) is turn-local. Hosts therefore can't build an
 idempotency key, which makes live-capture + transcript-replay double-write the
-same turn — Flow's full analysis: `docs/codex-reconcile-duplication-spec.md`
-(Flow repo).
+same turn — Ri's full analysis: `docs/codex-reconcile-duplication-spec.md`
+(Ri repo).
 
 The agentex-sized ask (narrow, no cross-shape correlation):
 
@@ -222,9 +222,9 @@ The agentex-sized ask (narrow, no cross-shape correlation):
   legacy stdio shape keeps parsing, all new fields optional, new event type is
   additive.
 
-## Appendix — how Flow consumes this today (the consumer contract)
+## Appendix — how Ri consumes this today (the consumer contract)
 
-Per orchestrator session, Flow currently passes:
+Per orchestrator session, Ri currently passes:
 
 ```ts
 config.extraArgs = [
@@ -242,5 +242,5 @@ config.extraArgs = [
 where the JSON file is `{"mcpServers": {"orchestrator": {"type": "http",
 "url": "http://localhost:<port>/api/orchestrator/mcp", "headers":
 {"Authorization": "Bearer <token>"}}}}` (mode 0600). After this spec ships,
-all of that collapses into typed `ProviderConfig` fields and Flow's
+all of that collapses into typed `ProviderConfig` fields and Ri's
 `extraArgs` drops to just the permission-mode flag.

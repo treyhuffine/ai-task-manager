@@ -17,7 +17,7 @@ describe('archive-aware mirror links', () => {
   const prefix = APP_SHORT_ID.toUpperCase();
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-mirror-archive-links-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-mirror-archive-links-'));
     vi.stubEnv(`${prefix}_ROOT`, root);
     vi.stubEnv(`${prefix}_DB_PATH`, path.join(root, 'data.db'));
     vi.stubEnv(`${prefix}_MIRROR_DISABLED`, '1');

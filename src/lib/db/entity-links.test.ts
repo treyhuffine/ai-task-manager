@@ -6,7 +6,7 @@ import { uuidv7 } from 'uuidv7';
 import type { DB } from '@/lib/db';
 import { entityLinks, entityProjectionState } from '@/lib/db/schema';
 
-const TEST_DB = path.join(os.tmpdir(), `flow-entity-links-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-entity-links-test-${process.pid}.db`);
 
 interface EdgeRow {
   id: string;
@@ -26,8 +26,8 @@ function cleanup() {
 
 beforeEach(() => {
   cleanup();
-  process.env.FLOW_DB_PATH = TEST_DB;
-  process.env.FLOW_MIRROR_DISABLED = '1';
+  process.env.RI_DB_PATH = TEST_DB;
+  process.env.RI_MIRROR_DISABLED = '1';
 });
 
 afterAll(cleanup);

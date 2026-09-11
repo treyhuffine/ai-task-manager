@@ -316,7 +316,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
           {frequency === 'manual' && (
             <p className="text-[11px] text-muted-foreground p-3 border border-border rounded-md">
               No automatic firing. Use the &ldquo;Run now&rdquo; button on
-              the detail page or call <code>flow trigger run</code>.
+              the detail page or call <code>ri trigger run</code>.
             </p>
           )}
         </div>

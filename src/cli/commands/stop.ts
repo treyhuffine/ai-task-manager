@@ -1,7 +1,7 @@
 /**
  * `<app> stop [options]`
  *
- * Stop a running Flow server by port. Looks up the listener PID, sends
+ * Stop a running Ri server by port. Looks up the listener PID, sends
  * SIGTERM, escalates to SIGKILL if the port doesn't clear in time. Walks
  * one level up the process tree so we also kill the `next dev`/`next start`
  * launcher that spawned the listener — otherwise the launcher would respawn
@@ -11,7 +11,7 @@
  * our health probe (no friendly fire on unrelated processes).
  *
  * Voice is intentionally not touched — `<app> voice stop` handles that and
- * the sidecar is often shared across Flow instances.
+ * the sidecar is often shared across Ri instances.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -124,7 +124,7 @@ export async function stopCommand(opts: StopOptions) {
   // leave it alone.
   const targets = [listenerPid];
   const parent = getParent(listenerPid);
-  if (parent && isFlowParent(parent.command)) {
+  if (parent && isRiParent(parent.command)) {
     targets.unshift(parent.pid);
   }
   // In HTTP/2 mode the public listener is the launcher itself; a graceful signal
@@ -248,7 +248,7 @@ function getParent(pid: number): ParentInfo | null {
  * Conservative on purpose — false here just means we kill only the listener,
  * which is fine 95% of the time.
  */
-function isFlowParent(command: string): boolean {
+function isRiParent(command: string): boolean {
   return (
     /\bnext\b.*\b(dev|start)\b/.test(command) ||
     /tsx\s+src\/cli\/index\.ts/.test(command) ||

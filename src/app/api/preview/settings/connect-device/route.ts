@@ -11,7 +11,7 @@
  *
  * Like the token path, "connected" means *verified*: we run `beamd check` after
  * the login exits 0 (and use its server/slug), rolling the login back on
- * failure. beamd owns the credential in `~/.beamd/`; Flow stores nothing.
+ * failure. beamd owns the credential in `~/.beamd/`; Ri stores nothing.
  * `beamdLoginDevice` drives the real interactive `beamd login` (no `--token`)
  * and scrapes its URL + code; an edge that can't do browser approval surfaces
  * `unsupported`, so the UI degrades to the API-key form with no breakage.

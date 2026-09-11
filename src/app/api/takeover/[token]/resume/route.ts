@@ -9,7 +9,7 @@ import { openWorktreeHandle } from '@/lib/workspaces';
 /**
  * POST /api/takeover/[token]/resume
  *
- * Server-side half of `flow resume`. Pulls the remote branch back into
+ * Server-side half of `ri resume`. Pulls the remote branch back into
  * the host worktree, computes the diff against the takeover base SHA,
  * inserts a synthetic user message into the chat with the diff summary,
  * and clears the takeover columns.

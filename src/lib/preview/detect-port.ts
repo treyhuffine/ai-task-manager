@@ -18,7 +18,7 @@
  *     false positives like `version 9.0.1` or git short SHAs that happen
  *     to be all digits.
  *   - Skips ports that match the host's HTTP/HTTPS proxy ports
- *     (the Flow server itself, the Portless daemon, etc. — set via the
+ *     (the Ri server itself, the Portless daemon, etc. — set via the
  *     `ignorePorts` option) so the detector doesn't latch onto an
  *     `Auto-restart at http://localhost:4224` line from the framework's
  *     own banner re-print.

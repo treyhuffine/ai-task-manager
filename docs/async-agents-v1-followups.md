@@ -149,7 +149,7 @@ UI: a "Rotate secret" button on the schedule detail page that opens the same `We
 **File**: `src/lib/runs/event-hooks.ts:127–141`
 
 ```ts
-const STATE_KEY = Symbol.for('@flow/tool-call-name-cache');
+const STATE_KEY = Symbol.for('@ri/tool-call-name-cache');
 const toolCallNames = ... new Map();
 
 function registerToolCallName(toolCallId, toolName) {
@@ -193,7 +193,7 @@ Call `sweep()` from `registerToolCallName` (cheap O(n) every N calls).
 
 Today:
 ```bash
-flow schedule edit <name>
+ri schedule edit <name>
   --prompt <text>
   --cron <expr>
   --every <seconds>
@@ -223,7 +223,7 @@ Issues with the current design:
 
 **Fix** (V2 design):
 
-1. Add a per-install encryption key (random 32 bytes) stored in `~/.flow/keys/webhook-encryption-key` with 0600 mode. Generated on first server start.
+1. Add a per-install encryption key (random 32 bytes) stored in `~/.ri/keys/webhook-encryption-key` with 0600 mode. Generated on first server start.
 
 2. At schedule create:
    ```ts
@@ -269,9 +269,9 @@ No `X-Timestamp` check, no nonce, no per-request rate limit. An intercepted webh
 
 ## 3. Upstream — `@agentex/agent` proposals
 
-Five capabilities Flow built above the SDK because the existing surface didn't cover them. Documented in full at `docs/agentex-feedback.md`.
+Five capabilities Ri built above the SDK because the existing surface didn't cover them. Documented in full at `docs/agentex-feedback.md`.
 
-| Proposal | Effort upstream | Flow code that goes away |
+| Proposal | Effort upstream | Ri code that goes away |
 |---|---|---|
 | **#1** — Per-turn `timeout` on `AgentSession.send()` | Small | `src/lib/runs/dispatch.ts:runWithTimeout` + `RunTimeoutError` (~60 LOC) |
 | **#2** — `tool_result.toolName` | Small | `src/lib/runs/event-hooks.ts` cache + register/consume (~30 LOC) |
@@ -312,7 +312,7 @@ pill + model pill + Frequency + Advanced).
   comment).
 
 **New `kind='manual'`**: a schedule with no automatic firing. Only
-runs via the "Run now" button or `flow schedule run <name>`. Lets a
+runs via the "Run now" button or `ri schedule run <name>`. Lets a
 user save a scheduled task without committing to a cadence; they can
 convert to a real schedule later by editing.
 
@@ -323,7 +323,7 @@ any preset.
 
 **CLI matching surface:**
 ```
-flow schedule create --name daily-briefing \
+ri schedule create --name daily-briefing \
   --description "Summarize calendar + inbox" \
   --prompt "Check my calendar..." \
   --workspace <id> \
@@ -337,7 +337,7 @@ escape hatches stay.
 
 The reason OpenClaw / Hermes can show a single "What should the agent
 do?" textarea is their orchestrator can read loose intent and figure
-out which workspace / project to act on. Flow's orchestrator can do
+out which workspace / project to act on. Ri's orchestrator can do
 some of that today (it has the action registry), but the UX trade-off
 is muddier — users who pick a workspace explicitly land in a clean
 git-isolated execution; orchestrator schedules don't, so they're more
@@ -416,9 +416,9 @@ Drop-in; the only risk is choosing the TTL value. 30min is recommended.
 
 Single milestone. Communicate the breaking change to anyone with live webhook integrations. Provide a migration guide.
 
-**Batch E — Upstream (no Flow code)**
+**Batch E — Upstream (no Ri code)**
 - Open agentex issues for proposals #1–#5
-- When any land, delete the corresponding Flow scaffolding
+- When any land, delete the corresponding Ri scaffolding
 
 ---
 

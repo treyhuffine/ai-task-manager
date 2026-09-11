@@ -388,7 +388,7 @@ The runtime flow, for an app-spawned session:
 
 The CLI also writes the same events to its JSONL/rollout file on disk. The reconciler reads that file on cold start (sweep) and on session open (lazy) and replays any events stdio missed through the same `insertChatEvent` chokepoint. See `docs/realtime.md` for the cursor model and per-provider dedup story.
 
-For **externally-spawned** sessions the user imports into the app, there is no stdio writer. Agentex discovers and normalizes provider-owned history. Claude and Codex use file-backed `localHistory`. OpenCode uses service-backed `savedHistory`. Flow stages the normalized events, writes them to `chat_events`, and records source state in `external_session_imports`.
+For **externally-spawned** sessions the user imports into the app, there is no stdio writer. Agentex discovers and normalizes provider-owned history. Claude and Codex use file-backed `localHistory`. OpenCode uses service-backed `savedHistory`. Ri stages the normalized events, writes them to `chat_events`, and records source state in `external_session_imports`.
 
 UI renders from `chat_events` throughout — the source of the rows is invisible to the UI layer.
 
@@ -405,17 +405,17 @@ UI renders from `chat_events` throughout — the source of the rows is invisible
 
 **What happens if both the UI and a terminal try to write to the same CLI session concurrently.** Don't allow it. A per-`external_session_id` lock on our side serializes UI invocations. If the user is actively using the terminal, our UI shows "active elsewhere — waiting" rather than interleaving. Correct behavior is more important than parallel convenience here.
 
-**The adapter layer is built on Agentex.** We use [`@agentex/agent`](https://www.npmjs.com/package/@agentex/agent) for app-spawned sessions and imported provider history. Flow translates normalized Agentex events into `chat_events`, manages live rollovers, and owns historical import persistence. Provider file formats, OpenCode service calls, stable event identity, fingerprints, and checkpoints stay in Agentex.
+**The adapter layer is built on Agentex.** We use [`@agentex/agent`](https://www.npmjs.com/package/@agentex/agent) for app-spawned sessions and imported provider history. Ri translates normalized Agentex events into `chat_events`, manages live rollovers, and owns historical import persistence. Provider file formats, OpenCode service calls, stable event identity, fingerprints, and checkpoints stay in Agentex.
 
 Adapter responsibilities (on top of agentex):
 
 - `startSession(cwd, initialMessage) → { external_session_id, external_transcript_path, events }` — **app-spawned path.** Spawn via agentex; return the session id, observed transcript path (stored for reference, not read), and the stdio event stream.
 - `sendMessage(external_session_id, message) → events` — **app-spawned path.** Continue a running session via agentex stdio; returns an event stream. Fails if session is gone (triggers rollover).
-- `discoverExternalAgentSessions() → ExternalAgentDiscovery` discovers provider-neutral candidates through Agentex and joins them with the Flow import ledger.
+- `discoverExternalAgentSessions() → ExternalAgentDiscovery` discovers provider-neutral candidates through Agentex and joins them with the Ri import ledger.
 - `importExternalAgentSessions(sessionKeys) → ExternalAgentImportResult` imports new candidates and explicitly synchronizes already imported candidates.
-- `refreshExternalAgentSessions(chatSessionIds) → ExternalAgentImportResult` resolves ledger rows by Flow chat ID and runs the same trusted synchronization path.
+- `refreshExternalAgentSessions(chatSessionIds) → ExternalAgentImportResult` resolves ledger rows by Ri chat ID and runs the same trusted synchronization path.
 - `parseStreamEvent(event) → chat_event | null` — maps agentex StreamEvents to `chat_events` rows (app-spawned path).
-- Agentex `localHistory.read()` and `savedHistory.read()` normalize imported history. Flow has no provider-specific file parser.
+- Agentex `localHistory.read()` and `savedHistory.read()` normalize imported history. Ri has no provider-specific file parser.
 
 v1 ships one adapter: Claude Code. Codex is the next adapter and its spec is documented below so we know the interface survives it. In-app sessions (orchestration, content) skip the adapter layer entirely — those are direct API calls whose events we write to `chat_events` directly.
 
@@ -439,7 +439,7 @@ This is the v1 adapter. Everything here is verified by inspecting real transcrip
             └── agent-{id}.meta.json { "agentType": "Explore" }
 ```
 
-For live Claude sessions, the observed path can be retained with the live binding. Historical import does not derive this path in Flow. Agentex owns Claude home resolution, path discovery, and transcript normalization. Flow stores the trusted server-side source path and fingerprints in `external_session_imports`.
+For live Claude sessions, the observed path can be retained with the live binding. Historical import does not derive this path in Ri. Agentex owns Claude home resolution, path discovery, and transcript normalization. Ri stores the trusted server-side source path and fingerprints in `external_session_imports`.
 
 **Entry shape (JSONL, one event per line):**
 
@@ -530,7 +530,7 @@ Since agentex splits assistant `message.content` arrays into one StreamEvent per
 
 **Historical-import filtering.** Agentex returns root sessions with meaningful human messages. Nested subagent-only transcripts are not imported as standalone chats.
 
-**Historical-import sync.** Agentex reads and normalizes the file. Flow verifies the previously synchronized SHA-256 prefix, stages bounded normalized events, fingerprints the complete source again, and commits events plus ledger state atomically only if the source stayed stable. Truncation, path movement, changed prefixes, and legacy unverified offsets trigger a full staged replay.
+**Historical-import sync.** Agentex reads and normalizes the file. Ri verifies the previously synchronized SHA-256 prefix, stages bounded normalized events, fingerprints the complete source again, and commits events plus ledger state atomically only if the source stayed stable. Truncation, path movement, changed prefixes, and legacy unverified offsets trigger a full staged replay.
 
 ### The Codex adapter, concretely
 
@@ -544,7 +544,7 @@ This is the v-next adapter. Agentex v2 provider ships with `turnId: string | nul
 
 **Agentex hides #1 and #2** — its auto-detecting parser emits the same `StreamEvent` shape for either. Our code consuming agentex stdio only sees one normalized stream.
 
-**#3 is an Agentex boundary for historical import.** Agentex `localHistory` owns rollout discovery, provider-format parsing, stable source identity, and normalized reads. Flow owns staged persistence, ledger checkpoints, and explicit sync policy. The separate live-session reconciler still handles drift recovery for app-spawned sessions.
+**#3 is an Agentex boundary for historical import.** Agentex `localHistory` owns rollout discovery, provider-format parsing, stable source identity, and normalized reads. Ri owns staged persistence, ledger checkpoints, and explicit sync policy. The separate live-session reconciler still handles drift recovery for app-spawned sessions.
 
 **File layout:**
 
@@ -580,12 +580,12 @@ Session ids look like UUIDv7 (`019db0e8-...`) — time-ordered, which happens to
 **Two parse paths, one adapter.** The Codex adapter handles two different event streams through one shared mapper:
 
 - **stdio events** (what agentex emits at runtime, from `codex exec`): `thread.started`, `item.started`, `item.completed` for each atomic piece (`agent_message`, `command_execution`, `function_call`, `reasoning`), `turn.completed`, `turn.failed`, `error`, `token_count`. This is the realtime path.
-- **rollout file** at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (what Codex writes to disk): wrapped in `session_meta`, `turn_context`, `response_item`, `event_msg` envelopes. Agentex `localHistory` owns this format for explicit historical import. Flow never parses these envelopes directly.
+- **rollout file** at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (what Codex writes to disk): wrapped in `session_meta`, `turn_context`, `response_item`, `event_msg` envelopes. Agentex `localHistory` owns this format for explicit historical import. Ri never parses these envelopes directly.
 
 Both ultimately represent the same items. The adapter normalizes either stream into the same `chat_events` rows.
 
 **ID derivation for Codex rows:**
-- `external_event_id` = the item's stable provider ID for live events. For rollout imports, Agentex supplies a deterministic identity derived from the provider session and source position. Flow combines it with `source_part_index` inside the imported chat's unique key.
+- `external_event_id` = the item's stable provider ID for live events. For rollout imports, Agentex supplies a deterministic identity derived from the provider session and source position. Ri combines it with `source_part_index` inside the imported chat's unique key.
 - `external_message_id` = null (Codex doesn't have a separate "message id" concept — each item is atomic)
 - `external_turn_id` = the native UUIDv7 turn id that v2 app-server emits on every turn-scoped notification (`params.turnId` or `params.turn.id`). Attached to every turn-scoped row; null on system/rate_limit rows that aren't part of a turn.
 - `external_tool_call_id` = the tool item's `id` (or `call_id` for function_calls) on both `tool_call` and `tool_result` rows, linking the pair
@@ -622,18 +622,18 @@ No byte-offset synthesis needed — agentex surfaces `item.id` directly. Older d
 
 `created_at` = parsed `timestamp`. `raw` = the full event payload. Content fields are extracted into typed columns (`content`, `tool_name`, `tool_input`, `tool_is_error`, `tool_exit_code`) — no nested JSON in `content`.
 
-**Session discovery.** Agentex `localHistory` owns the date-sharded walk, indexes, eligibility filtering, and metadata fallbacks. Flow asks Agentex only when the explicit import surface or sync path needs a trusted catalog.
+**Session discovery.** Agentex `localHistory` owns the date-sharded walk, indexes, eligibility filtering, and metadata fallbacks. Ri asks Agentex only when the explicit import surface or sync path needs a trusted catalog.
 
 **Reliability verdict:** append-only, ISO timestamps, clear event types, `cli_version` for forward-compat detection. Weaker than Claude in two ways: no compaction summary (we proactively rollover), no message-level grouping (but the atomic-items design means we don't need it). Stronger in one way: exit codes surface for `command_execution`. Proactive rollover is the only meaningful Codex-specific behavior beyond mapping; everything else is event translation.
 
 ### Reconciling chats that happen outside the app
 
-Users can create agent sessions outside Flow. These sessions are not visible to Agentex live events because Flow did not spawn them. Explicit historical import discovers them through Agentex. Claude and Codex are file-backed. OpenCode is service-backed.
+Users can create agent sessions outside Ri. These sessions are not visible to Agentex live events because Ri did not spawn them. Explicit historical import discovers them through Agentex. Claude and Codex are file-backed. OpenCode is service-backed.
 
 Writer pairings by spawn origin:
 
 - **App-spawned sessions (the default):** stdio via agentex is the primary writer; a transcript reconciler is the secondary writer that fills events stdio missed (crash mid-turn, missed stream event). Per-provider dedup keeps this safe — see Write paths above and `docs/realtime.md`.
-- **Externally-spawned sessions that the user imports into Flow:** provider-owned history is the sole source. Flow never starts a live writer for them.
+- **Externally-spawned sessions that the user imports into Ri:** provider-owned history is the sole source. Ri never starts a live writer for them.
 
 The original cross-ingest concern was that stdio and rollout-file identifiers don't always match (Codex rollout `response_item` entries have no `id`). That's why Codex reconcile defers while `isRunning` instead of trying to dedup — the two paths never write the same session concurrently, so there's nothing to correlate. Claude's wire `uuid` does match between stdio and disk, so its two paths can run concurrently and the partial unique index drops the dupes.
 
@@ -794,12 +794,12 @@ Files referenced by `chat_events.attachments` live under `<brain>/attachments/<f
 
 For in-app sessions (orchestration, content), `external_*` fields are null and our DB is authoritative.
 
-For live execution sessions, `external_provider_type` and `external_session_id` identify the current provider binding, which can rotate on rollover. Historical imports keep their provider-qualified source identity, file fingerprint or service checkpoint, and synchronization status in `external_session_imports`. Agentex owns provider history normalization. Flow owns the read-only projection and explicit sync transaction.
+For live execution sessions, `external_provider_type` and `external_session_id` identify the current provider binding, which can rotate on rollover. Historical imports keep their provider-qualified source identity, file fingerprint or service checkpoint, and synchronization status in `external_session_imports`. Agentex owns provider history normalization. Ri owns the read-only projection and explicit sync transaction.
 
-Source uniqueness is provider-qualified for both current live bindings and historical imports. Event replay is idempotent within a Flow chat through the compound external-event unique key. How many sessions exist per user, agent, or surface remains the user's call.
+Source uniqueness is provider-qualified for both current live bindings and historical imports. Event replay is idempotent within a Ri chat through the compound external-event unique key. How many sessions exist per user, agent, or surface remains the user's call.
 
 Memory, if it becomes a distinct store, sits next to these tables rather than inside them — explicitly out of scope for this doc.
 
 ## The one-line version
 
-Three distinct kinds of chat share a schema but not a UX. App-spawned execution sessions use Agentex live events plus the live reconciler. Explicit historical imports use Agentex `localHistory` for Claude and Codex or `savedHistory` for OpenCode, then Flow stores a read-only projection and synchronization ledger. Cursor remains live execution only. Retrieval runs over `chat_events`, not provider files or services. Source identity is provider-qualified, rollovers stay visible, and the UI does not pretend an imported chat is a writable live provider session.
+Three distinct kinds of chat share a schema but not a UX. App-spawned execution sessions use Agentex live events plus the live reconciler. Explicit historical imports use Agentex `localHistory` for Claude and Codex or `savedHistory` for OpenCode, then Ri stores a read-only projection and synchronization ledger. Cursor remains live execution only. Retrieval runs over `chat_events`, not provider files or services. Source identity is provider-qualified, rollovers stay visible, and the UI does not pretend an imported chat is a writable live provider session.

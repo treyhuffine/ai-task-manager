@@ -24,7 +24,7 @@ export interface ChecklistItem {
   dismissed: boolean;
 }
 
-const DISMISS_KEY = 'flow.setup.dismissed';
+const DISMISS_KEY = 'ri.setup.dismissed';
 
 function loadDismissed(): Set<string> {
   if (typeof window === 'undefined') return new Set();

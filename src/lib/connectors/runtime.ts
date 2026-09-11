@@ -58,7 +58,7 @@ function parseEnvList(value: string | undefined): string[] | undefined {
  * Resolution (first hit wins):
  *   1. `CONNECTORS_REDIRECT_URI` — explicit full-URI override (operator pins it)
  *   2. the tunnel URL — how external/remote devices reach this host
- *   3. the stable portless hostname (e.g. `https://flow.localhost`)
+ *   3. the stable portless hostname (e.g. `https://ri.localhost`)
  *   4. loopback on the running port — local-only fallback
  *
  * Previously this hardcoded `localhost:4224`, so a user accessing the app via a

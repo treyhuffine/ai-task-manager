@@ -7,7 +7,7 @@ import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { DECK_INSTRUCTIONS_FILENAME } from '@/lib/deck/instructions';
 import { GET, PUT } from './route';
 
-const ROOT = path.join(os.tmpdir(), `flow-deck-instr-route-${process.pid}`);
+const ROOT = path.join(os.tmpdir(), `ri-deck-instr-route-${process.pid}`);
 const prevRoot = process.env[APP_ROOT_ENV];
 
 beforeEach(() => {

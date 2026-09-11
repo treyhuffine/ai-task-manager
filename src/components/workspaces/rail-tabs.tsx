@@ -19,7 +19,7 @@ import { useRunsStats } from '@/hooks/use-runs-stats';
 
 type RailTab = 'status' | 'workspace' | 'history';
 
-const STORAGE_KEY = 'flow.rail.tab';
+const STORAGE_KEY = 'ri.rail.tab';
 const DEFAULT_TAB: RailTab = 'workspace';
 
 /**

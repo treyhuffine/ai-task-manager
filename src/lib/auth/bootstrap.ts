@@ -28,7 +28,7 @@ export interface LocalTokenInfo {
 }
 
 /**
- * Stable local hostname fronting the dev server (e.g. `https://flow.localhost`
+ * Stable local hostname fronting the dev server (e.g. `https://ri.localhost`
  * via portless). Persisted in config.json by `start --portless` so out-of-process
  * commands like `pair` reconstruct the same URL.
  */
@@ -47,7 +47,7 @@ export function setStaticUrl(url: string | null): void {
  * `process.env.PORT` with its private listening port, so port-derived URLs are
  * wrong under a fronting gateway — the launcher-set override and the managed
  * record carry the true public origin:
- *   1. `FLOW_PUBLIC_BASE_URL` — launcher override for the current process.
+ *   1. `RI_PUBLIC_BASE_URL` — launcher override for the current process.
  *   2. A live managed-instance record (HTTP/2 or plain HTTP launches publish it).
  *   3. Legacy `staticUrl` (portless), retained as a configured fallback only.
  *   4. `http://localhost:<runningPort>` — the original direct-Next default.

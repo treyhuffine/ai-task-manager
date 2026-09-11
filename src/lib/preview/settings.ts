@@ -2,12 +2,12 @@
  * Global preview settings — how previews are reached, app-wide. Persisted
  * at `<app-root>/preview.json` (0600). Distinct from per-workspace preview
  * command (lives on the workspace row) and from the beamd credential (which
- * Flow does NOT store — it lives in the machine's shared `~/.beamd/` account,
- * set up via `beamd login`; Flow is just another beamd client).
+ * Ri does NOT store — it lives in the machine's shared `~/.beamd/` account,
+ * set up via `beamd login`; Ri is just another beamd client).
  *
  * One choice lives here that the whole picker turns on: the **active remote
  * provider** — what URL a preview resolves to when the viewer isn't on the
- * same machine as Flow.
+ * same machine as Ri.
  */
 
 import fs from 'node:fs';

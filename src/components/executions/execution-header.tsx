@@ -30,7 +30,7 @@ import { isSessionUnread } from '@/lib/utils/session-sort';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
 
-const HEADER_LAYOUT_KEY = 'flow.execution.header.layout';
+const HEADER_LAYOUT_KEY = 'ri.execution.header.layout';
 const DEFAULT_HEADER_LAYOUT: HeaderLayout = 'right';
 
 function readPersistedLayout(): HeaderLayout {

@@ -4,7 +4,7 @@
 
 **Last updated:** 2026-07-09
 
-**Product owner:** Flow
+**Product owner:** Ri
 
 **Primary surfaces:** Quick Capture, Stream, Chat, Deck, Notes, Tasks
 
@@ -36,7 +36,7 @@ The agent reconciles captures against one another and against the user's existin
 
 The user promise is:
 
-> Capture anything. Flow will keep your words, recognize what matters, combine what belongs together, and ask only when your judgment is truly needed.
+> Capture anything. Ri will keep your words, recognize what matters, combine what belongs together, and ask only when your judgment is truly needed.
 
 The emotional outcome is more important than inbox zero:
 
@@ -82,7 +82,7 @@ This preserves three important properties:
 
 ### 2.2 Original input is immutable
 
-Flow never destroys what the user originally captured.
+Ri never destroys what the user originally captured.
 
 - Text capture stores the exact submitted text
 - Voice capture stores the original audio attachment and the first machine transcript
@@ -123,7 +123,7 @@ This replaces silent decay and prevents frictionless capture from producing task
 
 ### 2.5 Review is concentrated
 
-The user does not manually process a queue of every capture. Flow handles clear, reversible work and gathers genuine uncertainties into a small “Needs your call” review.
+The user does not manually process a queue of every capture. Ri handles clear, reversible work and gathers genuine uncertainties into a small “Needs your call” review.
 
 The Deck is never blocked by Stream review. A review can appear near the Deck when relevant, but it is a separate, optional decision moment.
 
@@ -318,7 +318,7 @@ Only ambiguity or meaningful risk should reach this surface.
 Each decision card contains:
 
 - The relevant source words
-- Flow's suggested action
+- Ri's suggested action
 - One sentence explaining why
 - The smallest useful choice set, usually two or three actions
 - An inspect affordance for full context
@@ -1799,7 +1799,7 @@ Phase 0: Contract and safety
 
 This feature succeeds when the Stream stops feeling like a place the user must return to and starts feeling like a dependable extension of memory.
 
-The lovable experience is not that Flow perfectly categorizes every sentence. It is that the user can speak or type imperfectly, close the window, and feel lighter. Later, the right task appears, the right note has grown, or one thoughtful question arrives at a good moment.
+The lovable experience is not that Ri perfectly categorizes every sentence. It is that the user can speak or type imperfectly, close the window, and feel lighter. Later, the right task appears, the right note has grown, or one thoughtful question arrives at a good moment.
 
 The system should feel quietly attentive:
 

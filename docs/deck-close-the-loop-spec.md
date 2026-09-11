@@ -253,7 +253,7 @@ one-shot `tier` choices (`fast` for gathering, `standard` for generation), not e
   and sends. Records a `delegate` deck decision (2.1) with the task id.
 - Once dispatched, the card shows a running badge (execution id in the decision
   `detail`, surfaced via the review lane when output lands). No auto-routing, no
-  Flow-chosen strategy — the user owns the hook (strategy-agnostic primitives rule).
+  Ri-chosen strategy — the user owns the hook (strategy-agnostic primitives rule).
 
 ### 4.4 One brain, two lanes (decision doc, no code) `[new]`
 - Write the alignment note into `docs/execution-queue-ideas.md`: the deck ranks

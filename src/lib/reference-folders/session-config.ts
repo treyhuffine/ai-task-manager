@@ -73,7 +73,7 @@ export function buildReferenceFolderSessionConfig(
  *
  * Checked against agentex 0.0.34 source, not assumed: `instructionsFile` is
  * read in `providers/<p>/session.ts` for claude, codex and pi, but only in
- * `execute.ts` (the one-shot path) for cursor and opencode. Flow always goes
+ * `execute.ts` (the one-shot path) for cursor and opencode. Ri always goes
  * through `createSession`, so on cursor and opencode the field is silently
  * dropped and the agent never learns the folders exist.
  *

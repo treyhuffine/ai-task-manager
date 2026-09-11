@@ -63,7 +63,7 @@ export interface StartOptions {
    *  Next child as NEXT_PUBLIC_HOT=1 so it's inlined into the client bundle. */
   hot?: boolean;
   /** `true` from --http2, `false` from --no-http2, undefined otherwise.
-   *  Resolved against FLOW_HTTP2 in `resolveHttp2Enabled`. */
+   *  Resolved against RI_HTTP2 in `resolveHttp2Enabled`. */
   http2?: boolean;
   /** Supplied certificate/key pair for HTTP/2 (both required together). */
   tlsCert?: string;
@@ -129,7 +129,7 @@ export async function startCommand(opts: StartOptions) {
   // sticking around after a previous portless run.
   setStaticUrl(portless?.url ?? null);
 
-  // Resolve HTTP/2 mode: explicit --http2/--no-http2 > FLOW_HTTP2 > disabled.
+  // Resolve HTTP/2 mode: explicit --http2/--no-http2 > RI_HTTP2 > disabled.
   let http2Enabled = false;
   try {
     http2Enabled = resolveHttp2Enabled(opts);
@@ -229,7 +229,7 @@ export async function startCommand(opts: StartOptions) {
 
   // First-run setup. Walk the CLI wizard if this brain has never been
   // onboarded and we're attached to a real terminal. Headless invocations
-  // (smoke tests, CI, scripted starts) skip silently — `flow onboard` is
+  // (smoke tests, CI, scripted starts) skip silently — `ri onboard` is
   // available later if they want to configure interactively.
   if (!getIsOnboarded()) {
     if (process.stdin.isTTY) {
@@ -237,7 +237,7 @@ export async function startCommand(opts: StartOptions) {
       markOnboarded();
       log.success('Setup complete');
     } else {
-      log.info('Skipping CLI setup (non-interactive). Run `flow onboard` to configure.');
+      log.info('Skipping CLI setup (non-interactive). Run `ri onboard` to configure.');
     }
   }
 

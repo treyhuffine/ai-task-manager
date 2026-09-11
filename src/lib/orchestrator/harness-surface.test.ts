@@ -14,17 +14,17 @@ import {
 } from './harness-surface';
 import { AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 
-// agentex tags the managed region `<!-- flow:managed:start hash=… -->` /
-// `<!-- flow:managed:end -->`. The start marker carries a content hash, so
+// agentex tags the managed region `<!-- ri:managed:start hash=… -->` /
+// `<!-- ri:managed:end -->`. The start marker carries a content hash, so
 // match the stable prefix substring rather than a fixed string.
-const MANAGED_START = 'flow:managed:start';
-const MANAGED_END = 'flow:managed:end';
+const MANAGED_START = 'ri:managed:start';
+const MANAGED_END = 'ri:managed:end';
 
 let root: string;
 let prevRoot: string | undefined;
 
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-surface-test-'));
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-surface-test-'));
   prevRoot = process.env[APP_ROOT_ENV];
   process.env[APP_ROOT_ENV] = root;
 });
@@ -108,9 +108,9 @@ describe('installOrchestratorSurface', () => {
     // comment text and replace the region rather than prepend a new one.
     fs.writeFileSync(
       agentsMd,
-      '<!-- flow:managed:start — app-generated; edits inside this block are overwritten -->\n' +
+      '<!-- ri:managed:start — app-generated; edits inside this block are overwritten -->\n' +
         'OLD BRIEF CONTENT\n' +
-        '<!-- flow:managed:end -->\n\n## My own rules\nkeep me\n',
+        '<!-- ri:managed:end -->\n\n## My own rules\nkeep me\n',
     );
 
     await installOrchestratorSurface('harness_skills');
@@ -226,14 +226,14 @@ describe('browserMcpServer', () => {
 
 describe('renderOrchestratorBrief', () => {
   it('embeds the CLI command in skills mode', () => {
-    const brief = renderOrchestratorBrief('harness_skills', 'flow');
-    expect(brief).toContain('flow agent <action> [params]');
+    const brief = renderOrchestratorBrief('harness_skills', 'ri');
+    expect(brief).toContain('ri agent <action> [params]');
     expect(brief).toContain("create_task --input");
   });
 
   it('teaches long-running-conversation discipline in both harness modes', () => {
     for (const mode of ['harness_skills', 'harness_mcp'] as const) {
-      const brief = renderOrchestratorBrief(mode, 'flow');
+      const brief = renderOrchestratorBrief(mode, 'ri');
       expect(brief).toContain('This conversation is long-running');
       expect(brief).toContain('Re-read state before acting');
       expect(brief).toContain('Your clock may be stale');
@@ -243,7 +243,7 @@ describe('renderOrchestratorBrief', () => {
 
   it('surfaces the browser capability and its skill in both harness modes', () => {
     for (const mode of ['harness_skills', 'harness_mcp'] as const) {
-      const brief = renderOrchestratorBrief(mode, 'flow');
+      const brief = renderOrchestratorBrief(mode, 'ri');
       expect(brief).toContain('## Browser');
       expect(brief).toContain('browser_read');
       expect(brief).toContain(AGENT_BROWSER_SKILL_NAME);
@@ -256,6 +256,6 @@ describe('renderOrchestratorBrief', () => {
     // must carry the root or skills-mode writes land in the wrong brain.
     const { resolveCliCommand } = await import('./harness-surface');
     const cmd = resolveCliCommand();
-    expect(cmd).toContain(`FLOW_ROOT='${root}'`);
+    expect(cmd).toContain(`RI_ROOT='${root}'`);
   });
 });

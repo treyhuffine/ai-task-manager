@@ -1,6 +1,6 @@
-# Flow — Preview System Rebuild: Spec & Task List
+# Ri — Preview System Rebuild: Spec & Task List
 
-> Self-contained work plan to replace Flow's brittle preview system with a
+> Self-contained work plan to replace Ri's brittle preview system with a
 > small **provider** model. Each item is a checkbox with concrete
 > acceptance criteria. You should not need any external context beyond
 > this file + the codebase.
@@ -9,10 +9,10 @@
 
 ## 0. Background (read first)
 
-**What Flow is.** A local-first "work OS" (Next.js 16 / React 19 / TS,
+**What Ri is.** A local-first "work OS" (Next.js 16 / React 19 / TS,
 SQLite + Drizzle). Agents act as co-workers: each agent **execution** runs
 in its own **git worktree** named `<workspace>-<uuid-substring>` (e.g.
-`flow-a3f9`). Flow typically runs on an **always-on Mac Mini** so you can
+`ri-a3f9`). Ri typically runs on an **always-on Mac Mini** so you can
 drive agents from any device.
 
 **The problem.** When an agent builds an app, you want to **review the
@@ -30,12 +30,12 @@ Tailscale paths and a stdout-port-scraper. We're replacing it.
   existing read-only `routes.json` adapter). **Everything else** (ngrok,
   cloudflared, Tailscale, …) is either a **community plugin** or the user
   **runs their own tunnel and pastes the URL into the execution**, which
-  Flow stores and uses for the preview.
+  Ri stores and uses for the preview.
 - Reference ergonomic we like (Portless): `portless $(basename $PWD) next dev`
   — name the route by the worktree, autoassign a port, wrap the dev cmd.
 - **Naming:** the worktree basename is the preview name. Multi-service
-  worktrees append a service suffix with **hyphens** (`flow-a3f9-web`,
-  `flow-a3f9-api`) — must be a single DNS label (≤63 chars, lowercase
+  worktrees append a service suffix with **hyphens** (`ri-a3f9-web`,
+  `ri-a3f9-api`) — must be a single DNS label (≤63 chars, lowercase
   `[a-z0-9-]`), because beamd's wildcard cert is one label deep.
 - **Keep:** the supervisor (process lifecycle), screenshots
   (`/api/capture`), the settings/remote-base-url/pairing UI patterns.
@@ -62,12 +62,12 @@ Key facts this integration depends on:
   npm's name-similarity guard). It installs a `beamd` command; spawn it via
   `node_modules/.bin/beamd` or `require.resolve("@beamd/cli/bin/beamd.cjs")`.
 - **Command surface:** `beamd open <port> --as <name> [-d] [--json]` (foreground
-  by default — Flow **always** passes `-d` for the detached, non-blocking path)
+  by default — Ri **always** passes `-d` for the detached, non-blocking path)
   / `beamd close <name> [--json]` / `beamd list --json` / `beamd status --json`.
   `--json` has shipped; always use it (one object/array, nothing else).
 - **Auth is `--config <path>`, NOT `~/.beamd/config`.** `~/.beamd/config` is now
   the *interactive profile store* — automation must stay out of it. Write a
-  dedicated `{server, token}` YAML (under Flow's data dir) and pass `--config
+  dedicated `{server, token}` YAML (under Ri's data dir) and pass `--config
   <that path>` to **every** beamd call; it bypasses profiles entirely (the
   documented automation path). Per-call `--server/--token` are not the model.
 - **Read the `url` from `open --json`; never assemble it.** beamd defaults to
@@ -102,7 +102,7 @@ tunnel) and **static** ones (a URL already exists).
   ```ts
   export interface PreviewTarget { url: string; stop?: () => Promise<void>; }
   export interface PreviewContext {
-    worktreeName: string;        // e.g. "flow-a3f9"
+    worktreeName: string;        // e.g. "ri-a3f9"
     service?: string;            // e.g. "web" | "api"
     port: number;                // local port the app listens on
     workspaceId: string;
@@ -131,11 +131,11 @@ fragile stdout scrape as the primary mechanism).
 - [ ] Inject the assigned port into the child env (`PORT=<n>`, plus the `--port` passthrough convention) when starting.
 - [ ] **Confirm-listening:** after spawn, TCP-poll `127.0.0.1:<port>` until it accepts (timeout → `crashed`/`no-port` status). Only mark `running` once it accepts.
 - [ ] Keep the stdout `PortDetector` as a **fallback** for apps that ignore `$PORT` (detect the actually-opened port via the existing scraper or `lsof -aPi -nP -p <pid>`).
-- **Acceptance:** starting a Next app yields a known, stable port without scraping; restarting the same worktree reuses the same port; an app that never opens a port surfaces a clear `crashed`/`no-port` status instead of hanging; the desired-state record survives a Flow restart.
+- **Acceptance:** starting a Next app yields a known, stable port without scraping; restarting the same worktree reuses the same port; an app that never opens a port surfaces a clear `crashed`/`no-port` status instead of hanging; the desired-state record survives a Ri restart.
 
-> **Source of truth: Flow, not beamd.** Only Flow knows how to (re)start a
+> **Source of truth: Ri, not beamd.** Only Ri knows how to (re)start a
 > server (the `startCommand`); a tunnel to a dead port is a useless URL.
-> So Flow owns "what should be running," and beamd stays stateless about
+> So Ri owns "what should be running," and beamd stays stateless about
 > *desired* tunnels (it only tracks currently-live sessions, and replays
 > across network blips while the daemon stays up). Don't persist desired
 > tunnels in beamd — it would re-point at dead ports.
@@ -144,7 +144,7 @@ fragile stdout scrape as the primary mechanism).
 
 ## 3. Built-in providers  `[P0]`
 
-- [ ] **LocalhostProvider** (`kind: static`): returns `http://localhost:<port>` (or `<name>.localhost` if Portless is active). Used when the viewing browser is on the same host as Flow.
+- [ ] **LocalhostProvider** (`kind: static`): returns `http://localhost:<port>` (or `<name>.localhost` if Portless is active). Used when the viewing browser is on the same host as Ri.
 - [ ] **BeamdProvider** (`kind: dynamic`): see §4.
 - [ ] **PortlessProvider** (`kind: static`): reuse `src/lib/preview/portless.ts`; map `worktreeName` → route → `http://127.0.0.1:<port>` / its hostname. (Mostly exists — wrap in the provider interface.)
 - [ ] **ManualProvider** (`kind: static`): return a URL stored on the execution (see §6).
@@ -155,9 +155,9 @@ fragile stdout scrape as the primary mechanism).
 ## 4. BeamdProvider — drive the bundled `beamd`  `[P0]`
 
 - [ ] Add **`@beamd/cli`** as a dependency (bundles the right per-platform binary; resolve it via `node_modules/.bin/beamd` or `require.resolve("@beamd/cli/bin/beamd.cjs")`). Until published you can point at a local `beamd` build path.
-- [ ] On configure (from settings, §7): write a dedicated `{server, token}` config file under Flow's data dir (e.g. `~/.flow/beamd.yaml`) and pass `--config <that path>` to **every** beamd call. **Do not write `~/.beamd/config`** — that's the user's interactive profile store; `--config` is the automation path that bypasses it entirely (so Flow never collides with the user's own `beamd login`).
+- [ ] On configure (from settings, §7): write a dedicated `{server, token}` config file under Ri's data dir (e.g. `~/.ri/beamd.yaml`) and pass `--config <that path>` to **every** beamd call. **Do not write `~/.beamd/config`** — that's the user's interactive profile store; `--config` is the automation path that bypasses it entirely (so Ri never collides with the user's own `beamd login`).
 - [ ] `resolve(ctx)`: **lazy bring-up.** (1) Is the app listening on its assigned port? If not, start it from the persisted `startCommand` (§2) and confirm-listening. (2) Is the tunnel up? If not, `beamd open <port> --as <previewName(ctx)> -d --json --config <cfg>` (detached, non-blocking), and read the `url` field from the JSON object. Return `{ url, stop: () => beamd close <name> --config <cfg> }`. (Trust `url` — it's correct whether the edge is flat (`<name>.<base>`) or namespaced (`<name>.<slug>.<base>`); don't reconstruct it.)
-- [ ] **No eager reconcile on boot.** Because the URL = a stable name and bring-up is lazy, a Flow/host restart is a non-event: the first `resolve()` cold-starts *both* the server and the tunnel. (Optional: eagerly bring up only the `pinned` set from §2 — never everything, or you melt the host.)
+- [ ] **No eager reconcile on boot.** Because the URL = a stable name and bring-up is lazy, a Ri/host restart is a non-event: the first `resolve()` cold-starts *both* the server and the tunnel. (Optional: eagerly bring up only the `pinned` set from §2 — never everything, or you melt the host.)
 - [ ] **Idle-evict (symmetric):** after N idle minutes, stop the server and `beamd close` the tunnel; the name/URL stays reserved so it cold-starts again on next `resolve()`.
 - [ ] Add a **"restore set"** action (per workspace) that brings up a chosen group at once, reading from the §2 desired-state.
 - [ ] Surface beamd errors (not logged in, agent down, tunnel cap hit) as actionable preview statuses.
@@ -169,7 +169,7 @@ fragile stdout scrape as the primary mechanism).
 
 Collapse to **two modes**.
 
-- [ ] Rewrite `resolve-iframe-src.ts`: if the viewing browser is on the same host as Flow (existing `localhost`/`127.0.0.1`/`*.localhost` heuristic) → use LocalhostProvider URL; otherwise → the active remote provider's URL (beamd/portless/manual).
+- [ ] Rewrite `resolve-iframe-src.ts`: if the viewing browser is on the same host as Ri (existing `localhost`/`127.0.0.1`/`*.localhost` heuristic) → use LocalhostProvider URL; otherwise → the active remote provider's URL (beamd/portless/manual).
 - [ ] Remove the path-proxy ("proxy") mode and its mixed-content special-casing.
 - **Acceptance:** on the Mini the iframe/link uses `localhost`; from a phone it uses the remote URL; there is no `/preview/...` path-proxy branch left.
 
@@ -178,7 +178,7 @@ Collapse to **two modes**.
 ## 6. Manual URL on an execution (BYO tunnel)  `[P0]`
 
 The "run your own tunnel (ngrok/cloudflared/whatever) and paste the URL"
-path — Flow stores it and uses it for the preview.
+path — Ri stores it and uses it for the preview.
 
 - [ ] Schema: add `preview_urls` to the execution (and/or workspace): a small list of `{ service?: string, url: string, label?: string }` (Drizzle migration).
 - [ ] API: `PUT /api/executions/[id]/preview-urls` (or extend an existing route) to set/clear them.
@@ -195,7 +195,7 @@ One place to choose how previews are reached.
 - [ ] Extend the preview settings UI: choose the **active remote provider** (Localhost-only / Beam / Portless / Manual / installed plugins).
 - [ ] Beam fields: `server` (e.g. `demobeamd.dynami.sm`) + `token`, written to the dedicated `--config` file from §4 (**not** `~/.beamd/config`); "Test connection" runs `beamd status --json --config <cfg>` (reports `{profile, agentRunning, server, slug, healthy}`).
 - [ ] Manual default: optional URL **template** (e.g. `https://{name}.mytunnel.com`) used when no explicit per-execution URL is set.
-- [ ] Persist settings (existing settings store / `~/.flow` or DB).
+- [ ] Persist settings (existing settings store / `~/.ri` or DB).
 - **Acceptance:** changing the provider in settings changes which URL previews resolve to, with no code edit; beamd config entered here is what BeamdProvider uses.
 
 ---
@@ -204,7 +204,7 @@ One place to choose how previews are reached.
 
 - [ ] `previewName(worktreeName, service?)`: returns `<worktreeName>[-<service>]`, lowercased, non-`[a-z0-9-]` replaced with `-`, collapsed, trimmed to ≤63 chars. (Worktree is already `<workspace>-<uuidsub>`.)
 - [ ] Use it in BeamdProvider and PortlessProvider.
-- **Acceptance:** `previewName('flow-a3f9','api') === 'flow-a3f9-api'`; weird inputs still produce a valid RFC-1123 label.
+- **Acceptance:** `previewName('ri-a3f9','api') === 'ri-a3f9-api'`; weird inputs still produce a valid RFC-1123 label.
 
 ---
 
@@ -223,7 +223,7 @@ One place to choose how previews are reached.
 Make multi-service worktrees actually work remotely (a web app calling
 `localhost:<apiport>` breaks off-machine).
 
-- [ ] When a worktree exposes multiple services, resolve all their preview URLs first, then inject siblings as env into each child (e.g. `API_URL=https://flow-a3f9-api.<base>`), via a per-worktree convention/config.
+- [ ] When a worktree exposes multiple services, resolve all their preview URLs first, then inject siblings as env into each child (e.g. `API_URL=https://ri-a3f9-api.<base>`), via a per-worktree convention/config.
 - **Acceptance:** a web+api worktree, opened from a phone, has the web app talking to the api's public URL (not localhost).
 
 ---

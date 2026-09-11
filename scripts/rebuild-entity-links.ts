@@ -7,7 +7,7 @@
  * upgrade + transactional read-repair), so this is an operator escape hatch.
  *
  *   pnpm db:relink            # prod data root
- *   FLOW_ROOT=~/flow-dev pnpm db:relink
+ *   RI_ROOT=~/ri-dev pnpm db:relink
  */
 import { rebuildAllEntityLinks } from '../src/lib/db/queries';
 

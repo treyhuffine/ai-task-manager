@@ -6,7 +6,7 @@ import { getAppRoot } from '@/lib/config/paths';
  * settings page to render "Currently connected to: <hostname>" and by
  * the takeover modal to label the host in copy-paste commands.
  *
- * Not sensitive — same surface the user would see in `flow doctor`.
+ * Not sensitive — same surface the user would see in `ri doctor`.
  */
 
 export interface HostInfoResponse {

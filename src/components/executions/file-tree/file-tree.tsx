@@ -79,8 +79,8 @@ interface FileTreeProps {
   onReferenceInChat?: (relativePath: string) => void;
 }
 
-const VIEW_MODE_KEY = (id: string) => `flow.execution.tree-view.${id}`;
-const EXPANDED_KEY = (id: string) => `flow.execution.tree-expanded.${id}`;
+const VIEW_MODE_KEY = (id: string) => `ri.execution.tree-view.${id}`;
+const EXPANDED_KEY = (id: string) => `ri.execution.tree-expanded.${id}`;
 
 function readPersistedMode(id: string): TreeViewMode {
   // Default to 'all' so the tree doesn't auto-filter to changed files

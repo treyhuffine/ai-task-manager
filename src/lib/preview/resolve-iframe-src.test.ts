@@ -3,14 +3,14 @@ import { resolvePreviewSrc, pickReachability, isLocalViewer, type BrowserLocatio
 import type { PreviewState } from '@/lib/api/preview';
 
 const LOCAL: BrowserLocation = { hostname: 'localhost', protocol: 'http:' };
-const LOCAL_SUB: BrowserLocation = { hostname: 'flow-a3f9.localhost', protocol: 'http:' };
-const REMOTE: BrowserLocation = { hostname: 'flow.example.com', protocol: 'https:' };
+const LOCAL_SUB: BrowserLocation = { hostname: 'ri-a3f9.localhost', protocol: 'http:' };
+const REMOTE: BrowserLocation = { hostname: 'ri.example.com', protocol: 'https:' };
 
 function state(partial: Partial<PreviewState>): PreviewState {
   return {
     executionId: 'ex1',
     service: null,
-    previewName: 'flow-a3f9',
+    previewName: 'ri-a3f9',
     assignedPort: 3000,
     serverStatus: 'running',
     port: 3000,
@@ -62,8 +62,8 @@ describe('resolvePreviewSrc — local viewer', () => {
 
 describe('resolvePreviewSrc — remote viewer', () => {
   it('uses the remote provider URL once resolved', () => {
-    const r = resolvePreviewSrc(state({ remoteUrl: 'https://flow-a3f9.beam.example' }), REMOTE);
-    expect(r).toEqual({ url: 'https://flow-a3f9.beam.example', mode: 'remote', reason: 'remote' });
+    const r = resolvePreviewSrc(state({ remoteUrl: 'https://ri-a3f9.beam.example' }), REMOTE);
+    expect(r).toEqual({ url: 'https://ri-a3f9.beam.example', mode: 'remote', reason: 'remote' });
   });
   it('surfaces a remote error', () => {
     const r = resolvePreviewSrc(

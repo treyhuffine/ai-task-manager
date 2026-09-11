@@ -3,7 +3,7 @@
  *
  * Produces the frontmatter + body content written to disk by the live mirror.
  * Shape differs from the bulk `export` command:
- *   - Frontmatter carries `managedBy: flow` and denormalized display names
+ *   - Frontmatter carries `managedBy: ri` and denormalized display names
  *   - Header HTML comment warns readers the file is managed
  *   - Notes include a "Sources" section when other entities were promoted into them
  *   - Stream items are a first-class type (bulk export doesn't cover them)

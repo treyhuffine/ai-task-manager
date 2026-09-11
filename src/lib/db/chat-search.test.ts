@@ -7,7 +7,7 @@ import path from 'node:path';
 /**
  * Integration tests for chat/session full-text search (`searchChatSessions`)
  * and the `chat_events_fts` index that backs it. Uses a throwaway on-disk DB
- * (FLOW_DB_PATH) so the real migrate() + EXTRA_SQL path builds the FTS table
+ * (RI_DB_PATH) so the real migrate() + EXTRA_SQL path builds the FTS table
  * and triggers exactly as production would.
  *
  * Covers:
@@ -29,11 +29,11 @@ describe('chat/session search', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-chat-search-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-chat-search-'));
     const env: Record<string, string> = {
-      FLOW_ROOT: path.join(root, 'flow-root'),
-      FLOW_DB_PATH: path.join(root, 'flow.db'),
-      FLOW_MIRROR_DISABLED: '1',
+      RI_ROOT: path.join(root, 'ri-root'),
+      RI_DB_PATH: path.join(root, 'ri.db'),
+      RI_MIRROR_DISABLED: '1',
     };
     for (const [key, value] of Object.entries(env)) {
       savedEnv[key] = process.env[key];

@@ -4,7 +4,7 @@
  *
  * Edges differ in how a tunnel name becomes a hostname: flat
  * (`<name>.<domain>`) or account-suffixed (`<name>-<account>.<domain>`, e.g. a
- * `flow-dev` tunnel served at `flow-dev-acme.beamd.run`). Flow never assembles
+ * `ri-dev` tunnel served at `ri-dev-acme.beamd.run`). Ri never assembles
  * a tunnel URL for real (beamd returns the authoritative one), but to preview a
  * *rename* before opening it we have to reuse whatever shape the current URL is
  * already in.

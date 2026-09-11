@@ -181,7 +181,7 @@ function anchorAdapter(spec: AnchorSpec): TrustAdapter {
             label: this.label,
             outcome: denied ? 'permission-denied' : 'error',
             detail: denied
-              ? `Writing ${spec.anchorDir} needs root. Re-run \`flow tls trust\` with sufficient privileges.`
+              ? `Writing ${spec.anchorDir} needs root. Re-run \`ri tls trust\` with sufficient privileges.`
               : write.error,
             owned: false,
           };
@@ -252,7 +252,7 @@ const debianAdapter = anchorAdapter({
   id: 'linux-debian',
   label: 'Debian/Ubuntu system trust',
   anchorDir: '/usr/local/share/ca-certificates',
-  anchorFile: (id) => `/usr/local/share/ca-certificates/flow-local-ca-${id}.crt`,
+  anchorFile: (id) => `/usr/local/share/ca-certificates/ri-local-ca-${id}.crt`,
   refreshCmd: ['update-ca-certificates', []],
 });
 
@@ -260,14 +260,14 @@ const fedoraAdapter = anchorAdapter({
   id: 'linux-fedora',
   label: 'Fedora/RHEL shared system trust',
   anchorDir: '/etc/pki/ca-trust/source/anchors',
-  anchorFile: (id) => `/etc/pki/ca-trust/source/anchors/flow-local-ca-${id}.pem`,
+  anchorFile: (id) => `/etc/pki/ca-trust/source/anchors/ri-local-ca-${id}.pem`,
   refreshCmd: ['update-ca-trust', ['extract']],
 });
 
 // ─── Linux NSS databases (Chromium, Firefox) ─────────────────────────────────
 
 function nssNickname(installId: string): string {
-  return `Flow Local CA ${installId.slice(0, 8)}`;
+  return `Ri Local CA ${installId.slice(0, 8)}`;
 }
 
 /** Chromium's current-user NSS DB, using the documented legacy-path precedence. */
@@ -358,7 +358,7 @@ function nssAdapter(spec: NssTarget): TrustAdapter {
       }
       // Own only the profiles we actually added to. A profile that already
       // trusted the CA is reported present but never claimed, so untrust will
-      // not remove trust from a profile Flow did not install into.
+      // not remove trust from a profile Ri did not install into.
       if (addedDirs.length > 0) {
         return {
           target: this.id,

@@ -24,7 +24,7 @@ const PANEL_B = 'panel-b';
 const DEFAULT_SIZE = '50%';
 const MIN_SIZE = '25%';
 const MAX_SIZE = '75%';
-const STORAGE_ID = 'flow.dashboard.panel-layout';
+const STORAGE_ID = 'ri.dashboard.panel-layout';
 
 // Layout values are flexGrow numbers (not percentages); equal numbers = equal share.
 const DEFAULT_LAYOUT: Layout = {

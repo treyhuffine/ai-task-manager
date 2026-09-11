@@ -5,7 +5,7 @@
  *   - `remote: true` → route through the active remote provider (beamd, …):
  *     cold-start the server if needed, then resolve a reachable URL.
  *
- * Lazy cold-start lives here — a Flow/host restart is a non-event because
+ * Lazy cold-start lives here — a Ri/host restart is a non-event because
  * the first start spins both the server and (for remote) the tunnel back up.
  */
 

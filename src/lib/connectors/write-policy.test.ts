@@ -89,16 +89,16 @@ describe('isOutwardAction', () => {
 
 describe('overrides', () => {
   const dirs: string[] = [];
-  const prev = process.env.FLOW_CONFIG_DIR;
+  const prev = process.env.RI_CONFIG_DIR;
   function freshConfigDir(): void {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'write-policy-'));
     dirs.push(dir);
-    process.env.FLOW_CONFIG_DIR = dir;
+    process.env.RI_CONFIG_DIR = dir;
   }
   afterEach(() => {
     for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
-    if (prev === undefined) delete process.env.FLOW_CONFIG_DIR;
-    else process.env.FLOW_CONFIG_DIR = prev;
+    if (prev === undefined) delete process.env.RI_CONFIG_DIR;
+    else process.env.RI_CONFIG_DIR = prev;
   });
 
   it('an override flips an action either way and persists', () => {
@@ -110,7 +110,7 @@ describe('overrides', () => {
     // trust a normally-gated outward action
     setActionOverride('slack.post_message', 'auto');
     expect(resolveApprovalMode({ actionId: 'slack.post_message', risk: 'medium', mutating: true })).toBe('auto');
-    expect(fs.existsSync(path.join(process.env.FLOW_CONFIG_DIR!, 'connectors', 'write-policy.json'))).toBe(true);
+    expect(fs.existsSync(path.join(process.env.RI_CONFIG_DIR!, 'connectors', 'write-policy.json'))).toBe(true);
   });
 
   it('clearing an override restores the default', () => {

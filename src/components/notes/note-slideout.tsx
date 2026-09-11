@@ -49,7 +49,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     min: MIN_WIDTH,
     max: MAX_WIDTH,
     defaultSize: DEFAULT_WIDTH,
-    storageKey: 'flow.note-slideout.width',
+    storageKey: 'ri.note-slideout.width',
   })
   const [isVisible, setIsVisible] = useState(false)
   const [wordCount, setWordCount] = useState(0)

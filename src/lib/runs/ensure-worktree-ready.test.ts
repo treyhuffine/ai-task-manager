@@ -38,7 +38,7 @@ vi.mock('@/lib/sessions/dispatch', async (importActual) => ({
   provisionWorktreeForSession: (...a: unknown[]) => provisionWorktreeForSession(...a),
 }));
 
-const TEST_DB = path.join(os.tmpdir(), `flow-ewr-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-ewr-test-${process.pid}.db`);
 const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'ewr-'));
 const existingWorktree = path.join(tmpBase, 'wt-live');
 const freshWorktree = path.join(tmpBase, 'wt-fresh');
@@ -81,7 +81,7 @@ beforeAll(async () => {
     const p = TEST_DB + s;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
   const { getDb, resetDb } = await import('@/lib/db');
   resetDb();
   q = await import('@/lib/db/queries');

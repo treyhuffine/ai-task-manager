@@ -16,7 +16,7 @@ describe('external agent imports', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-agent-import-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-agent-import-'));
     claudeHome = path.join(root, 'claude');
     codexHome = path.join(root, 'codex');
     projectOne = path.join(root, 'project-one');
@@ -29,9 +29,9 @@ describe('external agent imports', () => {
     const env = {
       CLAUDE_CONFIG_DIR: claudeHome,
       CODEX_HOME: codexHome,
-      FLOW_ROOT: path.join(root, 'flow-root'),
-      FLOW_DB_PATH: path.join(root, 'flow.db'),
-      FLOW_MIRROR_DISABLED: '1',
+      RI_ROOT: path.join(root, 'ri-root'),
+      RI_DB_PATH: path.join(root, 'ri.db'),
+      RI_MIRROR_DISABLED: '1',
     };
     for (const [key, value] of Object.entries(env)) {
       savedEnv[key] = process.env[key];
@@ -330,7 +330,7 @@ describe('external agent imports', () => {
       sessionId: session.id,
       role: 'user',
       source: 'user',
-      content: 'Flow-only note',
+      content: 'Ri-only note',
     });
 
     const transcriptPath = path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`);
@@ -358,7 +358,7 @@ describe('external agent imports', () => {
     expect(contents).toContain('Rewritten source prompt');
     expect(contents).not.toContain('Build the import screen');
     expect(contents).toContain('Replacement transcript complete.');
-    expect(contents).toContain('Flow-only note');
+    expect(contents).toContain('Ri-only note');
   });
 
   it('does not commit staged file events when the source changes during the read', async () => {

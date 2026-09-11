@@ -53,7 +53,7 @@ export interface TrustResult {
   /**
    * For multi-location stores (NSS profiles), the specific locations THIS run
    * installed into. Recorded per-location so untrust removes trust only from
-   * the profiles Flow added it to, never a profile that already trusted the CA.
+   * the profiles Ri added it to, never a profile that already trusted the CA.
    */
   ownedProfiles?: string[];
 }

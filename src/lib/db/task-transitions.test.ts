@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { eq } from 'drizzle-orm';
 
-const TEST_DB = path.join(os.tmpdir(), `flow-task-transitions-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-task-transitions-test-${process.pid}.db`);
 
 function cleanup() {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -14,8 +14,8 @@ function cleanup() {
 }
 beforeEach(() => {
   cleanup();
-  process.env.FLOW_DB_PATH = TEST_DB;
-  process.env.FLOW_MIRROR_DISABLED = '1';
+  process.env.RI_DB_PATH = TEST_DB;
+  process.env.RI_MIRROR_DISABLED = '1';
 });
 afterAll(cleanup);
 

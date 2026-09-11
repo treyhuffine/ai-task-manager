@@ -21,7 +21,7 @@ interface TakeoverButtonProps {
  *   - session already in takeover state.
  *
  * Clicking starts the takeover, which pushes the branch and pops a
- * modal with the copy-paste `flow takeover <url>` command.
+ * modal with the copy-paste `ri takeover <url>` command.
  */
 export function TakeoverButton({ session, workspace }: TakeoverButtonProps) {
   const location = useClientLocation();

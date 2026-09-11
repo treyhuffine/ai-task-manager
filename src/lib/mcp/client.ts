@@ -12,15 +12,15 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { tool, jsonSchema, type ToolSet } from 'ai';
 import { APP_SHORT_ID } from '@/constants/app';
 
-export interface FlowMcpClient {
+export interface RiMcpClient {
   tools: ToolSet;
   close: () => Promise<void>;
 }
 
-export async function createFlowMcpClient(
+export async function createRiMcpClient(
   baseUrl: string,
   token: string,
-): Promise<FlowMcpClient> {
+): Promise<RiMcpClient> {
   const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/api/mcp`), {
     requestInit: {
       headers: { Authorization: `Bearer ${token}` },
@@ -60,7 +60,7 @@ export async function createFlowMcpClient(
       try {
         await client.close();
       } catch (err) {
-        console.error('[flow-mcp-client] close failed', err);
+        console.error('[ri-mcp-client] close failed', err);
       }
     },
   };

@@ -1,14 +1,14 @@
 /**
  * HTTP/2 mode resolution (see docs/optional-http2.md §3).
  *
- * Precedence: explicit CLI option, then `FLOW_HTTP2`, then disabled. The flag
+ * Precedence: explicit CLI option, then `RI_HTTP2`, then disabled. The flag
  * is a runtime deployment choice only — it is never persisted to SQLite, never
  * an `NEXT_PUBLIC_*` value, and changing it requires an ordinary stop/start.
  */
 
 import crypto from 'node:crypto';
 
-export const HTTP2_ENV = 'FLOW_HTTP2';
+export const HTTP2_ENV = 'RI_HTTP2';
 
 /** Documented truthy/falsy environment values. Anything else is an error. */
 const TRUE_VALUES = new Set(['1', 'true']);
@@ -20,7 +20,7 @@ export interface Http2FlagInput {
 }
 
 /**
- * Parse `FLOW_HTTP2`. Returns a boolean for a documented value, null if unset,
+ * Parse `RI_HTTP2`. Returns a boolean for a documented value, null if unset,
  * and throws on an unrecognized value so a typo fails loudly instead of
  * silently disabling the feature.
  */
@@ -37,7 +37,7 @@ function parseHttp2Env(raw: string | undefined): boolean | null {
 
 /**
  * Resolve whether the HTTP/2 gateway should front this launch. Explicit CLI
- * intent (`--http2` / `--no-http2`) always wins; otherwise `FLOW_HTTP2`;
+ * intent (`--http2` / `--no-http2`) always wins; otherwise `RI_HTTP2`;
  * otherwise disabled (the existing direct-HTTP default).
  */
 export function resolveHttp2Enabled(

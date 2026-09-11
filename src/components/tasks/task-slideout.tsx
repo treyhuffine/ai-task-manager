@@ -99,7 +99,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     min: MIN_WIDTH,
     max: MAX_WIDTH,
     defaultSize: DEFAULT_WIDTH,
-    storageKey: 'flow.task-slideout.width',
+    storageKey: 'ri.task-slideout.width',
   });
   const [isVisible, setIsVisible] = useState(false);
   const [editingDeadline, setEditingDeadline] = useState(false);

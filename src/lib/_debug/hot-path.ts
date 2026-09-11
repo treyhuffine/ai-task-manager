@@ -14,7 +14,7 @@
  *
  * Three ways to enable, in order of precedence:
  *   1. Console:    window.__HOT__ = true     (live toggle, no reload)
- *   2. CLI flag:   flow start --dev --hot    (sets NEXT_PUBLIC_HOT=1)
+ *   2. CLI flag:   ri start --dev --hot    (sets NEXT_PUBLIC_HOT=1)
  *   3. Env var:    NEXT_PUBLIC_HOT=1 pnpm dev
  *
  * Setting `window.__HOT__ = false` explicitly overrides the env-var default,

@@ -14,14 +14,14 @@ vi.mock('@/lib/executor/adapter', () => ({
   ExecutorError: class extends Error {},
 }));
 
-const TEST_DB = path.join(os.tmpdir(), `flow-registry-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-registry-test-${process.pid}.db`);
 
 beforeEach(() => {
   for (const suffix of ['', '-wal', '-shm']) {
     const p = TEST_DB + suffix;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
 });
 
 afterAll(() => {

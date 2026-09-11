@@ -21,19 +21,19 @@ let tmpRoot: string;
 let workCwd: string;
 
 beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-svc-test-'));
-  process.env.FLOW_ROOT = tmpRoot;
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-svc-test-'));
+  process.env.RI_ROOT = tmpRoot;
   // Point the DB explicitly at the temp root so each test is isolated.
-  process.env.FLOW_DB_PATH = path.join(tmpRoot, 'data.db');
+  process.env.RI_DB_PATH = path.join(tmpRoot, 'data.db');
   resetDb();
-  workCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-svc-cwd-'));
+  workCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-svc-cwd-'));
 });
 
 afterEach(async () => {
   await getSupervisor().stopAll();
   resetDb();
-  delete process.env.FLOW_ROOT;
-  delete process.env.FLOW_DB_PATH;
+  delete process.env.RI_ROOT;
+  delete process.env.RI_DB_PATH;
   for (const dir of [tmpRoot, workCwd]) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
@@ -99,7 +99,7 @@ describe('preview service (local flow)', () => {
 
   it('surfaces a failed setup but still allows the server to start', async () => {
     const { exec } = makeExecution(PORT_SERVER);
-    // A failed setup may be unrelated to the dev server (Flow is strategy-
+    // A failed setup may be unrelated to the dev server (Ri is strategy-
     // agnostic about setup), so it is surfaced as a warning, not a hard gate.
     setExecutionSetupScript(exec.id, 'failed', 'boom');
     const state = await resolvePreview(exec.id, { remote: false });

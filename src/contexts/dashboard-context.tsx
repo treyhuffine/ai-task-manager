@@ -295,20 +295,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [railCollapsed, setRailCollapsedState] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem('flow.rail.collapsed');
+    const stored = window.localStorage.getItem('ri.rail.collapsed');
     if (stored === '1') setRailCollapsedState(true);
   }, []);
   const setRailCollapsed = useCallback((next: boolean) => {
     setRailCollapsedState(next);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('flow.rail.collapsed', next ? '1' : '0');
+      window.localStorage.setItem('ri.rail.collapsed', next ? '1' : '0');
     }
   }, []);
   const toggleRailCollapsed = useCallback(() => {
     setRailCollapsedState((prev) => {
       const next = !prev;
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem('flow.rail.collapsed', next ? '1' : '0');
+        window.localStorage.setItem('ri.rail.collapsed', next ? '1' : '0');
       }
       return next;
     });
@@ -321,7 +321,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [lastExecutionId, setLastExecutionIdState] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem('flow.execution.lastId');
+    const stored = window.localStorage.getItem('ri.execution.lastId');
     if (stored) setLastExecutionIdState(stored);
   }, []);
   // Record the last-viewed execution whenever the URL points at one.
@@ -332,7 +332,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (activeView === 'command' || typeof window === 'undefined') return;
     setLastExecutionIdState(activeView);
-    window.localStorage.setItem('flow.execution.lastId', activeView);
+    window.localStorage.setItem('ri.execution.lastId', activeView);
   }, [activeView]);
 
   // ─── Execution-view rail open ───────────────────────────
@@ -343,20 +343,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [executionRailOpen, setExecutionRailOpenState] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem('flow.rail.execution.open');
+    const stored = window.localStorage.getItem('ri.rail.execution.open');
     if (stored === '1') setExecutionRailOpenState(true);
   }, []);
   const setExecutionRailOpen = useCallback((next: boolean) => {
     setExecutionRailOpenState(next);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('flow.rail.execution.open', next ? '1' : '0');
+      window.localStorage.setItem('ri.rail.execution.open', next ? '1' : '0');
     }
   }, []);
   const toggleExecutionRailOpen = useCallback(() => {
     setExecutionRailOpenState((prev) => {
       const next = !prev;
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem('flow.rail.execution.open', next ? '1' : '0');
+        window.localStorage.setItem('ri.rail.execution.open', next ? '1' : '0');
       }
       return next;
     });

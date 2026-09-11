@@ -22,7 +22,7 @@ import { APP_SHORT_ID } from '@/constants/app';
 export type TokenEnv = 'live' | 'test';
 
 /**
- * Masked form for the UI: `flow_live_V1StGX…mX3wQ`. Takes the stored prefix
+ * Masked form for the UI: `ri_live_V1StGX…mX3wQ`. Takes the stored prefix
  * and suffix rather than a token, so displaying a key never requires having
  * the plaintext — only the hash is persisted, and this renders from the
  * columns that sit alongside it.

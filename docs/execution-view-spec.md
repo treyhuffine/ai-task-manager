@@ -377,7 +377,7 @@ unblock later ones.
       dep and `src/components/ui/resizable.tsx`.
 - [x] Add `useExecutionLayoutSizes(sessionId)` hook
       (`src/hooks/use-execution-layout-sizes.ts`) — reads/writes per-session
-      panel sizes to localStorage under key `flow.execution.layout.<id>`.
+      panel sizes to localStorage under key `ri.execution.layout.<id>`.
       Returns `{ sizes, setSizes }` with a debounce on writes.
 - [x] Rewrite `src/components/executions/execution-view.tsx` top-level
       structure to three horizontal `<ResizablePanel>`s (Chat, FileTree,
@@ -420,7 +420,7 @@ unblock later ones.
 - [x] Build `src/components/executions/file-tree/file-tree.tsx` — top
       level. Owns selected-path state, view mode state (`'changed' | 'all'`),
       and renders the tree list. Persists view mode per-session in
-      localStorage (`flow.execution.tree-view.<id>`).
+      localStorage (`ri.execution.tree-view.<id>`).
 - [x] Build `src/components/executions/file-tree/tree-view-toggle.tsx` —
       `[Changed (N)] [All]` segmented control. N comes from
       `entries.filter(e => e.status).length`.

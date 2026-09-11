@@ -3,7 +3,7 @@ import { getChatSessionWithExecution, clearExecutionTakeover } from '@/lib/db/qu
 
 /**
  * Abandon an in-flight takeover without pulling from the remote branch.
- * Local clone (if the user ran `flow takeover`) is left alone — the
+ * Local clone (if the user ran `ri takeover`) is left alone — the
  * user can clean it up at their leisure. The server's worktree retains
  * the WIP commit; squash-on-merge cleans that up downstream.
  */

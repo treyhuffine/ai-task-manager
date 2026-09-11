@@ -11,7 +11,7 @@ let caPem: string;
 let caSha1: string;
 let installId: string;
 
-// Loaded after FLOW_CONFIG_DIR is set so the CA lands in the temp root.
+// Loaded after RI_CONFIG_DIR is set so the CA lands in the temp root.
 let installTrust: typeof import('./index').installTrust;
 let removeTrust: typeof import('./index').removeTrust;
 
@@ -57,8 +57,8 @@ class MockRunner implements NativeRunner {
 }
 
 beforeAll(async () => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-trust-'));
-  process.env.FLOW_CONFIG_DIR = path.join(tmpRoot, '.config');
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-trust-'));
+  process.env.RI_CONFIG_DIR = path.join(tmpRoot, '.config');
   const tls = await import('@/lib/config/tls');
   await tls.ensureCaGenerated();
   caPem = tls.readCaCertPem()!;
@@ -194,7 +194,7 @@ describe('Debian anchor adapter', () => {
     const summary = await installTrust({ runner: r });
     const res = summary.results.find((x) => x.target === 'linux-debian')!;
     expect(res.outcome).toBe('installed');
-    expect(r.files.get(`/usr/local/share/ca-certificates/flow-local-ca-${installId}.crt`)).toBe(caPem);
+    expect(r.files.get(`/usr/local/share/ca-certificates/ri-local-ca-${installId}.crt`)).toBe(caPem);
     expect(r.calls.find((c) => c.command === 'update-ca-certificates')).toBeDefined();
   });
 });
@@ -250,7 +250,7 @@ describe('untrust safety (partial-failure handling)', () => {
   });
 
   it('keeps the record when the Linux bundle refresh fails, then converges on retry', async () => {
-    const anchor = `/usr/local/share/ca-certificates/flow-local-ca-${installId}.crt`;
+    const anchor = `/usr/local/share/ca-certificates/ri-local-ca-${installId}.crt`;
     const install = new MockRunner();
     install.platform = 'linux';
     install.dirs.add('/usr/local/share/ca-certificates');
@@ -334,13 +334,13 @@ describe('install ownership + inspection', () => {
     expect(ins.results.find((x) => x.target === 'linux-debian')?.outcome).toBe('error');
     const entry = readTrustManifest()?.entries.find((e) => e.target === 'linux-debian');
     expect(entry?.createdByUs).toBe(true); // owned despite the refresh failure
-    expect(install.files.get(`/usr/local/share/ca-certificates/flow-local-ca-${installId}.crt`)).toBe(caPem);
+    expect(install.files.get(`/usr/local/share/ca-certificates/ri-local-ca-${installId}.crt`)).toBe(caPem);
 
     // Untrust now succeeds (refresh works) and clears the record — convergence.
     const r = new MockRunner();
     r.platform = 'linux';
     r.dirs.add('/usr/local/share/ca-certificates');
-    r.files.set(`/usr/local/share/ca-certificates/flow-local-ca-${installId}.crt`, caPem);
+    r.files.set(`/usr/local/share/ca-certificates/ri-local-ca-${installId}.crt`, caPem);
     r.handler = () => ({ status: 0, stdout: '', stderr: '' });
     const rem = await removeTrust({ runner: r });
     expect(rem.results[0].outcome).toBe('removed');
@@ -399,7 +399,7 @@ describe('install ownership + inspection', () => {
     expect(readTrustManifest()?.entries.some((e) => e.target === 'nss-chromium')).toBe(true);
   });
 
-  it('untrust removes only the Firefox profiles Flow installed into, never a pre-existing one', async () => {
+  it('untrust removes only the Firefox profiles Ri installed into, never a pre-existing one', async () => {
     const home = '/home/ffperprofile';
     const dirA = `${home}/.mozilla/firefox/pA`;
     const dirB = `${home}/.mozilla/firefox/pB`;
@@ -452,11 +452,11 @@ let SECOND_CA_PEM = '';
 beforeAll(async () => {
   const tls = await import('@/lib/config/tls');
   // Generate a second, unrelated CA in an isolated dir to get a foreign PEM.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-foreign-'));
-  const prev = process.env.FLOW_CONFIG_DIR;
-  process.env.FLOW_CONFIG_DIR = path.join(dir, '.config');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-foreign-'));
+  const prev = process.env.RI_CONFIG_DIR;
+  process.env.RI_CONFIG_DIR = path.join(dir, '.config');
   await tls.ensureCaGenerated();
   SECOND_CA_PEM = tls.readCaCertPem()!;
-  process.env.FLOW_CONFIG_DIR = prev;
+  process.env.RI_CONFIG_DIR = prev;
   fs.rmSync(dir, { recursive: true, force: true });
 });

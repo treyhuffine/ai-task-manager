@@ -40,7 +40,7 @@ describe('task reordering action contract', () => {
     try {
       const program = new Command().exitOverride();
       registerAgentCommand(program);
-      await program.parseAsync(['node', 'flow', 'agent', action, '--area-id', 'area', '--task-ids', flag, '--position', 'top']);
+      await program.parseAsync(['node', 'ri', 'agent', action, '--area-id', 'area', '--task-ids', flag, '--position', 'top']);
       expect(reorderTasksToTop).toHaveBeenCalledWith({ areaId: 'area', taskIds: ['first', 'second'] });
     } finally {
       stdout.mockRestore();

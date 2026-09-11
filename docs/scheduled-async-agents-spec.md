@@ -15,10 +15,10 @@ The v1 substrate is small but load-bearing:
 - **Heartbeat** as a property of the agent (not a schedule row) — the AI's pulse. Lives on the `agents` table; protected by code invariants.
 - **A code-controlled system tick** (60s) that processes both heartbeats and due schedules. Schedules and heartbeat configs are data; the tick that drives them is code.
 - **Scheduled runs surface as executions** in the existing UI, with provenance linking back to the schedule. No separate "automation runs" feed. The existing unread machinery is the review surface — no new review-gate status.
-- **Skills** as procedural memory — markdown files at `<brain>/skills/<name>/SKILL.md` (global) and `<workspace>/.flow/skills/<name>/SKILL.md` (workspace, committed to git). The agent loads them as procedural memory when invoked.
+- **Skills** as procedural memory — markdown files at `<brain>/skills/<name>/SKILL.md` (global) and `<workspace>/.ri/skills/<name>/SKILL.md` (workspace, committed to git). The agent loads them as procedural memory when invoked.
 - **Activity timeline + cost rollup** — a single page that answers "what's the AI been up to?" across schedules, workspaces, sessions. The data is already there in `chat_events`; this is a new lens.
 - **Context engine** — on every scheduled dispatch, inject a structured world snapshot (bootstrap files loaded verbatim + structured state queried from the DB). 4-8k token budget for the dynamic portion; bootstrap files always intact.
-- **Bootstrap files** (3, hardcoded for v1): `<brain>/COMPANY.md` (user's standing context), `<workspace>/.flow/WORKSPACE.md` (per-workspace context), `<brain>/HEARTBEAT.md` (standing supervisory instructions).
+- **Bootstrap files** (3, hardcoded for v1): `<brain>/COMPANY.md` (user's standing context), `<workspace>/.ri/WORKSPACE.md` (per-workspace context), `<brain>/HEARTBEAT.md` (standing supervisory instructions).
 - **Decisions** as a directory convention — `<brain>/decisions/YYYY-MM-DD-<slug>.md`, one file per decision, light UI (list + open + mark-reversed). No new table.
 - **Connectors substrate** — outbound via user-registered MCP servers, inbound via webhook-triggered schedules.
 
@@ -293,7 +293,7 @@ Net effect: every existing execution affordance — worktree diff, PR open, mid-
 Two locations, opinionated about commit policy:
 
 - **Global**: `<brain>/skills/<name>/SKILL.md` — the user's library, available everywhere.
-- **Workspace**: `<workspace>/.flow/skills/<name>/SKILL.md` — codebase-specific, **committed to git by default** so teammates and the AI itself get them on clone.
+- **Workspace**: `<workspace>/.ri/skills/<name>/SKILL.md` — codebase-specific, **committed to git by default** so teammates and the AI itself get them on clone.
 
 Format follows the convention Claude Code already uses (YAML frontmatter + markdown body):
 
@@ -325,7 +325,7 @@ Two parts:
 
 **Static (bootstrap files, loaded verbatim, always included intact)**:
 - `<brain>/COMPANY.md` — the user's standing context. Mission, current priorities, ongoing initiatives, key people, anything that gives the AI a sense of "what we're doing."
-- `<workspace>/.flow/WORKSPACE.md` (when `target_kind='workspace'`) — codebase- or project-specific context.
+- `<workspace>/.ri/WORKSPACE.md` (when `target_kind='workspace'`) — codebase- or project-specific context.
 - `<brain>/HEARTBEAT.md` (when the run is a heartbeat) — the standing supervisory instructions.
 
 **Dynamic (queried from DB on dispatch, budgeted ~4-8k tokens)**:

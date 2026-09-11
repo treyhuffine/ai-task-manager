@@ -30,7 +30,7 @@
  * Usage:
  *   pnpm fix:task-dates --dry-run              # preview (prod home ~/<app>)
  *   pnpm fix:task-dates                        # apply
- *   FLOW_ROOT=~/flow-dev pnpm fix:task-dates   # against the dev home
+ *   RI_ROOT=~/ri-dev pnpm fix:task-dates       # against the dev home
  */
 
 import pc from 'picocolors';

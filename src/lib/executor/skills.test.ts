@@ -5,7 +5,7 @@ import os from 'node:os';
 
 import { inventorySkills, resolveSkillDirsForSession } from './skills';
 
-const TMP_ROOT = path.join(os.tmpdir(), `flow-skills-test-${process.pid}`);
+const TMP_ROOT = path.join(os.tmpdir(), `ri-skills-test-${process.pid}`);
 // Global skills resolve at <home>/skills, and the home is the app root now.
 const BRAIN_DIR = TMP_ROOT;
 const WORKSPACE_DIR = path.join(TMP_ROOT, 'ws');
@@ -15,13 +15,13 @@ beforeEach(() => {
   fs.rmSync(TMP_ROOT, { recursive: true, force: true });
   fs.mkdirSync(BRAIN_DIR, { recursive: true });
   fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
-  prevRoot = process.env.FLOW_ROOT;
-  process.env.FLOW_ROOT = TMP_ROOT;
+  prevRoot = process.env.RI_ROOT;
+  process.env.RI_ROOT = TMP_ROOT;
 });
 
 afterAll(() => {
-  if (prevRoot === undefined) delete process.env.FLOW_ROOT;
-  else process.env.FLOW_ROOT = prevRoot;
+  if (prevRoot === undefined) delete process.env.RI_ROOT;
+  else process.env.RI_ROOT = prevRoot;
   fs.rmSync(TMP_ROOT, { recursive: true, force: true });
 });
 
@@ -38,20 +38,20 @@ describe('skill discovery', () => {
     expect(dirs.some((d) => d.endsWith('github-pr-review'))).toBe(true);
   });
 
-  it('finds workspace skills under <ws>/.flow/skills/', () => {
-    writeSkill(path.join(WORKSPACE_DIR, '.flow', 'skills'), 'lint-fixer', '---\nname: lint-fixer\n---\n');
+  it('finds workspace skills under <ws>/.ri/skills/', () => {
+    writeSkill(path.join(WORKSPACE_DIR, '.ri', 'skills'), 'lint-fixer', '---\nname: lint-fixer\n---\n');
     const inventory = inventorySkills(WORKSPACE_DIR);
     expect(inventory.some((s) => s.name === 'lint-fixer' && s.scope === 'workspace')).toBe(true);
   });
 
   it('workspace overrides global on name collision', () => {
     writeSkill(path.join(BRAIN_DIR, 'skills'), 'shared', '---\nname: shared\n---\nglobal\n');
-    writeSkill(path.join(WORKSPACE_DIR, '.flow', 'skills'), 'shared', '---\nname: shared\n---\nlocal\n');
+    writeSkill(path.join(WORKSPACE_DIR, '.ri', 'skills'), 'shared', '---\nname: shared\n---\nlocal\n');
     const inventory = inventorySkills(WORKSPACE_DIR);
     const hit = inventory.find((s) => s.name === 'shared');
     expect(hit).toBeDefined();
     expect(hit!.scope).toBe('workspace');
-    expect(hit!.sourceDir).toContain('.flow/skills/shared');
+    expect(hit!.sourceDir).toContain('.ri/skills/shared');
   });
 
   it('handles missing skill dirs without error', () => {

@@ -1,7 +1,7 @@
 /**
- * `flow resume [--workspace <id>]`.
+ * `ri resume [--workspace <id>]`.
  *
- * Closes the loop on a `flow takeover`. Pushes any local commits on the
+ * Closes the loop on a `ri takeover`. Pushes any local commits on the
  * takeover branch, then asks the host to pull + post a synthetic user
  * message into the chat with the diff summary, then clears the local
  * state file.
@@ -107,7 +107,7 @@ export async function resumeCommand(opts: ResumeOptions) {
 
   if (active.length === 0) {
     console.log(pc.dim('No active takeover on this machine.'));
-    console.log(pc.dim('Start one with `flow takeover <url>` from the browser modal.'));
+    console.log(pc.dim('Start one with `ri takeover <url>` from the browser modal.'));
     return;
   }
 
@@ -140,7 +140,7 @@ export async function resumeCommand(opts: ResumeOptions) {
     await pushBranch(clonePath, state.branch);
     console.log(pc.green(`✓ Pushed ${state.branch} to origin.`));
   } catch (err) {
-    console.error(pc.red('Push failed. Resolve manually, then retry `flow resume`.'));
+    console.error(pc.red('Push failed. Resolve manually, then retry `ri resume`.'));
     if (err instanceof Error) console.error(pc.dim(err.message));
     process.exit(1);
   }

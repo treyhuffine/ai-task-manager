@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const TEST_DB = path.join(os.tmpdir(), `flow-deck-trigger-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-deck-trigger-test-${process.pid}.db`);
 
 function rm() {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -14,7 +14,7 @@ function rm() {
 
 beforeEach(() => {
   rm();
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
 });
 afterAll(rm);
 

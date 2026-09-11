@@ -16,7 +16,7 @@ describe('sweepAttachments', () => {
   const saveEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-gc-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-gc-test-'));
     for (const k of MANAGED_ENV_KEYS) saveEnv[k] = process.env[k];
     process.env[APP_ROOT_ENV] = tmpDir;
     process.env[DB_PATH_ENV] = path.join(tmpDir, 'data.db');

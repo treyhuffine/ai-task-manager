@@ -5,7 +5,7 @@
  * with the app:
  *
  *   - Global:    `<brain>/skills/<name>/SKILL.md`
- *   - Workspace: `<workspace>/.flow/skills/<name>/SKILL.md` (when the
+ *   - Workspace: `<workspace>/.ri/skills/<name>/SKILL.md` (when the
  *                session is bound to a workspace cwd)
  *
  * Workspace overrides global on name collision so a repo-specific
@@ -75,7 +75,7 @@ function readSkillDir(root: string, scope: DiscoveredSkill['scope']): Discovered
 export function resolveSkillsForSession(workspaceCwd: string | null): DiscoveredSkill[] {
   const global = readSkillDir(path.join(getBrainDir(), 'skills'), 'global');
   const workspace = workspaceCwd
-    ? readSkillDir(path.join(workspaceCwd, '.flow', 'skills'), 'workspace')
+    ? readSkillDir(path.join(workspaceCwd, '.ri', 'skills'), 'workspace')
     : [];
   // Workspace wins on collision.
   const byName = new Map<string, DiscoveredSkill>();

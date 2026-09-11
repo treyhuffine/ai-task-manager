@@ -1,6 +1,6 @@
 /**
- * Browser readiness checks, shared by `flow browser doctor` and the main
- * `flow doctor`. Reports and never mutates the user's browser.
+ * Browser readiness checks, shared by `ri browser doctor` and the main
+ * `ri doctor`. Reports and never mutates the user's browser.
  */
 
 import fs from 'node:fs';

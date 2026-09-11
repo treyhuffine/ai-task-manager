@@ -25,7 +25,7 @@ function createUpstream(): Promise<{
     switch (url.pathname) {
       case '/api/health':
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, app: 'flow', port: 0 }));
+        res.end(JSON.stringify({ ok: true, app: 'ri', port: 0 }));
         return;
       case '/sse': {
         res.writeHead(200, {
@@ -168,8 +168,8 @@ function h2get(pathName: string, headers: Record<string, string> = {}): Promise<
 }
 
 beforeAll(async () => {
-  tlsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-gw-'));
-  process.env.FLOW_CONFIG_DIR = path.join(tlsDir, '.config');
+  tlsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-gw-'));
+  process.env.RI_CONFIG_DIR = path.join(tlsDir, '.config');
   const tlsMod = await import('@/lib/config/tls');
   tls = await tlsMod.ensureGeneratedTls();
 

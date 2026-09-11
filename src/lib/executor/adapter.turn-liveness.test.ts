@@ -15,7 +15,7 @@ import type { EventWriter } from './event-writer';
  * reads finished while the agent is still editing files — eleven minutes, on
  * the session that prompted this work.
  *
- * agentex 0.0.37 reports those turns. These cover Flow consuming them.
+ * agentex 0.0.37 reports those turns. These cover Ri consuming them.
  */
 
 const base = {

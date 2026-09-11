@@ -49,7 +49,7 @@ interface BusState {
   channels: Map<string, Set<Listener>>;
 }
 
-const STATE_KEY = Symbol.for('@flow/realtime-bus-state');
+const STATE_KEY = Symbol.for('@ri/realtime-bus-state');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: BusState };
 
 if (!globalRef[STATE_KEY]) {

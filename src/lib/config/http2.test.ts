@@ -3,24 +3,24 @@ import { resolveHttp2Enabled, isChainTrustFailure } from './http2';
 
 describe('resolveHttp2Enabled', () => {
   it('honors explicit --http2 / --no-http2 over the environment', () => {
-    expect(resolveHttp2Enabled({ http2: true }, { FLOW_HTTP2: '0' })).toBe(true);
-    expect(resolveHttp2Enabled({ http2: false }, { FLOW_HTTP2: '1' })).toBe(false);
+    expect(resolveHttp2Enabled({ http2: true }, { RI_HTTP2: '0' })).toBe(true);
+    expect(resolveHttp2Enabled({ http2: false }, { RI_HTTP2: '1' })).toBe(false);
   });
 
-  it('falls back to FLOW_HTTP2 when no flag is given', () => {
-    expect(resolveHttp2Enabled({}, { FLOW_HTTP2: '1' })).toBe(true);
-    expect(resolveHttp2Enabled({}, { FLOW_HTTP2: 'true' })).toBe(true);
-    expect(resolveHttp2Enabled({}, { FLOW_HTTP2: '0' })).toBe(false);
-    expect(resolveHttp2Enabled({}, { FLOW_HTTP2: 'false' })).toBe(false);
+  it('falls back to RI_HTTP2 when no flag is given', () => {
+    expect(resolveHttp2Enabled({}, { RI_HTTP2: '1' })).toBe(true);
+    expect(resolveHttp2Enabled({}, { RI_HTTP2: 'true' })).toBe(true);
+    expect(resolveHttp2Enabled({}, { RI_HTTP2: '0' })).toBe(false);
+    expect(resolveHttp2Enabled({}, { RI_HTTP2: 'false' })).toBe(false);
   });
 
   it('defaults to disabled when nothing is set', () => {
     expect(resolveHttp2Enabled({}, {})).toBe(false);
-    expect(resolveHttp2Enabled({}, { FLOW_HTTP2: '' })).toBe(false);
+    expect(resolveHttp2Enabled({}, { RI_HTTP2: '' })).toBe(false);
   });
 
-  it('rejects an unrecognized FLOW_HTTP2 value loudly', () => {
-    expect(() => resolveHttp2Enabled({}, { FLOW_HTTP2: 'yes' })).toThrow(/Invalid FLOW_HTTP2/);
+  it('rejects an unrecognized RI_HTTP2 value loudly', () => {
+    expect(() => resolveHttp2Enabled({}, { RI_HTTP2: 'yes' })).toThrow(/Invalid RI_HTTP2/);
   });
 });
 

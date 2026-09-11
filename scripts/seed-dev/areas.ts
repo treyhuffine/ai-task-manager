@@ -7,7 +7,7 @@
  *
  * Modeling principles (see design conversations):
  *  - Flat. No hierarchy, no sub-areas. Sub-aspects (Sleep within Health,
- *    Engineering within Flow) live in note/task content, not in structure.
+ *    Engineering within Ri) live in note/task content, not in structure.
  *  - Each area passes two tests: durability ("still doing this in 2 years?")
  *    and coherence ("opening it feels like one thing"). Anything failing
  *    coherence is split; anything failing durability is a task with subtasks.
@@ -16,10 +16,10 @@
  *  - Items have a single primary area (single-membership). Cross-cutting
  *    happens via item-to-item relationships, not duplicate area assignments.
  *
- * The set below is a representative model — the active work area (Flow),
+ * The set below is a representative model — the active work area (Ri),
  * core life domains (Health, Family, Home, Finance), craft (Reading,
  * Writing), relationships (Network), and joy (Hobbies). A multi-business
- * operator would add one area per active venture alongside Flow.
+ * operator would add one area per active venture alongside Ri.
  */
 import type { CreateAreaInput } from '../../src/db/types';
 

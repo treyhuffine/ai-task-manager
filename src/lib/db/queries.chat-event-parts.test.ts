@@ -11,7 +11,7 @@ describe('cumulative chat event parts', () => {
   const previous: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-event-parts-'));
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-event-parts-'));
     previous[dbEnv] = process.env[dbEnv];
     previous[rootEnv] = process.env[rootEnv];
     process.env[dbEnv] = path.join(directory, 'data.db');

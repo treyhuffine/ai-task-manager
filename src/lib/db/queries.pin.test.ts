@@ -3,14 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const TEST_DB = path.join(os.tmpdir(), `flow-pin-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-pin-test-${process.pid}.db`);
 
 beforeEach(() => {
   for (const suffix of ['', '-wal', '-shm']) {
     const p = TEST_DB + suffix;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
 });
 
 afterAll(() => {

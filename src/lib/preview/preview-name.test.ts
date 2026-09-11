@@ -3,28 +3,28 @@ import { previewName, isValidPreviewLabel, MAX_LABEL_LENGTH } from './preview-na
 
 describe('previewName', () => {
   it('returns the worktree name unchanged when already a valid label', () => {
-    expect(previewName('flow-a3f9')).toBe('flow-a3f9');
+    expect(previewName('ri-a3f9')).toBe('ri-a3f9');
   });
 
   it('appends a service suffix with a hyphen', () => {
-    expect(previewName('flow-a3f9', 'api')).toBe('flow-a3f9-api');
-    expect(previewName('flow-a3f9', 'web')).toBe('flow-a3f9-web');
+    expect(previewName('ri-a3f9', 'api')).toBe('ri-a3f9-api');
+    expect(previewName('ri-a3f9', 'web')).toBe('ri-a3f9-web');
   });
 
   it('lowercases and replaces invalid characters with hyphens', () => {
-    expect(previewName('Flow_A3F9')).toBe('flow-a3f9');
+    expect(previewName('Ri_A3F9')).toBe('ri-a3f9');
     expect(previewName('my app!')).toBe('my-app');
     expect(previewName('feature/login.page')).toBe('feature-login-page');
   });
 
   it('collapses hyphen runs and trims edges', () => {
-    expect(previewName('--flow__a3f9--')).toBe('flow-a3f9');
+    expect(previewName('--ri__a3f9--')).toBe('ri-a3f9');
     expect(previewName('a   b')).toBe('a-b');
   });
 
   it('sanitizes the service part too', () => {
-    expect(previewName('flow-a3f9', 'API Server')).toBe('flow-a3f9-api-server');
-    expect(previewName('flow-a3f9', '/web/')).toBe('flow-a3f9-web');
+    expect(previewName('ri-a3f9', 'API Server')).toBe('ri-a3f9-api-server');
+    expect(previewName('ri-a3f9', '/web/')).toBe('ri-a3f9-web');
   });
 
   it('falls back to "app" for empty / fully-stripped input', () => {
@@ -51,7 +51,7 @@ describe('previewName', () => {
   });
 
   it('always yields an RFC-1123 label for arbitrary input', () => {
-    const inputs = ['flow-a3f9', 'WEIRD input/here', '...', 'a'.repeat(200), 'ünïcödé'];
+    const inputs = ['ri-a3f9', 'WEIRD input/here', '...', 'a'.repeat(200), 'ünïcödé'];
     for (const input of inputs) {
       expect(isValidPreviewLabel(previewName(input))).toBe(true);
       expect(isValidPreviewLabel(previewName(input, 'svc'))).toBe(true);
@@ -61,7 +61,7 @@ describe('previewName', () => {
 
 describe('isValidPreviewLabel', () => {
   it('accepts valid labels', () => {
-    expect(isValidPreviewLabel('flow-a3f9')).toBe(true);
+    expect(isValidPreviewLabel('ri-a3f9')).toBe(true);
     expect(isValidPreviewLabel('a')).toBe(true);
     expect(isValidPreviewLabel('a1b2c3')).toBe(true);
   });

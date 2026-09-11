@@ -6,8 +6,8 @@
  * event keeping mounted ones in sync.
  */
 
-export const INVITE_DISMISSED_KEY = 'flow.calendar.inviteDismissed';
-const DISMISS_EVENT = 'flow:calendar-invite-dismissed';
+export const INVITE_DISMISSED_KEY = 'ri.calendar.inviteDismissed';
+const DISMISS_EVENT = 'ri:calendar-invite-dismissed';
 
 export function readInviteDismissed(): boolean {
   if (typeof window === 'undefined') return true;

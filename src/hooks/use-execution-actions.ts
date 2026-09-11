@@ -54,7 +54,7 @@ export type ActionState =
   | { kind: 'noWorktree' }
   /** User pulled this session locally via the takeover flow. The host's
    *  agent is paused; commit/push/PR actions are meaningless until the
-   *  user runs `flow resume` or clicks Done in the takeover banner. */
+   *  user runs `ri resume` or clicks Done in the takeover banner. */
   | { kind: 'takenOver'; takeoverToken: string; startedAt: string };
 
 /**

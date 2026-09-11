@@ -7,27 +7,27 @@ import type { PreviewContext } from './types';
 import { renderManualTemplate } from '../settings';
 
 const ctx: PreviewContext = {
-  cwd: '/tmp/flow-a3f9',
-  worktreeName: 'flow-a3f9',
+  cwd: '/tmp/ri-a3f9',
+  worktreeName: 'ri-a3f9',
   service: null,
   port: 4567,
   workspaceId: 'ws1',
   executionId: 'ex-none',
-  previewName: 'flow-a3f9',
+  previewName: 'ri-a3f9',
 };
 
 let tmpRoot: string;
 let realHome: string | undefined;
 beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-prov-test-'));
-  process.env.FLOW_ROOT = tmpRoot;
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-prov-test-'));
+  process.env.RI_ROOT = tmpRoot;
   // Isolate ~/.beamd to an empty HOME so beamd resolves "not connected"
-  // deterministically (Flow uses the machine's account; no --config).
+  // deterministically (Ri uses the machine's account; no --config).
   realHome = process.env.HOME;
   process.env.HOME = tmpRoot;
 });
 afterEach(() => {
-  delete process.env.FLOW_ROOT;
+  delete process.env.RI_ROOT;
   if (realHome !== undefined) process.env.HOME = realHome;
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
 });
@@ -67,7 +67,7 @@ describe('built-in providers', () => {
 
 describe('renderManualTemplate', () => {
   it('substitutes {name} and {port}', () => {
-    expect(renderManualTemplate('https://{name}.my.dev', { name: 'flow-a3f9' })).toBe('https://flow-a3f9.my.dev');
+    expect(renderManualTemplate('https://{name}.my.dev', { name: 'ri-a3f9' })).toBe('https://ri-a3f9.my.dev');
     expect(renderManualTemplate('http://host:{port}', { name: 'x', port: 8080 })).toBe('http://host:8080');
   });
   it('returns null for an empty template', () => {

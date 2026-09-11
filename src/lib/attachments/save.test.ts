@@ -10,7 +10,7 @@ describe('saveAttachment', () => {
   let originalEnv: string | undefined;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-attachments-save-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-attachments-save-'));
     originalEnv = process.env[envKey];
     process.env[envKey] = tmpDir;
     vi.resetModules();

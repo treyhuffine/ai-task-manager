@@ -1,7 +1,7 @@
 /**
  * Query-layer smoke for the proactive deck versioning. No AI — exercises
  * supersede / active / versions / revert directly. Run against a throwaway DB:
- *   FLOW_DB_PATH=/tmp/deck-smoke.db pnpm tsx scripts/smoke-deck-versions.ts
+ *   RI_DB_PATH=/tmp/deck-smoke.db pnpm tsx scripts/smoke-deck-versions.ts
  */
 import {
   supersedeAndInsertDeck,

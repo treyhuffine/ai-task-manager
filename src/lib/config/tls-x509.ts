@@ -74,7 +74,7 @@ export async function generateCaPair(opts: { years: number; clockSkewMs: number 
   const cert = await mod.X509CertificateGenerator.createSelfSigned(
     {
       serialNumber: randomSerialHex(),
-      name: 'CN=Flow Local CA,O=Flow',
+      name: 'CN=Ri Local CA,O=Ri',
       notBefore,
       notAfter,
       keys,

@@ -129,7 +129,7 @@ Idempotent and safe under retry. No column, no `drizzle-kit` migration, no backf
 
 ## 8. Cross-device sync note
 
-`~/flow` is a sync unit and the DB lives under it (`project_data_dir_layout`). Random-uuid seeding on two devices would mint two different rows that duplicate on sync. A **constant** sentinel id makes seeding idempotent across devices — both seed the same primary key, so sync converges to one row (last-write-wins on schedule fields). This is a real reason the reserved-id approach beats both name-linkage and random-uuid seeding.
+`~/ri` is a sync unit and the DB lives under it (`project_data_dir_layout`). Random-uuid seeding on two devices would mint two different rows that duplicate on sync. A **constant** sentinel id makes seeding idempotent across devices — both seed the same primary key, so sync converges to one row (last-write-wins on schedule fields). This is a real reason the reserved-id approach beats both name-linkage and random-uuid seeding.
 
 ## 9. On-by-default decision (`DEFAULT_MORNING_ENABLED`)
 

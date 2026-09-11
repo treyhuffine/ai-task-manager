@@ -22,11 +22,11 @@ import { fsApi, type OpenInResult } from '@/lib/api/fs';
 
 export type EditorChoice = EditorTarget | 'custom';
 
-export const EDITOR_PREFERENCE_KEY = 'flow.client.editor';
-export const EDITOR_CUSTOM_COMMAND_KEY = 'flow.client.editorCustomCommand';
+export const EDITOR_PREFERENCE_KEY = 'ri.client.editor';
+export const EDITOR_CUSTOM_COMMAND_KEY = 'ri.client.editorCustomCommand';
 export const DEFAULT_EDITOR: EditorChoice = 'cursor';
 
-const CHANGE_EVENT = 'flow:editor-preference-changed';
+const CHANGE_EVENT = 'ri:editor-preference-changed';
 
 /** Labels for each choice, derived from KNOWN_APPS (strip the "Open in " prefix). */
 export const EDITOR_CHOICE_LABELS: Record<EditorChoice, string> = {

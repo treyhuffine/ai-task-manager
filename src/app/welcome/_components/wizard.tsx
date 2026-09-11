@@ -37,7 +37,7 @@ const INITIAL_STATE: WizardState = {
 
 /** Wizard state survives full-page round trips (the Connect step's OAuth
  *  redirect leaves and re-enters the app) via sessionStorage. */
-const STORAGE_KEY = 'flow.welcome.wizard';
+const STORAGE_KEY = 'ri.welcome.wizard';
 
 export function Wizard() {
   const router = useRouter();

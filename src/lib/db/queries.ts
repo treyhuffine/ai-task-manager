@@ -4923,7 +4923,7 @@ export function resetOrphanedSetupScripts(): number {
     .update(executions)
     .set({
       setupScriptStatus: 'failed',
-      setupScriptError: 'Setup was interrupted (Flow restarted). Retry to re-run it.',
+      setupScriptError: 'Setup was interrupted (Ri restarted). Retry to re-run it.',
       updatedAt: new Date().toISOString(),
     })
     .where(eq(executions.setupScriptStatus, 'running'))

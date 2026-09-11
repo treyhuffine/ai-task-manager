@@ -27,7 +27,7 @@ import { hydrateRow } from '@/lib/db/hydrate';
 import { withCompression } from '@/lib/api/compression';
 
 const SCRATCH_SLUG = '__dev_scratch__';
-const SCRATCH_CWD = join(tmpdir(), 'flow-dev-scratch');
+const SCRATCH_CWD = join(tmpdir(), 'ri-dev-scratch');
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.

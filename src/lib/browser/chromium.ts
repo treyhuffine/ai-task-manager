@@ -2,7 +2,7 @@
  * Discover installed Chromium-family browsers so the user can pick a flavor
  * (Chrome, Brave, Edge, Chromium) for the agent browser. We drive whichever
  * they choose over CDP, so any Chromium binary works, resolved by executable
- * path. Detection powers the Settings picker and `flow browser doctor`.
+ * path. Detection powers the Settings picker and `ri browser doctor`.
  *
  * We never download a browser here. Falling back to the Playwright Chromium is
  * a separate, consented step (see the proposal), not a silent default.

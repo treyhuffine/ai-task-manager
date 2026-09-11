@@ -322,7 +322,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     }
   };
 
-  // Transcript file chips fire `flow:open-file` (a window event) when
+  // Transcript file chips fire `ri:open-file` (a window event) when
   // clicked; route it to the same tree/viewer selection the file tree
   // uses, normalizing absolute tool-input paths to worktree-relative.
   useOpenFileListener(
@@ -372,7 +372,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     if (activePane !== null) setActivePane(null);
   }
 
-  // Transcript chips fire `flow:open-reference` events on click; surface
+  // Transcript chips fire `ri:open-reference` events on click; surface
   // the references pane so the user can browse / open the entity
   // without losing chat state.
   useOpenReferenceListener(

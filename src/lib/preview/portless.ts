@@ -2,7 +2,7 @@
  * Read-only adapter over Portless's on-disk state.
  *
  * Portless owns process lifecycle, port allocation, and TLS for apps the
- * user starts via `portless run`. Flow's job in Portless mode is simply:
+ * user starts via `portless run`. Ri's job in Portless mode is simply:
  *
  *   1. Detect that Portless is installed and the proxy is running.
  *   2. Read the routing table from `~/.portless/routes.json`.
@@ -163,11 +163,11 @@ interface WatcherState {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __flowPortlessWatcher: WatcherState | undefined;
+  var __riPortlessWatcher: WatcherState | undefined;
 }
 
 function ensureWatcher(): WatcherState {
-  if (globalThis.__flowPortlessWatcher) return globalThis.__flowPortlessWatcher;
+  if (globalThis.__riPortlessWatcher) return globalThis.__riPortlessWatcher;
 
   const stateDir = getPortlessStateDir();
   const state: WatcherState = {
@@ -177,7 +177,7 @@ function ensureWatcher(): WatcherState {
     debounceTimer: null,
     stateDir,
   };
-  globalThis.__flowPortlessWatcher = state;
+  globalThis.__riPortlessWatcher = state;
 
   // Initial snapshot.
   state.snapshot = readRoutes();
@@ -255,7 +255,7 @@ export function getRoutesSnapshot(): PortlessRoute[] {
 // ─── Hostname derivation ───────────────────────────────────────────────
 
 /**
- * Mirror Portless's own derivation so Flow + Portless agree without
+ * Mirror Portless's own derivation so Ri + Portless agree without
  * coordination:
  *
  *   - Main worktree:   `<slug>`

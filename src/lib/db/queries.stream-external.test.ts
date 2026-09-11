@@ -10,11 +10,11 @@ describe('external Stream idempotency', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-stream-external-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-stream-external-'));
     const env: Record<string, string> = {
-      FLOW_ROOT: root,
-      FLOW_DB_PATH: path.join(root, 'data.db'),
-      FLOW_MIRROR_DISABLED: '1',
+      RI_ROOT: root,
+      RI_DB_PATH: path.join(root, 'data.db'),
+      RI_MIRROR_DISABLED: '1',
     };
     for (const [key, value] of Object.entries(env)) {
       savedEnv[key] = process.env[key];

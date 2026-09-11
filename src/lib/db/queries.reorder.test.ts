@@ -16,7 +16,7 @@ describe('selected-only Area task ordering', () => {
   let tmpDir: string;
   const prefix = APP_SHORT_ID.toUpperCase();
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-query-reorder-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-query-reorder-'));
     vi.stubEnv(`${prefix}_ROOT`, tmpDir);
     vi.stubEnv(`${prefix}_DB_PATH`, path.join(tmpDir, 'data.db'));
     vi.stubEnv(`${prefix}_MIRROR_DISABLED`, '1');

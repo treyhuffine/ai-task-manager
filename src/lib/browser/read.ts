@@ -54,7 +54,7 @@ export interface ReadResult {
   truncated?: boolean;
   /** Where the full untruncated content was spilled, when truncated. */
   spillPath?: string;
-  /** The saved artifact (pdf mode): the page filed as a Flow attachment. */
+  /** The saved artifact (pdf mode): the page filed as a Ri attachment. */
   attachment?: Attachment;
   /** Present when a login or challenge wall is detected. */
   blocked?: BlockedSignal;
@@ -132,10 +132,10 @@ async function setOfMarks(page: Page, fullPage: boolean): Promise<{ image: strin
       if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) continue;
       const mark = `m${++i}`;
       const box = document.createElement('div');
-      box.className = '__flow_som__';
+      box.className = '__ri_som__';
       box.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;border:2px solid #ff2d55;z-index:2147483646;pointer-events:none;box-sizing:border-box;`;
       const label = document.createElement('div');
-      label.className = '__flow_som__';
+      label.className = '__ri_som__';
       label.textContent = mark;
       label.style.cssText = `position:fixed;left:${r.left}px;top:${Math.max(0, r.top - 14)}px;background:#ff2d55;color:#fff;font:11px/1.2 ui-monospace,monospace;padding:0 3px;z-index:2147483647;pointer-events:none;`;
       document.body.appendChild(box);
@@ -161,7 +161,7 @@ async function setOfMarks(page: Page, fullPage: boolean): Promise<{ image: strin
   });
   const buf = await page.screenshot({ type: 'png', fullPage });
   await page.evaluate(() => {
-    document.querySelectorAll('.__flow_som__').forEach((n) => n.remove());
+    document.querySelectorAll('.__ri_som__').forEach((n) => n.remove());
   });
   return { image: buf.toString('base64'), marks };
 }

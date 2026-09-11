@@ -1,15 +1,15 @@
 /**
  * Thin wrapper over the bundled `beamd` binary.
  *
- * Flow is **just another beamd client on the machine** — it does NOT manage
+ * Ri is **just another beamd client on the machine** — it does NOT manage
  * credentials or pass `--config`. Every call resolves the machine's beamd
  * account from `~/.beamd/` (set up once via `beamd login`), exactly like the
  * human at a terminal and the agent in a worktree. One credential, one path.
  *
  * Binary resolution, in order:
- *   1. `FLOW_BEAMD_BIN` env (explicit override; local dev / escape hatch).
+ *   1. `RI_BEAMD_BIN` env (explicit override; local dev / escape hatch).
  *   2. a user-installed `beamd` on `PATH` (NOT a `node_modules/.bin` shim) —
- *      preferred so Flow reads the shared `~/.beamd` store with the same CLI
+ *      preferred so Ri reads the shared `~/.beamd` store with the same CLI
  *      the human + agent use. The store's on-disk format tracks the NEWEST CLI
  *      that writes it, and an older CLI can't read a newer store (a bundled
  *      0.0.2 chokes on a 0.0.3 account file), so deferring to the user's own
@@ -24,7 +24,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// `@beamd/cli` ships as a dependency of Flow, so the per-platform native binary
+// `@beamd/cli` ships as a dependency of Ri, so the per-platform native binary
 // installs automatically — no global install, no npx. We locate it from a
 // *literal* specifier (`@beamd/cli/package.json`, externalized via
 // serverExternalPackages so the bundler leaves it alone) and then find the
@@ -72,14 +72,14 @@ function realpathSafe(p: string): string {
 }
 
 /**
- * The first `beamd` on PATH that is *not* Flow's own bundled copy — i.e. a
+ * The first `beamd` on PATH that is *not* Ri's own bundled copy — i.e. a
  * beamd the user installed themselves (global npm/pnpm, Homebrew, nvm bin…).
  *
- * We deliberately skip `node_modules/.bin` shim dirs (every Flow install
+ * We deliberately skip `node_modules/.bin` shim dirs (every Ri install
  * carries one via the `@beamd/cli` dependency, and pnpm even puts it on PATH
  * during `pnpm dev`) and anything resolving into the bundled cli package, so
  * this returns only a *separate*, user-controlled binary. Preferring it keeps
- * Flow reading the shared `~/.beamd` store with the same CLI version that wrote
+ * Ri reading the shared `~/.beamd` store with the same CLI version that wrote
  * it (an older CLI can't parse a newer store — that's the whole skew bug).
  */
 function findExternalBeamdOnPath(bundledCliDir: string | null): string | null {
@@ -107,7 +107,7 @@ function findExternalBeamdOnPath(bundledCliDir: string | null): string | null {
 }
 
 function resolveBeamdBin(): ResolvedBin {
-  const envBin = process.env.FLOW_BEAMD_BIN?.trim();
+  const envBin = process.env.RI_BEAMD_BIN?.trim();
   if (envBin) return fromExplicitPath(envBin, 'env');
 
   let cliDir: string | null = null;
@@ -117,7 +117,7 @@ function resolveBeamdBin(): ResolvedBin {
     cliDir = null;
   }
 
-  // Prefer a user-installed beamd over Flow's bundled copy so we read the shared
+  // Prefer a user-installed beamd over Ri's bundled copy so we read the shared
   // store the same way the human + agent wrote it (avoids the version-skew
   // misread). The bundle below is the zero-install fallback.
   const externalBin = findExternalBeamdOnPath(cliDir);
@@ -211,8 +211,8 @@ export function classifyError(res: RunResult): BeamdCliError {
   ) {
     code = 'beamd_cli_outdated';
     message =
-      "Flow's beamd is older than the beamd that set up this machine, so it can't read the account. " +
-      'Update Flow (or install a current beamd, Flow will use it), or set FLOW_BEAMD_BIN to your beamd binary.';
+      "Ri's beamd is older than the beamd that set up this machine, so it can't read the account. " +
+      'Update Ri (or install a current beamd, Ri will use it), or set RI_BEAMD_BIN to your beamd binary.';
   } else if (text.includes('not logged in') || text.includes('no account') || text.includes('no profile') || text.includes('run `beamd login`') || text.includes('run beamd login')) {
     code = 'beamd_not_connected';
     message = 'This machine isn’t connected to beamd. Connect it to enable remote previews.';
@@ -240,7 +240,7 @@ export function classifyError(res: RunResult): BeamdCliError {
 
 /**
  * Pull the contested hostname out of a beamd name-collision error, e.g.
- * `open failed: 502 Bad Gateway: name_taken: flow.beamd.run is taken`.
+ * `open failed: 502 Bad Gateway: name_taken: ri.beamd.run is taken`.
  * Returns null when the wording doesn't carry one.
  */
 function takenHostname(text: string): string | null {
@@ -530,27 +530,27 @@ export async function beamdConnectedServer(): Promise<string | null> {
   }
 }
 
-/** `check --json` landed in beamd 0.0.2 — the no-tunnel auth probe Flow relies on. */
+/** `check --json` landed in beamd 0.0.2 — the no-tunnel auth probe Ri relies on. */
 const MIN_BEAMD_VERSION = '0.0.2';
 
 export interface BeamdBinInfo {
-  /** The beamd entry Flow resolves to (binary or shim path). */
+  /** The beamd entry Ri resolves to (binary or shim path). */
   path: string;
-  /** Where it came from — `path` = a user-installed beamd, `bundled-*` = Flow's. */
+  /** Where it came from — `path` = a user-installed beamd, `bundled-*` = Ri's. */
   source: BeamdBinSource;
   /** Parsed `beamd version`, or null if it couldn't be determined. */
   version: string | null;
   /** True when the version is known and below {@link MIN_BEAMD_VERSION}. */
   outdated: boolean;
-  /** The floor Flow's `--json` parsing needs. */
+  /** The floor Ri's `--json` parsing needs. */
   minVersion: string;
 }
 
 let cachedBinInfo: Promise<BeamdBinInfo> | null = null;
 
 /**
- * Which beamd binary Flow will use, and its version. Memoized for the process —
- * surfaced by the settings/test path so version skew between Flow's beamd and
+ * Which beamd binary Ri will use, and its version. Memoized for the process —
+ * surfaced by the settings/test path so version skew between Ri's beamd and
  * the machine's `~/.beamd` account is legible instead of a silent "unhealthy".
  * Deliberately off the hot path (open/close/list).
  */

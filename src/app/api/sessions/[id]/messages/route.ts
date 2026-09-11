@@ -88,7 +88,7 @@ export async function POST(
         {
           error: 'session_in_takeover',
           message:
-            'Session is being worked on locally. Run `flow resume` or click Done in the takeover banner before sending more messages.',
+            'Session is being worked on locally. Run `ri resume` or click Done in the takeover banner before sending more messages.',
         },
         { status: 409 },
       );

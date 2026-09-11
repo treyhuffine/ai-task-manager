@@ -7,7 +7,7 @@
  *   2. Dump the DB to `<app-root>/tmp/data.db` (consistent online backup).
  *   3. Push to the cloud using a per-type strategy (commented — wire in
  *      your provider below):
- *        - DB          → copy to `s3:.../db/flow-backup-<ts>.db` (keeps
+ *        - DB          → copy to `s3:.../db/ri-backup-<ts>.db` (keeps
  *                        history, one file per run).
  *        - brain/      → sync (overwrite, incremental), excluding `data.db*`.
  *                        Markdown and attachments update in place; rely on
@@ -31,7 +31,7 @@ async function main() {
 
   const tmpDir = ensureTmpDir();
   const stamp = new Date().toISOString().replace(/:/g, '-').replace(/\.\d+/, '');
-  const dbDump = path.join(tmpDir, `flow-backup-${stamp}.db`);
+  const dbDump = path.join(tmpDir, `ri-backup-${stamp}.db`);
   await backupDb(dbDump);
   console.log(`[backup] db dumped: ${dbDump}`);
 
@@ -47,8 +47,8 @@ async function main() {
   //
   //   import { execFileSync } from 'node:child_process';
   //   import { getBrainDir } from '@/lib/config/paths';
-  //   execFileSync('rclone', ['copy', dbDump,        's3:flow-backups/db/'],                            { stdio: 'inherit' });
-  //   execFileSync('rclone', ['sync', getBrainDir(), 's3:flow-backups/brain/', '--exclude', 'data.db*'], { stdio: 'inherit' });
+  //   execFileSync('rclone', ['copy', dbDump,        's3:ri-backups/db/'],                            { stdio: 'inherit' });
+  //   execFileSync('rclone', ['sync', getBrainDir(), 's3:ri-backups/brain/', '--exclude', 'data.db*'], { stdio: 'inherit' });
 
   await fsp.rm(dbDump, { force: true });
   console.log('[backup] temp db removed');

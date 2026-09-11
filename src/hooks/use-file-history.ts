@@ -13,7 +13,7 @@ export interface FileHistoryEntry {
   openedAt: number;
 }
 
-const STORAGE_KEY_PREFIX = 'flow.viewer.history.';
+const STORAGE_KEY_PREFIX = 'ri.viewer.history.';
 /** Bound the list so a long session can't grow localStorage unbounded. */
 const MAX_ENTRIES = 40;
 

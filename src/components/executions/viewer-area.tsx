@@ -46,7 +46,7 @@ interface ViewerAreaProps {
 
 type Tab = 'files' | 'preview';
 
-const TAB_STORAGE_KEY_PREFIX = 'flow.viewer.tab.';
+const TAB_STORAGE_KEY_PREFIX = 'ri.viewer.tab.';
 
 /**
  * Top half of the right column. Tab-switch between the file viewer and

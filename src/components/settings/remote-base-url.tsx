@@ -32,7 +32,7 @@ import { setSettingsSection } from './settings-store';
  *
  * The Test button hits `${url}/api/health` from the browser (cross-origin,
  * unauth) and tells the user whether the URL actually resolves back to a
- * flow server. Hints on failure are tailored to common setups — the big
+ * Ri server. Hints on failure are tailored to common setups — the big
  * one being Tailscale MagicDNS, which requires the *current* device to
  * have Tailscale active even though other devices may still be able to
  * pair successfully via the same URL.
@@ -205,10 +205,10 @@ export function RemoteBaseUrlSection() {
       // while the URL is fresh in their mind.
       if (!res.autoTunnel) {
         const yes = await confirm({
-          title: 'Keep Flow reachable automatically?',
+          title: 'Keep Ri reachable automatically?',
           description: (
             <>
-              Turn on auto-reconnect so Flow re-opens this Beamd tunnel every time it
+              Turn on auto-reconnect so Ri re-opens this Beamd tunnel every time it
               starts. Without it, a restart or reboot leaves this machine unreachable
               until you reconnect by hand.
             </>
@@ -301,10 +301,10 @@ export function RemoteBaseUrlSection() {
         </div>
       </div>
 
-      {/* Keep Flow reachable: re-open the Beamd tunnel on every startup so a
+      {/* Keep Ri reachable: re-open the Beamd tunnel on every startup so a
           headless/remote box stays accessible across restarts without a manual
           reconnect. Only meaningful for the Beamd tunnel — external tunnels
-          (Tailscale, ngrok, Cloudflare) are managed outside Flow. */}
+          (Tailscale, ngrok, Cloudflare) are managed outside Ri. */}
       <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
         <div className="min-w-0">
           <div className="text-[12px] font-medium text-foreground">
@@ -312,8 +312,8 @@ export function RemoteBaseUrlSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/70">
             {beamdConnected
-              ? 'Flow re-opens this Beamd tunnel every time it starts, so this machine stays reachable after restarts and reboots.'
-              : 'Connect Beamd first, then Flow can keep the tunnel up on every startup.'}
+              ? 'Ri re-opens this Beamd tunnel every time it starts, so this machine stays reachable after restarts and reboots.'
+              : 'Connect Beamd first, then Ri can keep the tunnel up on every startup.'}
           </p>
           {autoTunnelMutation.isError && (
             <p className="mt-1 text-[11px] text-destructive">
@@ -398,7 +398,7 @@ export function RemoteBaseUrlSection() {
           disabled={busy || checkingBeamd}
           title={
             beamdConnected
-              ? 'Open a Beamd tunnel to this Flow server and save the returned URL'
+              ? 'Open a Beamd tunnel to this Ri server and save the returned URL'
               : 'Connect this machine to Beamd first'
           }
         >

@@ -20,7 +20,7 @@ const body = '![](/api/attachments/existing.png)';
 describe('copied-note attachment metadata repair plan', () => {
   let tmpDir: string;
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-att-repair-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-att-repair-'));
     vi.stubEnv(`${APP_SHORT_ID.toUpperCase()}_ROOT`, tmpDir);
     fs.mkdirSync(getAttachmentsDir(), { recursive: true });
     fs.writeFileSync(path.join(getAttachmentsDir(), authoritative.fileName), 'test');

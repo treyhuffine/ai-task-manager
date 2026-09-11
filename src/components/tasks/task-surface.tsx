@@ -7,7 +7,7 @@ import { TaskKanban } from './task-kanban';
 import { cn } from '@/lib/utils';
 
 type View = 'list' | 'board';
-const VIEW_KEY = 'flow.tasks.view';
+const VIEW_KEY = 'ri.tasks.view';
 
 /**
  * The task surface: List and Kanban are two views over the same records and the

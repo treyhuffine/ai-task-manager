@@ -8,7 +8,7 @@
  * paired devices all survive — so you don't re-pair your phone or re-walk
  * onboarding every reseed.
  *
- * For a true factory reset: `rm -rf ~/flow-dev && pnpm dev:reseed`.
+ * For a true factory reset: `rm -rf ~/ri-dev && pnpm dev:reseed`.
  */
 import fs from 'node:fs';
 import pc from 'picocolors';

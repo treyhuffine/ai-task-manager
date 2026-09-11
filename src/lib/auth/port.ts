@@ -19,7 +19,7 @@ import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 export const DEFAULT_PORT = 4224;
 
 /**
- * Default port for dev instances (`pnpm dev`, `flow start --dev`). Deliberately
+ * Default port for dev instances (`pnpm dev`, `ri start --dev`). Deliberately
  * distinct from {@link DEFAULT_PORT} so a dev server and a production server can
  * run side by side without fighting over 4224. Kept in sync with the `dev`
  * scripts in package.json (which can't import this constant from a shell).

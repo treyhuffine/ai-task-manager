@@ -14,14 +14,14 @@ interface RegistryState {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __flowPreviewProviders: RegistryState | undefined;
+  var __riPreviewProviders: RegistryState | undefined;
 }
 
 function state(): RegistryState {
-  if (!globalThis.__flowPreviewProviders) {
-    globalThis.__flowPreviewProviders = { providers: new Map() };
+  if (!globalThis.__riPreviewProviders) {
+    globalThis.__riPreviewProviders = { providers: new Map() };
   }
-  return globalThis.__flowPreviewProviders;
+  return globalThis.__riPreviewProviders;
 }
 
 /**

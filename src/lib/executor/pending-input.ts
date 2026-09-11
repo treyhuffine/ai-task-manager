@@ -68,7 +68,7 @@ interface PendingState {
   bySession: Map<string, Set<string>>;
 }
 
-const STATE_KEY = Symbol.for('@flow/pending-input-state');
+const STATE_KEY = Symbol.for('@ri/pending-input-state');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: PendingState };
 
 if (!globalRef[STATE_KEY]) {

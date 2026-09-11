@@ -112,7 +112,7 @@ import { resumeCommandForHarness } from '@/lib/agents/registry';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
-// invocation — even `flow start --dev`, which doesn't need either symbol.
+// invocation — even `ri start --dev`, which doesn't need either symbol.
 // Loading them lazily inside the two action handlers that use them lets the
 // dev CLI boot under tsx and matches the actual call graph: `run_trigger`
 // and `cancel_run` are the only paths that touch the executor.

@@ -40,7 +40,7 @@ Two properties follow. The product gets better for free as models improve, while
 
 ## 4. Assessment: what the premise gets right
 
-1. **The rot diagnosis is correct.** Every PKM and todo system fails the same way. The insight that structure exists for human retrieval and triage, and that AI makes the first free and the second delegable, is the right reading of the moment. Most competitors bolt a chat panel onto a structured task list. Flow inverts it.
+1. **The rot diagnosis is correct.** Every PKM and todo system fails the same way. The insight that structure exists for human retrieval and triage, and that AI makes the first free and the second delegable, is the right reading of the moment. Most competitors bolt a chat panel onto a structured task list. Ri inverts it.
 2. **Right side of the model improvement curve.** Structure-light products ride the frontier instead of being eroded by it.
 3. **Delegation as the primitive is the most original part.** Executions as a first-class table, propose-approve-run-review. Software rebuilt around negotiation of work. Very few are building it natively.
 4. **The substrate decisions are trustworthy.** One home directory that is simultaneously the human's data, the agent's cwd, and the sync unit. Content as plain markdown at the root. SQLite locally. The orchestrator registry as single source of truth with action names as public contract. queries.ts as the invariant chokepoint. entity_versions for diff and undo. Local-first matters more here than in most apps: handing an agent your whole life context requires trust that is much easier to extend to software running on your machine against your files. User-owned hooks over baked-in magic is the right immune response to over-automation.
@@ -118,7 +118,7 @@ The sequenced plan, with rough sizing. Each step is valuable standalone even if 
 
 - **Step 0: finish the three in-flight threads (days).** Not new work, just closing what is open before starting the new frame: (a) the executions prod migration and the pending column drop on chat_sessions, (b) the in-flight execution view refactor, (c) the Triggers-versus-Automations naming decision so the half-done schedules-to-triggers rename can finish through routes and UI and the vocabulary can freeze. These go first because later steps touch the same ground: provenance work extends the executions and versions tables, and the autonomy surface builds on triggers. Building on unsettled schema and naming multiplies the work.
 - **Step 1: Learn substrate (about a week).** Coverage audit so every agent-reachable write path produces an entity_version with correct source and session or execution linkage. Derive acceptance semantics from existing data (reverted equals rejected, human-edited-soon-after equals corrected, untouched equals accepted). Add structured deck-correction events and the time-to-verify measurement.
-- **Step 2: Capture, the front door (several weeks, the biggest build).** Inbound email first, then Slack, into the stream, through triage, routed onward. The ingest spec exists and the connectors runtime it needs is built. Notifier Telegram phase alongside (shared plumbing). Exit criterion: a day's real work lands in Flow without the human carrying it there.
+- **Step 2: Capture, the front door (several weeks, the biggest build).** Inbound email first, then Slack, into the stream, through triage, routed onward. The ingest spec exists and the connectors runtime it needs is built. Notifier Telegram phase alongside (shared plumbing). Exit criterion: a day's real work lands in Ri without the human carrying it there.
 - **Step 3: Triage hardening (continuous, rides on 1 and 2).** Feed correction telemetry into the proactive deck and iterate accuracy against time-to-verify. Tuning, not construction, but where trust is won.
 - **Step 4: unified Review surface (medium).** One "changes while you were away" pane: recent AI entity_versions plus executions in review state, each with diff, accept, undo. Primitives exist, mostly query plus UI, most defensible surface in the plan.
 - **Step 5: Route, unify autonomy (medium).** Consolidate permission-modes, connector approvals and scopes, and trigger settings into one per-action-type autonomy surface enforced at the orchestrator dispatch chokepoint. V1 is propose-versus-auto defaults. Acceptance data from step 1 later earns autonomy upgrades.
@@ -126,7 +126,7 @@ The sequenced plan, with rough sizing. Each step is valuable standalone even if 
 
 ## 9. Impact: how this matters
 
-The path to impact is not out-featuring incumbents. The OS and model vendors (OpenAI, Anthropic, Apple, Google, Microsoft) will own general assistants and will ship agentic execution with distribution Flow cannot match. What they structurally will not build: the user-owned context home, cross-provider workforce management (Flow already runs multiple executors), legible review for real work, and a trust layer the user controls rather than the vendor. Neutral, local, user-owned control plane. That is the defensible position, and open source is essential to it, not incidental.
+The path to impact is not out-featuring incumbents. The OS and model vendors (OpenAI, Anthropic, Apple, Google, Microsoft) will own general assistants and will ship agentic execution with distribution Ri cannot match. What they structurally will not build: the user-owned context home, cross-provider workforce management (Ri already runs multiple executors), legible review for real work, and a trust layer the user controls rather than the vendor. Neutral, local, user-owned control plane. That is the defensible position, and open source is essential to it, not incidental.
 
 The realistic impact path looks like Obsidian's, not Notion's: become the reference implementation for how humans and agents cohabit a workspace. Ideas like "the agent's cwd is your life's home directory" and "structure is a liability, intelligence is the organizer" propagate beyond the install base. The civic stake grows as the workforce era arrives: the default future is everyone's context and agent workforce rented from vendor clouds, and a credible user-owned alternative existing at all changes what people can demand from every vendor.
 
@@ -140,7 +140,7 @@ Five architectures were weighed. Recorded so the reasoning survives.
 
 **Path A: cloud multi-tenant SaaS.** Rejected. Destroys local-first, fights Notion and Linear on their turf, near-total rewrite. A hosted convenience offering may exist someday but must not shape the data model.
 
-**Path B: shared single instance.** One Flow server, teammates connect over HTTP. Rejected as a direction (viable only as a hack for two co-located people). Every UI query assumes one user, and it blurs the cleanest idea in the architecture: one home, one principal. "Whose deck is it" has no good answer.
+**Path B: shared single instance.** One Ri server, teammates connect over HTTP. Rejected as a direction (viable only as a hack for two co-located people). Every UI query assumes one user, and it blurs the cleanest idea in the architecture: one home, one principal. "Whose deck is it" has no good answer.
 
 **Path C: full CRDT replication.** Replicas synced via CRDTs (cr-sqlite, ElectricSQL, PowerSync class tooling). Philosophically aligned but deferred: conflict semantics with multiple humans and agents writing are genuinely hard, and the sync layer quietly becomes the product. Revisit only if the hub model proves insufficient.
 
@@ -154,7 +154,7 @@ The nexus centralizes the team's shared context, never an individual's life. The
 
 The shared-truth versus personal-annotation split from team-product-direction.md is doctrine: the team owns the truth of the task (title, status, completion, assignment), you own your relationship to it (energy, effort, sort order, subtasks, AI context, area placement).
 
-## 11. The nexus is a Flow home, not a database
+## 11. The nexus is a Ri home, not a database
 
 Team mode is the same binary running with a hub personality. **A team is a principal, just like a person. Every principal gets a home.** The team instance is a member of the team that happens to be software, with a home directory that is an agent cwd. Consequences:
 
@@ -165,7 +165,7 @@ Team mode is the same binary running with a hub personality. **A team is a princ
 
 ### 11.1 Shared agentic use: the team agent surface
 
-Because the team home is a full Flow instance, it inherits most of the product by construction: chat harness, executions, triggers, connectors, notifier, embeddings, orchestrator surface. A "smart Slack bot" for the team is therefore not a new system. It is the team home's chat surface exposed through the team's Slack connector: a member mentions the bot, the message routes into a session on the team home with the team commons as context, and actions dispatch through the same orchestrator registry. Same primitives, new principal.
+Because the team home is a full Ri instance, it inherits most of the product by construction: chat harness, executions, triggers, connectors, notifier, embeddings, orchestrator surface. A "smart Slack bot" for the team is therefore not a new system. It is the team home's chat surface exposed through the team's Slack connector: a member mentions the bot, the message routes into a session on the team home with the team commons as context, and actions dispatch through the same orchestrator registry. Same primitives, new principal.
 
 What the team home deliberately does NOT get: a deck (decks belong to humans, a team digest is notifier output), personal enrichment, personal agent memory about individuals.
 
@@ -182,7 +182,7 @@ Restraint note: the bot is powerful precisely because it is a thin channel over 
 
 ## 12. Sync model sketch
 
-- **Sources and adapters.** A personal Flow connects to sources: team hubs and third-party tools (Linear, Asana, GitHub) through the same adapter pattern. Synced items are local copies linked by source plus external_id.
+- **Sources and adapters.** A personal Ri connects to sources: team hubs and third-party tools (Linear, Asana, GitHub) through the same adapter pattern. Synced items are local copies linked by source plus external_id.
 - **Tasks scope by identity.** Your token pulls your assignments and follows.
 - **Notes scope by relevance.** Subscription gives coarse scope, agents pull semantically relevant context on demand. Relevance is an intelligence problem, not a folder problem: the thesis applied to sync itself.
 - **The deck is the composition point.** With N mounted sources, one finite morning surface composed across personal plus every space plus external tools, sized to the calendar.
@@ -194,7 +194,7 @@ Restraint note: the bot is powerful precisely because it is a thin channel over 
 
 ## 13. Adoption and business
 
-**Bottom-up wedge:** because team hubs and external tools are the same kind of source, personal Flow is useful at work before any team adopts anything (pull your Linear tasks into your deck today). Adoption is individual-first, the way git, Slack, and Notion spread. Team mode never has to win a rip-and-replace sale. **Team-down wedge:** the bot (11.1). The two meet in the middle.
+**Bottom-up wedge:** because team hubs and external tools are the same kind of source, personal Ri is useful at work before any team adopts anything (pull your Linear tasks into your deck today). Adoption is individual-first, the way git, Slack, and Notion spread. Team mode never has to win a rip-and-replace sale. **Team-down wedge:** the bot (11.1). The two meet in the middle.
 
 **Business:** hubs need to run somewhere, and hosted rendezvous plus sync is the proven open source monetization path (Obsidian Sync, Bitwarden, Tailscale). The one revenue model that does not betray local-first: the data stays yours, you pay for plumbing. The beamd tunnel work is precedent.
 

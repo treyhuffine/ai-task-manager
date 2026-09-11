@@ -31,7 +31,7 @@ interface FileHistoryMenuProps {
  * timestamp and a git-status badge for edited files. An "Edited only"
  * filter narrows the list to files with pending changes.
  *
- * Picking a row reuses the existing `flow:open-file` channel, so the same
+ * Picking a row reuses the existing `ri:open-file` channel, so the same
  * normalization / tab-swap / re-record path runs as a tree or chip click.
  */
 export function FileHistoryMenu({ sessionId, history, selectedPath }: FileHistoryMenuProps) {

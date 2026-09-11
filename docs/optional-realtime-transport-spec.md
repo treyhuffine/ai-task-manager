@@ -8,7 +8,7 @@ Independent proposal alongside [Optional built-in HTTP/2](optional-http2-spec.md
 
 ## 1. Decision and purpose
 
-Add a removable experiment that carries Flow's existing live event streams over one browser WebSocket per tab. Keep SSE as the default, the fallback, and the reference implementation.
+Add a removable experiment that carries Ri's existing live event streams over one browser WebSocket per tab. Keep SSE as the default, the fallback, and the reference implementation.
 
 The experiment must be easy to disable without rebuilding the app, changing its data, or rewriting its components. Standalone local use must not require Portless, HTTPS certificates, Electron, or a new database service. If served through an independently selected HTTPS frontend, that frontend owns certificates and this feature uses `wss:`.
 
@@ -81,21 +81,21 @@ Add the following proposed CLI option and environment variable:
 
 ```sh
 # Use native SSE. No realtime gateway. This remains the default.
-flow start --realtime-transport sse
+ri start --realtime-transport sse
 
 # Start the optional gateway and offer WebSocket transport.
-flow start --realtime-transport websocket
+ri start --realtime-transport websocket
 
 # Development uses the same launcher behavior and the dev data root.
-flow start --dev --realtime-transport websocket
+ri start --dev --realtime-transport websocket
 
 # Equivalent process-scoped opt-in.
-FLOW_REALTIME_TRANSPORT=websocket flow start
+RI_REALTIME_TRANSPORT=websocket ri start
 ```
 
-Precedence: explicit CLI option, then `FLOW_REALTIME_TRANSPORT`, then `sse`. Reject invalid values. Do not persist this policy in SQLite or auth configuration. Do not use `NEXT_PUBLIC_*` or require a Next rebuild to change modes.
+Precedence: explicit CLI option, then `RI_REALTIME_TRANSPORT`, then `sse`. Reject invalid values. Do not persist this policy in SQLite or auth configuration. Do not use `NEXT_PUBLIC_*` or require a Next rebuild to change modes.
 
-These controls affect only live transport. They never enable or disable HTTP/2 or change certificate trust. For example, `flow start --http2 --realtime-transport sse` retains HTTP/2 while disabling the realtime gateway, and `flow start --no-http2 --realtime-transport websocket` enables WebSockets over plain local HTTP. These combinations become available once both independent features are implemented.
+These controls affect only live transport. They never enable or disable HTTP/2 or change certificate trust. For example, `ri start --http2 --realtime-transport sse` retains HTTP/2 while disabling the realtime gateway, and `ri start --no-http2 --realtime-transport websocket` enables WebSockets over plain local HTTP. These combinations become available once both independent features are implemented.
 
 Keep `pnpm dev`, `pnpm dev:hot`, and normal `next start` working as they do today. Add an explicit development convenience script using the launcher if useful. Do not silently route existing commands through the gateway.
 
@@ -151,7 +151,7 @@ An ordinary HTTP request to the socket path receives a small 426 response. The s
 
 Use a launcher-set public base URL override through the existing URL/port helpers. Reuse that generic override if already introduced by another deployment feature rather than adding competing settings. Leave its absence behavior unchanged. Next overwrites `process.env.PORT` with its actual listening port, so passing the public port in `PORT` is insufficient. A port alone also cannot describe an outer HTTPS origin.
 
-Persist the actual reachable local entry point, including scheme and port, for `/api/health`, pairing URLs, `flow stop`, and QR links. Keep any configured remote URL separate. Internal backend requests use their fixed private addresses explicitly. Never derive the private upstream from a browser-supplied host, path, or URL.
+Persist the actual reachable local entry point, including scheme and port, for `/api/health`, pairing URLs, `ri stop`, and QR links. Keep any configured remote URL separate. Internal backend requests use their fixed private addresses explicitly. Never derive the private upstream from a browser-supplied host, path, or URL.
 
 Audit `src/lib/auth/port.ts`, `bootstrap.ts`, `auto-tunnel.ts`, and all direct readers of `process.env.PORT`, including harness and preview code. Centralize public URL/port resolution in the existing helpers rather than scattering gateway checks. Reserve every allocated public and private port from preview-server allocation.
 
@@ -370,7 +370,7 @@ Run focused transport/proxy/replay/auth tests, browser integration scenarios, `p
 
 Immediate browser rollback: turn off **Experimental live connection** or open the app with `?realtime=sse`. This restores standard live connections without restarting the backend.
 
-Complete operational rollback: restart Flow with `--realtime-transport sse` or remove the opt-in environment variable, preserving any independent HTTP/2 option. This removes the realtime gateway and restores native SSE over the selected HTTP deployment. An enabled HTTP/2 gateway stays active. With both features disabled, startup is direct Next. No rebuild, database migration, certificate operation, or data conversion is required. An ordinary backend restart has its usual consequences for active processes, so use browser rollback first during an active session.
+Complete operational rollback: restart Ri with `--realtime-transport sse` or remove the opt-in environment variable, preserving any independent HTTP/2 option. This removes the realtime gateway and restores native SSE over the selected HTTP deployment. An enabled HTTP/2 gateway stays active. With both features disabled, startup is direct Next. No rebuild, database migration, certificate operation, or data conversion is required. An ordinary backend restart has its usual consequences for active processes, so use browser rollback first during an active session.
 
 Complete code removal: remove the realtime gateway launch branch, build entry, dedicated dependencies, capability route, settings control, and WebSocket adapter. The client factory can remain as a small native EventSource wrapper or the three constructors can be restored. Remove the public-URL override and resume query helper only if no other caller uses them. Retain generic launcher support and dependencies still used by other features. The independent HTTP/2 feature must continue building and running if present. No domain model or event producer must be rewritten to complete deletion.
 

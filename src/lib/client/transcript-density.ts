@@ -19,10 +19,10 @@ import { useCallback, useEffect, useState } from 'react';
 
 export type TranscriptDensity = 'condensed' | 'full';
 
-export const TRANSCRIPT_DENSITY_KEY = 'flow.client.transcriptDensity';
+export const TRANSCRIPT_DENSITY_KEY = 'ri.client.transcriptDensity';
 export const DEFAULT_TRANSCRIPT_DENSITY: TranscriptDensity = 'condensed';
 
-const CHANGE_EVENT = 'flow:transcript-density-changed';
+const CHANGE_EVENT = 'ri:transcript-density-changed';
 
 function read(): TranscriptDensity {
   if (typeof window === 'undefined') return DEFAULT_TRANSCRIPT_DENSITY;

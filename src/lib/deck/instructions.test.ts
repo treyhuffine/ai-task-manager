@@ -5,7 +5,7 @@ import os from 'node:os';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { readDeckInstructions, writeDeckInstructions, DECK_INSTRUCTIONS_FILENAME } from './instructions';
 
-const ROOT = path.join(os.tmpdir(), `flow-deck-instr-${process.pid}`);
+const ROOT = path.join(os.tmpdir(), `ri-deck-instr-${process.pid}`);
 const prevRoot = process.env[APP_ROOT_ENV];
 
 beforeEach(() => {

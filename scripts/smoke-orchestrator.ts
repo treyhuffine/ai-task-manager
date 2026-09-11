@@ -17,7 +17,7 @@
  *
  * Usage:
  *   pnpm smoke
- *   FLOW_ROOT=~/my-custom-test pnpm smoke   # override the test root
+ *   RI_ROOT=~/my-custom-test pnpm smoke   # override the test root
  */
 
 import fs from 'node:fs';
@@ -42,7 +42,7 @@ async function main() {
   console.log(pc.dim(`  wiping…`));
   fs.rmSync(TEST_ROOT, { recursive: true, force: true });
 
-  // Bootstrap in-process. Order matches `flow start --dev`:
+  // Bootstrap in-process. Order matches `ri start --dev`:
   //   ensureLocalToken → ensureAppRoot (writes CLAUDE.md, config.json)
   //   installWorkspaceSkills → symlinks
   //   getDb → brain/data.db

@@ -103,7 +103,7 @@ describe('referenceFolderProviderWiring', () => {
   it('reports cursor and opencode as unsupported rather than pretending', () => {
     // Regression guard. agentex 0.0.34 reads `instructionsFile` in
     // `session.ts` only for claude/codex/pi — for cursor and opencode it lives
-    // in `execute.ts`, which Flow never uses. Marking these `prompt-only`
+    // in `execute.ts`, which Ri never uses. Marking these `prompt-only`
     // would log a reassuring warning while the agent learned nothing.
     for (const provider of ['cursor', 'opencode', 'gemini', 'copilot', 'acp']) {
       const wiring = referenceFolderProviderWiring(config, provider);

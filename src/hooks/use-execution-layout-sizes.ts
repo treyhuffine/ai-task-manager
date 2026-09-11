@@ -5,8 +5,8 @@ import type { Layout } from 'react-resizable-panels';
 
 /**
  * Per-session resizable-panel layouts for the execution view.
- * Persists to localStorage under `flow.execution.layout.<id>` and
- * `flow.execution.layout.vertical.<id>` so a user's preferred column
+ * Persists to localStorage under `ri.execution.layout.<id>` and
+ * `ri.execution.layout.vertical.<id>` so a user's preferred column
  * widths and viewer/terminal split survive reloads and navigation.
  *
  * Writes debounce by 300ms — react-resizable-panels fires `onLayoutChange`
@@ -17,9 +17,9 @@ import type { Layout } from 'react-resizable-panels';
  * `Layout` is the shape react-resizable-panels speaks: `{ [panelId]: number }`.
  */
 
-const STORAGE_PREFIX = 'flow.execution.layout';
-const STORAGE_PREFIX_V = 'flow.execution.layout.vertical';
-const STORAGE_PREFIX_TERM_OPEN = 'flow.execution.layout.terminalOpenPct';
+const STORAGE_PREFIX = 'ri.execution.layout';
+const STORAGE_PREFIX_V = 'ri.execution.layout.vertical';
+const STORAGE_PREFIX_TERM_OPEN = 'ri.execution.layout.terminalOpenPct';
 const WRITE_DEBOUNCE_MS = 300;
 
 export const HORIZONTAL_PANEL_IDS = {

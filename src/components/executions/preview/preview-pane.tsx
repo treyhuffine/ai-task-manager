@@ -35,13 +35,13 @@ interface PreviewPaneProps {
 
 /**
  * Per-execution preview pane. Two reachability modes (§5):
- *   - **local** (viewer on the same machine as Flow): embed the dev server's
+ *   - **local** (viewer on the same machine as Ri): embed the dev server's
  *     loopback URL directly.
  *   - **remote** (laptop / phone): embed the active remote provider's URL
  *     (beamd / portless / manual), brought up on Start.
  *
  * Both modes embed a real, different-origin URL — no path-proxy, no base-tag
- * rewriting, no Flow-origin trust-boundary leak.
+ * rewriting, no Ri-origin trust-boundary leak.
  */
 export function PreviewPane({ executionId, workspaceId, active = true, onOpenWorkspaceSettings }: PreviewPaneProps) {
   const { data: ws } = useWorkspace(workspaceId);
@@ -234,7 +234,7 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
             src={resolved.url}
             title="Workspace preview"
             // Both modes load a different-origin URL (the dev server / the
-            // tunnel), so SOP isolates Flow's origin for free. allow-same-
+            // tunnel), so SOP isolates Ri's origin for free. allow-same-
             // origin refers to the iframe's OWN origin (the dev app), which it
             // needs for cookies/storage/fetch.
             sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin"
@@ -559,7 +559,7 @@ function SetupRecovery({
   );
 }
 
-const NUDGE_DISMISSED_KEY = 'flow.preview.openOnDevice.nudged';
+const NUDGE_DISMISSED_KEY = 'ri.preview.openOnDevice.nudged';
 
 /**
  * One-time discovery hint for "Open on another device". Icons alone don't

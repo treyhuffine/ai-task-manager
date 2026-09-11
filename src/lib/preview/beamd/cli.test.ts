@@ -15,17 +15,17 @@ import { allocatePort } from '../net';
 
 // These exercise the REAL beamd binary against an unreachable edge, so they
 // validate the wrapper's parsing + error classification end-to-end without a
-// live edge. Flow drives the machine's `~/.beamd/` account (no --config), so
+// live edge. Ri drives the machine's `~/.beamd/` account (no --config), so
 // we point HOME at a throwaway dir and `beamd login` into it. Gated on
-// FLOW_BEAMD_BIN so CI without the binary skips. Run locally with:
-//   FLOW_BEAMD_BIN=/path/to/beamd npx vitest run src/lib/preview/beamd/cli.test.ts
-const BIN = process.env.FLOW_BEAMD_BIN;
+// RI_BEAMD_BIN so CI without the binary skips. Run locally with:
+//   RI_BEAMD_BIN=/path/to/beamd npx vitest run src/lib/preview/beamd/cli.test.ts
+const BIN = process.env.RI_BEAMD_BIN;
 const maybe = BIN ? describe : describe.skip;
 
 let tmpHome: string;
 let realHome: string | undefined;
 beforeEach(async () => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-beamd-cli-'));
+  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-beamd-cli-'));
   realHome = process.env.HOME;
   process.env.HOME = tmpHome;
   if (BIN) {
@@ -64,6 +64,6 @@ maybe('beamd CLI wrapper (real binary, shared ~/.beamd)', () => {
 
   it('open against an unreachable edge throws a classified BeamdCliError', async () => {
     const port = await allocatePort();
-    await expect(beamdOpen(port, 'flow-cli-test', { timeoutMs: 12_000 })).rejects.toBeInstanceOf(BeamdCliError);
+    await expect(beamdOpen(port, 'ri-cli-test', { timeoutMs: 12_000 })).rejects.toBeInstanceOf(BeamdCliError);
   }, 30_000);
 });

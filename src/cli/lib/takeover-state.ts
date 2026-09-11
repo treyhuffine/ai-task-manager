@@ -1,8 +1,8 @@
 /**
- * Per-clone state file for `flow takeover` / `flow resume`.
+ * Per-clone state file for `ri takeover` / `ri resume`.
  *
- * Lives at `<clone-path>/.flow-takeover.json`. Holds just enough for
- * `flow resume` to find its way back to the host: the URL it called,
+ * Lives at `<clone-path>/.ri-takeover.json`. Holds just enough for
+ * `ri resume` to find its way back to the host: the URL it called,
  * the token it was issued, the branch it checked out. Deleted on
  * successful resume so the clone dir is clean for next time.
  *
@@ -25,7 +25,7 @@ export interface TakeoverState {
   startedAt: string;
 }
 
-const STATE_FILENAME = '.flow-takeover.json';
+const STATE_FILENAME = '.ri-takeover.json';
 
 export function stateFilePath(clonePath: string): string {
   return path.join(clonePath, STATE_FILENAME);
@@ -78,8 +78,8 @@ export interface ActiveTakeover {
   state: TakeoverState;
 }
 
-/** Scan every clone dir for an active takeover. Used by `flow resume`
- *  when called with no args and by `flow takeover --list`. */
+/** Scan every clone dir for an active takeover. Used by `ri resume`
+ *  when called with no args and by `ri takeover --list`. */
 export function findActiveTakeovers(): ActiveTakeover[] {
   const root = getClonesDir();
   if (!fs.existsSync(root)) return [];

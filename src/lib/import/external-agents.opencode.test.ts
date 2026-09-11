@@ -140,16 +140,16 @@ describe('OpenCode saved history imports', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-opencode-import-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-opencode-import-'));
     const project = path.join(root, 'project');
     fs.mkdirSync(project, { recursive: true });
     const env = {
       TEST_OPENCODE_PROJECT: project,
       CLAUDE_CONFIG_DIR: path.join(root, 'claude'),
       CODEX_HOME: path.join(root, 'codex'),
-      FLOW_ROOT: path.join(root, 'flow-root'),
-      FLOW_DB_PATH: path.join(root, 'flow.db'),
-      FLOW_MIRROR_DISABLED: '1',
+      RI_ROOT: path.join(root, 'ri-root'),
+      RI_DB_PATH: path.join(root, 'ri.db'),
+      RI_MIRROR_DISABLED: '1',
     };
     for (const [key, value] of Object.entries(env)) {
       savedEnv[key] = process.env[key];
@@ -193,7 +193,7 @@ describe('OpenCode saved history imports', () => {
       'ses_opencode_import',
     )!.historyCheckpoint;
     expect(originalCheckpoint).toEqual({ kind: 'opencode:test', value: { id: 'initial-2' } });
-    expect(savedState.calls[0]?.cwd).toBe(process.env.FLOW_ROOT);
+    expect(savedState.calls[0]?.cwd).toBe(process.env.RI_ROOT);
 
     savedState.mode = 'noop';
     const noOp = await importer.importExternalAgentSessions([candidate.key]);

@@ -34,7 +34,7 @@ export function useTakeover(sessionId: string) {
   });
 
   /** Browser "Done — pull my changes" — same endpoint the CLI hits
-   *  with `flow resume`. Caller must pass the token (read off the
+   *  with `ri resume`. Caller must pass the token (read off the
    *  session row's `takeoverToken`). */
   const resume = useMutation({
     mutationFn: (token: string) => sessionsApi.resumeFromTakeover(token),

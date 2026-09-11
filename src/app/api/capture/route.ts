@@ -25,7 +25,7 @@
  *
  * Returns the created stream item.
  *
- * Auth: Bearer token from `flow pair`.
+ * Auth: Bearer token from `ri pair`.
  */
 
 import { NextRequest } from 'next/server';

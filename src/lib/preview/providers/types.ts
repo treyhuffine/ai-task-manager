@@ -27,7 +27,7 @@ export interface PreviewContext {
    *  shell a tool (e.g. beamd) run it with this `cwd` so project-local config
    *  — beamd's `beamd.yaml` (edge + scope) — is resolved from the right place. */
   cwd: string;
-  /** The worktree directory leaf, e.g. `flow-a3f9`. */
+  /** The worktree directory leaf, e.g. `ri-a3f9`. */
   worktreeName: string;
   /** Named service in a multi-service worktree (`web` | `api`), or null. */
   service?: string | null;
@@ -50,9 +50,9 @@ export interface PreviewProvider {
   label: string;
   kind: PreviewProviderKind;
   /**
-   * Does this provider need Flow to run + supervise the local dev server
+   * Does this provider need Ri to run + supervise the local dev server
    * before `resolve()` can produce a URL?
-   *   - localhost / beamd → true (Flow owns the process)
+   *   - localhost / beamd → true (Ri owns the process)
    *   - portless (Portless owns the process) / manual (external) → false
    * Defaults to true when omitted.
    */

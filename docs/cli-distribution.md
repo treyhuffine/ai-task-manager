@@ -73,7 +73,7 @@ Flags:
 
 ### `<app> pair`
 
-Prints the current pairing URL to stdout. Creates a token if one doesn't exist. This already exists as the `flow:pair` script (`scripts/pair.ts`) and is the primitive the default command uses internally.
+Prints the current pairing URL to stdout. Creates a token if one doesn't exist. This already exists as the `ri:pair` script (`scripts/pair.ts`) and is the primitive the default command uses internally.
 
 Useful for:
 

@@ -7,14 +7,14 @@ import { usePreviewSettings, useUpdatePreviewSettings, useTestBeamd, useConnectD
 import type { BeamdBinInfo } from '@/lib/api/preview';
 
 const BIN_SOURCE_LABEL: Record<BeamdBinInfo['source'], string> = {
-  env: 'FLOW_BEAMD_BIN',
+  env: 'RI_BEAMD_BIN',
   path: 'your installed beamd',
-  'bundled-native': "Flow's bundled beamd",
-  'bundled-shim': "Flow's bundled beamd",
+  'bundled-native': "Ri's bundled beamd",
+  'bundled-shim': "Ri's bundled beamd",
   fallback: 'beamd on PATH',
 };
 
-/** "via beamd 0.0.3 · your installed beamd" — which binary Flow resolved to. */
+/** "via beamd 0.0.3 · your installed beamd" — which binary Ri resolved to. */
 function BinLine({ bin }: { bin: BeamdBinInfo }) {
   return (
     <p className="text-[11px] text-muted-foreground/70" title={bin.path}>
@@ -26,7 +26,7 @@ function BinLine({ bin }: { bin: BeamdBinInfo }) {
 /**
  * The beamd connection block — shared by the Devices → Remote preview panel
  * and the per-preview "Open on another device" flow. Drives the machine's
- * shared `~/.beamd/` account (Flow stores no credential).
+ * shared `~/.beamd/` account (Ri stores no credential).
  *
  * Hosted-first: one **"Connect with Beamd"** button does browser-approve
  * (device login) against hosted beamd — no inputs. A collapsed **"Self-hosted
@@ -52,13 +52,13 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
 
   const connected = settings?.beamd.connected ?? false;
   const bin = settings?.beamd.bin ?? null;
-  // A version-skew problem (Flow's beamd too old to read the account) — show it
+  // A version-skew problem (Ri's beamd too old to read the account) — show it
   // prominently whether or not we read as "connected", since it's the cause.
   const skew =
     settings?.beamd.error?.code === 'beamd_cli_outdated'
       ? settings.beamd.error
       : bin?.outdated
-        ? { code: 'beamd_cli_outdated', message: `Flow is using beamd ${bin.version}, older than the ${bin.minVersion}+ it needs.` }
+        ? { code: 'beamd_cli_outdated', message: `Ri is using beamd ${bin.version}, older than the ${bin.minVersion}+ it needs.` }
         : null;
 
   // Self-hosted / API-key section. Auto-opens when the edge can't do browser
@@ -126,7 +126,7 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
             </span>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            beamd is logged in on this machine. Flow, your terminal, and agents all share it.
+            beamd is logged in on this machine. Ri, your terminal, and agents all share it.
           </p>
           {bin && <BinLine bin={bin} />}
           <div className="flex items-center gap-2 pt-0.5">
@@ -189,7 +189,7 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
         <>
           <p className="text-[11px] text-muted-foreground">
             Connect this machine to beamd to share previews to your phone or another device. The login is stored by
-            beamd (in <span className="font-mono">~/.beamd</span>), not by Flow. Your terminal and agents share it.
+            beamd (in <span className="font-mono">~/.beamd</span>), not by Ri. Your terminal and agents share it.
           </p>
 
           {/* Primary path: browser approval against hosted beamd — no inputs. */}

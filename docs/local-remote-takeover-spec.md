@@ -21,13 +21,13 @@ split into two regimes:
   UI are valid filesystem paths on the client machine. Native deep
   links (`file://`, `cursor://`, `vscode://`) work directly.
 - **Cross-machine** (browser host ≠ app host). The browser cannot
-  reach into the laptop's filesystem, but **the existing Flow CLI on
+  reach into the laptop's filesystem, but **the existing Ri CLI on
   the laptop can.** The browser hands off via a single copy-paste
   command; the CLI clones to a canonical path, opens the editor, and
   later pushes back + resumes the agent.
 
 No file sync daemon, no sshfs, no companion app. Just git + the CLI
-that already ships with Flow.
+that already ships with Ri.
 
 ## Goals
 
@@ -48,10 +48,10 @@ that already ships with Flow.
 
 - Bidirectional file sync (mutagen, sshfs, code-server tunnel).
 - Background polling that detects "user pushed something on its own —
-  explicit Resume button or `flow resume` instead.
-- A `flow connect <host>` persistent-auth handshake — the short-lived
+  explicit Resume button or `ri resume` instead.
+- A `ri connect <host>` persistent-auth handshake — the short-lived
   takeover token embedded in the copy-paste command covers v1.
-- Custom URL scheme registration (`flow://`) — defer until there's
+- Custom URL scheme registration (`ri://`) — defer until there's
   real demand for one-click handoff.
 - Workspaces without a git remote — takeover is hidden, no patch-file
   fallback.
@@ -64,11 +64,11 @@ that already ships with Flow.
 | Override mechanism                 | Per-origin toggle in settings, stored client-side in localStorage         |
 | Same-machine actions               | Deep links — `file://`, `cursor://file/<abs>`, `vscode://file/<abs>`      |
 | Editor preference (same-machine)   | Configurable per-client (Cursor / VS Code / JetBrains). Default: Cursor   |
-| Cross-machine handoff              | CLI-driven (`flow takeover <url>`). Manual-paste fallback in modal.       |
+| Cross-machine handoff              | CLI-driven (`ri takeover <url>`). Manual-paste fallback in modal.       |
 | Local clone location               | Per-workspace at `<local-app-root>/clones/<workspace-id>/`                |
 | CLI auth                           | Short-lived takeover token (1h TTL), one per session, embedded in URL     |
-| Browser-shown command              | `flow takeover https://<host>/t/<token>` — single line, single copy       |
-| Resume mechanism                   | `flow resume` from the laptop OR "Done — pull my changes" button          |
+| Browser-shown command              | `ri takeover https://<host>/t/<token>` — single line, single copy       |
+| Resume mechanism                   | `ri resume` from the laptop OR "Done — pull my changes" button          |
 | Pause-on-takeover                  | Wait for current tool call up to 5s, then interrupt via existing route    |
 | Conflict on resume                 | Surface error inline / in CLI; agent does not auto-resolve                |
 | Git remote requirement             | Hard required. Button hidden when no remote.                              |
@@ -95,7 +95,7 @@ Logic:
 
 1. Read `window.location.hostname`.
 2. If `∈ {localhost, 127.0.0.1, ::1}` → `{ kind: 'host', reason: 'localhost' }`.
-3. Else read localStorage key `flow.client.host-origins` (JSON array of
+3. Else read localStorage key `ri.client.host-origins` (JSON array of
    hostnames the user has claimed as "my main machine"). If current
    hostname is in the list → `{ kind: 'host', reason: 'override' }`.
 4. Else → `{ kind: 'remote', reason: 'default-remote' }`.
@@ -121,7 +121,7 @@ openInEditorHref(absPath: string, editor: EditorPreference): string
 // cursor://file/<abs>   ·   vscode://file/<abs>   ·   jetbrains://open?file=<abs>
 ```
 
-Editor preference: stored in localStorage under `flow.client.editor`.
+Editor preference: stored in localStorage under `ri.client.editor`.
 Enum `'cursor' | 'vscode' | 'jetbrains'`. Default `'cursor'`.
 
 `revealLabel(platform)` returns "Reveal in Finder" on macOS, "Show in
@@ -157,7 +157,7 @@ User in browser on laptop ─┐
        │                                                   │
        │   Run on your laptop:                             │
        │   ┌─────────────────────────────────────────────┐ │
-       │   │ flow takeover https://host:4224/t/abc123    │ │
+       │   │ ri takeover https://host:4224/t/abc123    │ │
        │   └─────────────────────────────────────────────┘ │
        │   [Copy]                                          │
        │                                                   │
@@ -168,7 +168,7 @@ User in browser on laptop ─┐
                            │ user runs the command
                            ▼
    On the laptop:                                          
-     1. flow takeover <url>                                
+     1. ri takeover <url>                                
         → GET /api/takeover/<token> → clone info           
      2. Clone to <app-root>/clones/<workspace-id>/ if new, 
         fetch if exists                                    
@@ -178,7 +178,7 @@ User in browser on laptop ─┐
                            ▼
        User edits locally, commits.                        
                            ▼
-                  $ flow resume                            
+                  $ ri resume                            
                            ▼
    On the laptop:                                          
      1. Push current branch                                
@@ -195,7 +195,7 @@ User in browser on laptop ─┐
 
 Two ways to close the loop, both supported:
 
-- **`flow resume` from the laptop** — primary path, the CLI pushes
+- **`ri resume` from the laptop** — primary path, the CLI pushes
   first and then calls resume.
 - **"Done — pull my changes" button in the browser modal/banner** —
   assumes the user has already pushed. Server-side `git pull` will
@@ -248,7 +248,7 @@ overwrites it.
 {
   token: string;
   expires_at: string;
-  cli_command: string;        // "flow takeover https://your-host:4224/t/<token>"
+  cli_command: string;        // "ri takeover https://your-host:4224/t/<token>"
   fallback_command: string;   // "git fetch origin && git checkout <branch>"
   branch: string;
   base_sha: string;
@@ -296,7 +296,7 @@ Validates token + expiry against any `chat_sessions` row. Returns:
 7. Return `{ ok: true, files_changed: number, shortstat: string }`.
 
 Resume does NOT auto-dispatch the agent. The synthetic message lands
-in the transcript; the user clicks Send (or `flow resume` prints
+in the transcript; the user clicks Send (or `ri resume` prints
 "Agent resumed — open the session to continue").
 
 **Informational:**
@@ -336,23 +336,23 @@ that short-circuits the rest of the state machine.
 - "Currently connected to: <hostname>" (read-only, from `host-info`).
 - "Treat this hostname as my host machine" toggle. Hidden when
   hostname is already localhost. Persists to the
-  `flow.client.host-origins` localStorage array.
+  `ri.client.host-origins` localStorage array.
 - Editor preference dropdown (Cursor / VS Code / JetBrains).
-  Persists to `flow.client.editor`.
+  Persists to `ri.client.editor`.
 
 No server persistence — these are per-browser/per-origin preferences.
 
 ## CLI commands
 
-The CLI is the existing Flow CLI (same binary that runs `flow start`
+The CLI is the existing Ri CLI (same binary that runs `ri start`
 on the host). New commands live in `src/cli/commands/` per the
 "shared CLI commands" convention in CLAUDE.md (not orchestrator
 registry — these are user-facing commands, not agent actions).
 
-### `flow takeover <url>`
+### `ri takeover <url>`
 
 ```
-flow takeover https://your-host:4224/t/<token>
+ri takeover https://your-host:4224/t/<token>
 ```
 
 Logic:
@@ -367,7 +367,7 @@ Logic:
 4. If path doesn't exist → `git clone <remote_url> <path>`.
    If path exists → `cd <path> && git fetch origin`.
 5. `git checkout <branch>` (creating tracking branch on first checkout).
-6. Persist state to `<clone-path>/.flow-takeover.json`:
+6. Persist state to `<clone-path>/.ri-takeover.json`:
 
    ```json
    {
@@ -393,7 +393,7 @@ Logic:
    ✓ Opened in Cursor.
 
    When you're done, run:
-     flow resume
+     ri resume
    ```
 
 Failure modes:
@@ -405,17 +405,17 @@ Failure modes:
 - **Workspace dir exists but isn't a git repo** → bail with "Clone
   path is occupied by non-git content: <path>. Move or remove it."
 
-### `flow resume`
+### `ri resume`
 
 ```
-flow resume                   # most recent takeover
-flow resume --workspace <id>  # disambiguate when multiple are open
+ri resume                   # most recent takeover
+ri resume --workspace <id>  # disambiguate when multiple are open
 ```
 
 Logic:
 
 1. Discover takeover state:
-   - Scan `<app-root>/clones/*/. flow-takeover.json`.
+   - Scan `<app-root>/clones/*/.ri-takeover.json`.
    - If multiple and no `--workspace` arg → error with the list.
    - If `--workspace` given, pick that one.
    - If exactly one → use it.
@@ -425,7 +425,7 @@ Logic:
 3. `git push origin HEAD`. Surface git errors (auth, non-fast-forward).
 4. `POST <host>/api/takeover/<token>/resume`. Surface 400 errors
    inline (`pull_conflict`, expired token, etc.).
-5. On success: delete `<clone-path>/.flow-takeover.json`. Print:
+5. On success: delete `<clone-path>/.ri-takeover.json`. Print:
 
    ```
    ✓ Pushed <branch> to origin.
@@ -434,7 +434,7 @@ Logic:
    Open the session to continue.
    ```
 
-### `flow takeover --list` (optional polish)
+### `ri takeover --list` (optional polish)
 
 Print all active takeovers on this machine (scans state files). Lets
 the user see what's still hanging if they forgot to resume.
@@ -479,13 +479,13 @@ one is stable.
 - [ ] `getClonesDir()` helper in `src/lib/config/paths.ts`
 - [ ] `getCliConfig()` editor preference (new field) in CLI config
       module — separate from browser localStorage; this is laptop-local
-- [ ] `src/cli/commands/takeover.ts` — `flow takeover <url>` command
-- [ ] `src/cli/commands/resume.ts` — `flow resume [--workspace]`
+- [ ] `src/cli/commands/takeover.ts` — `ri takeover <url>` command
+- [ ] `src/cli/commands/resume.ts` — `ri resume [--workspace]`
 - [ ] `src/cli/lib/open-editor.ts` — platform-aware `open` wrapper
-- [ ] `src/cli/lib/takeover-state.ts` — read/write `.flow-takeover.json`
+- [ ] `src/cli/lib/takeover-state.ts` — read/write `.ri-takeover.json`
       per clone dir, plus `findAllActive()` for the disambiguation case
 - [ ] Wire into CLI command registry (wherever existing commands like
-      `flow start` are registered)
+      `ri start` are registered)
 - [ ] Verify CLI commands work end-to-end against a local server before
       shipping the UI
 
@@ -497,7 +497,7 @@ one is stable.
       header overflow item. Hidden when `client.kind === 'host'` OR
       `!workspace.is_git` OR `!hasGitRemote`
 - [ ] `src/components/executions/takeover/takeover-modal.tsx` — single
-      `flow takeover <url>` command with copy button, "Done" +
+      `ri takeover <url>` command with copy button, "Done" +
       "Cancel" buttons, collapsible fallback panel with the raw
       `git fetch && git checkout <branch>` instructions
 - [ ] `src/components/executions/takeover/takeover-banner.tsx` —
@@ -514,7 +514,7 @@ one is stable.
 - [ ] Conflict surfacing: resume's `pull_conflict` renders inline in
       the banner and CLI both
 - [ ] HMR origin fix: `experimental.allowedDevOrigins` in `next.config.ts`
-- [ ] `flow takeover --list` for finding orphaned takeovers
+- [ ] `ri takeover --list` for finding orphaned takeovers
 - [ ] End-to-end manual test: localhost host + laptop on Tailscale
 - [ ] End-to-end manual test: same on ngrok
 - [ ] End-to-end manual test: phone (browser only, no CLI) → fallback
@@ -564,9 +564,9 @@ one is stable.
 - **CLI not installed on laptop.** Modal's fallback panel shows the raw
   `git fetch && git checkout <branch>` + the remote URL. Editor opens
   via folder-picker (no canonical path). One-time inconvenience, hopefully
-  prompts the user to install Flow.
+  prompts the user to install Ri.
 - **Multiple takeovers from the same laptop.** Each workspace gets its
-  own clone dir. `flow resume` without `--workspace` defaults to the
+  own clone dir. `ri resume` without `--workspace` defaults to the
   most recently started; with multiple in flight it errors and lists
   them so the user disambiguates.
 - **Token expired before the user got to it.** CLI hits 400 from
@@ -574,7 +574,7 @@ one is stable.
   browser to start a new takeover." Browser side: the modal shows
   expiry countdown; on expiry the banner offers "Restart takeover"
   which re-runs the takeover route (generates fresh token).
-- **User runs `flow resume` after server already pulled** (e.g. they
+- **User runs `ri resume` after server already pulled** (e.g. they
   clicked "Done" in the browser). API returns 400 `not_in_takeover`.
   CLI prints "This takeover already resumed on the server. Nothing
   to do." and deletes the local state file.
@@ -592,7 +592,7 @@ one is stable.
   push succeeds. Failed push → no state change, user retries.
 - **CLI run on a machine with `<APP>_ROOT` pointing elsewhere.** The
   CLI honors the same env-var overrides as the server (`getAppRoot()`
-  helper), so the clone goes wherever the user has Flow configured
+  helper), so the clone goes wherever the user has Ri configured
   on that machine. Same precedence as documented in CLAUDE.md.
 
 ## Reference paths

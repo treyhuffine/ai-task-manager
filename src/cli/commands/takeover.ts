@@ -1,13 +1,13 @@
 /**
- * `flow takeover <url>` and `flow takeover --list`.
+ * `ri takeover <url>` and `ri takeover --list`.
  *
  * Takes the copy-paste URL the browser modal hands the user, fetches
  * clone info from the host, clones (or fetches) the workspace into a
  * canonical local path, checks out the takeover branch, opens the
- * editor, and writes a state file for `flow resume` to find later.
+ * editor, and writes a state file for `ri resume` to find later.
  *
  * The URL shape is `<scheme>://<host>:<port>/t/<token>`. Host and token
- * are derived from it — no flags to set, no `flow connect` to run
+ * are derived from it — no flags to set, no `ri connect` to run
  * first. The token expires in 1h on the server side; running the
  * command after that just prints a friendly "ask for a new takeover."
  */
@@ -146,7 +146,7 @@ export async function takeoverCommand(urlArg: string | undefined, opts: Takeover
 
   if (!urlArg) {
     console.error(
-      pc.red('Missing URL argument. Run `flow takeover <url>` with the link from the browser modal.'),
+      pc.red('Missing URL argument. Run `ri takeover <url>` with the link from the browser modal.'),
     );
     process.exit(1);
   }
@@ -184,7 +184,7 @@ export async function takeoverCommand(urlArg: string | undefined, opts: Takeover
   }
 
   console.log('');
-  console.log(`When you're done, run ${pc.bold('flow resume')} to sync your changes back to the host.`);
+  console.log(`When you're done, run ${pc.bold('ri resume')} to sync your changes back to the host.`);
 }
 
 export function registerTakeoverCommand(program: Command) {

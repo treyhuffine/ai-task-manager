@@ -103,7 +103,7 @@ export async function doctorCommand() {
 /**
  * Run every check and return the results without printing or exiting.
  * Reusable from `start` so we can show a quick health snapshot without
- * making the user invoke `flow doctor` separately.
+ * making the user invoke `ri doctor` separately.
  */
 export async function runDoctorChecks(): Promise<NamedCheckResult[]> {
   const out: NamedCheckResult[] = [];

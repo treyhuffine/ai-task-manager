@@ -1,7 +1,7 @@
-# @agentex/agent — feedback from building Flow's async agents
+# @agentex/agent — feedback from building Ri's async agents
 
 > **Status.** Implementation feedback after wiring scheduled agent runs against
-> `@agentex/agent` 0.0.17. Lists the capabilities Flow had to build above the
+> `@agentex/agent` 0.0.17. Lists the capabilities Ri had to build above the
 > SDK because the existing surface didn't cover them, with proposed upstream
 > shapes that would let us delete that scaffolding.
 >
@@ -14,7 +14,7 @@
 ## TL;DR
 
 `@agentex/agent` is great at the **interactive co-pilot** shape — open a
-session, send a turn, stream events, close. Flow's V1 substrate
+session, send a turn, stream events, close. Ri's V1 substrate
 (`docs/async-agents-v1.md`) put it under load in a different shape:
 **fire-and-forget scheduled runs**, where the SDK consumer needs to:
 
@@ -23,7 +23,7 @@ session, send a turn, stream events, close. Flow's V1 substrate
 - correlate `tool_result` events back to their tool name without bookkeeping
 - distinguish a hung agent from a working one without heuristics
 
-We made it work entirely with consumer-side scaffolding (see Flow's
+We made it work entirely with consumer-side scaffolding (see Ri's
 `src/lib/runs/dispatch.ts`, `event-hooks.ts`, `pricing/models.ts`). This doc
 lists the seams that are clearly on the wrong side of the SDK boundary.
 
@@ -44,7 +44,7 @@ of plumbing of existing data.
 
 ## 1. Motivation: what we built and where the seam broke
 
-Flow's scheduler dispatches into agentex sessions every time a cron / webhook
+Ri's scheduler dispatches into agentex sessions every time a cron / webhook
 fires. The dispatch path (`src/lib/runs/dispatch.ts`) needs to:
 
 1. Spawn an `AgentSession` (or reuse the worktree's existing one)
@@ -134,7 +134,7 @@ type TurnResult = {
 }
 ```
 
-Per-send is the right granularity for our shape: Flow's `timeoutSeconds`
+Per-send is the right granularity for our shape: Ri's `timeoutSeconds`
 lives on the schedule row, varies per fire, and is naturally a `send`
 parameter. Carrying it via `ProviderConfig` at session-create time would
 force us to recycle the session every time the schedule's timeout
@@ -159,7 +159,7 @@ who set one global timeout per session.
 
 ### What lands when this ships
 
-Flow deletes `runWithTimeout` and `RunTimeoutError` from
+Ri deletes `runWithTimeout` and `RunTimeoutError` from
 `src/lib/runs/dispatch.ts` (~60 lines). `finalizeRunFailure`'s switch
 on `RunTimeoutError` collapses into the SDK's `TurnResult.status` —
 `status==='timeout'` → `errorCode: 'timeout'`. The interrupt-then-race
@@ -195,7 +195,7 @@ plumbing goes away.
 ```
 
 This forces every consumer that wants to attribute a tool result to a
-named action to maintain its own `toolCallId → toolName` cache. Flow does
+named action to maintain its own `toolCallId → toolName` cache. Ri does
 this in `src/lib/runs/event-hooks.ts` (`registerToolCallName` +
 `consumeToolCallName`). The data exists at the SDK boundary; we just
 re-derive it post-hoc.
@@ -225,7 +225,7 @@ New optional field — fully additive. Existing consumers ignore it.
 
 ### What lands when this ships
 
-Flow deletes `registerToolCallName` / `consumeToolCallName` and the
+Ri deletes `registerToolCallName` / `consumeToolCallName` and the
 module-level `toolCallNames` Map. `handleToolResult` reads `event.toolName`
 directly. ~30 lines of bookkeeping vanish.
 
@@ -245,7 +245,7 @@ to say "this event is from the subagent." Consumers see:
 - Token usage that doesn't add up to the parent's reported total
   (subagents have their own usage)
 
-Flow's `handleResultEvent` sums all result events into the run's
+Ri's `handleResultEvent` sums all result events into the run's
 `costUsd` / token counts. That's pragmatically correct for V1 — we
 want total spend per run regardless of which agent burned it — but it
 forces consumers to choose: sum blindly (lose attribution) or invent
@@ -311,7 +311,7 @@ the V1 type narrowing is a smaller change to existing callsites.
 
 ### What lands when this ships
 
-Flow's run-artifact accumulator (`src/lib/runs/artifact-bucket.ts`)
+Ri's run-artifact accumulator (`src/lib/runs/artifact-bucket.ts`)
 gains an "attribute this artifact to subagent X" path that's currently
 impossible to implement correctly. We can also surface in the runs view
 "the cost breakdown by subagent" without re-deriving from raw events.
@@ -330,7 +330,7 @@ impossible to implement correctly. We can also surface in the runs view
 
 Every consumer that wants accurate cost has to:
 
-1. Ship a per-model pricing table (Flow's `src/lib/pricing/models.json`)
+1. Ship a per-model pricing table (Ri's `src/lib/pricing/models.json`)
 2. Compute cost from token counts when the SDK reports null
 3. Update the table when providers publish new prices
 4. Strip versioned model ids (`claude-opus-4-7-20260415` → `claude-opus-4-7`)
@@ -380,7 +380,7 @@ release note.
 
 ### What lands when this ships
 
-Flow's `src/lib/pricing/models.{ts,json,test.ts}` (~150 LOC) collapses
+Ri's `src/lib/pricing/models.{ts,json,test.ts}` (~150 LOC) collapses
 to a call into `costForUsage`. The pricing table — the part that's
 actively maintained as providers publish prices — moves to the right
 shared layer.
@@ -406,7 +406,7 @@ the natural shape for:
 - **Schedule pause**: pause means "no new fires," but a running fire
   should complete
 
-Flow currently implements no drain — we either `interrupt()` (loses
+Ri currently implements no drain — we either `interrupt()` (loses
 in-flight work) or `close()` (kills mid-tool). Both are wrong for the
 "budget exceeded, finish what's running" case.
 
@@ -442,7 +442,7 @@ interface ProviderConfig {
 
 ### What lands when this ships
 
-Flow can implement budget-driven pause that actually does the right thing
+Ri can implement budget-driven pause that actually does the right thing
 (`drain` instead of `interrupt` for in-flight runs at the budget threshold).
 `instrumentation.ts`'s SIGTERM hook can `drain` rather than the current
 "do nothing for sessions" behavior.
@@ -453,19 +453,19 @@ Flow can implement budget-driven pause that actually does the right thing
 
 For honesty: not every gap should move upstream.
 
-- **Skill discovery for our paths** (`<brain>/skills/`, `<workspace>/.flow/skills/`)
-  — Flow's own conventions. agentex's `listInstalledSkills` reads what the
+- **Skill discovery for our paths** (`<brain>/skills/`, `<workspace>/.ri/skills/`)
+  — Ri's own conventions. agentex's `listInstalledSkills` reads what the
   CLI installed. Our resolver in `src/lib/executor/skills.ts` translates
-  Flow's paths into the `skillDirs` config option the SDK already accepts.
+  Ri's paths into the `skillDirs` config option the SDK already accepts.
   That's the right seam — agentex provides the place to pass paths, we
   decide what to put there.
 
-- **Health check for stuck sessions** — Flow has
+- **Health check for stuck sessions** — Ri has
   `src/lib/executor/health.ts` reconciling session state from the on-disk
   JSONL transcript. That's app-specific (our state is in our DB; the SDK
   is stateless). Stays in the consumer.
 
-- **Realtime SSE to the browser** — entirely Flow's surface; agentex
+- **Realtime SSE to the browser** — entirely Ri's surface; agentex
   shouldn't know about HTTP.
 
 ---
@@ -500,7 +500,7 @@ If we had to pick one: **proposal #1 (per-send timeout)**.
 The current state — `timeoutSec` exists, is honored by half the SDK,
 silently ignored by the other half — is the worst-of-all-worlds. Either
 remove it from `ProviderConfig` to be honest, or wire it through to
-`send()`. The "wire it through" version makes Flow's scheduled-run
+`send()`. The "wire it through" version makes Ri's scheduled-run
 substrate dramatically simpler and brings the type story in line with
 the implementation.
 
@@ -509,7 +509,7 @@ lines of data-flow work upstream.
 
 Proposals #3 and #4 are larger, but they're the ones that meaningfully
 reduce SDK fragmentation across consumers. As soon as a second
-agentex consumer beyond Flow needs cost attribution or subagent
+agentex consumer beyond Ri needs cost attribution or subagent
 accounting, they'll hand-roll the same thing we did — that's the
 signal it belongs in the SDK.
 
@@ -545,7 +545,7 @@ Each proposal is independently testable in agentex's existing test layout:
   `agentId` and `TurnResult.usageByAgent` keys it.
 - **#4**: unit tests for `pricingFor` model-id normalization (canonical
   / bare / versioned) and `costForUsage` math against a known table.
-  Flow's `src/lib/pricing/models.test.ts` is a working starting point.
+  Ri's `src/lib/pricing/models.test.ts` is a working starting point.
 - **#5**: assert `drain()` rejects new `send()` calls and waits for
   in-flight ones; assert `graceSec` overrides the 5s default.
 

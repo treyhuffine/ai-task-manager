@@ -33,7 +33,7 @@ import type { WorkstreamRuntime, ScopeChange } from '@/lib/sessions/workstream';
  * a `fetch` to it fails validation and every send/stop/notify would break. In
  * gateway mode we target the private Next listener directly:
  *   - in the server process, `PORT` is that private port;
- *   - out of process (e.g. `flow agent`), the runtime record carries it.
+ *   - out of process (e.g. `ri agent`), the runtime record carries it.
  * Direct HTTP and portless deployments keep their existing public/local URL.
  */
 export function serverBaseUrl(): string {

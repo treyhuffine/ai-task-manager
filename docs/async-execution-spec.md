@@ -14,7 +14,7 @@ Date: 2026-05-22
 5. **No new review-gate state.** Scheduled runs surface in the existing executions view with a trigger badge. "Needs review" is just unread (existing `last_outcome_event_at` vs `last_viewed_at` machinery).
 6. **Heartbeat deferred to v2**, alongside the notifications primitive it needs. v1 users can simulate it with a supervisor-style schedule that runs every 30 min. We promote heartbeat to its own primitive when usage patterns warrant.
 7. **First connector ships in v1** (Gmail or Linear, decided at build time) so the system is real out of the box. Other connectors (and MCP-server-as-connector path) are documented patterns that come later.
-8. **Harness-agnostic skill + subagent locations.** This app runs on Claude Code, Codex, and OpenClaw via `@agentex/agent`. Skills live at `<brain>/skills/` and `<workspace>/.flow/skills/`, never inside `.claude/`. Workspace skills commit to git.
+8. **Harness-agnostic skill + subagent locations.** This app runs on Claude Code, Codex, and OpenClaw via `@agentex/agent`. Skills live at `<brain>/skills/` and `<workspace>/.ri/skills/`, never inside `.claude/`. Workspace skills commit to git.
 
 ---
 
@@ -154,7 +154,7 @@ Each native connector ships:
 - Typed actions added to the orchestrator action registry (`gmail.list_recent`, etc.)
 - A skill (`<brain>/skills/connector-gmail/SKILL.md`)
 - Webhook payload schema (for push)
-- OAuth flow handled by CLI (`flow connector add gmail`)
+- OAuth flow handled by CLI (`ri connector add gmail`)
 
 **Webhook split**:
 - `/api/triggers/:public_id` — user-defined schedule webhooks. Auth: HMAC-SHA256.
@@ -171,7 +171,7 @@ The app runs on Claude Code, Codex, and OpenClaw via `@agentex/agent`. All three
 We use harness-agnostic paths and let the executor adapter handle per-harness loading:
 
 - **Global skills**: `<brain>/skills/<name>/SKILL.md` — available everywhere.
-- **Workspace skills**: `<workspace>/.flow/skills/<name>/SKILL.md` — codebase-specific, committed to git.
+- **Workspace skills**: `<workspace>/.ri/skills/<name>/SKILL.md` — codebase-specific, committed to git.
 - **Subagents**: same structure under `agents/` paths (mirrors Claude Code's convention but in our location).
 - **Resolution**: workspace overrides global on name collision.
 
@@ -404,23 +404,23 @@ The destructive-action pre-gate lives on the dispatcher, not as a separate orche
 ### 6.1 CLI
 
 ```bash
-flow schedule create \
+ri schedule create \
   --name "morning-triage" \
   --cron "0 9 * * 1-5" \
   --prompt "Triage stream items captured overnight" \
   --agent default
-flow schedule list / show / pause / edit / delete
-flow schedule run <id> [--wait]
+ri schedule list / show / pause / edit / delete
+ri schedule run <id> [--wait]
 
-flow runs                                       # all runs, paginated
-flow runs --unread                              # what needs my attention
-flow run show / cancel
+ri runs                                       # all runs, paginated
+ri runs --unread                              # what needs my attention
+ri run show / cancel
 
-flow connector add gmail                        # OAuth via CLI
-flow connector list / show / sync / disable
+ri connector add gmail                        # OAuth via CLI
+ri connector list / show / sync / disable
 
-flow spend                                      # today/week/month
-flow spend --by agent / schedule / connector
+ri spend                                      # today/week/month
+ri spend --by agent / schedule / connector
 ```
 
 ### 6.2 Dashboard

@@ -189,10 +189,10 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   const rows = input.rows ?? 24;
   const shell = resolveShell();
   // Sanitized base env strips Next.js worker plumbing (TURBOPACK,
-  // __NEXT_PRIVATE_ORIGIN, NEXT_PRIVATE_WORKER, PORT, …) that Flow's
+  // __NEXT_PRIVATE_ORIGIN, NEXT_PRIVATE_WORKER, PORT, …) that Ri's
   // own Node process inherits as a Next dev worker. Without this, every
   // pty inherits those vars and any `next dev` (or IDE the user launches
-  // from this terminal) thinks it's a Flow worker on :4224 with Turbopack
+  // from this terminal) thinks it's a Ri worker on :4224 with Turbopack
   // forced on — which breaks Babel-based Next projects and pins the
   // wrong port. See `src/lib/utils/sanitize-child-env.ts`.
   const sanitized = sanitizeChildEnv(input.env);

@@ -74,7 +74,7 @@ export function requireBrowser(): DetectedBrowser {
     throw new ActionError(
       'unsupported',
       'The agent browser is disabled.',
-      'Enable it in Settings or with `flow browser` config.',
+      'Enable it in Settings or with `ri browser` config.',
     );
   }
   const resolved = resolveChromium(getConfiguredChromiumPath());
@@ -82,7 +82,7 @@ export function requireBrowser(): DetectedBrowser {
     throw new ActionError(
       'unsupported',
       'No Chromium-family browser found (Chrome, Brave, Edge, or Chromium).',
-      'Install one and run `flow browser doctor`.',
+      'Install one and run `ri browser doctor`.',
     );
   }
   return resolved;

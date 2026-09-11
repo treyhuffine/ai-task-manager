@@ -259,7 +259,7 @@ export function DevicesSection() {
           </Tabs>
 
           {/* Raw token — same for every URL above. Useful when pasting into
-              a device that already has flow open, or when the pairing URL's
+              a device that already has Ri open, or when the pairing URL's
               hash fragment isn't preserved across the paste target. */}
           <div className="pt-3 border-t border-primary/20 space-y-1.5">
             <p className="text-[11px] text-muted-foreground/70">

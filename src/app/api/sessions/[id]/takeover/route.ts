@@ -17,7 +17,7 @@ import * as executor from '@/lib/executor/adapter';
  * columns on chat_sessions. Returns enough for the modal to render
  * the copy-paste CLI command and the fallback git instructions.
  *
- * The session is "in takeover" until the user runs `flow resume`
+ * The session is "in takeover" until the user runs `ri resume`
  * (or clicks Done/Cancel in the browser). While taken over, dispatches
  * into the executor are rejected.
  */
@@ -53,7 +53,7 @@ async function waitForIdle(sessionId: string, timeoutMs: number): Promise<boolea
  *  (Tailscale, ngrok) without any host-side config. */
 function buildCliCommand(origin: string, token: string): string {
   const base = origin.replace(/\/+$/, '');
-  return `flow takeover ${base}/t/${token}`;
+  return `ri takeover ${base}/t/${token}`;
 }
 
 function buildFallbackCommand(branch: string): string {

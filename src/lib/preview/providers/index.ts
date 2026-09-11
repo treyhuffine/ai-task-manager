@@ -10,7 +10,7 @@ import { beamdProvider } from './beamd';
 import { manualProvider } from './manual';
 
 // Portless isn't a built-in provider: running `portless` is a project-level
-// dev-server choice (a package.json script), not a Flow reachability mode —
+// dev-server choice (a package.json script), not a Ri reachability mode —
 // it surfaced as a confusing local-only option. The read-only adapter
 // (`../portless`) and a `portlessProvider` wrapper still exist for anyone who
 // wants to register it via the plugin seam, but it's off the picker by default.

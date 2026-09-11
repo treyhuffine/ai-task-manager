@@ -2,14 +2,14 @@
  * End-to-end beamd verification.
  *
  * Brings a real tunnel up against a live edge and proves the URL serves the
- * local app over HTTPS, then tears it down. Flow drives the machine's shared
+ * local app over HTTPS, then tears it down. Ri drives the machine's shared
  * `~/.beamd/` account (no `--config`), so this logs into a throwaway HOME and
  * uses it — never touching your real `~/.beamd`.
  *
  * Usage:
  *   BEAMD_SERVER=beamd.ai \
  *   BEAMD_TOKEN=<workspace api key or oss token> \
- *   FLOW_BEAMD_BIN=/path/to/beamd \    # optional; else @beamd/cli / PATH
+ *   RI_BEAMD_BIN=/path/to/beamd \    # optional; else @beamd/cli / PATH
  *   pnpm tsx scripts/verify-beamd.ts
  */
 
@@ -46,13 +46,13 @@ async function main() {
   console.log('• status:', JSON.stringify(await beamdStatus()));
 
   const port = await allocatePort();
-  const marker = `flow-beamd-ok-${port}`;
+  const marker = `ri-beamd-ok-${port}`;
   const app = http.createServer((_q, s) => s.end(marker));
   await new Promise<void>((r) => app.listen(port, '127.0.0.1', r));
   if (!(await isPortListening(port))) throw new Error('local app failed to listen');
   console.log(`• local app on :${port}`);
 
-  const name = `flow-verify-${port}`;
+  const name = `ri-verify-${port}`;
   let url: string | null = null;
   try {
     const opened = await beamdOpen(port, name);

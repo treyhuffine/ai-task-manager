@@ -13,7 +13,7 @@ import { GET } from './route';
  * cost is paid in the hook so cold-start doesn't flake the first test.
  */
 
-const TEST_DB = path.join(os.tmpdir(), `flow-doc-seed-test-${process.pid}.db`);
+const TEST_DB = path.join(os.tmpdir(), `ri-doc-seed-test-${process.pid}.db`);
 vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
 
 function wipe() {
@@ -25,7 +25,7 @@ function wipe() {
 
 beforeEach(() => {
   wipe();
-  process.env.FLOW_DB_PATH = TEST_DB;
+  process.env.RI_DB_PATH = TEST_DB;
   resetDb();
 });
 

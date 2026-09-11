@@ -64,7 +64,7 @@ tree, which pollutes the file tree and the `@` picker.
 ## 3. Non-goals
 
 - Writable references. If you need to change it, make it a workspace.
-- Syncing, fetching, cloning, or pulling a reference folder. Flow reads what is
+- Syncing, fetching, cloning, or pulling a reference folder. Ri reads what is
   on disk and reports drift. It never mutates.
 - Auto-detecting sibling repos.
 - Indexing reference folders into embeddings or `search`.
@@ -185,7 +185,7 @@ content-session seam at `adapter.ts` uses the latter, but it is a Claude-only
 flag, and §7 below assumes Codex still gets the prompt-level guard. Agentex's
 `instructionsFile` is resolved by every provider (claude maps it to
 `--append-system-prompt-file`, codex folds it into base instructions), so the
-block is portable. It was previously unused in Flow, and
+block is portable. It was previously unused in Ri, and
 `orchestratorSessionConfig` does not set it, so there is no collision.
 
 The file is written to `<workDir>/reference-folders/<chatSessionId>.md` on every
@@ -237,7 +237,7 @@ everything below goes through argv passthrough with no agentex change needed.
 
 Agentex is expected to add a typed `additionalDirectories` with
 "extend the workspace" semantics, matching Claude's `--add-dir` and Gemini's
-`--include-directories`. Flow should swap the passthrough for the typed field
+`--include-directories`. Ri should swap the passthrough for the typed field
 when it lands (Phase 3), but must not wait on it. Note that Codex's nearest
 equivalent (`sandbox_workspace_write.writable_roots`) governs writes only and
 does not gate reads, so the capability spread will stay uneven and the
@@ -275,10 +275,10 @@ this is the part the UI copy makes a promise about:
 **Delivery is not uniform across providers, and the gap is bigger than this
 spec originally assumed.** `instructionsFile` is read in agentex's
 `providers/<p>/session.ts` for claude, codex and pi, but only in `execute.ts`
-(the one-shot path) for cursor and opencode. Flow always goes through
+(the one-shot path) for cursor and opencode. Ri always goes through
 `createSession`, so on cursor and opencode the field is silently dropped.
 
-| Flow harness | delivery | what the agent gets |
+| Ri harness | delivery | what the agent gets |
 |---|---|---|
 | claude | `full` | prompt block, `--add-dir`, `Edit(...)` deny rules |
 | codex | `prompt-only` | prompt block, no tool-level fence |
@@ -562,7 +562,7 @@ Ordered by what actually costs a user something today.
 ### Blocked on agentex
 
 1. **Session-scoped `instructionsFile` for cursor and opencode.** Until then
-   reference folders are a total no-op on half of Flow's harnesses (see §7).
+   reference folders are a total no-op on half of Ri's harnesses (see §7).
    The fix is one field read in `providers/<p>/session.ts`, mirroring what
    claude and codex already do. This is the single highest-value follow-up and
    it lives in the agentex repo, not here.

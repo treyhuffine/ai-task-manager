@@ -35,7 +35,7 @@ describe('extractTextFromAttachment', () => {
   const saveEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-extract-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-extract-'));
     attachmentsDir = path.join(tmpDir, 'attachments');
     fs.mkdirSync(attachmentsDir, { recursive: true });
     for (const k of [appRootEnv, dbPathEnv, mirrorDisabledEnv]) saveEnv[k] = process.env[k];

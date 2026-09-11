@@ -17,11 +17,11 @@ interface TakeoverModalProps {
 
 /**
  * Browser-side modal users see after clicking "Take over locally."
- * Primary surface is a single `flow takeover <url>` command with a
+ * Primary surface is a single `ri takeover <url>` command with a
  * copy button. Secondary surface (collapsible) is the manual git
  * commands for users without the CLI installed.
  *
- * Resume happens either via `flow resume` on the laptop (preferred,
+ * Resume happens either via `ri resume` on the laptop (preferred,
  * pushes from the local clone) OR the "Done — pull my changes" button
  * here (assumes the user already pushed from elsewhere).
  */

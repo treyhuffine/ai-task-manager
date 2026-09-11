@@ -173,8 +173,8 @@ const ALL_HARNESS_IDS = Object.freeze(Object.keys(HARNESS_REGISTRY) as HarnessId
 
 /** Emergency rollout switches. Both new harnesses ship enabled by default. */
 export function isHarnessEnabled(id: HarnessId): boolean {
-  if (id === 'cursor') return process.env.NEXT_PUBLIC_FLOW_CURSOR_ENABLED !== 'false';
-  if (id === 'opencode') return process.env.NEXT_PUBLIC_FLOW_OPENCODE_ENABLED !== 'false';
+  if (id === 'cursor') return process.env.NEXT_PUBLIC_RI_CURSOR_ENABLED !== 'false';
+  if (id === 'opencode') return process.env.NEXT_PUBLIC_RI_OPENCODE_ENABLED !== 'false';
   return true;
 }
 

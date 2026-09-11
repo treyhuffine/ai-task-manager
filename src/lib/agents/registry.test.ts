@@ -33,20 +33,20 @@ describe('agent harness registry', () => {
   });
 
   it('supports independent emergency rollout switches for new harnesses', () => {
-    const cursor = process.env.NEXT_PUBLIC_FLOW_CURSOR_ENABLED;
-    const opencode = process.env.NEXT_PUBLIC_FLOW_OPENCODE_ENABLED;
+    const cursor = process.env.NEXT_PUBLIC_RI_CURSOR_ENABLED;
+    const opencode = process.env.NEXT_PUBLIC_RI_OPENCODE_ENABLED;
     try {
-      process.env.NEXT_PUBLIC_FLOW_CURSOR_ENABLED = 'false';
-      process.env.NEXT_PUBLIC_FLOW_OPENCODE_ENABLED = 'false';
+      process.env.NEXT_PUBLIC_RI_CURSOR_ENABLED = 'false';
+      process.env.NEXT_PUBLIC_RI_OPENCODE_ENABLED = 'false';
       expect(isHarnessEnabled('cursor')).toBe(false);
       expect(isHarnessEnabled('opencode')).toBe(false);
       expect(isHarnessEnabled('claude')).toBe(true);
       expect(isHarnessEnabled('codex')).toBe(true);
     } finally {
-      if (cursor === undefined) delete process.env.NEXT_PUBLIC_FLOW_CURSOR_ENABLED;
-      else process.env.NEXT_PUBLIC_FLOW_CURSOR_ENABLED = cursor;
-      if (opencode === undefined) delete process.env.NEXT_PUBLIC_FLOW_OPENCODE_ENABLED;
-      else process.env.NEXT_PUBLIC_FLOW_OPENCODE_ENABLED = opencode;
+      if (cursor === undefined) delete process.env.NEXT_PUBLIC_RI_CURSOR_ENABLED;
+      else process.env.NEXT_PUBLIC_RI_CURSOR_ENABLED = cursor;
+      if (opencode === undefined) delete process.env.NEXT_PUBLIC_RI_OPENCODE_ENABLED;
+      else process.env.NEXT_PUBLIC_RI_OPENCODE_ENABLED = opencode;
     }
   });
 

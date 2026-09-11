@@ -155,7 +155,7 @@ export function CommandInput({ input, setInput, onSubmit, onSendMessage, isStrea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Tell Flow what's next..."
+              placeholder="Tell Ri what's next..."
               className="flex-1 bg-transparent border-none outline-none text-base py-3 pl-3 placeholder:text-muted-foreground"
             />
 

@@ -24,7 +24,7 @@ Regression coverage lives in `src/lib/browser/connect-wedge.test.ts` (hermetic, 
 
 - The **browser was healthy the whole time** — logged into Medium, reachable, `GET /json/version` on its DevTools port answered instantly via `curl`.
 - What wedged was **`chromium.connectOverCDP(endpoint)`**: the WebSocket connects, then the handshake stalls and hits Playwright's 30s default timeout. Every subsequent action ate 30s and failed.
-- It is **not** a Playwright-vs-raw-CDP question (`connectOverCDP` *is* the Playwright connector, and Flow already uses it). The bug is in **connect robustness + recovery wiring**, and it is fixable without changing the driver.
+- It is **not** a Playwright-vs-raw-CDP question (`connectOverCDP` *is* the Playwright connector, and Ri already uses it). The bug is in **connect robustness + recovery wiring**, and it is fixable without changing the driver.
 - Two concrete gaps: (1) no connect timeout and no relaunch-on-connect-failure, so the existing self-heal in `launch()` never triggers; (2) `isLive()` trusts `browser.isConnected()`, which lags a half-dead transport.
 
 ---

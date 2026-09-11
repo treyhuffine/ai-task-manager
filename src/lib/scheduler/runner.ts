@@ -48,7 +48,7 @@ interface RunnerState {
   lastReportedLockHolder: number | null;
 }
 
-const STATE_KEY = Symbol.for('@flow/scheduler-runner-state');
+const STATE_KEY = Symbol.for('@ri/scheduler-runner-state');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: RunnerState };
 if (!globalRef[STATE_KEY]) {
   globalRef[STATE_KEY] = {

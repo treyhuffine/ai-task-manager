@@ -87,7 +87,7 @@ interface LoginWatcher {
   startedAt: number;
 }
 
-const WATCHER_KEY = Symbol.for('@flow/claude-login-watcher');
+const WATCHER_KEY = Symbol.for('@ri/claude-login-watcher');
 const globalRef = globalThis as unknown as { [WATCHER_KEY]?: LoginWatcher };
 
 /**

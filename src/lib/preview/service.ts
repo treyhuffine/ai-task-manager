@@ -7,12 +7,12 @@
  *   1. Resolve the worktree context (cwd + name) from the execution.
  *   2. Ensure a `preview_targets` row exists with a stable port + DNS name.
  *   3. If the chosen provider manages the local server, start it and
- *      confirm it's listening (lazy cold-start — a Flow/host restart is a
+ *      confirm it's listening (lazy cold-start — a Ri/host restart is a
  *      non-event because bring-up is on first resolve).
  *   4. Route through the provider to get the URL.
  *
- * Source of truth is Flow, not beamd: only Flow knows the start command, so
- * Flow owns "what should be running" and beamd stays stateless about it.
+ * Source of truth is Ri, not beamd: only Ri knows the start command, so
+ * Ri owns "what should be running" and beamd stays stateless about it.
  */
 
 import fs from 'node:fs';
@@ -328,7 +328,7 @@ export async function resolvePreview(
   // "Installing dependencies…" off the polled `setupStatus` and re-resolves
   // once setup lands. Only `running` blocks (transient); a `failed` setup is
   // surfaced as a warning but still allowed to start, since the failure may be
-  // unrelated to the dev server (Flow stays strategy-agnostic about setup).
+  // unrelated to the dev server (Ri stays strategy-agnostic about setup).
   if (needsServer && ctx.execution.setupScriptStatus === 'running') {
     return snapshotFromRecord(ctx, target, getSupervisor().status(target.id), remoteInfo, null, null);
   }

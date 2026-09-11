@@ -23,7 +23,7 @@
 
 import type { EffortLevel } from '@/db/types';
 
-const KEY = 'flow.agent.effort.v1';
+const KEY = 'ri.agent.effort.v1';
 
 const VALID: ReadonlySet<string> = new Set([
   'low',

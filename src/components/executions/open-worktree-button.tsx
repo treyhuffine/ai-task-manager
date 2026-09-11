@@ -31,7 +31,7 @@ interface OpenWorktreeButtonProps {
 }
 
 /** localStorage key for the user's last-used target — drives the main button. */
-const LAST_TARGET_KEY = 'flow.openWorktree.lastTarget';
+const LAST_TARGET_KEY = 'ri.openWorktree.lastTarget';
 
 /**
  * Lucide fallback icon for a given target. Used when the server can't

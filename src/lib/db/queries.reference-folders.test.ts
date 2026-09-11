@@ -22,7 +22,7 @@ describe('reference folder queries', () => {
   const saveEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-refs-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-refs-'));
     for (const k of [appRootEnv, dbPathEnv, mirrorDisabledEnv]) saveEnv[k] = process.env[k];
     process.env[appRootEnv] = tmpDir;
     process.env[dbPathEnv] = path.join(tmpDir, 'data.db');

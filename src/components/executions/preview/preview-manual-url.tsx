@@ -17,7 +17,7 @@ interface PreviewManualUrlProps {
 
 /**
  * BYO-tunnel input (§6). The user runs their own tunnel (ngrok, cloudflared,
- * …) and pastes the URL; Flow stores it and the ManualProvider serves it.
+ * …) and pastes the URL; Ri stores it and the ManualProvider serves it.
  * Single default-service URL for now — the data model carries more for
  * multi-service (§10).
  */
@@ -26,7 +26,7 @@ export function PreviewManualUrl({
   onSave,
   isSaving,
   label = 'Manual preview URL',
-  description = 'Running your own tunnel? Paste its URL and Flow will use it for the preview.',
+  description = 'Running your own tunnel? Paste its URL and Ri will use it for the preview.',
 }: PreviewManualUrlProps) {
   const current = urls.find((u) => (u.service ?? null) === null)?.url ?? '';
   const [draft, setDraft] = useState(current);

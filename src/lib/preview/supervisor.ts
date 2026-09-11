@@ -1,6 +1,6 @@
 /**
  * Preview supervisor — process lifecycle for the dev servers behind
- * previews, scoped to a single Flow server process.
+ * previews, scoped to a single Ri server process.
  *
  * One supervised process per **preview target** (a worktree, optionally a
  * named service — see `preview_targets`). The caller hands us a stable
@@ -13,7 +13,7 @@
  *   - Desired state (`preview_targets`: start command, stable port, name).
  *     That's the DB; the supervisor is in-memory and ephemeral.
  *   - Tunnels / reachable URLs. Providers do that (`providers/*`).
- *   - Persistence across Flow restarts (in-memory only — orphan reaping is
+ *   - Persistence across Ri restarts (in-memory only — orphan reaping is
  *     a boot-time sweep via `pid-store.sweepOrphans`).
  */
 
@@ -152,7 +152,7 @@ class PreviewSupervisor extends EventEmitter {
       throw new SupervisorError('preview_spawn_failed', 'Failed to spawn preview process.');
     }
 
-    // Crash-safe PID record so a Flow restart can reap orphans. child.pid == pgid (detached).
+    // Crash-safe PID record so a Ri restart can reap orphans. child.pid == pgid (detached).
     try {
       writePid({
         key: input.key,
@@ -357,9 +357,9 @@ class PreviewSupervisor extends EventEmitter {
 
   private getIgnoredPorts(): Set<number> {
     if (this.ignorePorts) return this.ignorePorts;
-    const flowPort = Number(process.env.PORT ?? '4224');
+    const riPort = Number(process.env.PORT ?? '4224');
     const set = new Set<number>();
-    if (Number.isFinite(flowPort)) set.add(flowPort);
+    if (Number.isFinite(riPort)) set.add(riPort);
     this.ignorePorts = set;
     return set;
   }
@@ -454,14 +454,14 @@ function toPublic(rec: InternalRecord): PreviewProcessRecord {
 // leak orphans on every save.
 declare global {
   // eslint-disable-next-line no-var
-  var __flowPreviewSupervisor: PreviewSupervisor | undefined;
+  var __riPreviewSupervisor: PreviewSupervisor | undefined;
 }
 
 export function getSupervisor(): PreviewSupervisor {
-  if (!globalThis.__flowPreviewSupervisor) {
-    globalThis.__flowPreviewSupervisor = new PreviewSupervisor();
+  if (!globalThis.__riPreviewSupervisor) {
+    globalThis.__riPreviewSupervisor = new PreviewSupervisor();
   }
-  return globalThis.__flowPreviewSupervisor;
+  return globalThis.__riPreviewSupervisor;
 }
 
 export type { PreviewSupervisor };

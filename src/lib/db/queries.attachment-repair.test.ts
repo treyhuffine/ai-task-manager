@@ -15,7 +15,7 @@ describe('note attachment metadata repair query', () => {
   let tmpDir: string;
   const prefix = APP_SHORT_ID.toUpperCase();
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-query-att-repair-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-query-att-repair-'));
     vi.stubEnv(`${prefix}_ROOT`, tmpDir);
     vi.stubEnv(`${prefix}_DB_PATH`, path.join(tmpDir, 'data.db'));
     vi.stubEnv(`${prefix}_MIRROR_DISABLED`, '1');

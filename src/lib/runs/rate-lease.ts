@@ -7,7 +7,7 @@
  * Capacity is a single tunable knob. Default 4 picked to be small but
  * not pessimistic: a single user with a few triggers + a chat session
  * + a heartbeat (V2) would land around three. Override per-environment
- * via `FLOW_API_LEASE_CAPACITY` if needed.
+ * via `RI_API_LEASE_CAPACITY` if needed.
  *
  * Per-trigger lanes (`manual`/`cron`/`webhook`) are intentionally
  * deferred to V2. V1 trusts global rate limiting; revisit if real
@@ -15,7 +15,7 @@
  */
 
 const CAPACITY = (() => {
-  const raw = process.env.FLOW_API_LEASE_CAPACITY;
+  const raw = process.env.RI_API_LEASE_CAPACITY;
   if (!raw) return 4;
   const parsed = parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
@@ -30,7 +30,7 @@ interface LeaseState {
   waiters: Array<() => void>;
 }
 
-const STATE_KEY = Symbol.for('@flow/rate-lease-state');
+const STATE_KEY = Symbol.for('@ri/rate-lease-state');
 const globalRef = globalThis as unknown as { [STATE_KEY]?: LeaseState };
 if (!globalRef[STATE_KEY]) {
   globalRef[STATE_KEY] = { inflight: 0, waiters: [] };

@@ -1,7 +1,7 @@
 /**
  * macOS cookie import: copy a domain's cookies from the user's everyday Chrome
  * or Brave into the agent browser, so the agent is signed in without a manual
- * login. A nicety over the one-time `flow browser login` flow.
+ * login. A nicety over the one-time `ri browser login` flow.
  *
  * Chromium on macOS encrypts cookie values with a key stored in the login
  * Keychain ("Chrome Safe Storage"). Reading it triggers a one-time Keychain
@@ -53,7 +53,7 @@ interface CookieRow {
 
 function requireMac(): void {
   if (process.platform !== 'darwin') {
-    throw new ActionError('unsupported', 'Cookie import is macOS only. Use `flow browser login` on other platforms.');
+    throw new ActionError('unsupported', 'Cookie import is macOS only. Use `ri browser login` on other platforms.');
   }
 }
 
@@ -68,7 +68,7 @@ function safeStorageKey(service: string): Buffer {
     throw new ActionError(
       'unsupported',
       `Could not read "${service}" from the login Keychain.`,
-      'Approve the Keychain prompt and retry, or use `flow browser login`.',
+      'Approve the Keychain prompt and retry, or use `ri browser login`.',
     );
   }
   // Documented Chromium macOS scheme.
@@ -154,7 +154,7 @@ export async function importCookies(opts: ImportOptions): Promise<ImportResult> 
   const key = safeStorageKey(spec.keychainService);
 
   // The live DB may be locked (WAL). Read a copy.
-  const tmp = path.join(os.tmpdir(), `flow-cookies-${process.pid}-${Date.now()}.sqlite`);
+  const tmp = path.join(os.tmpdir(), `ri-cookies-${process.pid}-${Date.now()}.sqlite`);
   fs.copyFileSync(dbPath, tmp);
   let rows: CookieRow[];
   try {
