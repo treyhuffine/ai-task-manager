@@ -2,7 +2,9 @@
 
 import { useCallback, useRef, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCreateTask } from '@/hooks/use-tasks';
+import { apiErrorText } from '@/lib/api/client';
 import type { TaskRecord } from '@/db/types';
 
 interface DeckQuickAddCardProps {
@@ -37,6 +39,13 @@ export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardPro
         onSuccess: (task) => {
           onTaskCreated(task);
           setTitle('');
+          inputRef.current?.focus();
+        },
+        onError: (err) => {
+          // Keep the typed title so the user can retry the same task rather
+          // than risk creating a duplicate by re-typing it. The failure is
+          // surfaced, never silent.
+          toast.error('Could not create task', { description: apiErrorText(err) });
           inputRef.current?.focus();
         },
       },

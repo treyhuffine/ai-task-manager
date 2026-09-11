@@ -108,10 +108,12 @@ export function deriveAttachments(input: DeriveAttachmentsInput): Attachment[] {
   return out;
 }
 
-/** Convenience: rewrite `/api/attachments/<name>` to `../attachments/<name>`
- *  for mirror-markdown export. Separate from derive so renderers can call it
- *  without pulling the derive logic. */
-export function rewriteAttachmentsForMirror(body: string | null | undefined): string {
+/** Rewrite attachment URLs relative to the containing mirror document.
+ *  Archived documents are one directory deeper than active documents. */
+export function rewriteAttachmentsForMirror(
+  body: string | null | undefined,
+  relativeBase = '../attachments/',
+): string {
   if (!body) return '';
-  return body.replace(/\/api\/attachments\//g, '../attachments/');
+  return body.replace(/\/api\/attachments\//g, relativeBase);
 }

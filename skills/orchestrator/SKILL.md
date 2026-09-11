@@ -17,6 +17,7 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 
 - Orientation: `describe_paths`, `describe_schema`, `list_skills`
 - Tasks: `list_tasks`, `get_task`, `create_task`, `update_task` (content/metadata only, never status), `transition_task` (move_to_todo / move_to_consider / start / return_to_todo / reopen / archive / restore), `complete_task`
+- Task ordering: `reorder_tasks` takes `area_id`, ordered `task_ids`, and optional `position: "top"`. Use it when asked to prioritize selected tasks, not `update_task` with raw ordering keys.
 - Task lifecycle notes: status changes go through `transition_task` / `complete_task`, never `update_task`. Both are retry-safe with `idempotency_key`. Archiving/completing a parent with open children returns a conflict listing them, and you retry with `acknowledged_child_ids`. Archiving/returning a task with a genuinely running workstream returns a conflict, and you retry with `runtime_choice` (keep_running or stop_running_agent).
 - Task to execution: `attach_execution_to_task`, `detach_execution_from_task`, `list_task_executions`. An association is durable context (an execution may work many tasks, a task be worked by many executions), not exclusive ownership or proof of live work.
 - Execution review: `review_execution` records an exact-output disposition (accepted / changes_requested / dismissed). Pass the exact `output_event_id` (event ids come back in `get_session_messages`). Reading output never reviews it.
@@ -53,6 +54,7 @@ Both surfaces share the same action registry — same names, same params, same r
 - **Link notes to tasks** when the note is context for a specific task — pass `task_id` on create.
 - **Link to areas** when the user's active area is known — pass `area_id`. Don't guess areas; if unsure, leave it null and the user files it later.
 - **IDs are UUIDs, never names.** Look ids up first (`list_areas`, `list_tasks`, `search`) — never pass a name where an id is expected.
+- **Priority order:** read the Area's tasks with `orderBy: "sortKey"`, then pass selected IDs to `reorder_tasks` in the intended top-to-bottom order. It preserves unselected tasks and all lifecycle states. Kanban still separates statuses, and this does not modify the Deck or start work.
 
 ## Deck, search, and user state
 

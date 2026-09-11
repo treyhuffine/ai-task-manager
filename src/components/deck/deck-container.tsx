@@ -7,6 +7,7 @@ import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useAreas } from '@/hooks/use-areas';
 import { isClientReadyTodo } from '@/lib/deck/client-ready';
+import { appendDeckItem, toPersistedDeckItems } from '@/lib/deck/quick-add';
 import { DeckConductor } from './deck-conductor';
 import { CurrentWorkSection } from './current-work-section';
 import { DeckStack } from './deck-stack';
@@ -29,8 +30,9 @@ import type {
 } from '@/types/dashboard';
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem, DeckChange } from '@/db/types';
-import { api, ApiError } from '@/lib/api/client';
+import { api, ApiError, apiErrorText } from '@/lib/api/client';
 import { calendarDaysUntil } from '@/lib/dates';
+import { toast } from 'sonner';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -162,25 +164,6 @@ function hydrateDeckRecord(
   };
 }
 
-// ─── Persist deck mutations ─────────────────────────────────────
-
-function persistDeck(deckId: string, plan: DeckPlan) {
-  const items: DbDeckItem[] = plan.items.map(item => ({
-    taskId: item.taskId,
-    rationale: item.rationale,
-    continuityContext: item.continuityContext ?? null,
-    source: item.manuallyAdded ? 'user' as const : 'ai' as const,
-  }));
-
-  const alternatives = plan.alternatives.map(alt => ({
-    taskId: alt.taskId,
-    reason: alt.reason,
-  }));
-
-  api.patch(`/deck/${deckId}`, { items, alternatives })
-    .catch(err => console.error('Failed to persist deck:', err));
-}
-
 // ─── Main container ─────────────────────────────────────────────
 
 type DeckPhase = 'intake' | 'deck';
@@ -212,6 +195,12 @@ export function DeckContainer() {
   const [phase, setPhase] = useState<DeckPhase>('intake');
   const [plan, setPlan] = useState<DeckPlan | null>(null);
 
+  // Always-latest snapshot of the plan, so a persist retry (fired later from a
+  // toast action) re-sends the current deck rather than a stale one — a retry
+  // must never clobber changes the user made after the failed write.
+  const planRef = useRef<DeckPlan | null>(null);
+  planRef.current = plan;
+
   // Filter state
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>(null);
@@ -223,6 +212,40 @@ export function DeckContainer() {
   const [moreOptionsCollapsed, setMoreOptionsCollapsed] = useState(true);
   const [taskBrowserOpen, setTaskBrowserOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+
+  // Tasks created via quick-add this session, held locally until the shared
+  // tasks list refetches. `useCreateTask` deliberately doesn't insert a new row
+  // into the active-tasks list (the server owns filter placement), so without
+  // this overlay a freshly created task would be appended to the deck plan but
+  // instantly filtered back out by the Ready gate until the list catches up —
+  // the new card would blink and vanish. The overlay makes it Ready-eligible
+  // immediately and is pruned the moment the authoritative list carries it.
+  const [localTasks, setLocalTasks] = useState<DeckTaskSource[]>([]);
+
+  // ─── Persist deck mutations ───────────────────────────────────
+  // Write the whole items+alternatives array (never a delta) so every save
+  // preserves the rest of the deck. A failed write is never swallowed: it
+  // surfaces a toast with Retry, and the retry re-sends the *current* plan so
+  // membership the user added can't silently vanish on reload.
+  const persistDeck = useCallback((deckId: string, nextPlan: DeckPlan) => {
+    const attempt = (p: DeckPlan) => {
+      const body = {
+        items: toPersistedDeckItems(p.items),
+        alternatives: p.alternatives.map(alt => ({ taskId: alt.taskId, reason: alt.reason })),
+      };
+      api.patch(`/deck/${deckId}`, body).catch((err) => {
+        console.error('Failed to persist deck:', err);
+        toast.error('Could not save your deck', {
+          description: apiErrorText(err),
+          action: {
+            label: 'Retry',
+            onClick: () => attempt(planRef.current ?? p),
+          },
+        });
+      });
+    };
+    attempt(nextPlan);
+  }, []);
 
   // ─── Proactive load on mount ──────────────────────────────────
 
@@ -305,8 +328,25 @@ export function DeckContainer() {
   // future-recurring drops out immediately, in both the stack and alternatives.
   // A persisted item whose task is no longer in the active set (retired) drops.
   const readyTaskIds = useMemo(() => {
-    return new Set((tasks ?? []).filter(t => isClientReadyTodo(t)).map(t => t.id));
-  }, [tasks]);
+    const ids = new Set((tasks ?? []).filter(t => isClientReadyTodo(t)).map(t => t.id));
+    // A quick-added task is Ready the instant it's created; keep it eligible
+    // until the authoritative list carries it (then the pruning effect drops
+    // the overlay entry and the real row's live status takes over).
+    for (const t of localTasks) {
+      if (isClientReadyTodo(t)) ids.add(t.id);
+    }
+    return ids;
+  }, [tasks, localTasks]);
+
+  // Drop overlay entries once the shared tasks list carries them, so the
+  // server's copy (and its real, possibly-since-changed status) always wins.
+  useEffect(() => {
+    if (localTasks.length === 0 || !tasks) return;
+    const known = new Set(tasks.map(t => t.id));
+    if (localTasks.some(t => known.has(t.id))) {
+      setLocalTasks(prev => prev.filter(t => !known.has(t.id)));
+    }
+  }, [tasks, localTasks]);
 
   const filteredItems = useMemo(() => {
     if (!plan) return [];
@@ -444,7 +484,7 @@ export function DeckContainer() {
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, [tasks, areaMap, parentMap]);
+  }, [tasks, areaMap, parentMap, persistDeck]);
 
   // ─── Deck interaction handlers ──────────────────────────────
 
@@ -463,7 +503,7 @@ export function DeckContainer() {
         if (plan.deckId) persistDeck(plan.deckId, updated);
       },
     });
-  }, [plan, completeTask]);
+  }, [plan, completeTask, persistDeck]);
 
   // Start a Ready-Todo deck item: move it to In progress (persisted). It leaves
   // the generated stack (it's no longer Ready Todo) and appears in Current Work.
@@ -479,7 +519,7 @@ export function DeckContainer() {
         if (plan.deckId) persistDeck(plan.deckId, updated);
       },
     });
-  }, [plan, lifecycle]);
+  }, [plan, lifecycle, persistDeck]);
 
   const handleNotToday = useCallback((id: string) => {
     if (!plan) return;
@@ -504,7 +544,7 @@ export function DeckContainer() {
       setPlan(updated);
       if (plan.deckId) persistDeck(plan.deckId, updated);
     }
-  }, [plan]);
+  }, [plan, persistDeck]);
 
   const handlePromote = useCallback((id: string, type: 'alternative' | 'radar') => {
     if (!plan) return;
@@ -547,7 +587,7 @@ export function DeckContainer() {
         } : null);
       }
     }
-  }, [plan]);
+  }, [plan, persistDeck]);
 
   const handleReorder = useCallback((newItems: DeckItem[]) => {
     setPlan(prev => {
@@ -556,7 +596,7 @@ export function DeckContainer() {
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, []);
+  }, [persistDeck]);
 
   const handleFocus = useCallback((id: string) => {
     if (!plan) return;
@@ -647,11 +687,13 @@ export function DeckContainer() {
     item.manuallyAdded = true;
     setPlan(prev => {
       if (!prev) return null;
-      const updated = { ...prev, items: [...prev.items, item] };
+      const items = appendDeckItem(prev.items, item);
+      if (items === prev.items) return prev; // already on the deck — no-op
+      const updated = { ...prev, items };
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, [areaMap, parentMap]);
+  }, [areaMap, parentMap, persistDeck]);
 
   const handleRemoveFromBrowser = useCallback((taskId: string) => {
     setPlan(prev => {
@@ -660,19 +702,33 @@ export function DeckContainer() {
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, []);
+  }, [persistDeck]);
 
   const handleQuickAdd = useCallback((task: DeckTaskSource) => {
+    // Hold the fresh task locally so it passes the Ready gate immediately,
+    // before the tasks list refetch lands.
+    setLocalTasks(prev => (prev.some(t => t.id === task.id) ? prev : [...prev, task]));
+
+    // Guarantee the new item is actually visible. A brand-new quick-add task
+    // carries no area, energy, or deadline, so any active filter would hide the
+    // very thing the user just chose to work on. Clear the filters so it shows;
+    // they're one click to re-apply.
+    setAreaFilter(null);
+    setWorkMode(null);
+    setFilterDueToday(false);
+
     const item = taskToDeckItem(task, areaMap, parentMap);
     item.manuallyAdded = true;
     item.rationale = '';
     setPlan(prev => {
-      if (!prev) return null;
-      const updated = { ...prev, items: [...prev.items, item] };
+      if (!prev) return prev;
+      const items = appendDeckItem(prev.items, item);
+      if (items === prev.items) return prev; // already on the deck — no-op
+      const updated = { ...prev, items };
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, [areaMap, parentMap]);
+  }, [areaMap, parentMap, persistDeck]);
 
   const deckTaskIds = useMemo(() => {
     if (!plan) return new Set<string>();

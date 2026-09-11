@@ -4,6 +4,9 @@ This supersedes the old `active | done | archived` task model. It is the
 implementation record for the "Ship Ri's Consider-to-Done task lifecycle" work.
 The canonical spec and checklist live in that task's body, not here.
 
+The [post-merge followup checklist](task-lifecycle-followups.md) records the
+remaining runtime, Deck, and UI findings from the final reorganization check.
+
 ## The five canonical states
 
 Stored on `tasks.status` (type-level enum, no SQL CHECK). Source of truth:

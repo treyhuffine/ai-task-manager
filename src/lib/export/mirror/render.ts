@@ -35,7 +35,7 @@ const SLUG_MAX = 60;
 
 const HEADER_COMMENTS = [
   `<!-- Managed by ${APP_SHORT_ID}. Edits here are overwritten on next sync. -->`,
-  `<!-- To modify: use the app, an MCP tool, or write SQL directly. -->`,
+  `<!-- To modify: use the app, an MCP tool, or the agent CLI. -->`,
 ].join('\n');
 
 // ─── Filename + link helpers ─────────────────────────────────
@@ -50,10 +50,19 @@ export function mirrorFilename(nameOrTitle: string | null | undefined, id: strin
  * `tasks/buy-milk--01975abc...`. Used by the LinkResolver to build
  * Obsidian-style `[[...]]` refs in frontmatter.
  */
-export function mirrorLinkPath(type: EntityType, nameOrTitle: string | null | undefined, id: string): string {
+export function mirrorLinkPath(
+  type: EntityType,
+  nameOrTitle: string | null | undefined,
+  id: string,
+  archived = false,
+): string {
   const filename = mirrorFilename(nameOrTitle, id);
   const stem = filename.slice(0, -3);
-  return `${type}s/${stem}`;
+  return `${archived ? '.archive/' : ''}${type}s/${stem}`;
+}
+
+function attachmentBase(archived: boolean): string {
+  return archived ? '../../attachments/' : '../attachments/';
 }
 
 /** Parse a mirror filename and extract the entity ID. Returns null if unparseable. */
@@ -176,6 +185,7 @@ export interface RenderTaskOpts {
 }
 
 export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filename: string; content: string } {
+  const relativeAttachments = attachmentBase(task.status === 'archived');
   const sources = opts.sources ?? [];
   const sourceIds = sources.map((s) => s.id);
   const sourceLinks = opts.links
@@ -218,17 +228,17 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
   });
 
   const description = rewriteBodyEntityLinks(
-    rewriteAttachmentsForMirror(task.description ?? ''),
+    rewriteAttachmentsForMirror(task.description ?? '', relativeAttachments),
     opts.links,
   ).trim();
-  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(task.body ?? ''), opts.links).trim();
-  const userContext = (task.userContext ?? '').trim();
+  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(task.body ?? '', relativeAttachments), opts.links).trim();
+  const userContext = rewriteAttachmentsForMirror(task.userContext ?? '', relativeAttachments).trim();
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', `# ${task.title}`];
   if (description) parts.push('', description);
   if (body) parts.push('', body);
   if (userContext) parts.push('', '## Context', '', userContext);
-  parts.push(...renderSourcesSection(sources, opts.links));
+  parts.push(...renderSourcesSection(sources, opts.links, relativeAttachments));
 
   return {
     filename: mirrorFilename(task.title, task.id),
@@ -237,13 +247,13 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
 }
 
 /** Shared Sources section: the raw captures an entity derives from. */
-function renderSourcesSection(sources: StreamRecord[], links?: LinkResolver): string[] {
+function renderSourcesSection(sources: StreamRecord[], links?: LinkResolver, relativeAttachments = '../attachments/'): string[] {
   if (sources.length === 0) return [];
   const parts: string[] = ['', '## Sources', ''];
   for (const s of sources) {
     const heading = streamSourceHeading(s, links);
     parts.push(`### ${heading}`);
-    const rawText = rewriteAttachmentsForMirror(s.rawText ?? '');
+    const rawText = rewriteAttachmentsForMirror(s.rawText ?? '', relativeAttachments);
     const quoted = rawText.split('\n').map((line) => `> ${line}`).join('\n');
     parts.push('', quoted, '');
   }
@@ -261,6 +271,7 @@ export interface RenderNoteOpts {
 }
 
 export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filename: string; content: string } {
+  const relativeAttachments = attachmentBase(note.status === 'archived');
   const sources = opts.sources ?? [];
   const sourceIds = sources.map((s) => s.id);
   const sourceLinks = opts.links
@@ -290,9 +301,9 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS];
   if (note.title) parts.push('', `# ${note.title}`);
-  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(note.body ?? ''), opts.links).trim();
+  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(note.body ?? '', relativeAttachments), opts.links).trim();
   if (body) parts.push('', body);
-  parts.push(...renderSourcesSection(sources, opts.links));
+  parts.push(...renderSourcesSection(sources, opts.links, relativeAttachments));
 
   return {
     filename: mirrorFilename(note.title, note.id),
@@ -317,6 +328,7 @@ export interface RenderAreaOpts {
 }
 
 export function renderArea(area: AreaRecord, _opts: RenderAreaOpts = {}): { filename: string; content: string } {
+  const relativeAttachments = attachmentBase(area.status === 'archived');
   const frontmatter = buildFrontmatter({
     id: area.id,
     type: 'area',
@@ -338,9 +350,9 @@ export function renderArea(area: AreaRecord, _opts: RenderAreaOpts = {}): { file
     '',
     `# ${area.emoji ? area.emoji + ' ' : ''}${area.name}`,
   ];
-  if (area.description) parts.push('', area.description);
-  if (area.notes) parts.push('', '## Notes', '', area.notes);
-  if (area.userContext) parts.push('', '## Context', '', area.userContext);
+  if (area.description) parts.push('', rewriteAttachmentsForMirror(area.description, relativeAttachments));
+  if (area.notes) parts.push('', '## Notes', '', rewriteAttachmentsForMirror(area.notes, relativeAttachments));
+  if (area.userContext) parts.push('', '## Context', '', rewriteAttachmentsForMirror(area.userContext, relativeAttachments));
 
   return {
     filename: mirrorFilename(area.name, area.id),
@@ -365,6 +377,7 @@ export interface RenderStreamOpts {
 }
 
 export function renderStream(s: StreamRecord, opts: RenderStreamOpts = {}): { filename: string; content: string } {
+  const relativeAttachments = attachmentBase(s.status === 'dismissed');
   const outcomes = opts.outcomes ?? [];
   const outcomeLinks = outcomes
     .map((o) => wikiLink(opts.links, o.entityType as EntityType, o.entityId))
@@ -385,7 +398,7 @@ export function renderStream(s: StreamRecord, opts: RenderStreamOpts = {}): { fi
     managedBy: APP_SHORT_ID,
   });
 
-  const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', rewriteAttachmentsForMirror(s.rawText ?? '').trim()];
+  const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', rewriteAttachmentsForMirror(s.rawText ?? '', relativeAttachments).trim()];
 
   // Short slug from the first few words of rawText, to keep filenames scannable.
   const firstLine = (s.rawText ?? '').split('\n')[0]?.trim() ?? '';

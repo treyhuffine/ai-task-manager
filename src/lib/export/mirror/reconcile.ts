@@ -29,10 +29,12 @@ export interface ReconcileStats {
  * Reconcile the entire mirror against the DB.
  *
  * For each entity in the DB: if file is missing or out of date, rewrite.
+ * Explicit exports pass `force` to refresh render-format changes even when
+ * the database timestamp is unchanged. Background callers retain skipping.
  * For each file in the mirror: if its ID isn't in the DB, log as orphan
  * (don't move — see storage-architecture.md for rationale).
  */
-export async function reconcileAll(): Promise<ReconcileStats> {
+export async function reconcileAll(opts: { force?: boolean } = {}): Promise<ReconcileStats> {
   if (!isMirrorEnabled()) {
     return {
       synced: 0,
@@ -57,7 +59,7 @@ export async function reconcileAll(): Promise<ReconcileStats> {
   for (const t of dbTasks) {
     dbTaskIds.add(t.id);
     const current = await findByIdInType('task', t.id);
-    if (current.length === 1) {
+    if (!opts.force && current.length === 1) {
       const fileTs = await readUpdatedAt(current[0]);
       if (fileTs && fileTs >= t.updatedAt) {
         skipped++;
@@ -74,7 +76,7 @@ export async function reconcileAll(): Promise<ReconcileStats> {
   for (const n of dbNotes) {
     dbNoteIds.add(n.id);
     const current = await findByIdInType('note', n.id);
-    if (current.length === 1) {
+    if (!opts.force && current.length === 1) {
       const fileTs = await readUpdatedAt(current[0]);
       if (fileTs && fileTs >= n.updatedAt) {
         skipped++;
@@ -91,7 +93,7 @@ export async function reconcileAll(): Promise<ReconcileStats> {
   for (const a of dbAreas) {
     dbAreaIds.add(a.id);
     const current = await findByIdInType('area', a.id);
-    if (current.length === 1) {
+    if (!opts.force && current.length === 1) {
       const fileTs = await readUpdatedAt(current[0]);
       if (fileTs && fileTs >= a.updatedAt) {
         skipped++;

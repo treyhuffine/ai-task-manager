@@ -26,6 +26,9 @@ import {
   getTask,
   createTask,
   updateTask,
+  reorderTasksToTop,
+  TaskReorderError,
+  MAX_REORDER_TASKS,
   completeTask,
   transitionTask,
   lifecyclePreflight,
@@ -38,6 +41,7 @@ import {
   getNote,
   createNote,
   updateNote,
+  repairNoteAttachmentMetadata,
   listStream,
   getStream,
   createStream,
@@ -94,6 +98,7 @@ import {
   type TriageDecisionInput,
 } from '@/lib/db/queries';
 import { stripHighlight } from '@/lib/search/highlight';
+import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
 import { beginSweep, finishSweep } from '@/lib/stream-triage/sweep';
 import { triageProposalSchema } from '@/lib/stream-triage/schema';
 import { getTriageMetrics } from '@/lib/stream-triage/metrics';
@@ -185,7 +190,8 @@ function throwAsActionError(err: unknown): never {
 
 // Inputs mirror CreateTaskInput / CreateNoteInput but only expose the fields
 // it's safe for an agent to set. Derived/audit columns (createdAt, updatedAt,
-// timesDeferred, completedAt, sortKey) stay out of the contract.
+// timesDeferred, completedAt) stay out of the contract. Manual sort keys are
+// computed by reorder_tasks rather than accepted as raw create/update inputs.
 const taskCreateShape = {
   title: z.string().min(1),
   description: z.string().optional(),
@@ -312,6 +318,32 @@ const update_task_action = defineAction({
     const row = updateTask(id, rest, { source: ctx.actor?.source ?? 'ai' });
     if (!row) throw new ActionError('not_found', `Task not found: ${id}`);
     return row;
+  },
+});
+
+const reorder_tasks_action = defineAction({
+  name: 'reorder_tasks',
+  description:
+    'Move an ordered selection of tasks to the top of one Area\'s Priority Order, across statuses. ' +
+    'Only selected tasks change order. All unselected tasks, bodies and lifecycle statuses are preserved. ' +
+    'Already-correct order is a no-op. Kanban retains its status columns. Other sort modes retain their sorting rules.',
+  params: {
+    area_id: z.string().trim().min(1),
+    task_ids: z.array(z.string().trim().min(1)).min(1).max(MAX_REORDER_TASKS)
+      .describe('Existing task ids in desired top-to-bottom order. Every task must already belong to area_id.'),
+    position: z.literal('top').default('top'),
+  },
+  mutating: true,
+  handler: async (_ctx, { area_id, task_ids }) => {
+    // Keep params as a plain ZodArray so the generated CLI parses JSON and
+    // comma-separated flags correctly (its coercer does not peel effects).
+    if (new Set(task_ids).size !== task_ids.length) throw new ActionError('invalid_params', 'Task ids must be unique.');
+    try {
+      return await reorderTasksToTop({ areaId: area_id, taskIds: task_ids });
+    } catch (err) {
+      if (err instanceof TaskReorderError) throw new ActionError(err.code, err.message);
+      throw err;
+    }
   },
 });
 
@@ -558,6 +590,33 @@ const update_note_action = defineAction({
     const row = updateNote(id, rest, { source: 'ai' });
     if (!row) throw new ActionError('not_found', `Note not found: ${id}`);
     return row;
+  },
+});
+
+const repair_note_attachment_metadata_action = defineAction({
+  name: 'repair_note_attachment_metadata',
+  description:
+    'Repair copied-note attachment stubs from an authoritative source note. Local CLI only. ' +
+    'Selected filenames must already be referenced by both notes and match existing storage files. ' +
+    'Preserves bodies, filenames, bytes, and unrelated metadata. Safe to retry. Rejects non-stub conflicts.',
+  params: {
+    source_note_id: z.string().min(1),
+    target_note_id: z.string().min(1),
+    file_names: z.array(z.string().regex(REPAIR_ATTACHMENT_FILE_NAME)).min(1).max(MAX_ATTACHMENT_METADATA_REPAIRS),
+  },
+  mutating: true,
+  handler: async (ctx, { source_note_id, target_note_id, file_names }) => {
+    if (ctx.remote !== false) throw new ActionError('unsupported', 'Attachment metadata repair requires the trusted local CLI.');
+    try {
+      return await repairNoteAttachmentMetadata({
+        sourceNoteId: source_note_id,
+        targetNoteId: target_note_id,
+        fileNames: file_names,
+      });
+    } catch (err) {
+      if (err instanceof AttachmentMetadataRepairError) throw new ActionError(err.code, err.message);
+      throw err;
+    }
   },
 });
 
@@ -2131,6 +2190,7 @@ export const actions = [
   get_task_action,
   create_task_action,
   update_task_action,
+  reorder_tasks_action,
   complete_task_action,
   transition_task_action,
   attach_execution_to_task_action,
@@ -2143,6 +2203,7 @@ export const actions = [
   list_outgoing_links_action,
   create_note_action,
   update_note_action,
+  repair_note_attachment_metadata_action,
   list_stream_action,
   get_stream_item_action,
   create_stream_item_action,

@@ -15,6 +15,7 @@ import {
   areas as areasTbl,
   stream as streamTbl,
   streamLinks as streamLinksTbl,
+  entityLinks as entityLinksTbl,
 } from '@/lib/db/schema';
 import { hydrateRow } from '@/lib/db/hydrate';
 import { and, asc, eq } from 'drizzle-orm';
@@ -119,8 +120,8 @@ export async function syncBatch(ctx: MutationContext): Promise<void> {
 /**
  * Expand a mutation context to include every entity whose mirror file
  * references a touched entity. Needed because wiki links embed the target's
- * current slug — if a task or area is renamed, every dependent file's
- * wiki-link target changes too.
+ * current slug and archive location. Renames, archival, and restoration
+ * change the target even when the referencing entity itself is unchanged.
  *
  * Cascade edges:
  *   - stream → its promoted-to note (Sources section stays current)
@@ -128,6 +129,7 @@ export async function syncBatch(ctx: MutationContext): Promise<void> {
  *   - task → tasks with matching parentId, notes with matching taskId,
  *            streams promoted into this task
  *   - note → streams promoted into this note
+ *   - task/note → task/note inline backlinks from the derived link index
  *
  * We always cascade (rather than only on rename) because detecting a rename
  * requires comparing against the prior written file. Rewriting a handful of
@@ -141,6 +143,15 @@ function expandCascades(ctx: MutationContext): MutationContext {
   const db = getDb();
 
   for (const [type, id] of ctx.entries()) {
+    if (type === 'task' || type === 'note') {
+      const backlinks = db
+        .select({ type: entityLinksTbl.sourceType, id: entityLinksTbl.sourceId })
+        .from(entityLinksTbl)
+        .where(and(eq(entityLinksTbl.targetType, type), eq(entityLinksTbl.targetId, id)))
+        .all();
+      for (const ref of backlinks) out.add(ref.type, ref.id);
+    }
+
     if (type === 'stream') {
       // A capture's derived entities render Sources sections from it.
       const links = db
@@ -248,21 +259,21 @@ function createLinkResolver(): LinkResolver {
     linkFor(type, id) {
       if (type === 'task') {
         const row = db.select().from(tasksTbl).where(eq(tasksTbl.id, id)).get();
-        return row ? mirrorLinkPath('task', row.title, row.id) : null;
+        return row ? mirrorLinkPath('task', row.title, row.id, row.status === 'archived') : null;
       }
       if (type === 'note') {
         const row = db.select().from(notesTbl).where(eq(notesTbl.id, id)).get();
-        return row ? mirrorLinkPath('note', row.title, row.id) : null;
+        return row ? mirrorLinkPath('note', row.title, row.id, row.status === 'archived') : null;
       }
       if (type === 'area') {
         const row = db.select().from(areasTbl).where(eq(areasTbl.id, id)).get();
-        return row ? mirrorLinkPath('area', row.name, row.id) : null;
+        return row ? mirrorLinkPath('area', row.name, row.id, row.status === 'archived') : null;
       }
       if (type === 'stream') {
         const row = db.select().from(streamTbl).where(eq(streamTbl.id, id)).get();
         if (!row) return null;
         const firstLine = (row.rawText ?? '').split('\n')[0]?.trim().slice(0, 40) ?? '';
-        return mirrorLinkPath('stream', firstLine, row.id);
+        return mirrorLinkPath('stream', firstLine, row.id, row.status === 'dismissed');
       }
       return null;
     },

@@ -19,7 +19,7 @@ import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 import { toFtsMatchQuery, normalizeFtsRank } from '@/lib/embeddings/fts-query';
-import { syncEntity, syncDeletion } from '@/lib/export/mirror';
+import { syncEntity, syncDeletion, MutationContext, syncBatch } from '@/lib/export/mirror';
 import type {
   TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals,
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
@@ -68,6 +68,7 @@ import {
 } from '@/lib/sessions/activity';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { deriveAttachments } from '@/lib/attachments/derive';
+import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import {
@@ -811,6 +812,83 @@ export function reorderTaskInLane(taskId: string, prevId: string | null, nextId:
     void syncEntity('task', taskId);
     return { sortKey: key };
   });
+}
+
+export const MAX_REORDER_TASKS = 1000;
+
+export class TaskReorderError extends Error {
+  constructor(public code: 'not_found' | 'invalid_params' | 'conflict', message: string) {
+    super(message);
+    this.name = 'TaskReorderError';
+  }
+}
+
+/**
+ * Put an explicit ordered selection at the top of one Area's manual order,
+ * across statuses. Unlike a lane drag, this never normalizes other tasks:
+ * unselected keys (including nulls and duplicates) and other Areas are intact.
+ * The immediate transaction validates and places the whole selection together.
+ * Repeating an already-satisfied request is a no-op, including timestamps.
+ */
+export async function reorderTasksToTop(input: { areaId: string; taskIds: string[] }) {
+  const { areaId, taskIds } = input;
+  if (!areaId?.trim() || !Array.isArray(taskIds) || taskIds.length === 0 || taskIds.length > MAX_REORDER_TASKS
+    || taskIds.some((id) => typeof id !== 'string' || !id.trim()) || new Set(taskIds).size !== taskIds.length) {
+    throw new TaskReorderError('invalid_params', `Provide an Area id and 1 to ${MAX_REORDER_TASKS} unique task ids in the desired order.`);
+  }
+
+  const result = inEntityTx(() => {
+    const db = getDb();
+    if (!db.select({ id: areas.id }).from(areas).where(eq(areas.id, areaId)).get()) {
+      throw new TaskReorderError('not_found', `Area not found: ${areaId}`);
+    }
+    const selected = db.select({ id: tasks.id, areaId: tasks.areaId, sortKey: tasks.sortKey })
+      .from(tasks).where(inArray(tasks.id, taskIds)).all();
+    const selectedById = new Map(selected.map((task) => [task.id, task]));
+    for (const id of taskIds) {
+      const task = selectedById.get(id);
+      if (!task) throw new TaskReorderError('not_found', `Task not found: ${id}`);
+      if (task.areaId !== areaId) {
+        throw new TaskReorderError('conflict', `Task ${id} does not belong to Area ${areaId}. No tasks were reordered.`);
+      }
+    }
+
+    const siblings = db.select({ id: tasks.id, sortKey: tasks.sortKey })
+      .from(tasks).where(eq(tasks.areaId, areaId))
+      .orderBy(sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt)).all();
+    const changedTaskIds: string[] = [];
+    if (!taskIds.every((id, index) => siblings[index]?.id === id)) {
+      // Ignore the selected tasks' old keys. Only the remaining queue bounds
+      // insertion, so an arbitrary selection (even every task) is supported.
+      const upperBound = siblings.find((task) => !selectedById.has(task.id) && task.sortKey !== null)?.sortKey ?? null;
+      let keys: string[];
+      try {
+        // fractional-indexing validates structure but not every digit. Without
+        // the alphabet check, e.g. "a!" can silently generate invalid keys.
+        if (upperBound !== null && !/^[A-Za-z][0-9A-Za-z]+$/.test(upperBound)) throw new Error('Invalid key alphabet');
+        keys = generateNKeysBetween(null, upperBound, taskIds.length);
+      } catch {
+        // A malformed legacy bound cannot be safely normalized here without
+        // violating the promise to leave unselected rows byte-for-byte intact.
+        throw new TaskReorderError('conflict', 'The remaining Area queue has an invalid ordering key. No tasks were reordered.');
+      }
+      const updatedAt = new Date().toISOString();
+      taskIds.forEach((id, index) => {
+        if (selectedById.get(id)!.sortKey === keys[index]) return;
+        db.update(tasks).set({ sortKey: keys[index], updatedAt }).where(eq(tasks.id, id)).run();
+        changedTaskIds.push(id);
+      });
+    }
+    return { areaId, position: 'top' as const, taskIds: [...taskIds], changedTaskIds };
+  }, true);
+
+  // Ordering does not change embedding text, content versions, links or
+  // attachment derivation. One post-commit batch deduplicates shared backlink
+  // cascades, avoiding concurrent writes to the same dependent mirror file.
+  const mirrorChanges = new MutationContext();
+  mirrorChanges.addMany('task', result.changedTaskIds);
+  await syncBatch(mirrorChanges);
+  return result;
 }
 
 // ─── Lifecycle command chokepoint ─────────────────────────────
@@ -1933,6 +2011,41 @@ export function deleteNote(id: string): boolean {
     .where(and(eq(entityVersions.entityType, 'note'), eq(entityVersions.entityId, id)))
     .run();
   return true;
+}
+
+/**
+ * Copy authoritative metadata onto existing copied-note attachment stubs.
+ * Validation and the attachment-only update share a write transaction. No
+ * content, links, history, or embedding text changes, so their existing
+ * projections remain valid. The mirror is refreshed after commit, including
+ * on retries that may follow an interrupted earlier mirror write.
+ */
+export async function repairNoteAttachmentMetadata(input: {
+  sourceNoteId: string;
+  targetNoteId: string;
+  fileNames: string[];
+}): Promise<{ sourceNoteId: string; targetNoteId: string; repairedFileNames: string[]; unchangedFileNames: string[] }> {
+  const repairedFileNames = inEntityTx(() => {
+    const source = getNote(input.sourceNoteId);
+    const target = getNote(input.targetNoteId);
+    if (!source) throw new AttachmentMetadataRepairError('not_found', `Source note not found: ${input.sourceNoteId}`);
+    if (!target) throw new AttachmentMetadataRepairError('not_found', `Target note not found: ${input.targetNoteId}`);
+    const plan = planNoteAttachmentMetadataRepair({ source, target, fileNames: input.fileNames });
+    if (plan.repairedFileNames.length) {
+      getDb().update(notes).set({
+        attachments: dehydrateAttachments(plan.attachments) ?? [],
+        updatedAt: new Date().toISOString(),
+      }).where(eq(notes.id, target.id)).run();
+    }
+    return plan.repairedFileNames;
+  }, true);
+  await syncEntity('note', input.targetNoteId);
+  return {
+    sourceNoteId: input.sourceNoteId,
+    targetNoteId: input.targetNoteId,
+    repairedFileNames,
+    unchangedFileNames: input.fileNames.filter((name) => !repairedFileNames.includes(name)),
+  };
 }
 
 // ─── Entity Versions (note/task change history) ───────────────

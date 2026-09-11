@@ -27,7 +27,7 @@ export function registerExportCommand(program: Command) {
         process.exit(1);
       }
       console.log(pc.dim(`Syncing mirror at ${getBrainDir()}…`));
-      const stats = await reconcileAll();
+      const stats = await reconcileAll({ force: true });
       console.log(pc.green('Sync complete.'));
       console.log(`  synced:   ${stats.synced}`);
       console.log(`  skipped:  ${stats.skipped}`);
