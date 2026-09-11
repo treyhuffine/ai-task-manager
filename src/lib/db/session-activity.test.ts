@@ -32,7 +32,7 @@ async function setup() {
 
   const wsId = uuidv7();
   getDb().insert(workspaces).values({
-    id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false,
+    id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
   const executor = q.getOrCreateDefaultExecutor('claude_code');
   const { session } = q.createExecutionWithChat({
@@ -159,7 +159,7 @@ describe('lastActivityAt', () => {
 
     const wsId = uuidv7();
     getDb().insert(workspaces).values({
-      id: wsId, name: 'Ws2', slug: `ws2-${Date.now()}`, cwd: '/tmp/ws2', isGit: false,
+      id: wsId, name: 'Ws2', slug: `ws2-${Date.now()}`, cwd: '/tmp/ws2', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
     const executor = q.getOrCreateDefaultExecutor('claude_code');
 

@@ -44,7 +44,7 @@ export async function PATCH(
     const { id } = await params;
     const body: UpdateNoteInput = await request.json();
 
-    const row = updateNote(id, body);
+    const row = updateNote(id, body, { source: 'human' });
     if (!row) {
       return Response.json({ error: 'Note not found' }, { status: 404 });
     }

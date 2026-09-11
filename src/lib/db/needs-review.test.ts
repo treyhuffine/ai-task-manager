@@ -48,7 +48,7 @@ describe('listNeedsReviewSessionCandidates', () => {
     // 2. Execution chat with an unread outcome — must stay in the queue.
     const wsId = uuidv7();
     getDb().insert(workspaces).values({
-      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false,
+      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
     const executor = q.getOrCreateDefaultExecutor('claude_code');
     const { session: execChat } = q.createExecutionWithChat({
@@ -135,7 +135,7 @@ describe('listNeedsReviewSessionCandidates', () => {
       name: 'Background outcome workspace',
       slug: `background-outcome-${Date.now()}`,
       cwd: '/tmp/background-outcome',
-      isGit: false,
+      isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
     const executor = q.getOrCreateDefaultExecutor('codex');
     const { session } = q.createExecutionWithChat({

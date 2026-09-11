@@ -1,1 +1,0 @@
-ALTER TABLE `chat_sessions` ADD `tab_sort_key` text;

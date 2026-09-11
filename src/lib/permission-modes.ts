@@ -7,6 +7,7 @@
 import type { ComponentType } from 'react';
 import { ChevronsRight, Hand, Pause, type LucideProps } from 'lucide-react';
 import type { PermissionMode } from '@/db/types';
+import { PERMISSION_MODES } from '@/lib/permissions/modes';
 
 export type ModeIcon = ComponentType<LucideProps>;
 
@@ -20,22 +21,22 @@ export interface PermissionModeMeta {
   classes: { text: string; border: string; bg: string };
 }
 
-// Underlying mode keys (`bypass`, `default`, etc.) stay stable — they're
-// persisted in chat_sessions and recognized by Claude's --permission-mode
-// flag. Display labels + colors are tuned for clarity:
+// Mode keys are the app-native vocabulary defined in
+// `src/lib/permissions/modes.ts` and persisted in chat_sessions. Harness
+// translation lives in `src/lib/executor/permission-map.ts`; this module is
+// display-only. Labels + colors are tuned for clarity:
 //
-//   - "Auto mode" makes the bypass behavior sound like a feature, not a
+//   - "Auto mode" makes the auto_all behavior sound like a feature, not a
 //     workaround. Yellow signals "no friction, but be aware."
-//   - "Ask permission" plain-language replacement for the confusing
-//     "Default" — blue ties it to the permission-card accent the user
-//     already associates with prompts.
 //   - "Accept edits" purple distinguishes it from the read-only-ish modes
 //     and from emerald (which we use for tool_result success).
+//   - "Ask permission" plain-language label — blue ties it to the
+//     permission-card accent the user already associates with prompts.
 //   - "Plan mode" teal because amber clashes with the existing rate_limit
 //     pill, and teal reads as "thoughtful / paused" without alarming.
 export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
-  bypass: {
-    mode: 'bypass',
+  auto_all: {
+    mode: 'auto_all',
     title: 'Auto mode',
     shortTitle: 'Auto',
     Icon: ChevronsRight,
@@ -46,20 +47,8 @@ export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = 
       bg: 'bg-yellow-500/5',
     },
   },
-  default: {
-    mode: 'default',
-    title: 'Ask permission',
-    shortTitle: 'Ask',
-    Icon: Hand,
-    description: 'Prompt before every mutating tool.',
-    classes: {
-      text: 'text-blue-500',
-      border: 'border-blue-500/40',
-      bg: 'bg-blue-500/5',
-    },
-  },
-  accept_edits: {
-    mode: 'accept_edits',
+  auto_edits: {
+    mode: 'auto_edits',
     title: 'Accept edits',
     shortTitle: 'Edits',
     Icon: ChevronsRight,
@@ -68,6 +57,18 @@ export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = 
       text: 'text-purple-500',
       border: 'border-purple-500/40',
       bg: 'bg-purple-500/5',
+    },
+  },
+  ask: {
+    mode: 'ask',
+    title: 'Ask permission',
+    shortTitle: 'Ask',
+    Icon: Hand,
+    description: 'Prompt before every mutating tool.',
+    classes: {
+      text: 'text-blue-500',
+      border: 'border-blue-500/40',
+      bg: 'bg-blue-500/5',
     },
   },
   plan: {
@@ -84,7 +85,8 @@ export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = 
   },
 };
 
-const CYCLE: PermissionMode[] = ['bypass', 'default', 'accept_edits', 'plan'];
+// Shift+Tab cycle order == declaration order in the source-of-truth tuple.
+const CYCLE: readonly PermissionMode[] = PERMISSION_MODES;
 
 /** Next mode for Shift+Tab cycle. Wraps. */
 export function nextPermissionMode(current: PermissionMode): PermissionMode {

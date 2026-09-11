@@ -28,7 +28,7 @@ async function main() {
   assert(listEntityVersions('note', note.id).length === 0, 'no versions on fresh create (lazy)');
 
   console.log('2. human edit (body)');
-  updateNote(note.id, { body: 'Line one EDITED.\nLine two.\nLine three.' });
+  updateNote(note.id, { body: 'Line one EDITED.\nLine two.\nLine three.' }, { source: 'human' });
   let versions = listEntityVersions('note', note.id);
   assert(versions.length === 2, 'first edit seeds baseline + new version (2 rows)');
   assert(versions[0].source === 'human', 'newest version is human-sourced');
@@ -45,7 +45,7 @@ async function main() {
   assert(versions[0].source === 'ai', 'newest version is ai-sourced');
 
   console.log('4. no-op meta edit does not create a version');
-  updateNote(note.id, { lastViewedAt: new Date().toISOString() });
+  updateNote(note.id, { lastViewedAt: new Date().toISOString() }, { source: 'human' });
   assert(listEntityVersions('note', note.id).length === 3, 'non-content bump skipped');
 
   console.log('5. undo the AI change (revert to the version before it)');

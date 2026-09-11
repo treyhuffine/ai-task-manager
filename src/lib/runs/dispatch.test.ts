@@ -62,7 +62,7 @@ async function seed() {
     name: 'TestWs',
     slug: 'testws-' + Date.now(),
     cwd: '/tmp/testws',
-    isGit: false,
+    isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
   const agentId = uuidv7();
   db.insert(agents).values({

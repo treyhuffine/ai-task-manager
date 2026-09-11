@@ -33,7 +33,7 @@ async function makeWorkspace(slugTag: string): Promise<string> {
   const { uuidv7 } = await import('uuidv7');
   const wsId = uuidv7();
   getDb().insert(workspaces).values({
-    id: wsId, name: 'Ws', slug: `ws-${slugTag}-${Date.now()}`, cwd: `/tmp/${slugTag}`, isGit: false,
+    id: wsId, name: 'Ws', slug: `ws-${slugTag}-${Date.now()}`, cwd: `/tmp/${slugTag}`, isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
   return wsId;
 }

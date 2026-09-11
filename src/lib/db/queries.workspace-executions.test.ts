@@ -43,7 +43,7 @@ describe('listWorkspaceExecutions', () => {
 
     const wsId = uuidv7();
     getDb().insert(workspaces).values({
-      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false,
+      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
     const executor = q.getOrCreateDefaultExecutor('claude_code');
 
@@ -77,7 +77,7 @@ describe('listWorkspaceExecutions', () => {
 
     const wsId = uuidv7();
     getDb().insert(workspaces).values({
-      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws2', isGit: false,
+      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws2', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
     const executor = q.getOrCreateDefaultExecutor('claude_code');
     const done = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Only archived' });
@@ -101,7 +101,7 @@ describe('listWorkspaceExecutions', () => {
 
     const wsId = uuidv7();
     getDb().insert(workspaces).values({
-      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws3', isGit: false,
+      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws3', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
     const executor = q.getOrCreateDefaultExecutor('claude_code');
     const first = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Shared execution' });

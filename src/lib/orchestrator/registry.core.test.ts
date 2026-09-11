@@ -121,6 +121,7 @@ describe('orchestrator core actions (areas / deck / search / user state / notes)
     const deckId = uuidv7();
     getDb().insert(decks).values({
       id: deckId,
+      origin: 'manual',
       items: [{ taskId: 't1', rationale: 'r', continuityContext: null, source: 'ai' }],
       alternatives: [{ taskId: 't2', reason: 'later' }],
       framing: null,

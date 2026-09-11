@@ -17,11 +17,12 @@
  *     handle whose `send(message)` resolves when the agent's turn ends.
  *   - `onEvent` fires for every `StreamEvent` across all turns; we parse
  *     and persist each.
- *   - `onUserInputRequest` routes through `pending-input.ts`. In `bypass`
- *     mode (the default for new sessions) we auto-allow without
- *     surfacing. In `default | accept_edits | plan` we pass the matching
- *     `--permission-mode` flag to Claude and surface every prompt that
- *     comes back through stdio. AskUserQuestion always surfaces.
+ *   - `onUserInputRequest` routes through `pending-input.ts`. In `auto_all`
+ *     mode (the default for new sessions) we auto-allow without surfacing.
+ *     `ask | auto_edits | plan` are translated per-harness in
+ *     `permission-map.ts` (Claude gets the matching `--permission-mode` flag)
+ *     and we surface every prompt that comes back. AskUserQuestion always
+ *     surfaces.
  *
  * What this module does NOT do (yet):
  *   - SSE streaming back to the client (client polls).
@@ -77,6 +78,8 @@ import type {
 } from '@/db/types';
 import { localEventWriter, type EventWriter } from './event-writer';
 import { mapHarnessToProvider } from './harness';
+import { harnessPermissionConfig } from './permission-map';
+import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import {
   classifyRequest,
   register as registerPending,
@@ -984,16 +987,19 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
       runtime.capabilities.sessions.reason ?? `${providerType} sessions are unavailable`,
     );
   }
-  const claudeMode = providerType === 'claude' && args.permissionMode !== 'plan'
-    ? claudePermissionFlag(args.permissionMode)
-    : null;
+  // Translate the app-native permission mode into harness config at the one
+  // boundary that owns it (see permission-map.ts). auto_all/plan ride agentex's
+  // generic skipPermissions/planMode; ask/auto_edits become Claude flags.
+  const perm = harnessPermissionConfig(args.permissionMode, providerType, {
+    planMode: runtime.capabilities.planMode.supported,
+  });
   const config: ProviderConfig = {
     ...runtimeContext.config,
     unattendedPermissionPolicy: 'deny',
-    ...(args.permissionMode === 'bypass' ? { skipPermissions: true } : {}),
+    ...(perm.skipPermissions ? { skipPermissions: true } : {}),
+    ...(perm.planMode ? { planMode: true } : {}),
   };
-  const extraArgs: string[] = [];
-  if (claudeMode) extraArgs.push('--permission-mode', claudeMode);
+  const extraArgs: string[] = [...perm.extraArgs];
   if (args.model) config.model = args.model;
   if (args.modelVariant && runtime.capabilities.modelVariants.supported) {
     config.modelVariant = args.modelVariant;
@@ -1004,9 +1010,6 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // source of truth for the same fact.
   if (args.effort && runtime.capabilities.reasoningEffort.supported) {
     config.effort = args.effort;
-  }
-  if (args.permissionMode === 'plan' && runtime.capabilities.planMode.supported) {
-    config.planMode = true;
   }
 
   // Orchestration sessions run in the app data root and act through the
@@ -1206,27 +1209,12 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
 }
 
 /**
- * Map our internal permission mode to Claude's `--permission-mode` flag
- * value. Returns null for `bypass` — we don't pass the flag and the
- * callback below auto-allows everything (matches the legacy behavior
- * where Flow never prompted).
- */
-function claudePermissionFlag(mode: PermissionMode): string | null {
-  switch (mode) {
-    case 'bypass': return null;
-    case 'default': return 'default';
-    case 'accept_edits': return 'acceptEdits';
-    case 'plan': return 'plan';
-  }
-}
-
-/**
  * Translate an agentex tool-permission request into pending-input state +
  * a transcript event, then await the user's answer. Called once per tool
- * call that needs approval (every mutating tool in default mode, Bash in
- * accept_edits mode, etc.) and once per AskUserQuestion.
+ * call that needs approval (every mutating tool in `ask` mode, Bash in
+ * `auto_edits` mode, etc.) and once per AskUserQuestion.
  *
- * In `bypass` mode we short-circuit. The current chat_session row is
+ * In `auto_all` mode we short-circuit. The current chat_session row is
  * read fresh each time so a mid-conversation mode change takes effect on
  * the next prompt without restarting the CLI.
  */
@@ -1236,11 +1224,11 @@ async function handleUserInputRequest(
   req: UserInputRequest,
 ): Promise<UserInputResponse> {
   const session = getChatSession(chatSessionId);
-  const mode: PermissionMode = session?.permissionMode ?? 'bypass';
+  const mode: PermissionMode = session?.permissionMode ?? DEFAULT_PERMISSION_MODE;
 
   const pending = classifyRequest(chatSessionId, req);
 
-  // Bypass: only AskUserQuestion still needs UI. Auto-allowing a question
+  // auto_all: only AskUserQuestion still needs UI. Auto-allowing a question
   // returns empty answers to Claude and the agent stalls — surface it.
   //
   // updatedInput must be present on every allow response. Claude's
@@ -1248,7 +1236,7 @@ async function handleUserInputRequest(
   // is treated as "use original input" but the field still has to exist.
   // Without it Claude raises a Zod error and the tool call fails as if
   // we'd denied — except the agent reads it as a tool failure and retries.
-  if (mode === 'bypass' && pending.kind === 'permission') {
+  if (mode === 'auto_all' && pending.kind === 'permission') {
     return { allow: true, updatedInput: req.input };
   }
 
@@ -1283,7 +1271,7 @@ async function handleUserInputRequest(
   // Auto-revert plan mode on ExitPlanMode allow. Claude transitions
   // its own internal mode when the tool call succeeds; we mirror that
   // in our session row so the UI flips back to whatever the user had
-  // before plan (or `bypass` if they came in fresh). No CLI recycle
+  // before plan (or `auto_all` if they came in fresh). No CLI recycle
   // needed — the running process already exited plan internally; we
   // just want subsequent renders + future recycles to show the new
   // mode.
@@ -1301,7 +1289,7 @@ async function handleUserInputRequest(
 function revertFromPlanMode(chatSessionId: string): void {
   const session = getChatSession(chatSessionId);
   if (!session || session.permissionMode !== 'plan') return;
-  const target: PermissionMode = (session.prePlanMode as PermissionMode | null) ?? 'bypass';
+  const target: PermissionMode = (session.prePlanMode as PermissionMode | null) ?? DEFAULT_PERMISSION_MODE;
   try {
     updateChatSession(chatSessionId, {
       permissionMode: target,

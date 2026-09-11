@@ -99,6 +99,7 @@ describe('sweepAttachments', () => {
     });
 
     createWorkspace({
+      isGit: false,
       name: 'My workspace',
       cwd: tmpDir,
       attachments: [photo],
@@ -129,10 +130,10 @@ describe('sweepAttachments', () => {
 
     const db = getDb();
     db.insert(agents)
-      .values({ id: 'ag-1', kind: 'orchestrator', name: 'test', harness: 'test' })
+      .values({ id: 'ag-1', kind: 'orchestrator', name: 'test', harness: 'test', status: 'active' })
       .run();
     db.insert(chatSessions)
-      .values({ id: 'cs-1', agentId: 'ag-1', type: 'orchestration', label: 'test' })
+      .values({ id: 'cs-1', agentId: 'ag-1', type: 'orchestration', label: 'test', status: 'active', permissionMode: 'auto_all' })
       .run();
     db.insert(chatEvents)
       .values({

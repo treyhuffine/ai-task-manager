@@ -114,7 +114,7 @@ export const SCENARIOS: Scenario[] = [
       ],
     },
     live: {
-      mode: 'bypass',
+      mode: 'auto_all',
       prompt:
         'Use the AskUserQuestion tool exactly once with header "Implementation strategy", question "Which approach?", and these two options: "Server-side rendering" (description: "Render on the server, send HTML.") and "Client-side rendering" (description: "Send JSON, hydrate in the browser."). After receiving the answer, just say "Got it." and stop.',
     },
@@ -141,7 +141,7 @@ export const SCENARIOS: Scenario[] = [
       ],
     },
     live: {
-      mode: 'bypass',
+      mode: 'auto_all',
       prompt:
         'Use AskUserQuestion with multiSelect: true. Header: "Tooling". Question: "Which tools should we install?". Options: Prettier, ESLint, Husky, Lint-staged with brief descriptions. After receiving the answer, summarize what was selected and stop.',
     },
@@ -235,7 +235,7 @@ export const SCENARIOS: Scenario[] = [
       description: 'Runs the test suite for the core package.',
     },
     live: {
-      mode: 'default',
+      mode: 'ask',
       prompt: 'Run `echo hello` in the working directory using the Bash tool.',
     },
   },
@@ -267,7 +267,7 @@ export const SCENARIOS: Scenario[] = [
       title: 'Write /tmp/example.ts',
     },
     live: {
-      mode: 'default',
+      mode: 'ask',
       prompt:
         'Use the Write tool to create a file at /tmp/flow-dev-scratch/example.ts with the content `export const greeting = "hello world";`. Then say done.',
     },
@@ -316,9 +316,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'm-accept-edits',
     category: 'modes',
     title: 'Accept edits: edit allowed, Bash prompts',
-    description: 'In accept_edits, edits go through but Bash still surfaces a permission card.',
+    description: 'In auto_edits, edits go through but Bash still surfaces a permission card.',
     live: {
-      mode: 'accept_edits',
+      mode: 'auto_edits',
       prompt:
         'Create a file at /tmp/flow-dev-scratch/notes.md with the content "# notes\\n\\nfirst entry". Then run `wc -l /tmp/flow-dev-scratch/notes.md` to count its lines.',
     },
@@ -329,7 +329,7 @@ export const SCENARIOS: Scenario[] = [
     title: 'Default: every mutating tool prompts',
     description: 'Single edit + single Bash should produce two permission cards.',
     live: {
-      mode: 'default',
+      mode: 'ask',
       prompt:
         'Create /tmp/flow-dev-scratch/two.md with content "two". Then run `cat /tmp/flow-dev-scratch/two.md`.',
     },

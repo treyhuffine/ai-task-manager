@@ -12,6 +12,7 @@ import {
 import { sql } from 'drizzle-orm';
 import type { SnakeizeKeys } from '@/lib/case/keys';
 import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
+import { PERMISSION_MODES } from '@/lib/permissions/modes';
 
 // ─── Attachments ──────────────────────────────────────────────
 // Generic file reference stored on any entity that can carry uploads.
@@ -86,16 +87,21 @@ export const userState = sqliteTable('user_state', {
   activeEnergy: text({ enum: ['deep', 'light'] }),
   availableMinutes: integer(),
   // Working-hours window (local HH:MM) the deck sizes/slots tasks within.
-  // Defaults to a 9–6 day until the user sets it or a calendar refines it.
-  workdayStart: text().notNull().default('09:00'),
-  workdayEnd: text().notNull().default('18:00'),
+  // Null → getWorkdayBounds() resolves the 9–6 fallback; the window is a
+  // policy, so it lives in the app layer, not a schema default.
+  workdayStart: text(),
+  workdayEnd: text(),
   // IANA timezone (e.g. 'America/New_York'). Null → fall back to the
   // browser's detected zone in the UI; paired with the workday window so the
   // deck plans the day in the user's actual local time.
   timezone: text(),
   description: text().notNull().default(''),
-  voiceAutoSend: integer({ mode: 'boolean' }).notNull().default(true),
-  voiceModel: text().notNull().default('local/parakeet-tdt-0.6b-v3'),
+  // Null → readers resolve `?? true` at read time, so users who never
+  // touched the toggle follow the current product default.
+  voiceAutoSend: integer({ mode: 'boolean' }),
+  // Null → resolveVoiceModel() auto-picks an available provider. Model ids
+  // churn, so no schema literal.
+  voiceModel: text(),
   // Last explicit provider-bound harness + model + effort tuple. The columns
   // remain nullable for pre-onboarding and legacy databases, but chat creation
   // resolves them to concrete values before anything reaches a runner.
@@ -107,10 +113,10 @@ export const userState = sqliteTable('user_state', {
   //   harness_skills — harness session (cwd = data root), actions via CLI/skills
   //   harness_mcp    — harness session with the orchestrator MCP attached
   // Harness sessions read this at spawn; switching modes starts a new chat.
+  // Null → the UI falls back to 'legacy' and dispatch resolves 'harness_mcp'
+  // (resolveOrchestratorMode), matching pre-cleanup behavior exactly.
   // See docs/orchestrator-harness.md.
-  orchestratorMode: text({ enum: ['legacy', 'harness_skills', 'harness_mcp'] })
-    .notNull()
-    .default('legacy'),
+  orchestratorMode: text({ enum: ['legacy', 'harness_skills', 'harness_mcp'] }),
   // Monthly spend ceiling in USD for scheduled + manual runs combined.
   // Null means no budget enforced. When `currentMonthSpend()` crosses
   // thresholds, dispatch behavior changes: <75% no-op, 75–99% warn in
@@ -180,9 +186,7 @@ export const areas = sqliteTable('areas', {
   attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
   notes: text(),
   userContext: text(),
-  status: text({ enum: ['active', 'inactive', 'archived'] })
-    .notNull()
-    .default('active'),
+  status: text({ enum: ['active', 'inactive', 'archived'] }).notNull(),
   sortOrder: integer().notNull().default(0),
 });
 
@@ -195,17 +199,11 @@ export const stream = sqliteTable(
     ...timestamps,
     rawText: text().notNull(),
     /** Which in-app surface/flow produced the item. Decoupled from media type. */
-    source: text({ enum: ['capture', 'chat', 'webhook'] })
-      .notNull()
-      .default('capture'),
+    source: text({ enum: ['capture', 'chat', 'webhook'] }).notNull(),
     /** Original media format. Voice/image items were transcribed/OCR'd into `raw_text`. */
-    media: text({ enum: ['text', 'voice', 'image'] })
-      .notNull()
-      .default('text'),
+    media: text({ enum: ['text', 'voice', 'image'] }).notNull(),
     /** How the item entered the system. `internal` = user action in the app. */
-    origin: text({ enum: ['internal', 'webhook', 'api'] })
-      .notNull()
-      .default('internal'),
+    origin: text({ enum: ['internal', 'webhook', 'api'] }).notNull(),
     /** External system that sent it (e.g. `pocket`). Null when origin='internal'. */
     externalSource: text(),
     /** Upstream id for dedupe on at-least-once deliveries. Null when origin='internal'. */
@@ -223,8 +221,7 @@ export const stream = sqliteTable(
      *   incubating — kept for later; returns to pending at resurface_at
      */
     status: text({ enum: ['pending', 'proposed', 'promoted', 'dismissed', 'reviewed', 'incubating'] })
-      .notNull()
-      .default('pending'),
+      .notNull(),
     dismissedBy: text(),
     /** Incubation: when an `incubating` item should return to `pending`. */
     resurfaceAt: text(),
@@ -313,9 +310,7 @@ export const triagePasses = sqliteTable(
     /** Doubles as the single-flight lock: a `running` pass younger than the
      *  staleness window blocks new sweeps. A failed sweep leaves items
      *  pending, never half-disposed. */
-    status: text({ enum: ['running', 'completed', 'failed'] })
-      .notNull()
-      .default('running'),
+    status: text({ enum: ['running', 'completed', 'failed'] }).notNull(),
     /** Chat session that ran the sweep, null for lane-1-only passes. */
     sessionId: text(),
     itemsSeen: integer().notNull().default(0),
@@ -445,17 +440,10 @@ export const tasks = sqliteTable(
     // and are normalized to `todo` at the read boundary until the backfill
     // (scripts/backfill-task-lifecycle.ts) rewrites them.
     //
-    // Initial status policy lives in the query layer (createTask writes 'todo'),
-    // per the repo rule — this DB default is INERT and never the source of the
-    // policy. It exists only because it is structurally forced: the column is
-    // NOT NULL, and a rowid-safe column swap (the only FTS-safe way to change the
-    // status default without rebuilding the table and desyncing tasks_fts) must
-    // ADD the NOT NULL column WITH a default. SQLite cannot then DROP that
-    // default without exactly the full-table rebuild we are avoiding. So the
-    // honest, harmless choice is a default matching the query-layer policy
-    // ('todo'), documented as the inert exception the "Column defaults" rule
-    // permits. See drizzle/0016 for the swap.
-    status: text({ enum: TASK_STATUSES }).notNull().default('todo'),
+    // Initial status policy lives in the query layer (createTask writes
+    // 'todo'), per the repo rule — no DB default, so a writer that forgets
+    // the field fails loudly instead of silently minting policy.
+    status: text({ enum: TASK_STATUSES }).notNull(),
     // Monotonic counter, incremented on every status change. Its only job is
     // optimistic concurrency: a transition may pass the count it last saw so
     // one of two racing transitions wins and the other gets a stable conflict.
@@ -548,7 +536,7 @@ export const taskStatusChanges = sqliteTable(
     // The task's status_changed_count AFTER this command applied.
     statusChangedCount: integer().notNull(),
     // Who authored it: human (UI / trusted CLI), ai (agent via MCP), system.
-    actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull().default('human'),
+    actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
     // Optional provenance, attributed when known.
     actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, {
       onDelete: 'set null',
@@ -596,11 +584,9 @@ export const decks = sqliteTable(
     // every earlier version survives for one-tap revert.
     supersededAt: text(),
     replacesDeckId: text(),
-    // What produced this version. `manual` is the honest default for legacy
-    // rows (all pre-proactive decks were user-triggered).
-    origin: text({ enum: ['morning', 'first_open', 'midday', 'manual'] })
-      .notNull()
-      .default('manual'),
+    // What produced this version. Set by createDeckVersion ('manual' when the
+    // caller does not say otherwise).
+    origin: text({ enum: ['morning', 'first_open', 'midday', 'manual'] }).notNull(),
     // The deltas that produced this version — drives the "what changed" brief
     // and the bumped lane without diffing. See `DeckChange`.
     changes: text({ mode: 'json' }).$type<DeckChange[]>().notNull().default([]),
@@ -686,15 +672,11 @@ export const apiKeys = sqliteTable(
     description: text(),
     deviceType: text({
       enum: ['host', 'computer', 'phone', 'tablet', 'service', 'other'],
-    })
-      .notNull()
-      .default('other'),
+    }).notNull(),
     prefix: text().notNull(),
     suffix: text().notNull(),
     hash: text().notNull().unique(),
-    env: text({ enum: ['live', 'test'] })
-      .notNull()
-      .default('live'),
+    env: text({ enum: ['live', 'test'] }).notNull(),
     expiresAt: text(),
     lastUsedAt: text(),
     lastUsedIp: text(),
@@ -724,9 +706,11 @@ export const workspaces = sqliteTable(
     emoji: text(),
     attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
     cwd: text().notNull(),
-    isGit: integer({ mode: 'boolean' }).notNull().default(false),
+    // Fact, not policy: callers detect it from the filesystem and must
+    // always say. No default and no ?? fallback, a forgotten value is a bug.
+    isGit: integer({ mode: 'boolean' }).notNull(),
     baseBranch: text(),
-    remoteName: text().default('origin'),
+    remoteName: text(),
     worktreeRoot: text(),
     // Globs to copy from `cwd` into each new session's worktree at creation
     // time. Picomatch dialect, dot-aware. `.env*` is the default so secrets
@@ -734,7 +718,7 @@ export const workspaces = sqliteTable(
     // beamd project config (`beamd.yaml`) is tracked, so git already puts it in
     // the worktree; add the gitignored local override (`beamd.local.yaml`) to
     // this list if you want that to travel too.
-    filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull().default(['.env*']),
+    filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull(),
     // Connector allowlist for this workspace's executions (service-grain, optional account pin).
     // Empty = no connectors for executions. See docs/connectors-workspace-scoping-spec.md.
     connectorScopes: text({ mode: 'json' })
@@ -759,22 +743,20 @@ export const workspaces = sqliteTable(
     startCommand: text(),
     areaId: text().references(() => areas.id, { onDelete: 'set null' }),
     position: integer().notNull().default(0),
-    collapsed: integer({ mode: 'boolean' }).notNull().default(false),
+    collapsed: integer({ mode: 'boolean' }).notNull(),
     // When true, the Live-session explainer modal is skipped for this workspace
     // and the Zap action starts a Live execution directly. Per-workspace because
     // the risk it warns about (no isolation, commits land on the checked-out
     // branch) is a property of the specific repo, not a global preference. Users
     // opt in via the modal's "Don't ask again" checkbox and can re-arm it from
     // workspace settings.
-    skipLiveConfirm: integer({ mode: 'boolean' }).notNull().default(false),
-    // Whether this workspace's executions get the agent browser. Defaults on.
-    // ANDs with the global capability gate (auth config `browserEnabled` /
+    skipLiveConfirm: integer({ mode: 'boolean' }).notNull(),
+    // Whether this workspace's executions get the agent browser (creator
+    // defaults it on). ANDs with the global capability gate (auth config `browserEnabled` /
     // `isBrowserEnabled()`): a workspace execution browses only when both the
     // app and this workspace allow it. See docs/browser-capability-proposal.md.
-    browserEnabled: integer({ mode: 'boolean' }).notNull().default(true),
-    status: text({ enum: ['active', 'archived'] })
-      .notNull()
-      .default('active'),
+    browserEnabled: integer({ mode: 'boolean' }).notNull(),
+    status: text({ enum: ['active', 'archived'] }).notNull(),
     archivedAt: text(),
   },
   (table) => [
@@ -821,9 +803,7 @@ export const referenceFolders = sqliteTable(
     // path don't already say why you'd look there.
     description: text(),
     position: integer().notNull().default(0),
-    status: text({ enum: ['active', 'archived'] })
-      .notNull()
-      .default('active'),
+    status: text({ enum: ['active', 'archived'] }).notNull(),
     archivedAt: text(),
   },
   (table) => [
@@ -863,9 +843,7 @@ export const agents = sqliteTable(
     role: text(),
     harness: text().notNull(),
     config: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
-    status: text({ enum: ['active', 'archived'] })
-      .notNull()
-      .default('active'),
+    status: text({ enum: ['active', 'archived'] }).notNull(),
     archivedAt: text(),
   },
   (table) => [index('idx_agents_kind').on(table.kind), index('idx_agents_status').on(table.status)],
@@ -965,9 +943,7 @@ export const executions = sqliteTable(
     // the `PreviewUrl` shape below.
     previewUrls: text({ mode: 'json' }).$type<PreviewUrl[]>().notNull().default([]),
 
-    status: text({ enum: ['active', 'archived'] })
-      .notNull()
-      .default('active'),
+    status: text({ enum: ['active', 'archived'] }).notNull(),
 
     archivedAt: text(),
 
@@ -1044,7 +1020,7 @@ export const executionReviews = sqliteTable(
     // pruned transcript event cannot orphan the review record.
     outputEventId: text().notNull(),
     disposition: text({ enum: ['accepted', 'changes_requested', 'dismissed'] }).notNull(),
-    actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull().default('human'),
+    actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
     actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
     note: text(),
   },
@@ -1109,7 +1085,7 @@ export const previewTargets = sqliteTable(
 
     previewName: text().notNull(),
     port: integer(),
-    pinned: integer({ mode: 'boolean' }).notNull().default(false),
+    pinned: integer({ mode: 'boolean' }).notNull(),
 
     lastViewedAt: text(),
   },
@@ -1144,9 +1120,7 @@ export const chatSessions = sqliteTable(
     type: text({ enum: ['orchestration', 'content', 'execution'] }).notNull(),
     surfaceKind: text(),
     surfaceRef: text(),
-    status: text({ enum: ['active', 'archived'] })
-      .notNull()
-      .default('active'),
+    status: text({ enum: ['active', 'archived'] }).notNull(),
     label: text(),
 
     // Free-form scratch space scoped to this session. Markdown text the
@@ -1225,16 +1199,20 @@ export const chatSessions = sqliteTable(
     externalSyncLastEventId: text(),
     externalHistoryCheckpoint: text({ mode: 'json' }).$type<{ kind: string; value: unknown }>(),
 
-    // How tool permission requests are handled for this session. `bypass` is
-    // the default — no flag passed to Claude, callback auto-allows everything.
-    // `default | accept_edits | plan` map to Claude's --permission-mode flag
-    // (default | acceptEdits | plan); the callback then surfaces prompts via
-    // the pending-input UI. AskUserQuestion always surfaces regardless of mode.
+    // How tool permission requests are handled for this session. App-native
+    // vocabulary (see src/lib/permissions/modes.ts); each harness adapter
+    // translates it in src/lib/executor/permission-map.ts:
+    //   auto_all   — auto-allow everything, no prompts (the default)
+    //   auto_edits — auto-allow workspace edits, prompt for shell/network/other
+    //   ask        — prompt before every mutating tool
+    //   plan       — read-only, propose a plan, no changes
+    // The default lives in the query layer (createChatSession /
+    // createExecutionWithChat set DEFAULT_PERMISSION_MODE); no DB default, so
+    // a writer that forgets the field fails loudly. AskUserQuestion always
+    // surfaces regardless.
     permissionMode: text({
-      enum: ['bypass', 'default', 'accept_edits', 'plan'],
-    })
-      .notNull()
-      .default('bypass'),
+      enum: PERMISSION_MODES,
+    }).notNull(),
 
     // Explicit per-session model + effort. These stay nullable in the schema
     // for legacy rows, while creation and dispatch normalize them before the
@@ -1247,10 +1225,9 @@ export const chatSessions = sqliteTable(
     effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
 
     // When entering plan mode we stash the prior permission_mode here so
-    // ExitPlanMode can revert. Mirrors Claude Code's `prePlanMode` on
-    // ToolPermissionContext. Cleared when a non-plan mode is set directly.
+    // ExitPlanMode can revert. Cleared when a non-plan mode is set directly.
     prePlanMode: text({
-      enum: ['bypass', 'default', 'accept_edits', 'plan'],
+      enum: PERMISSION_MODES,
     }),
 
     // Manual chat-tab order within an execution. Fractional index string
@@ -1315,9 +1292,7 @@ export const externalSessionImports = sqliteTable(
     historyCheckpoint: text({ mode: 'json' }).$type<{ kind: string; value: unknown }>(),
     status: text({
       enum: ['importing', 'current', 'changed', 'missing', 'error'],
-    })
-      .notNull()
-      .default('importing'),
+    }).notNull(),
     lastScannedAt: text(),
     lastSyncedAt: text(),
     lastError: text(),
@@ -1407,9 +1382,7 @@ export const entityVersions = sqliteTable(
     //   human  — a person edited via the UI / trusted local CLI
     //   ai     — an agent edited (document chat / orchestrator via MCP)
     //   system — a revert or other automated process
-    source: text({ enum: ['human', 'ai', 'system'] })
-      .notNull()
-      .default('human'),
+    source: text({ enum: ['human', 'ai', 'system'] }).notNull(),
 
     // The chat session whose turn produced this version, when known (the
     // in-document `type='content'` session). Lets the transcript link a
@@ -1476,9 +1449,7 @@ export const notes = sqliteTable(
     url: text(),
     attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
     foldedHeadings: text({ mode: 'json' }).$type<string[]>().default([]),
-    status: text({ enum: ['active', 'archived'] })
-      .notNull()
-      .default('active'),
+    status: text({ enum: ['active', 'archived'] }).notNull(),
     contextTags: text({ mode: 'json' }).$type<string[]>().default([]),
     lastViewedAt: text(),
   },
@@ -1598,10 +1569,8 @@ export const chatRefs = sqliteTable(
     entityType: text({ enum: ['task', 'note', 'area', 'file', 'scratchpad'] }).notNull(),
     entityId: text().notNull(),
     position: integer().notNull().default(0),
-    hydrate: integer({ mode: 'boolean' }).notNull().default(true),
-    createdBy: text({ enum: ['user', 'agent'] })
-      .notNull()
-      .default('user'),
+    hydrate: integer({ mode: 'boolean' }).notNull(),
+    createdBy: text({ enum: ['user', 'agent'] }).notNull(),
   },
   (table) => [
     // Forward: list session pins (event_id IS NULL) or mentions for an event.
@@ -1634,7 +1603,7 @@ export const triggers = sqliteTable(
     userId: text().notNull().default('local'),
     name: text().notNull(),
     description: text(),
-    enabled: integer({ mode: 'boolean' }).notNull().default(true),
+    enabled: integer({ mode: 'boolean' }).notNull(),
 
     // What runs and where. `agentId` is required at the row level; the form
     // defaults it from the workspace's bound executor or the orchestrator
@@ -1671,7 +1640,7 @@ export const triggers = sqliteTable(
     cronExpression: text(),
     intervalSeconds: integer(),
     runAt: text(),
-    timezone: text().default('UTC'),
+    timezone: text(),
 
     // Optional "only fire during business hours" window. `HH:MM` strings
     // interpreted in `timezone`. Tick skips dispatch when current time in
@@ -1687,9 +1656,7 @@ export const triggers = sqliteTable(
     // execution); see docs/executions-spec.md §5.
     concurrencyPolicy: text({
       enum: ['skip_if_running', 'coalesce_if_active', 'allow_concurrent'],
-    })
-      .notNull()
-      .default('coalesce_if_active'),
+    }).notNull(),
 
     // V2 — stored but NOT honored at runtime today. The runner currently
     // fires a missed slot at most once on the next tick regardless of
@@ -1701,10 +1668,8 @@ export const triggers = sqliteTable(
     // run_all (V2)           — fire once per missed window, capped at maxCatchUpRuns
     catchUpPolicy: text({
       enum: ['skip_missed', 'run_all'],
-    })
-      .notNull()
-      .default('skip_missed'),
-    maxCatchUpRuns: integer().notNull().default(3),
+    }).notNull(),
+    maxCatchUpRuns: integer().notNull(),
 
     // Trigger → execution ownership. The FK lives on the trigger (not on
     // executions) so many triggers can point at one execution — morning-
@@ -1827,9 +1792,7 @@ export const runs = sqliteTable(
     // CHECK, so adding a value needs no migration.
     status: text({
       enum: ['queued', 'running', 'completed', 'failed', 'skipped', 'cancelled'],
-    })
-      .notNull()
-      .default('queued'),
+    }).notNull(),
     statusReason: text(),
 
     // Lifecycle timestamps. queuedAt is always set; startedAt fires when
@@ -1944,7 +1907,7 @@ export const notificationChannels = sqliteTable(
     config: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
     // The per-channel matrix toggle list — which event types route here.
     events: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
-    enabled: integer({ mode: 'boolean' }).notNull().default(true),
+    enabled: integer({ mode: 'boolean' }).notNull(),
   },
   (table) => [
     index('idx_notification_channels_user_enabled').on(table.userId, table.enabled),
@@ -1978,9 +1941,7 @@ export const notificationDeliveries = sqliteTable(
       .references(() => notificationChannels.id, { onDelete: 'cascade' }),
     // No 'sending' in v1: inline single-process → no lease needed. Add it + lease
     // columns with a future background worker (spec §2.16).
-    status: text({ enum: ['pending', 'sent', 'failed', 'skipped'] })
-      .notNull()
-      .default('pending'),
+    status: text({ enum: ['pending', 'sent', 'failed', 'skipped'] }).notNull(),
     attempts: integer().notNull().default(0),
     event: text({ mode: 'json' }).$type<StoredNotificationEvent>().notNull(), // for re-render / retry / history
     rendered: text({ mode: 'json' }).$type<StoredRenderedNotification>(),

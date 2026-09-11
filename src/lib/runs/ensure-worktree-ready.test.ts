@@ -59,7 +59,7 @@ async function makeWorkspace(isGit: boolean): Promise<string> {
   const id = uuidv7();
   getDb()
     .insert(workspaces)
-    .values({ id, name: 'Ws', slug: 'ws-' + id, cwd: tmpBase, isGit, baseBranch: 'main' })
+    .values({ id, name: 'Ws', slug: 'ws-' + id, cwd: tmpBase, isGit, baseBranch: 'main', status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true })
     .run();
   return id;
 }

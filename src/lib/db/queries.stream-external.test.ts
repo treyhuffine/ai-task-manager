@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -101,53 +100,9 @@ describe('external Stream idempotency', () => {
     expect(() => getDb().insert(stream).values({
       id: 'raw-duplicate',
       rawText: 'Bypass attempt',
+      source: 'capture', media: 'text', origin: 'internal', status: 'pending',
       externalSource: 'pebble-index-01',
       externalId: 'recording-1',
     }).run()).toThrow(/UNIQUE constraint failed/i);
-  });
-});
-
-describe('external Stream uniqueness migration', () => {
-  it('preserves legacy duplicate rows while assigning only one canonical key', () => {
-    const db = new Database(':memory:');
-    db.exec(`
-      CREATE TABLE stream (
-        id TEXT PRIMARY KEY NOT NULL,
-        created_at TEXT NOT NULL,
-        external_source TEXT,
-        external_id TEXT
-      );
-      CREATE INDEX stream_external_id_idx
-        ON stream (external_source, external_id);
-      INSERT INTO stream VALUES
-        ('first', '2026-08-30T10:00:00Z', 'pocket', 'recording-1'),
-        ('second', '2026-08-30T10:01:00Z', 'pocket', 'recording-1'),
-        ('third', '2026-08-30T10:02:00Z', 'pocket', 'recording-1'),
-        ('other-source', '2026-08-30T10:03:00Z', 'pebble-index-01', 'recording-1'),
-        ('internal', '2026-08-30T10:04:00Z', NULL, NULL);
-    `);
-
-    const migration = fs.readFileSync(
-      path.join(process.cwd(), 'drizzle/0015_curious_caretaker.sql'),
-      'utf8',
-    );
-    for (const statement of migration.split('--> statement-breakpoint')) {
-      if (statement.trim()) db.exec(statement);
-    }
-
-    const rows = db.prepare(`
-      SELECT id, external_id AS externalId
-      FROM stream
-      WHERE external_source = 'pocket'
-      ORDER BY created_at
-    `).all() as Array<{ id: string; externalId: string | null }>;
-    expect(rows[0]).toEqual({ id: 'first', externalId: 'recording-1' });
-    expect(rows[1]).toEqual({ id: 'second', externalId: null });
-    expect(rows[2]).toEqual({ id: 'third', externalId: null });
-    expect(() => db.prepare(`
-      INSERT INTO stream VALUES
-        ('new-duplicate', '2026-08-30T11:00:00Z', 'pocket', 'recording-1')
-    `).run()).toThrow(/UNIQUE constraint failed/i);
-    db.close();
   });
 });

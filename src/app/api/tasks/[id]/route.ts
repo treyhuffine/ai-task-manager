@@ -59,7 +59,7 @@ export async function PATCH(
       );
     }
 
-    const row = updateTask(id, body);
+    const row = updateTask(id, body, { source: 'human' });
     if (!row) {
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }

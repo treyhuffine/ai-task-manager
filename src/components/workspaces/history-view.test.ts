@@ -41,7 +41,7 @@ function s(id: string, iso: string): RailSession {
     externalSyncOffset: null,
     externalSyncLastEventId: null,
     externalHistoryCheckpoint: null,
-    permissionMode: 'bypass',
+    permissionMode: 'auto_all',
     model: null,
     modelVariant: null,
     effort: null,

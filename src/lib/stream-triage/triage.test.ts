@@ -306,7 +306,7 @@ describe('the undo table (§3.10)', () => {
       'accepted',
     );
     // A human edit on top of the created entity.
-    q.updateTask(applied.entity!.entityId, { body: 'the user wrote things here' });
+    q.updateTask(applied.entity!.entityId, { body: 'the user wrote things here' }, { source: 'human' });
 
     const undone = q.undoTriageDecision(applied.decision.id);
     expect(undone.entityRemoved).toBe('archived');
@@ -338,7 +338,7 @@ describe('the undo table (§3.10)', () => {
       'executed',
     );
     // Human edits on top of the append.
-    q.updateNote(note.id, { body: q.getNote(note.id)!.body + '\n\nmore human words' });
+    q.updateNote(note.id, { body: q.getNote(note.id)!.body + '\n\nmore human words' }, { source: 'human' });
 
     const undone = q.undoTriageDecision(applied.decision.id);
     expect(undone.entityReverted).toBe(false);

@@ -40,7 +40,7 @@ async function seed() {
   const wsId = uuidv7();
   db.insert(workspaces).values({
     id: wsId, name: 'TestWs', slug: 'testws-' + Date.now(),
-    cwd: '/tmp/testws', isGit: false,
+    cwd: '/tmp/testws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
   const agentId = uuidv7();
   db.insert(agents).values({
