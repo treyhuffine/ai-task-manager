@@ -33,6 +33,10 @@ export const LANE_BY_KEY: Record<TaskLane, LaneDef> = Object.fromEntries(
  * not an everyday column. */
 export const KANBAN_COLUMNS: TaskLane[] = ['consider', 'todo', 'current', 'done'];
 
+/** The "Active" working set: every non-terminal status (excludes done +
+ * archived). Powers the list's aggregate "Active" status view. */
+export const ACTIVE_STATUSES: TaskStatus[] = ['consider', 'todo', 'in_progress'];
+
 /** The status a lane filters to. */
 export function laneStatus(lane: TaskLane): TaskStatus {
   return LANE_BY_KEY[lane].status;

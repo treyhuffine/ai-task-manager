@@ -21,11 +21,11 @@ import {
 import { generateKeyBetween } from 'fractional-indexing';
 import { tasksApi } from '@/lib/api/tasks';
 import { backfillSortKeys, computeBucketPlacement, type Bucket } from '@/lib/utils/bucket-placement';
-import { Target, Filter, ArrowDownAz, Loader2, Search, Plus } from 'lucide-react';
+import { Target, Filter, ArrowDownAz, Loader2, Plus, ChevronDown } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTasks, useUpdateTask, useCreateTask, useTaskCounts, useTaskAttention } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
-import { TASK_LANES, LANE_BY_KEY, laneStatus, type TaskLane } from '@/lib/tasks/lanes';
+import { TASK_LANES, LANE_BY_KEY, laneStatus, ACTIVE_STATUSES, type TaskLane } from '@/lib/tasks/lanes';
 import { useAreas } from '@/hooks/use-areas';
 import type { TaskAttentionSignals } from '@/db/types';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -33,19 +33,28 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
+import {
+  ListToolbar,
+  ToolbarActiveDot,
+  ToolbarSearchButton,
+  toolbarButtonClass,
+} from '@/components/shared/list-toolbar';
+import { TaskViewToggle, type TaskView } from './task-view';
 import { TaskRow } from './task-row';
-import { cn } from '@/lib/utils';
 import { todayLocalDate } from '@/lib/deck/date';
 import type { Energy } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 type SortOption = 'sortKey' | 'lastViewedAt' | 'hardDeadline' | 'createdAt' | 'updatedAt';
+
+// A single lane, the aggregate "Active" working set (non-terminal statuses),
+// or "All". 'active' and 'all' are multi-status views, not real lanes.
+type LaneFilter = TaskLane | 'all' | 'active';
 
 const SORT_LABELS: Record<SortOption, string> = {
   sortKey: 'Priority Order',
@@ -55,11 +64,10 @@ const SORT_LABELS: Record<SortOption, string> = {
   updatedAt: 'Updated',
 };
 
-export function TaskList() {
-  const { theme, openTask } = useDashboard();
-  const isDark = theme === 'dark';
+export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange?: (next: TaskView) => void } = {}) {
+  const { openTask } = useDashboard();
 
-  const [laneFilter, setLaneFilter] = useState<TaskLane | 'all'>('current');
+  const [laneFilter, setLaneFilter] = useState<LaneFilter>('current');
   const [energyFilter, setEnergyFilter] = useState<Energy | 'all'>('all');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
   const [sortBy, setSortBy] = useState<SortOption>('sortKey');
@@ -79,8 +87,12 @@ export function TaskList() {
     return () => clearTimeout(t);
   }, [highlightId]);
 
+  // 'all' → no status filter; 'active' → the non-terminal union; a lane → its
+  // single status. The query layer accepts an array and emits an IN clause.
+  const statusFilter =
+    laneFilter === 'all' ? undefined : laneFilter === 'active' ? ACTIVE_STATUSES : laneStatus(laneFilter);
   const filter = {
-    ...(laneFilter !== 'all' ? { status: laneStatus(laneFilter) } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
     ...(energyFilter !== 'all' ? { energy: energyFilter as Energy } : {}),
     ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
     orderBy: sortBy,
@@ -94,14 +106,21 @@ export function TaskList() {
   const createTask = useCreateTask();
   const lifecycle = useTaskLifecycle();
 
-  // Attention badges only matter for In-progress work (Current Work lane).
-  const attentionIds = laneFilter === 'current' ? (tasks ?? []).map((t) => t.id) : [];
+  // Attention badges only matter for In-progress work, which appears in the
+  // Current Work and Active views.
+  const attentionIds = laneFilter === 'current' || laneFilter === 'active' ? (tasks ?? []).map((t) => t.id) : [];
   const { data: attention } = useTaskAttention(attentionIds);
 
   // Quick-create in the lane, defaulting to the lane's semantics: Consider
   // creates a possibility, Todo commits, Current Work creates a Todo then Starts
-  // it (so lifecycle history stays valid). Done/Archived do not offer creation.
-  const quickCreateLane = laneFilter !== 'all' && laneFilter !== 'done' && laneFilter !== 'archived' ? (laneFilter as TaskLane) : null;
+  // it (so lifecycle history stays valid). Active adds to Todo. Done/Archived/All
+  // do not offer creation.
+  const quickCreateLane: TaskLane | null =
+    laneFilter === 'active'
+      ? 'todo'
+      : laneFilter !== 'all' && laneFilter !== 'done' && laneFilter !== 'archived'
+        ? (laneFilter as TaskLane)
+        : null;
   const handleQuickCreate = useCallback(
     async (title: string) => {
       const trimmed = title.trim();
@@ -123,6 +142,21 @@ export function TaskList() {
       ? 'All Areas'
       : areas?.find((a) => a.id === areaFilter)?.name ?? 'All Areas';
   const queryKey = ['tasks', filter];
+
+  // Filter menu holds Area + Energy; the trigger flags when either narrows the list.
+  const filterActive = areaFilter !== 'all' || energyFilter !== 'all';
+  const filterSummary =
+    areaFilter !== 'all'
+      ? areaLabel
+      : energyFilter !== 'all'
+        ? energyFilter === 'deep' ? 'Deep' : 'Light'
+        : 'Filter';
+  // Status is the primary selector; its trigger shows the active lane + count.
+  const activeCount = (counts?.consider ?? 0) + (counts?.todo ?? 0) + (counts?.in_progress ?? 0);
+  const laneLabel =
+    laneFilter === 'all' ? 'All' : laneFilter === 'active' ? 'Active' : LANE_BY_KEY[laneFilter].label;
+  const laneCount =
+    laneFilter === 'all' ? undefined : laneFilter === 'active' ? activeCount : counts?.[laneStatus(laneFilter)];
 
   const sensors = useSensors(
     // Mouse: any small drag starts reorder
@@ -254,89 +288,72 @@ export function TaskList() {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className={cn(
-        'px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0',
-        isDark ? 'bg-card/50' : 'bg-muted'
-      )}>
-        {/* Lane filter — desktop inline segmented, mobile inside Filter dropdown.
-            Current Work / Todo / Consider / Done / Archived / All. */}
-        <div className="hidden md:flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
-          {[...TASK_LANES, { key: 'all' as const, label: 'All' }].map((lane) => {
-            const count = lane.key === 'all' ? undefined : counts?.[laneStatus(lane.key as TaskLane)];
-            return (
-              <button
-                key={lane.key}
-                onClick={() => { setLaneFilter(lane.key as TaskLane | 'all'); dismissSwitchBanner(); }}
-                className={cn(
-                  'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all whitespace-nowrap inline-flex items-center gap-1',
-                  laneFilter === lane.key
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {lane.label}
-                {count != null && count > 0 && (
-                  <span className={cn('tabular-nums', laneFilter === lane.key ? 'opacity-80' : 'opacity-50')}>{count}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+      <ListToolbar>
+        {/* List / Board switcher (desktop surface only; mobile is list-only) */}
+        {view && onViewChange && <TaskViewToggle value={view} onChange={onViewChange} />}
 
-        {/* Energy filter — desktop inline segmented, mobile inside Filter dropdown */}
-        <div className="hidden md:flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
-          {(['all', 'deep', 'light'] as const).map((e) => (
-            <button
-              key={e}
-              onClick={() => { setEnergyFilter(e); dismissSwitchBanner(); }}
-              className={cn(
-                'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all',
-                energyFilter === e
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {e}
-            </button>
-          ))}
-        </div>
-
-        {/* Filter dropdown — Area on desktop, Status+Energy+Area on mobile */}
+        {/* Status — primary selector (active lane + count) */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground bg-card rounded border border-border">
-              <Filter size={10} className="flex-shrink-0" />
-              <span className="max-w-[120px] truncate">{areaLabel}</span>
-            </button>
+          <DropdownMenuTrigger
+            aria-label={`Status: ${laneLabel}`}
+            className={toolbarButtonClass({ className: 'font-semibold' })}
+          >
+            <span className="max-w-[130px] truncate">{laneLabel}</span>
+            {laneCount != null && laneCount > 0 && (
+              <span className="tabular-nums opacity-60">{laneCount}</span>
+            )}
+            <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-44">
+            <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Status</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={laneFilter}
+              onValueChange={(v) => { setLaneFilter(v as LaneFilter); dismissSwitchBanner(); }}
+            >
+              <DropdownMenuRadioItem value="active" className="text-xs">
+                <span className="flex-1">Active</span>
+                {activeCount > 0 && <span className="ml-2 tabular-nums text-muted-foreground">{activeCount}</span>}
+              </DropdownMenuRadioItem>
+              {TASK_LANES.map((l) => {
+                const c = counts?.[laneStatus(l.key)];
+                return (
+                  <DropdownMenuRadioItem key={l.key} value={l.key} className="text-xs">
+                    <span className="flex-1">{l.label}</span>
+                    {c != null && c > 0 && <span className="ml-2 tabular-nums text-muted-foreground">{c}</span>}
+                  </DropdownMenuRadioItem>
+                );
+              })}
+              <DropdownMenuRadioItem value="all" className="text-xs">All</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <div className="flex-1" />
+
+        {/* Filter — Area + Energy */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label={filterActive ? `Filter, active: ${filterSummary}` : 'Filter tasks'}
+            className={toolbarButtonClass({ active: filterActive })}
+          >
+            <Filter className="size-3.5 shrink-0" />
+            <span className="hidden @sm/lt:inline max-w-[120px] truncate">{filterSummary}</span>
+            {filterActive && <ToolbarActiveDot />}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
-            <div className="md:hidden">
-              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Lane</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={laneFilter}
-                onValueChange={(v) => { setLaneFilter(v as TaskLane | 'all'); dismissSwitchBanner(); }}
-              >
-                {TASK_LANES.map((lane) => (
-                  <DropdownMenuRadioItem key={lane.key} value={lane.key} className="text-xs">{lane.label}</DropdownMenuRadioItem>
-                ))}
-                <DropdownMenuRadioItem value="all" className="text-xs">All</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Energy</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={energyFilter}
-                onValueChange={(v) => { setEnergyFilter(v as Energy | 'all'); dismissSwitchBanner(); }}
-              >
-                <DropdownMenuRadioItem value="all" className="text-xs">All energies</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="deep" className="text-xs">Deep</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="light" className="text-xs">Light</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-            </div>
+            <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Energy</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={energyFilter}
+              onValueChange={(v) => { setEnergyFilter(v as Energy | 'all'); dismissSwitchBanner(); }}
+            >
+              <DropdownMenuRadioItem value="all" className="text-xs">All energies</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="deep" className="text-xs">Deep</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="light" className="text-xs">Light</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Area</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={areaFilter} onValueChange={(v) => { setAreaFilter(v); dismissSwitchBanner(); }}>
               <DropdownMenuRadioItem value="all" className="text-xs">All Areas</DropdownMenuRadioItem>
-              <DropdownMenuSeparator />
               {areas?.map(area => (
                 <DropdownMenuRadioItem key={area.id} value={area.id} className="text-xs">
                   {area.name}
@@ -346,12 +363,14 @@ export function TaskList() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Sort */}
+        {/* Sort — icon plus the active sort's name when there's room */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border">
-              <ArrowDownAz size={11} />
-            </button>
+          <DropdownMenuTrigger
+            aria-label={`Sort by ${SORT_LABELS[sortBy]}`}
+            className={toolbarButtonClass()}
+          >
+            <ArrowDownAz className="size-3.5 shrink-0" />
+            <span className="hidden @md/lt:inline">{SORT_LABELS[sortBy]}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
@@ -365,15 +384,11 @@ export function TaskList() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div className="flex-1" />
-        <button
+        <ToolbarSearchButton
+          label="Search tasks"
           onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'task: ' } }))}
-          className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border"
-          title="Search tasks"
-        >
-          <Search size={11} />
-        </button>
-      </div>
+        />
+      </ListToolbar>
 
       {/* Sort-switch banner — sticky above the scroll area, inverted for emphasis */}
       {switchedFromSort && (
@@ -389,27 +404,6 @@ export function TaskList() {
           </button>
         </div>
       )}
-
-      {/* Mobile lane switcher — Current Work / Todo / Consider without a menu */}
-      <div className="flex md:hidden items-center gap-1 overflow-x-auto border-b border-border px-3 py-1.5 no-scrollbar">
-        {[...TASK_LANES, { key: 'all' as const, label: 'All' }].map((lane) => {
-          const count = lane.key === 'all' ? undefined : counts?.[laneStatus(lane.key as TaskLane)];
-          return (
-            <button
-              key={lane.key}
-              onClick={() => { setLaneFilter(lane.key as TaskLane | 'all'); dismissSwitchBanner(); }}
-              aria-pressed={laneFilter === lane.key}
-              className={cn(
-                'flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap min-h-[28px]',
-                laneFilter === lane.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
-              )}
-            >
-              {lane.label}
-              {count != null && count > 0 && <span className="ml-1 opacity-70">{count}</span>}
-            </button>
-          );
-        })}
-      </div>
 
       {/* Quick-create in the current lane */}
       {quickCreateLane && (
@@ -436,7 +430,13 @@ export function TaskList() {
         onDragIntercept={handleDragIntercept}
         onPickBucket={handlePickBucket}
         signals={attention}
-        emptyText={laneFilter !== 'all' ? LANE_BY_KEY[laneFilter as TaskLane]?.empty ?? 'No tasks found.' : 'No tasks found.'}
+        emptyText={
+          laneFilter === 'active'
+            ? 'Nothing active right now.'
+            : laneFilter !== 'all'
+              ? LANE_BY_KEY[laneFilter as TaskLane]?.empty ?? 'No tasks found.'
+              : 'No tasks found.'
+        }
       />
     </div>
   );

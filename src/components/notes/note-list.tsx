@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { FileText, Filter, ArrowDownAz, Loader2, Search } from 'lucide-react';
+import { FileText, Filter, ArrowDownAz, Loader2 } from 'lucide-react';
 import { useNotes, useUpdateNote } from '@/hooks/use-notes';
 import { useAreas } from '@/hooks/use-areas';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -10,23 +10,43 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
+  DropdownMenuCheckboxItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
+import {
+  ListToolbar,
+  SegmentedTabs,
+  ToolbarActiveDot,
+  ToolbarSearchButton,
+  toolbarButtonClass,
+} from '@/components/shared/list-toolbar';
 import { NoteRow } from './note-row';
-import { cn } from '@/lib/utils';
 import type { NoteStatus } from '@/db/types';
 import type { NoteListDTO } from '@/lib/api/dto/entity-list';
 
+type NoteSortOption = 'lastViewedAt' | 'createdAt' | 'updatedAt';
+
+const NOTE_SORT_LABELS: Record<NoteSortOption, string> = {
+  lastViewedAt: 'Last viewed',
+  createdAt: 'Created',
+  updatedAt: 'Updated',
+};
+
+const NOTE_STATUS_TABS = [
+  { value: 'active', label: 'Active' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'all', label: 'All' },
+] as const;
+
 export function NoteList() {
-  const { theme, openNote } = useDashboard();
-  const isDark = theme === 'dark';
+  const { openNote } = useDashboard();
 
   const [statusFilter, setStatusFilter] = useState<NoteStatus | 'all'>('active');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
-  const [sortBy, setSortBy] = useState<'lastViewedAt' | 'createdAt' | 'updatedAt'>('lastViewedAt');
+  const [sortBy, setSortBy] = useState<NoteSortOption>('lastViewedAt');
   // Decisions-only filter — agent-written notes with title prefix
   // "Decision: ". See docs/async-agents-v1.md §4.5.
   const [decisionsOnly, setDecisionsOnly] = useState(false);
@@ -55,44 +75,46 @@ export function NoteList() {
     updateNote.mutate({ id, status: 'archived' } as Parameters<typeof updateNote.mutate>[0]);
   }, [updateNote]);
 
+  const filterActive = areaFilter !== 'all' || decisionsOnly;
+  const filterSummary = areaFilter !== 'all' ? areaLabel : decisionsOnly ? 'Decisions' : 'Filter';
+
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className={cn(
-        'px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0',
-        isDark ? 'bg-card/50' : 'bg-muted'
-      )}>
-        {/* Status filter */}
-        <div className="flex items-center gap-0.5 p-0.5 bg-card rounded border border-border">
-          {(['active', 'archived', 'all'] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={cn(
-                'px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-all',
-                statusFilter === s
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+      <ListToolbar>
+        {/* Status — primary segmented filter */}
+        <SegmentedTabs<NoteStatus | 'all'>
+          ariaLabel="Note status"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={NOTE_STATUS_TABS}
+        />
 
-        {/* Area filter */}
+        {/* Filter — Decisions + Area */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground bg-card rounded border border-border">
-              <Filter size={10} className="flex-shrink-0" />
-              <span className="max-w-[120px] truncate">{areaLabel}</span>
-            </button>
+          <DropdownMenuTrigger
+            aria-label={filterActive ? `Filter, active: ${filterSummary}` : 'Filter notes'}
+            className={toolbarButtonClass({ active: filterActive })}
+          >
+            <Filter className="size-3.5 shrink-0" />
+            <span className="hidden @sm/lt:inline max-w-[120px] truncate">
+              {filterActive ? filterSummary : 'Filter'}
+            </span>
+            {filterActive && <ToolbarActiveDot />}
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44">
+          <DropdownMenuContent align="start" className="w-48">
+            {/* Decisions-only — agent-written notes with "Decision: " prefix */}
+            <DropdownMenuCheckboxItem
+              checked={decisionsOnly}
+              onCheckedChange={(c) => setDecisionsOnly(!!c)}
+              className="text-xs"
+            >
+              Decisions only
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Area</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={areaFilter} onValueChange={setAreaFilter}>
               <DropdownMenuRadioItem value="all" className="text-xs">All Areas</DropdownMenuRadioItem>
-              <DropdownMenuSeparator />
               {areas?.map(area => (
                 <DropdownMenuRadioItem key={area.id} value={area.id} className="text-xs">
                   {area.name}
@@ -102,16 +124,18 @@ export function NoteList() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Sort */}
+        {/* Sort — icon plus the active sort's name when there's room */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border">
-              <ArrowDownAz size={11} />
-            </button>
+          <DropdownMenuTrigger
+            aria-label={`Sort by ${NOTE_SORT_LABELS[sortBy]}`}
+            className={toolbarButtonClass()}
+          >
+            <ArrowDownAz className="size-3.5 shrink-0" />
+            <span className="hidden @md/lt:inline">{NOTE_SORT_LABELS[sortBy]}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as NoteSortOption)}>
               <DropdownMenuRadioItem value="lastViewedAt" className="text-xs">Last viewed</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="createdAt" className="text-xs">Created</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="updatedAt" className="text-xs">Updated</DropdownMenuRadioItem>
@@ -119,29 +143,11 @@ export function NoteList() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Decisions filter — agent-written notes with "Decision: " prefix */}
-        <button
-          onClick={() => setDecisionsOnly((v) => !v)}
-          title={decisionsOnly ? 'Show all notes' : 'Show decisions only'}
-          className={cn(
-            'px-2 py-0.5 text-[8.5px] font-bold uppercase tracking-wider rounded border transition-all',
-            decisionsOnly
-              ? 'border-primary bg-primary/10 text-primary'
-              : 'border-border bg-card text-muted-foreground hover:text-foreground',
-          )}
-        >
-          Decisions
-        </button>
-
-        <div className="flex-1" />
-        <button
+        <ToolbarSearchButton
+          label="Search notes"
           onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'note: ' } }))}
-          className="p-1.5 text-muted-foreground hover:text-foreground bg-card rounded border border-border"
-          title="Search notes"
-        >
-          <Search size={11} />
-        </button>
-      </div>
+        />
+      </ListToolbar>
 
       {/* Note list */}
       <VirtualNoteList
