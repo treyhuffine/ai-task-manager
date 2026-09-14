@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import { APP_SHORT_ID } from '@/constants/app';
-import { generateToken, hashToken, tokenDisplay } from './tokens';
+import { generateToken, hashToken, tokenDisplay, TOKEN_LENGTH } from './tokens';
 
 describe('generateToken', () => {
   it('returns plaintext with the expected prefix/env/length', () => {
     const t = generateToken('live');
     expect(t.plaintext.startsWith(`${APP_SHORT_ID}_live_`)).toBe(true);
-    // <prefix>_live_ + 40-char random
-    expect(t.plaintext.length).toBe(`${APP_SHORT_ID}_live_`.length + 40);
+    // <prefix>_live_ + TOKEN_LENGTH-char random
+    expect(t.plaintext.length).toBe(`${APP_SHORT_ID}_live_`.length + TOKEN_LENGTH);
     expect(t.env).toBe('live');
   });
 
@@ -21,7 +21,7 @@ describe('generateToken', () => {
   it('random portion is alphanumeric only (no _ or -)', () => {
     const t = generateToken('live');
     const random = t.plaintext.slice(`${APP_SHORT_ID}_live_`.length);
-    expect(random).toMatch(/^[A-Za-z0-9]{40}$/);
+    expect(random).toMatch(new RegExp(`^[A-Za-z0-9]{${TOKEN_LENGTH}}$`));
   });
 
   it('produces distinct tokens and hashes across calls', () => {

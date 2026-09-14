@@ -1,10 +1,11 @@
 /**
  * Token generation and hashing for Bearer auth.
  *
- * Format: <APP_SHORT_ID>_<env>_<random 40-char alphanumeric>
- *   e.g. <prefix>_live_V1StGXR8Z5jdHi6BmyT1abc0Vy4mX3wQrS7Nop9Lu
+ * Format: <APP_SHORT_ID>_<env>_<random 48-char alphanumeric>
+ *   e.g. <prefix>_live_V1StGXR8Z5jdHi6BmyT1abc0Vy4mX3wQrS7Nop9LuKq2Zx8W
  *
- * Alphanumeric-only (A-Za-z0-9, 62 chars) at length 40 → ~238 bits of entropy.
+ * Alphanumeric-only (A-Za-z0-9, 62 chars) at length 48 → ~286 bits of entropy.
+ * The UI reveals 6 chars at the front and 4 at the end, leaving ~226 bits hidden.
  * Dropped `_` and `-` so (a) double-click selection grabs the whole token and
  * (b) the `_` separator between prefix and payload stays visually unambiguous.
  * The plaintext token is returned exactly once; only its SHA-256 hash is stored in the DB.
@@ -23,7 +24,7 @@ import type { TokenEnv } from './token-display';
 export { tokenDisplay, type TokenEnv } from './token-display';
 
 const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-const TOKEN_LENGTH = 40;
+export const TOKEN_LENGTH = 48;
 const randomToken = customAlphabet(TOKEN_ALPHABET, TOKEN_LENGTH);
 
 export function getTokenEnv(): TokenEnv {
