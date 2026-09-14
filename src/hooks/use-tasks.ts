@@ -69,6 +69,22 @@ export function useTaskAttention(ids: string[]) {
   });
 }
 
+/**
+ * Real hard deadlines — overdue plus everything due within `withinDays` days
+ * (default 7). Computed deterministically server-side with no model call, so
+ * this is the trust floor that stays findable even when Deck generation is
+ * unavailable. Polls lightly so a task that crosses into "due" surfaces without
+ * a reload.
+ */
+export function useDeadlines(withinDays?: number) {
+  return useQuery({
+    queryKey: [...TASKS_KEY, 'deadlines', withinDays ?? null],
+    queryFn: () => tasksApi.deadlines(withinDays),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useCreateTask() {
   const qc = useQueryClient();
   return useMutation({

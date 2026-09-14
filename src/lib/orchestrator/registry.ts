@@ -23,6 +23,7 @@ import {
 } from '@/lib/tasks/lifecycle';
 import {
   listTasks,
+  getDeadlineTasks,
   getTask,
   createTask,
   updateTask,
@@ -272,6 +273,16 @@ const list_tasks_action = defineAction({
       .optional(),
   },
   handler: (_ctx, input) => listTasks(input),
+});
+
+const list_deadlines_action = defineAction({
+  name: 'list_deadlines',
+  description:
+    'Tasks with a REAL hard deadline that is overdue or due within `withinDays` calendar days (default 7), earliest deadline first. Deterministic — no deck generation, so it answers "what is due" even when the deck is stale or the model is unavailable. Includes In progress and blocked tasks (a blocked deadline still needs attention) and never invents a deadline. Each item carries daysUntil (negative = overdue), overdue, dueToday, blocked, and status.',
+  params: {
+    withinDays: z.number().int().nonnegative().max(365).optional(),
+  },
+  handler: (_ctx, { withinDays }) => getDeadlineTasks({ withinDays }),
 });
 
 const get_task_action = defineAction({
@@ -2187,6 +2198,7 @@ export const actions = [
   describe_paths,
   describe_schema,
   list_tasks_action,
+  list_deadlines_action,
   get_task_action,
   create_task_action,
   update_task_action,

@@ -100,6 +100,19 @@ Tasks with approaching deadlines get visual urgency:
 - **"Due today" filter** above the priority stack — a small toggle that filters the deck to only show items due today. Disabled with a tooltip ("No items with deadline today") when none exist. Subtle, not a separate section.
 - **The AI handles ranking:** Deadline proximity is a major factor in the AI's ranking. A task due tomorrow that hasn't been started will rank high with rationale like "Due tomorrow, not started yet." Items due today are ranked at the top.
 
+#### The deadline band — a deterministic trust floor (independent of generation)
+
+Deadline *ranking* lives inside generation, but deadline *visibility* must not. Real deadlines are a fact in the DB, not an AI judgment, so they surface through a path that never depends on a model call:
+
+- **Always-on band above the deck.** `DeadlineBand` (`src/components/deck/deadline-band.tsx`) fetches `GET /api/tasks/deadlines` and renders overdue + due-soon items above Current Work, in every phase (intake, loading, generating, deck) and even when generation has failed, the model is unavailable, or no deck exists for today. It self-hides only when there is genuinely nothing with a real deadline.
+- **Deterministic source.** `getDeadlineTasks()` (`src/lib/db/queries.ts`) is a plain status + deadline query, no harness. It is deliberately *broader* than deck eligibility: it includes `in_progress` and blocked tasks (a blocked deadline is the most important to see) and carries `status` + `blocked` so lifecycle context is retained. It excludes `done`/`archived`, and it **never invents a deadline** — a task with no `hardDeadline` can never appear.
+- **Honest late vs. due today.** Each row shows a pill (`N days late` / `Due today` / `Due in N days`) plus the calendar date, so late reads as late. Overdue sorts to the top.
+- **Slim, never crowding.** Urgent rows (overdue + due today) show outright; "due soon" collapses behind a one-click toggle, and a large urgent pile caps with "+N more". The band absorbs the completeness burden so the deck below stays free to sequence and triage rather than defensively list every dated item.
+- **Staleness is stated, not hidden.** When the deck on screen is not for today (generation could not refresh it), the container shows a quiet notice with a Rebuild action, reinforcing that the deadlines above are current regardless.
+- **Agent parity.** The `list_deadlines` orchestrator action exposes the same deterministic query to the CLI + MCP, so an agent can answer "what is due" without triggering a deck generation (previously only a `hardDeadline` *sort* on `list_tasks` existed, never a filter).
+
+Rationale and the fact-vs-judgment split: this is the trust requirement "real deadlines need to show, without generating a deck." See `src/lib/db/queries.deadlines.test.ts` for the covered guarantees.
+
 ### Completed Items
 
 Completed tasks collapse into a count at the top of the deck:

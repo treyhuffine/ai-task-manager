@@ -10,6 +10,7 @@ import { isClientReadyTodo } from '@/lib/deck/client-ready';
 import { appendDeckItem, toPersistedDeckItems } from '@/lib/deck/quick-add';
 import { DeckConductor } from './deck-conductor';
 import { CurrentWorkSection } from './current-work-section';
+import { DeadlineBand } from './deadline-band';
 import { DeckStack } from './deck-stack';
 import { DeckMoreOptions } from './deck-more-options';
 import { DeckTaskBrowser } from './deck-task-browser';
@@ -31,7 +32,8 @@ import type {
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem, DeckChange } from '@/db/types';
 import { api, ApiError, apiErrorText } from '@/lib/api/client';
-import { calendarDaysUntil } from '@/lib/dates';
+import { calendarDaysUntil, formatLocalDate } from '@/lib/dates';
+import { todayLocalDate } from '@/lib/deck/date';
 import { toast } from 'sonner';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -750,6 +752,13 @@ export function DeckContainer() {
   // Re-show the interrupt banner whenever a new deck version loads.
   useEffect(() => { setInterruptDismissed(false); }, [plan?.deckId]);
 
+  // Honest staleness: the deck on screen is not for today, which means
+  // generation couldn't refresh it (e.g. the model was unavailable). The
+  // deadline band above is deterministic and always current regardless, so we
+  // say exactly that and offer a manual rebuild rather than hiding the gap.
+  const deckIsStale =
+    !!activeDeckRecord?.forDate && activeDeckRecord.forDate !== todayLocalDate();
+
   // ─── Render ─────────────────────────────────────────────────
 
   return (
@@ -780,6 +789,30 @@ export function DeckContainer() {
       )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
+        {/* Deadline band sits above every phase and fetches independently of the
+            deck — a real deadline must stay findable even when generation fails
+            or hasn't run. Self-hides when nothing has a real deadline. */}
+        <DeadlineBand />
+
+        {/* Honest staleness note: the plan on screen isn't today's (generation
+            couldn't refresh it). Deadlines above are always current. */}
+        {deckIsStale && !generating && (
+          <div className="px-4 pt-2">
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/[0.05] px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              <span className="flex-1 leading-snug">
+                Showing {formatLocalDate(activeDeckRecord?.forDate) ?? 'an earlier'} plan — today&apos;s
+                couldn&apos;t be built. Your deadlines above are current.
+              </span>
+              <button
+                onClick={() => generateDeck()}
+                className="shrink-0 rounded px-1.5 py-0.5 font-medium text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
+              >
+                Rebuild
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Current Work sits above every phase — what is actually underway must
             stay visible whether or not a daily deck has been generated yet. It
             self-hides when nothing is In progress. */}

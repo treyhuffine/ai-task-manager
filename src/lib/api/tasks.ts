@@ -7,6 +7,7 @@ import type {
   TaskFilter,
   TaskStatus,
   TaskAttentionSignals,
+  DeadlineTask,
 } from '@/db/types';
 import type { TransitionCommand } from '@/lib/tasks/lifecycle';
 
@@ -64,6 +65,14 @@ export const tasksApi = {
   attention(ids: string[]): Promise<Record<string, TaskAttentionSignals>> {
     if (ids.length === 0) return Promise.resolve({});
     return api.get(`/tasks/attention`, { query: { ids: ids.join(',') } });
+  },
+
+  /** Real hard deadlines that are overdue or due within `withinDays` days
+   * (default 7). Deterministic — no deck generation involved. */
+  deadlines(withinDays?: number): Promise<DeadlineTask[]> {
+    return api.get(`/tasks/deadlines`, {
+      query: withinDays != null ? { withinDays: String(withinDays) } : undefined,
+    });
   },
 
   /** Task counts by canonical status, optionally within an area. */

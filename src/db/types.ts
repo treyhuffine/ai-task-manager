@@ -104,6 +104,31 @@ export type TaskStatusFilter = TaskStatus | 'active';
 export type Energy = NonNullable<TaskRecord['energy']>;
 export type Effort = NonNullable<TaskRecord['effort']>;
 
+/**
+ * A live task carrying a REAL hard deadline in the attention window. Produced by
+ * `getDeadlineTasks` — a deterministic status+deadline query with no model call,
+ * so an overdue or imminent deadline stays findable even when Deck generation is
+ * unavailable. `blocked`/`status` are carried so the deadline surface can show
+ * lifecycle and blocked context honestly; a task with no `hardDeadline` never
+ * becomes one of these (deadlines are never invented).
+ */
+export interface DeadlineTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  areaId: string | null;
+  parentId: string | null;
+  /** Bare calendar date, `YYYY-MM-DD`. */
+  hardDeadline: string;
+  /** Whole calendar days from local today. Negative = overdue, 0 = due today. */
+  daysUntil: number;
+  overdue: boolean;
+  dueToday: boolean;
+  /** An unresolved blocker (a blocker that is not Done) sits on this task. */
+  blocked: boolean;
+  blockedOn: string | null;
+}
+
 // ─── Task Completions ─────────────────────────────────────────
 
 export type TaskCompletionRecord = InferSelectModel<typeof taskCompletions>;

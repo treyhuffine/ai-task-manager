@@ -19,9 +19,11 @@ import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 import { toFtsMatchQuery, normalizeFtsRank } from '@/lib/embeddings/fts-query';
+import { calendarDaysUntil, toDateOnly } from '@/lib/dates';
+import { todayLocalDate } from '@/lib/deck/date';
 import { syncEntity, syncDeletion, MutationContext, syncBatch } from '@/lib/export/mirror';
 import type {
-  TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals,
+  TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask,
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
   AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
   StreamRecord, CreateStreamInput, UpdateStreamInput,
@@ -214,6 +216,91 @@ export function getTaskStatusCounts(opts: { areaId?: string | null } = {}): Reco
     archived: 0,
   };
   for (const r of rows) out[normalizeTaskStatus(r.status)] += r.c;
+  return out;
+}
+
+export interface DeadlineTasksOptions {
+  /** Include deadlines up to this many calendar days ahead. Overdue is ALWAYS
+   * included regardless of this bound. Default 7. */
+  withinDays?: number;
+  /** Injectable "now" for tests. */
+  now?: Date;
+}
+
+/**
+ * Every live task carrying a REAL hard deadline that is overdue or due within
+ * `withinDays` calendar days, earliest-deadline first (so the most overdue sorts
+ * to the top). This is the deterministic deadline surface: a plain status +
+ * deadline query with NO model call, so a real deadline stays findable even when
+ * Deck generation is unavailable (the deadline-selection logic in the deck
+ * pipeline is gated to Ready-Todo and only runs during generation).
+ *
+ * Deliberately BROADER than deck eligibility:
+ *   - Includes `in_progress` and blocked tasks — a deadline you are already on,
+ *     or one that is stuck behind a blocker, is exactly what must stay visible.
+ *   - Carries `status` + `blocked` so the surface can show lifecycle and blocked
+ *     context honestly, and `overdue`/`dueToday` so late reads as late.
+ *   - Excludes `done`/`archived` (resolved) and `consider` (which cannot hold a
+ *     hard deadline; see CONSIDER_FORBIDDEN_FIELDS).
+ *
+ * NEVER invents a deadline: a task with no `hardDeadline` can never appear here.
+ *
+ * The SQL upper bound is an over-inclusive prefilter; the authoritative
+ * calendar-day cut is done in JS via `calendarDaysUntil`, which reads the
+ * date-only prefix in the user's local zone and tolerates the legacy
+ * `T00:00:00.000Z` suffix that older rows may still carry.
+ */
+export function getDeadlineTasks(opts: DeadlineTasksOptions = {}): DeadlineTask[] {
+  const withinDays = opts.withinDays ?? 7;
+  const now = opts.now ?? new Date();
+
+  // Loose upper bound: local today + withinDays + 1 day, as a bare date. One
+  // extra day absorbs the legacy-suffix comparison edge (a `...T00:00:00.000Z`
+  // value sorts just after the bare boundary date) so the JS cut below decides.
+  const bound = new Date(now.getFullYear(), now.getMonth(), now.getDate() + withinDays + 1);
+  const upperBound = todayLocalDate(bound);
+
+  const rows = getDb()
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      areaId: tasks.areaId,
+      parentId: tasks.parentId,
+      hardDeadline: tasks.hardDeadline,
+      blockedOn: tasks.blockedOn,
+    })
+    .from(tasks)
+    .where(
+      and(
+        inArray(tasks.status, ['todo', 'in_progress']),
+        isNotNull(tasks.hardDeadline),
+        lte(tasks.hardDeadline, upperBound),
+      ),
+    )
+    .orderBy(asc(tasks.hardDeadline))
+    .all();
+
+  const out: DeadlineTask[] = [];
+  for (const r of rows) {
+    const daysUntil = calendarDaysUntil(r.hardDeadline, now);
+    // Unparseable date (defensive) or beyond the window slack: skip. Overdue
+    // (negative) is always kept.
+    if (daysUntil === null || daysUntil > withinDays) continue;
+    out.push({
+      id: r.id,
+      title: r.title,
+      status: normalizeTaskStatus(r.status),
+      areaId: r.areaId ?? null,
+      parentId: r.parentId ?? null,
+      hardDeadline: toDateOnly(r.hardDeadline)!,
+      daysUntil,
+      overdue: daysUntil < 0,
+      dueToday: daysUntil === 0,
+      blocked: isBlockerUnresolved(r.blockedOn),
+      blockedOn: r.blockedOn ?? null,
+    });
+  }
   return out;
 }
 
