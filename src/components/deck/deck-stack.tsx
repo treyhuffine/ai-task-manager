@@ -264,7 +264,7 @@ function SortableDeckItemCard({
                 <Play className="w-3.5 h-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top">Start (move to Current Work)</TooltipContent>
+            <TooltipContent side="top">Start (move to In progress)</TooltipContent>
           </Tooltip>
         )}
         <Tooltip>

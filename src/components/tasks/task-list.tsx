@@ -304,16 +304,29 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
             )}
             <ChevronDown className="size-3.5 shrink-0 opacity-60" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44">
-            <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Status</DropdownMenuLabel>
+          <DropdownMenuContent align="start" className="w-56">
             <DropdownMenuRadioGroup
               value={laneFilter}
               onValueChange={(v) => { setLaneFilter(v as LaneFilter); dismissSwitchBanner(); }}
             >
+              {/* Combined views — spelled out so they don't read as a status */}
+              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Views</DropdownMenuLabel>
               <DropdownMenuRadioItem value="active" className="text-xs">
-                <span className="flex-1">Active</span>
+                <span className="flex flex-1 flex-col gap-0.5">
+                  <span>Active</span>
+                  <span className="text-[10px] font-normal text-muted-foreground">In progress, Todo, Consider</span>
+                </span>
                 {activeCount > 0 && <span className="ml-2 tabular-nums text-muted-foreground">{activeCount}</span>}
               </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="all" className="text-xs">
+                <span className="flex flex-1 flex-col gap-0.5">
+                  <span>All</span>
+                  <span className="text-[10px] font-normal text-muted-foreground">Every status</span>
+                </span>
+              </DropdownMenuRadioItem>
+              <DropdownMenuSeparator />
+              {/* Actual statuses */}
+              <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Status</DropdownMenuLabel>
               {TASK_LANES.map((l) => {
                 const c = counts?.[laneStatus(l.key)];
                 return (
@@ -323,7 +336,6 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
                   </DropdownMenuRadioItem>
                 );
               })}
-              <DropdownMenuRadioItem value="all" className="text-xs">All</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -450,7 +462,7 @@ function QuickCreateRow({ lane, onCreate }: { lane: TaskLane; onCreate: (title: 
     lane === 'consider'
       ? 'Park a possibility in Consider…'
       : lane === 'current'
-        ? 'Start a task in Current Work…'
+        ? 'Start a task…'
         : 'Add a task to Todo…';
   const submit = () => {
     if (!value.trim()) return;

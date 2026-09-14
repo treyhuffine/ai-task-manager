@@ -43,7 +43,7 @@ export function CurrentWorkSection() {
   return (
     <section className="mb-3">
       <div className="mb-1.5 flex items-center gap-2 px-1">
-        <h3 className="text-[10px] font-bold uppercase tracking-wider text-violet-500 dark:text-violet-400">Current Work</h3>
+        <h3 className="text-[10px] font-bold uppercase tracking-wider text-violet-500 dark:text-violet-400">In progress</h3>
         <span className="text-[10px] text-muted-foreground">{tasks.length}</span>
         <div className="ml-1 h-px flex-1 bg-border" />
       </div>

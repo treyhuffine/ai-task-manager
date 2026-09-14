@@ -18,7 +18,7 @@ export interface LaneDef {
 
 /** Every lane, in the default top-to-bottom order for the List surface. */
 export const TASK_LANES: LaneDef[] = [
-  { key: 'current', label: 'Current Work', status: 'in_progress', empty: 'Nothing is underway. Start a task to bring it here.' },
+  { key: 'current', label: 'In progress', status: 'in_progress', empty: 'Nothing is underway. Start a task to bring it here.' },
   { key: 'todo', label: 'Todo', status: 'todo', empty: 'The committed queue is empty.' },
   { key: 'consider', label: 'Consider', status: 'consider', empty: 'No possibilities parked here yet.' },
   { key: 'done', label: 'Done', status: 'done', empty: 'Nothing completed yet.' },
