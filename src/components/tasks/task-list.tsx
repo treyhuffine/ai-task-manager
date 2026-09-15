@@ -311,18 +311,18 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
             >
               {/* Combined views — spelled out so they don't read as a status */}
               <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Views</DropdownMenuLabel>
+              <DropdownMenuRadioItem value="all" className="text-xs">
+                <span className="flex flex-1 flex-col gap-0.5">
+                  <span>All</span>
+                  <span className="text-[10px] font-normal text-muted-foreground">Every status</span>
+                </span>
+              </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="active" className="text-xs">
                 <span className="flex flex-1 flex-col gap-0.5">
                   <span>Active</span>
                   <span className="text-[10px] font-normal text-muted-foreground">In progress, Todo, Consider</span>
                 </span>
                 {activeCount > 0 && <span className="ml-2 tabular-nums text-muted-foreground">{activeCount}</span>}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="all" className="text-xs">
-                <span className="flex flex-1 flex-col gap-0.5">
-                  <span>All</span>
-                  <span className="text-[10px] font-normal text-muted-foreground">Every status</span>
-                </span>
               </DropdownMenuRadioItem>
               <DropdownMenuSeparator />
               {/* Actual statuses */}
