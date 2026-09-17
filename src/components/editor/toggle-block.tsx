@@ -351,7 +351,13 @@ export const ToggleContent = Node.create({
   renderHTML({ HTMLAttributes }) {
     return [
       'div',
-      mergeAttributes(HTMLAttributes, { 'data-type': 'toggle-content' }),
+      mergeAttributes(HTMLAttributes, {
+        'data-type': 'toggle-content',
+        // The `toggle-content` class is what globals.css keys the collapse rule
+        // off (.toggle-block[data-open='false'] .toggle-content { display: none })
+        // and the body margin. Without it the body never hides on collapse.
+        class: 'toggle-content',
+      }),
       0,
     ]
   },

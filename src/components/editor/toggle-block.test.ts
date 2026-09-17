@@ -281,6 +281,31 @@ describe('toggle block schema', () => {
   })
 })
 
+describe('toggle block DOM rendering (CSS coupling)', () => {
+  const schema = getSchema(EDITOR_EXTENSIONS)
+
+  // The collapse behavior is pure CSS: globals.css hides the body with
+  //   .toggle-block[data-open='false'] .toggle-content { display: none }
+  // so the body node MUST render the `toggle-content` class or it never hides.
+  // (Regression: the node only emitted data-type="toggle-content" and the body
+  // stayed visible on collapse.) toDOM is what the schema derives from the
+  // node's renderHTML, so it is the faithful check.
+  it('toggleContent renders the `toggle-content` class the collapse rule targets', () => {
+    const node = schema.nodes.toggleContent.create(null, schema.nodes.paragraph.create())
+    const out = schema.nodes.toggleContent.spec.toDOM!(node) as [string, Record<string, string>, number]
+    expect(out[0]).toBe('div')
+    expect(out[1]['data-type']).toBe('toggle-content')
+    expect(out[1].class?.split(/\s+/)).toContain('toggle-content')
+  })
+
+  it('toggleSummary renders the `toggle-summary` class (pairs with the body)', () => {
+    const node = schema.nodes.toggleSummary.create(null, schema.text('S'))
+    const out = schema.nodes.toggleSummary.spec.toDOM!(node) as [string, Record<string, string>, number]
+    expect(out[0]).toBe('summary')
+    expect(out[1].class?.split(/\s+/)).toContain('toggle-summary')
+  })
+})
+
 function stateFrom(schema: Schema, doc: any, cursor: number) {
   const pmDoc = schema.nodeFromJSON(doc)
   return EditorState.create({
