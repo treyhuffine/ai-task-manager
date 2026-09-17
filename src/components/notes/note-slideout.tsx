@@ -21,6 +21,9 @@ import { useDragResize } from '@/hooks/use-drag-resize'
 import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button'
 import { EntityHistoryButton } from '@/components/entities/entity-history-button'
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner'
+import { EntityViewToggle } from '@/components/entities/entity-view-toggle'
+import { EntityAgentView } from '@/components/entities/entity-agent-view'
+import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/db/types'
 
@@ -43,6 +46,16 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const router = useRouter()
   const chat = useDocumentChat('note', note ?? null)
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted'
+
+  // Agent-first trial (Settings > General > Notes and tasks). Per open: the
+  // pref decides the starting view, the header toggle flips it for this note.
+  const { agentFirst } = useEntityViewMode()
+  const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null)
+  const view = resolveEntityView(agentFirst, viewOverride, noteId)
+  const setView = useCallback(
+    (next: EntityViewMode) => { if (noteId) setViewOverride({ id: noteId, view: next }) },
+    [noteId],
+  )
 
   const { size: width, isResizing, handleResizeStart } = useDragResize({
     edge: 'left',
@@ -245,6 +258,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             </div>
 
             <div className="flex items-center gap-3">
+              {agentFirst && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
               {noteId && <EntityHistoryButton entityType="note" entityId={noteId} />}
               {noteId && <ReferencingSessionsButton entityType="note" entityId={noteId} />}
               <a
@@ -292,6 +306,16 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
           </div>
 
           {/* Editor area + Chat */}
+          {view === 'agent' && note ? (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+              <EntityAgentView
+                entityType="note"
+                entityId={note.id}
+                chat={chat}
+                onOpenDocument={() => setView('editor')}
+              />
+            </div>
+          ) : (
           <div className="flex-1 flex overflow-hidden relative">
             {/* Main content */}
             <div className="flex-1 overflow-y-auto min-w-0 relative">
@@ -358,6 +382,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
               disabled={!note}
             />
           </div>
+          )}
         </div>
       </Dialog.Content>
       </Dialog.Portal>

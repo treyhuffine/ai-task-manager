@@ -23,6 +23,9 @@ import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
+import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
+import { EntityAgentView } from '@/components/entities/entity-agent-view';
+import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { SubtaskSection } from '@/components/tasks/subtask-section';
 import { AreaSelect } from '@/components/shared/area-select';
@@ -59,6 +62,13 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
+
+  // Agent-first trial (Settings > General > Notes and tasks). Resolved after
+  // mount so the server render never disagrees with localStorage.
+  const { agentFirst } = useEntityViewMode();
+  const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null);
+  const view = resolveEntityView(agentFirst, viewOverride, taskId);
+  const setView = useCallback((next: EntityViewMode) => setViewOverride({ id: taskId, view: next }), [taskId]);
 
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
@@ -211,64 +221,81 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [goBack]);
 
+  const header = (
+        <div className="flex items-center justify-between h-11 sticky top-0 z-10 bg-background/80 backdrop-blur-sm">
+          <button
+            onClick={goBack}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5 shrink-0"
+            aria-label="Back"
+          >
+            <ChevronLeft size={16} />
+            <span className="text-xs">Back</span>
+          </button>
+
+          <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar [&>*]:shrink-0">
+            {agentFirst && <EntityViewToggle value={view} onChange={setView} />}
+            {task && <EntityHistoryButton entityType="task" entityId={task.id} />}
+            {task && task.status !== 'done' && task.status !== 'archived' && (
+              <StartWithAgentButton task={task} />
+            )}
+            {/* Complete/Reopen only where it is the real action. Consider is
+                not committed work and Archived is history — change those with
+                the status control, so no button mislabels a no-op or a
+                restore as "Complete". */}
+            {task && task.status !== 'consider' && task.status !== 'archived' && (
+              <button
+                onClick={handleComplete}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                  isDone
+                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                    : 'border border-border text-muted-foreground hover:text-foreground hover:bg-accent',
+                )}
+              >
+                <Check size={12} />
+                {isDone ? 'Completed' : 'Complete'}
+              </button>
+            )}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                  <MoreHorizontal size={16} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={handleArchive} className="text-xs">
+                  <Archive size={12} className="mr-2" /> Archive
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
+                  <Trash2 size={12} className="mr-2" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+  );
+
   return (
     <div className="h-screen flex flex-col bg-background text-foreground font-sans overflow-hidden">
       {/* Content + Chat */}
       <div className="flex-1 flex overflow-hidden">
+        {view === 'agent' && task ? (
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <div className="max-w-3xl mx-auto w-full px-6 flex-shrink-0">{header}</div>
+            <EntityAgentView
+              entityType="task"
+              entityId={task.id}
+              chat={chat}
+              onOpenDocument={() => setView('editor')}
+              onOpenTask={(id) => router.push(`/task/${id}`)}
+            />
+          </div>
+        ) : (
+        <>
         <div className="flex-1 overflow-y-auto min-w-0">
           <div className="max-w-3xl mx-auto px-6">
-            {/* Header */}
-            <div className="flex items-center justify-between h-11 sticky top-0 z-10 bg-background/80 backdrop-blur-sm">
-              <button
-                onClick={goBack}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
-                aria-label="Back"
-              >
-                <ChevronLeft size={16} />
-                <span className="text-xs">Back</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                {task && <EntityHistoryButton entityType="task" entityId={task.id} />}
-                {task && task.status !== 'done' && task.status !== 'archived' && (
-                  <StartWithAgentButton task={task} />
-                )}
-                {/* Complete/Reopen only where it is the real action. Consider is
-                    not committed work and Archived is history — change those with
-                    the status control, so no button mislabels a no-op or a
-                    restore as "Complete". */}
-                {task && task.status !== 'consider' && task.status !== 'archived' && (
-                  <button
-                    onClick={handleComplete}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
-                      isDone
-                        ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                        : 'border border-border text-muted-foreground hover:text-foreground hover:bg-accent',
-                    )}
-                  >
-                    <Check size={12} />
-                    {isDone ? 'Completed' : 'Complete'}
-                  </button>
-                )}
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                      <MoreHorizontal size={16} />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
-                    <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                      <Archive size={12} className="mr-2" /> Archive
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                      <Trash2 size={12} className="mr-2" /> Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
+            {header}
             {task ? (
               <div className="space-y-0">
                 <EntityChangeBanner entityType="task" entityId={task.id} />
@@ -523,6 +550,8 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
         </div>
 
         <SlideoutChat slideoutWidth={9999} contextLabel="this task" chat={chat} disabled={!task} />
+        </>
+        )}
       </div>
     </div>
   );

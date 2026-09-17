@@ -99,11 +99,15 @@ export function HarnessChatSession({
   sessionId,
   isMobile = false,
   autoFocusComposer = true,
+  composerPlaceholder,
   onSwitchProvider,
   switchingProvider,
 }: {
   sessionId: string;
   isMobile?: boolean;
+  /** Placeholder for the composer. The agent-first entity view passes
+   *  document-specific teaching copy; executions keep the default. */
+  composerPlaceholder?: string;
   /** Auto-focus the composer on mount. Defaults to true (executions). The
    *  slideout document-chat passes false so the composer doesn't steal focus
    *  from the task/note title. */
@@ -189,6 +193,7 @@ export function HarnessChatSession({
           ref={composerHandleRef}
           sessionId={session.id}
           autoFocus={autoFocusComposer}
+          placeholder={composerPlaceholder}
           permissionMode={session.permissionMode}
           model={session.model}
           modelVariant={session.modelVariant}

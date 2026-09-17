@@ -15,6 +15,7 @@ import {
   type EditorChoice,
 } from '@/lib/client/editor-preference';
 import { useTranscriptDensity, type TranscriptDensity } from '@/lib/client/transcript-density';
+import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view-mode';
 
 const DEFAULT_START = '09:00';
 const DEFAULT_END = '18:00';
@@ -100,6 +101,7 @@ export function GeneralSection() {
 
   const { choice, customCommand, setChoice, setCustomCommand } = useEditorPreference();
   const { density, setDensity } = useTranscriptDensity();
+  const { mode: entityViewMode, setMode: setEntityViewMode } = useEntityViewMode();
 
   return (
     <div className="space-y-6">
@@ -238,8 +240,31 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {density === 'condensed'
-              ? 'Completed turns collapse their thinking, tool calls, and intermediate messages into a summary. The live turn and final reply stay visible.'
+              ? 'Completed turns fold their thinking, tool calls, and results into a summary you can expand. Every message the agent wrote to you stays visible, along with the live turn.'
               : 'Every event renders as its own row.'}
+          </p>
+        </div>
+      </section>
+
+      {/* Notes and tasks (agent-first trial) */}
+      <section className="space-y-2">
+        <h3 className="text-[12px] font-medium text-foreground">Notes and tasks</h3>
+        <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-foreground">Open with</span>
+            <select
+              value={entityViewMode}
+              onChange={(e) => setEntityViewMode(e.target.value as EntityViewMode)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="editor">Editor</option>
+              <option value="agent">Agent (trial)</option>
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground/85">
+            {entityViewMode === 'agent'
+              ? 'A note or task opens with the agent: a brief of what is in it, then a conversation to read, add, change, or remove. The editor stays one click away, and every agent edit has a diff and undo. Switch back here at any time.'
+              : 'The classic editor with the agent in a side panel.'}
           </p>
         </div>
       </section>

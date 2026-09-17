@@ -64,6 +64,10 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
       if (entityId) {
         qc.invalidateQueries({ queryKey: [documentType, entityId] })
         qc.invalidateQueries({ queryKey: ['deck'] })
+        // The agent may have changed the document: the change banner and the
+        // agent-first brief both key off these.
+        qc.invalidateQueries({ queryKey: ['entity-versions', documentType, entityId] })
+        qc.invalidateQueries({ queryKey: ['entity-brief', documentType, entityId] })
       }
     }
     prevActive.current = isActive

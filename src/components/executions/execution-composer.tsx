@@ -113,6 +113,8 @@ interface ExecutionComposerProps {
   disabledReason?: string;
   /** Helper copy under the composer, sets expectations. */
   helperText?: string;
+  /** Editor placeholder. Defaults to the execution wording. */
+  placeholder?: string;
   /**
    * Whether a bare Enter submits. Defaults to true (desktop). The mobile
    * chat column passes false so Enter inserts a newline and the user
@@ -184,6 +186,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       disabled,
       disabledReason,
       helperText,
+      placeholder,
       submitOnEnter = true,
       isRunning,
       autoFocus = true,
@@ -678,7 +681,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               ) : (
                 <ChatInputEditor
                   ref={editorRef}
-                  placeholder="Ask your agent to do any work. You can @mention files, tasks, or notes. Reference PRs with # or use a slash to run /skills"
+                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention files, tasks, or notes. Reference PRs with # or use a slash to run /skills"}
                   // Don't disable the editor while `sending` — the
                   // user can queue the next message during the POST
                   // round-trip (concurrent send is supported all the

@@ -8,6 +8,9 @@ import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
+import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
+import { EntityAgentView } from '@/components/entities/entity-agent-view';
+import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
   DropdownMenu,
@@ -27,6 +30,13 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   const deleteNote = useDeleteNote();
   const chat = useDocumentChat('note', note ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
+
+  // Agent-first trial (Settings > General > Notes and tasks). Resolved after
+  // mount so the server render never disagrees with localStorage.
+  const { agentFirst } = useEntityViewMode();
+  const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null);
+  const view = resolveEntityView(agentFirst, viewOverride, noteId);
+  const setView = useCallback((next: EntityViewMode) => setViewOverride({ id: noteId, view: next }), [noteId]);
 
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
@@ -139,52 +149,68 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [goBack]);
 
+  const header = (
+        <div className="flex items-center justify-between h-11 sticky top-0 z-10 bg-background/80 backdrop-blur-sm">
+          <button
+            onClick={goBack}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5 shrink-0"
+            aria-label="Back"
+          >
+            <ChevronLeft size={16} />
+            <span className="text-xs">Back</span>
+          </button>
+
+          <div className="flex items-center gap-3 min-w-0 overflow-x-auto no-scrollbar [&>*]:shrink-0">
+            {agentFirst && <EntityViewToggle value={view} onChange={setView} />}
+            {note && <EntityHistoryButton entityType="note" entityId={note.id} />}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                  <MoreHorizontal size={16} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                {note?.url && (
+                  <>
+                    <DropdownMenuItem asChild className="text-xs">
+                      <a href={note.url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink size={12} className="mr-2" /> Open link
+                      </a>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuItem onClick={handleArchive} className="text-xs">
+                  <Archive size={12} className="mr-2" /> Archive
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
+                  <Trash2 size={12} className="mr-2" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+  );
+
   return (
     <div className="h-screen flex flex-col bg-background text-foreground font-sans overflow-hidden">
       {/* Content + Chat */}
       <div className="flex-1 flex overflow-hidden">
+        {view === 'agent' && note ? (
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <div className="max-w-3xl mx-auto w-full px-6 flex-shrink-0">{header}</div>
+            <EntityAgentView
+              entityType="note"
+              entityId={note.id}
+              chat={chat}
+              onOpenDocument={() => setView('editor')}
+            />
+          </div>
+        ) : (
+        <>
         <div className="flex-1 overflow-y-auto min-w-0">
           <div className="max-w-3xl mx-auto px-6">
-            {/* Header */}
-            <div className="flex items-center justify-between h-11 sticky top-0 z-10 bg-background/80 backdrop-blur-sm">
-              <button
-                onClick={goBack}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
-                aria-label="Back"
-              >
-                <ChevronLeft size={16} />
-                <span className="text-xs">Back</span>
-              </button>
-
-              <div className="flex items-center gap-3">
-                {note && <EntityHistoryButton entityType="note" entityId={note.id} />}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                      <MoreHorizontal size={16} />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
-                    {note?.url && (
-                      <>
-                        <DropdownMenuItem asChild className="text-xs">
-                          <a href={note.url} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink size={12} className="mr-2" /> Open link
-                          </a>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                      </>
-                    )}
-                    <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                      <Archive size={12} className="mr-2" /> Archive
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                      <Trash2 size={12} className="mr-2" /> Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
+            {header}
             {note ? (
               <>
                 <EntityChangeBanner entityType="note" entityId={note.id} />
@@ -245,6 +271,8 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
         </div>
 
         <SlideoutChat slideoutWidth={9999} contextLabel="this note" chat={chat} disabled={!note} />
+        </>
+        )}
       </div>
     </div>
   );

@@ -49,6 +49,9 @@ import { useDragResize } from '@/hooks/use-drag-resize';
 import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button';
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
+import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
+import { EntityAgentView } from '@/components/entities/entity-agent-view';
+import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { cn } from '@/lib/utils';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Energy, Effort, Attachment } from '@/db/types';
@@ -88,6 +91,16 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
+
+  // Agent-first trial (Settings > General > Notes and tasks). Per open: the
+  // pref decides the starting view, the header toggle flips it for this task.
+  const { agentFirst } = useEntityViewMode();
+  const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null);
+  const view = resolveEntityView(agentFirst, viewOverride, taskId);
+  const setView = useCallback(
+    (next: EntityViewMode) => { if (taskId) setViewOverride({ id: taskId, view: next }); },
+    [taskId],
+  );
 
   // Global priority-ordered list, used to compute bucket placement and the position readout.
   const priorityFilter = { status: 'active' as const, orderBy: 'sortKey' as const };
@@ -402,6 +415,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               </div>
 
               <div className="flex items-center gap-2">
+                {agentFirst && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
                 {taskId && <EntityHistoryButton entityType="task" entityId={taskId} />}
                 {taskId && <ReferencingSessionsButton entityType="task" entityId={taskId} />}
                 <a
@@ -459,6 +473,17 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
             </div>
 
             {/* Body + Chat */}
+            {view === 'agent' && task ? (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                <EntityAgentView
+                  entityType="task"
+                  entityId={task.id}
+                  chat={chat}
+                  onOpenDocument={() => setView('editor')}
+                  onOpenTask={openTask}
+                />
+              </div>
+            ) : (
             <div className="flex-1 flex overflow-hidden relative">
               {/* Main content */}
               <div className="flex-1 overflow-y-auto min-w-0 relative">
@@ -768,6 +793,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 disabled={!task}
               />
             </div>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

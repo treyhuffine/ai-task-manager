@@ -11,6 +11,7 @@ import {
   browserMcpServer,
   orchestratorSessionConfig,
   renderOrchestratorBrief,
+  renderContentFocusPrompt,
 } from './harness-surface';
 import { AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 
@@ -257,5 +258,29 @@ describe('renderOrchestratorBrief', () => {
     const { resolveCliCommand } = await import('./harness-surface');
     const cmd = resolveCliCommand();
     expect(cmd).toContain(`RI_ROOT='${root}'`);
+  });
+});
+
+describe('renderContentFocusPrompt', () => {
+  it('pins the session to one entity and frames the chat as the front door to the document', () => {
+    const prompt = renderContentFocusPrompt({ entityType: 'note', entityId: 'note_abc' });
+    expect(prompt).toContain('Focused note: note:note_abc');
+    expect(prompt).toContain('`get_note` (id "note_abc")');
+    expect(prompt).toContain('`update_note`');
+    // The agent-first contract: read before acting, add in place with the
+    // user's words, tidy without dropping, remove exactly what was named.
+    expect(prompt).toContain('front door to the document');
+    expect(prompt).toMatch(/ADD it in the right place using their own words/);
+    expect(prompt).toMatch(/keep every fact/);
+    expect(prompt).toMatch(/remove exactly what they named/);
+    expect(prompt).toContain('diff of every edit with undo');
+    expect(prompt).not.toContain('narrow side panel');
+  });
+
+  it('uses the task noun for tasks', () => {
+    const prompt = renderContentFocusPrompt({ entityType: 'task', entityId: 't1' });
+    expect(prompt).toContain('# Focused on one task');
+    expect(prompt).toContain('`get_task` (id "t1")');
+    expect(prompt).toContain('`update_task`');
   });
 });
