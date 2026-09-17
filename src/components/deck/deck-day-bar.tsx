@@ -14,9 +14,17 @@ interface DeckDayBarProps {
   onRoutineComplete: (id: string) => void;
   quickAddOpen: boolean;
   onToggleQuickAdd: () => void;
+  /**
+   * How the "add task" affordance presents (Deck quick-add trial):
+   *   - `pill`      (default) — the classic faded 10px pill.
+   *   - `prominent` — a clearer primary-tinted button for the `trigger` variant.
+   *   - `hidden`    — no button; the `persistent` variant owns a composer that
+   *     is always visible in the stack instead.
+   */
+  addTaskVariant?: 'pill' | 'prominent' | 'hidden';
 }
 
-export function DeckDayBar({ items, completedItems, routines, onRoutineComplete, quickAddOpen, onToggleQuickAdd }: DeckDayBarProps) {
+export function DeckDayBar({ items, completedItems, routines, onRoutineComplete, quickAddOpen, onToggleQuickAdd, addTaskVariant = 'pill' }: DeckDayBarProps) {
   const [openDropdown, setOpenDropdown] = useState<'completed' | 'routines' | null>(null);
 
   const toggle = (which: 'completed' | 'routines') => {
@@ -32,18 +40,33 @@ export function DeckDayBar({ items, completedItems, routines, onRoutineComplete,
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-border/50">
         {/* Left side — add task button + completed count */}
         <div className="flex items-center gap-3">
-          <button
-            onClick={onToggleQuickAdd}
-            className={cn(
-              'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors',
-              quickAddOpen
-                ? 'border-primary/30 bg-primary/5 text-primary'
-                : 'border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground',
-            )}
-          >
-            <Plus className="w-3 h-3" />
-            Add task
-          </button>
+          {addTaskVariant === 'prominent' ? (
+            <button
+              onClick={onToggleQuickAdd}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors',
+                quickAddOpen
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-primary/30 bg-primary/5 text-primary hover:bg-primary/10',
+              )}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add a task
+            </button>
+          ) : addTaskVariant === 'pill' ? (
+            <button
+              onClick={onToggleQuickAdd}
+              className={cn(
+                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors',
+                quickAddOpen
+                  ? 'border-primary/30 bg-primary/5 text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground',
+              )}
+            >
+              <Plus className="w-3 h-3" />
+              Add task
+            </button>
+          ) : null}
           {completedCount > 0 && (
             <button
               onClick={() => toggle('completed')}

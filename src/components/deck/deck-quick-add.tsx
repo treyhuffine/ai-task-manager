@@ -4,6 +4,7 @@ import { useCallback, useRef, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCreateTask } from '@/hooks/use-tasks';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { apiErrorText } from '@/lib/api/client';
 import type { TaskRecord } from '@/db/types';
 
@@ -19,7 +20,7 @@ interface DeckQuickAddCardProps {
  */
 export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardProps) {
   const [title, setTitle] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const { ref: inputRef } = useAutosizeTextarea(title);
   const containerRef = useRef<HTMLDivElement>(null);
   const createTask = useCreateTask();
 
@@ -27,7 +28,7 @@ export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardPro
     // Scroll the card into view and focus
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     inputRef.current?.focus();
-  }, []);
+  }, [inputRef]);
 
   const handleSubmit = useCallback(() => {
     const trimmed = title.trim();
@@ -50,10 +51,10 @@ export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardPro
         },
       },
     );
-  }, [title, createTask, onTaskCreated]);
+  }, [title, createTask, onTaskCreated, inputRef]);
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         handleSubmit();
@@ -68,8 +69,9 @@ export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardPro
   return (
     <div ref={containerRef} className="relative py-2">
       <div className="pl-6 pr-20">
-        <input
+        <textarea
           ref={inputRef}
+          rows={1}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -80,7 +82,7 @@ export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardPro
             }, 150);
           }}
           placeholder="What needs to get done?"
-          className="w-full text-sm font-medium bg-transparent text-foreground placeholder:text-muted-foreground/30 focus:outline-none leading-snug"
+          className="w-full resize-none overflow-hidden text-sm font-medium bg-transparent text-foreground placeholder:text-muted-foreground/30 focus:outline-none leading-snug"
         />
         <div className="flex items-center gap-2 mt-1.5">
           {createTask.isPending ? (

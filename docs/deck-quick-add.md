@@ -34,12 +34,26 @@ It is a manual, deterministic path. It does not run the generation pipeline, pro
 
 **No auto-start / no forced In progress.** Adding a task to the deck never transitions it. `createTask` defaults to `todo`, and `handleQuickAdd` only edits deck membership. Starting work stays an explicit action (the Start control / `transition_task`), and no execution is launched.
 
+## Presentation trial (composer UX)
+
+The classic composer was deliberately styled to match a deck card: transparent background, a placeholder at 30% opacity, no border. That made it calm but non-obvious. You could click it and land in a bare cursor with no signal that you were now typing, and the field opened at the bottom of the stack while its trigger lived up in the day bar, so the change happened off where you were looking.
+
+The fix is a reversible client-side trial (`src/lib/client/deck-quick-add-mode.ts`, per-browser localStorage, no schema, mirrors `entity-view-mode.ts`). Switch it in **Settings > General > Deck quick-add**:
+
+- **Classic** (default) — the original faded inline card at the bottom, opened by the small "Add task" pill. Unchanged.
+- **Always-on field** (`persistent`) — a composer pinned at the top of the stack that plainly reads as an input at rest (bordered, a `+`, a readable placeholder) and lights up on focus (ring + an Enter/Add affordance). Nothing to discover; there is never an "am I typing?" moment.
+- **Prominent button** (`trigger`) — a clear primary-tinted "Add a task" button in the day bar opens that same redesigned composer at the top of the stack.
+
+Both redesigned variants share one component (`src/components/deck/deck-add-composer.tsx`) and land the new task at the **top** of the stack, directly under the composer where the eye already is, ready to work on. All the guarantees above still hold (Todo only, no auto-start, dedupe, failure toast with retry, immediate visibility). When a variant wins, fold it in as the one real design and delete the switch; if none do, delete the module and the key.
+
 ## Code map
 
-- `src/components/deck/deck-day-bar.tsx` — the **Add task** toggle.
-- `src/components/deck/deck-quick-add.tsx` — the inline create card (`useCreateTask`, success/error handling).
-- `src/components/deck/deck-container.tsx` — `handleQuickAdd`, the `localTasks` overlay and its pruning, filter reset, and the failure-aware `persistDeck`.
-- `src/lib/deck/quick-add.ts` — pure `appendDeckItem` (dedupe) and `toPersistedDeckItems` (client → persisted shape); unit-tested in `quick-add.test.ts`.
+- `src/components/deck/deck-day-bar.tsx` — the **Add task** trigger (`addTaskVariant`: pill / prominent / hidden).
+- `src/components/deck/deck-quick-add.tsx` — the classic inline create card (`useCreateTask`, success/error handling).
+- `src/components/deck/deck-add-composer.tsx` — the redesigned composer shared by the `persistent` and `trigger` trial variants.
+- `src/lib/client/deck-quick-add-mode.ts` — the per-browser presentation preference.
+- `src/components/deck/deck-container.tsx` — `handleQuickAdd`, the `localTasks` overlay and its pruning, filter reset, top/bottom placement per mode, and the failure-aware `persistDeck`.
+- `src/lib/deck/quick-add.ts` — pure `appendDeckItem` / `prependDeckItem` (dedupe) and `toPersistedDeckItems` (client → persisted shape); unit-tested in `quick-add.test.ts`.
 - `src/lib/deck/client-ready.ts` — the shared Ready-Todo predicate; `client-ready.test.ts` locks that a freshly created task is Ready immediately.
 
 ## Deliberately out of scope

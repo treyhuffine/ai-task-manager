@@ -7,7 +7,8 @@ import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useAreas } from '@/hooks/use-areas';
 import { isClientReadyTodo } from '@/lib/deck/client-ready';
-import { appendDeckItem, toPersistedDeckItems } from '@/lib/deck/quick-add';
+import { appendDeckItem, prependDeckItem, toPersistedDeckItems } from '@/lib/deck/quick-add';
+import { useDeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
 import { DeckConductor } from './deck-conductor';
 import { CurrentWorkSection } from './current-work-section';
 import { DeadlineBand } from './deadline-band';
@@ -16,6 +17,7 @@ import { DeckMoreOptions } from './deck-more-options';
 import { DeckTaskBrowser } from './deck-task-browser';
 import { DeckDayBar } from './deck-day-bar';
 import { DeckQuickAddCard } from './deck-quick-add';
+import { DeckAddComposer } from './deck-add-composer';
 import { CheckInIntake } from './check-in-intake';
 import { DeckChangeBrief, type DeckVersionSummary } from './deck-change-brief';
 import { DeckInterruptBanner } from './deck-interrupt-banner';
@@ -179,6 +181,9 @@ export function DeckContainer() {
   const { data: areas } = useAreas();
   const completeTask = useCompleteTask();
   const lifecycle = useTaskLifecycle();
+
+  // Deck quick-add presentation trial (Settings > General > Deck quick-add).
+  const { mode: quickAddMode } = useDeckQuickAddMode();
 
   const areaMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -724,13 +729,17 @@ export function DeckContainer() {
     item.rationale = '';
     setPlan(prev => {
       if (!prev) return prev;
-      const items = appendDeckItem(prev.items, item);
+      // The redesigned variants put the composer at the top and land the new
+      // task right under it, ready to work on. Classic keeps its bottom append.
+      const items = quickAddMode === 'classic'
+        ? appendDeckItem(prev.items, item)
+        : prependDeckItem(prev.items, item);
       if (items === prev.items) return prev; // already on the deck — no-op
       const updated = { ...prev, items };
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, [areaMap, parentMap, persistDeck]);
+  }, [areaMap, parentMap, persistDeck, quickAddMode]);
 
   const deckTaskIds = useMemo(() => {
     if (!plan) return new Set<string>();
@@ -784,6 +793,9 @@ export function DeckContainer() {
             onRoutineComplete={handleRoutineComplete}
             quickAddOpen={quickAddOpen}
             onToggleQuickAdd={() => setQuickAddOpen(o => !o)}
+            addTaskVariant={
+              quickAddMode === 'persistent' ? 'hidden' : quickAddMode === 'trigger' ? 'prominent' : 'pill'
+            }
           />
         </>
       )}
@@ -884,6 +896,23 @@ export function DeckContainer() {
                 {plan.framing}
               </p>
             )}
+            {/* Redesigned quick-add composer (trial). Sits at the top so the
+                new task lands right where the eye is. Persistent is always
+                shown; trigger opens from the day bar's prominent button. */}
+            {quickAddMode === 'persistent' && (
+              <div className="mb-3">
+                <DeckAddComposer variant="persistent" onTaskCreated={handleQuickAdd} />
+              </div>
+            )}
+            {quickAddMode === 'trigger' && quickAddOpen && (
+              <div className="mb-3">
+                <DeckAddComposer
+                  variant="trigger"
+                  onTaskCreated={handleQuickAdd}
+                  onClose={() => setQuickAddOpen(false)}
+                />
+              </div>
+            )}
             <DeckStack
               items={filteredItems}
               onComplete={handleComplete}
@@ -895,7 +924,8 @@ export function DeckContainer() {
               onSubtaskDefer={handleSubtaskDefer}
               onSubtaskFocus={handleSubtaskFocus}
             />
-            {quickAddOpen && (
+            {/* Classic variant: the original faded inline card at the bottom. */}
+            {quickAddMode === 'classic' && quickAddOpen && (
               <DeckQuickAddCard
                 onTaskCreated={handleQuickAdd}
                 onClose={() => setQuickAddOpen(false)}

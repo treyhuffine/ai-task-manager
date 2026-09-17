@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendDeckItem, toPersistedDeckItems } from './quick-add';
+import { appendDeckItem, prependDeckItem, toPersistedDeckItems } from './quick-add';
 import type { DeckItem } from '@/types/dashboard';
 
 function item(overrides: Partial<DeckItem> & { taskId: string }): DeckItem {
@@ -30,6 +30,26 @@ describe('appendDeckItem', () => {
   it('does not mutate the input array', () => {
     const items = [item({ taskId: 'a' })];
     appendDeckItem(items, item({ taskId: 'b' }));
+    expect(items.map(i => i.taskId)).toEqual(['a']);
+  });
+});
+
+describe('prependDeckItem', () => {
+  it('places a new task at the top of the stack', () => {
+    const items = [item({ taskId: 'a' }), item({ taskId: 'b' })];
+    const next = prependDeckItem(items, item({ taskId: 'c' }));
+    expect(next.map(i => i.taskId)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('is a no-op (same reference) when the task is already on the deck', () => {
+    const items = [item({ taskId: 'a' }), item({ taskId: 'b' })];
+    const next = prependDeckItem(items, item({ taskId: 'b' }));
+    expect(next).toBe(items);
+  });
+
+  it('does not mutate the input array', () => {
+    const items = [item({ taskId: 'a' })];
+    prependDeckItem(items, item({ taskId: 'b' }));
     expect(items.map(i => i.taskId)).toEqual(['a']);
   });
 });

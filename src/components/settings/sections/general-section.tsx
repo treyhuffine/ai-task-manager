@@ -15,6 +15,7 @@ import {
   type EditorChoice,
 } from '@/lib/client/editor-preference';
 import { useTranscriptDensity, type TranscriptDensity } from '@/lib/client/transcript-density';
+import { useDeckQuickAddMode, type DeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
 import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view-mode';
 
 const DEFAULT_START = '09:00';
@@ -101,6 +102,7 @@ export function GeneralSection() {
 
   const { choice, customCommand, setChoice, setCustomCommand } = useEditorPreference();
   const { density, setDensity } = useTranscriptDensity();
+  const { mode: deckQuickAddMode, setMode: setDeckQuickAddMode } = useDeckQuickAddMode();
   const { mode: entityViewMode, setMode: setEntityViewMode } = useEntityViewMode();
 
   return (
@@ -190,6 +192,32 @@ export function GeneralSection() {
               onChange={(v) => { setMorningTime(v); updateMorning.mutate({ time: v }); }}
             />
           )}
+        </div>
+      </section>
+
+      {/* Deck quick-add (presentation trial) */}
+      <section className="space-y-2">
+        <h3 className="text-[12px] font-medium text-foreground">Deck quick-add</h3>
+        <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-foreground">Add a task from the Deck</span>
+            <select
+              value={deckQuickAddMode}
+              onChange={(e) => setDeckQuickAddMode(e.target.value as DeckQuickAddMode)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="classic">Classic</option>
+              <option value="persistent">Always-on field (trial)</option>
+              <option value="trigger">Prominent button (trial)</option>
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground/85">
+            {deckQuickAddMode === 'persistent'
+              ? 'An always-visible field at the top of the deck that plainly looks like an input and lights up when focused. New tasks land at the top, ready to work on.'
+              : deckQuickAddMode === 'trigger'
+                ? 'A clear "Add a task" button opens a field at the top of the deck. New tasks land at the top, ready to work on.'
+                : 'The original faded inline field at the bottom of the stack, opened by the small "Add task" pill.'}
+          </p>
         </div>
       </section>
 

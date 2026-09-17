@@ -24,6 +24,17 @@ export function appendDeckItem(items: DeckItem[], item: DeckItem): DeckItem[] {
 }
 
 /**
+ * Like {@link appendDeckItem} but places the task at the top of the stack. Used
+ * by the redesigned quick-add variants: a task the user just chose to work on
+ * belongs where their eye already is (under the composer), ready to start, not
+ * buried at the bottom. Same dedupe guarantee.
+ */
+export function prependDeckItem(items: DeckItem[], item: DeckItem): DeckItem[] {
+  if (items.some((i) => i.taskId === item.taskId)) return items;
+  return [item, ...items];
+}
+
+/**
  * Serialize the client deck items to the persisted `DeckItem[]` shape sent to
  * `PATCH /deck/:id`. The write always carries the full array rather than a
  * delta — that is what preserves the rest of the deck on every save, including
