@@ -1494,6 +1494,7 @@ export async function persistStreamEvent(
  */
 function attributionFields(event: StreamEvent): {
   externalMessageId: string | null;
+  externalTurnId: string | null;
   externalParentToolCallId: string | null;
 } {
   return {
@@ -1501,6 +1502,10 @@ function attributionFields(event: StreamEvent): {
     // message; Codex reuses `item_N` per turn, so it is not a unique key —
     // stored for correlation only, never as an identity.
     externalMessageId: event.messageId ?? null,
+    // Provider-native turn id (Codex app-server only; null for Claude). Codex
+    // reconcile reads it back to learn which turns the live stream already
+    // wrote, so it can skip them when replaying the on-disk rollout.
+    externalTurnId: event.turnId ?? null,
     // Nested-actor attribution: the tool_use id of the call that produced
     // this event. See src/lib/executions/subagent.ts for what depends on it.
     externalParentToolCallId: event.parentToolCallId ?? null,

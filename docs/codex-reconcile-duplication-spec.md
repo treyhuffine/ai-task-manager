@@ -1,19 +1,18 @@
 # Spec: Codex live↔on-disk transcript duplication
 
-**Status:** proposed — latent bug, not yet observed (no Codex tool rows in dev or prod DBs as of 2026-06-05; the app has been driven with Claude).
+**Status:** fixed 2026-09-22. The bug went live once Codex saw real use: in
+the prod DB, 1,317 rows across 11 Codex sessions were second copies of turns
+the live stream had already written. See [What shipped](#what-shipped).
 **Area:** `src/lib/executor/{reconcile.ts, adapter.ts, codex-on-disk.ts}`
-**Severity:** high once Codex is used for multi-turn sessions — every turn captured live gets re-added in a second, noisier shape.
+**Severity:** high. Every turn captured live was re-added in a second, noisier
+shape the next time the user sent a message or reopened the session.
 
 > **Update (agentex 0.0.20, 2026-06-06):** upstream now mints replay-stable
 > synthetic `eventId`s for Codex — live app-server events get
 > `codex:<threadId>:<turnId>:<itemId>:<eventType>`, transcript reads get
 > `codex:<rolloutSessionId>:<lineStartByteOffset>`. The two schemes
 > deliberately do NOT match (different wire vocabularies), so cross-shape
-> dedup — this spec's whole problem — remains ours. What changes: each
-> writer is now individually idempotent for free (`externalEventId` lands
-> on both paths), and Option C's "mint a stable key on the live path"
-> half is done upstream; only the reconcile-side alignment would remain.
-> Recommendation unchanged: ship A, layer C later.
+> dedup — this spec's whole problem — remains ours.
 
 ## Summary
 
@@ -109,3 +108,67 @@ sessions, with an `input` patch body). It has no branch for that type → replay
 Codex edits are silently missing from the transcript. One-branch fix: map
 `custom_tool_call` (name `apply_patch`, `input` = patch text) to a `tool_call`
 row so the humanized "Edit <file>" UI renders it.
+
+## What shipped
+
+Neither A nor C as written. A is timing-based (the rollout's last lines can
+land after the live turn-end signal, so the anchor lands short and the final
+message duplicates anyway). C needs the live and on-disk readers to agree on
+one id scheme, which agentex explicitly leaves to hosts. What shipped instead
+is a turn-level ownership rule that needs no id alignment:
+
+1. **The live adapter records the turn.** `attributionFields` in `adapter.ts`
+   now writes `event.turnId` to `chat_events.external_turn_id` (Codex
+   app-server only, null for Claude). That column was previously never set.
+2. **Reconcile skips turns the live stream owns.** `reconcileCodexSession`
+   loads `listChatEventIdentities(sessionId)`, builds `codexLiveCoverage`
+   (turn ids + provider item ids), and runs every rollout line through
+   `createCodexReplayFilter` before mapping it. The filter tracks the current
+   turn from the lines that carry one (`task_started`, `turn_context`,
+   `item_completed`, and newer `response_item`s via
+   `internal_chat_message_metadata_passthrough.turn_id`), and drops the whole
+   turn when it's covered. That includes plumbing with no live twin, like
+   `write_stdin`. Item ids (`msg_…`, `rs_…`, `call_…`) are a backstop for a
+   cursor that starts mid-turn, before any turn marker. Legacy `item_N` ids
+   repeat across turns and are ignored.
+3. **Replay is idempotent, even across rollout rewrites.** Replayed rows are
+   keyed `codex-item:<payload type>:<Codex item id>` (the `call_id`, `msg_…`,
+   `rs_…`, or for `task_complete` the turn id) instead of a fresh uuidv7, so
+   re-reading a line is a no-op insert. Byte offsets would not do: newer
+   Codex versions rewrite old rollouts in place (adding `ordinal` to every
+   line and `"content": null` to reasoning), which shifts every offset and
+   sends the cursor back over lines already stored. That happened in prod: 74
+   rows in one session were second copies replayed from a rewritten file.
+   Lines with no usable id fall back to agentex's offset-based line id.
+
+**Invariant:** only the live adapter sets `external_turn_id` on Codex rows.
+Replayed rows leave it null. If they set it, a turn still being written by the
+Codex CLI would count as covered after its first reconcile and stop
+replaying halfway.
+
+**What still replays, correctly:** turns the live stream never saw. That means
+turns run from the Codex CLI against the same thread, or turns Codex starts
+itself (goal and multi-agent continuations). In prod, one session held 6.5k
+such rows. None were duplicates.
+
+**Accepted gap:** if the server dies mid-turn, the unseen tail of that turn is
+not replayed, because the turn is already covered. The health check's orphan
+redispatch recovers an unanswered turn.
+
+**Existing data** was cleaned directly in the prod DB (no migration) by
+`personal/codex-dedupe/dedupe-codex-replays.ts`, after a backup to
+`<app-root>/.work/backups/data-2026-09-22-pre-codex-dedupe.db`. It backfilled
+`external_turn_id` from `raw.turnId` on 53,268 live Codex rows, deleted 1,317
+replay rows whose line the new filter drops, and deleted 74 repeated replays
+from the rewritten rollout. An independent classifier (turn id read from
+each stored row's own payload) found the same 1,317. The script is idempotent
+and matches rows to lines by timestamp + payload type + Codex id, since
+rewritten rollouts break raw-JSON and offset matching.
+
+**Still open:** rollouts now record full app-server items as
+`event_msg/item_completed` (`CommandExecution`, `AgentMessage`, `FileChange`,
+…), with the same ids and turn ids as the live stream. Replaying unseen turns
+from those records, using the live parser, would give them the clean live
+shape and fix the `apply_patch` gap below for free. That belongs in agentex's
+Codex normalizer. `custom_tool_call` (code-mode `exec`, `apply_patch`) is
+still unmapped by `codex-on-disk.ts`.

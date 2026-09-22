@@ -31,19 +31,26 @@
  *                                                we don't surface in the
  *                                                transcript
  *
- * Idempotency note: Codex's `CodexTranscriptLine` carries no stable wire
- * id (the line has `payload.call_id` for tool calls, but nothing
- * comparable for messages or reasoning). We mint a uuidv7 per row, which
- * means replay-vs-live cannot dedup at the DB level for Codex. The
- * reconcile path compensates by skipping when the executor's `isRunning`
- * flag is set — the live stream is the source of truth during an active
- * turn; reconcile only catches up *after* the turn ends or the server
- * restarts.
+ * Deduplication against the live stream. Live and on-disk rows describe
+ * the same turn in different vocabularies (`command_execution` vs
+ * `exec_command` + `write_stdin`) under different synthetic ids, so the
+ * unique index can never collide them. Instead, reconcile runs every line
+ * through `createCodexReplayFilter`, which drops any line from a turn the
+ * live stream already wrote (`externalTurnId`) or whose provider item id is
+ * already stored. What survives is history the live stream never saw: turns
+ * run from the Codex CLI, or ones Codex started on its own.
+ *
+ * Idempotency: replayed rows are keyed by Codex's own item identity
+ * (`replayEventId`), so re-reading a line is a no-op insert. Byte offsets
+ * would not do: newer Codex versions rewrite old rollouts in place (adding
+ * `ordinal`, `"content": null`), which shifts every offset after the first
+ * changed line and sends the reconcile cursor back over lines it already
+ * stored.
  */
 
 import { uuidv7 } from 'uuidv7';
 import type { CodexTranscriptLine } from '@agentex/agent';
-import type { CreateChatEventInput, ChatEventSource } from '@/db/types';
+import type { ChatEventRecord, CreateChatEventInput, ChatEventSource } from '@/db/types';
 
 export function mapCodexLineToInput(
   chatSessionId: string,
@@ -58,9 +65,13 @@ export function mapCodexLineToInput(
   const innerType = typeof p.type === 'string' ? p.type : null;
 
   const createdAt = line.timestamp ?? new Date().toISOString();
+  // Deliberately no `externalTurnId`: that column is how reconcile tells
+  // which turns the LIVE stream wrote (see `codexLiveCoverage`). A replayed
+  // row carrying it would mark its turn covered, and a turn still being
+  // written by the Codex CLI would stop replaying halfway.
   const base = {
     sessionId: chatSessionId,
-    externalEventId: uuidv7(),
+    externalEventId: replayEventId(line),
     raw: line.raw,
     createdAt,
   };
@@ -70,6 +81,7 @@ export function mapCodexLineToInput(
       if (p.role !== 'assistant') return null;
       return {
         ...base,
+        externalMessageId: stringField(p, 'id'),
         role: 'assistant',
         source: 'agent' satisfies ChatEventSource,
         content: extractMessageText(p.content),
@@ -84,6 +96,7 @@ export function mapCodexLineToInput(
       if (!text) return null;
       return {
         ...base,
+        externalMessageId: stringField(p, 'id'),
         role: 'assistant',
         source: 'thinking' satisfies ChatEventSource,
         content: text,
@@ -133,6 +146,117 @@ export function mapCodexLineToInput(
 
   return null;
 }
+
+/**
+ * Identity for a replayed row: Codex's item id (`msg_…`, `rs_…`, `call_…`) or,
+ * for `task_complete`, the turn id, qualified by payload type because a call
+ * and its output share one `call_id`. Offset-free, so it survives Codex
+ * rewriting the file. Lines without one fall back to agentex's offset-based
+ * line id, and to a fresh uuid only when parsed without file context.
+ */
+function replayEventId(line: CodexTranscriptLine): string {
+  const p = line.payload;
+  const naturalId = lineItemId(line)
+    ?? (line.type === 'event_msg' && p ? stringField(p, 'turn_id') : null);
+  if (p && naturalId) return `codex-item:${String(p.type)}:${naturalId}`;
+  return line.eventId ?? uuidv7();
+}
+
+// ─── Live-stream coverage ─────────────────────────────────────
+
+/**
+ * What the live stream has already written for a Codex session, read back
+ * from `chat_events` (`listChatEventIdentities`).
+ */
+export interface CodexLiveCoverage {
+  /**
+   * Turns the live stream persisted at least one row for. Only the live
+   * adapter sets `externalTurnId` (replayed rows leave it null on purpose),
+   * so presence here means "the live stream saw this turn".
+   */
+  turnIds: ReadonlySet<string>;
+  /** Provider item ids already stored: `msg_…`, `rs_…`, `call_…`, `exec-…`. */
+  itemIds: ReadonlySet<string>;
+}
+
+export function codexLiveCoverage(
+  rows: Iterable<Pick<ChatEventRecord, 'externalTurnId' | 'externalMessageId' | 'externalToolCallId'>>,
+): CodexLiveCoverage {
+  const turnIds = new Set<string>();
+  const itemIds = new Set<string>();
+  for (const row of rows) {
+    if (row.externalTurnId) turnIds.add(row.externalTurnId);
+    for (const id of [row.externalMessageId, row.externalToolCallId]) {
+      if (id && isUniqueItemId(id)) itemIds.add(id);
+    }
+  }
+  return { turnIds, itemIds };
+}
+
+/**
+ * Build a predicate that says whether a rollout line holds anything the
+ * live stream hasn't already written. A line is dropped when:
+ *
+ *   - its turn is in `coverage.turnIds`. The live stream owns every turn it
+ *     saw, including the parts it represents differently (one clean
+ *     `command_execution` where disk has `exec_command` + N `write_stdin`),
+ *     which no per-item match could pair up. If the server died mid-turn,
+ *     the unseen tail stays unreplayed; the health check's orphan
+ *     redispatch is what recovers an unanswered turn.
+ *   - its provider item id is already stored. A backstop for lines whose
+ *     turn isn't known yet, e.g. a cursor that starts mid-turn.
+ *
+ * Stateful: only some lines carry a turn id (`task_started`, `turn_context`,
+ * `item_completed`, and newer `response_item`s), so it remembers the last one
+ * it saw. Feed it every line in file order, including ones the mapper drops.
+ */
+export function createCodexReplayFilter(
+  coverage: CodexLiveCoverage,
+): (line: CodexTranscriptLine) => boolean {
+  let turnId: string | null = null;
+  return (line) => {
+    turnId = lineTurnId(line) ?? turnId;
+    if (turnId && coverage.turnIds.has(turnId)) return false;
+    const itemId = lineItemId(line);
+    return !(itemId && coverage.itemIds.has(itemId));
+  };
+}
+
+function lineTurnId(line: CodexTranscriptLine): string | null {
+  const p = line.payload;
+  if (!p) return null;
+  const direct = stringField(p, 'turn_id');
+  if (direct) return direct;
+  const meta = p.internal_chat_message_metadata_passthrough;
+  return meta && typeof meta === 'object'
+    ? stringField(meta as Record<string, unknown>, 'turn_id')
+    : null;
+}
+
+/** The id the live stream stores for the same item, when there is one. */
+function lineItemId(line: CodexTranscriptLine): string | null {
+  const p = line.payload;
+  if (line.type !== 'response_item' || !p) return null;
+  const id = p.type === 'message' || p.type === 'reasoning'
+    ? stringField(p, 'id')
+    : stringField(p, 'call_id');
+  return id && isUniqueItemId(id) ? id : null;
+}
+
+/**
+ * Legacy Codex numbered items `item_N` per turn, so the same id recurs
+ * across turns and can't identify anything on its own.
+ */
+function isUniqueItemId(id: string): boolean {
+  return !/^item_\d+$/.test(id);
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+// ─── Payload helpers ──────────────────────────────────────────
 
 /**
  * `response_item/message` content is an array of typed parts. For
