@@ -2,6 +2,7 @@
 
 **Status:** not started. Written 2026-09-22.
 **Replaces:** `docs/local-remote-takeover-spec.md` ("Take over locally").
+**Part of:** `docs/homes-spec.md` (Stage 1: its Phase 1 is this doc's Phases 1 and 2, and its Phase 4 is this doc's Phases 3 to 8).
 **How to use this doc:** it is the task list. Check a box (`- [x]`) when the work lands on `main`, and append the short commit hash when useful. Keep the "Done when" lines honest: a phase is done when every line under it is true, not when the code compiles. Record surprises inline under the task they affect.
 
 ---
@@ -179,7 +180,7 @@ Indexes:
 - The session cookie carries the same token, so browser requests are identified too.
 - New `src/lib/auth/request-device.ts`: `getRequestApiKeyId(request)` and `requireRequestDevice(request)` (loads the row and rejects missing or revoked keys).
 - New `GET /api/devices/me` returns `{ id, name, deviceType, createdAt }`.
-- `GET /api/devices` returns a DTO without `hash`, plus a derived `isCli` (true when `lastUsedUserAgent` starts with `ri-cli/`). The "Continue on…" picker lists only CLI devices.
+- `GET /api/devices` returns a DTO without `hash`, plus `cliLastSeenAt` from a new nullable `api_keys.cli_last_seen_at` column. The proxy sets it whenever the user agent starts with `ri-cli/`. A laptop's browser and CLI may share one key, so the last user agent alone can't tell whether a device has the CLI. The "Continue on…" picker lists only devices with a CLI.
 
 ### 6.4 Connecting a laptop CLI: `ri connect`
 
@@ -510,7 +511,8 @@ Order: 1, 2, 3, 4, 5, 6. Phase 7 needs Phase 6 and agents-view Phase 0. Phase 8 
 - [ ] `proxy.ts`: strip inbound `x-ri-api-key-id` on every request, and forward the validated key id. Add the first `proxy.ts` tests: the header reaches the handler, and a spoofed header on a bypass path is dropped.
 - [ ] `src/lib/auth/request-device.ts` with `getRequestApiKeyId` and `requireRequestDevice`, plus tests.
 - [ ] `GET /api/devices/me`, plus a test.
-- [ ] `GET /api/devices` returns a DTO without `hash`, with derived `isCli`. Update `src/lib/api/devices.ts` and the Devices pane types.
+- [ ] Add `api_keys.cli_last_seen_at` (nullable text, additive migration), set by the proxy for `ri-cli/` user agents.
+- [ ] `GET /api/devices` returns a DTO without `hash`, with `cliLastSeenAt`. Update `src/lib/api/devices.ts` and the Devices pane types.
 - [ ] Fix `ri pair --type` help text (`src/cli/index.ts:74`) to list the accepted types: computer, phone, tablet, service, other.
 
 **Done when:** a route test proves the handler sees the calling key's id, a spoofed header never reaches a handler, and the device list contains no hashes.
@@ -696,8 +698,8 @@ For work begun on the laptop outside any handoff, which you then want running on
 - **Direct device-to-device handoffs** (laptop to desktop). Bring back, then continue on the other device.
 - **OpenCode and Cursor on the laptop.**
 - **Sending messages to a laptop terminal chat from the home or a phone.**
-- **Team instances, accounts, and Nostr.** See `docs/team-product-direction.md`.
-- **Retiring the laptop's standalone Ri and moving its data,** and "move my home to this machine". Operational, and a separate piece of work.
+- **Team homes (spaces), members, and Nostr.** See `docs/homes-spec.md`.
+- **Retiring the laptop's standalone Ri and moving its data,** and "move my home to this machine". See `docs/homes-spec.md` Phases 6 to 8.
 
 ---
 
