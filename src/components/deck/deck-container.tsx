@@ -9,6 +9,7 @@ import { useAreas } from '@/hooks/use-areas';
 import { isClientReadyTodo } from '@/lib/deck/client-ready';
 import { appendDeckItem, prependDeckItem, toPersistedDeckItems } from '@/lib/deck/quick-add';
 import { useDeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
+import { useDeckLayoutMode } from '@/lib/client/deck-layout-mode';
 import { DeckConductor } from './deck-conductor';
 import { CurrentWorkSection } from './current-work-section';
 import { DeadlineBand } from './deadline-band';
@@ -18,6 +19,7 @@ import { DeckTaskBrowser } from './deck-task-browser';
 import { DeckDayBar } from './deck-day-bar';
 import { DeckQuickAddCard } from './deck-quick-add';
 import { DeckAddComposer } from './deck-add-composer';
+import { DeckFocusedView } from './deck-focused-view';
 import { CheckInIntake } from './check-in-intake';
 import { DeckChangeBrief, type DeckVersionSummary } from './deck-change-brief';
 import { DeckInterruptBanner } from './deck-interrupt-banner';
@@ -184,6 +186,8 @@ export function DeckContainer() {
 
   // Deck quick-add presentation trial (Settings > General > Deck quick-add).
   const { mode: quickAddMode } = useDeckQuickAddMode();
+  // Deck layout trial: 'classic' dense command center vs 'focused' hero+ribbon.
+  const { mode: layoutMode } = useDeckLayoutMode();
 
   const areaMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -729,17 +733,19 @@ export function DeckContainer() {
     item.rationale = '';
     setPlan(prev => {
       if (!prev) return prev;
-      // The redesigned variants put the composer at the top and land the new
-      // task right under it, ready to work on. Classic keeps its bottom append.
-      const items = quickAddMode === 'classic'
-        ? appendDeckItem(prev.items, item)
-        : prependDeckItem(prev.items, item);
+      // The redesigned variants (and the focused layout) put the composer at
+      // the top and land the new task right under it, ready to work on. The
+      // classic dense layout keeps its bottom append.
+      const placeOnTop = layoutMode === 'focused' || quickAddMode !== 'classic';
+      const items = placeOnTop
+        ? prependDeckItem(prev.items, item)
+        : appendDeckItem(prev.items, item);
       if (items === prev.items) return prev; // already on the deck — no-op
       const updated = { ...prev, items };
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, [areaMap, parentMap, persistDeck, quickAddMode]);
+  }, [areaMap, parentMap, persistDeck, quickAddMode, layoutMode]);
 
   const deckTaskIds = useMemo(() => {
     if (!plan) return new Set<string>();
@@ -794,7 +800,9 @@ export function DeckContainer() {
             quickAddOpen={quickAddOpen}
             onToggleQuickAdd={() => setQuickAddOpen(o => !o)}
             addTaskVariant={
-              quickAddMode === 'persistent' ? 'hidden' : quickAddMode === 'trigger' ? 'prominent' : 'pill'
+              layoutMode === 'focused'
+                ? 'hidden' // focused layout owns a persistent composer in the body
+                : quickAddMode === 'persistent' ? 'hidden' : quickAddMode === 'trigger' ? 'prominent' : 'pill'
             }
           />
         </>
@@ -827,8 +835,9 @@ export function DeckContainer() {
 
         {/* Current Work sits above every phase — what is actually underway must
             stay visible whether or not a daily deck has been generated yet. It
-            self-hides when nothing is In progress. */}
-        {initialLoadDone && (
+            self-hides when nothing is In progress. The focused layout folds it
+            into its ribbon instead, so it is not rendered standalone there. */}
+        {initialLoadDone && layoutMode !== 'focused' && (
           <div className="px-4 pt-3">
             <CurrentWorkSection />
           </div>
@@ -871,8 +880,8 @@ export function DeckContainer() {
           </div>
         )}
 
-        {/* ─── The deck ─── */}
-        {phase === 'deck' && plan && (
+        {/* ─── The deck — classic dense layout ─── */}
+        {phase === 'deck' && plan && layoutMode !== 'focused' && (
           <div className="px-4 py-3">
             <DeckTriagePrompt />
             {!interruptDismissed && (
@@ -932,6 +941,45 @@ export function DeckContainer() {
               />
             )}
           </div>
+        )}
+
+        {/* ─── The deck — focused layout (trial) ─── */}
+        {phase === 'deck' && plan && layoutMode === 'focused' && (
+          <>
+            {(!interruptDismissed || !briefDismissed) && (
+              <div className="px-4 pt-3">
+                {!interruptDismissed && (
+                  <DeckInterruptBanner
+                    interrupts={interruptChanges}
+                    onRestore={handleRestore}
+                    onDismiss={() => setInterruptDismissed(true)}
+                  />
+                )}
+                {!briefDismissed && (
+                  <DeckChangeBrief
+                    changes={plan.changes ?? []}
+                    versions={versions}
+                    currentDeckId={plan.deckId}
+                    onRevert={handleRevert}
+                    onDismiss={() => setBriefDismissed(true)}
+                  />
+                )}
+              </div>
+            )}
+            <DeckFocusedView
+              items={filteredItems}
+              framing={plan.framing}
+              onComplete={handleComplete}
+              onStart={handleStart}
+              onNotToday={handleNotToday}
+              onFocus={handleFocus}
+              onReorder={handleReorder}
+              onSubtaskComplete={handleSubtaskComplete}
+              onSubtaskDefer={handleSubtaskDefer}
+              onSubtaskFocus={handleSubtaskFocus}
+              onTaskCreated={handleQuickAdd}
+            />
+          </>
         )}
       </div>
 
