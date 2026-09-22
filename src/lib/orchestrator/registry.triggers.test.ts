@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import type { HarnessId } from '@/lib/agents/registry';
 
 vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ capabilities: { concurrentSend: true } }),
@@ -48,6 +49,16 @@ async function seed() {
     name: 'Test', harness: 'claude_code', config: {}, status: 'active',
   }).run();
   return { wsId, agentId };
+}
+
+/** Plant the user's default provider (user_state row 1, which migrations may pre-seed). */
+async function setDefaultProvider(provider: HarnessId) {
+  const { getDb } = await import('@/lib/db');
+  const { userState } = await import('@/lib/db/schema');
+  getDb().insert(userState)
+    .values({ id: 1, defaultAgentHarness: provider })
+    .onConflictDoUpdate({ target: userState.id, set: { defaultAgentHarness: provider } })
+    .run();
 }
 
 function findAction(name: string) {
@@ -237,5 +248,197 @@ describe('orchestrator trigger + run actions', () => {
       id: created.trigger.id, deliverResultTo: [],
     } as never) as { deliverResultTo: string[] };
     expect(unbound.deliverResultTo).toEqual([]);
+  });
+
+  describe('provider selection', () => {
+    it('create_trigger falls back to Claude when the user has no default provider', async () => {
+      await seed();
+      const action = await findAction('create_trigger');
+      const result = await action.handler({ remote: false }, {
+        name: 'no-default', targetKind: 'orchestrator',
+        prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
+      } as never) as { trigger: { agentId: string; provider: string } };
+      const queries = await import('@/lib/db/queries');
+      expect(queries.getAgent(result.trigger.agentId)!.harness).toBe('claude_code');
+      expect(result.trigger.provider).toBe('claude');
+    });
+
+    it('create_trigger follows the user default provider when provider is omitted', async () => {
+      const { wsId } = await seed();
+      await setDefaultProvider('codex');
+      const action = await findAction('create_trigger');
+      const result = await action.handler({ remote: false }, {
+        name: 'follows-default', targetKind: 'workspace', workspaceId: wsId,
+        prompt: 'X', kind: 'manual',
+      } as never) as { trigger: { agentId: string; provider: string } };
+      const queries = await import('@/lib/db/queries');
+      const agent = queries.getAgent(result.trigger.agentId)!;
+      expect(agent.kind).toBe('executor');
+      expect(agent.harness).toBe('codex');
+      expect(result.trigger.provider).toBe('codex');
+    });
+
+    it('create_trigger honors an explicit provider over the user default', async () => {
+      await seed();
+      await setDefaultProvider('claude');
+      const action = await findAction('create_trigger');
+      const result = await action.handler({ remote: false }, {
+        name: 'explicit-codex', targetKind: 'orchestrator', provider: 'codex',
+        prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
+        model: 'gpt-5.5', effort: 'high',
+      } as never) as { trigger: { agentId: string; provider: string; model: string; effort: string } };
+      const queries = await import('@/lib/db/queries');
+      const agent = queries.getAgent(result.trigger.agentId)!;
+      expect(agent.kind).toBe('orchestrator');
+      expect(agent.harness).toBe('codex');
+      expect(result.trigger).toMatchObject({ provider: 'codex', model: 'gpt-5.5', effort: 'high' });
+    });
+
+    it('create_trigger rejects a model from another provider', async () => {
+      await seed();
+      const action = await findAction('create_trigger');
+      expect(() =>
+        action.handler({ remote: false }, {
+          name: 'mismatch', targetKind: 'orchestrator', provider: 'codex',
+          prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *', model: 'opus',
+        } as never),
+      ).toThrow(/does not run on codex/);
+    });
+
+    it('create_trigger accepts a model the user pinned by hand', async () => {
+      await seed();
+      const queries = await import('@/lib/db/queries');
+      queries.ensureAgentHarnessSettings('codex');
+      queries.upsertAgentHarnessSettings({
+        ...queries.getAgentHarnessSettings('codex')!,
+        customModels: ['my-private-codex-model'],
+      });
+      const action = await findAction('create_trigger');
+      const result = await action.handler({ remote: false }, {
+        name: 'pinned', targetKind: 'orchestrator', provider: 'codex',
+        prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *', model: 'my-private-codex-model',
+      } as never) as { trigger: { model: string } };
+      expect(result.trigger.model).toBe('my-private-codex-model');
+    });
+
+    it('create_trigger rejects an agent_id that disagrees with provider', async () => {
+      const { agentId } = await seed(); // a claude_code executor
+      const action = await findAction('create_trigger');
+      expect(() =>
+        action.handler({ remote: false }, {
+          name: 'conflict', agentId, provider: 'codex', targetKind: 'orchestrator',
+          prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
+        } as never),
+      ).toThrow(/runs on claude, not codex/);
+    });
+
+    it('create_trigger rejects an unknown agent_id with not_found', async () => {
+      await seed();
+      const action = await findAction('create_trigger');
+      expect(() =>
+        action.handler({ remote: false }, {
+          name: 'ghost', agentId: 'no-such-agent', targetKind: 'orchestrator',
+          prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
+        } as never),
+      ).toThrow(/Agent not found/);
+    });
+
+    it('update_trigger switches provider and resets model + effort it did not restate', async () => {
+      await seed();
+      const create = await findAction('create_trigger');
+      const created = await create.handler({ remote: false }, {
+        name: 'switch-me', targetKind: 'orchestrator', provider: 'claude',
+        prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *', model: 'opus', effort: 'max',
+      } as never) as { trigger: { id: string; agentId: string } };
+
+      const update = await findAction('update_trigger');
+      const switched = await update.handler({ remote: false }, {
+        id: created.trigger.id, provider: 'codex',
+      } as never) as { agentId: string; provider: string; model: string | null; effort: string | null };
+      const queries = await import('@/lib/db/queries');
+      const agent = queries.getAgent(switched.agentId)!;
+      expect(switched.agentId).not.toBe(created.trigger.agentId);
+      expect(agent).toMatchObject({ kind: 'orchestrator', harness: 'codex' });
+      expect(switched).toMatchObject({ provider: 'codex', model: null, effort: null });
+    });
+
+    it('update_trigger keeps a restated model on a provider switch, and vets it', async () => {
+      await seed();
+      const create = await findAction('create_trigger');
+      const created = await create.handler({ remote: false }, {
+        name: 'switch-with-model', targetKind: 'orchestrator', provider: 'claude',
+        prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *', model: 'opus',
+      } as never) as { trigger: { id: string } };
+      const update = await findAction('update_trigger');
+
+      expect(() =>
+        update.handler({ remote: false }, {
+          id: created.trigger.id, provider: 'codex', model: 'sonnet',
+        } as never),
+      ).toThrow(/does not run on codex/);
+
+      const switched = await update.handler({ remote: false }, {
+        id: created.trigger.id, provider: 'codex', model: 'gpt-5.5', effort: 'low',
+      } as never) as { provider: string; model: string; effort: string };
+      expect(switched).toMatchObject({ provider: 'codex', model: 'gpt-5.5', effort: 'low' });
+    });
+
+    it('update_trigger vets a model-only change against the current provider', async () => {
+      await seed();
+      const create = await findAction('create_trigger');
+      const created = await create.handler({ remote: false }, {
+        name: 'model-only', targetKind: 'orchestrator', provider: 'codex',
+        prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
+      } as never) as { trigger: { id: string } };
+      const update = await findAction('update_trigger');
+      expect(() =>
+        update.handler({ remote: false }, { id: created.trigger.id, model: 'opus' } as never),
+      ).toThrow(/does not run on codex/);
+    });
+
+    it('update_trigger lets an app-managed trigger switch provider but keeps agent_id locked', async () => {
+      await seed();
+      const queries = await import('@/lib/db/queries');
+      const { RESERVED_TRIGGER_IDS } = await import('@/lib/triggers/reserved');
+      queries.createTrigger({
+        id: RESERVED_TRIGGER_IDS.morningDeck,
+        name: 'Morning deck refresh',
+        enabled: true,
+        agentId: queries.getOrCreateTriggerAgent('orchestrator', 'claude').id,
+        workspaceId: null,
+        targetKind: 'orchestrator',
+        prompt: 'refresh',
+        kind: 'cron',
+        cronExpression: '0 7 * * *',
+      });
+      const update = await findAction('update_trigger');
+      const switched = await update.handler({ remote: false }, {
+        id: RESERVED_TRIGGER_IDS.morningDeck, provider: 'codex',
+      } as never) as { provider: string; name: string };
+      expect(switched).toMatchObject({ provider: 'codex', name: 'Morning deck refresh' });
+
+      expect(() =>
+        update.handler({ remote: false }, {
+          id: RESERVED_TRIGGER_IDS.morningDeck, prompt: 'hijack',
+        } as never),
+      ).toThrow(/managed by the app/);
+    });
+
+    it('list_triggers and get_trigger report each trigger\'s provider', async () => {
+      await seed();
+      const create = await findAction('create_trigger');
+      const created = await create.handler({ remote: false }, {
+        name: 'listed', targetKind: 'orchestrator', provider: 'codex',
+        prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
+      } as never) as { trigger: { id: string } };
+
+      const list = await findAction('list_triggers');
+      const rows = await list.handler({ remote: false }, {} as never) as Array<{ id: string; provider: string }>;
+      expect(rows.find((r) => r.id === created.trigger.id)?.provider).toBe('codex');
+
+      const get = await findAction('get_trigger');
+      const row = await get.handler({ remote: false }, { id: created.trigger.id } as never) as { provider: string };
+      expect(row.provider).toBe('codex');
+    });
   });
 });

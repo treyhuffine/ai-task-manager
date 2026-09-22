@@ -3,8 +3,9 @@
 /**
  * Trigger detail at /triggers/<id>.
  *
- * Displays prompt + cadence + next 3 fires (via croner preview),
- * recent runs (links to the chat session), edit/pause/delete actions.
+ * Displays who runs it (provider, model, effort; editable in place),
+ * prompt + cadence, recent runs (links to the chat session), and
+ * pause/delete actions.
  *
  * Failure banner (task #25): when consecutive_failures >= 3, show a
  * persistent banner at top with the last error and quick actions
@@ -37,6 +38,7 @@ import { describeFrequency } from '@/lib/scheduler/frequency';
 import { RunActivityBadge } from '@/components/runs/run-activity-badge';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
 import { openSettings } from '@/components/settings/settings-store';
+import { TriggerRunsOn } from '@/components/triggers/trigger-runs-on';
 
 export default function TriggerDetailPage() {
   const params = useParams<{ id: string }>();
@@ -193,6 +195,13 @@ export default function TriggerDetailPage() {
             </button>
           </div>
         )}
+
+        <section>
+          <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            Runs on
+          </h2>
+          <TriggerRunsOn trigger={trigger} />
+        </section>
 
         <section>
           <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">

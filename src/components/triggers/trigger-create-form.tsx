@@ -25,18 +25,31 @@ import {
   ChevronRight,
   FolderOpen,
   Save,
-  Sparkles,
 } from 'lucide-react';
 import { useCreateTrigger } from '@/hooks/use-triggers';
 import { useWorkspaces } from '@/hooks/use-workspaces';
+import { useUserState } from '@/hooks/use-user-state';
 import {
   frequencyToTrigger,
   type FrequencyKind,
   type Weekday,
 } from '@/lib/scheduler/frequency';
-import { EFFORT_LEVELS, type EffortLevel, type TriggerRecord } from '@/db/types';
+import type { EffortLevel, TriggerRecord } from '@/db/types';
 import { useAgentModels } from '@/hooks/use-agent-models';
-import { PinModelInput } from '@/components/settings/pin-model-input';
+import {
+  defaultModelFor,
+  explicitEffortForModel,
+  harnessSupportsEffort,
+  providerHarnessKey,
+  providerIdForHarness,
+  type ProviderId,
+} from '@/lib/agent-options';
+import { readProviderEfforts } from '@/lib/executions/provider-effort';
+import {
+  EffortControl,
+  ModelControl,
+  type LaunchAgentSelection,
+} from '@/components/workspaces/launcher/launch-controls';
 import { cn } from '@/lib/utils';
 
 const FREQUENCY_OPTIONS: { value: FrequencyKind; label: string }[] = [
@@ -59,11 +72,6 @@ const WEEKDAY_LABELS: { value: Weekday; label: string }[] = [
   { value: 0, label: 'Sunday' },
 ];
 
-// Trigger creation does not yet select a provider and model together, so it
-// offers the full ladder. A rung the chosen model turns out not to support is
-// resolved down at dispatch by `explicitEffortForModel`, never sent as-is.
-const TRIGGER_EFFORT_LEVELS = EFFORT_LEVELS;
-
 export interface WebhookCredentials {
   publicId: string;
   secret: string;
@@ -79,12 +87,16 @@ export interface TriggerCreateFormProps {
 export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProps) {
   const createTrigger = useCreateTrigger();
   const { data: workspaces } = useWorkspaces();
+  const { data: userState } = useUserState();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [prompt, setPrompt] = useState('');
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [model, setModel] = useState('');
+  // Who runs it. Null until the user picks, so the form opens on their default
+  // provider and model, the same tuple the launcher starts from.
+  const [agent, setAgent] = useState<LaunchAgentSelection | null>(null);
+  const [efforts, setEfforts] = useState<Record<string, EffortLevel>>({});
   const [frequency, setFrequency] = useState<FrequencyKind>('manual');
   const [time, setTime] = useState('09:00');
   const [weekday, setWeekday] = useState<Weekday>(1);
@@ -95,7 +107,6 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
   const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   );
-  const [effort, setEffort] = useState<EffortLevel | ''>('');
   // null = no wall-clock timeout (the default). Users who explicitly
   // want a cap set a positive integer via the Advanced field.
   const [timeoutSeconds, setTimeoutSeconds] = useState<number | null>(null);
@@ -110,6 +121,36 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
       setWorkspaceId(workspaces[0].id);
     }
   }, [workspaces, workspaceId]);
+
+  // Read, never written: a trigger is a standing job, so picking its effort
+  // shouldn't retune the effort your next chat starts with.
+  useEffect(() => setEfforts(readProviderEfforts()), []);
+
+  const fallbackProvider: ProviderId = providerIdForHarness(userState?.defaultAgentHarness ?? 'claude');
+  const fallbackModel = userState?.defaultAgentModel ?? defaultModelFor(fallbackProvider);
+  const selection = {
+    harness: agent?.harness ?? fallbackProvider,
+    model: agent?.model ?? fallbackModel,
+  };
+  const { models } = useAgentModels(selection.harness);
+  const selectedModelOption = models.find((m) => m.id === selection.model) ?? null;
+  const harnessKey = providerHarnessKey(selection.harness);
+  // Until the user picks, show the effort the run will actually use rather
+  // than an empty control.
+  const effort: EffortLevel | null =
+    agent?.effort
+    ?? (selectedModelOption && harnessSupportsEffort(harnessKey)
+      ? explicitEffortForModel(harnessKey, selectedModelOption, efforts[selection.harness] ?? null)
+      : null);
+
+  function handleEffortChange(next: EffortLevel) {
+    setAgent((prev) => ({
+      harness: prev?.harness ?? fallbackProvider,
+      model: prev?.model ?? fallbackModel,
+      variant: prev?.variant ?? null,
+      effort: next,
+    }));
+  }
 
   const compiledCron = useMemo(() => {
     try {
@@ -140,7 +181,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
       prompt: trimmedPrompt,
       targetKind: 'workspace' as const,
       workspaceId,
-      agentId: undefined,
+      provider: selection.harness,
       kind: compiledCron.kind,
       cronExpression: compiledCron.cronExpression,
       intervalSeconds: null,
@@ -148,8 +189,8 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
       timezone,
       activeHoursStart: activeHoursStart || null,
       activeHoursEnd: activeHoursEnd || null,
-      model: model.trim() || null,
-      effort: (effort || null) as EffortLevel | null,
+      model: selection.model || null,
+      effort,
       timeoutSeconds,
       concurrencyPolicy,
     };
@@ -212,7 +253,20 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
               workspaces={workspaces ?? []}
             />
             <div className="flex-1" />
-            <ModelPill value={model} onChange={setModel} />
+            <ModelControl
+              selection={selection}
+              label={selectedModelOption?.label ?? selection.model}
+              rememberedEfforts={efforts}
+              onChange={setAgent}
+              disabled={createTrigger.isPending}
+            />
+            <EffortControl
+              harness={selection.harness}
+              model={selectedModelOption}
+              effort={effort}
+              onChange={handleEffortChange}
+              disabled={createTrigger.isPending}
+            />
           </div>
         </div>
         {noWorkspaces && (
@@ -341,20 +395,6 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
               placeholder="America/New_York"
               className={inputCls}
             />
-          </Field>
-          <Field label="Effort">
-            <select
-              value={effort}
-              onChange={(e) => setEffort(e.target.value as EffortLevel | '')}
-              className={inputCls}
-            >
-              <option value="">Default</option>
-              {TRIGGER_EFFORT_LEVELS.map((e) => (
-                <option key={e} value={e}>
-                  {e}
-                </option>
-              ))}
-            </select>
           </Field>
           <Field label="Wall-clock timeout (seconds, optional)">
             <input
@@ -490,69 +530,6 @@ function WorkspacePill({
               <span>{w.name}</span>
             </button>
           ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ModelPill({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  // Scheduled runs use the default Claude executor, so this offers exactly
-  // what that provider offers the composer: its visible models plus any
-  // pinned ids. Anything not in that list is silently repaired to the default
-  // at fire time, which is why the pin below writes it into the catalog
-  // rather than just onto this trigger. Empty id = harness default.
-  const { models } = useAgentModels('claude');
-  const presets = [
-    { id: '', label: 'Default model' },
-    ...models.map((m) => ({ id: m.id, label: m.label })),
-  ];
-  const label = presets.find((p) => p.id === value)?.label ?? value ?? 'Default model';
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border bg-card text-[12px] text-muted-foreground hover:text-foreground"
-      >
-        <Sparkles size={12} />
-        <span>{label}</span>
-        <ChevronDown size={10} />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 min-w-[180px] rounded-md border border-border bg-card shadow-md p-1">
-          {presets.map((p) => (
-            <button
-              key={p.id || 'default'}
-              type="button"
-              onClick={() => {
-                onChange(p.id);
-                setOpen(false);
-              }}
-              className={cn(
-                'w-full text-left px-2 py-1 text-[12px] hover:bg-muted rounded',
-                value === p.id && 'bg-muted',
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-          <div className="mt-1 border-t border-border pt-1">
-            <PinModelInput
-              providerId="claude"
-              onPinned={(model) => {
-                onChange(model.id);
-                setOpen(false);
-              }}
-            />
-          </div>
         </div>
       )}
     </div>

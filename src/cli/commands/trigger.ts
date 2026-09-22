@@ -57,9 +57,13 @@ function registerTriggerCommand(program: Command) {
     // ── Target / agent ──
     .option('--target <kind>', 'workspace | orchestrator', 'workspace')
     .option('--workspace <id-or-slug>', 'Target workspace (required when target=workspace).')
-    .option('--agent <id>', 'Agent id to dispatch as. Defaults to the target type default.')
+    .option(
+      '--provider <id>',
+      'Who runs it: claude | codex | cursor | opencode. Defaults to your default provider.',
+    )
+    .option('--agent <id>', 'Exact agent id to dispatch as (advanced). Prefer --provider.')
     // ── Per-run overrides ──
-    .option('--model <model>', 'Per-run model override.')
+    .option('--model <model>', 'Per-run model override. Must belong to the provider.')
     .option('--effort <level>', 'low | medium | high | xhigh | max | ultra')
     .option('--timeout <seconds>', 'Run timeout (seconds).', Number)
     .option(
@@ -92,6 +96,7 @@ function registerTriggerCommand(program: Command) {
         name: opts.name,
         description: opts.description ?? null,
         prompt: promptText,
+        ...(opts.provider ? { provider: opts.provider } : {}),
         ...(opts.agent ? { agentId: opts.agent } : {}),
         targetKind: opts.target,
         workspaceId: opts.workspace ?? null,
@@ -181,12 +186,18 @@ function registerTriggerCommand(program: Command) {
 
   trigger
     .command('edit <idOrName>')
-    .description('Patch a trigger (prompt, cadence, etc.).')
+    .description('Patch a trigger (prompt, cadence, provider, model, effort).')
     .option('--prompt <text>', 'New prompt text')
     .option('--cron <expr>', 'New cron expression')
     .option('--every <seconds>', 'New interval in seconds', Number)
     .option('--timezone <tz>', 'New timezone')
     .option('--enabled <bool>', 'true | false', (v: string) => v === 'true')
+    .option(
+      '--provider <id>',
+      'Switch who runs it. Resets model and effort to the provider defaults unless --model / --effort are also passed.',
+    )
+    .option('--model <model>', 'New model. Pass "default" to clear back to the provider default.')
+    .option('--effort <level>', 'low | medium | high | xhigh | max | ultra, or "default" to clear.')
     .action(async (idOrName, opts) => {
       const target = await resolveTriggerByIdOrName(idOrName);
       const patch: Record<string, unknown> = { id: target.id };
@@ -195,6 +206,9 @@ function registerTriggerCommand(program: Command) {
       if (opts.every) patch.intervalSeconds = opts.every;
       if (opts.timezone) patch.timezone = opts.timezone;
       if (opts.enabled !== undefined) patch.enabled = opts.enabled;
+      if (opts.provider) patch.provider = opts.provider;
+      if (opts.model) patch.model = opts.model === 'default' ? null : opts.model;
+      if (opts.effort) patch.effort = opts.effort === 'default' ? null : opts.effort;
       const envelope = await runAction('update_trigger', patch, { remote: false });
       unwrapAndPrint(envelope);
     });
@@ -474,11 +488,12 @@ function printTriggerTable(rows: TriggerWithLastRun[]) {
     console.log('No triggers.');
     return;
   }
-  const header = ['NAME', 'KIND', 'TARGET', 'ENABLED', 'NEXT FIRE', 'LAST'];
+  const header = ['NAME', 'KIND', 'TARGET', 'PROVIDER', 'ENABLED', 'NEXT FIRE', 'LAST'];
   const data = rows.map((s) => [
     s.name,
     s.kind,
     s.targetKind,
+    s.provider ?? '-',
     s.enabled ? 'yes' : 'no',
     s.nextRunAt ? humanize(s.nextRunAt) : '-',
     s.lastRunStatus ?? '-',

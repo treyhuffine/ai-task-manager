@@ -2,6 +2,7 @@
 // Source of truth: src/lib/db/schema.ts
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
+import type { HarnessId } from '@/lib/agents/registry';
 import type {
   userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys,
   workspaces, referenceFolders, agents, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
@@ -393,7 +394,15 @@ export type RunStatus = RunRecord['status'];
 export type RunTrigger = RunRecord['triggerKind'];
 
 /** Trigger + its most recent run state, joined for the triggers list view. */
-export type TriggerWithLastRun = TriggerRecord & {
+/**
+ * A trigger as the action layer returns it: the row plus the provider it runs
+ * on, read off its agent (null for an unknown historical harness).
+ */
+export type TriggerView = TriggerRecord & {
+  provider: HarnessId | null;
+};
+
+export type TriggerWithLastRun = TriggerView & {
   lastRun: RunRecord | null;
 };
 

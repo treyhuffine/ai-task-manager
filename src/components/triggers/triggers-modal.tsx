@@ -35,6 +35,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
+import { findProvider } from '@/lib/agent-options';
 
 type View = 'list' | 'new' | 'webhook-credentials';
 
@@ -329,6 +330,7 @@ function Row({
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
           {cadence}
+          {trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
         </p>
       </button>
 

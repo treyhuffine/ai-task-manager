@@ -4,13 +4,13 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { triggersApi, runsApi } from '@/lib/api/triggers';
-import type {
-  CreateTriggerInput,
-  UpdateTriggerInput,
-  RunStatus,
-  RunTrigger,
-} from '@/db/types';
+import {
+  triggersApi,
+  runsApi,
+  type CreateTriggerPayload,
+  type UpdateTriggerPayload,
+} from '@/lib/api/triggers';
+import type { RunStatus, RunTrigger } from '@/db/types';
 
 const TRIGGERS_KEY = ['triggers'] as const;
 const RUNS_KEY = ['runs'] as const;
@@ -35,8 +35,7 @@ export function useTrigger(id: string | null) {
 export function useCreateTrigger() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: Omit<CreateTriggerInput, 'agentId'> & { agentId?: string }) =>
-      triggersApi.create(input),
+    mutationFn: (input: CreateTriggerPayload) => triggersApi.create(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: TRIGGERS_KEY }),
   });
 }
@@ -44,11 +43,13 @@ export function useCreateTrigger() {
 export function useUpdateTrigger() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...input }: UpdateTriggerInput & { id: string }) =>
+    mutationFn: ({ id, ...input }: UpdateTriggerPayload & { id: string }) =>
       triggersApi.update(id, input),
     onSuccess: (row) => {
+      // Seed the detail from the response first. Waiting on the refetch
+      // flashes the pre-edit value back between save and settle.
+      if (row?.id) qc.setQueryData([...TRIGGERS_KEY, row.id], row);
       qc.invalidateQueries({ queryKey: TRIGGERS_KEY });
-      if (row?.id) qc.invalidateQueries({ queryKey: [...TRIGGERS_KEY, row.id] });
     },
   });
 }

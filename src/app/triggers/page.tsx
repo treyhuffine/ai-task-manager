@@ -15,6 +15,7 @@ import { useTriggers, useUpdateTrigger } from '@/hooks/use-triggers';
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { describeFrequency } from '@/lib/scheduler/frequency';
+import { findProvider } from '@/lib/agent-options';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
 
 export default function TriggersPage() {
@@ -133,6 +134,7 @@ function TriggerRow({
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5">
           {humanizeCadence(trigger)}
+          {trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
           {trigger.nextRunAt && ` · next ${humanize(trigger.nextRunAt)}`}
           {trigger.lastRunStatus && ` · last ${trigger.lastRunStatus}`}
         </p>

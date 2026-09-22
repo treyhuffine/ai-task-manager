@@ -20,7 +20,7 @@ import {
   createTrigger,
   updateTrigger,
   listStream,
-  getOrCreateDefaultOrchestrator,
+  getOrCreateTriggerAgent,
   getStreamAutonomy,
   setStreamAutonomy,
 } from '@/lib/db/queries';
@@ -53,7 +53,7 @@ function localTimezone(): string {
  */
 export function ensureStreamTriageTriggers(): void {
   const timezone = localTimezone();
-  const orchestrator = getOrCreateDefaultOrchestrator();
+  const orchestrator = getOrCreateTriggerAgent('orchestrator');
 
   if (!getTrigger(RESERVED_TRIGGER_IDS.streamSweepDebounce)) {
     createTrigger({

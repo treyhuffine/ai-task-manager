@@ -8,6 +8,7 @@
 import { api } from './client';
 import type {
   TriggerRecord,
+  TriggerView,
   CreateTriggerInput,
   UpdateTriggerInput,
   RunRecord,
@@ -15,6 +16,20 @@ import type {
   RunStatus,
   RunTrigger,
 } from '@/db/types';
+import type { ProviderId } from '@/lib/agent-options';
+
+/**
+ * `agentId` is optional on the wire: the create_trigger action picks the
+ * `provider`'s agent for the target, or the user's default provider when
+ * neither is given. See src/lib/orchestrator/registry.ts.
+ */
+export type CreateTriggerPayload = Omit<CreateTriggerInput, 'agentId'> & {
+  agentId?: string;
+  provider?: ProviderId;
+};
+
+/** A provider switch resets model and effort unless the same patch sets them. */
+export type UpdateTriggerPayload = UpdateTriggerInput & { provider?: ProviderId };
 
 export const triggersApi = {
   list(filter: {
@@ -30,21 +45,18 @@ export const triggersApi = {
     if (filter.targetKind) query.targetKind = filter.targetKind;
     return api.get<TriggerWithLastRun[]>('/triggers', { query });
   },
-  get(id: string): Promise<TriggerRecord> {
-    return api.get<TriggerRecord>(`/triggers/${id}`);
+  get(id: string): Promise<TriggerView> {
+    return api.get<TriggerView>(`/triggers/${id}`);
   },
-  // `agentId` is optional on the wire — the create_trigger action
-  // defaults it to the orchestrator/workspace agent when omitted. See
-  // src/lib/orchestrator/registry.ts.
-  create(input: Omit<CreateTriggerInput, 'agentId'> & { agentId?: string }): Promise<{
-    trigger: TriggerRecord;
+  create(input: CreateTriggerPayload): Promise<{
+    trigger: TriggerView;
     webhookSecret?: string;
     webhookPublicId?: string;
   }> {
     return api.post('/triggers', input);
   },
-  update(id: string, input: UpdateTriggerInput): Promise<TriggerRecord> {
-    return api.patch<TriggerRecord>(`/triggers/${id}`, input);
+  update(id: string, input: UpdateTriggerPayload): Promise<TriggerView> {
+    return api.patch<TriggerView>(`/triggers/${id}`, input);
   },
   delete(id: string): Promise<{ id: string; deleted: boolean }> {
     return api.delete(`/triggers/${id}`) as Promise<{ id: string; deleted: boolean }>;

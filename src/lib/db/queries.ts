@@ -40,7 +40,7 @@ import type {
   ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
-  TriggerRecord, CreateTriggerInput, UpdateTriggerInput,
+  TriggerRecord, TriggerTargetKind, CreateTriggerInput, UpdateTriggerInput,
   RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun,
   EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
   TaskStatus, Energy, Effort,
@@ -56,7 +56,7 @@ import type {
   StreamOutcome, StreamRecordWithOutcomes,
   TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
 } from '@/db/types';
-import type { HarnessId } from '@/lib/agents/registry';
+import { isHarnessId, type HarnessId } from '@/lib/agents/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -98,6 +98,7 @@ import {
   explicitAgentSelection,
   modelsForProvider,
   normalizeCustomModelId,
+  providerHarnessKey,
   providerIdForHarness,
   reconcileEnabledModels,
 } from '@/lib/agent-options';
@@ -4899,6 +4900,50 @@ export function getOrCreateDefaultOrchestrator(harness = 'claude_code'): AgentRe
   });
 }
 
+/**
+ * The agent a trigger runs as. A trigger's provider IS its agent's harness,
+ * so choosing a provider means choosing that provider's default agent for the
+ * trigger's target: the orchestrator for orchestrator targets, the executor
+ * for workspace targets. An omitted provider resolves to the user's default
+ * provider, the same default the chat composer and background AI use. Without
+ * that, a Codex user's triggers silently ran on Claude.
+ */
+export function getOrCreateTriggerAgent(
+  targetKind: TriggerTargetKind,
+  provider?: HarnessId | null,
+): AgentRecord {
+  const harness = providerHarnessKey(provider ?? defaultTriggerProvider());
+  return targetKind === 'orchestrator'
+    ? getOrCreateDefaultOrchestrator(harness)
+    : getOrCreateDefaultExecutor(harness);
+}
+
+function defaultTriggerProvider(): HarnessId {
+  const saved = getUserState()?.defaultAgentHarness;
+  // A saved provider that has since been switched off by its rollout flag
+  // falls back rather than minting an agent that can never run.
+  return isHarnessId(saved) ? saved : 'claude';
+}
+
+/** The provider an agent row runs on, or null for an unknown historical harness. */
+function providerForAgent(agent: AgentRecord | undefined): HarnessId | null {
+  if (!agent) return null;
+  try {
+    return providerIdForHarness(agent.harness);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A trigger plus the provider it runs on. `agentId` alone is opaque to every
+ * caller that has to show or reason about the provider (the detail page, the
+ * CLI table, an agent editing a trigger over MCP).
+ */
+export function withTriggerProvider<T extends TriggerRecord>(row: T): T & { provider: HarnessId | null } {
+  return { ...row, provider: providerForAgent(getAgent(row.agentId)) };
+}
+
 // ─── Executions ───────────────────────────────────────────────
 // A durable work artifact (worktree + branch + PR + takeover state)
 // anchored to a workspace. Chats point at it via executionId. The
@@ -7093,8 +7138,12 @@ export function listTriggersWithLastRun(filter: TriggerFilter = {}): TriggerWith
     ? db.select().from(runs).where(inArray(runs.id, ids)).all()
     : [];
   const byId = new Map<string, RunRecord>(lastRuns.map((r) => [r.id, r]));
+  const agentIds = [...new Set(list.map((s) => s.agentId))];
+  const agentRows = db.select().from(agents).where(inArray(agents.id, agentIds)).all();
+  const providerByAgent = new Map(agentRows.map((a) => [a.id, providerForAgent(a)]));
   return list.map((s) => ({
     ...s,
+    provider: providerByAgent.get(s.agentId) ?? null,
     lastRun: s.lastRunId ? byId.get(s.lastRunId) ?? null : null,
   }));
 }

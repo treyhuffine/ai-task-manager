@@ -85,8 +85,9 @@ import {
   resetTriggerFailures,
   listNotificationChannels,
   getNotificationChannel,
-  getOrCreateDefaultExecutor,
-  getOrCreateDefaultOrchestrator,
+  getOrCreateTriggerAgent,
+  withTriggerProvider,
+  getAgentHarnessSettings,
   getStreamAutonomy,
   effectiveAutonomyLevel,
   proposeTriageDecisions,
@@ -109,7 +110,13 @@ import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/worksp
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { isReservedTrigger, RESERVED_LOCKED_FIELDS } from '@/lib/triggers/reserved';
-import { resumeCommandForHarness } from '@/lib/agents/registry';
+import { HARNESS_IDS, resumeCommandForHarness, type HarnessId } from '@/lib/agents/registry';
+import {
+  customModelOption,
+  modelBelongsToProvider,
+  modelsForProvider,
+  providerIdForHarness,
+} from '@/lib/agent-options';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
@@ -1744,8 +1751,47 @@ const triggerConcurrencyPolicy = z.enum([
 ]);
 const triggerCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+// Provider vocabulary, the same ids `user_state.default_agent_harness` stores.
+// Only providers their rollout flag leaves enabled.
+const triggerProvider = z.enum(HARNESS_IDS as unknown as [HarnessId, ...HarnessId[]]);
 const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped', 'cancelled']);
 const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
+
+/** The provider an agent runs on, or null for an unknown historical harness. */
+function agentProvider(agentId: string): HarnessId | null {
+  const agent = getAgent(agentId);
+  if (!agent) return null;
+  try {
+    return providerIdForHarness(agent.harness);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reject a model that can never run on the trigger's provider, so the mistake
+ * surfaces on save instead of as a failed run at fire time. The bundled
+ * catalog plus the provider's id-shape rules (`modelBelongsToProvider`) decide,
+ * joined by anything the user enabled or pinned. Providers with no bundled
+ * catalog (Cursor, OpenCode) discover models live and host other vendors'
+ * models, so only the executor's fire-time preflight can judge those.
+ */
+function assertModelFitsProvider(provider: HarnessId, model: string | null | undefined): void {
+  if (!model) return;
+  const bundled = modelsForProvider(provider);
+  if (bundled.length === 0) return;
+  const settings = getAgentHarnessSettings(provider);
+  const known = [
+    ...bundled,
+    ...[...(settings?.enabledModels ?? []), ...(settings?.customModels ?? [])].map(customModelOption),
+  ];
+  if (!modelBelongsToProvider(provider, model, known)) {
+    throw new ActionError(
+      'invalid_params',
+      `Model ${model} does not run on ${provider}. Pass one of its models, or omit model to use the provider default`,
+    );
+  }
+}
 
 /**
  * Validate a `deliverResultTo[]` digest binding (notifier channel ids) before
@@ -1810,7 +1856,7 @@ const get_trigger_action = defineAction({
       ? getTrigger(id)
       : findTriggerByName(name!, workspaceId ?? null);
     if (!row) throw new ActionError('not_found', `Trigger not found: ${id ?? name}`);
-    return row;
+    return withTriggerProvider(row);
   },
 });
 
@@ -1818,10 +1864,11 @@ const createTriggerShape = {
   name: z.string().min(1),
   description: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
-  // Optional in the contract: the handler defaults to the
-  // orchestrator agent (target=orchestrator) or the workspace's bound
-  // executor (target=workspace) when omitted. Same form-level default
-  // policy the spec describes; surfaces the same handle to CLI + UI.
+  // Who runs it. `provider` is the normal handle: the handler picks that
+  // provider's default agent for the target (orchestrator or executor).
+  // Omitted, it resolves to the user's default provider. `agentId` pins an
+  // exact agent row and must agree with `provider` when both are given.
+  provider: triggerProvider.optional(),
   agentId: z.string().min(1).optional(),
   workspaceId: z.string().nullable().optional(),
   targetKind: triggerTargetKind,
@@ -1850,7 +1897,8 @@ const createTriggerShape = {
 const create_trigger_action = defineAction({
   name: 'create_trigger',
   description:
-    'Create a trigger. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_trigger).',
+    'Create a trigger. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_trigger). ' +
+    'provider picks who runs it (defaults to the user\'s default provider); model and effort are validated against that provider.',
   params: createTriggerShape,
   mutating: true,
   handler: (_ctx, input) => {
@@ -1889,14 +1937,26 @@ const create_trigger_action = defineAction({
       input.targetKind,
     );
 
-    // Resolve agentId default. Form-level (not schema-level) so the
-    // orchestrator/workspace defaults match the spec without forcing
-    // every caller to know the agent registry layout.
-    const agentId =
-      input.agentId ??
-      (input.targetKind === 'orchestrator'
-        ? getOrCreateDefaultOrchestrator().id
-        : getOrCreateDefaultExecutor('claude_code').id);
+    // Resolve the agent. Handler-level (not schema-level) so callers pick a
+    // provider without knowing the agent registry layout.
+    let agentId: string;
+    if (input.agentId) {
+      if (!getAgent(input.agentId)) {
+        throw new ActionError('not_found', `Agent not found: ${input.agentId}`);
+      }
+      const pinned = agentProvider(input.agentId);
+      if (input.provider && pinned !== input.provider) {
+        throw new ActionError(
+          'invalid_params',
+          `agent_id ${input.agentId} runs on ${pinned ?? 'an unknown provider'}, not ${input.provider}. Pass one or the other`,
+        );
+      }
+      agentId = input.agentId;
+    } else {
+      agentId = getOrCreateTriggerAgent(input.targetKind, input.provider).id;
+    }
+    const provider = agentProvider(agentId);
+    if (provider) assertModelFitsProvider(provider, input.model);
 
     // Webhook credentials generated server-side; the plaintext secret
     // is returned exactly once on the create response.
@@ -1953,22 +2013,26 @@ const create_trigger_action = defineAction({
 
     return webhookCredentials
       ? {
-          trigger: row,
+          trigger: withTriggerProvider(row),
           // Plaintext secret — show once, never stored. Callers must
           // persist this on their side to sign future webhook requests.
           webhookSecret: webhookCredentials.secret,
           webhookPublicId,
         }
-      : { trigger: row };
+      : { trigger: withTriggerProvider(row) };
   },
 });
 
 const update_trigger_action = defineAction({
   name: 'update_trigger',
   description:
-    'Patch a trigger. Cron / interval / runAt changes recompute nextRunAt automatically.',
+    'Patch a trigger. Cron / interval / runAt changes recompute nextRunAt automatically. ' +
+    'Changing provider resets model and effort to that provider\'s defaults unless the same call sets them.',
   params: {
     id: z.string().min(1),
+    // Switch who runs it. Allowed on app-managed triggers too: provider,
+    // model and effort are one tuple, and the model was already editable.
+    provider: triggerProvider.optional(),
     name: z.string().min(1).optional(),
     description: z.string().nullable().optional(),
     enabled: z.boolean().optional(),
@@ -1993,7 +2057,7 @@ const update_trigger_action = defineAction({
   mutating: true,
   cli: { positional: ['id'] },
   handler: (_ctx, input) => {
-    const { id, ...rest } = input;
+    const { id, provider, ...rest } = input;
     const current = getTrigger(id);
     if (!current) throw new ActionError('not_found', `Trigger not found: ${id}`);
 
@@ -2011,6 +2075,20 @@ const update_trigger_action = defineAction({
         );
       }
     }
+
+    // Provider switch: repoint at that provider's agent for this target.
+    // Model and effort only mean something within one provider, so a switch
+    // that doesn't restate them resets both to the new provider's defaults
+    // instead of carrying a Claude model onto a Codex run.
+    const currentProvider = agentProvider(current.agentId);
+    let agentId: string | undefined;
+    if (provider && provider !== currentProvider) {
+      agentId = getOrCreateTriggerAgent(current.targetKind, provider).id;
+      if (rest.model === undefined) rest.model = null;
+      if (rest.effort === undefined) rest.effort = null;
+    }
+    const nextProvider = provider ?? currentProvider;
+    if (nextProvider) assertModelFitsProvider(nextProvider, rest.model);
 
     // Verify the digest binding against the (immutable) target_kind before write.
     if (rest.deliverResultTo !== undefined) {
@@ -2045,8 +2123,8 @@ const update_trigger_action = defineAction({
       });
     }
 
-    const row = updateTrigger(id, { ...rest, nextRunAt });
-    return row;
+    const row = updateTrigger(id, { ...rest, ...(agentId ? { agentId } : {}), nextRunAt });
+    return row ? withTriggerProvider(row) : row;
   },
 });
 

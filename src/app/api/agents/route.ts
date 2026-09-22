@@ -1,6 +1,5 @@
 /**
- * GET /api/agents — list agents (orchestrator + executor). Used by the
- * trigger creation form's agent dropdown.
+ * GET /api/agents — list agents (orchestrator + executor).
  */
 
 import { NextRequest } from 'next/server';

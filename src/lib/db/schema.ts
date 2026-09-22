@@ -1605,9 +1605,10 @@ export const triggers = sqliteTable(
     description: text(),
     enabled: integer({ mode: 'boolean' }).notNull(),
 
-    // What runs and where. `agentId` is required at the row level; the form
-    // defaults it from the workspace's bound executor or the orchestrator
-    // agent depending on targetKind.
+    // What runs and where. `agentId` is required at the row level; its harness
+    // is the trigger's provider. `create_trigger` resolves it from the chosen
+    // provider (or the user's default one) and targetKind, via
+    // `getOrCreateTriggerAgent`.
     agentId: text()
       .notNull()
       .references(() => agents.id),
