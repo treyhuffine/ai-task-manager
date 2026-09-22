@@ -16,6 +16,7 @@ import { useAreas } from "@/hooks/use-areas";
 import { useDashboard } from "@/contexts/dashboard-context";
 import { useCreateNote } from "@/hooks/use-notes";
 import { RichEditor } from "@/components/editor/rich-editor";
+import { useAutosizeTextarea } from "@/hooks/use-autosize-textarea";
 import { cn } from "@/lib/utils";
 import type { Effort, Energy, Attachment } from "@/db/types";
 
@@ -50,6 +51,7 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
 
   const descriptionRef = useRef(description);
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
+  const { ref: titleRef } = useAutosizeTextarea(title);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
     pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment];
@@ -131,7 +133,7 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
   }, [title, createNote, onOpenChange, openNote, resetForm]);
 
   const handleTitleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter") {
         e.preventDefault();
         handleSubmit();
@@ -166,12 +168,14 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
             {/* Title + expand */}
             <div className="flex items-start justify-between px-5 pt-5 pb-0">
               <div className="flex-1 mr-3">
-                <input
+                <textarea
+                  ref={titleRef}
+                  rows={1}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   onKeyDown={handleTitleKeyDown}
                   placeholder="Task name"
-                  className="w-full text-lg font-semibold bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
+                  className="w-full resize-none overflow-hidden text-lg font-semibold bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
                   autoFocus
                 />
               </div>

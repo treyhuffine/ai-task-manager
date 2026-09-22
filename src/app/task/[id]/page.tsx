@@ -27,6 +27,7 @@ import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { RichEditor } from '@/components/editor/rich-editor';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { SubtaskSection } from '@/components/tasks/subtask-section';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
@@ -72,7 +73,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
 
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
-  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const { ref: titleRef, resize: resizeTitle } = useAutosizeTextarea();
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,22 +83,20 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment];
   }, []);
 
-  // Auto-size title textarea when task loads
+  // Seed the title textarea when the task loads (the field is uncontrolled).
   useEffect(() => {
     if (task && titleRef.current) {
       titleRef.current.value = task.title;
-      titleRef.current.style.height = 'auto';
-      titleRef.current.style.height = titleRef.current.scrollHeight + 'px';
+      resizeTitle();
     }
   }, [task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync title when it changes externally
+  // Sync title when it changes externally (e.g. AI tool update)
   useEffect(() => {
     if (task && titleRef.current && document.activeElement !== titleRef.current) {
       if (titleRef.current.value !== task.title) {
         titleRef.current.value = task.title;
-        titleRef.current.style.height = 'auto';
-        titleRef.current.style.height = titleRef.current.scrollHeight + 'px';
+        resizeTitle();
       }
     }
   }, [task?.title]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -113,14 +112,13 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const handleTitleInput = useCallback(
     (e: React.FormEvent<HTMLTextAreaElement>) => {
       const target = e.currentTarget;
-      target.style.height = 'auto';
-      target.style.height = target.scrollHeight + 'px';
+      resizeTitle();
       if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
       titleTimerRef.current = setTimeout(() => {
         saveField('title', target.value.trim());
       }, 500);
     },
-    [saveField],
+    [saveField, resizeTitle],
   );
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {

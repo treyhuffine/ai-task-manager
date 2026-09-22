@@ -39,7 +39,9 @@ describe('buildTranscriptNodes', () => {
     expect(group?.kind === 'group' && group.events).toHaveLength(3);
   });
 
-  it('collapses intermediate assistant messages but keeps the last one visible', () => {
+  it('keeps every primary assistant message visible, not just the last', () => {
+    // Modern harnesses narrate across a turn: message, work, message, work.
+    // Each of those messages was written for the user, so none may fold.
     const events = [
       ev('user'),
       ev('agent', { content: 'intermediate' }),
@@ -47,10 +49,48 @@ describe('buildTranscriptNodes', () => {
       ev('agent', { content: 'final' }),
     ];
     const nodes = buildTranscriptNodes(events, { isRunning: false, density: 'condensed' });
-    expect(kinds(nodes)).toEqual(['user', 'group', 'agent']);
+    expect(kinds(nodes)).toEqual(['user', 'agent', 'group', 'agent']);
+    const messages = nodes.flatMap((n) => (n.kind === 'event' && n.event.source === 'agent' ? [n.event.content] : []));
+    expect(messages).toEqual(['intermediate', 'final']);
+    // Only the tool call folds; the intermediate message is no longer counted.
     const group = nodes.find((n) => n.kind === 'group');
-    // intermediate agent + tool_call collapse → 1 message, 1 tool call
-    expect(group?.kind === 'group' && group.counts).toMatchObject({ messages: 1, toolCalls: 1 });
+    expect(group?.kind === 'group' && group.counts).toMatchObject({ messages: 0, toolCalls: 1 });
+  });
+
+  it('folds plumbing per contiguous run, preserving message/work order', () => {
+    // message → tools → message → tools: two separate groups, each anchored
+    // beside the message that introduced it, instead of one blob out of order.
+    const events = [
+      ev('user'),
+      ev('agent', { content: 'first, let me look' }),
+      ev('thinking', { content: 'r1' }),
+      ev('tool_call', { toolName: 'Read' }),
+      ev('agent', { content: 'now the outcome' }),
+      ev('tool_call', { toolName: 'Bash' }),
+      ev('tool_result'),
+      ev('agent', { content: 'done' }),
+    ];
+    const nodes = buildTranscriptNodes(events, { isRunning: false, density: 'condensed' });
+    expect(kinds(nodes)).toEqual(['user', 'agent', 'group', 'agent', 'group', 'agent']);
+    const groups = nodes.filter((n) => n.kind === 'group');
+    expect(groups).toHaveLength(2);
+    expect(groups[0].kind === 'group' && groups[0].events.map((e) => e.source)).toEqual(['thinking', 'tool_call']);
+    expect(groups[1].kind === 'group' && groups[1].events.map((e) => e.source)).toEqual(['tool_call', 'tool_result']);
+  });
+
+  it('keeps a primary message visible even when the turn ends in tool calls', () => {
+    // No final assistant message at all — the only prose is the preamble, and
+    // the old "promote the last message" model would have folded it away.
+    const events = [
+      ev('user'),
+      ev('agent', { content: 'the only thing I said' }),
+      ev('tool_call', { toolName: 'Read' }),
+      ev('tool_result'),
+    ];
+    const nodes = buildTranscriptNodes(events, { isRunning: false, density: 'condensed' });
+    expect(kinds(nodes)).toEqual(['user', 'agent', 'group']);
+    const msg = nodes.find((n) => n.kind === 'event' && n.event.source === 'agent');
+    expect(msg?.kind === 'event' && msg.event.content).toBe('the only thing I said');
   });
 
   it('leaves the live (running) last turn inline', () => {

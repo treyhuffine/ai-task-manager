@@ -29,6 +29,7 @@ import { SlashCommands } from './slash-commands'
 import { EntityLinkNode } from './entity-link-node'
 import { EntityLinkMenuExtension } from './entity-link-menu/extension'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea'
 import type { Editor } from '@tiptap/core'
 import type { Attachment } from '@/db/types'
 import { insertUploadedFiles } from './upload-files'
@@ -406,7 +407,7 @@ export function NoteEditor({
   foldedHeadings,
   onFoldedHeadingsChange,
 }: NoteEditorProps) {
-  const titleRef = useRef<HTMLTextAreaElement>(null)
+  const { ref: titleRef, resize: resizeTitle } = useAutosizeTextarea()
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -428,11 +429,10 @@ export function NoteEditor({
   const handleTitleInput = useCallback(
     (e: React.FormEvent<HTMLTextAreaElement>) => {
       const target = e.currentTarget
-      target.style.height = 'auto'
-      target.style.height = target.scrollHeight + 'px'
+      resizeTitle()
       onTitleChange?.(target.value)
     },
-    [onTitleChange]
+    [onTitleChange, resizeTitle]
   )
 
   // Sync title when it changes externally (e.g. AI tool update)
@@ -440,11 +440,10 @@ export function NoteEditor({
     if (titleRef.current && document.activeElement !== titleRef.current) {
       if (titleRef.current.value !== (title ?? '')) {
         titleRef.current.value = title ?? ''
-        titleRef.current.style.height = 'auto'
-        titleRef.current.style.height = titleRef.current.scrollHeight + 'px'
+        resizeTitle()
       }
     }
-  }, [title])
+  }, [title]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="note-editor w-full mx-auto pb-16">

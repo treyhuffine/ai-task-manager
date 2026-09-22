@@ -14,10 +14,16 @@ export interface TurnFileEdit {
 
 /**
  * Condensed transcript model (Conductor-style). A *completed* agent turn
- * folds its intermediate activity — thinking, tool calls, tool results,
- * and transient (non-final) assistant messages — into one collapsible
- * summary node. The turn's final reply and any actionable rows
- * (auth/permission/question/error) stay visible.
+ * folds its plumbing — thinking, tool calls, tool results, and any nested
+ * subagent narration — into collapsible summary nodes, one per contiguous
+ * run of plumbing. Everything the model wrote for the user to read stays
+ * visible: user messages, every primary assistant message (not just the
+ * turn's last one), and actionable rows (auth/permission/question/error).
+ *
+ * Folding whole turns onto their final reply used to hide every message but
+ * the last, which broke once harnesses began interleaving several user-facing
+ * messages through one turn (message → tools → message → tools). Per-run
+ * grouping keeps each message beside the work it introduced.
  *
  * Collapsing happens only once a turn is complete: the last turn is left
  * inline while the agent is still running (`isRunning`), then folds the
@@ -82,14 +88,30 @@ function aggregateTurnFiles(
   return [...byPath.values()];
 }
 
-/** Rows that belong inside a collapsed activity group (when not the turn's final reply). */
-function isCollapsibleSource(source: string): boolean {
-  return (
-    source === 'thinking' ||
-    source === 'tool_call' ||
-    source === 'tool_result' ||
-    source === 'agent'
-  );
+/**
+ * Rows that fold into a collapsed activity group — the turn's plumbing.
+ *
+ * Thinking, tool calls and tool results are always plumbing. Assistant
+ * messages are the exception: a *primary* agent message is something the model
+ * wrote for the user to read, so it stays visible. Only a *nested* agent
+ * message (a subagent narrating to its caller — `externalParentToolCallId`
+ * set) folds, because promoting subagent chatter is what made the visible
+ * answer churn. Modern harnesses interleave several user-facing messages
+ * through a single turn (message, tool calls, message, ...), so keying the
+ * fold on "is this the turn's last message" would hide every message but the
+ * last. Keying it on "is this the primary agent" keeps them all.
+ */
+function isCollapsible(event: ChatEventRecord): boolean {
+  switch (event.source) {
+    case 'thinking':
+    case 'tool_call':
+    case 'tool_result':
+      return true;
+    case 'agent':
+      return isSubagentEvent(event);
+    default:
+      return false;
+  }
 }
 
 function countGroup(events: ChatEventRecord[]): GroupCounts {
@@ -187,49 +209,32 @@ function appendCollapsedTurn(
     if (files.length) nodes.push({ kind: 'files', id: `files:${turn[0]?.id ?? ''}`, files });
   };
 
-  // The final assistant text message stays visible below the group. A
-  // subagent's narration is never eligible: it is a nested actor talking to
-  // its caller, so promoting it would make the session's visible answer churn
-  // through every child's commentary. Normally those events have already been
-  // routed into their launch row, but an un-anchored one (launch row on a
-  // page not loaded yet) can still reach here — hence the guard.
-  let finalAgentIdx = -1;
-  for (let k = turn.length - 1; k >= 0; k--) {
-    if (turn[k].source === 'agent' && !isSubagentEvent(turn[k])) {
-      finalAgentIdx = k;
-      break;
-    }
-  }
-
-  const groupEvents = turn.filter((ev, k) => k !== finalAgentIdx && isCollapsibleSource(ev.source));
-
-  // Nothing worth folding — render the turn as-is.
-  if (groupEvents.length === 0) {
-    for (const ev of turn) nodes.push({ kind: 'event', event: ev });
-    appendFilesFooter();
-    return;
-  }
-
-  const counts = countGroup(groupEvents);
-  let emittedGroup = false;
-  for (let k = 0; k < turn.length; k++) {
+  // Fold each *contiguous run* of plumbing into its own group and leave every
+  // visible row (user, primary agent message, actionable rows) inline in
+  // place. One group per run — not one per turn — so that when a turn
+  // interleaves messages and work ("message → tools → message → tools"), each
+  // message stays anchored above the work it introduced instead of the whole
+  // turn's tools piling into a single blob out of order.
+  let k = 0;
+  while (k < turn.length) {
     const ev = turn[k];
-    const inGroup = k !== finalAgentIdx && isCollapsibleSource(ev.source);
-    if (inGroup) {
-      if (!emittedGroup) {
-        nodes.push({
-          kind: 'group',
-          id: groupEvents[0].id,
-          events: groupEvents,
-          counts,
-          startedAt: groupEvents[0].createdAt,
-          endedAt: groupEvents[groupEvents.length - 1].createdAt,
-        });
-        emittedGroup = true;
-      }
+    if (!isCollapsible(ev)) {
+      nodes.push({ kind: 'event', event: ev });
+      k++;
       continue;
     }
-    nodes.push({ kind: 'event', event: ev });
+    let m = k;
+    while (m < turn.length && isCollapsible(turn[m])) m++;
+    const groupEvents = turn.slice(k, m);
+    nodes.push({
+      kind: 'group',
+      id: groupEvents[0].id,
+      events: groupEvents,
+      counts: countGroup(groupEvents),
+      startedAt: groupEvents[0].createdAt,
+      endedAt: groupEvents[groupEvents.length - 1].createdAt,
+    });
+    k = m;
   }
   appendFilesFooter();
 }

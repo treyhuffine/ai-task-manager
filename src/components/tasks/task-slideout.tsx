@@ -35,6 +35,7 @@ import { tasksApi } from '@/lib/api/tasks';
 import { BUCKET_OPTIONS, computeBucketPlacement, type Bucket } from '@/lib/utils/bucket-placement';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { RichEditor } from '@/components/editor/rich-editor';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { LinkedReferences } from '@/components/shared/linked-references';
 import { SubtaskSection } from './subtask-section';
 import { AreaSelect } from '@/components/shared/area-select';
@@ -118,7 +119,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const { ref: titleRef, resize: resizeTitle } = useAutosizeTextarea();
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
@@ -144,8 +145,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     if (!task || !el) return;
     const isNew = !task.title?.trim() && !task.body;
     el.value = isNew ? '' : task.title;
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
+    resizeTitle();
     if (!isNew) return;
     // Focus on the next frame rather than synchronously. A new task is opened by
     // the create menu, whose popover returns focus to its trigger as it closes,
@@ -166,8 +166,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     const incoming = task.title ?? '';
     if (el.value.trim() === incoming.trim()) return;
     el.value = incoming;
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
+    resizeTitle();
   }, [task?.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveField = useCallback(
@@ -214,14 +213,13 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const handleTitleInput = useCallback(
     (e: React.FormEvent<HTMLTextAreaElement>) => {
       const target = e.currentTarget;
-      target.style.height = 'auto';
-      target.style.height = target.scrollHeight + 'px';
+      resizeTitle();
       if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
       titleTimerRef.current = setTimeout(() => {
         saveField('title', target.value.trim());
       }, 500);
     },
-    [saveField],
+    [saveField, resizeTitle],
   );
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {

@@ -586,7 +586,11 @@ export function ConnectorsSection() {
           {grouped.map(({ category, items }) => (
             <section key={category} className="space-y-2">
               <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{category}</h3>
-              <div className="space-y-2">
+              {/* Two-up catalog grid. `items-start` so a card's expanded Tools/
+                  Connect panel grows on its own instead of stretching its row
+                  neighbor into empty space; collapses to one column on narrow
+                  widths, matching the connect panel's own sm:grid-cols-2. */}
+              <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2">
                 {items.map((p) => {
                   const conns = connectionsByProvider.get(p.id) ?? [];
                   const meta = connectorMeta(p.id);
