@@ -2,13 +2,22 @@
  * Rebuild a database from the current migrations and refill it from an old
  * one.
  *
+ *   pnpm tsx scripts/db-rebuild.ts --in-place <app-root>/data.db
  *   pnpm tsx scripts/db-rebuild.ts --from <old.db> --to <new.db>
  *
  * Used when the migration history is collapsed into a fresh baseline. Every
  * existing database then has to be rebuilt, because its migration journal no
  * longer matches (booting new code against an old database fails loudly, on
- * purpose). Run it against a snapshot with the app stopped, then swap the file
- * in. It never writes to --from and refuses to overwrite --to.
+ * purpose).
+ *
+ * --in-place is the cutover: with the app stopped, it refuses to run while
+ * anything still holds the file open, snapshots it to
+ * <app-root>/snapshots/pre-rebuild-<stamp>/data.db, rebuilds from the
+ * snapshot, and swaps the rebuilt file in only if every check passes. The
+ * original moves next to the snapshot as live-original.db, untouched.
+ *
+ * --from/--to is the rehearsal: rebuild a copy, verify, swap nothing. It never
+ * writes to --from and refuses to overwrite --to.
  *
  * 1. Build --to from scratch through `getDb`: the exact schema, triggers, FTS
  *    and vector tables a fresh install gets.
@@ -31,6 +40,7 @@
  */
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,10 +79,13 @@ const MUST_BE_EMPTY: Record<string, string[]> = { tasks: ['heartbeat_days'] };
 
 // ─── Plumbing ─────────────────────────────────────────────────────────────
 
-function arg(name: string): string {
+const USAGE = 'usage: db-rebuild.ts --in-place <db> | --from <old.db> --to <new.db>';
+
+function arg(name: string): string | null {
   const i = process.argv.indexOf(`--${name}`);
-  const value = i >= 0 ? process.argv[i + 1] : undefined;
-  if (!value) throw new Error(`usage: db-rebuild.ts --from <old.db> --to <new.db>`);
+  if (i < 0) return null;
+  const value = process.argv[i + 1];
+  if (!value) throw new Error(USAGE);
   return path.resolve(value.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'));
 }
 
@@ -119,9 +132,8 @@ function digest(db: Database.Database, sql: string): string {
 
 // ─── Rebuild ──────────────────────────────────────────────────────────────
 
-function main() {
-  const from = arg('from');
-  const to = arg('to');
+/** Rebuild `to` from `from` and verify it. Returns the report; `failures` empty means safe to use. */
+function rebuild(from: string, to: string): { report: Record<string, unknown>; failures: string[] } {
   if (!fs.existsSync(from)) throw new Error(`--from does not exist: ${from}`);
   if (fs.existsSync(to)) throw new Error(`--to already exists, refusing to overwrite: ${to}`);
   if (from === to) throw new Error('--from and --to must differ');
@@ -307,6 +319,78 @@ function main() {
 
   report.seconds = Math.round((Date.now() - started) / 1000);
   report.failures = failures;
+  return { report, failures };
+}
+
+const SIDECARS = ['', '-wal', '-shm'];
+
+/** PIDs holding the database (or its WAL) open, via lsof. Empty when nothing does. */
+function holders(db: string): string[] {
+  try {
+    const out = execFileSync('lsof', ['-t', ...SIDECARS.map((s) => db + s).filter((f) => fs.existsSync(f))], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return [...new Set(out.split('\n').filter(Boolean))];
+  } catch {
+    return []; // lsof exits 1 when no process has the files open
+  }
+}
+
+async function inPlace(db: string): Promise<void> {
+  if (!fs.existsSync(db)) throw new Error(`no database at ${db}`);
+  const rebuilt = `${db}.rebuilt`;
+  if (SIDECARS.some((s) => fs.existsSync(rebuilt + s))) throw new Error(`${rebuilt} already exists. Remove it and retry.`);
+  const pids = holders(db);
+  if (pids.length) {
+    throw new Error(`${db} is still open (pid ${pids.join(', ')}). Stop the app first (Ctrl-C the terminal running it, or \`ri stop\`).`);
+  }
+
+  // Snapshot through SQLite's backup API: a consistent page copy that folds in
+  // the WAL and keeps every rowid (VACUUM INTO can renumber rowids).
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+  const dir = path.join(path.dirname(db), 'snapshots', `pre-rebuild-${stamp}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const snapshot = path.join(dir, 'data.db');
+  console.error(`Snapshotting ${db} → ${snapshot}`);
+  const live = new Database(db, { fileMustExist: true });
+  await live.backup(snapshot);
+  live.close();
+  const snap = new Database(snapshot, { fileMustExist: true });
+  const check = snap.pragma('quick_check', { simple: true });
+  snap.close();
+  if (check !== 'ok') throw new Error(`snapshot quick_check failed: ${check}. Live database untouched.`);
+
+  console.error(`Rebuilding from the snapshot → ${rebuilt}`);
+  const { report, failures } = rebuild(snapshot, rebuilt);
+  console.log(JSON.stringify(report, null, 2));
+  if (failures.length) {
+    console.error(`\nREBUILD FAILED VERIFICATION (${failures.length}). Live database untouched. ${rebuilt} is left for inspection.`);
+    process.exit(1);
+  }
+
+  // Re-check right before the swap: nothing may have opened the file since.
+  const late = holders(db);
+  if (late.length) throw new Error(`${db} was opened during the rebuild (pid ${late.join(', ')}). Live database untouched.`);
+  for (const s of SIDECARS) if (fs.existsSync(db + s)) fs.renameSync(db + s, path.join(dir, `live-original.db${s}`));
+  for (const s of SIDECARS) if (fs.existsSync(rebuilt + s)) fs.renameSync(rebuilt + s, db + s);
+
+  console.error([
+    '',
+    `Rebuilt and swapped in (${report.seconds}s). Start the app as usual.`,
+    `  snapshot:  ${snapshot}`,
+    `  original:  ${path.join(dir, 'live-original.db')}`,
+    `Rollback: stop the app, then  mv "${path.join(dir, 'live-original.db')}" "${db}"  and check out the commit before the rebuild.`,
+  ].join('\n'));
+}
+
+async function main() {
+  const target = arg('in-place');
+  if (target) return inPlace(target);
+  const from = arg('from');
+  const to = arg('to');
+  if (!from || !to) throw new Error(USAGE);
+  const { report, failures } = rebuild(from, to);
   console.log(JSON.stringify(report, null, 2));
   if (failures.length) {
     console.error(`\nREBUILD FAILED VERIFICATION (${failures.length}). ${to} is left for inspection. Do not swap it in.`);
@@ -315,4 +399,7 @@ function main() {
   console.error(`\nRebuild verified in ${report.seconds}s: ${to}`);
 }
 
-main();
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});
