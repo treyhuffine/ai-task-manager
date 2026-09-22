@@ -979,6 +979,8 @@ export function DeckContainer() {
               onSubtaskDefer={handleSubtaskDefer}
               onSubtaskFocus={handleSubtaskFocus}
               onTaskCreated={handleQuickAdd}
+              excludeIds={deckTaskIds}
+              onAddExisting={handleAddFromBrowser}
             />
           </>
         )}

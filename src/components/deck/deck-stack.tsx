@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, Fragment } from 'react';
-import { GripVertical, Check, SkipForward, ChevronDown, ChevronRight, Crosshair, EyeOff, Eye, Clock, Play } from 'lucide-react';
+import { GripVertical, Check, SkipForward, ChevronDown, ChevronRight, Crosshair, EyeOff, Eye, Play } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -219,6 +219,7 @@ function SortableDeckItemCard({
   };
 
   const [subtasksExpanded, setSubtasksExpanded] = useState(index === 0);
+  const [whyOpen, setWhyOpen] = useState(false);
   const deadline = formatDeadline(item.hardDeadline);
   const urgent = isDeadlineUrgent(item.hardDeadline);
 
@@ -330,11 +331,20 @@ function SortableDeckItemCard({
           {deadline && <DeadlinePill urgent={urgent}>{deadline}</DeadlinePill>}
         </div>
 
-        {/* Rationale */}
+        {/* Rationale — the "why this, why now". Kept to one muted line so it's
+            a glimpse, not a wall; click to expand the full reasoning. */}
         {item.rationale && (
-          <p className="text-xs text-muted-foreground mt-2 leading-relaxed break-words">
+          <button
+            type="button"
+            onClick={() => setWhyOpen((v) => !v)}
+            title={whyOpen ? 'Hide reasoning' : 'Show reasoning'}
+            className={cn(
+              'mt-2 block max-w-full break-words text-left text-xs leading-relaxed text-muted-foreground/70 transition-colors hover:text-muted-foreground',
+              !whyOpen && 'line-clamp-1',
+            )}
+          >
             {item.rationale}
-          </p>
+          </button>
         )}
 
         {/* Continuity context (if present, on first item) */}

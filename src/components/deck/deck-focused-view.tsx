@@ -8,9 +8,10 @@ import { useProposedDecisions } from '@/hooks/use-stream';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { CurrentWorkSection } from './current-work-section';
 import { DeckStack } from './deck-stack';
-import { DeckAddComposer } from './deck-add-composer';
+import { DeckAddBar } from './deck-add-bar';
 import type { DeckItem } from '@/types/dashboard';
 import type { TaskRecord } from '@/db/types';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 interface DeckFocusedViewProps {
   items: DeckItem[];
@@ -24,6 +25,10 @@ interface DeckFocusedViewProps {
   onSubtaskDefer: (itemId: string, subtaskId: string) => void;
   onSubtaskFocus?: (itemId: string, subtaskId: string) => void;
   onTaskCreated: (task: TaskRecord) => void;
+  /** Task ids already on the deck — excluded from the add bar's match list. */
+  excludeIds: Set<string>;
+  /** Pull an existing task onto the deck (from the add bar's match list). */
+  onAddExisting: (task: TaskListDTO) => void;
 }
 
 /**
@@ -48,8 +53,14 @@ export function DeckFocusedView({
   onSubtaskDefer,
   onSubtaskFocus,
   onTaskCreated,
+  excludeIds,
+  onAddExisting,
 }: DeckFocusedViewProps) {
   const [workOpen, setWorkOpen] = useState(false);
+
+  // Candidates for the add bar's "pull existing" path. Shares the active-tasks
+  // query key with the container, so it comes from cache.
+  const { data: activeTasks } = useTasks({ status: 'active', limit: 300 });
 
   // Ribbon counts. These queries share their keys with CurrentWorkSection and
   // DeckTriagePrompt, so React Query serves them from cache — no extra fetch.
@@ -74,9 +85,14 @@ export function DeckFocusedView({
         <p className="mb-3 text-xs italic leading-relaxed text-muted-foreground">{framing}</p>
       )}
 
-      {/* Quick add — inline, always available. */}
+      {/* Add — create a new task or pull an existing one, in one field. */}
       <div className="mb-3">
-        <DeckAddComposer variant="persistent" onTaskCreated={onTaskCreated} />
+        <DeckAddBar
+          candidates={activeTasks ?? []}
+          excludeIds={excludeIds}
+          onTaskCreated={onTaskCreated}
+          onAddExisting={onAddExisting}
+        />
       </div>
 
       {/* Ribbon: status folded to a tap, not a section. */}

@@ -24,12 +24,20 @@ dense body when the pref is `focused`:
   "top" task, nothing collapsed. Work is parallel in the agent world, so the
   deck does not pretend there is one next thing; the `DeckStack` renders every
   item, drag-reorder included, exactly as classic does.
-- **A persistent quick-add composer** inline at the top (the redesigned
-  `DeckAddComposer`); new tasks land at the top, ready to work on.
+- **One add field that creates or pulls** (`DeckAddBar`): type an intent and it
+  both offers to create that task as new AND surfaces matching existing tasks to
+  pull onto the deck (arrow keys + Enter, or click). This reconciles the old
+  split between "Add a task" (new) and "More options" (existing) into a single
+  obvious entry — the original source sketch of "[new task name +] / [list of
+  similar tasks +]".
 - **A compact ribbon** for status, one tap away: `N in progress · M to review`
   (expands the existing `CurrentWorkSection` inline) and `N to triage` (opens
   Stream). Each is a chip, not a full section, so status stops dominating the
   surface.
+
+Shared with the classic layout: the per-item **rationale** ("why this, why now")
+now renders as a single muted line that expands on click, so it stays a glimpse
+rather than a wall of injected text (`SortableDeckItemCard` in `deck-stack.tsx`).
 
 The point of the layout is not a hero — it is stripping the console around the
 stack: the in-progress section and triage prompt fold into the ribbon, the
@@ -58,8 +66,12 @@ the Settings row.
 ## Code map
 
 - `src/lib/client/deck-layout-mode.ts` — the pref.
-- `src/components/deck/deck-focused-view.tsx` — hero + composer + ribbon + rest.
+- `src/components/deck/deck-focused-view.tsx` — flat stack + add bar + ribbon.
+- `src/components/deck/deck-add-bar.tsx` — the create-or-pull add field.
 - `src/components/deck/deck-container.tsx` — branches the body on the pref, hides
   the standalone `CurrentWorkSection` in focused mode (it moves into the ribbon),
   and prepends quick-added tasks so they land at the top.
 - `src/components/settings/sections/general-section.tsx` — the Deck layout row.
+
+(`deck-add-composer.tsx` remains the create-only composer for the classic
+layout's quick-add trial.)
