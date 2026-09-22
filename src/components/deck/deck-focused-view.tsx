@@ -1,21 +1,29 @@
 "use client";
 
 import { useMemo, useState } from 'react';
-import { Inbox, Activity } from 'lucide-react';
+import { Inbox, Activity, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTasks, useTaskAttention } from '@/hooks/use-tasks';
 import { useProposedDecisions } from '@/hooks/use-stream';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { summarizeDeckChanges } from '@/lib/deck/change-summary';
 import { CurrentWorkSection } from './current-work-section';
 import { DeckStack } from './deck-stack';
 import { DeckAddBar } from './deck-add-bar';
-import type { DeckItem } from '@/types/dashboard';
+import { DeckVersionList, type DeckVersionSummary } from './deck-change-brief';
+import type { DeckItem, DeckChangeView } from '@/types/dashboard';
 import type { TaskRecord } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 interface DeckFocusedViewProps {
   items: DeckItem[];
   framing?: string;
+  /** This deck version's change log — summarized as quiet header meta. */
+  changes: DeckChangeView[];
+  /** Today's deck versions — the revert escape hatch behind "Versions". */
+  versions: DeckVersionSummary[];
+  currentDeckId?: string;
+  onRevert: (deckId: string) => void;
   onComplete: (id: string) => void;
   onStart: (id: string) => void;
   onNotToday: (id: string) => void;
@@ -36,14 +44,25 @@ interface DeckFocusedViewProps {
  *
  * Same ranked stack as classic — flat, nothing singled out, nothing collapsed
  * (work is parallel in the agent world, so there is no one "hero" task). What
- * this layout does is strip the surrounding console: the status that used to
- * occupy full sections (in-progress work, triage) folds into a compact ribbon
- * one tap away, and the quick-add composer sits inline. Urgent hard deadlines
- * are untouched — they render in the always-on DeadlineBand above this view.
+ * this layout does is give the deck body the same section grammar as the
+ * DEADLINES band above it — a labeled "Today" header with a rule — so nothing
+ * floats loose between sections:
+ *
+ *   - the change log ("5 carried over · 1 new") is quiet header meta, with the
+ *     revert escape hatch behind a small "Versions" toggle, not its own banner;
+ *   - the deck's framing is a one-line muted glimpse that expands on click, the
+ *     same treatment as each item's rationale, not a paragraph of italic prose;
+ *   - status (in progress, triage) folds into a compact ribbon one tap away.
+ *
+ * Urgent hard deadlines are untouched — the always-on DeadlineBand above.
  */
 export function DeckFocusedView({
   items,
   framing,
+  changes,
+  versions,
+  currentDeckId,
+  onRevert,
   onComplete,
   onStart,
   onNotToday,
@@ -57,6 +76,8 @@ export function DeckFocusedView({
   onAddExisting,
 }: DeckFocusedViewProps) {
   const [workOpen, setWorkOpen] = useState(false);
+  const [framingOpen, setFramingOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
 
   // Candidates for the add bar's "pull existing" path. Shares the active-tasks
   // query key with the container, so it comes from cache.
@@ -79,13 +100,54 @@ export function DeckFocusedView({
   const { setPanelTab, focusedPanel } = useDashboard();
   const openTriage = () => setPanelTab(focusedPanel, 'stream');
 
+  // Header meta: what changed since the last deck, in the band's quiet voice.
+  const changeLine = useMemo(() => {
+    const { parts, fromCalendar } = summarizeDeckChanges(changes);
+    return (fromCalendar ? ['adjusted for calendar', ...parts] : parts).join(' · ');
+  }, [changes]);
+  const hasHistory = versions.length > 1;
+
   return (
-    <div className="px-4 py-3">
-      {framing && (
-        <p className="mb-3 text-xs italic leading-relaxed text-muted-foreground">{framing}</p>
+    <section className="px-4 pt-4 pb-3">
+      {/* ── Section header: same grammar as DEADLINES ── */}
+      <div className="mb-1.5 flex items-center gap-2 px-1">
+        <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Today</h3>
+        {changeLine && <span className="truncate text-[10px] text-muted-foreground/70">{changeLine}</span>}
+        <div className="ml-1 h-px min-w-4 flex-1 bg-border" />
+        {hasHistory && (
+          <button
+            type="button"
+            onClick={() => setVersionsOpen((o) => !o)}
+            className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            <History className="h-2.5 w-2.5" />
+            {versionsOpen ? 'Hide versions' : 'Versions'}
+          </button>
+        )}
+      </div>
+
+      {versionsOpen && hasHistory && (
+        <div className="mb-2 rounded-md border border-border/60 px-2 py-1">
+          <DeckVersionList versions={versions} currentDeckId={currentDeckId} onRevert={onRevert} />
+        </div>
       )}
 
-      {/* Add — create a new task or pull an existing one, in one field. */}
+      {/* ── Framing: the deck-level "why", as a glimpse ── */}
+      {framing && (
+        <button
+          type="button"
+          onClick={() => setFramingOpen((v) => !v)}
+          title={framingOpen ? 'Collapse' : 'Show full note'}
+          className={cn(
+            'mb-2.5 block w-full px-1 text-left text-xs leading-relaxed text-muted-foreground/70 transition-colors hover:text-muted-foreground',
+            !framingOpen && 'line-clamp-1',
+          )}
+        >
+          {framing}
+        </button>
+      )}
+
+      {/* ── Add: create a new task or pull an existing one ── */}
       <div className="mb-3">
         <DeckAddBar
           candidates={activeTasks ?? []}
@@ -95,7 +157,7 @@ export function DeckFocusedView({
         />
       </div>
 
-      {/* Ribbon: status folded to a tap, not a section. */}
+      {/* ── Ribbon: status folded to a tap, not a section ── */}
       {(inProgressCount > 0 || triageCount > 0) && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {inProgressCount > 0 && (
@@ -125,7 +187,7 @@ export function DeckFocusedView({
         </div>
       )}
 
-      {/* The ranked stack — flat and whole. Nothing is the "top" task. */}
+      {/* ── The ranked stack: flat and whole. Nothing is the "top" task. ── */}
       {items.length > 0 ? (
         <DeckStack
           items={items}
@@ -146,7 +208,7 @@ export function DeckFocusedView({
           </p>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

@@ -331,9 +331,10 @@ function SortableDeckItemCard({
           {deadline && <DeadlinePill urgent={urgent}>{deadline}</DeadlinePill>}
         </div>
 
-        {/* Rationale — the "why this, why now". Kept to one muted line so it's
-            a glimpse, not a wall; click to expand the full reasoning. */}
-        {item.rationale && (
+        {/* Reasoning — the "why this, why now" plus any "last session" note.
+            One muted line so it's a glimpse, not a wall; click to expand. The
+            same treatment on every card: no item gets extra text for being first. */}
+        {(item.rationale || item.continuityContext) && (
           <button
             type="button"
             onClick={() => setWhyOpen((v) => !v)}
@@ -343,15 +344,11 @@ function SortableDeckItemCard({
               !whyOpen && 'line-clamp-1',
             )}
           >
-            {item.rationale}
+            {item.rationale || item.continuityContext}
+            {whyOpen && item.rationale && item.continuityContext && (
+              <span className="mt-1 block">{item.continuityContext}</span>
+            )}
           </button>
-        )}
-
-        {/* Continuity context (if present, on first item) */}
-        {item.continuityContext && index === 0 && (
-          <p className="text-xs text-muted-foreground/70 mt-1 italic leading-relaxed break-words">
-            {item.continuityContext}
-          </p>
         )}
 
         {/* Subtasks */}

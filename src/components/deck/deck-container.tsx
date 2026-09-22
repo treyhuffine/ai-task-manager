@@ -946,30 +946,25 @@ export function DeckContainer() {
         {/* ─── The deck — focused layout (trial) ─── */}
         {phase === 'deck' && plan && layoutMode === 'focused' && (
           <>
-            {(!interruptDismissed || !briefDismissed) && (
+            {/* A priority interrupt is rare and must be seen, so only then does
+                it take space above the section. The change log lives in the
+                section header as quiet meta, so there is no brief banner here. */}
+            {!interruptDismissed && interruptChanges.length > 0 && (
               <div className="px-4 pt-3">
-                {!interruptDismissed && (
-                  <DeckInterruptBanner
-                    interrupts={interruptChanges}
-                    onRestore={handleRestore}
-                    onDismiss={() => setInterruptDismissed(true)}
-                  />
-                )}
-                {!briefDismissed && (
-                  <DeckChangeBrief
-                    changes={plan.changes ?? []}
-                    versions={versions}
-                    currentDeckId={plan.deckId}
-                    onRevert={handleRevert}
-                    onDismiss={() => setBriefDismissed(true)}
-                    compact
-                  />
-                )}
+                <DeckInterruptBanner
+                  interrupts={interruptChanges}
+                  onRestore={handleRestore}
+                  onDismiss={() => setInterruptDismissed(true)}
+                />
               </div>
             )}
             <DeckFocusedView
               items={filteredItems}
               framing={plan.framing}
+              changes={plan.changes ?? []}
+              versions={versions}
+              currentDeckId={plan.deckId}
+              onRevert={handleRevert}
               onComplete={handleComplete}
               onStart={handleStart}
               onNotToday={handleNotToday}
