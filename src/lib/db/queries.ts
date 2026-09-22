@@ -6611,6 +6611,26 @@ export function listChatEventsAfter(sessionId: string, afterId: string, limit = 
 }
 
 /**
+ * Provider identity columns for every event in a session, with no content or
+ * raw payload. Backs Codex transcript reconcile, which has to know which turns
+ * and items the live stream already persisted before it replays the on-disk
+ * rollout (see `codexLiveCoverage`).
+ */
+export function listChatEventIdentities(
+  sessionId: string,
+): Pick<ChatEventRecord, 'externalTurnId' | 'externalMessageId' | 'externalToolCallId'>[] {
+  return getDb()
+    .select({
+      externalTurnId: chatEvents.externalTurnId,
+      externalMessageId: chatEvents.externalMessageId,
+      externalToolCallId: chatEvents.externalToolCallId,
+    })
+    .from(chatEvents)
+    .where(eq(chatEvents.sessionId, sessionId))
+    .all();
+}
+
+/**
  * Sessions currently stuck on a given chat_event source (typically
  * `auth_required`), enriched with the most recent user-message text so
  * the floating "Resume sessions" card can render a preview and resend

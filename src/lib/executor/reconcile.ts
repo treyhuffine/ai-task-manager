@@ -12,13 +12,14 @@
  *     unique index makes replay-vs-live collisions a no-op. Reconcile
  *     is safe to run even while a turn is mid-flight.
  *
- *   - Codex yields `CodexTranscriptLine`s. No stable wire id ships
- *     with each line, so the live and replay paths produce distinct
- *     `externalEventId`s for the same logical event. To avoid
- *     duplicates we only reconcile when the executor's `isRunning`
- *     flag is false for that session — the live stream is the source
- *     of truth during active turns; reconcile only catches up
- *     afterwards (or after a crash).
+ *   - Codex yields `CodexTranscriptLine`s in a different vocabulary
+ *     from the live stream, under different synthetic ids, so the
+ *     index can't dedup replay against live. Two guards instead: we
+ *     only reconcile while the executor's `isRunning` flag is false
+ *     (the live stream owns an active turn), and every replayed line
+ *     goes through `createCodexReplayFilter`, which drops turns the
+ *     live stream already wrote. Without that filter, every turn
+ *     replayed a second time on the next send or session open.
  *
  * Drift detection is a single `fs.stat`. First-ever reconcile per
  * session initializes the cursor at the current head without
@@ -49,6 +50,7 @@ import {
   getAgent,
   getExternalSessionImportForChat,
   insertChatEvent,
+  listChatEventIdentities,
 } from '@/lib/db/queries';
 import {
   publishReconcileStarted,
@@ -57,7 +59,7 @@ import {
 import type { ChatSessionRecord, ChatSessionWithExecution } from '@/db/types';
 import { mapHarnessToProvider } from './harness';
 import { persistStreamEvent, resolveCwd, isRunning } from './adapter';
-import { mapCodexLineToInput } from './codex-on-disk';
+import { codexLiveCoverage, createCodexReplayFilter, mapCodexLineToInput } from './codex-on-disk';
 import { runtimeContextForHarness } from '@/lib/agents/runtime';
 
 export interface ReconcileResult {
@@ -390,11 +392,11 @@ async function reconcileCodexSession(session: ChatSessionWithExecution): Promise
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
   }
 
-  // Codex events carry no stable wire id, so replay can't dedup
-  // against a concurrent live stream at the DB level. Defer to the
-  // live path while a turn is in flight; the reconcile sweep on the
-  // next cold start (or on the next session-open after the turn
-  // ends) will catch up any drift that's accumulated.
+  // Replay can't dedup against a concurrent live stream: the replay
+  // filter below only knows about turns that already have live rows,
+  // and a turn that just started may not have any yet. Defer to the
+  // live path while a turn is in flight; the next session-open, send,
+  // or cold start catches up afterwards.
   if (isRunning(session.id)) {
     return { drift: false, replayed: 0, skipped: 'running' };
   }
@@ -431,21 +433,22 @@ async function reconcileCodexSession(session: ChatSessionWithExecution): Promise
   publishReconcileStarted(session.id);
   let replayed = 0;
   let lastOffset = session.externalSyncOffset!;
+  const isUnseen = createCodexReplayFilter(codexLiveCoverage(listChatEventIdentities(session.id)));
 
   try {
     for await (const yielded of readCodexTranscript({
       filePath,
       fromOffset: lastOffset,
     })) {
-      const input = mapCodexLineToInput(session.id, yielded.event);
       // Advance the byte cursor regardless — lines we drop (telemetry,
-      // metadata, dupes) are still consumed and shouldn't be re-read
-      // on the next reconcile.
+      // metadata, turns the live stream already wrote) are still consumed
+      // and shouldn't be re-read on the next reconcile.
       lastOffset = yielded.offset;
-      if (input) {
-        insertChatEvent(input);
-        replayed++;
-      }
+      // The filter tracks the current turn, so it sees every line, even
+      // the ones the mapper would drop.
+      if (!isUnseen(yielded.event)) continue;
+      const input = mapCodexLineToInput(session.id, yielded.event);
+      if (input && insertChatEvent(input)) replayed++;
     }
   } catch (err) {
     console.error(`[reconcile] codex replay failed for ${session.id}:`, err);
