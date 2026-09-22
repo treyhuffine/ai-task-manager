@@ -962,6 +962,7 @@ export function DeckContainer() {
                     currentDeckId={plan.deckId}
                     onRevert={handleRevert}
                     onDismiss={() => setBriefDismissed(true)}
+                    compact
                   />
                 )}
               </div>

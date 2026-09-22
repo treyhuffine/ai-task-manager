@@ -34,9 +34,15 @@ export function DeckDayBar({ items, completedItems, routines, onRoutineComplete,
   const completedCount = completedItems.length;
   const routinesDone = routines.filter(r => r.completedCount >= r.targetCount).length;
 
+  // The action row is only worth its border when it has something in it. With
+  // the add button hidden (focused layout) and nothing done or habitual yet, it
+  // would otherwise render as an empty bordered bar.
+  const showActionRow = addTaskVariant !== 'hidden' || completedCount > 0 || routines.length > 0;
+
   return (
     <div className="relative">
       <DayShapeStrip items={items} />
+      {showActionRow && (
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-border/50">
         {/* Left side — add task button + completed count */}
         <div className="flex items-center gap-3">
@@ -98,6 +104,7 @@ export function DeckDayBar({ items, completedItems, routines, onRoutineComplete,
           </button>
         )}
       </div>
+      )}
 
       {/* Dropdown panels */}
       {openDropdown === 'completed' && completedCount > 0 && (

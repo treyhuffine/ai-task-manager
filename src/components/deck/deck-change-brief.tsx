@@ -18,6 +18,9 @@ interface DeckChangeBriefProps {
   currentDeckId?: string;
   onRevert?: (deckId: string) => void;
   onDismiss: () => void;
+  /** Slim, card-less one-liner — for the focused layout where the full banner
+   *  reads as too loud. Same content and history escape hatch, quieter frame. */
+  compact?: boolean;
 }
 
 const ORIGIN_LABEL: Record<string, string> = {
@@ -48,6 +51,7 @@ export function DeckChangeBrief({
   currentDeckId,
   onRevert,
   onDismiss,
+  compact = false,
 }: DeckChangeBriefProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -67,6 +71,60 @@ export function DeckChangeBrief({
   if (moved > 0) parts.push(`${moved} moved off`);
   const summary = parts.join(' · ');
   const lead = fromCalendar ? 'Adjusted for a calendar change' : 'Reconciled from your last deck';
+  const summaryLine = summary ? `${lead}: ${summary}.` : 'Earlier versions of today’s deck are available.';
+
+  const versionRows = versions.map(v => {
+    const isCurrent = v.id === currentDeckId;
+    return (
+      <div key={v.id} className="flex items-center gap-2 py-1 text-[10px]">
+        <span className={cn('flex-1 truncate', isCurrent ? 'text-foreground' : 'text-muted-foreground')}>
+          {originLabel(v.origin)}
+          <span className="text-muted-foreground/50 ml-1.5">{timeLabel(v.createdAt)}</span>
+        </span>
+        {isCurrent ? (
+          <span className="inline-flex items-center gap-1 text-primary/70">
+            <Check className="w-2.5 h-2.5" /> current
+          </span>
+        ) : (
+          <button
+            onClick={() => onRevert?.(v.id)}
+            className="px-2 py-0.5 rounded-md text-primary hover:bg-primary/10 transition-colors font-medium"
+          >
+            Use this
+          </button>
+        )}
+      </div>
+    );
+  });
+
+  // Focused layout: a quiet one-liner instead of the bordered card, with the
+  // same summary, history toggle, and dismiss.
+  if (compact) {
+    return (
+      <div className="mb-2 px-1">
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate">{summaryLine}</span>
+          {hasHistory && (
+            <button
+              onClick={() => setHistoryOpen(o => !o)}
+              className="shrink-0 inline-flex items-center gap-1 hover:text-foreground transition-colors"
+            >
+              <History className="w-2.5 h-2.5" />
+              {historyOpen ? 'Hide' : `Versions (${versions.length})`}
+            </button>
+          )}
+          <button
+            onClick={onDismiss}
+            className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors"
+            title="Dismiss"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+        {historyOpen && hasHistory && <div className="mt-1.5 space-y-0.5">{versionRows}</div>}
+      </div>
+    );
+  }
 
   return (
     <div className="mb-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
@@ -100,32 +158,7 @@ export function DeckChangeBrief({
       {/* Earlier versions — the revert escape hatch */}
       {historyOpen && hasHistory && (
         <div className="mt-2 pt-2 border-t border-border/60 space-y-0.5">
-          {versions.map(v => {
-            const isCurrent = v.id === currentDeckId;
-            return (
-              <div
-                key={v.id}
-                className="flex items-center gap-2 py-1 text-[10px]"
-              >
-                <span className={cn('flex-1 truncate', isCurrent ? 'text-foreground' : 'text-muted-foreground')}>
-                  {originLabel(v.origin)}
-                  <span className="text-muted-foreground/50 ml-1.5">{timeLabel(v.createdAt)}</span>
-                </span>
-                {isCurrent ? (
-                  <span className="inline-flex items-center gap-1 text-primary/70">
-                    <Check className="w-2.5 h-2.5" /> current
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => onRevert?.(v.id)}
-                    className="px-2 py-0.5 rounded-md text-primary hover:bg-primary/10 transition-colors font-medium"
-                  >
-                    Use this
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          {versionRows}
         </div>
       )}
     </div>

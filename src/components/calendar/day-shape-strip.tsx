@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarPlus, Sparkles, X } from 'lucide-react';
+import { CalendarPlus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDayShape } from '@/hooks/use-day-shape';
@@ -193,8 +193,7 @@ export function DayShapeStrip({
         </button>
 
         {pairing && (
-          <p className="flex items-center gap-1.5 px-4 pb-1.5 text-[10px] text-muted-foreground">
-            <Sparkles className="w-2.5 h-2.5 text-primary/60 shrink-0" />
+          <p className="px-4 pb-1.5 text-[10px] text-muted-foreground">
             <span className="truncate">
               {pairing.window} · good window for{' '}
               <span className="text-foreground/80">{pairing.title}</span>

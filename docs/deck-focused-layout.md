@@ -20,18 +20,21 @@ nature. This trial keeps the command center but gives it a hero and a floor, so
 `DeckFocusedView` (`src/components/deck/deck-focused-view.tsx`) replaces the
 dense body when the pref is `focused`:
 
-- **Hero** — the top-ranked next action as a prominent card (title, area/parent,
-  deadline/energy/effort pills, rationale) with a primary **Focus** button
-  (drops into the immersive focus surface via `enterFocusMode`) and a **Start**
-  button, plus quiet complete / not-today actions. Empty state when nothing is
-  queued.
-- **A persistent quick-add composer** right below the hero (the redesigned
+- **The same ranked stack, flat and whole.** No hero, nothing singled out as the
+  "top" task, nothing collapsed. Work is parallel in the agent world, so the
+  deck does not pretend there is one next thing; the `DeckStack` renders every
+  item, drag-reorder included, exactly as classic does.
+- **A persistent quick-add composer** inline at the top (the redesigned
   `DeckAddComposer`); new tasks land at the top, ready to work on.
 - **A compact ribbon** for status, one tap away: `N in progress · M to review`
   (expands the existing `CurrentWorkSection` inline) and `N to triage` (opens
-  Stream). Each is a chip, not a section, so it never takes the hero's space.
-- **"The rest of today (N)"** — the remaining ranked stack, collapsed by default,
-  expands to the full `DeckStack` (drag-reorder included).
+  Stream). Each is a chip, not a full section, so status stops dominating the
+  surface.
+
+The point of the layout is not a hero — it is stripping the console around the
+stack: the in-progress section and triage prompt fold into the ribbon, the
+change brief drops to a quiet one-liner, and the empty chrome (an empty day-bar
+row, the pairing spark icon) is gone.
 
 ## What is unchanged
 
