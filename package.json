@@ -28,7 +28,7 @@
     "db:embed": "dotenv -e .env.local -- tsx src/lib/embeddings/backfill.ts",
     "eval:triage": "dotenv -e .env.local -- tsx scripts/eval-triage.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/db-migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "auth:pair": "tsx scripts/pair.ts",

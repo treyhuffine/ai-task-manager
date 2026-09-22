@@ -1,11 +1,11 @@
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as sqliteVec from 'sqlite-vec';
 import fs from 'fs';
 import path from 'path';
 import { getDbPath, ensureBrainDir, DB_PATH_ENV } from '@/lib/config/paths';
 import * as schema from './schema';
+import { runMigrations } from './migrate';
 
 export type DB = BetterSQLite3Database<typeof schema>;
 
@@ -322,14 +322,15 @@ export function getDb(dbPath?: string): DB {
   const sqlite = new Database(resolvedPath);
   sqliteVec.load(sqlite);
   sqlite.pragma('journal_mode = WAL');
-  sqlite.pragma('foreign_keys = ON');
 
   rawInstance = sqlite;
   dbInstance = drizzle(sqlite, { schema, casing: 'snake_case' });
 
-  // Drizzle migrations — creates/alters tables defined in schema.ts
+  // Drizzle migrations: creates/alters tables defined in schema.ts. Runs with
+  // foreign keys off and verifies them before commit, then leaves them ON for
+  // the connection. See runMigrations for why this isn't Drizzle's migrate().
   const migrationsFolder = path.resolve(process.cwd(), 'drizzle');
-  migrate(dbInstance, { migrationsFolder });
+  runMigrations(sqlite, migrationsFolder);
 
   // FTS, triggers, sqlite-vec, and seed data
   sqlite.exec(EXTRA_SQL);

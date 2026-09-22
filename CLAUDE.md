@@ -24,7 +24,7 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - `pnpm ts` — typecheck (tsc --noEmit)
 - `pnpm lint` — ESLint
 - `pnpm db:push` — push schema to SQLite
-- `pnpm db:generate` / `pnpm db:migrate` — Drizzle migrations
+- `pnpm db:generate` / `pnpm db:migrate` — generate / apply Drizzle migrations (`db:migrate` uses the app's safe runner, never `drizzle-kit migrate`)
 - `pnpm db:seed` — seed dev data
 - `pnpm db:reset` — reset and re-seed
 
@@ -51,6 +51,7 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - Boolean columns carry NO schema default, ever. State-like flags get a write-time `input.x ?? value` in their query-layer creator (e.g. `triggers.enabled ?? true`); preference flags are nullable and resolved `?? value` at read time so NULL keeps meaning "user never chose" (e.g. `userState.voiceAutoSend`); fact flags (`workspaces.isGit`) are required params with no fallback anywhere — a forgotten fact is a bug, not a default.
 - NEVER put a DB default on a column whose value encodes a POLICY or business choice that could change (an entity's initial status, a mode, a model id, a routing policy). The schema carries ZERO policy defaults (enforced by the 2026-09 baseline squash — see `docs/schema-defaults.md`): the query-layer creator sets the value explicitly (as `createTask` does with `status: 'todo'`), and the matching `Create*Input` type in `src/db/types.ts` re-optionalizes the field via `PolicyOptional` so callers may still omit it. A new policy column follows that same pattern: NOT NULL, no default, creator supplies the value.
 - If you must change/remove a default on a populated table, do NOT accept drizzle's generated table rebuild. Hand-roll a rowid-safe column swap in the migration (`RENAME COLUMN x TO x_old` / `ADD COLUMN x ... DEFAULT ...` / `UPDATE x = x_old` / drop dependent indexes / `DROP COLUMN x_old` / recreate the indexes). Column-level ALTERs preserve rowids, so FTS stays intact. Worked example: `drizzle/0016_lyrical_network.sql` in git history (pre-squash) or `personal/schema-rebuild/drizzle-pre-squash/`.
+- Migrations apply through `runMigrations` (`src/lib/db/migrate.ts`, used at boot and by `pnpm db:migrate`): foreign keys OFF for the whole migration, `foreign_key_check` before COMMIT, so a table rebuild never cascades into child tables and a migration that breaks a link rolls back. Never apply migrations with `drizzle-kit migrate`. better-sqlite3 opens connections with foreign keys ON and Drizzle's runner wraps migrations in one transaction (where `PRAGMA foreign_keys=OFF` is ignored), so a `chat_sessions` rebuild would delete every chat message. A rebuild still reassigns rowids unless it copies `rowid` explicitly. Worked example: `drizzle/0001_retire_agents_table.sql`.
 
 ## Attachments
 
