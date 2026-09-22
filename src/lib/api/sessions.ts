@@ -273,19 +273,6 @@ export interface ResumeFromTakeoverResponse {
   sessionId: string;
 }
 
-/**
- * `chat_sessions` row plus a sidecar `agentHarness` field that the GET
- * endpoint joins in. Used by the composer to pick the right model
- * catalog without a second fetch.
- *
- * Extends `ChatSessionWithExecution` (not the bare row) because the GET
- * endpoint flattens the execution's worktree/branch/PR/setup/takeover
- * state onto the response. Reads of `worktreePath` etc. on this type are
- * execution-sourced.
- */
-export interface ChatSessionWithAgent extends ChatSessionWithExecution {
-  agentHarness: string | null;
-}
 
 /**
  * Wire shape of a rail session row — flattened chat_session + execution
@@ -415,8 +402,8 @@ export interface ExecutionChatHistoryEntry {
 }
 
 export const sessionsApi = {
-  get(id: string): Promise<ChatSessionWithAgent> {
-    return api.get<ChatSessionWithAgent>(`/sessions/${id}`);
+  get(id: string): Promise<ChatSessionWithExecution> {
+    return api.get<ChatSessionWithExecution>(`/sessions/${id}`);
   },
 
   update(
@@ -674,8 +661,8 @@ export const sessionsApi = {
   newChat(
     id: string,
     opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel },
-  ): Promise<{ session: ChatSessionWithAgent }> {
-    return api.post<{ session: ChatSessionWithAgent }>(`/sessions/${id}/new-chat`, opts ?? {});
+  ): Promise<{ session: ChatSessionWithExecution }> {
+    return api.post<{ session: ChatSessionWithExecution }>(`/sessions/${id}/new-chat`, opts ?? {});
   },
 
   /** Past + current chats for this execution, newest first. */

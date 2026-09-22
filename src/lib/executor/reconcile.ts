@@ -47,7 +47,6 @@ import {
   listReconcilableSessions,
   listStuckBootstrapExecutions,
   recordExecutionSetupError,
-  getAgent,
   getExternalSessionImportForChat,
   insertChatEvent,
   listChatEventIdentities,
@@ -57,7 +56,6 @@ import {
   publishReconcileDone,
 } from '@/lib/realtime/bus';
 import type { ChatSessionRecord, ChatSessionWithExecution } from '@/db/types';
-import { mapHarnessToProvider } from './harness';
 import { persistStreamEvent, resolveCwd, isRunning } from './adapter';
 import { codexLiveCoverage, createCodexReplayFilter, mapCodexLineToInput } from './codex-on-disk';
 import { runtimeContextForHarness } from '@/lib/agents/runtime';
@@ -158,8 +156,7 @@ export async function reconcileSession(sessionId: string): Promise<ReconcileResu
       return { drift: false, replayed: 0, skipped: 'no_external_session' };
     }
 
-    const agent = getAgent(session.agentId);
-    const provider = agent ? mapHarnessToProvider(agent.harness) : null;
+    const provider = session.harness;
     if (provider === 'claude') return await reconcileClaudeSession(session);
     if (provider === 'codex') return await reconcileCodexSession(session);
     if (provider === 'opencode') return await reconcileOpenCodeSession(session);

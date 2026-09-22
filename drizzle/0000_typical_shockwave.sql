@@ -27,22 +27,6 @@ CREATE TABLE `agent_harness_settings` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `agent_harness_settings_harness_unique` ON `agent_harness_settings` (`harness`);--> statement-breakpoint
-CREATE TABLE `agents` (
-	`id` text PRIMARY KEY NOT NULL,
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
-	`user_id` text DEFAULT 'local' NOT NULL,
-	`kind` text NOT NULL,
-	`name` text NOT NULL,
-	`role` text,
-	`harness` text NOT NULL,
-	`config` text DEFAULT '{}' NOT NULL,
-	`status` text NOT NULL,
-	`archived_at` text
-);
---> statement-breakpoint
-CREATE INDEX `idx_agents_kind` ON `agents` (`kind`);--> statement-breakpoint
-CREATE INDEX `idx_agents_status` ON `agents` (`status`);--> statement-breakpoint
 CREATE TABLE `api_keys` (
 	`id` text PRIMARY KEY NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
@@ -129,7 +113,7 @@ CREATE TABLE `chat_sessions` (
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
 	`user_id` text DEFAULT 'local' NOT NULL,
-	`agent_id` text NOT NULL,
+	`harness` text NOT NULL,
 	`type` text NOT NULL,
 	`surface_kind` text,
 	`surface_ref` text,
@@ -157,7 +141,6 @@ CREATE TABLE `chat_sessions` (
 	`tab_sort_key` text,
 	`started_at` text DEFAULT (datetime('now')) NOT NULL,
 	`archived_at` text,
-	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`execution_id`) REFERENCES `executions`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`created_by_run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE set null
@@ -165,7 +148,6 @@ CREATE TABLE `chat_sessions` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `chat_sessions_external_provider_session_uq` ON `chat_sessions` (`external_provider_type`,`external_session_id`) WHERE "chat_sessions"."external_provider_type" IS NOT NULL AND "chat_sessions"."external_session_id" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX `idx_chat_sessions_workspace_status` ON `chat_sessions` (`workspace_id`,`status`,`last_activity_at`);--> statement-breakpoint
-CREATE INDEX `idx_chat_sessions_agent_status` ON `chat_sessions` (`agent_id`,`status`);--> statement-breakpoint
 CREATE INDEX `idx_chat_sessions_type_status` ON `chat_sessions` (`type`,`status`);--> statement-breakpoint
 CREATE INDEX `idx_chat_sessions_execution_status_activity` ON `chat_sessions` (`execution_id`,`status`,`last_activity_at`);--> statement-breakpoint
 CREATE TABLE `decks` (
@@ -421,7 +403,7 @@ CREATE TABLE `runs` (
 	`workspace_id` text,
 	`execution_id` text,
 	`chat_session_id` text,
-	`agent_id` text NOT NULL,
+	`harness` text NOT NULL,
 	`trigger_kind` text NOT NULL,
 	`trigger_payload` text,
 	`scheduled_for` text,
@@ -444,8 +426,7 @@ CREATE TABLE `runs` (
 	FOREIGN KEY (`trigger_id`) REFERENCES `triggers`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`execution_id`) REFERENCES `executions`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`chat_session_id`) REFERENCES `chat_sessions`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`chat_session_id`) REFERENCES `chat_sessions`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
 CREATE INDEX `idx_runs_trigger_status` ON `runs` (`trigger_id`,`status`);--> statement-breakpoint
@@ -546,7 +527,6 @@ CREATE TABLE `tasks` (
 	`user_context` text,
 	`ai_context` text,
 	`outcome` text,
-	`heartbeat_days` integer,
 	`last_progress_at` text,
 	`energy` text,
 	`effort` text,
@@ -629,7 +609,7 @@ CREATE TABLE `triggers` (
 	`name` text NOT NULL,
 	`description` text,
 	`enabled` integer NOT NULL,
-	`agent_id` text NOT NULL,
+	`harness` text NOT NULL,
 	`workspace_id` text,
 	`target_kind` text NOT NULL,
 	`prompt` text NOT NULL,
@@ -657,7 +637,6 @@ CREATE TABLE `triggers` (
 	`consecutive_failures` integer DEFAULT 0 NOT NULL,
 	`disabled_reason` text,
 	`deliver_result_to` text DEFAULT '[]' NOT NULL,
-	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`owning_execution_id`) REFERENCES `executions`(`id`) ON UPDATE no action ON DELETE set null
 );

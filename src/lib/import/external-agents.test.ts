@@ -258,7 +258,6 @@ describe('external agent imports', () => {
     // chat_sessions and writes NO external_session_imports ledger row. The
     // ledger-only dedup used to miss these, so the same transcript scanned back
     // off disk as foreign and reappeared in the launcher's Import tab.
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
     const workspace = q.createWorkspace({
       name: 'project-one',
       cwd: projectOne,
@@ -273,7 +272,7 @@ describe('external agent imports', () => {
       archivedAt: null,
     });
     const liveChat = q.createChatSession({
-      agentId: executor.id,
+      harness: 'claude',
       type: 'execution',
       surfaceKind: 'live',
       surfaceRef: 'claude',

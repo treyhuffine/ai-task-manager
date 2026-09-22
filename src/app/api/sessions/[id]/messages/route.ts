@@ -1,7 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import {
-  getAgent,
   getChatEventById,
   getChatSessionWithExecution,
   getExecution,
@@ -205,8 +204,7 @@ export async function POST(
     // and get a retrospective summary at archive time instead
     // (`deriveRetrospectiveLabel`). See docs/orchestrator-harness.md.
     if (!session.label && !isRetry && session.type !== 'orchestration') {
-      const agent = getAgent(session.agentId);
-      void deriveAndSetSessionLabel(id, expanded, agent?.harness ?? 'claude_code');
+      void deriveAndSetSessionLabel(id, expanded, session.harness);
     }
 
     // Self-heal in-memory state before dispatch. Catches the dead

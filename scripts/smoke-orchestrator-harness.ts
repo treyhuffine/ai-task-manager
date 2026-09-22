@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import pc from 'picocolors';
 
-import { APP_ROOT_ENV, getTestAppRoot } from '../src/lib/config/paths';
+import { APP_ROOT_ENV, getConfigPath, getTestAppRoot } from '../src/lib/config/paths';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -183,7 +183,7 @@ async function main() {
     const healthy = await waitForHealth(port, 60_000);
     if (!healthy) throw new Error(`server never came up on :${port}`);
 
-    const token = readLocalToken(TEST_ROOT);
+    const token = readLocalToken();
     const ctx: Ctx = { port, token };
 
     // ── Phase 1: harness_mcp ─────────────────────────────────────
@@ -277,7 +277,7 @@ async function main() {
     // this script is off the table: tsx compiles the static import chain
     // executor → @agentex/agent as CJS, and agentex ships ESM-only.)
     console.log(pc.bold('\n  Phase 3: scheduled orchestrator fire'));
-    const { schedule } = await apiFetch<{ schedule: { id: string } }>(ctx, '/schedules', {
+    const { trigger } = await apiFetch<{ trigger: { id: string; harness: string } }>(ctx, '/triggers', {
       method: 'POST',
       body: JSON.stringify({
         name: `harness-smoke-${STAMP}`,
@@ -290,12 +290,22 @@ async function main() {
     const { run, chatSessionId } = await apiFetch<{
       run: { id: string };
       chatSessionId: string | null;
-    }>(ctx, `/schedules/${schedule.id}?action=run`, { method: 'POST', body: '{}' });
+    }>(ctx, `/triggers/${trigger.id}?action=run`, { method: 'POST', body: '{}' });
     if (!chatSessionId) throw new Error('scheduled fire produced no chat session');
     console.log(pc.dim(`  run: ${run.id.slice(0, 8)}… chat: ${chatSessionId.slice(0, 8)}…`));
 
+    // The engine travels trigger → run → chat as a plain `harness` column
+    // (the old `agents` table indirection is gone).
+    const firedChat = await apiFetch<{ harness: string }>(ctx, `/sessions/${chatSessionId}`);
+    if (firedChat.harness === trigger.harness) {
+      ok(`scheduled chat runs on the trigger's harness (${trigger.harness})`);
+    } else {
+      fail(`scheduled chat harness ${firedChat.harness} ≠ trigger harness ${trigger.harness}`);
+    }
+
     interface RunRow {
       status: string;
+      harness: string;
       errorMessage?: string | null;
     }
     const deadline = Date.now() + TURN_TIMEOUT_MS;
@@ -308,6 +318,8 @@ async function main() {
     }
     if (runRow?.status === 'completed') {
       ok('scheduled orchestrator run completed (no "no resolvable cwd")');
+      if (runRow.harness === trigger.harness) ok(`run recorded its harness (${runRow.harness})`);
+      else fail(`run harness ${runRow.harness} ≠ trigger harness ${trigger.harness}`);
     } else {
       fail(`scheduled run ended ${runRow?.status ?? 'unknown'} ${runRow?.errorMessage ?? ''}`);
     }
@@ -336,7 +348,7 @@ async function main() {
     // its harness process is closed (executor.close) before we take the
     // server down — otherwise idle `claude` subprocesses can orphan.
     try {
-      const token = readLocalToken(TEST_ROOT);
+      const token = readLocalToken();
       await fetch(`http://localhost:${port}/api/orchestrator-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -357,8 +369,11 @@ function toolNames(events: SessionEvent[]): string {
   );
 }
 
-function readLocalToken(root: string): string {
-  const cfg = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8')) as {
+function readLocalToken(): string {
+  // The token lives in `<app-root>/.config/config.json`. Resolve it through the
+  // paths helper (TEST_ROOT is already in APP_ROOT_ENV) rather than rebuilding
+  // the layout here, which is how this drifted when `.config/` was introduced.
+  const cfg = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8')) as {
     localToken?: string;
   };
   if (!cfg.localToken) throw new Error('localToken missing from config.json');

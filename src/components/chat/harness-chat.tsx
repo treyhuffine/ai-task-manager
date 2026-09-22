@@ -24,6 +24,7 @@ import { SyncingPill } from '@/components/executions/syncing-pill';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { ApiError } from '@/lib/api/client';
 import type { EffortLevel } from '@/db/types';
+import { providerHarnessKey } from '@/lib/agent-options';
 
 /**
  * The harness-backed orchestrator chat — the dashboard Chat tab when
@@ -198,7 +199,7 @@ export function HarnessChatSession({
           model={session.model}
           modelVariant={session.modelVariant}
           effort={session.effort}
-          harness={session.agentHarness ?? null}
+          harness={providerHarnessKey(session.harness)}
           submitOnEnter={!isMobile}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}

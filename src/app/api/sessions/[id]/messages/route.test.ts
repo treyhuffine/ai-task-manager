@@ -29,7 +29,6 @@ const getChatSessionWithExecution = vi.fn();
 const getExecution = vi.fn();
 const insertChatEvent = vi.fn();
 const materializeEventRefs = vi.fn();
-const getAgent = vi.fn();
 const budgetGate = vi.fn(() => 'ok');
 const dispatch = vi.fn(async () => {});
 const PREPARATION_REF = { generation: 1, kind: 'preparation' as const };
@@ -55,7 +54,6 @@ vi.mock('@/lib/db/queries', () => ({
     (insertChatEvent as unknown as (input: unknown) => unknown)(input),
   materializeEventRefs: (a: string, b: string, c: string) =>
     (materializeEventRefs as unknown as (...args: unknown[]) => unknown)(a, b, c),
-  getAgent: (id: string) => (getAgent as unknown as (id: string) => unknown)(id),
   getExecution: (id: string) => (getExecution as unknown as (id: string) => unknown)(id),
 }));
 
@@ -118,7 +116,6 @@ beforeEach(() => {
   getChatSessionWithExecution.mockReset();
   insertChatEvent.mockReset();
   materializeEventRefs.mockReset();
-  getAgent.mockReset();
   getExecution.mockReset().mockReturnValue({ id: EXECUTION_ID, workspaceId: 'ws-1', worktreePath: null });
   budgetGate.mockReset().mockReturnValue('ok');
   dispatch.mockReset().mockResolvedValue(undefined);
@@ -134,12 +131,11 @@ beforeEach(() => {
     id: SESSION_ID,
     status: 'active',
     executionId: EXECUTION_ID,
-    agentId: 'agent-1',
+    harness: 'claude',
     label: 'Test',
     workspaceId: 'ws-1',
     takeoverStartedAt: null,
   });
-  getAgent.mockReturnValue({ id: 'agent-1', harness: 'claude_code' });
 });
 
 describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {

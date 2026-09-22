@@ -20,7 +20,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, RotateCcw, Beaker, Zap, RefreshCw } from 'lucide-react';
 import { DashboardProvider } from '@/contexts/dashboard-context';
 import { api, ApiError } from '@/lib/api/client';
-import { sessionsApi, type ChatSessionWithAgent } from '@/lib/api/sessions';
+import { sessionsApi } from '@/lib/api/sessions';
+import type { ChatSessionWithExecution } from '@/db/types';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
 import { SCENARIOS, SCENARIO_CATEGORIES, type Scenario, type InjectBody } from '@/lib/dev/scenarios';
@@ -28,7 +29,7 @@ import type { WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
 
 interface ScratchResponse {
-  session: ChatSessionWithAgent;
+  session: ChatSessionWithExecution;
   workspace: WorkspaceRecord;
 }
 

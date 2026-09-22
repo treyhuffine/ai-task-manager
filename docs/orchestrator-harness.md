@@ -17,8 +17,8 @@ clobbering what works.
 ## How a harness orchestrator session works
 
 1. The Chat tab (harness modes) ensures a persistent `type='orchestration'`
-   chat session via `GET /api/orchestrator-chat` (created against the default
-   orchestrator agent, `getOrCreateDefaultOrchestrator`). "New" archives it
+   chat session via `GET /api/orchestrator-chat` (created on the user's
+   default harness, stored as `chat_sessions.harness`). "New" archives it
    and starts fresh (`POST /api/orchestrator-chat`).
 2. Sends go through the normal sessions API (`POST /api/sessions/:id/messages`)
    into `executor.dispatch` — the same adapter executions use.

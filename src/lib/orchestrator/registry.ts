@@ -70,7 +70,6 @@ import {
   searchChatSessions,
   listRailSessions,
   getChatSession,
-  getAgent,
   listChatEvents,
   listTriggersWithLastRun,
   getTrigger,
@@ -85,7 +84,7 @@ import {
   resetTriggerFailures,
   listNotificationChannels,
   getNotificationChannel,
-  getOrCreateTriggerAgent,
+  defaultTriggerHarness,
   withTriggerProvider,
   getAgentHarnessSettings,
   getStreamAutonomy,
@@ -110,12 +109,11 @@ import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/worksp
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { isReservedTrigger, RESERVED_LOCKED_FIELDS } from '@/lib/triggers/reserved';
-import { HARNESS_IDS, resumeCommandForHarness, type HarnessId } from '@/lib/agents/registry';
+import { HARNESS_IDS, HARNESS_REGISTRY, resumeCommandForHarness, type HarnessId } from '@/lib/agents/registry';
 import {
   customModelOption,
   modelBelongsToProvider,
   modelsForProvider,
-  providerIdForHarness,
 } from '@/lib/agent-options';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
@@ -1580,13 +1578,12 @@ const list_executions_action = defineAction({
       live: live !== null,
       executions: rows.map((r) => {
         const running = live?.runningSessionIds.includes(r.id) ?? false;
-        const agentHarness = getAgent(r.agentId)?.harness ?? null;
         return {
           sessionId: r.id,
           executionId: r.executionId,
           externalSessionId: r.externalSessionId,
-          agentHarness,
-          resumeCommand: resumeCommandForHarness(agentHarness, r.externalSessionId),
+          harness: r.harness,
+          resumeCommand: resumeCommandForHarness(r.harness, r.externalSessionId),
           label: r.label,
           workspace: { id: r.workspaceId, name: r.workspaceName },
           branch: r.execution?.branchName ?? null,
@@ -1622,7 +1619,6 @@ const get_session_messages_action = defineAction({
   handler: async (_ctx, { sessionId, limit }) => {
     const session = getChatSession(sessionId);
     if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
-    const agentHarness = getAgent(session.agentId)?.harness ?? null;
 
     const events = listChatEvents(sessionId, { limit: limit ?? 40 });
     const pending = derivePendingFromEvents(events);
@@ -1637,8 +1633,8 @@ const get_session_messages_action = defineAction({
         workspaceId: session.workspaceId,
         executionId: session.executionId,
         externalSessionId: session.externalSessionId,
-        agentHarness,
-        resumeCommand: resumeCommandForHarness(agentHarness, session.externalSessionId),
+        harness: session.harness,
+        resumeCommand: resumeCommandForHarness(session.harness, session.externalSessionId),
       },
       /** Null ⇒ server unreachable (live state unknown; nothing can be running while it is down). */
       running: live ? live.runningSessionIds.includes(sessionId) : null,
@@ -1757,14 +1753,21 @@ const triggerProvider = z.enum(HARNESS_IDS as unknown as [HarnessId, ...HarnessI
 const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped', 'cancelled']);
 const runTriggerFilter = z.enum(['manual', 'cron', 'every', 'at', 'webhook']);
 
-/** The provider an agent runs on, or null for an unknown historical harness. */
-function agentProvider(agentId: string): HarnessId | null {
-  const agent = getAgent(agentId);
-  if (!agent) return null;
-  try {
-    return providerIdForHarness(agent.harness);
-  } catch {
-    return null;
+// Every engine a stored row can name, including ones a rollout flag has since
+// switched off. Filters over history accept all of them.
+const anyHarness = z.enum(Object.keys(HARNESS_REGISTRY) as [HarnessId, ...HarnessId[]]);
+
+// `agentId` pointed at a row in the old `agents` table, which no longer exists
+// (docs/agents-view-spec.md, Phase 1). Kept in the param shapes only so a
+// caller that still sends it gets a clear error instead of having it silently
+// dropped, which would change which engine runs or which runs come back.
+const removedAgentIdParam = z.string().optional();
+function rejectRemovedAgentId(agentId: string | undefined): void {
+  if (agentId !== undefined) {
+    throw new ActionError(
+      'invalid_params',
+      'agentId was removed. Use provider to choose the engine (claude, codex, cursor, opencode).',
+    );
   }
 }
 
@@ -1864,12 +1867,10 @@ const createTriggerShape = {
   name: z.string().min(1),
   description: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
-  // Who runs it. `provider` is the normal handle: the handler picks that
-  // provider's default agent for the target (orchestrator or executor).
-  // Omitted, it resolves to the user's default provider. `agentId` pins an
-  // exact agent row and must agree with `provider` when both are given.
+  // Which engine runs each fire. Omitted, it resolves to the user's default
+  // provider.
   provider: triggerProvider.optional(),
-  agentId: z.string().min(1).optional(),
+  agentId: removedAgentIdParam,
   workspaceId: z.string().nullable().optional(),
   targetKind: triggerTargetKind,
   prompt: z.string().min(1),
@@ -1937,26 +1938,9 @@ const create_trigger_action = defineAction({
       input.targetKind,
     );
 
-    // Resolve the agent. Handler-level (not schema-level) so callers pick a
-    // provider without knowing the agent registry layout.
-    let agentId: string;
-    if (input.agentId) {
-      if (!getAgent(input.agentId)) {
-        throw new ActionError('not_found', `Agent not found: ${input.agentId}`);
-      }
-      const pinned = agentProvider(input.agentId);
-      if (input.provider && pinned !== input.provider) {
-        throw new ActionError(
-          'invalid_params',
-          `agent_id ${input.agentId} runs on ${pinned ?? 'an unknown provider'}, not ${input.provider}. Pass one or the other`,
-        );
-      }
-      agentId = input.agentId;
-    } else {
-      agentId = getOrCreateTriggerAgent(input.targetKind, input.provider).id;
-    }
-    const provider = agentProvider(agentId);
-    if (provider) assertModelFitsProvider(provider, input.model);
+    rejectRemovedAgentId(input.agentId);
+    const harness = input.provider ?? defaultTriggerHarness();
+    assertModelFitsProvider(harness, input.model);
 
     // Webhook credentials generated server-side; the plaintext secret
     // is returned exactly once on the create response.
@@ -1984,7 +1968,7 @@ const create_trigger_action = defineAction({
       name: input.name,
       description: input.description ?? null,
       enabled: input.enabled ?? true,
-      agentId,
+      harness,
       workspaceId: input.workspaceId ?? null,
       targetKind: input.targetKind,
       prompt: input.prompt,
@@ -2076,19 +2060,16 @@ const update_trigger_action = defineAction({
       }
     }
 
-    // Provider switch: repoint at that provider's agent for this target.
-    // Model and effort only mean something within one provider, so a switch
-    // that doesn't restate them resets both to the new provider's defaults
-    // instead of carrying a Claude model onto a Codex run.
-    const currentProvider = agentProvider(current.agentId);
-    let agentId: string | undefined;
-    if (provider && provider !== currentProvider) {
-      agentId = getOrCreateTriggerAgent(current.targetKind, provider).id;
+    // Provider switch. Model and effort only mean something within one
+    // provider, so a switch that doesn't restate them resets both to the new
+    // provider's defaults instead of carrying a Claude model onto a Codex run.
+    let harness: HarnessId | undefined;
+    if (provider && provider !== current.harness) {
+      harness = provider;
       if (rest.model === undefined) rest.model = null;
       if (rest.effort === undefined) rest.effort = null;
     }
-    const nextProvider = provider ?? currentProvider;
-    if (nextProvider) assertModelFitsProvider(nextProvider, rest.model);
+    assertModelFitsProvider(provider ?? current.harness, rest.model);
 
     // Verify the digest binding against the (immutable) target_kind before write.
     if (rest.deliverResultTo !== undefined) {
@@ -2123,7 +2104,7 @@ const update_trigger_action = defineAction({
       });
     }
 
-    const row = updateTrigger(id, { ...rest, ...(agentId ? { agentId } : {}), nextRunAt });
+    const row = updateTrigger(id, { ...rest, ...(harness ? { harness } : {}), nextRunAt });
     return row ? withTriggerProvider(row) : row;
   },
 });
@@ -2182,14 +2163,18 @@ const list_runs_action = defineAction({
     status: z.union([runStatusFilter, z.array(runStatusFilter)]).optional(),
     trigger: z.union([runTriggerFilter, z.array(runTriggerFilter)]).optional(),
     triggerId: z.string().optional(),
-    agentId: z.string().optional(),
+    harness: anyHarness.optional(),
+    agentId: removedAgentIdParam,
     executionId: z.string().optional(),
     workspaceId: z.string().optional(),
     since: z.string().optional(),
     limit: z.number().int().positive().max(500).optional(),
     offset: z.number().int().nonnegative().optional(),
   },
-  handler: (_ctx, input) => listRuns(input),
+  handler: (_ctx, { agentId, ...filter }) => {
+    rejectRemovedAgentId(agentId);
+    return listRuns(filter);
+  },
 });
 
 const get_run_action = defineAction({

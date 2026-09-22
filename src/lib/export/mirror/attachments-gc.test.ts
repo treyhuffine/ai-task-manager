@@ -117,7 +117,7 @@ describe('sweepAttachments', () => {
     process.env[ATTACHMENT_GC_ENV] = '1';
 
     const { getDb } = await import('@/lib/db');
-    const { agents, chatSessions, chatEvents } = await import('@/lib/db/schema');
+    const { chatSessions, chatEvents } = await import('@/lib/db/schema');
     const { dehydrateAttachments } = await import('@/lib/db/hydrate');
     const { saveAttachment } = await import('@/lib/attachments/save');
     const { sweepAttachments } = await import('./attachments-gc');
@@ -129,11 +129,8 @@ describe('sweepAttachments', () => {
     });
 
     const db = getDb();
-    db.insert(agents)
-      .values({ id: 'ag-1', kind: 'orchestrator', name: 'test', harness: 'test', status: 'active' })
-      .run();
     db.insert(chatSessions)
-      .values({ id: 'cs-1', agentId: 'ag-1', type: 'orchestration', label: 'test', status: 'active', permissionMode: 'auto_all' })
+      .values({ id: 'cs-1', harness: 'claude', type: 'orchestration', label: 'test', status: 'active', permissionMode: 'auto_all' })
       .run();
     db.insert(chatEvents)
       .values({

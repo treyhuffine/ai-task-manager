@@ -37,9 +37,8 @@ describe('listNeedsReviewSessionCandidates', () => {
     const { uuidv7 } = await import('uuidv7');
 
     // 1. Interactive orchestrator chat with an unread reply — the bug case.
-    const orch = q.getOrCreateDefaultOrchestrator('claude_code');
     const interactive = q.createChatSession({
-      type: 'orchestration', agentId: orch.id, label: null, status: 'active',
+      type: 'orchestration', harness: 'claude', label: null, status: 'active',
     });
     q.updateChatSession(interactive.id, {
       lastOutcomeEventAt: past(1), lastViewedAt: past(10),
@@ -50,9 +49,8 @@ describe('listNeedsReviewSessionCandidates', () => {
     getDb().insert(workspaces).values({
       id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
     const { session: execChat } = q.createExecutionWithChat({
-      workspaceId: wsId, agentId: executor.id, label: 'Work',
+      workspaceId: wsId, harness: 'codex', label: 'Work',
     });
     q.updateChatSession(execChat.id, {
       lastOutcomeEventAt: past(1), lastViewedAt: past(10),
@@ -61,11 +59,11 @@ describe('listNeedsReviewSessionCandidates', () => {
     // 3. Scheduled orchestration chat (created_by_run_id set) with an unread
     //    outcome — must stay: needs-review is how scheduled results surface.
     const scheduled = q.createChatSession({
-      type: 'orchestration', agentId: orch.id, label: 'Morning triage', status: 'active',
+      type: 'orchestration', harness: 'claude', label: 'Morning triage', status: 'active',
     });
     const runId = uuidv7();
     getDb().insert(runs).values({
-      id: runId, agentId: orch.id, chatSessionId: scheduled.id,
+      id: runId, harness: 'claude', chatSessionId: scheduled.id,
       triggerKind: 'cron', status: 'completed',
     }).run();
     q.updateChatSession(scheduled.id, {
@@ -89,7 +87,7 @@ describe('listNeedsReviewSessionCandidates', () => {
         name,
         description: name,
         enabled: true,
-        agentId: orch.id,
+        harness: 'claude',
         workspaceId: null,
         targetKind: 'orchestrator',
         prompt: name,
@@ -99,11 +97,11 @@ describe('listNeedsReviewSessionCandidates', () => {
         nextRunAt: new Date().toISOString(),
       });
       const chat = q.createChatSession({
-        type: 'orchestration', agentId: orch.id, label: name, status: 'active',
+        type: 'orchestration', harness: 'claude', label: name, status: 'active',
       });
       const run = q.createRun({
         triggerId: id,
-        agentId: orch.id,
+        harness: 'claude',
         chatSessionId: chat.id,
         triggerKind: 'cron',
         status: 'completed',
@@ -137,10 +135,9 @@ describe('listNeedsReviewSessionCandidates', () => {
       cwd: '/tmp/background-outcome',
       isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
-    const executor = q.getOrCreateDefaultExecutor('codex');
     const { session } = q.createExecutionWithChat({
       workspaceId,
-      agentId: executor.id,
+      harness: 'codex',
       label: 'Detached child',
     });
 

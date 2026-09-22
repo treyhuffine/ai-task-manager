@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
-import { sessionsApi, type RailResponse, type HistoryResponse, type ChatSessionWithAgent } from '@/lib/api/sessions';
+import { sessionsApi, type RailResponse, type HistoryResponse } from '@/lib/api/sessions';
 import { worktreeScopeFor } from '@/hooks/use-execution';
 import { ApiError } from '@/lib/api/client';
 import type {
@@ -208,7 +208,7 @@ export function useMarkSessionRead() {
       // Patch the open execution's own detail cache (`['session', id]`,
       // fed by useSession) so the in-view header's read affordance flips
       // instantly — that cache isn't rail-derived, so the maps above miss it.
-      qc.setQueryData<ChatSessionWithAgent>(['session', id], (prev) =>
+      qc.setQueryData<ChatSessionWithExecution>(['session', id], (prev) =>
         prev ? { ...prev, lastViewedAt: now, unreadMarkerAt: null } : prev,
       );
     },
@@ -247,7 +247,7 @@ export function useMarkSessionUnread() {
       );
       // Mirror the open execution's detail cache so an in-view "Mark unread"
       // flips the header affordance without waiting on a refetch.
-      qc.setQueryData<ChatSessionWithAgent>(['session', id], (prev) =>
+      qc.setQueryData<ChatSessionWithExecution>(['session', id], (prev) =>
         prev ? { ...prev, unreadMarkerAt: now } : prev,
       );
     },
@@ -288,7 +288,7 @@ function patchSessionPinnedInCaches(
     { predicate: (q) => q.queryKey[0] === 'workspaces' && q.queryKey[2] === 'sessions' },
     (prev) => prev?.map(bump),
   );
-  qc.setQueryData<ChatSessionWithAgent>(['session', id], (prev) =>
+  qc.setQueryData<ChatSessionWithExecution>(['session', id], (prev) =>
     prev && prev.execution ? { ...prev, execution: { ...prev.execution, pinnedAt } } : prev,
   );
 }

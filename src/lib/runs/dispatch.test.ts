@@ -55,7 +55,7 @@ async function seed() {
   resetDb();
   const db = getDb();
   const { uuidv7 } = await import('uuidv7');
-  const { workspaces, agents } = await import('@/lib/db/schema');
+  const { workspaces } = await import('@/lib/db/schema');
   const wsId = uuidv7();
   db.insert(workspaces).values({
     id: wsId,
@@ -64,22 +64,12 @@ async function seed() {
     cwd: '/tmp/testws',
     isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
-  const agentId = uuidv7();
-  db.insert(agents).values({
-    id: agentId,
-    userId: 'local',
-    kind: 'executor',
-    name: 'Test',
-    harness: 'claude_code',
-    config: {},
-    status: 'active',
-  }).run();
-  return { db, wsId, agentId };
+  return { db, wsId };
 }
 
 describe('dispatchRun', () => {
   it('recurring workspace trigger: first fire creates execution, second reuses it with a new chat', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
@@ -87,7 +77,7 @@ describe('dispatchRun', () => {
       name: 'morning-triage',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'Triage',
       kind: 'cron',
       cronExpression: '0 9 * * 1-5',
@@ -119,7 +109,7 @@ describe('dispatchRun', () => {
   });
 
   it('one-shot (kind=at) workspace trigger creates a fresh execution + chat', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
@@ -127,7 +117,7 @@ describe('dispatchRun', () => {
       name: 'recurring',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'Recurring',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -139,7 +129,7 @@ describe('dispatchRun', () => {
       name: 'tomorrow-9am',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'at',
       runAt: new Date(Date.now() + 60_000).toISOString(),
@@ -153,7 +143,7 @@ describe('dispatchRun', () => {
   });
 
   it('orchestrator-target trigger fires create chats with executionId NULL', async () => {
-    const { agentId } = await seed();
+    await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
@@ -161,7 +151,7 @@ describe('dispatchRun', () => {
       name: 'morning-summary',
       workspaceId: null,
       targetKind: 'orchestrator',
-      agentId,
+      harness: 'claude',
       prompt: 'Summarize',
       kind: 'cron',
       cronExpression: '0 9 * * 1-5',
@@ -173,7 +163,7 @@ describe('dispatchRun', () => {
   });
 
   it('skip_if_running: second fire while first is running is recorded as skipped', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
@@ -181,7 +171,7 @@ describe('dispatchRun', () => {
       name: 'busy',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -198,7 +188,7 @@ describe('dispatchRun', () => {
   });
 
   it('coalesce_if_active: second fire appends a marker message to the active chat and records skipped+chat', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
@@ -206,7 +196,7 @@ describe('dispatchRun', () => {
       name: 'morning-triage',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'Triage stream items',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -229,7 +219,7 @@ describe('dispatchRun', () => {
   });
 
   it('honors trigger.timeoutSeconds: a slow executor is interrupted and the run lands as failed with errorCode=timeout', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const adapter = await import('@/lib/executor/adapter');
     const { dispatchRun } = await import('./dispatch');
@@ -244,7 +234,7 @@ describe('dispatchRun', () => {
       name: 'tight-timeout',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -261,7 +251,7 @@ describe('dispatchRun', () => {
   });
 
   it('treats timeoutSeconds=0 as no timeout (run completes when the executor returns)', async () => {
-    const { agentId } = await seed();
+    await seed();
     const queries = await import('@/lib/db/queries');
     const adapter = await import('@/lib/executor/adapter');
     const { dispatchRun } = await import('./dispatch');
@@ -273,7 +263,7 @@ describe('dispatchRun', () => {
     const sched = queries.createTrigger({
       name: 'no-timeout',
       targetKind: 'orchestrator',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -286,7 +276,7 @@ describe('dispatchRun', () => {
   });
 
   it('allow_concurrent on a workspace target is degraded to skip (executions-spec §5)', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
@@ -294,7 +284,7 @@ describe('dispatchRun', () => {
       name: 'parallel-ws',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -312,14 +302,14 @@ describe('dispatchRun', () => {
   });
 
   it('allow_concurrent on an orchestrator target spawns a second run', async () => {
-    const { agentId } = await seed();
+    await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
     const sched = queries.createTrigger({
       name: 'parallel-orch',
       targetKind: 'orchestrator',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -336,7 +326,7 @@ describe('dispatchRun', () => {
   });
 
   it('cross-trigger sharing one execution: B with skip_if_running is skipped, not coalesced', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
@@ -344,7 +334,7 @@ describe('dispatchRun', () => {
       name: 'sched-a',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'A',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -356,7 +346,7 @@ describe('dispatchRun', () => {
       name: 'sched-b',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'B',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -371,14 +361,14 @@ describe('dispatchRun', () => {
   });
 
   it('scheduled run persists the prompt as a user chat_event in the transcript', async () => {
-    const { agentId } = await seed();
+    await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
     const sched = queries.createTrigger({
       name: 'with-transcript',
       targetKind: 'orchestrator',
-      agentId,
+      harness: 'claude',
       prompt: 'Triage the inbox',
       kind: 'cron',
       cronExpression: '* * * * *',
@@ -393,7 +383,7 @@ describe('dispatchRun', () => {
   });
 
   it('crash recovery: reapStaleRunningRuns marks ghost runs failed', async () => {
-    const { db, wsId, agentId } = await seed();
+    const { db, wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
     const { runs } = await import('@/lib/db/schema');
@@ -402,7 +392,7 @@ describe('dispatchRun', () => {
       name: 'recoverable',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'cron',
       cronExpression: '* * * * *',

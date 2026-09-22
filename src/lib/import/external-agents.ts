@@ -27,7 +27,6 @@ import {
   createWorkspace,
   getChatSessionWithExecution,
   getExternalSessionImportForChat,
-  getOrCreateDefaultExecutor,
   getWorkspace,
   listWorkspaces,
   updateChatSession,
@@ -653,8 +652,6 @@ function createImportSkeleton(
   workspaceCwd: string,
 ): { ledger: ExternalSessionImportRecord; chatSessionId: string; executionId: string } {
   const db = getDb();
-  const harness = candidate.source === 'claude' ? 'claude_code' : candidate.source;
-  const agent = getOrCreateDefaultExecutor(harness);
   const selection = explicitAgentSelection(candidate.source, {});
   const executionId = uuidv7();
   const chatSessionId = uuidv7();
@@ -688,7 +685,8 @@ function createImportSkeleton(
     }).run();
     tx.insert(chatSessions).values({
       id: chatSessionId,
-      agentId: agent.id,
+      // The import source names the engine that ran the transcript.
+      harness: candidate.source,
       type: 'execution',
       surfaceKind: 'imported_agent',
       surfaceRef: candidate.source,

@@ -50,7 +50,6 @@ type Q = typeof import('@/lib/db/queries');
 let q: Q;
 let gitWsId: string;
 let nonGitWsId: string;
-let agentId: string;
 
 async function makeWorkspace(isGit: boolean): Promise<string> {
   const { getDb } = await import('@/lib/db');
@@ -67,7 +66,7 @@ async function makeWorkspace(isGit: boolean): Promise<string> {
 function makeExecution(workspaceId: string, worktreePath: string | null) {
   const { execution } = q.createExecutionWithChat({
     workspaceId,
-    agentId,
+    harness: 'claude',
     label: null,
     worktreePath,
     branchName: worktreePath ? 'feat' : null,
@@ -82,16 +81,9 @@ beforeAll(async () => {
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
   process.env.RI_DB_PATH = TEST_DB;
-  const { getDb, resetDb } = await import('@/lib/db');
+  const { resetDb } = await import('@/lib/db');
   resetDb();
   q = await import('@/lib/db/queries');
-  const { uuidv7 } = await import('uuidv7');
-  const { agents } = await import('@/lib/db/schema');
-  agentId = uuidv7();
-  getDb()
-    .insert(agents)
-    .values({ id: agentId, userId: 'local', kind: 'executor', name: 'A', harness: 'claude_code', config: {}, status: 'active' })
-    .run();
   gitWsId = await makeWorkspace(true);
   nonGitWsId = await makeWorkspace(false);
 });

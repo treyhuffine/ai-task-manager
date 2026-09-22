@@ -19,17 +19,16 @@ import type {
 import type { ProviderId } from '@/lib/agent-options';
 
 /**
- * `agentId` is optional on the wire: the create_trigger action picks the
- * `provider`'s agent for the target, or the user's default provider when
- * neither is given. See src/lib/orchestrator/registry.ts.
+ * The wire picks the engine by `provider`. The create_trigger action stores it
+ * as the row's `harness`, defaulting to the user's default provider. See
+ * src/lib/orchestrator/registry.ts.
  */
-export type CreateTriggerPayload = Omit<CreateTriggerInput, 'agentId'> & {
-  agentId?: string;
+export type CreateTriggerPayload = Omit<CreateTriggerInput, 'harness'> & {
   provider?: ProviderId;
 };
 
 /** A provider switch resets model and effort unless the same patch sets them. */
-export type UpdateTriggerPayload = UpdateTriggerInput & { provider?: ProviderId };
+export type UpdateTriggerPayload = Omit<UpdateTriggerInput, 'harness'> & { provider?: ProviderId };
 
 export const triggersApi = {
   list(filter: {

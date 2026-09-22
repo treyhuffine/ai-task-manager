@@ -133,10 +133,15 @@ export const userState = sqliteTable('user_state', {
 
 // ─── Agent Harness Settings ───────────────────────────────────
 
+// The engines a chat can run on. Same vocabulary as `HarnessId` in
+// src/lib/agents/registry.ts (a type test in src/db/types.ts keeps the two in
+// step). Stored on every chat, trigger and run as a fact: which engine ran it.
+const HARNESS_VALUES = ['claude', 'codex', 'cursor', 'opencode'] as const;
+
 export const agentHarnessSettings = sqliteTable('agent_harness_settings', {
   id: text().primaryKey(),
   ...timestamps,
-  harness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }).notNull().unique(),
+  harness: text({ enum: HARNESS_VALUES }).notNull().unique(),
   enabledModels: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
   /**
    * Exact model ids the user typed in rather than picked from the catalog.
@@ -826,28 +831,6 @@ export const referenceFolders = sqliteTable(
   ],
 );
 
-// ─── Agents ───────────────────────────────────────────────────
-// First-class definition for an agent persona. One row per executor
-// (Claude, Codex, ...) or orchestrator. Sessions are instances of an agent
-// running on something. `config` is harness-specific JSON.
-
-export const agents = sqliteTable(
-  'agents',
-  {
-    id: text().primaryKey(),
-    ...timestamps,
-    userId: text().notNull().default('local'),
-    kind: text({ enum: ['orchestrator', 'executor'] }).notNull(),
-    name: text().notNull(),
-    role: text(),
-    harness: text().notNull(),
-    config: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
-    status: text({ enum: ['active', 'archived'] }).notNull(),
-    archivedAt: text(),
-  },
-  (table) => [index('idx_agents_kind').on(table.kind), index('idx_agents_status').on(table.status)],
-);
-
 // ─── Executions ───────────────────────────────────────────────
 // A durable work artifact anchored to a workspace: the worktree, branch,
 // base SHA, PR linkage, provisioning state, and "take over locally"
@@ -1113,9 +1096,10 @@ export const chatSessions = sqliteTable(
     id: text().primaryKey(),
     ...timestamps,
     userId: text().notNull().default('local'),
-    agentId: text()
-      .notNull()
-      .references(() => agents.id),
+    // Which engine runs this chat. A fact, set by every creator, no default.
+    // (Replaced `agent_id`, a pointer to a four-row table that held nothing
+    // but this value. See docs/agents-view-spec.md Phase 1.)
+    harness: text({ enum: HARNESS_VALUES }).notNull(),
     type: text({ enum: ['orchestration', 'content', 'execution'] }).notNull(),
     surfaceKind: text(),
     surfaceRef: text(),
@@ -1250,7 +1234,6 @@ export const chatSessions = sqliteTable(
       table.status,
       table.lastActivityAt,
     ),
-    index('idx_chat_sessions_agent_status').on(table.agentId, table.status),
     index('idx_chat_sessions_type_status').on(table.type, table.status),
     // Primary-chat lookup + per-execution rollups: "most-recently-active
     // non-archived chat for execution E" (docs/executions-spec.md §4).
@@ -1604,13 +1587,10 @@ export const triggers = sqliteTable(
     description: text(),
     enabled: integer({ mode: 'boolean' }).notNull(),
 
-    // What runs and where. `agentId` is required at the row level; its harness
-    // is the trigger's provider. `create_trigger` resolves it from the chosen
-    // provider (or the user's default one) and targetKind, via
-    // `getOrCreateTriggerAgent`.
-    agentId: text()
-      .notNull()
-      .references(() => agents.id),
+    // What runs and where. `harness` is the engine each fire runs on (the
+    // trigger's provider). `create_trigger` sets it from the chosen provider,
+    // or the user's default one.
+    harness: text({ enum: HARNESS_VALUES }).notNull(),
     workspaceId: text().references(() => workspaces.id, { onDelete: 'cascade' }),
     targetKind: text({ enum: ['workspace', 'orchestrator'] }).notNull(),
 
@@ -1766,11 +1746,9 @@ export const runs = sqliteTable(
     executionId: text().references(() => executions.id, { onDelete: 'set null' }),
     // The chat where the transcript lives.
     chatSessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
-    // The agent that ran. Carried for grouping/spend-by-agent without a
-    // join through chatSessions.
-    agentId: text()
-      .notNull()
-      .references(() => agents.id),
+    // The engine that ran. Carried for grouping and spend-by-harness without
+    // a join through chatSessions.
+    harness: text({ enum: HARNESS_VALUES }).notNull(),
 
     // What kicked this off. 'manual' = user chat send, the rest are
     // scheduler-driven.

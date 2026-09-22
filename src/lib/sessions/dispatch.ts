@@ -40,7 +40,6 @@ import {
   resetExecutionForReprovision,
   archiveExecution,
   unarchiveExecution,
-  getOrCreateDefaultExecutor,
   ensureAgentHarnessSettings,
 } from '@/lib/db/queries';
 import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
@@ -202,7 +201,6 @@ export async function dispatchExecutionSession(
       ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null)
       ?? harnessSettings.defaultEffort,
   }, { cwd: ws.cwd, repairInvalidModel: true });
-  const agent = getOrCreateDefaultExecutor(selection.harness);
   // The launcher supplies this so it can navigate before the create resolves;
   // everything else lets us mint one. Same value either way — it just decides
   // who learns the id first.
@@ -249,7 +247,7 @@ export async function dispatchExecutionSession(
   try {
     ({ execution } = createExecutionWithChat({
       workspaceId: args.workspaceId,
-      agentId: agent.id,
+      harness: providerId,
       chatSessionId: sessionId,
       // The three saved values are one tuple. Reuse model + effort only when
       // their saved provider matches this execution's provider.

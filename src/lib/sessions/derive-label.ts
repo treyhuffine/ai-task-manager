@@ -35,7 +35,6 @@ import {
   getChatSession,
   getChatSessionWithExecution,
   setExecutionLabel,
-  getAgent,
 } from '@/lib/db/queries';
 
 const MAX_LABEL_LENGTH = 60;
@@ -203,7 +202,7 @@ export async function deriveRetrospectiveLabel(sessionId: string): Promise<void>
     if (!sample) return;
     const session = getChatSession(sessionId);
     if (!session) return;
-    const harness = getAgent(session.agentId)?.harness ?? 'claude_code';
+    const harness = session.harness;
 
     const providerType = mapHarnessToProvider(harness);
     const model = session.model ?? CHEAPEST_MODEL[providerType];

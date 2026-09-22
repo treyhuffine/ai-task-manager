@@ -186,7 +186,7 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
     workspaceId: resolved.execution?.workspaceId ?? trigger.workspaceId ?? null,
     executionId: resolved.execution?.id ?? null,
     chatSessionId: chat.id,
-    agentId: trigger.agentId,
+    harness: trigger.harness,
     triggerKind,
     triggerPayload,
     scheduledFor,
@@ -246,7 +246,7 @@ function resolveTarget(trigger: TriggerRecord): {
     const ws = getWorkspace(trigger.workspaceId);
     const { execution, session } = createExecutionWithChat({
       workspaceId: trigger.workspaceId,
-      agentId: trigger.agentId,
+      harness: trigger.harness,
       label: trigger.name,
       setupStartedAt: ws?.isGit ? new Date().toISOString() : null,
       model: trigger.model,
@@ -269,7 +269,7 @@ function resolveTarget(trigger: TriggerRecord): {
     const ws = getWorkspace(trigger.workspaceId);
     const created = createExecutionWithChat({
       workspaceId: trigger.workspaceId,
-      agentId: trigger.agentId,
+      harness: trigger.harness,
       label: trigger.name,
       setupStartedAt: ws?.isGit ? new Date().toISOString() : null,
       model: trigger.model,
@@ -300,7 +300,7 @@ function createChatForFire(
     .insert(chatSessionsTable)
     .values({
       id,
-      agentId: trigger.agentId,
+      harness: trigger.harness,
       type: execution ? 'execution' : 'orchestration',
       workspaceId: execution?.workspaceId ?? trigger.workspaceId ?? null,
       executionId: execution?.id ?? null,
@@ -405,7 +405,7 @@ function recordSkipped(args: RecordSkippedArgs): RunRecord {
     executionId: args.executionId,
     workspaceId: args.workspaceId,
     chatSessionId: args.chatSessionId,
-    agentId: args.trigger.agentId,
+    harness: args.trigger.harness,
     triggerKind: args.triggerKind,
     triggerPayload: args.triggerPayload,
     scheduledFor: args.scheduledFor,

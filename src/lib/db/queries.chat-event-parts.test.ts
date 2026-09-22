@@ -29,8 +29,7 @@ describe('cumulative chat event parts', () => {
 
   it('replaces cumulative text in one stable row instead of dropping the tail', async () => {
     const queries = await import('./queries');
-    const agent = queries.getOrCreateDefaultExecutor('opencode');
-    const session = queries.createChatSession({ agentId: agent.id, type: 'execution', userId: 'local' });
+    const session = queries.createChatSession({ harness: 'opencode', type: 'execution', userId: 'local' });
     const base = {
       sessionId: session.id,
       role: 'assistant',

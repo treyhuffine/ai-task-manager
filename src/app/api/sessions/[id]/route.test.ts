@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 const getChatSessionWithExecution = vi.fn();
-const getAgent = vi.fn();
 const updateChatSession = vi.fn();
 const updateUserState = vi.fn();
 const setExecutionPR = vi.fn();
@@ -15,7 +14,6 @@ const getHarnessRuntime = vi.fn();
 
 vi.mock('@/lib/db/queries', () => ({
   getChatSessionWithExecution: (id: string) => getChatSessionWithExecution(id),
-  getAgent: (id: string) => getAgent(id),
   updateChatSession: (id: string, input: unknown) => updateChatSession(id, input),
   updateUserState: (input: unknown) => updateUserState(input),
   setExecutionPR: (id: string, value: number | null) => setExecutionPR(id, value),
@@ -47,7 +45,7 @@ import { PATCH } from './route';
 const SESSION_ID = 'session-1';
 const existing = {
   id: SESSION_ID,
-  agentId: 'agent-1',
+  harness: 'claude',
   executionId: null,
   execution: null,
   label: 'Chat',
@@ -73,7 +71,6 @@ function params() {
 
 beforeEach(() => {
   getChatSessionWithExecution.mockReset().mockReturnValue(existing);
-  getAgent.mockReset().mockReturnValue({ id: 'agent-1', harness: 'claude_code' });
   updateChatSession.mockReset().mockImplementation((_id, input) => ({ ...existing, ...input }));
   updateUserState.mockReset();
   setExecutionPR.mockReset();
@@ -170,10 +167,10 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
   it('switches an OpenCode model even when the body still carries an effort', async () => {
     getChatSessionWithExecution.mockReturnValue({
       ...existing,
+      harness: 'opencode',
       model: 'opencode/grok-code',
       effort: null,
     });
-    getAgent.mockReturnValue({ id: 'agent-1', harness: 'opencode' });
     getAgentModelCatalog.mockResolvedValue([
       { id: 'opencode/grok-code', label: 'Grok Code' },
       { id: 'opencode/grok-4.5', label: 'Grok 4.5' },

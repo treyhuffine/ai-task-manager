@@ -24,7 +24,6 @@ vi.mock('@agentex/agent', () => ({
 
 vi.mock('@/lib/db/queries', () => ({
   getChatSessionWithExecution: mocks.getChatSessionWithExecution,
-  getAgent: () => ({ id: 'agent-codex', harness: 'codex' }),
   updateChatSession: mocks.updateChatSession,
   listReconcilableSessions: vi.fn(() => []),
   listStuckBootstrapExecutions: vi.fn(() => []),
@@ -39,7 +38,6 @@ vi.mock('@/lib/realtime/bus', () => ({
   publishReconcileDone: vi.fn(),
 }));
 
-vi.mock('./harness', () => ({ mapHarnessToProvider: () => 'codex' }));
 vi.mock('./adapter', () => ({
   persistStreamEvent: vi.fn(),
   resolveCwd: () => '/repo',
@@ -76,7 +74,7 @@ beforeEach(() => {
   mocks.isRunning.mockReturnValue(false);
   mocks.getChatSessionWithExecution.mockReturnValue({
     id: 'chat-1',
-    agentId: 'agent-codex',
+    harness: 'codex',
     externalSessionId: 'thread-1',
     externalTranscriptPath: '/codex/rollout.jsonl',
     externalSyncOffset: CURSOR,

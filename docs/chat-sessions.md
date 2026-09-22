@@ -38,6 +38,8 @@ Most tools pick one failure mode and suffer the other. ChatGPT picked fragmentat
 
 ### 1. Agent is definition; session is instance
 
+> **Superseded (2026-09).** The `agents` table this principle describes was never filled in beyond the engine name and has been deleted. Each chat stores its engine in `chat_sessions.harness`. See "Agents (retired)" below and `docs/agents-view-spec.md`.
+
 An agent row is a *definition* — persona, prompt, harness, cwd. A session is an *instance* of that definition running against whatever the user is doing. One agent definition can have many concurrent sessions. Same Claude executor working on three tasks at once = one `agents` row + three `chat_sessions` rows. This is how people already use coding agents, and the schema shouldn't fight it.
 
 Chat types serve different purposes (orchestration, content, execution) and the schema records the type explicitly. The UX for each type is tuned to what that type is for.
@@ -88,33 +90,13 @@ This drives a concrete decision: the CLI transcript is the source of truth for e
 
 ## The design
 
-### Agents
+### Agents (retired)
 
-First-class rows. Created at onboarding for the orchestrator; created on demand for executors.
+This doc originally designed an `agents` table: a definition row (persona, prompt, harness, cwd) with sessions as its instances. Only the harness ever landed. Workspaces took over the cwd in May 2026 (`docs/workspaces-spec.md`), the persona fields were never built, and the table ended up as four rows mapping an id to an engine name (one per engine for executors, one per engine for the orchestrator). Every reader only ever took that engine name.
 
-```
-agents
-  id
-  user_id
-  kind              // "orchestrator" | "executor"
-  name              // user-facing name
-  role              // short description
-  harness           // "in_app" | "claude_code" | "codex" | ...
-  config            // JSON blob; shape varies by harness
-  status            // "active" | "archived"
-  created_at
-  archived_at
-```
+It was deleted in September 2026 (`docs/agents-view-spec.md`, Phase 1): the migrations were collapsed into a fresh generated baseline without it, and existing databases were rebuilt and refilled with `scripts/db-rebuild.ts`. Each chat now stores the engine it runs on directly in `chat_sessions.harness` (`claude | codex | cursor | opencode`, the `HarnessId` values), and `triggers` and `runs` carry the same column. What a chat is for still lives in `type`.
 
-Users chat with agents like they'd DM teammates. The orchestrator is your CEO. Executors are specialists you dispatch work to.
-
-**Harness-specific config lives in the `config` JSON.** In-app agents hold model/tools/persona/system prompt. CLI-backed executors also hold a `cwd` — the working directory we pass as `spawn.cwd` when invoking the CLI. Users set `cwd` when creating the executor (directory picker in the UI, or default to the current project root).
-
-**One executor = one project for v1.** If a user wants one "coworker" spanning multiple projects, they create multiple executors — which matches the agent-as-entity framing and avoids per-session cwd overrides. Adding session-level cwd overrides later is a clean addition if users ask.
-
-**Observing cwd from the transcript.** Claude Code writes the cwd into every transcript entry. We compare observed cwd against `agents.config.cwd` on sync as a drift check (user moved the project, Claude Code reconfigured, whatever) — log a warning on mismatch; don't silently continue with stale config. No additional column needed; it's a runtime check against what's stored.
-
-**Multi-device.** `config.cwd` is machine-local; on a new device the path may point to nothing. v1 handles this via the same rollover pattern — spawn fails → user prompted to re-bind. When multi-device becomes real, `config` becomes device-scoped (either a `device_config` JSON keyed by device id, or a separate `agent_device_bindings` table). Deferred, clean migration.
+The user-facing idea of an agent lives on in the agents view: in the UI an agent is a workspace seen as a scope (where it lives, what it can use, its purpose, its instructions), with one stable persona across all of them. See `docs/agents-view-spec.md`.
 
 ### Sessions
 
@@ -122,7 +104,7 @@ Users chat with agents like they'd DM teammates. The orchestrator is your CEO. E
 chat_sessions
   id                        // our session id; stable across CLI rollovers
   user_id
-  agent_id                  // FK to agents
+  harness                   // engine that runs it: "claude" | "codex" | "cursor" | "opencode"
   type                      // "orchestration" | "content" | "execution" — app-level enum
   surface_kind              // "main" | "task" | "note" | null for execution (refs-based)
   surface_ref               // task_id / note_id / etc.; null otherwise
@@ -178,10 +160,10 @@ Session-level is the right granularity — the primary queries are "what session
 
 Examples:
 
-- Main chat with orchestrator → `type="orchestration"`, `(user, orchestrator, "main", null)`, no external fields
-- Chat on task X with orchestrator → `type="content"`, `(user, orchestrator, "task", X)`, no external fields
-- Claude executing "refactor auth middleware" → `type="execution"`, `(user, claude-executor, null, null)`, `label="Refactor auth middleware"`, `refs={task_ids:[42]}`, `external_session_id` set
-- Second concurrent execution on a different task → another row, same `agent_id`, different `external_session_id`, different `label` and `refs`
+- Main chat with orchestrator → `type="orchestration"`, no surface, no external fields
+- Chat on task X with orchestrator → `type="content"`, `surface_kind="task"`, `surface_ref=X`, no external fields
+- Claude executing "refactor auth middleware" → `type="execution"`, `harness="claude"`, `label="Refactor auth middleware"`, `refs={task_ids:[42]}`, `external_session_id` set
+- Second concurrent execution on a different task → another row, same `harness`, different `external_session_id`, different `label` and `refs`
 
 ### Events
 
@@ -751,12 +733,8 @@ let me check":
 Three tables (plus a notifications table, sketched separately). Attachments live on `chat_events.attachments` as JSON — same `Attachment` shape used everywhere else in the app (tasks/notes/areas). No separate `chat_attachments` table. No `chat_threads`. No per-device partitioning. No lineage links. No cached liveness flags. No partition-key UNIQUE constraints.
 
 ```
-agents
-  id, user_id, kind, name, role, harness, config, status, created_at, archived_at
-  -- config is JSON; for CLI-backed agents it includes cwd (device-local for v1)
-
 chat_sessions
-  id, user_id, agent_id, type, surface_kind, surface_ref, status, label, refs,
+  id, user_id, harness, type, surface_kind, surface_ref, status, label, refs,
   external_provider_type, external_session_id, external_transcript_path,
   external_sync_offset, external_sync_last_event_id,
   permission_mode, pre_plan_mode, model, effort,

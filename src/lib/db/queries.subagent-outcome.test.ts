@@ -42,9 +42,8 @@ describe('subagent events and the unread signal', () => {
 
   async function setup() {
     const queries = await import('./queries');
-    const agent = queries.getOrCreateDefaultExecutor('claude');
     const session = queries.createChatSession({
-      agentId: agent.id,
+      harness: 'claude',
       type: 'execution',
       userId: 'local',
     });
@@ -192,9 +191,8 @@ describe('the outcome gate keys on the parent tool, not the tag', () => {
 
   async function sessionWithLaunch(toolName: string, callId: string) {
     const queries = await import('./queries');
-    const agent = queries.getOrCreateDefaultExecutor('claude');
     const session = queries.createChatSession({
-      agentId: agent.id,
+      harness: 'claude',
       type: 'execution',
       userId: 'local',
     });

@@ -22,7 +22,7 @@ import { mkdirSync } from 'node:fs';
 import { eq, and, desc } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { workspaces, chatSessions } from '@/lib/db/schema';
-import { createWorkspace, createExecutionSession, getAgent } from '@/lib/db/queries';
+import { createWorkspace, createExecutionSession } from '@/lib/db/queries';
 import { hydrateRow } from '@/lib/db/hydrate';
 import { withCompression } from '@/lib/api/compression';
 
@@ -74,12 +74,9 @@ async function handleGET() {
     const session = existing ?? createExecutionSession({
       workspaceId: workspace.id,
       label: 'Dev scratch session',
+      harness: 'claude',
     });
-    const agent = getAgent(session.agentId);
-    return Response.json({
-      session: { ...session, agentHarness: agent?.harness ?? null },
-      workspace,
-    });
+    return Response.json({ session, workspace });
   } catch (err) {
     console.error('[GET /api/dev/sessions/scratch]', err);
     return Response.json({ error: String(err) }, { status: 500 });

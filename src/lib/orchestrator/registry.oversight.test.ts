@@ -66,10 +66,9 @@ async function seedExecutionSession() {
     .insert(workspaces)
     .values({ id: wsId, name: 'OversightWs', slug: `ows-${Date.now()}`, cwd: '/tmp/ows', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true })
     .run();
-  const agent = q.getOrCreateDefaultExecutor('claude_code');
   const { session } = q.createExecutionWithChat({
     workspaceId: wsId,
-    agentId: agent.id,
+    harness: 'claude',
     label: 'Fix the flux capacitor',
   });
   return { wsId, session };
@@ -122,7 +121,7 @@ describe('execution oversight actions', () => {
       executions: Array<{
         sessionId: string;
         externalSessionId: string | null;
-        agentHarness: string | null;
+        harness: string | null;
         resumeCommand: string | null;
         workspace: { name: string };
         running: boolean;
@@ -135,7 +134,7 @@ describe('execution oversight actions', () => {
     expect(row!.workspace.name).toBe('OversightWs');
     expect(row!.running).toBe(false);
     expect(row!.externalSessionId).toBe('claude-session-abc');
-    expect(row!.agentHarness).toBe('claude_code');
+    expect(row!.harness).toBe('claude');
     expect(row!.resumeCommand).toBe('claude --resume claude-session-abc');
   });
 
@@ -191,7 +190,7 @@ describe('execution oversight actions', () => {
         id: string;
         executionId: string | null;
         externalSessionId: string | null;
-        agentHarness: string | null;
+        harness: string | null;
         resumeCommand: string | null;
       };
       running: boolean | null;
@@ -203,7 +202,7 @@ describe('execution oversight actions', () => {
     expect(result.running).toBeNull(); // server unreachable → unknown
     expect(result.session.id).toBe(session.id);
     expect(result.session.executionId).toBe(session.executionId);
-    expect(result.session.agentHarness).toBe('claude_code');
+    expect(result.session.harness).toBe('claude');
     expect(result.awaitingInput).toBe(true); // derived from the unanswered question
     expect(result.pendingDetail?.kind).toBe('question');
     expect(result.pendingDetail?.detail).toContain('Which database?');

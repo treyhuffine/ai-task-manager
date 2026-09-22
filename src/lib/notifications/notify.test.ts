@@ -145,15 +145,9 @@ describe('cascades', () => {
 
   it('deleting a channel scrubs it from trigger deliverResultTo bindings', async () => {
     const { queries } = await mod();
-    const { getDb } = await import('@/lib/db');
-    const { uuidv7 } = await import('uuidv7');
-    const { agents } = await import('@/lib/db/schema');
-    const agentId = uuidv7();
-    getDb().insert(agents).values({ id: agentId, userId: 'local', kind: 'executor', name: 'Orch', harness: 'claude_code', config: {}, status: 'active' }).run();
-
     const ch = queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'telegram', config: {}, events: [], enabled: true });
     const sched = queries.createTrigger({
-      userId: 'local', name: 'digest', agentId, targetKind: 'orchestrator', prompt: 'summarize',
+      userId: 'local', name: 'digest', harness: 'claude', targetKind: 'orchestrator', prompt: 'summarize',
       kind: 'cron', cronExpression: '0 9 * * *', timezone: 'UTC', deliverResultTo: [ch.id],
     });
     expect(queries.getTrigger(sched.id)!.deliverResultTo).toEqual([ch.id]);

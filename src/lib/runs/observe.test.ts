@@ -53,21 +53,16 @@ async function seedRun(overrides: {
   resetDb();
   const db = getDb();
   const { uuidv7 } = await import('uuidv7');
-  const { workspaces, agents, chatSessions, runs } = await import('@/lib/db/schema');
+  const { workspaces, chatSessions, runs } = await import('@/lib/db/schema');
 
   const wsId = uuidv7();
   db.insert(workspaces).values({
     id: wsId, name: 'TestWs', slug: 'testws-' + Date.now(),
     cwd: '/tmp/testws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
-  const agentId = uuidv7();
-  db.insert(agents).values({
-    id: agentId, userId: 'local', kind: 'executor',
-    name: 'Test', harness: 'claude_code', config: {}, status: 'active',
-  }).run();
   const chatId = uuidv7();
   db.insert(chatSessions).values({
-    id: chatId, userId: 'local', agentId,
+    id: chatId, userId: 'local', harness: 'claude',
     type: 'execution', workspaceId: wsId,
     permissionMode: 'auto_all', status: 'active',
   }).run();
@@ -76,7 +71,7 @@ async function seedRun(overrides: {
     id: runId,
     chatSessionId: chatId,
     workspaceId: wsId,
-    agentId,
+    harness: 'claude',
     triggerKind: 'manual',
     status: overrides.status ?? 'running',
     startedAt: overrides.startedAt === undefined ? new Date(Date.now() - 60_000).toISOString() : overrides.startedAt,

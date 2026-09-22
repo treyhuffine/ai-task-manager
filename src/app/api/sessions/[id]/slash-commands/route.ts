@@ -4,8 +4,7 @@ import {
   reconcileSkillCommands,
   type SkillCommandDescriptor,
 } from '@agentex/agent';
-import { getChatSession, getAgent, getSkillUsageScores } from '@/lib/db/queries';
-import { mapHarnessToProvider } from '@/lib/executor/harness';
+import { getChatSession, getSkillUsageScores } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
 import * as executor from '@/lib/executor/adapter';
 import { withCompression } from '@/lib/api/compression';
@@ -47,12 +46,7 @@ async function handleGET(
     return Response.json({ error: 'session not found' }, { status: 404 });
   }
 
-  const agent = getAgent(session.agentId);
-  if (!agent) {
-    return Response.json({ error: 'agent not found' }, { status: 404 });
-  }
-
-  const provider = mapHarnessToProvider(agent.harness);
+  const provider = session.harness;
 
   const { commands, diagnostics } = await discoverSkillCommands({
     cwd: getAppRoot(),

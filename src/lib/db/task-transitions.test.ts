@@ -200,10 +200,9 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
 
   it('review gating compares timestamps as instants, not strings, across formats', async () => {
     const { q, db, schema } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-ts', isGit: false }).id;
     const exec = q.createExecution({ workspaceId: wsId });
-    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const session = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     const task = q.createTask({ title: 'T', rawInput: 'x' });
     q.attachExecutionToTask(exec.id, task.id);
     // Pin the association + task epoch to a known ISO instant.

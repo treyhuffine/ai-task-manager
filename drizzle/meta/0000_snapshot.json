@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a7199033-49c3-4990-9019-73b02aa1bf9c",
+  "id": "d9be3193-ac34-49ff-803e-3c6ffcd0e67e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "agent_harness_operations": {
@@ -187,112 +187,6 @@
             "harness"
           ],
           "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "agents": {
-      "name": "agents",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(datetime('now'))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(datetime('now'))"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'local'"
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "harness": {
-          "name": "harness",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "config": {
-          "name": "config",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idx_agents_kind": {
-          "name": "idx_agents_kind",
-          "columns": [
-            "kind"
-          ],
-          "isUnique": false
-        },
-        "idx_agents_status": {
-          "name": "idx_agents_status",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -902,8 +796,8 @@
           "autoincrement": false,
           "default": "'local'"
         },
-        "agent_id": {
-          "name": "agent_id",
+        "harness": {
+          "name": "harness",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -1119,14 +1013,6 @@
           ],
           "isUnique": false
         },
-        "idx_chat_sessions_agent_status": {
-          "name": "idx_chat_sessions_agent_status",
-          "columns": [
-            "agent_id",
-            "status"
-          ],
-          "isUnique": false
-        },
         "idx_chat_sessions_type_status": {
           "name": "idx_chat_sessions_type_status",
           "columns": [
@@ -1146,19 +1032,6 @@
         }
       },
       "foreignKeys": {
-        "chat_sessions_agent_id_agents_id_fk": {
-          "name": "chat_sessions_agent_id_agents_id_fk",
-          "tableFrom": "chat_sessions",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "chat_sessions_workspace_id_workspaces_id_fk": {
           "name": "chat_sessions_workspace_id_workspaces_id_fk",
           "tableFrom": "chat_sessions",
@@ -3008,8 +2881,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "agent_id": {
-          "name": "agent_id",
+        "harness": {
+          "name": "harness",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -3240,19 +3113,6 @@
             "id"
           ],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "runs_agent_id_agents_id_fk": {
-          "name": "runs_agent_id_agents_id_fk",
-          "tableFrom": "runs",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -3930,13 +3790,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "heartbeat_days": {
-          "name": "heartbeat_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "last_progress_at": {
           "name": "last_progress_at",
           "type": "text",
@@ -4532,8 +4385,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "agent_id": {
-          "name": "agent_id",
+        "harness": {
+          "name": "harness",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4775,19 +4628,6 @@
         }
       },
       "foreignKeys": {
-        "triggers_agent_id_agents_id_fk": {
-          "name": "triggers_agent_id_agents_id_fk",
-          "tableFrom": "triggers",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "triggers_workspace_id_workspaces_id_fk": {
           "name": "triggers_workspace_id_workspaces_id_fk",
           "tableFrom": "triggers",

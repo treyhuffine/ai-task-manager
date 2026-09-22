@@ -51,7 +51,7 @@ Skip these. They have their own tickets after v1 dogfooding:
 
 **Workspace = the place.** A folder on disk, optionally associated with an Area. The unit the user organizes around in the left nav. Many workspaces per area is fine (e.g. "bounce-app" and "bounce-marketing" under area "Bounce").
 
-**Agent = the persona.** Reusable definition: name, role, harness, model, system prompt. One agent definition can be invoked across many workspaces. (Existing per `chat-sessions.md`; this spec drops `cwd` from `agents.config` for executors — cwd lives on the workspace now.)
+**Agent = the persona.** *(Superseded 2026-09.)* This spec planned a reusable persona row (name, role, harness, model, system prompt) invokable across workspaces. Only the harness ever landed, and the `agents` table has been deleted: each chat stores its engine in `chat_sessions.harness`. In the UI an "agent" now means a workspace seen as a scope, with one stable persona. See `docs/agents-view-spec.md`.
 
 **Chat session = the work.** A row in `chat_sessions` per `chat-sessions.md`. For executions, the session points at a workspace and (for git workspaces) at its own worktree.
 

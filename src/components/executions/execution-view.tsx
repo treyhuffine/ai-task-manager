@@ -49,6 +49,7 @@ import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { DRAFT_STORAGE_PREFIX } from '@/components/chat/editor/draft-storage';
 import { hot } from '@/lib/_debug/hot-path';
+import { providerHarnessKey } from '@/lib/agent-options';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -611,7 +612,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           model={session.model}
           modelVariant={session.modelVariant}
           effort={session.effort}
-          harness={session.agentHarness ?? null}
+          harness={providerHarnessKey(session.harness)}
           disabled={composerDisabled}
           disabledReason={composerDisabledReason}
           submitOnEnter={submitOnEnter}

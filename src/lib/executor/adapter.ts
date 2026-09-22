@@ -46,7 +46,6 @@ import type {
 import {
   getChatSession,
   getChatSessionWithExecution,
-  getAgent,
   getWorkspace,
   getUserState,
   updateChatSession,
@@ -611,16 +610,13 @@ export async function dispatch(
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
 
-  const agent = getAgent(session.agentId);
-  if (!agent) throw new ExecutorError('not_found', `Agent not found: ${session.agentId}`);
-
   const cwd = resolveCwd(session);
   if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
 
   // Final provider-boundary guard. Live discovery is authoritative for new
   // sends. Historical unavailable selections remain readable, but a missing
   // or disconnected model cannot silently fall through to another model.
-  const providerId = providerIdForHarness(agent.harness);
+  const providerId = session.harness;
   if (!isHarnessEnabled(providerId)) {
     throw new ExecutorError('unsupported', `${providerId} is disabled by the rollout configuration`);
   }
@@ -719,7 +715,7 @@ export async function dispatch(
         workspaceId: session.workspaceId ?? null,
         executionId: session.executionId ?? null,
         chatSessionId,
-        agentId: session.agentId,
+        harness: session.harness,
         triggerKind: 'manual',
         triggerPayload: null,
         scheduledFor: null,
@@ -732,7 +728,7 @@ export async function dispatch(
 
     const agentSession = await ensureAgentSession({
       chatSessionId,
-      harness: agent.harness,
+      harness: session.harness,
       cwd,
       sessionType: session.type,
       workspaceId: session.workspaceId ?? null,
@@ -881,13 +877,7 @@ export async function recycleHarnessSessions(harness: ProviderId): Promise<void>
   const affected: string[] = [];
   for (const sessionId of agentSessions.keys()) {
     const session = getChatSession(sessionId);
-    const agent = session ? getAgent(session.agentId) : null;
-    if (!agent) continue;
-    try {
-      if (providerIdForHarness(agent.harness) === harness) affected.push(sessionId);
-    } catch {
-      // Unknown historical harness rows are unrelated to this credential.
-    }
+    if (session?.harness === harness) affected.push(sessionId);
   }
   await Promise.all(affected.map((sessionId) => close(sessionId)));
 }

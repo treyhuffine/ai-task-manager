@@ -2,7 +2,6 @@ import {
   listChatSessions,
   createChatSession,
   archiveChatSession,
-  getOrCreateDefaultOrchestrator,
   getUserState,
   updateUserState,
   ensureAgentHarnessSettings,
@@ -71,10 +70,9 @@ async function createInteractiveSession(override: ChatOverride = {}) {
       ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null)
       ?? harnessSettings.defaultEffort,
   }, { repairInvalidModel: override.model === undefined });
-  const agent = getOrCreateDefaultOrchestrator(selection.harness);
   const session = createChatSession({
     type: 'orchestration',
-    agentId: agent.id,
+    harness: selection.providerId,
     model: selection.model,
     modelVariant: selection.variant,
     effort: selection.effort,

@@ -1,7 +1,6 @@
 import type { NextRequest } from 'next/server';
 import {
   getChatSessionWithExecution,
-  getAgent,
   updateChatSession,
   updateUserState,
   setExecutionPR,
@@ -10,7 +9,7 @@ import {
 import { PERMISSION_MODES, EFFORT_LEVELS, type PermissionMode, type EffortLevel } from '@/db/types';
 import * as executor from '@/lib/executor/adapter';
 import { supportedPermissionModes } from '@/lib/executor/permission-map';
-import { explicitAgentSelection, providerIdForHarness } from '@/lib/agent-options';
+import { explicitAgentSelection } from '@/lib/agent-options';
 import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
 import { getHarnessRuntime } from '@/lib/agents/runtime';
 import { getAppRoot } from '@/lib/config/paths';
@@ -28,11 +27,7 @@ async function handleGET(
     const { id } = await params;
     const row = getChatSessionWithExecution(id);
     if (!row) return Response.json({ error: 'Session not found' }, { status: 404 });
-    // Sidecar `agentHarness` so the composer can pick the right model
-    // catalog without a second round-trip. Cheap join; the agent row is
-    // immutable for the session's lifetime.
-    const agent = getAgent(row.agentId);
-    return Response.json({ ...row, agentHarness: agent?.harness ?? null });
+    return Response.json(row);
   } catch (err) {
     console.error('[GET /api/sessions/:id]', err);
     return Response.json({ error: String(err) }, { status: 500 });
@@ -115,8 +110,7 @@ export async function PATCH(
       if (mode !== existing.permissionMode && executor.isRunning(id)) {
         return selectionChangeWhileRunningResponse();
       }
-      const agent = getAgent(existing.agentId);
-      const providerId = providerIdForHarness(agent?.harness);
+      const providerId = existing.harness;
       const cwd = executor.resolveCwd(existing) ?? getAppRoot();
       const runtime = await getHarnessRuntime(providerId, { cwd });
       // Single source of truth for the per-provider matrix (shared with the
@@ -148,8 +142,7 @@ export async function PATCH(
     }
     let nextSelection: ReturnType<typeof explicitAgentSelection> | null = null;
     if ('model' in body || 'modelVariant' in body || 'effort' in body) {
-      const agent = getAgent(existing.agentId);
-      const providerId = providerIdForHarness(agent?.harness);
+      const providerId = existing.harness;
       const cwd = executor.resolveCwd(existing) ?? getAppRoot();
       const [catalog, runtime] = await Promise.all([
         getAgentModelCatalog(providerId, { cwd }),

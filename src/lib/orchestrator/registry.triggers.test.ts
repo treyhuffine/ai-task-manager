@@ -37,18 +37,13 @@ async function seed() {
   resetDb();
   const db = getDb();
   const { uuidv7 } = await import('uuidv7');
-  const { workspaces, agents } = await import('@/lib/db/schema');
+  const { workspaces } = await import('@/lib/db/schema');
   const wsId = uuidv7();
   db.insert(workspaces).values({
     id: wsId, name: 'TestWs', slug: 'testws-' + Date.now(),
     cwd: '/tmp/testws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
-  const agentId = uuidv7();
-  db.insert(agents).values({
-    id: agentId, userId: 'local', kind: 'executor',
-    name: 'Test', harness: 'claude_code', config: {}, status: 'active',
-  }).run();
-  return { wsId, agentId };
+  return { wsId };
 }
 
 /** Plant the user's default provider (user_state row 1, which migrations may pre-seed). */
@@ -80,49 +75,43 @@ describe('orchestrator trigger + run actions', () => {
     ]));
   });
 
-  it('create_trigger resolves the orchestrator default agent when agentId is omitted', async () => {
+  it('create_trigger stores the default harness on an orchestrator trigger when provider is omitted', async () => {
     await seed();
     const action = await findAction('create_trigger');
     const result = await action.handler({ remote: false }, {
       name: 'auto-agent', targetKind: 'orchestrator',
       prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
-    } as never) as { trigger: { agentId: string } };
-    const queries = await import('@/lib/db/queries');
-    const agent = queries.getAgent(result.trigger.agentId);
-    expect(agent).toBeDefined();
-    expect(agent!.kind).toBe('orchestrator');
+    } as never) as { trigger: { harness: string; provider: string } };
+    expect(result.trigger).toMatchObject({ harness: 'claude', provider: 'claude' });
   });
 
-  it('create_trigger resolves the workspace default executor when agentId is omitted', async () => {
+  it('create_trigger stores the default harness on a workspace trigger when provider is omitted', async () => {
     const { wsId } = await seed();
     const action = await findAction('create_trigger');
     const result = await action.handler({ remote: false }, {
       name: 'auto-ws', targetKind: 'workspace', workspaceId: wsId,
       prompt: 'X', kind: 'at',
       runAt: new Date(Date.now() + 60_000).toISOString(),
-    } as never) as { trigger: { agentId: string } };
-    const queries = await import('@/lib/db/queries');
-    const agent = queries.getAgent(result.trigger.agentId);
-    expect(agent).toBeDefined();
-    expect(agent!.kind).toBe('executor');
+    } as never) as { trigger: { harness: string; provider: string } };
+    expect(result.trigger).toMatchObject({ harness: 'claude', provider: 'claude' });
   });
 
   it('create_trigger rejects an invalid cron expression', async () => {
-    const { agentId, wsId } = await seed();
+    const { wsId } = await seed();
     const action = await findAction('create_trigger');
     expect(() =>
       action.handler({ remote: false }, {
-        name: 'bad', agentId, workspaceId: wsId, targetKind: 'workspace',
+        name: 'bad', workspaceId: wsId, targetKind: 'workspace',
         prompt: 'X', kind: 'cron', cronExpression: 'not-cron',
       } as never),
     ).toThrow(/Invalid cron/);
   });
 
   it('create_trigger + create_trigger (webhook) returns plaintext secret once', async () => {
-    const { agentId } = await seed();
+    await seed();
     const action = await findAction('create_trigger');
     const result = await action.handler({ remote: false }, {
-      name: 'inbox', agentId, targetKind: 'orchestrator',
+      name: 'inbox', targetKind: 'orchestrator',
       prompt: 'Triage', kind: 'webhook',
     } as never) as { trigger: { webhookPublicId: string | null }; webhookSecret: string };
     expect(result.webhookSecret).toBeTruthy();
@@ -130,10 +119,10 @@ describe('orchestrator trigger + run actions', () => {
   });
 
   it('update_trigger recomputes nextRunAt when the cron expression changes', async () => {
-    const { agentId } = await seed();
+    await seed();
     const createAction = await findAction('create_trigger');
     const created = await createAction.handler({ remote: false }, {
-      name: 'daily', agentId, targetKind: 'orchestrator',
+      name: 'daily', targetKind: 'orchestrator',
       prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
     } as never) as { trigger: { id: string; nextRunAt: string } };
     const updateAction = await findAction('update_trigger');
@@ -145,10 +134,10 @@ describe('orchestrator trigger + run actions', () => {
   });
 
   it('delete_trigger preserves runs via SET NULL', async () => {
-    const { agentId, wsId } = await seed();
+    const { wsId } = await seed();
     const create = await findAction('create_trigger');
     const created = await create.handler({ remote: false }, {
-      name: 'tmp', agentId, workspaceId: wsId, targetKind: 'workspace',
+      name: 'tmp', workspaceId: wsId, targetKind: 'workspace',
       prompt: 'X', kind: 'at',
       runAt: new Date(Date.now() + 60_000).toISOString(),
     } as never) as { trigger: { id: string } };
@@ -158,10 +147,10 @@ describe('orchestrator trigger + run actions', () => {
   });
 
   it('cancel_run on a terminal run returns it unchanged', async () => {
-    const { agentId } = await seed();
+    await seed();
     const queries = await import('@/lib/db/queries');
     const run = queries.createRun({
-      agentId, triggerKind: 'manual', status: 'completed',
+      harness: 'claude', triggerKind: 'manual', status: 'completed',
     });
     const cancel = await findAction('cancel_run');
     const result = await cancel.handler({ remote: false }, { id: run.id } as never) as {
@@ -257,10 +246,8 @@ describe('orchestrator trigger + run actions', () => {
       const result = await action.handler({ remote: false }, {
         name: 'no-default', targetKind: 'orchestrator',
         prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
-      } as never) as { trigger: { agentId: string; provider: string } };
-      const queries = await import('@/lib/db/queries');
-      expect(queries.getAgent(result.trigger.agentId)!.harness).toBe('claude_code');
-      expect(result.trigger.provider).toBe('claude');
+      } as never) as { trigger: { harness: string; provider: string } };
+      expect(result.trigger).toMatchObject({ harness: 'claude', provider: 'claude' });
     });
 
     it('create_trigger follows the user default provider when provider is omitted', async () => {
@@ -270,12 +257,8 @@ describe('orchestrator trigger + run actions', () => {
       const result = await action.handler({ remote: false }, {
         name: 'follows-default', targetKind: 'workspace', workspaceId: wsId,
         prompt: 'X', kind: 'manual',
-      } as never) as { trigger: { agentId: string; provider: string } };
-      const queries = await import('@/lib/db/queries');
-      const agent = queries.getAgent(result.trigger.agentId)!;
-      expect(agent.kind).toBe('executor');
-      expect(agent.harness).toBe('codex');
-      expect(result.trigger.provider).toBe('codex');
+      } as never) as { trigger: { harness: string; provider: string } };
+      expect(result.trigger).toMatchObject({ harness: 'codex', provider: 'codex' });
     });
 
     it('create_trigger honors an explicit provider over the user default', async () => {
@@ -286,12 +269,8 @@ describe('orchestrator trigger + run actions', () => {
         name: 'explicit-codex', targetKind: 'orchestrator', provider: 'codex',
         prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
         model: 'gpt-5.5', effort: 'high',
-      } as never) as { trigger: { agentId: string; provider: string; model: string; effort: string } };
-      const queries = await import('@/lib/db/queries');
-      const agent = queries.getAgent(result.trigger.agentId)!;
-      expect(agent.kind).toBe('orchestrator');
-      expect(agent.harness).toBe('codex');
-      expect(result.trigger).toMatchObject({ provider: 'codex', model: 'gpt-5.5', effort: 'high' });
+      } as never) as { trigger: { harness: string; provider: string; model: string; effort: string } };
+      expect(result.trigger).toMatchObject({ harness: 'codex', provider: 'codex', model: 'gpt-5.5', effort: 'high' });
     });
 
     it('create_trigger rejects a model from another provider', async () => {
@@ -321,26 +300,33 @@ describe('orchestrator trigger + run actions', () => {
       expect(result.trigger.model).toBe('my-private-codex-model');
     });
 
-    it('create_trigger rejects an agent_id that disagrees with provider', async () => {
-      const { agentId } = await seed(); // a claude_code executor
-      const action = await findAction('create_trigger');
-      expect(() =>
-        action.handler({ remote: false }, {
-          name: 'conflict', agentId, provider: 'codex', targetKind: 'orchestrator',
-          prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
-        } as never),
-      ).toThrow(/runs on claude, not codex/);
-    });
-
-    it('create_trigger rejects an unknown agent_id with not_found', async () => {
+    it('create_trigger rejects the removed agentId param instead of ignoring it', async () => {
       await seed();
       const action = await findAction('create_trigger');
+      // Silently dropping it would run the trigger on the default engine
+      // rather than the one the caller meant to pin.
       expect(() =>
         action.handler({ remote: false }, {
-          name: 'ghost', agentId: 'no-such-agent', targetKind: 'orchestrator',
+          name: 'legacy', agentId: 'any-old-id', provider: 'codex', targetKind: 'orchestrator',
           prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
         } as never),
-      ).toThrow(/Agent not found/);
+      ).toThrow(/agentId was removed. Use provider/);
+    });
+
+    it('list_runs filters by harness and rejects the removed agentId filter', async () => {
+      await seed();
+      const queries = await import('@/lib/db/queries');
+      const claudeRun = queries.createRun({ harness: 'claude', triggerKind: 'manual', status: 'completed' });
+      const codexRun = queries.createRun({ harness: 'codex', triggerKind: 'manual', status: 'completed' });
+      const list = await findAction('list_runs');
+
+      const codexOnly = await list.handler({ remote: false }, { harness: 'codex' } as never) as Array<{ id: string }>;
+      expect(codexOnly.map((r) => r.id)).toContain(codexRun.id);
+      expect(codexOnly.map((r) => r.id)).not.toContain(claudeRun.id);
+
+      expect(() =>
+        list.handler({ remote: false }, { agentId: 'any-old-id' } as never),
+      ).toThrow(/agentId was removed/);
     });
 
     it('update_trigger switches provider and resets model + effort it did not restate', async () => {
@@ -349,17 +335,14 @@ describe('orchestrator trigger + run actions', () => {
       const created = await create.handler({ remote: false }, {
         name: 'switch-me', targetKind: 'orchestrator', provider: 'claude',
         prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *', model: 'opus', effort: 'max',
-      } as never) as { trigger: { id: string; agentId: string } };
+      } as never) as { trigger: { id: string; harness: string } };
+      expect(created.trigger.harness).toBe('claude');
 
       const update = await findAction('update_trigger');
       const switched = await update.handler({ remote: false }, {
         id: created.trigger.id, provider: 'codex',
-      } as never) as { agentId: string; provider: string; model: string | null; effort: string | null };
-      const queries = await import('@/lib/db/queries');
-      const agent = queries.getAgent(switched.agentId)!;
-      expect(switched.agentId).not.toBe(created.trigger.agentId);
-      expect(agent).toMatchObject({ kind: 'orchestrator', harness: 'codex' });
-      expect(switched).toMatchObject({ provider: 'codex', model: null, effort: null });
+      } as never) as { harness: string; provider: string; model: string | null; effort: string | null };
+      expect(switched).toMatchObject({ harness: 'codex', provider: 'codex', model: null, effort: null });
     });
 
     it('update_trigger keeps a restated model on a provider switch, and vets it', async () => {
@@ -396,7 +379,7 @@ describe('orchestrator trigger + run actions', () => {
       ).toThrow(/does not run on codex/);
     });
 
-    it('update_trigger lets an app-managed trigger switch provider but keeps agent_id locked', async () => {
+    it('update_trigger lets an app-managed trigger switch provider but keeps its identity locked', async () => {
       await seed();
       const queries = await import('@/lib/db/queries');
       const { RESERVED_TRIGGER_IDS } = await import('@/lib/triggers/reserved');
@@ -404,7 +387,7 @@ describe('orchestrator trigger + run actions', () => {
         id: RESERVED_TRIGGER_IDS.morningDeck,
         name: 'Morning deck refresh',
         enabled: true,
-        agentId: queries.getOrCreateTriggerAgent('orchestrator', 'claude').id,
+        harness: 'claude',
         workspaceId: null,
         targetKind: 'orchestrator',
         prompt: 'refresh',

@@ -95,9 +95,8 @@ describe('task↔workstream associations', () => {
 
   it('createExecutionWithChat atomically associates + starts, rolling back a terminal race', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const task = q.createTask({ title: 'T', rawInput: 'x' });
-    const { execution } = q.createExecutionWithChat({ workspaceId: wsId, agentId: agent.id, label: null, startTask: { taskId: task.id, idempotencyKey: 'start-1' } });
+    const { execution } = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: null, startTask: { taskId: task.id, idempotencyKey: 'start-1' } });
     expect(q.getTask(task.id)!.status).toBe('in_progress');
     expect(q.getExecutionTasks(execution.id).map((t) => t.id)).toEqual([task.id]);
 
@@ -106,7 +105,7 @@ describe('task↔workstream associations', () => {
     q.completeTask(done.id, { idempotencyKey: 'c1', meta: { source: 'human' } });
     let code: string | undefined;
     try {
-      q.createExecutionWithChat({ workspaceId: wsId, agentId: agent.id, label: null, startTask: { taskId: done.id, idempotencyKey: 'start-2' } });
+      q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: null, startTask: { taskId: done.id, idempotencyKey: 'start-2' } });
     } catch (e) {
       code = codeOf(e);
     }
@@ -117,17 +116,16 @@ describe('task↔workstream associations', () => {
 
   it('getTaskContinueTargets returns active associated executions with a session, excluding archived', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const task = q.createTask({ title: 'T', rawInput: 'x' });
 
     const exec = q.createExecution({ workspaceId: wsId });
-    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const session = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     q.attachExecutionToTask(exec.id, task.id);
     expect(q.getTaskContinueTargets(task.id).map((t) => t.sessionId)).toEqual([session.id]);
 
     // An archived execution is history, never a Continue target.
     const arch = q.createExecution({ workspaceId: wsId });
-    q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: arch.id, label: null, status: 'active' });
+    q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: arch.id, label: null, status: 'active' });
     q.attachExecutionToTask(arch.id, task.id);
     q.archiveExecution(arch.id);
     expect(q.getTaskContinueTargets(task.id).map((t) => t.executionId)).toEqual([exec.id]);
@@ -135,11 +133,10 @@ describe('task↔workstream associations', () => {
 
   it('coordination requires an explicit choice for a genuinely running workstream', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const a = q.createTask({ title: 'A', rawInput: 'a' });
     const b = q.createTask({ title: 'B', rawInput: 'b' });
     const exec = q.createExecution({ workspaceId: wsId });
-    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const session = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     q.attachExecutionToTask(exec.id, a.id);
     q.attachExecutionToTask(exec.id, b.id);
 
@@ -191,10 +188,9 @@ describe('task↔workstream associations', () => {
 
   it('coordination re-verifies the exact disclosed execution set', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const a = q.createTask({ title: 'A', rawInput: 'a' });
     const exec = q.createExecution({ workspaceId: wsId });
-    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const session = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     q.attachExecutionToTask(exec.id, a.id);
     const runtime = {
       async runningSessionIds() { return [session.id]; },
@@ -336,12 +332,11 @@ describe('task↔workstream associations', () => {
 
   it('records review dispositions against an exact output event, newest wins', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const exec = q.createExecution({ workspaceId: wsId });
     // A real chat session for the execution, with two genuine output events.
     const session = q.createChatSession({
       type: 'execution',
-      agentId: agent.id,
+      harness: 'claude',
       workspaceId: wsId,
       executionId: exec.id,
       label: null,
@@ -373,9 +368,8 @@ describe('task↔workstream associations', () => {
 
   it('review badge respects association time — output older than the association does not flag', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const exec = q.createExecution({ workspaceId: wsId });
-    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const session = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
 
     // Output produced far in the past.
     q.insertChatEvent({ id: 'old-out', sessionId: session.id, role: 'assistant', source: 'agent', content: 'old', createdAt: '2000-01-01T00:00:00.000Z' });
@@ -392,9 +386,8 @@ describe('task↔workstream associations', () => {
 
   it('nested subagent narration is never the review target', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const exec = q.createExecution({ workspaceId: wsId });
-    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const session = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     // A subagent-launch tool call + a subagent output nested under it.
     q.insertChatEvent({ id: 'launch', sessionId: session.id, role: 'assistant', source: 'tool_call', toolName: 'Task', externalToolCallId: 'call-1', createdAt: '2999-01-01T00:00:00.000Z' });
     q.insertChatEvent({ id: 'sub-out', sessionId: session.id, role: 'assistant', source: 'agent', content: 'subagent line', externalParentToolCallId: 'call-1', createdAt: '2999-01-02T00:00:00.000Z' });
@@ -409,9 +402,8 @@ describe('task↔workstream associations', () => {
 
   it('accept-and-complete is atomic and refuses to complete over newer output', async () => {
     const { q, wsId } = await setup();
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const exec = q.createExecution({ workspaceId: wsId });
-    const session = q.createChatSession({ type: 'execution', agentId: agent.id, workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const session = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
     const task = q.createTask({ title: 'T', rawInput: 'x' });
     q.attachExecutionToTask(exec.id, task.id);
     q.insertChatEvent({ id: 'out-1', sessionId: session.id, role: 'assistant', source: 'agent', content: 'done', createdAt: '2999-01-01 00:00:00' });

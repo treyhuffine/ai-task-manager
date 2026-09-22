@@ -104,12 +104,11 @@ describe('ensureMorningDeckTrigger', () => {
     const { RESERVED_TRIGGER_IDS } = await import('@/lib/triggers/reserved');
 
     // Pre-fix row: created with a generated id, linked only by name.
-    const orch = q.getOrCreateDefaultOrchestrator();
     const legacy = q.createTrigger({
       name: sched.MORNING_DECK_TRIGGER_NAME,
       description: 'legacy',
       enabled: true,
-      agentId: orch.id,
+      harness: 'claude',
       workspaceId: null,
       targetKind: 'orchestrator',
       prompt: 'legacy prompt',

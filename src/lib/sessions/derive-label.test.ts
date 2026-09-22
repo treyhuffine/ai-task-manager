@@ -33,8 +33,7 @@ async function seedOrchestrationChat() {
   resetDb();
   getDb();
   const q = await import('@/lib/db/queries');
-  const agent = q.getOrCreateDefaultOrchestrator('claude_code');
-  const session = q.createChatSession({ type: 'orchestration', agentId: agent.id, label: null, status: 'active' });
+  const session = q.createChatSession({ type: 'orchestration', harness: 'claude', label: null, status: 'active' });
   return { q, session };
 }
 

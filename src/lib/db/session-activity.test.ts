@@ -34,9 +34,8 @@ async function setup() {
   getDb().insert(workspaces).values({
     id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
-  const executor = q.getOrCreateDefaultExecutor('claude_code');
   const { session } = q.createExecutionWithChat({
-    workspaceId: wsId, agentId: executor.id, label: 'Work',
+    workspaceId: wsId, harness: 'claude', label: 'Work',
   });
   return { q, session };
 }
@@ -161,13 +160,12 @@ describe('lastActivityAt', () => {
     getDb().insert(workspaces).values({
       id: wsId, name: 'Ws2', slug: `ws2-${Date.now()}`, cwd: '/tmp/ws2', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
 
     const monthOld = q.createExecutionWithChat({
-      workspaceId: wsId, agentId: executor.id, label: 'Month old',
+      workspaceId: wsId, harness: 'claude', label: 'Month old',
     }).session;
     const newer = q.createExecutionWithChat({
-      workspaceId: wsId, agentId: executor.id, label: 'Newer idle',
+      workspaceId: wsId, harness: 'claude', label: 'Newer idle',
     }).session;
     // Backdate both: creation seeds `startedAt` and `lastActivityAt` to now,
     // so we rewind them to model "opened a month ago" vs "opened yesterday".

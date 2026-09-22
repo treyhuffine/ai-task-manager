@@ -67,9 +67,8 @@ describe('chat/session search', () => {
     const q = await import('@/lib/db/queries');
     const { chatEvents } = await import('@/lib/db/schema');
 
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const session = q.createChatSession({
-      agentId: agent.id,
+      harness: 'claude',
       type: 'execution',
       status: opts.status ?? 'active',
       surfaceKind: opts.surfaceKind ?? null,
@@ -248,9 +247,8 @@ describe('chat/session search', () => {
 
     // Session exists; simulate a DB from before the FTS feature by dropping the
     // index + triggers, THEN inserting events (so nothing indexes them live).
-    const agent = q.getOrCreateDefaultExecutor('claude_code');
     const session = q.createChatSession({
-      agentId: agent.id,
+      harness: 'claude',
       type: 'execution',
       status: 'active',
       label: 'Legacy session',

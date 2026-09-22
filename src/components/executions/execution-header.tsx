@@ -15,8 +15,7 @@ import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { fsApi } from '@/lib/api/fs';
 import { cn } from '@/lib/utils';
-import type { WorkspaceRecord } from '@/db/types';
-import type { ChatSessionWithAgent } from '@/lib/api/sessions';
+import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverButton } from './takeover/takeover-button';
 import { ResyncMenuItem } from './resync-menu-item';
@@ -47,7 +46,7 @@ function readPersistedLayout(): HeaderLayout {
 }
 
 interface ExecutionHeaderProps {
-  session: ChatSessionWithAgent;
+  session: ChatSessionWithExecution;
   workspace: WorkspaceRecord | undefined;
   onClose: () => void;
   /** Toggle the Notes & Tasks slide-over. */
@@ -344,7 +343,7 @@ export function ExecutionHeader({
     !!workspace?.isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   const liveBadge = isLive ? <LiveBadge branch={session.branchName} /> : null;
   const providerResumeCommand = session.externalSessionId
-    ? resumeCommandForHarness(session.agentHarness, session.externalSessionId)
+    ? resumeCommandForHarness(session.harness, session.externalSessionId)
     : null;
 
   return (
@@ -445,9 +444,9 @@ export function ExecutionHeader({
                   {session.externalSessionId && (
                     <>
                       <CopyableDetailRow
-                        label={resumeIdLabel(session.agentHarness)}
+                        label={resumeIdLabel(session.harness)}
                         value={session.externalSessionId}
-                        copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
+                        copyLabel={`${resumeIdLabel(session.harness).toLowerCase()}`}
                       />
                       {providerResumeCommand && (
                         <CopyableDetailRow
@@ -613,9 +612,9 @@ export function ExecutionHeader({
                 {session.externalSessionId && (
                   <>
                     <CopyableDetailRow
-                      label={resumeIdLabel(session.agentHarness)}
+                      label={resumeIdLabel(session.harness)}
                       value={session.externalSessionId}
-                      copyLabel={`${resumeIdLabel(session.agentHarness).toLowerCase()}`}
+                      copyLabel={`${resumeIdLabel(session.harness).toLowerCase()}`}
                     />
                     {providerResumeCommand && (
                       <CopyableDetailRow

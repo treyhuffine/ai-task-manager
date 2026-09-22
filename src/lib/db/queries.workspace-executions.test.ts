@@ -45,10 +45,9 @@ describe('listWorkspaceExecutions', () => {
     getDb().insert(workspaces).values({
       id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
 
-    const live = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Live work' });
-    const done = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Finished work' });
+    const live = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Live work' });
+    const done = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Finished work' });
     // Archive both halves, the way the archive path does. Either one alone
     // would leave a state the UI can't render consistently.
     q.archiveChatSession(done.session.id);
@@ -79,8 +78,7 @@ describe('listWorkspaceExecutions', () => {
     getDb().insert(workspaces).values({
       id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws2', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
-    const done = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Only archived' });
+    const done = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Only archived' });
     q.archiveChatSession(done.session.id);
     q.archiveExecution(done.execution.id);
 
@@ -103,11 +101,10 @@ describe('listWorkspaceExecutions', () => {
     getDb().insert(workspaces).values({
       id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws3', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
     }).run();
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
-    const first = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Shared execution' });
+    const first = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Shared execution' });
 
     const sibling = q.createChatSession({
-      type: 'execution', agentId: executor.id, label: 'Newer chat', status: 'active',
+      type: 'execution', harness: 'claude', label: 'Newer chat', status: 'active',
     });
     q.updateChatSession(sibling.id, {
       executionId: first.execution.id,

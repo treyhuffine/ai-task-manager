@@ -41,16 +41,11 @@ async function seedWithSpend(opts: { budget: number | null; spend: number }) {
   resetDb();
   const db = getDb();
   const { uuidv7 } = await import('uuidv7');
-  const { workspaces, agents, runs, userState } = await import('@/lib/db/schema');
+  const { workspaces, runs, userState } = await import('@/lib/db/schema');
   const wsId = uuidv7();
   db.insert(workspaces).values({
     id: wsId, name: 'TestWs', slug: 'testws-' + Date.now(),
     cwd: '/tmp/testws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
-  }).run();
-  const agentId = uuidv7();
-  db.insert(agents).values({
-    id: agentId, userId: 'local', kind: 'executor',
-    name: 'Test', harness: 'claude_code', config: {}, status: 'active',
   }).run();
   // Plant (or update) the user_state row with the budget — migrations
   // may have already seeded a default row, so use onConflictDoUpdate.
@@ -63,13 +58,13 @@ async function seedWithSpend(opts: { budget: number | null; spend: number }) {
     const now = new Date().toISOString();
     db.insert(runs).values({
       id: uuidv7(),
-      workspaceId: wsId, agentId,
+      workspaceId: wsId, harness: 'claude',
       triggerKind: 'manual', status: 'completed',
       costUsd: opts.spend,
       queuedAt: now, startedAt: now, completedAt: now, createdAt: now,
     }).run();
   }
-  return { wsId, agentId };
+  return { wsId };
 }
 
 describe('budget guard', () => {
@@ -96,14 +91,14 @@ describe('budget guard', () => {
   });
 
   it('dispatchRun auto-pauses the trigger when budget blocks', async () => {
-    const { wsId, agentId } = await seedWithSpend({ budget: 1, spend: 5 });
+    const { wsId } = await seedWithSpend({ budget: 1, spend: 5 });
     const queries = await import('@/lib/db/queries');
     const { dispatchRun } = await import('./dispatch');
 
     const sched = queries.createTrigger({
       name: 'over-budget',
       workspaceId: wsId, targetKind: 'workspace',
-      agentId, prompt: 'X', kind: 'cron',
+      harness: 'claude', prompt: 'X', kind: 'cron',
       cronExpression: '* * * * *',
     });
     const result = await dispatchRun({ trigger: sched, triggerKind: 'cron' });

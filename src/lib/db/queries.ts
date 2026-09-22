@@ -9,7 +9,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
-  workspaces, referenceFolders, agents, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
@@ -33,14 +33,13 @@ import type {
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
-  AgentRecord, CreateAgentInput,
   ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
-  TriggerRecord, TriggerTargetKind, CreateTriggerInput, UpdateTriggerInput,
+  TriggerRecord, CreateTriggerInput, UpdateTriggerInput,
   RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun,
   EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
   TaskStatus, Energy, Effort,
@@ -98,7 +97,6 @@ import {
   explicitAgentSelection,
   modelsForProvider,
   normalizeCustomModelId,
-  providerHarnessKey,
   providerIdForHarness,
   reconcileEnabledModels,
 } from '@/lib/agent-options';
@@ -4817,131 +4815,27 @@ export function reorderWorkspaces(orderedIds: string[]): void {
   });
 }
 
-// ─── Agents ───────────────────────────────────────────────────
-
-export function listAgents(filter: { status?: 'active' | 'archived' } = {}): AgentRecord[] {
-  const db = getDb();
-  const conditions: SQL[] = [];
-  if (filter.status) conditions.push(eq(agents.status, filter.status));
-  let query = db.select().from(agents).$dynamic();
-  if (conditions.length > 0) query = query.where(and(...conditions));
-  return query.orderBy(asc(agents.name)).all();
-}
-
-export function getAgent(id: string): AgentRecord | undefined {
-  const db = getDb();
-  return db.select().from(agents).where(eq(agents.id, id)).get();
-}
-
-export function createAgent(input: CreateAgentInput): AgentRecord {
-  const db = getDb();
-  const row = db
-    .insert(agents)
-    .values({
-      ...input,
-      id: uuidv7(),
-      status: input.status ?? 'active',
-    })
-    .returning()
-    .get();
-  return row;
-}
+// ─── Harness defaults ─────────────────────────────────────────
 
 /**
- * Find or create the default executor agent for a harness. Sessions point
- * at an agentId; until per-workspace agents are a real product surface we
- * collapse all executor sessions onto a single shared agent per harness.
+ * The harness a trigger runs on when the caller doesn't pick one: the user's
+ * default provider, the same default the chat composer and background AI use.
+ * Without it, a Codex user's triggers silently ran on Claude.
  */
-export function getOrCreateDefaultExecutor(harness: string): AgentRecord {
-  const db = getDb();
-  const existing = db
-    .select()
-    .from(agents)
-    .where(and(eq(agents.kind, 'executor'), eq(agents.harness, harness), eq(agents.status, 'active')))
-    .orderBy(asc(agents.createdAt))
-    .limit(1)
-    .get();
-  if (existing) return existing;
-  return createAgent({
-    kind: 'executor',
-    harness,
-    name: harness === 'claude_code' ? 'Claude Code' : harness,
-    config: {},
-  });
-}
-
-/**
- * Find or create the default orchestrator agent. Mirrors
- * `getOrCreateDefaultExecutor` for the orchestrator side — used by the
- * trigger action's `agentId` default when `targetKind='orchestrator'`
- * and the caller didn't pick one. Single shared agent until per-purpose
- * orchestrators become real surfaces.
- */
-export function getOrCreateDefaultOrchestrator(harness = 'claude_code'): AgentRecord {
-  const db = getDb();
-  // Scope by harness: an orchestrator agent's harness *is* its provider, so
-  // each provider gets its own default orchestrator (created on demand). A
-  // harness-agnostic lookup returned whichever orchestrator existed first,
-  // which silently pinned codex-default users (and provider switches) to the
-  // claude agent.
-  const existing = db
-    .select()
-    .from(agents)
-    .where(and(eq(agents.kind, 'orchestrator'), eq(agents.status, 'active'), eq(agents.harness, harness)))
-    .orderBy(asc(agents.createdAt))
-    .limit(1)
-    .get();
-  if (existing) return existing;
-  return createAgent({
-    kind: 'orchestrator',
-    harness,
-    name: 'Orchestrator',
-    config: {},
-  });
-}
-
-/**
- * The agent a trigger runs as. A trigger's provider IS its agent's harness,
- * so choosing a provider means choosing that provider's default agent for the
- * trigger's target: the orchestrator for orchestrator targets, the executor
- * for workspace targets. An omitted provider resolves to the user's default
- * provider, the same default the chat composer and background AI use. Without
- * that, a Codex user's triggers silently ran on Claude.
- */
-export function getOrCreateTriggerAgent(
-  targetKind: TriggerTargetKind,
-  provider?: HarnessId | null,
-): AgentRecord {
-  const harness = providerHarnessKey(provider ?? defaultTriggerProvider());
-  return targetKind === 'orchestrator'
-    ? getOrCreateDefaultOrchestrator(harness)
-    : getOrCreateDefaultExecutor(harness);
-}
-
-function defaultTriggerProvider(): HarnessId {
+export function defaultTriggerHarness(): HarnessId {
   const saved = getUserState()?.defaultAgentHarness;
   // A saved provider that has since been switched off by its rollout flag
-  // falls back rather than minting an agent that can never run.
+  // falls back rather than pinning a trigger that can never run.
   return isHarnessId(saved) ? saved : 'claude';
 }
 
-/** The provider an agent row runs on, or null for an unknown historical harness. */
-function providerForAgent(agent: AgentRecord | undefined): HarnessId | null {
-  if (!agent) return null;
-  try {
-    return providerIdForHarness(agent.harness);
-  } catch {
-    return null;
-  }
-}
-
 /**
- * A trigger plus the provider it runs on. `agentId` alone is opaque to every
- * caller that has to show or reason about the provider (the detail page, the
- * CLI table, an agent editing a trigger over MCP).
+ * A trigger plus the provider it runs on, for the detail page, the CLI table,
+ * and agents editing triggers over MCP. `provider` is the row's `harness`
+ * under the name `create_trigger` / `update_trigger` take it by.
  */
-export function withTriggerProvider<T extends TriggerRecord>(row: T): T & { provider: HarnessId | null } {
-  return { ...row, provider: providerForAgent(getAgent(row.agentId)) };
+export function withTriggerProvider<T extends TriggerRecord>(row: T): T & { provider: HarnessId } {
+  return { ...row, provider: row.harness };
 }
 
 // ─── Executions ───────────────────────────────────────────────
@@ -5510,8 +5404,7 @@ export function getChatSession(id: string): ChatSessionRecord | undefined {
 
 export function createChatSession(input: CreateChatSessionInput & { id?: string }): ChatSessionRecord {
   const db = getDb();
-  const agent = db.select().from(agents).where(eq(agents.id, input.agentId)).get();
-  const providerId = providerIdForHarness(agent?.harness);
+  const providerId = input.harness;
   const selection = explicitAgentSelection(
     providerId,
     { model: input.model, variant: input.modelVariant, effort: input.effort },
@@ -5554,15 +5447,14 @@ export function updateChatSession(id: string, input: UpdateChatSessionInput): Ch
     if (input.externalSessionId === null) {
       normalized = { ...input, externalProviderType: null };
     } else if (input.externalSessionId) {
-      const sessionAgent = db
-        .select({ harness: agents.harness })
+      const session = db
+        .select({ harness: chatSessions.harness })
         .from(chatSessions)
-        .innerJoin(agents, eq(chatSessions.agentId, agents.id))
         .where(eq(chatSessions.id, id))
         .get();
       normalized = {
         ...input,
-        externalProviderType: providerIdForHarness(sessionAgent?.harness),
+        externalProviderType: providerIdForHarness(session?.harness),
       };
     }
   }
@@ -5696,7 +5588,8 @@ export function deleteChatSessionIfEmpty(id: string): boolean {
  */
 export function createExecutionWithChat(params: {
   workspaceId: string;
-  agentId: string;
+  /** Which engine runs the chat. A fact: always passed, no fallback. */
+  harness: HarnessId;
   chatSessionId?: string;
   label: string | null;
   worktreePath?: string | null;
@@ -5719,9 +5612,8 @@ export function createExecutionWithChat(params: {
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const db = getDb();
   const now = new Date().toISOString();
-  const agent = db.select().from(agents).where(eq(agents.id, params.agentId)).get();
   const selection = explicitAgentSelection(
-    providerIdForHarness(agent?.harness),
+    params.harness,
     { model: params.model, variant: params.modelVariant, effort: params.effort },
   );
   const result = db.transaction((tx) => {
@@ -5747,7 +5639,7 @@ export function createExecutionWithChat(params: {
       .insert(chatSessions)
       .values({
         id: params.chatSessionId ?? uuidv7(),
-        agentId: params.agentId,
+        harness: params.harness,
         type: 'execution',
         workspaceId: params.workspaceId,
         executionId: executionId,
@@ -5807,9 +5699,7 @@ export function createExecutionWithChat(params: {
 }
 
 /**
- * Create a new execution session in a workspace. Auto-resolves the default
- * executor agent (currently Claude Code) so callers don't have to pass an
- * agentId.
+ * Create a new execution session in a workspace on the given harness.
  *
  * Creates the execution artifact eagerly, in the same transaction as the
  * chat, so the chat always has an `executionId` (docs/executions-spec.md
@@ -5824,12 +5714,11 @@ export function createExecutionWithChat(params: {
 export function createExecutionSession(args: {
   workspaceId: string;
   label?: string | null;
-  harness?: string;
+  harness: HarnessId;
 }): ChatSessionRecord {
-  const agent = getOrCreateDefaultExecutor(args.harness ?? 'claude_code');
   const { session } = createExecutionWithChat({
     workspaceId: args.workspaceId,
-    agentId: agent.id,
+    harness: args.harness,
     label: args.label?.trim() || null,
   });
   return session;
@@ -5848,8 +5737,8 @@ export function createExecutionSession(args: {
  */
 export function createExecutionChat(args: {
   executionId: string;
-  /** Executor harness key. Picks the provider-specific agent. */
-  harness?: string;
+  /** Which engine runs the new chat. */
+  harness: HarnessId;
   model?: string | null;
   modelVariant?: string | null;
   effort?: ChatSessionRecord['effort'];
@@ -5857,12 +5746,11 @@ export function createExecutionChat(args: {
 }): ChatSessionRecord | null {
   const execution = getExecution(args.executionId);
   if (!execution) return null;
-  const agent = getOrCreateDefaultExecutor(args.harness ?? 'claude_code');
   return createChatSession({
     type: 'execution',
     executionId: args.executionId,
     workspaceId: execution.workspaceId,
-    agentId: agent.id,
+    harness: args.harness,
     label: args.label ?? null,
     status: 'active',
     ...(args.model !== undefined ? { model: args.model } : {}),
@@ -7158,12 +7046,8 @@ export function listTriggersWithLastRun(filter: TriggerFilter = {}): TriggerWith
     ? db.select().from(runs).where(inArray(runs.id, ids)).all()
     : [];
   const byId = new Map<string, RunRecord>(lastRuns.map((r) => [r.id, r]));
-  const agentIds = [...new Set(list.map((s) => s.agentId))];
-  const agentRows = db.select().from(agents).where(inArray(agents.id, agentIds)).all();
-  const providerByAgent = new Map(agentRows.map((a) => [a.id, providerForAgent(a)]));
   return list.map((s) => ({
-    ...s,
-    provider: providerByAgent.get(s.agentId) ?? null,
+    ...withTriggerProvider(s),
     lastRun: s.lastRunId ? byId.get(s.lastRunId) ?? null : null,
   }));
 }
@@ -7178,7 +7062,7 @@ export interface RunFilter {
   status?: RunStatus | RunStatus[];
   trigger?: RunTrigger | RunTrigger[];
   triggerId?: string;
-  agentId?: string;
+  harness?: HarnessId;
   executionId?: string;
   workspaceId?: string;
   /** Inclusive lower bound on startedAt (ISO). */
@@ -7201,7 +7085,7 @@ export function listRuns(filter: RunFilter = {}): RunRecord[] {
     );
   }
   if (filter.triggerId) conditions.push(eq(runs.triggerId, filter.triggerId));
-  if (filter.agentId) conditions.push(eq(runs.agentId, filter.agentId));
+  if (filter.harness) conditions.push(eq(runs.harness, filter.harness));
   if (filter.executionId) conditions.push(eq(runs.executionId, filter.executionId));
   if (filter.workspaceId) conditions.push(eq(runs.workspaceId, filter.workspaceId));
   if (filter.since) conditions.push(gte(runs.startedAt, filter.since));

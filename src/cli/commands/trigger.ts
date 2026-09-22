@@ -54,14 +54,13 @@ function registerTriggerCommand(program: Command) {
     .option('--run-at <iso>', 'Absolute ISO timestamp for a one-shot trigger.')
     .option('--webhook', 'Webhook-triggered trigger.')
     .option('--timezone <tz>', 'IANA timezone for cron interpretation.', 'UTC')
-    // ── Target / agent ──
+    // ── Target / provider ──
     .option('--target <kind>', 'workspace | orchestrator', 'workspace')
     .option('--workspace <id-or-slug>', 'Target workspace (required when target=workspace).')
     .option(
       '--provider <id>',
       'Who runs it: claude | codex | cursor | opencode. Defaults to your default provider.',
     )
-    .option('--agent <id>', 'Exact agent id to dispatch as (advanced). Prefer --provider.')
     // ── Per-run overrides ──
     .option('--model <model>', 'Per-run model override. Must belong to the provider.')
     .option('--effort <level>', 'low | medium | high | xhigh | max | ultra')
@@ -97,7 +96,6 @@ function registerTriggerCommand(program: Command) {
         description: opts.description ?? null,
         prompt: promptText,
         ...(opts.provider ? { provider: opts.provider } : {}),
-        ...(opts.agent ? { agentId: opts.agent } : {}),
         targetKind: opts.target,
         workspaceId: opts.workspace ?? null,
         kind: compiled.kind,
@@ -297,7 +295,7 @@ function registerSpendCommand(program: Command) {
   program
     .command('spend')
     .description('Spending rollups across runs (today / week / month).')
-    .option('--by <group>', 'Group by agent or trigger.')
+    .option('--by <group>', 'Group by harness or trigger.')
     .action(async (opts) => {
       // We compute the rollup client-side from list_runs since V1 has
       // no dedicated spend orchestrator action.
@@ -326,9 +324,9 @@ function registerSpendCommand(program: Command) {
       console.log(`Week:  $${week.toFixed(4)}`);
       console.log(`Month: $${month.toFixed(4)}`);
 
-      if (opts.by === 'agent' || opts.by === 'trigger') {
+      if (opts.by === 'harness' || opts.by === 'trigger') {
         const keyOf = (r: RunRecord) =>
-          opts.by === 'agent' ? r.agentId : (r.triggerId ?? 'manual');
+          opts.by === 'harness' ? r.harness : (r.triggerId ?? 'manual');
         const byKey = new Map<string, number>();
         for (const r of runs) {
           const k = keyOf(r);

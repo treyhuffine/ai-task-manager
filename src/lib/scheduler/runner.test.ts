@@ -46,23 +46,18 @@ async function seed() {
   resetDb();
   const db = getDb();
   const { uuidv7 } = await import('uuidv7');
-  const { workspaces, agents } = await import('@/lib/db/schema');
+  const { workspaces } = await import('@/lib/db/schema');
   const wsId = uuidv7();
   db.insert(workspaces).values({
     id: wsId, name: 'TestWs', slug: 'testws-' + Date.now(),
     cwd: '/tmp/testws', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
   }).run();
-  const agentId = uuidv7();
-  db.insert(agents).values({
-    id: agentId, userId: 'local', kind: 'executor',
-    name: 'Test', harness: 'claude_code', config: {}, status: 'active',
-  }).run();
-  return { wsId, agentId };
+  return { wsId };
 }
 
 describe('runTick — at-most-once for one-off triggers', () => {
   it('fires a kind=at trigger exactly once across multiple ticks', async () => {
-    const { wsId, agentId } = await seed();
+    const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');
     const { runTick } = await import('./runner');
 
@@ -72,7 +67,7 @@ describe('runTick — at-most-once for one-off triggers', () => {
       name: 'one-shot',
       workspaceId: wsId,
       targetKind: 'workspace',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'at',
       runAt: past,
@@ -96,7 +91,7 @@ describe('runTick — at-most-once for one-off triggers', () => {
   });
 
   it('every trigger keeps advancing past now after each fire', async () => {
-    const { agentId } = await seed();
+    await seed();
     const queries = await import('@/lib/db/queries');
     const { runTick } = await import('./runner');
 
@@ -104,7 +99,7 @@ describe('runTick — at-most-once for one-off triggers', () => {
     queries.createTrigger({
       name: 'tick',
       targetKind: 'orchestrator',
-      agentId,
+      harness: 'claude',
       prompt: 'X',
       kind: 'every',
       intervalSeconds: 60,

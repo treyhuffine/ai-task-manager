@@ -20,7 +20,7 @@ import {
   createTrigger,
   updateTrigger,
   listStream,
-  getOrCreateTriggerAgent,
+  defaultTriggerHarness,
   getStreamAutonomy,
   setStreamAutonomy,
 } from '@/lib/db/queries';
@@ -53,7 +53,7 @@ function localTimezone(): string {
  */
 export function ensureStreamTriageTriggers(): void {
   const timezone = localTimezone();
-  const orchestrator = getOrCreateTriggerAgent('orchestrator');
+  const harness = defaultTriggerHarness();
 
   if (!getTrigger(RESERVED_TRIGGER_IDS.streamSweepDebounce)) {
     createTrigger({
@@ -62,7 +62,7 @@ export function ensureStreamTriageTriggers(): void {
       description:
         'Triages new captures a short while after you stop capturing. Each new capture pushes the timer.',
       enabled: true,
-      agentId: orchestrator.id,
+      harness,
       workspaceId: null,
       targetKind: 'orchestrator',
       prompt: SWEEP_TRIGGER_PROMPT,
@@ -79,7 +79,7 @@ export function ensureStreamTriageTriggers(): void {
       name: MORNING_STREAM_TRIGGER_NAME,
       description: 'Triages anything still waiting in the stream before the deck is prepared.',
       enabled: true,
-      agentId: orchestrator.id,
+      harness,
       workspaceId: null,
       targetKind: 'orchestrator',
       prompt: SWEEP_TRIGGER_PROMPT,
@@ -103,7 +103,7 @@ export function ensureStreamTriageTriggers(): void {
       name: WEEKLY_STREAM_DIGEST_TRIGGER_NAME,
       description: 'A weekly look at how stream triage went, with any autonomy offers.',
       enabled: true,
-      agentId: orchestrator.id,
+      harness,
       workspaceId: null,
       targetKind: 'orchestrator',
       prompt: WEEKLY_DIGEST_TRIGGER_PROMPT,

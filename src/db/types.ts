@@ -5,7 +5,7 @@ import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/agents/registry';
 import type {
   userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys,
-  workspaces, referenceFolders, agents, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
@@ -224,13 +224,6 @@ export interface ResolvedReferenceFolder extends ReferenceFolderRecord {
   redundantWithCwd?: boolean;
 }
 
-// ─── Agents ───────────────────────────────────────────────────
-
-export type AgentRecord = InferSelectModel<typeof agents>;
-export type CreateAgentInput = PolicyOptional<Omit<InferInsertModel<typeof agents>, 'id'>, 'status'>;
-export type UpdateAgentInput = Partial<Omit<CreateAgentInput, 'createdAt'>>;
-export type AgentKind = AgentRecord['kind'];
-
 // ─── Executions ───────────────────────────────────────────────
 
 export type ExecutionRecord = InferSelectModel<typeof executions>;
@@ -395,12 +388,19 @@ export type RunTrigger = RunRecord['triggerKind'];
 
 /** Trigger + its most recent run state, joined for the triggers list view. */
 /**
- * A trigger as the action layer returns it: the row plus the provider it runs
- * on, read off its agent (null for an unknown historical harness).
+ * A trigger as the action layer returns it: the row plus `provider`, its
+ * `harness` under the name the create/update actions take it by.
  */
 export type TriggerView = TriggerRecord & {
-  provider: HarnessId | null;
+  provider: HarnessId;
 };
+
+// The schema's harness columns and `HarnessId` must name the same engines.
+// Adding one without the other fails typecheck here instead of at a runtime
+// boundary.
+type SameMembers<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type Expect<T extends true> = T;
+export type HarnessColumnMatchesHarnessId = Expect<SameMembers<ChatSessionRecord['harness'], HarnessId>>;
 
 export type TriggerWithLastRun = TriggerView & {
   lastRun: RunRecord | null;

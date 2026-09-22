@@ -151,11 +151,11 @@ A `schedules` row is "fire under these conditions." User-editable.
 | `cron`   | Fire on a cron expression in a timezone                            |
 | `webhook`| Fire when POST hits `/api/triggers/:public_id` with valid HMAC     |
 
-Each schedule has: `prompt`, `agent_id`, `target_kind` (`workspace` or `orchestrator`), optional `workspace_id`, `concurrency_policy`, `catch_up_policy`, `enabled`, plus kind-specific config.
+Each schedule has: `prompt`, `harness`, `target_kind` (`workspace` or `orchestrator`), optional `workspace_id`, `concurrency_policy`, `catch_up_policy`, `enabled`, plus kind-specific config.
 
 **No `session_strategy` enum.** Dispatch behavior is derived from `kind` + `target_kind` per `docs/executions-spec.md` §5: orchestrator schedules get a fresh chat each fire, one-off (`kind='at'`) workspace schedules get a fresh execution + chat each fire, recurring workspace schedules reuse the schedule's owning execution and create a fresh chat inside it. The artifact (worktree, branch, PR) persists; the conversation is bounded per fire. If a `continuous` (chat-persists) mode becomes a real use case in V2, it's added as an additive nullable column with no migration pain.
 
-**Who runs it (handler-level, not schema-level):** a trigger's provider is its agent's harness. `create_trigger` takes `provider` (`claude | codex | cursor | opencode`) and resolves that provider's default agent for the target: the orchestrator agent when `target_kind='orchestrator'`, the executor agent when `target_kind='workspace'`. An omitted provider resolves to the user's default provider (`user_state.default_agent_harness`), the same default the chat composer and background AI use. `agent_id` still pins an exact agent row and must agree with `provider` when both are given. `model` is validated against the provider on write, and `effort` is resolved down to what the model supports at dispatch. `update_trigger` can switch `provider` on any trigger, app-managed ones included. A switch that doesn't restate `model` / `effort` resets both to the new provider's defaults. The create form and the trigger detail page both expose provider, model and effort through the launcher's controls.
+**Who runs it:** a trigger stores its engine in `triggers.harness`, and each fire copies it onto the run and the chat. `create_trigger` takes `provider` (`claude | codex | cursor | opencode`) and stores it as the harness. An omitted provider resolves to the user's default provider (`user_state.default_agent_harness`), the same default the chat composer and background AI use. The old `agent_id` param pointed at the since-deleted `agents` table and is now rejected with a message pointing to `provider` (`docs/agents-view-spec.md`, Phase 1). `model` is validated against the provider on write, and `effort` is resolved down to what the model supports at dispatch. `update_trigger` can switch `provider` on any trigger, app-managed ones included. A switch that doesn't restate `model` / `effort` resets both to the new provider's defaults. The create form and the trigger detail page both expose provider, model and effort through the launcher's controls.
 
 **`name` uniqueness:** unique-within-scope, where brain-level (workspace_id IS NULL) is its own scope. Implemented as **two partial unique indexes**, not a single composite, because SQLite treats NULLs in unique indexes as distinct — a plain `UNIQUE(workspace_id, name)` would silently allow duplicate brain-level names. CLI commands (`ri schedule pause morning-triage`) use name within scope; ids are the canonical reference but names are the human handle. See §6 for the exact index syntax.
 
@@ -315,7 +315,7 @@ export const schedules = sqliteTable('schedules', {
   description: text('description'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
 
-  agent_id: text('agent_id').references(() => agents.id).notNull(),
+  harness: text('harness').notNull(), // engine; was agent_id → agents (retired)
   workspace_id: text('workspace_id').references(() => workspaces.id),
 
   prompt: text('prompt').notNull(),
@@ -392,7 +392,7 @@ export const runs = sqliteTable('runs', {
   // per-execution cost rollup. NULL for orchestrator-target runs.
   execution_id: text('execution_id').references(() => executions.id),
   chat_session_id: text('chat_session_id').references(() => chatSessions.id),
-  agent_id: text('agent_id').references(() => agents.id).notNull(),
+  harness: text('harness').notNull(), // engine; was agent_id → agents (retired)
 
   trigger: text('trigger', {
     enum: ['manual', 'cron', 'every', 'at', 'webhook'],
@@ -458,7 +458,7 @@ That's the entire schema delta. Two new tables, one new column on `chat_sessions
 | `update_schedule`      | Patch fields                                     | Yes      |
 | `delete_schedule`      | Remove                                           | Yes      |
 | `run_schedule`         | Enqueue immediate manual run                     | Yes      |
-| `list_runs`            | Filters: status, schedule_id, agent_id, since    | No       |
+| `list_runs`            | Filters: status, schedule_id, harness, since     | No       |
 | `get_run`              | Fetch one with usage rollup                      | No       |
 | `cancel_run`           | Best-effort SIGTERM, marks `cancelled`           | Yes      |
 | `list_skills`          | Returns the merged skill set (global + workspace)| No       |
@@ -476,7 +476,7 @@ ri schedule create \
   --name "morning-triage" \
   --cron "0 9 * * 1-5" \
   --prompt "Triage stream items captured overnight" \
-  --agent default
+  --provider claude
 ri schedule list / show / pause / edit / delete
 ri schedule run <id> [--wait]
 

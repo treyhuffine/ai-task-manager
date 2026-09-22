@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getChatSessionWithExecution: vi.fn(),
-  getAgent: vi.fn(),
   updateChatSession: vi.fn(),
   persistStreamEvent: vi.fn(),
   attachHistory: vi.fn(),
@@ -24,7 +23,6 @@ vi.mock('@agentex/agent', () => ({
 
 vi.mock('@/lib/db/queries', () => ({
   getChatSessionWithExecution: mocks.getChatSessionWithExecution,
-  getAgent: mocks.getAgent,
   updateChatSession: mocks.updateChatSession,
   listReconcilableSessions: vi.fn(() => []),
   listStuckBootstrapExecutions: vi.fn(() => []),
@@ -40,7 +38,6 @@ vi.mock('@/lib/realtime/bus', () => ({
   publishReconcileDone: mocks.publishReconcileDone,
 }));
 
-vi.mock('./harness', () => ({ mapHarnessToProvider: () => 'opencode' }));
 vi.mock('./adapter', () => ({
   persistStreamEvent: mocks.persistStreamEvent,
   resolveCwd: () => '/repo',
@@ -56,7 +53,7 @@ import { reconcileSession } from './reconcile';
 function session(id: string, checkpoint: { kind: string; value: unknown } | null = null) {
   return {
     id,
-    agentId: 'agent-opencode',
+    harness: 'opencode',
     externalSessionId: 'external-opencode',
     externalHistoryCheckpoint: checkpoint,
   };
@@ -64,7 +61,6 @@ function session(id: string, checkpoint: { kind: string; value: unknown } | null
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getAgent.mockReturnValue({ id: 'agent-opencode', harness: 'opencode' });
   mocks.persistStreamEvent.mockResolvedValue(undefined);
 });
 

@@ -65,16 +65,13 @@ export function isReservedTrigger(id: string): boolean {
  * a reserved row. Schedule fields (enabled, cronExpression, timezone) and
  * delivery fields (deliverResultTo, provider, model, effort, timeoutSeconds)
  * stay user-editable — the row is a normal, visible, inspectable trigger apart
- * from these locks. `provider` is the sanctioned way to change who runs a
- * reserved row: it swaps in that provider's agent of the same kind. A raw
- * `agentId` stays locked because it could point an orchestrator row at an
- * executor.
+ * from these locks. `provider` is the sanctioned way to change which engine
+ * runs a reserved row.
  */
 export const RESERVED_LOCKED_FIELDS = [
   'name',
   'description',
   'prompt',
   'targetKind',
-  'agentId',
   'kind',
 ] as const;

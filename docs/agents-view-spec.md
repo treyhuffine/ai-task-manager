@@ -131,10 +131,13 @@ Order: **0 → 1 → 2**. Phase 3 can run any time. Phases 4 and 5 need 1 and 3.
 
 Removes the cascade trap in §5.3 for this and every future migration. This follows SQLite's documented procedure for schema changes.
 
-- [ ] In `getDb` (`src/lib/db/index.ts`), set `foreign_keys = OFF` before `migrate()`. After it returns, run `PRAGMA foreign_key_check`. If it returns rows, throw with the offending table, rowid and parent so boot fails loudly. Then set `foreign_keys = ON`.
-- [ ] Test (temp database): a parent table with an `ON DELETE CASCADE` child. A migration that rebuilds the parent keeps every child row. A migration that leaves a dangling reference fails boot with a readable error.
-- [ ] Confirm `pnpm db:migrate` (drizzle-kit's own runner, its own connection) does not turn foreign keys on. SQLite's default is off per connection. Note the result here.
-- [ ] Add a line to CLAUDE.md "Column defaults": migrations run with foreign keys off and are checked after, so a rebuild never cascades. A rebuild still reassigns rowids unless the migration copies `rowid` explicitly, so the FTS warning still applies to FTS-backed tables.
+- [x] In `getDb` (`src/lib/db/index.ts`), set `foreign_keys = OFF` before `migrate()`. After it returns, run `PRAGMA foreign_key_check`. If it returns rows, throw with the offending table, rowid and parent so boot fails loudly. Then set `foreign_keys = ON`.
+  - Landed as `runMigrations` (`src/lib/db/migrate.ts`), which replaces Drizzle's `migrate()`. It runs the check *before* COMMIT, so a migration that breaks a link rolls back instead of landing, and it only fails on violations the migration introduced (pre-existing ones don't brick boot). Bookkeeping is identical to Drizzle's.
+- [x] Test (temp database): a parent table with an `ON DELETE CASCADE` child. A migration that rebuilds the parent keeps every child row. A migration that leaves a dangling reference fails boot with a readable error.
+  - `src/lib/db/migrate.test.ts`. Includes a premise test showing the same rebuild under Drizzle's own runner deletes the children, and a round-trip test that Drizzle's runner and ours agree on what has been applied.
+- [x] Confirm `pnpm db:migrate` (drizzle-kit's own runner, its own connection) does not turn foreign keys on. SQLite's default is off per connection. Note the result here.
+  - **It does turn them on.** better-sqlite3 compiles SQLite with foreign keys ON by default, so `drizzle-kit migrate` had the same cascade trap. `pnpm db:migrate` now runs `scripts/db-migrate.ts`, which goes through `getDb` and therefore `runMigrations`.
+- [x] Add a line to CLAUDE.md "Column defaults": migrations run with foreign keys off and are checked after, so a rebuild never cascades. A rebuild still reassigns rowids unless the migration copies `rowid` explicitly, so the FTS warning still applies to FTS-backed tables.
 
 **Done when:** the tests pass and CLAUDE.md says how migrations treat foreign keys.
 
@@ -142,47 +145,48 @@ Removes the cascade trap in §5.3 for this and every future migration. This foll
 
 **Schema**
 
-- [ ] Add `harness` to `chat_sessions`, `triggers` and `runs`: text, enum `'claude' | 'codex' | 'cursor' | 'opencode'`, NOT NULL, no default. It is a fact column: every creator passes it, no fallback.
-- [ ] Remove `agent_id` from those three tables and drop `idx_chat_sessions_agent_status`.
-- [ ] Drop the `agents` table. Remove it from `schema.ts`.
-- [ ] Remove `AgentRecord`, `CreateAgentInput`, `UpdateAgentInput` and `AgentKind` from `src/db/types.ts`.
+- [x] Add `harness` to `chat_sessions`, `triggers` and `runs`: text, enum `'claude' | 'codex' | 'cursor' | 'opencode'`, NOT NULL, no default. It is a fact column: every creator passes it, no fallback.
+- [x] Remove `agent_id` from those three tables and drop `idx_chat_sessions_agent_status`.
+- [x] Drop the `agents` table. Remove it from `schema.ts`.
+- [x] Remove `AgentRecord`, `CreateAgentInput`, `UpdateAgentInput` and `AgentKind` from `src/db/types.ts`.
 
-**Migration**
+**Database change** (rebuild onto a fresh baseline, not a migration)
 
-- [ ] Generate with drizzle-kit, then hand-edit the SQL:
-  - fill `harness` from the old row: `claude_code` becomes `claude`, anything else is copied as is (the same mapping as `mapHarnessToProvider` in `src/lib/executor/harness.ts`)
-  - copy `rowid` explicitly so every row keeps its rowid
-  - fail rather than guess if any `agent_id` does not resolve to a row
-- [ ] Dry run on a copy of prod `data.db` (never the live file). Record before and after here:
-  - row counts: `chat_sessions` (616), `chat_events` (598,104), `triggers` (10), `runs` (1,591)
-  - non-null link counts: `runs.chat_session_id`, `runs.trigger_id`, `chat_sessions.created_by_run_id`, `task_status_changes.run_id`, `executions.takeover_chat_session_id`, `entity_versions.actor_session_id`
-  - `harness` distribution equals the old per-engine distribution
-  - `PRAGMA foreign_key_check` is empty
-- [ ] Snapshot prod `data.db` before the first prod boot on the new code.
+A first pass shipped this as a hand-edited `0001` migration. Trey asked for it to be clean instead: one generated baseline, no hand-edited SQL, and existing databases rebuilt and refilled. That is what landed.
+
+- [x] Collapse `drizzle/` into one baseline generated straight from `schema.ts` (`0000_typical_shockwave.sql`, untouched drizzle-kit output). It has no `agents` table, `harness` on the three tables, and no `tasks.heartbeat_days` (Trey's schema-only drop from `49fdd9b` rides along). `drizzle-kit check` is clean and a fresh generate reports no changes.
+- [x] `scripts/db-rebuild.ts --from <snapshot> --to <new>`: builds the new file through `getDb` (exact fresh-install schema, FTS, vec, triggers), drops the triggers, copies every shared table column by column keeping rowids, fills `harness` from the old `agents` row (`claude_code` becomes `claude`, a CASE with no ELSE so a missing row or unknown engine aborts), copies the vector rows, reopens through `getDb` to reinstall triggers, rebuilds the FTS indexes, then verifies. Unexpected dropped tables or columns, or a new NOT NULL column with nothing to fill it, abort before any row is written.
+- [x] Rehearsal on copies (2026-09-22). Dev: 34 tables identical. Prod (the 15:25 snapshot, 230 s): all 34 tables match row for row by digest with rowids (`chat_sessions` 617, `chat_events` 610,424, `runs` 1,612, `triggers` 10, `tasks` 611, `notes` 247, `embeddings` 406). Harness distribution exact (chats `claude` 522 / `codex` 95, runs 1,085 / 527, triggers 10 `claude`). Vector rows, `sqlite_sequence`, all four FTS indexes (integrity-check and row counts), all 18 triggers, `foreign_key_check`, `integrity_check`, one migration recorded, source file untouched. The app's query layer reads the rebuilt file correctly.
+- [ ] Cutover, app stopped: snapshot, rebuild from the snapshot, swap the file in, start, check. (Also rebuild `~/ri-dev`.)
 
 **Code: writes**
 
-- [ ] Chat creation sets `harness` directly: `src/lib/sessions/dispatch.ts`, `createExecutionWithChat`, `createExecutionSession`, `createExecutionChat` (`queries.ts`), `/api/orchestrator-chat`, `/api/document-chat`, `sessions/[id]/new-chat`.
-- [ ] Triggers and runs: `create_trigger` / `update_trigger` store `harness` from `provider`. `src/lib/runs/dispatch.ts` copies `trigger.harness` onto runs and chats. `src/lib/deck/trigger.ts` and `src/lib/stream-triage/triggers.ts` pass a harness.
+- [x] Chat creation sets `harness` directly: `src/lib/sessions/dispatch.ts`, `createExecutionWithChat`, `createExecutionSession`, `createExecutionChat` (`queries.ts`), `/api/orchestrator-chat`, `/api/document-chat`, `sessions/[id]/new-chat`.
+- [x] Triggers and runs: `create_trigger` / `update_trigger` store `harness` from `provider`. `src/lib/runs/dispatch.ts` copies `trigger.harness` onto runs and chats. `src/lib/deck/trigger.ts` and `src/lib/stream-triage/triggers.ts` pass a harness.
 
 **Code: reads**
 
-- [ ] Switch every `getAgent(x.agentId)?.harness` to `x.harness`: session routes, `derive-label.ts`, `executor/adapter.ts`, `executor/reconcile.ts`, `queries.ts`, `registry.ts`.
-- [ ] `GET /api/sessions/:id` returns the row's `harness` instead of a joined `agentHarness`. Update client consumers.
+- [x] Switch every `getAgent(x.agentId)?.harness` to `x.harness`: session routes, `derive-label.ts`, `executor/adapter.ts`, `executor/reconcile.ts`, `queries.ts`, `registry.ts`.
+- [x] `GET /api/sessions/:id` returns the row's `harness` instead of a joined `agentHarness`. Update client consumers.
+  - `ChatSessionWithAgent` is gone (it only added `agentHarness`). Components that still key the model catalog by the old `claude_code` vocabulary convert with `providerHarnessKey(session.harness)` until Phase 2 unifies the spelling.
+  - External-agent imports (`src/lib/import/external-agents.ts`) store the import source as the harness.
 
 **Code: delete**
 
-- [ ] `getOrCreateDefaultExecutor`, `getOrCreateDefaultOrchestrator`, `getOrCreateTriggerAgent`, `createAgent`, `listAgents`, `getAgent`, and the `providerForAgent` / `agentProvider` helpers.
-- [ ] `/api/agents` and `src/hooks/use-agents.ts`.
-- [ ] Update tests that seed `agents` rows (scheduler, runs, notifications, triggers, oversight).
+- [x] `getOrCreateDefaultExecutor`, `getOrCreateDefaultOrchestrator`, `getOrCreateTriggerAgent`, `createAgent`, `listAgents`, `getAgent`, and the `providerForAgent` / `agentProvider` helpers.
+- [x] `/api/agents` and `src/hooks/use-agents.ts`.
+- [x] Update tests that seed `agents` rows (scheduler, runs, notifications, triggers, oversight).
 
 **Done when:** no code references the `agents` table or `agentId`. `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, `pnpm smoke:agent` and `pnpm smoke:harness` pass. The dry-run numbers are recorded above.
+
+**Status 2026-09-22:** landed. `pnpm ts` clean, `pnpm lint` 0 errors, `pnpm test` 1,937 passed. `pnpm smoke:harness` passes end to end against real Claude, including a new assertion that a scheduled fire carries the trigger's harness onto its run and chat. It had been failing on two stale paths (`config.json` moved into `.config/`, `/schedules` renamed to `/triggers`), fixed along the way. `pnpm smoke` and `pnpm smoke:agent` fail identically on unmodified `main` (they still expect the pre-`.config/` layout, a `brain/` folder, and root skill symlinks), so they are unrelated and left for a separate fix. The only remaining `agentId` is the rejected legacy param described under Phase 4.
 
 ### Phase 2: "Harness" wherever we mean the engine
 
 Leave "agent" where it means the AI in general: "agent browser", the "Agent (trial)" entity view, the NL MCP's `runMcpAgent`, "the agent surface".
 
-- [ ] Add the rule to CLAUDE.md: "harness" is the engine, "agent" in the UI is a workspace's scope.
+- [x] Add the rule to CLAUDE.md: "harness" is the engine, "agent" in the UI is a workspace's scope.
+  - The harness half landed with Phase 1 (Rules). Add the "agent in the UI" half with Phase 8, when the UI actually says it.
 - [ ] Move `src/lib/agents/` (registry, runtime, credentials, opencode, redaction) into `src/lib/harness/`, next to `one-shot.ts`. Move `src/lib/agent-options.ts` to `src/lib/harness/options.ts`.
 - [ ] Rename identifiers:
   - `getAgentModelCatalog` → `getHarnessModelCatalog`
@@ -220,9 +224,12 @@ One registry generates both surfaces, so every item lands on both.
 
 **Removing the table**
 
-- [ ] `create_trigger` / `update_trigger`: keep `agentId` in the param shape for now, but reject it with `invalid_params`: "agentId was removed. Use provider." Never silently ignore it, since that would change which engine runs.
-- [ ] Output fields: `list_executions` and `get_session_messages` change `agentHarness` to `harness`. `list_runs`, `get_run`, `list_triggers` and `get_trigger` change `agentId` to `harness`.
-- [ ] CLI: remove `ri trigger --agent`. `ri trigger runs --by agent` becomes `--by harness`.
+- [x] `create_trigger` / `update_trigger`: keep `agentId` in the param shape for now, but reject it with `invalid_params`: "agentId was removed. Use provider." Never silently ignore it, since that would change which engine runs.
+  - Landed with Phase 1 (the table removal forced it). `update_trigger` never accepted `agentId`. `list_runs` got the same treatment: its `agentId` filter is rejected, and a new `harness` filter replaces it (a silently ignored filter would return the wrong runs).
+- [x] Output fields: `list_executions` and `get_session_messages` change `agentHarness` to `harness`. `list_runs`, `get_run`, `list_triggers` and `get_trigger` change `agentId` to `harness`.
+  - Landed with Phase 1. Values are now the `HarnessId` spelling (`claude`, not `claude_code`). Trigger reads keep `provider` as well, since `provider` is the name the create/update actions take.
+- [x] CLI: remove `ri trigger --agent`. `ri trigger runs --by agent` becomes `--by harness`.
+  - Landed with Phase 1. The grouping flag lives on `ri trigger spend --by harness`.
 
 **Caller identity** (§5.4)
 
@@ -388,8 +395,8 @@ One registry generates both surfaces, so every item lands on both.
 
 ### Phase 10: Docs and final verification
 
-- [ ] `docs/workspaces-spec.md`: replace "Agent = the persona" in the mental model with a pointer to this spec.
-- [ ] `docs/chat-sessions.md`: the Agents section says the table is gone and the harness lives on the chat.
+- [x] `docs/workspaces-spec.md`: replace "Agent = the persona" in the mental model with a pointer to this spec. (Landed with Phase 1.)
+- [x] `docs/chat-sessions.md`: the Agents section says the table is gone and the harness lives on the chat. (Landed with Phase 1, along with `docs/async-agents-v1.md` and the one stale line in `docs/orchestrator-harness.md`.)
 - [ ] `docs/orchestrator-harness.md`: new actions, caller identity, provenance, the agent main chat.
 - [ ] CLAUDE.md: the glossary line (Phase 2), the migration note (Phase 0), and a line in the Orchestrator section about agent main chats.
 - [ ] `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, `pnpm smoke:agent`, `pnpm smoke:harness`, `pnpm build`.

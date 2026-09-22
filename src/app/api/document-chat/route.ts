@@ -2,7 +2,6 @@ import {
   listChatSessions,
   createChatSession,
   archiveChatSession,
-  getOrCreateDefaultOrchestrator,
   getUserState,
   updateUserState,
   ensureAgentHarnessSettings,
@@ -103,10 +102,9 @@ async function createFocusedSession(ref: EntityRef, override: ChatOverride = {})
       ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null)
       ?? harnessSettings.defaultEffort,
   }, { repairInvalidModel: override.model === undefined });
-  const agent = getOrCreateDefaultOrchestrator(selection.harness);
   const session = createChatSession({
     type: 'content',
-    agentId: agent.id,
+    harness: selection.providerId,
     // Pins the harness session to this one entity (see harness-surface's
     // renderContentFocusPrompt + the adapter's content branch).
     surfaceKind: ref.entityType,

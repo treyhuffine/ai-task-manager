@@ -41,8 +41,7 @@ describe('listChatEvents paging', () => {
    */
   async function seed() {
     const q = await import('@/lib/db/queries');
-    const agent = q.getOrCreateDefaultExecutor('claude');
-    const session = q.createChatSession({ agentId: agent.id, type: 'execution', userId: 'local' });
+    const session = q.createChatSession({ harness: 'claude', type: 'execution', userId: 'local' });
     const at = (s: string) => `2026-01-01T00:00:0${s}.000Z`;
     const ids: string[] = [];
     const stamps = ['1', '2', '3', '3', '4', '5'];

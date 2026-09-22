@@ -22,7 +22,6 @@ import type {
 const discoverSkillCommands = vi.fn();
 const reconcileSkillCommands = vi.fn();
 const getChatSession = vi.fn();
-const getAgent = vi.fn();
 const getSkillUsageScores = vi.fn();
 const getSessionInventory = vi.fn();
 
@@ -33,7 +32,6 @@ vi.mock('@agentex/agent', () => ({
 
 vi.mock('@/lib/db/queries', () => ({
   getChatSession: (id: string) => getChatSession(id),
-  getAgent: (id: string) => getAgent(id),
   getSkillUsageScores: () => getSkillUsageScores(),
 }));
 
@@ -78,14 +76,12 @@ beforeEach(() => {
   discoverSkillCommands.mockReset();
   reconcileSkillCommands.mockReset();
   getChatSession.mockReset();
-  getAgent.mockReset();
   getSkillUsageScores.mockReset();
   getSessionInventory.mockReset();
 
   // Sensible defaults: session/agent exist, no inventory, empty discovery,
   // no usage history.
-  getChatSession.mockReturnValue({ id: SESSION_ID, agentId: 'agent-1' });
-  getAgent.mockReturnValue({ id: 'agent-1', harness: 'claude_code' });
+  getChatSession.mockReturnValue({ id: SESSION_ID, harness: 'claude' });
   getSkillUsageScores.mockReturnValue(new Map());
   getSessionInventory.mockReturnValue(null);
   discoverSkillCommands.mockResolvedValue({ commands: [], diagnostics: [] });
@@ -100,15 +96,6 @@ describe('GET /api/sessions/[id]/slash-commands', () => {
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'session not found' });
-  });
-
-  it('returns 404 when the agent is missing', async () => {
-    getAgent.mockReturnValue(undefined);
-
-    const res = await GET(makeRequest(), makeParams());
-
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: 'agent not found' });
   });
 
   it('filters out commands with userInvocable: false', async () => {
@@ -186,16 +173,16 @@ describe('GET /api/sessions/[id]/slash-commands', () => {
     );
   });
 
-  it('maps the agent harness to the provider name', async () => {
-    getAgent.mockReturnValue({ id: 'agent-1', harness: 'claude_code' });
+  it('discovers commands for the session\'s harness', async () => {
+    getChatSession.mockReturnValue({ id: SESSION_ID, harness: 'codex' });
 
     await GET(makeRequest(), makeParams());
 
     expect(discoverSkillCommands).toHaveBeenCalledWith(
-      expect.objectContaining({ runtime: 'claude' }),
+      expect.objectContaining({ runtime: 'codex' }),
     );
     expect(reconcileSkillCommands).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: 'claude' }),
+      expect.objectContaining({ provider: 'codex' }),
     );
   });
 

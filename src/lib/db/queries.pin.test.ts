@@ -49,8 +49,7 @@ describe('execution pin', () => {
   it('stamps and clears pinnedAt via setExecutionPinned', async () => {
     const q = await setup();
     const wsId = await makeWorkspace('pin1');
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
-    const { execution } = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Work' });
+    const { execution } = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Work' });
 
     expect(q.getExecution(execution.id)?.pinnedAt).toBeNull();
 
@@ -64,8 +63,7 @@ describe('execution pin', () => {
   it('toggles via the session id and returns the execution flattened', async () => {
     const q = await setup();
     const wsId = await makeWorkspace('pin2');
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
-    const { session, execution } = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Work' });
+    const { session, execution } = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Work' });
 
     const pinned = q.setSessionPinned(session.id, true);
     expect(pinned?.execution?.pinnedAt).toEqual(expect.any(String));
@@ -83,8 +81,7 @@ describe('execution pin', () => {
   it('auto-clears the pin when the execution is archived', async () => {
     const q = await setup();
     const wsId = await makeWorkspace('pin3');
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
-    const { session, execution } = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Work' });
+    const { session, execution } = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Work' });
 
     q.setSessionPinned(session.id, true);
     expect(q.getExecution(execution.id)?.pinnedAt).toEqual(expect.any(String));
@@ -98,9 +95,8 @@ describe('execution pin', () => {
   it('surfaces the pin on rail rows so the Pinned group derives from rail data', async () => {
     const q = await setup();
     const wsId = await makeWorkspace('pin4');
-    const executor = q.getOrCreateDefaultExecutor('claude_code');
-    const a = q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Pinned one' });
-    q.createExecutionWithChat({ workspaceId: wsId, agentId: executor.id, label: 'Not pinned' });
+    const a = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Pinned one' });
+    q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Not pinned' });
 
     q.setSessionPinned(a.session.id, true);
 

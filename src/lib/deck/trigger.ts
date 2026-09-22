@@ -16,7 +16,7 @@ import {
   createTrigger,
   updateTrigger,
   deleteTrigger,
-  getOrCreateTriggerAgent,
+  defaultTriggerHarness,
 } from '@/lib/db/queries';
 import { computeNextRun } from '@/lib/scheduler/cron';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
@@ -108,7 +108,7 @@ export function setMorningDeckConfig(input: { enabled?: boolean; time?: string }
       name: MORNING_DECK_TRIGGER_NAME,
       description: 'Auto-refreshes the deck each morning, reconciling yesterday into today.',
       enabled,
-      agentId: getOrCreateTriggerAgent('orchestrator').id,
+      harness: defaultTriggerHarness(),
       workspaceId: null,
       targetKind: 'orchestrator',
       prompt: MORNING_PROMPT,
