@@ -283,6 +283,6 @@ Steps 1 and 2 can land and be tested without any UI, through `ri agent get_heart
 
 ## 13. Open questions
 
-1. **The program picker and the `agents` table.** The picker uses today's provider switch, which points the trigger at an `agents` row. The planned removal of that table will change it along with the other four managed triggers.
+1. **The program picker and the `agents` table.** Phase 1 of `docs/agents-view-spec.md` deletes the `agents` table and puts a `harness` column on triggers. The heartbeat only reaches the `agents` table through `provider` and one helper in `src/lib/heartbeat/trigger.ts`, never through `agentId` directly. If the heartbeat lands first, Phase 1 swaps `getOrCreateTriggerAgent` for a harness in that helper, alongside `deck/trigger.ts` and `stream-triage/triggers.ts`, and `get_heartbeat` reads `trigger.harness`. If Phase 1 lands first, build against `trigger.harness` directly.
 2. **Starting work by default.** The default instructions offer agent work rather than starting it. After some use, decide whether the default should start it.
 3. **On by default for new installs?** v1 ships off. Decide after a few weeks of your own use.
