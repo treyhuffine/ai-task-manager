@@ -78,7 +78,6 @@ CREATE TABLE tasks (
 
   -- Project-like fields (used when task has children)
   outcome TEXT,                                    -- "what does done look like?" for task-as-project
-  heartbeat_days INTEGER,                          -- resurface cadence if idle (null = no heartbeat)
   last_progress_at TEXT,                           -- updated when child tasks complete
 
   -- Dimensions (AI-inferred, user-adjustable)

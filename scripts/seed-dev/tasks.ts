@@ -153,7 +153,6 @@ export const tasks: SeedTask[] = [
     status: 'in_progress',
     statusChangedAt: '2026-04-23T07:00:00Z',
     statusChangedCount: 1,
-    heartbeatDays: 1,
   },
   {
     title: 'Order new running shoes',

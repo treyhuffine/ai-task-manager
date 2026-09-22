@@ -205,7 +205,6 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
     parentTitle: opts.parentTitle ?? null,
     energy: task.energy,
     effort: task.effort,
-    heartbeatDays: task.heartbeatDays,
     hardDeadline: task.hardDeadline,
     resurfaceAfter: task.resurfaceAfter,
     reminderAt: task.reminderAt,

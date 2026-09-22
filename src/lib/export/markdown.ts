@@ -104,7 +104,6 @@ export function taskToMarkdown(
     parentId: task.parentId,
     energy: task.energy,
     effort: task.effort,
-    heartbeatDays: task.heartbeatDays,
     hardDeadline: task.hardDeadline,
     resurfaceAfter: task.resurfaceAfter,
     reminderAt: task.reminderAt,

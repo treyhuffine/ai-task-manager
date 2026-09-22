@@ -425,7 +425,6 @@ export const tasks = sqliteTable(
     userContext: text(),
     aiContext: text(),
     outcome: text(),
-    heartbeatDays: integer(),
     lastProgressAt: text(),
     energy: text({ enum: ['deep', 'light'] }),
     effort: text({ enum: ['trivial', 'small', 'medium', 'large', 'epic'] }),
