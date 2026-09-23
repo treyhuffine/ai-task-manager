@@ -225,8 +225,9 @@ function HeartbeatSettingsBody({
               <option value="any">Any time</option>
             </select>
             {!anyTime && (
-              // One unit, so a narrow panel wraps the pair together.
-              <span className="flex items-center gap-2">
+              // One unit, so a narrow panel wraps the pair together. Below a
+              // medium container it takes its own row and the inputs share it.
+              <span className="flex w-full min-w-0 items-center gap-2 @md:w-auto">
                 <TimeInput
                   label="From"
                   value={config.activeHoursStart ?? DEFAULT_HEARTBEAT_ACTIVE_HOURS_START}
@@ -300,7 +301,7 @@ function TimeInput({ label, value, onCommit }: { label: string; value: string; o
         if (/^\d{2}:\d{2}$/.test(draft) && draft !== value) onCommit(draft);
         else setDraft(value);
       }}
-      className="rounded-md border border-border bg-background px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+      className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-ring @md:flex-none"
     />
   );
 }
