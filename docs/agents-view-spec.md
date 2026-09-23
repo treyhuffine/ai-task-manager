@@ -359,39 +359,48 @@ One registry generates both surfaces, so every item lands on both.
 
 **Navigation state**
 
-- [ ] Replace `ActiveView = 'command' | string` (`src/types/dashboard.ts`, whose comment wrongly says "or an agent id") with a union: home, agent (`id`, optional tab), execution (`id`).
-- [ ] URL: `?agent=<workspaceId>` with an optional `&tab=`, next to today's `?session=<id>`. Reload and browser back/forward restore the view.
-- [ ] `dashboard.tsx` renders the agent view for the agent state.
+- [x] Replace `ActiveView = 'command' | string` (`src/types/dashboard.ts`, whose comment wrongly says "or an agent id") with a union: home, agent (`id`, optional tab), execution (`id`).
+  - Helpers in `src/lib/client/active-view.ts` (build, compare, URL encode). The context adds `openExecution`, `openAgent`, `goHome` and a derived `activeSessionId`. About 40 call sites moved, found by the compiler.
+- [x] URL: `?agent=<workspaceId>` with an optional `&tab=`, next to today's `?session=<id>`. Reload and browser back/forward restore the view.
+  - Switching tabs within one agent replaces the history entry instead of pushing one, so Back leaves the agent rather than stepping through tabs. `session` wins if a URL carries both. Verified in the browser: agent, then execution, then Back and Forward.
+- [x] `dashboard.tsx` renders the agent view for the agent state.
 
 **Layout**
 
-- [ ] Two resizable panels with the same primitives as `PanelLayout` (react-resizable-panels): chat on the left (min 360px), tools on the right. The tools panel can collapse so the chat goes full width. Sizes persist.
-- [ ] In-panel responsive rules use Tailwind `@container`, not viewport breakpoints.
-- [ ] Header:
+- [x] Two resizable panels with the same primitives as `PanelLayout` (react-resizable-panels): chat on the left (min 360px), tools on the right. The tools panel can collapse so the chat goes full width. Sizes persist.
+- [x] In-panel responsive rules use Tailwind `@container`, not viewport breakpoints.
+- [x] Header:
   - agent icon and name
   - folder path, muted
   - working and needs-you counts
   - a "Start work" button that opens the launcher seeded with this agent
+  - Plus a button that collapses the tools panel. The Start work label drops to its icon in a narrow header (`@container`).
 
 **Chat panel**
 
-- [ ] Renders the agent's main chat with the existing harness chat components (`src/components/chat/harness-chat.tsx`), loaded from `/api/workspaces/:id/chat`. A menu offers history and "New chat".
-- [ ] Composer placeholder: "Ask ri about its work, or what to start next". UI copy uses no em dashes and no semicolons.
+- [x] Renders the agent's main chat with the existing harness chat components (`src/components/chat/harness-chat.tsx`), loaded from `/api/workspaces/:id/chat`. A menu offers history and "New chat".
+  - `HarnessChat` takes a scope (null for the app's chat). The history menu moved out of `content-panel.tsx` into `main-chat-history-menu.tsx`, and the hooks into `use-main-chat.ts` (`use-orchestrator-chat.ts` binds them to null).
+- [x] Composer placeholder: "Ask ri about its work, or what to start next". UI copy uses no em dashes and no semicolons.
 
 **Tools panel**
 
-- [ ] A tab strip with Overview, Files, Terminal, Preview and Setup. The last-used tab persists per agent.
-- [ ] **Overview**
+- [x] A tab strip with Overview, Files, Terminal, Preview and Setup. The last-used tab persists per agent.
+  - A tab stays mounted once visited, so a terminal keeps its scrollback. Inactive tabs are transparent and `inert`, not `visibility: hidden`: the terminal panel sets `visibility: visible` on its active terminal, which painted through the Overview (caught in the light screenshots).
+- [x] **Overview**
   - Executions grouped with the rail's classification (`StatusView`): **Needs you** (approval and unread), **Working**, **Recent**. Rows show label, diff stats, harness and last activity. Clicking opens the execution view.
   - **Pinned:** this agent's pinned executions.
   - **Tasks:** tasks linked to this agent's executions.
   - **Preview:** running or stopped, port, open link.
   - Empty state: "No work yet" plus Start work.
-- [ ] **Files:** tree and read-only viewer on the agent's folder (Phase 5 routes). Reuse the file tree and viewer components by giving them a target (a session or a workspace).
-- [ ] **Terminal:** the terminal panel on the agent's folder (Phase 5 routes).
-- [ ] **Preview:** the existing preview pane pointed at the workspace preview.
+  - Grouping reuses `classifySession` on the rail feed (`use-agent.ts`), so the view and the rail never disagree. Tasks come from a new `GET /api/workspaces/:id/tasks` (open tasks of active executions, `listWorkspaceExecutionTasks`).
+- [x] **Files:** tree and read-only viewer on the agent's folder (Phase 5 routes). Reuse the file tree and viewer components by giving them a target (a session or a workspace).
+  - The target is `FolderSource` (`src/lib/folders/source.ts`) with hooks in `use-folder.ts`. `FileTree`, `FileViewer`, `FileView`, `DiffView`, `MarkdownView`, the terminal panel and instance, and the terminal hooks and API all take it now. A session source keeps its old cache keys. A workspace source is read-only: no create, rename, delete or edit, and the empty viewer's copy says so. Status flags and Diff compare against HEAD.
+- [x] **Terminal:** the terminal panel on the agent's folder (Phase 5 routes).
+  - **Surprise:** it showed a blank screen, reproduced on a real GPU (Apple M4 through Metal), not just headless. xterm's WebGL renderer only measures its canvas when the terminal resizes. The execution view's bottom panel settles its size after mount, which triggered that by accident. The agent view's tab is full size from the start. Fix in `execution-terminal-instance.tsx`: attach the WebGL renderer on first activation and nudge a resize so it measures itself. Verified at 1x on the GPU in both views. (2x device-scale emulation leaves both blank with the old code too, so that is a test artifact.)
+- [x] **Preview:** the existing preview pane pointed at the workspace preview.
   - Revised by the Phase 5 finding: the agent's execution previews (`GET /api/workspaces/:id/previews`). Pick one to show it in the existing preview pane, with "Restore pinned" calling `preview/restore-set`.
-- [ ] **Setup** replaces `WorkspaceSettingsSheet`. Sections:
+- [x] **Setup** replaces `WorkspaceSettingsSheet`. Sections:
+  - `src/components/agents/agent-setup.tsx`. Adds Purpose and Instructions with live counters against the caps. Saving sends only the fields that changed, because instructions, the browser and the folder recycle live sessions (verified: editing purpose sends `{"purpose": ...}` alone). An untouched form follows edits made elsewhere, such as the main chat's `update_workspace`, and unsaved edits are never overwritten. The Start script is the preview command, so it lives in "Scripts and preview". The sheet is deleted, and every opener (rail gear, status and history views, Needs Review, row menus, the execution preview pane) opens this tab.
   - Basics: name, icon, area, purpose
   - Instructions
   - Connectors
@@ -407,13 +416,20 @@ One registry generates both surfaces, so every item lands on both.
 
 **Provenance in transcripts**
 
-- [ ] Messages with a `sender_session_id` show who sent them ("From ri", "From orchestrator"), linking to the sending chat.
+- [x] Messages with a `sender_session_id` show who sent them ("From ri", "From orchestrator"), linking to the sending chat.
+  - `src/components/chat/sender-chip.tsx`. The agent chip opens the agent view, the orchestrator chip goes Home, and an execution chip opens that execution. A deleted sender reads "From a chat that was deleted". Verified with seeded events.
 
 **Trial preference**
 
-- [ ] `src/lib/client/agent-view-mode.ts`, mirroring `entity-view-mode.ts`. Settings > General gets "Clicking an agent" with two options: "Opens the agent view (trial)" and "Folds its list". The default is the agent view.
+- [x] `src/lib/client/agent-view-mode.ts`, mirroring `entity-view-mode.ts`. Settings > General gets "Clicking an agent" with two options: "Opens the agent view (trial)" and "Folds its list". The default is the agent view.
+  - Under a new "Agents" heading. Verified that fold mode folds and leaves the view closed.
 
 **Done when:** every tab works on a git agent and on a non-git agent. Screenshots in light and dark are attached to the commit or recorded here.
+
+**Status 2026-09-22:** landed. Every tab exercised on dev (port 42241) against a git agent (`demo-app`, with three executions, a pinned one, an unread one, a linked task and a running preview) and a plain folder (`field-notes`). Screenshots in light and dark for every tab are in `personal/agents-view-screenshots/` (gitignored, not in the repo). Found and fixed along the way:
+- The PR routes (`/api/sessions/:id/pr`, `/prs`) returned 500 for a repo with no GitHub remote. They now answer "no PR", as their contracts promise for missing gh.
+- The Connectors section said scopes only reach executions. Its copy now says the main chat too.
+- An intermittent React hydration warning naming a Radix popover id showed up twice in scripted runs and never in nine direct loads. Left for a follow-up with that evidence.
 
 ### Phase 8: Rail and navigation
 

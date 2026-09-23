@@ -32,6 +32,7 @@ import { ExecutionTerminalPanel } from './execution-terminal-panel';
 import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
+import { sessionFolder } from '@/lib/folders/source';
 import { FileTree } from './file-tree/file-tree';
 import { ViewerArea } from './viewer-area';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
@@ -49,6 +50,7 @@ import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { DRAFT_STORAGE_PREFIX } from '@/components/chat/editor/draft-storage';
 import { hot } from '@/lib/_debug/hot-path';
+import { HOME_VIEW, executionView } from '@/lib/client/active-view';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -63,7 +65,7 @@ interface ExecutionViewProps {
  * surface — opening the session is the read receipt.
  */
 export function ExecutionView({ sessionId }: ExecutionViewProps) {
-  const { setActiveView, setActiveExecutionId, setSessionStreaming } = useDashboard();
+  const { setActiveView, setActiveExecutionId, setSessionStreaming, openAgent } = useDashboard();
   const qc = useQueryClient();
   const { data: session, isLoading, error } = useSession(sessionId);
   const { data: workspace } = useWorkspace(session?.workspaceId ?? null);
@@ -131,7 +133,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             // Draft persistence is best-effort when storage is unavailable.
           }
         }
-        setActiveView(r.session.id);
+        setActiveView(executionView(r.session.id));
       })
       .catch(() => { });
   };
@@ -479,7 +481,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     };
   }, [sessionId, qc]);
 
-  const handleClose = () => setActiveView('command');
+  const handleClose = () => setActiveView(HOME_VIEW);
 
   if (isLoading) {
     // Mirror the real 3-column layout while the session record loads,
@@ -733,7 +735,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                 />
               ) : (
                 <FileTree
-                  sessionId={session.id}
+                  source={sessionFolder(session.id)}
                   worktreeId={worktreeId}
                   selectedPath={selectedPath}
                   onSelect={handleFilePicked}
@@ -785,6 +787,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                       filePickSignal={filePickSignal}
                       fileHistory={fileHistory}
                       onReferenceInChat={handleReferenceFileInChat}
+                      onOpenWorkspaceSettings={
+                        session.workspaceId ? () => openAgent(session.workspaceId!, 'setup') : undefined
+                      }
                       active
                     />
                   )}
@@ -806,7 +811,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
                 >
                   {session.workspaceId && (
                     <ExecutionTerminalPanel
-                      sessionId={session.id}
+                      source={sessionFolder(session.id)}
                       disabled={terminalNotReady}
                       disabledReason={terminalNotReady ? 'Setting up worktree…' : undefined}
                       collapsed={terminalCollapsed}

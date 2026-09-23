@@ -1,52 +1,56 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { terminalsApi, type TerminalDescriptor } from '@/lib/api/terminals';
-import { useWorktreeScope, worktreeScopeFromCache } from '@/hooks/use-execution';
+import { useFolderScope } from '@/hooks/use-folder';
+import { folderApiBase, type FolderSource } from '@/lib/folders/source';
 
 /**
- * Terminals for the execution's worktree.
+ * Terminals for a folder: an execution's worktree or an agent's own folder
+ * (`src/lib/folders/source.ts`).
  *
- * Keyed by execution, matching the PTY registry's ownership: a shell is a
- * shell *in the worktree*, so every chat on that execution sees the same
- * one. Keying by chat session used to mean a provider switch handed you a
- * fresh `zsh -l` in the same directory while the old shell kept running,
- * unreachable.
+ * Keyed by the folder's scope, matching the PTY registry's ownership: a
+ * shell is a shell *in the worktree*, so every chat on that execution sees
+ * the same one. Keying by chat session used to mean a provider switch
+ * handed you a fresh `zsh -l` in the same directory while the old shell
+ * kept running, unreachable. An agent's own shells live under the
+ * workspace, apart from every execution's.
  */
 const KEY = (scope: readonly string[]) => [...scope, 'terminals'] as const;
 
-export function useTerminals(sessionId: string | null) {
-  const scope = useWorktreeScope(sessionId);
+/** The unresolved-scope fallback stays source-unique so a disabled query can't collide. */
+function keyFor(scope: readonly string[] | null, source: FolderSource | null) {
+  return KEY(scope ?? ['unresolved', source ? folderApiBase(source) : '__none__']);
+}
+
+export function useTerminals(source: FolderSource | null) {
+  const scope = useFolderScope(source);
   return useQuery({
-    // The `?? [...]` fallback only applies while the scope is unresolved
-    // (query disabled). It stays session-unique so a disabled query can't
-    // collide with another session's entry.
-    queryKey: KEY(scope ?? ['session', sessionId ?? '__none__']),
-    queryFn: () => terminalsApi.list(sessionId!),
-    enabled: !!sessionId && !!scope,
+    queryKey: keyFor(scope, source),
+    queryFn: () => terminalsApi.list(folderApiBase(source!)),
+    enabled: !!source && !!scope,
     staleTime: 30_000,
   });
 }
 
-export function useCreateTerminal(sessionId: string) {
+export function useCreateTerminal(source: FolderSource) {
   const qc = useQueryClient();
+  const scope = useFolderScope(source);
   return useMutation({
     mutationFn: (dims: { cols: number; rows: number }) =>
-      terminalsApi.create(sessionId, dims),
+      terminalsApi.create(folderApiBase(source), dims),
     onSuccess: (created) => {
-      qc.setQueryData<TerminalDescriptor[]>(
-        KEY(worktreeScopeFromCache(qc, sessionId)),
-        (prev) => [...(prev ?? []), created],
-      );
+      qc.setQueryData<TerminalDescriptor[]>(keyFor(scope, source), (prev) => [...(prev ?? []), created]);
     },
   });
 }
 
-export function useKillTerminal(sessionId: string) {
+export function useKillTerminal(source: FolderSource) {
   const qc = useQueryClient();
+  const scope = useFolderScope(source);
   return useMutation({
-    mutationFn: (terminalId: string) => terminalsApi.kill(sessionId, terminalId),
+    mutationFn: (terminalId: string) => terminalsApi.kill(folderApiBase(source), terminalId),
     onSuccess: (_res, terminalId) => {
       qc.setQueryData<TerminalDescriptor[]>(
-        KEY(worktreeScopeFromCache(qc, sessionId)),
+        keyFor(scope, source),
         (prev) => (prev ?? []).filter((t) => t.id !== terminalId),
       );
     },

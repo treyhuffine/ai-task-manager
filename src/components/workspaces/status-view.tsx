@@ -1,10 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useRailSessions } from '@/hooks/use-workspaces';
-import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 import { BucketSection } from './bucket-section';
 import { StatusSessionRow } from './status-session-row';
 import { BUCKET_CONFIG, BUCKET_ORDER, classifySession, type BucketId } from './bucket-config';
@@ -15,8 +14,9 @@ import type { RailSession } from '@/lib/api/sessions';
 
 export function StatusView() {
   const { data, isLoading } = useRailSessions();
-  const { streamingSessionIds, pendingInputSessionIds, setActiveView } = useDashboard();
-  const [settingsId, setSettingsId] = useState<string | null>(null);
+  const { streamingSessionIds, pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
+  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  const openSetup = (id: string) => openAgent(id, 'setup');
 
   const buckets = useMemo(() => {
     const map: Record<BucketId, RailSession[]> = {
@@ -97,7 +97,7 @@ export function StatusView() {
                   session={s}
                   bucket={bucketId}
                   isUnread={bucketId === 'unread' || bucketId === 'needsApproval'}
-                  onOpenWorkspaceSettings={setSettingsId}
+                  onOpenWorkspaceSettings={openSetup}
                   onOpenLauncher={openLauncher}
                 />
               ))}
@@ -105,8 +105,6 @@ export function StatusView() {
           );
         })}
       </div>
-
-      <WorkspaceSettingsSheet workspaceId={settingsId} onClose={() => setSettingsId(null)} />
     </>
   );
 }

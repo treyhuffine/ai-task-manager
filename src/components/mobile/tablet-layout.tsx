@@ -4,6 +4,7 @@ import { Zap, Activity } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { ContentPanel } from '@/components/dashboard/content-panel';
 import { cn } from '@/lib/utils';
+import { HOME_VIEW, agentView } from '@/lib/client/active-view';
 
 /**
  * Tablet layout (768–1024px): compact agent rail on left + single content panel.
@@ -20,16 +21,16 @@ export function TabletLayout() {
       <aside className="w-[60px] border-r border-border flex flex-col items-center bg-background z-30 py-3 gap-1">
         {/* Command */}
         <button
-          onClick={() => setActiveView('command')}
+          onClick={() => setActiveView(HOME_VIEW)}
           title="Command"
           className={cn(
             'w-10 h-10 rounded-xl flex items-center justify-center transition-all',
-            activeView === 'command'
+            activeView.kind === 'home'
               ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
               : isDark ? 'bg-secondary text-muted-foreground hover:text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
           )}
         >
-          <Zap size={16} className={activeView === 'command' ? 'fill-primary' : ''} />
+          <Zap size={16} className={activeView.kind === 'home' ? 'fill-primary' : ''} />
         </button>
 
         {/* Divider */}
@@ -39,14 +40,14 @@ export function TabletLayout() {
           {agents.map((agent) => (
             <button
               key={agent.id}
-              onClick={() => setActiveView(agent.id)}
+              onClick={() => setActiveView(agentView(agent.id))}
               title={`${agent.name}${agent.task ? `: ${agent.task}` : ''}`}
               className={cn(
                 'w-10 h-10 rounded-xl flex items-center justify-center text-base relative transition-all',
-                activeView === agent.id
+                activeView.kind === 'agent' && activeView.id === agent.id
                   ? 'ring-1 ring-primary/30 bg-primary/5'
                   : isDark ? 'bg-secondary hover:bg-secondary/80' : 'bg-muted hover:bg-muted/80',
-                agent.status !== 'active' && activeView !== agent.id && 'opacity-50'
+                agent.status !== 'active' && !(activeView.kind === 'agent' && activeView.id === agent.id) && 'opacity-50'
               )}
             >
               {agent.icon}

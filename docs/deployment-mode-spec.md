@@ -145,7 +145,7 @@ The viewer just shows Files. No tab to switch to, no preview API
 calls, no settings section for `preview_command` / `preview_port_override` /
 `portless_hostname` in the workspace settings sheet.
 
-**Workspace settings** (`src/components/workspaces/workspace-settings-sheet.tsx`):
+**Workspace settings** (now the agent view's Setup tab, `src/components/agents/agent-setup.tsx`, which replaced `workspace-settings-sheet.tsx`):
 
 The entire "Preview" section is omitted in team mode. The columns
 on `workspaces` still exist in the schema (no migration needed) —
@@ -195,7 +195,7 @@ One phase. Estimated <1 day of work, mostly plumbing.
 - [ ] Gate the proxy route in `src/app/preview/[workspace]/[[...path]]/route.ts`.
 - [ ] Gate every `/api/workspaces/[id]/preview/*` route.
 - [ ] Hide the Preview tab in `src/components/executions/viewer-area.tsx`.
-- [ ] Hide the Preview section in `src/components/workspaces/workspace-settings-sheet.tsx`.
+- [ ] Hide the preview (Start) script in the Setup tab, `src/components/agents/agent-setup.tsx` (the settings sheet was replaced by it, see docs/agents-view-spec.md Phase 7).
 - [ ] Footer mode chip — add to wherever the existing status row lives.
 - [ ] `src/cli/commands/mode.ts` — `mode get` / `mode set` subcommands.
 - [ ] Tests:
@@ -223,7 +223,7 @@ One phase. Estimated <1 day of work, mostly plumbing.
 - `src/app/api/workspaces/[id]/preview/logs/route.ts` — team-mode gate
 - `src/app/api/workspaces/[id]/preview/refresh-token/route.ts` — team-mode gate
 - `src/components/executions/viewer-area.tsx` — conditional Preview tab
-- `src/components/workspaces/workspace-settings-sheet.tsx` — conditional Preview section
+- `src/components/agents/agent-setup.tsx` — conditional Preview section
 - Wherever the footer status row lives — add `<ModeBadge />`
 - `docs/workspace-preview-spec.md` — cross-link to this spec from the trust-boundary section
 
@@ -253,4 +253,4 @@ When (1) and (2) are addressed via subdomain isolation + command sandboxing, pre
 - Existing bearer-auth middleware: `src/proxy.ts`
 - Existing config root: `src/lib/config/paths.ts` (`getConfigPath`)
 - Existing preview API gates (where the new check goes): `src/app/api/workspaces/[id]/preview/*/route.ts`
-- Workspace settings sheet (where the Preview section is conditionally rendered): `src/components/workspaces/workspace-settings-sheet.tsx`
+- Agent Setup tab (where the Preview section is conditionally rendered): `src/components/agents/agent-setup.tsx`

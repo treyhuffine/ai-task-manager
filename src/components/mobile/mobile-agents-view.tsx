@@ -25,6 +25,7 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceWithCounts } from '@/db/types';
+import { executionView } from '@/lib/client/active-view';
 
 /**
  * Mobile-tab "Agents" surface. Mirrors the desktop rail's structure
@@ -142,7 +143,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
     setCreating(true);
     const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id });
     setMobileTab('agents');
-    setActiveView(sessionId);
+    setActiveView(executionView(sessionId));
     void done.finally(() => setCreating(false));
   };
 
@@ -250,7 +251,7 @@ interface MobileSessionRowProps {
 }
 
 function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSessionRowProps) {
-  const { activeView, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds, setMobileTab } =
+  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds, setMobileTab } =
     useDashboard();
   const isPending = pendingInputSessionIds.has(session.id);
   // Pending wins over streaming: when the agent is blocked on user input
@@ -268,7 +269,7 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
   // One row per execution: active when the open view is its primary chat
   // or any sibling chat of the same execution.
   const isActive =
-    activeView === session.id ||
+    activeSessionId === session.id ||
     (!!session.executionId && activeExecutionId === session.executionId);
 
   // Title by the execution (stable across its chats); fall back to the
@@ -278,9 +279,9 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
 
   const open = () => {
     // Stay on the agents tab — MobileLayout swaps the agents content for
-    // ExecutionView when activeView !== 'command'.
+    // ExecutionView when activeSessionId !== 'command'.
     setMobileTab('agents');
-    setActiveView(session.id);
+    setActiveView(executionView(session.id));
   };
 
   return (

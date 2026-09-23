@@ -18,6 +18,7 @@ import { useTranscriptDensity, type TranscriptDensity } from '@/lib/client/trans
 import { useDeckQuickAddMode, type DeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
 import { useDeckLayoutMode, type DeckLayoutMode } from '@/lib/client/deck-layout-mode';
 import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view-mode';
+import { useAgentViewMode, type AgentViewMode } from '@/lib/client/agent-view-mode';
 
 const DEFAULT_START = '09:00';
 const DEFAULT_END = '18:00';
@@ -106,6 +107,7 @@ export function GeneralSection() {
   const { mode: deckQuickAddMode, setMode: setDeckQuickAddMode } = useDeckQuickAddMode();
   const { mode: deckLayoutMode, setMode: setDeckLayoutMode } = useDeckLayoutMode();
   const { mode: entityViewMode, setMode: setEntityViewMode } = useEntityViewMode();
+  const { mode: agentViewMode, setMode: setAgentViewMode } = useAgentViewMode();
 
   return (
     <div className="space-y-6">
@@ -318,6 +320,29 @@ export function GeneralSection() {
             {entityViewMode === 'agent'
               ? 'A note or task opens with the agent: a brief of what is in it, then a conversation to read, add, change, or remove. The editor stays one click away, and every agent edit has a diff and undo. Switch back here at any time.'
               : 'The classic editor with the agent in a side panel.'}
+          </p>
+        </div>
+      </section>
+
+      {/* Agents (agent view trial) */}
+      <section className="space-y-2">
+        <h3 className="text-[12px] font-medium text-foreground">Agents</h3>
+        <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-foreground">Clicking an agent</span>
+            <select
+              value={agentViewMode}
+              onChange={(e) => setAgentViewMode(e.target.value as AgentViewMode)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="view">Opens the agent view (trial)</option>
+              <option value="fold">Folds its list</option>
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground/85">
+            {agentViewMode === 'view'
+              ? "Clicking an agent's name in the rail opens its view: its main chat on the left, its work and tools on the right. The chevron still folds its list. Switch back here at any time."
+              : "Clicking an agent's name in the rail folds or unfolds its list of executions. The gear still opens its setup."}
           </p>
         </div>
       </section>

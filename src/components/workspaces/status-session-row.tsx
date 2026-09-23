@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
+import { executionView } from '@/lib/client/active-view';
 
 interface StatusSessionRowProps {
   session: RailSession;
@@ -32,10 +33,10 @@ export function StatusSessionRow({
   onOpenWorkspaceSettings,
   onOpenLauncher,
 }: StatusSessionRowProps) {
-  const { activeView, setActiveView } = useDashboard();
+  const { activeSessionId, setActiveView } = useDashboard();
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
-  const isActive = activeView === session.id;
+  const isActive = activeSessionId === session.id;
 
   // Read receipt fires when the user navigates AWAY from the session
   // (handled in ExecutionView's cleanup), not when clicking in. That
@@ -43,7 +44,7 @@ export function StatusSessionRow({
   // the row they just opened.
   const handleOpen = () => {
     closeNow();
-    setActiveView(session.id);
+    setActiveView(executionView(session.id));
   };
   // Status rows are one-per-execution, so title by the stable execution
   // label (survives "new chat"); fall back to the chat label otherwise.

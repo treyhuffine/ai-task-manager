@@ -1,10 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useNeedsReviewSessions, useWorkspaces } from '@/hooks/use-workspaces';
 import { SessionRow } from './session-row';
-import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 
 /**
  * Top-of-rail surface listing sessions where the agent has produced output
@@ -12,10 +11,11 @@ import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
  * empty header.
  */
 export function NeedsReviewSection() {
-  const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds, openAgent } = useDashboard();
   const { data: candidates } = useNeedsReviewSessions();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
-  const [settingsId, setSettingsId] = useState<string | null>(null);
+  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  const openSetup = (id: string) => openAgent(id, 'setup');
 
   // Hide mid-turn sessions — a fresh outcome is imminent. Exception:
   // streaming-but-blocked-on-user-input is the most actionable state
@@ -51,12 +51,11 @@ export function NeedsReviewSection() {
               session={session}
               variant="needs-review"
               showWorkspaceLabel={wsName(session.workspaceId)}
-              onOpenWorkspaceSettings={setSettingsId}
+              onOpenWorkspaceSettings={openSetup}
             />
           ))}
         </div>
       </div>
-      <WorkspaceSettingsSheet workspaceId={settingsId} onClose={() => setSettingsId(null)} />
     </>
   );
 }

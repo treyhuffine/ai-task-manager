@@ -8,6 +8,7 @@ import { TopHud } from './top-hud';
 import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
 import { ExecutionView } from '@/components/executions/execution-view';
+import { AgentView } from '@/components/agents/agent-view';
 import { FocusView } from './focus-view';
 import { SearchOverlay } from '@/components/shared/search-overlay';
 import { NoteSlideout } from '@/components/notes/note-slideout';
@@ -28,7 +29,8 @@ function DashboardShell() {
   const {
     theme,
     activeView,
-    setActiveView,
+    goHome,
+    openExecution,
     openNoteId, openTaskId, openAreaId, areasListOpen,
     popSlideout, closeAllSlideouts, slideoutStack,
     triggerVoiceChat,
@@ -37,11 +39,13 @@ function DashboardShell() {
     toggleExecutionRailOpen,
   } = useDashboard();
 
-  // activeView is 'command' for the default dashboard, or a chat_session
-  // id when an execution row is selected. Anything non-'command' is
-  // treated as a session id; a missing/archived id renders "not found"
-  // inside ExecutionView and offers a Back button.
-  const isExecutionView = activeView !== 'command';
+  // Home, an agent's view, or an execution (see `ActiveView`). A missing or
+  // archived id renders "not found" inside its view and offers a way back.
+  // Only the execution view collapses the rail: Home and the agent view keep
+  // whatever the user set, which is part of what makes the execution view
+  // read as a separate workbench.
+  const isExecutionView = activeView.kind === 'execution';
+  const isHome = activeView.kind === 'home';
 
   // Sync the rail GET's pending/running snapshots into the dashboard
   // context so the by-status bucketizer and by-workspace status pips
@@ -87,22 +91,23 @@ function DashboardShell() {
         }
         return;
       }
-      if (matchesHotkey(e, HOTKEYS.closeExecution)) {
-        if (isExecutionViewRef.current) {
+      if (matchesHotkey(e, HOTKEYS.closeView)) {
+        // Close whichever view is open. From Home, reopen the latest execution.
+        if (!isHome) {
           e.preventDefault();
-          setActiveView('command');
+          goHome();
           return;
         }
         const latest = latestExecutionIdRef.current;
         if (latest) {
           e.preventDefault();
-          setActiveView(latest);
+          openExecution(latest);
         }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed, toggleExecutionRailOpen, setActiveView]);
+  }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed, toggleExecutionRailOpen, goHome, openExecution, isHome]);
 
   const hasHistory = slideoutStack.length > 1;
 
@@ -129,8 +134,10 @@ function DashboardShell() {
         {/* Desktop layout: ≥lg */}
         <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
           <PowerRail compact={isExecutionView} />
-          {isExecutionView ? (
-            <ExecutionView sessionId={activeView} />
+          {activeView.kind === 'execution' ? (
+            <ExecutionView sessionId={activeView.id} />
+          ) : activeView.kind === 'agent' ? (
+            <AgentView workspaceId={activeView.id} tab={activeView.tab} />
           ) : (
             <PanelLayout />
           )}

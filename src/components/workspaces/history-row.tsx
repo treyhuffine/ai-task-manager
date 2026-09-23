@@ -11,6 +11,7 @@ import type { RailSession } from '@/lib/api/sessions';
 import { DiffStatsPair } from './diff-stats';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
+import { executionView } from '@/lib/client/active-view';
 
 interface HistoryRowProps {
   session: RailSession;
@@ -44,14 +45,14 @@ export function HistoryRow({
   onOpenWorkspaceSettings,
   onOpenLauncher,
 }: HistoryRowProps) {
-  const { activeView, setActiveView } = useDashboard();
+  const { activeSessionId, setActiveView } = useDashboard();
   const { data: diffStats } = useDiffStats(
     session.worktreePath ? session.id : null,
     session.executionId,
   );
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
-  const isActive = activeView === session.id;
+  const isActive = activeSessionId === session.id;
   const isArchived = session.status === 'archived';
   // Only active executions live in the rail, so only they can be pinned.
   // Archived rows carry a cleared pin and hide the Pin menu item entirely.
@@ -59,7 +60,7 @@ export function HistoryRow({
 
   const handleOpen = () => {
     closeNow();
-    setActiveView(session.id);
+    setActiveView(executionView(session.id));
   };
 
   // History is one-per-chat: prefer the chat's own label so sibling chats on

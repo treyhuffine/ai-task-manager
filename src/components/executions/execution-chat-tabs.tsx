@@ -34,6 +34,7 @@ import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 import { backfillSortKeys } from '@/lib/utils/bucket-placement';
 import { timestampEpoch } from '@/lib/utils/timestamps';
 import { cn } from '@/lib/utils';
+import { executionView } from '@/lib/client/active-view';
 
 type ChatHistoryData = { sessions: ExecutionChatHistoryEntry[] };
 
@@ -178,7 +179,7 @@ export function ExecutionChatTabs({
       // auto-resume would just flip it right back on).
       const fallback = tabs.filter((t) => t.id !== entry.id).at(-1);
       if (!fallback) return;
-      setActiveView(fallback.id);
+      setActiveView(executionView(fallback.id));
     }
     closeChat.mutate(entry.id);
   };
@@ -281,7 +282,7 @@ export function ExecutionChatTabs({
                   setDraft(s.label ?? '');
                 }}
                 onActivate={() => {
-                  if (!s.isCurrent) setActiveView(s.id);
+                  if (!s.isCurrent) setActiveView(executionView(s.id));
                 }}
                 onClose={() => handleClose(s)}
               />
@@ -336,7 +337,7 @@ export function ExecutionChatTabs({
                     key={s.id}
                     type="button"
                     onClick={() => {
-                      if (!s.isCurrent) setActiveView(s.id);
+                      if (!s.isCurrent) setActiveView(executionView(s.id));
                       setHistoryOpen(false);
                     }}
                     className={cn(

@@ -12,6 +12,7 @@ import type { TaskRecord, NoteRecord, AreaRecord, ChatSessionWithExecution, Work
 import { api } from '@/lib/api/client'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { isSessionUnread } from '@/lib/utils/session-sort'
+import { executionView } from '@/lib/client/active-view';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -456,7 +457,7 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
           data={data as ChatSessionWithExecution}
           // Same navigation as clicking the rail row. Archived executions
           // auto-resume on open — that's the execution view's own behavior.
-          onClick={() => setActiveView(entityId)}
+          onClick={() => setActiveView(executionView(entityId))}
         />
       </div>
     )

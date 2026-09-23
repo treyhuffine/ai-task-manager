@@ -26,7 +26,6 @@ import type { WorkspaceWithCounts } from '@/db/types';
 import { NeedsReviewSection } from './needs-review-section';
 import { WorkspaceRow } from './workspace-row';
 import { WorkspaceCreateModal } from './workspace-create-modal';
-import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 import { useBulkArchiveSessions } from '@/hooks/use-workspaces';
 import { startExecution } from '@/lib/executions/start-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -35,6 +34,7 @@ import {
   useWorkspaceSelection,
 } from './workspace-selection-context';
 import { openLauncher } from './launcher/launcher-store';
+import { executionView } from '@/lib/client/active-view';
 
 /**
  * Top-level container for the workspace tree in the left rail. Owns the
@@ -58,8 +58,9 @@ function WorkspaceNavInner() {
   const qc = useQueryClient();
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [settingsId, setSettingsId] = useState<string | null>(null);
-  const { setActiveView } = useDashboard();
+  const { setActiveView, openAgent } = useDashboard();
+  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  const openSetup = (id: string) => openAgent(id, 'setup');
   // Guards double-fire only. Navigation no longer waits on the create, so
   // without this a fast second click would quietly make a second execution.
   const [creating, setCreating] = useState(false);
@@ -113,7 +114,7 @@ function WorkspaceNavInner() {
     if (creating) return;
     setCreating(true);
     const { sessionId, done } = startExecution(qc, { workspaceId });
-    setActiveView(sessionId);
+    setActiveView(executionView(sessionId));
     void done.finally(() => setCreating(false));
   };
 
@@ -234,7 +235,7 @@ function WorkspaceNavInner() {
                 <WorkspaceRow
                   key={ws.id}
                   workspace={ws}
-                  onOpenSettings={setSettingsId}
+                  onOpenSettings={openSetup}
                   onCreateExecution={handleCreateExecution}
                   onOpenLauncher={openLauncher}
                 />
@@ -245,7 +246,6 @@ function WorkspaceNavInner() {
       </div>
 
       <WorkspaceCreateModal open={createOpen} onOpenChange={setCreateOpen} />
-      <WorkspaceSettingsSheet workspaceId={settingsId} onClose={() => setSettingsId(null)} />
     </div>
   );
 }

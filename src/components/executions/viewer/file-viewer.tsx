@@ -17,7 +17,9 @@ import {
   Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useSession, useSessionTree, useWriteFile } from '@/hooks/use-execution';
+import { useWriteFile } from '@/hooks/use-execution';
+import { useFolderRoot, useFolderTree } from '@/hooks/use-folder';
+import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
@@ -40,7 +42,8 @@ import { ConflictView } from './conflict-view';
 import { MarkdownView } from './markdown-view';
 
 interface FileViewerProps {
-  sessionId: string;
+  /** The folder being viewed. An agent's own folder is read-only. */
+  source: FolderSource;
   selectedPath: string | null;
   /** Dismiss the open file — viewer returns to the "No file open" state. */
   onClose?: () => void;
@@ -78,12 +81,13 @@ function isMarkdownPath(path: string): boolean {
  * mode; the toggle is the user's "I want to edit this" gesture.
  */
 export function FileViewer({
-  sessionId,
+  source,
   selectedPath,
   onClose,
   onReferenceInChat,
 }: FileViewerProps) {
-  const treeQuery = useSessionTree(sessionId);
+  const writable = folderIsWritable(source);
+  const treeQuery = useFolderTree(source);
   const tree = treeQuery.data;
   // The worktree isn't known yet, so we can't know there's nothing to
   // show. `isPending` covers the window where the query is still gated
@@ -98,7 +102,8 @@ export function FileViewer({
   }, [selectedPath, tree]);
 
   const isChanged = !!entry?.status;
-  const isConflict = entry?.status === 'conflict';
+  // Resolving conflicts writes files, so a read-only folder shows the diff instead.
+  const isConflict = writable && entry?.status === 'conflict';
   const isMarkdown = !!selectedPath && isMarkdownPath(selectedPath);
 
   // Always land in Current when navigating to a new file. Sticky-on-Diff
@@ -130,7 +135,8 @@ export function FileViewer({
   const fileViewRef = useRef<FileViewHandle | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const writeFile = useWriteFile(sessionId);
+  // Only a writable (session) folder ever calls it. The hook still has to run.
+  const writeFile = useWriteFile(source.kind === 'session' ? source.sessionId : '');
 
   // Snapshot path at call time. With autosave-on-blur the user can
   // navigate to a different file mid-flight; stamping the buffer clean
@@ -180,7 +186,7 @@ export function FileViewer({
     // sprouting a CTA. No faux header strip here: this resolves to the
     // headerless CTA, and a bar that appears then vanishes is the jump
     // the skeleton exists to prevent.
-    return treeLoading ? <FileSkeleton /> : <NoFileOpen />;
+    return treeLoading ? <FileSkeleton /> : <NoFileOpen writable={writable} />;
   }
 
   // Fall back to Current when the selected mode doesn't apply to this
@@ -199,12 +205,12 @@ export function FileViewer({
   // Edit only makes sense in Current mode against a file that exists on
   // disk. Deleted-but-not-committed files have no working-tree copy to
   // edit; the user should restore via git first. Render is read-only.
-  const editable = effectiveMode === 'current' && !isDeleted;
+  const editable = writable && effectiveMode === 'current' && !isDeleted;
 
   return (
     <div className="flex h-full w-full flex-col bg-background min-w-0">
       <FileViewerHeader
-        sessionId={sessionId}
+        source={source}
         path={selectedPath}
         isChanged={isChanged}
         isConflict={isConflict}
@@ -219,15 +225,15 @@ export function FileViewer({
       />
       <div className="flex-1 min-h-0 overflow-hidden">
         {effectiveMode === 'conflict' && isConflict ? (
-          <ConflictView sessionId={sessionId} path={selectedPath} />
+          <ConflictView sessionId={source.kind === 'session' ? source.sessionId : ''} path={selectedPath} />
         ) : effectiveMode === 'diff' && entry?.status ? (
-          <DiffView sessionId={sessionId} path={selectedPath} status={entry.status} />
+          <DiffView source={source} path={selectedPath} status={entry.status} />
         ) : effectiveMode === 'render' ? (
-          <MarkdownView sessionId={sessionId} path={selectedPath} />
+          <MarkdownView source={source} path={selectedPath} />
         ) : (
           <FileView
             ref={fileViewRef}
-            sessionId={sessionId}
+            source={source}
             path={selectedPath}
             editable={editable}
             status={entry?.status ?? null}
@@ -241,7 +247,7 @@ export function FileViewer({
 }
 
 interface HeaderProps {
-  sessionId: string;
+  source: FolderSource;
   path: string;
   isChanged: boolean;
   isConflict: boolean;
@@ -257,7 +263,7 @@ interface HeaderProps {
 }
 
 function FileViewerHeader({
-  sessionId,
+  source,
   path,
   isChanged,
   isConflict,
@@ -275,8 +281,8 @@ function FileViewerHeader({
   // the worktree prefix if it's somehow absolute — keeps the header
   // honest even if a legacy state, race, or new code path slips an
   // absolute path through to the viewer.
-  const { data: session } = useSession(sessionId);
-  const displayPath = toRelativePath(path, session?.worktreePath ?? null);
+  const root = useFolderRoot(source);
+  const displayPath = toRelativePath(path, root);
   return (
     <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 min-w-0">
       <FileIcon name={displayPath} />
@@ -371,10 +377,10 @@ function FileViewerHeader({
           )}
         </div>
       )}
-      <RevealButton sessionId={sessionId} path={path} />
+      <RevealButton root={root} path={path} />
       <FileHeaderMoreMenu
         relativePath={displayPath}
-        worktreePath={session?.worktreePath ?? null}
+        worktreePath={root}
         onReferenceInChat={onReferenceInChat}
       />
       {onClose && (
@@ -463,7 +469,8 @@ function FileHeaderMoreMenu({
 }
 
 interface RevealButtonProps {
-  sessionId: string;
+  /** Absolute path of the folder the file lives in. */
+  root: string | null;
   path: string;
 }
 
@@ -473,11 +480,10 @@ interface RevealButtonProps {
  * on a remote client because the path in the URL doesn't exist on the
  * user's laptop.
  */
-function RevealButton({ sessionId, path }: RevealButtonProps) {
+function RevealButton({ root, path }: RevealButtonProps) {
   const location = useClientLocation();
   const { label, openInEditor } = useOpenInPreferredEditor();
-  const { data: session } = useSession(sessionId);
-  const worktreePath = session?.worktreePath ?? null;
+  const worktreePath = root;
   const absolutePath = worktreePath ? `${worktreePath}/${path}` : null;
   const [revealing, setRevealing] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -560,7 +566,8 @@ function RevealButton({ sessionId, path }: RevealButtonProps) {
  * load", which is why it points at the two tree affordances (the
  * All / Changes toggle and search) instead of just saying "empty".
  */
-function NoFileOpen() {
+/** `writable` is false for an agent's own folder, which is read-only here. */
+function NoFileOpen({ writable }: { writable: boolean }) {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
       <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-muted/40">
@@ -569,7 +576,9 @@ function NoFileOpen() {
       <div className="flex flex-col gap-1">
         <span className="text-[13px] font-medium text-foreground/90">No file open</span>
         <span className="max-w-[22rem] text-[11.5px] leading-relaxed text-muted-foreground/80">
-          Pick a file from the tree on the left to view, diff, or edit it.
+          {writable
+            ? 'Pick a file from the tree on the left to view, diff, or edit it.'
+            : 'Pick a file from the tree on the left to read it, or see what changed since the last commit.'}
         </span>
       </div>
       <div className="mt-0.5 flex flex-col items-center gap-1 text-[11px] text-muted-foreground/60">
@@ -577,12 +586,12 @@ function NoFileOpen() {
           <GitCompareArrows size={11} className="shrink-0" />
           <span>
             <span className="text-muted-foreground/85">Changes</span> narrows the tree to
-            what the agent touched
+            {writable ? ' what the agent touched' : ' what is not committed yet'}
           </span>
         </span>
         <span className="flex items-center gap-1.5">
           <Search size={11} className="shrink-0" />
-          <span>Search the tree to jump anywhere in the worktree</span>
+          <span>Search the tree to jump anywhere in the {writable ? 'worktree' : 'folder'}</span>
         </span>
       </div>
     </div>

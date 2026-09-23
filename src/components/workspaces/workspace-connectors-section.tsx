@@ -3,8 +3,8 @@
 /**
  * Workspace connectors (docs/connectors-workspace-scoping-spec.md §7). A sticky, per-workspace
  * allowlist of *services* (toolkits), optionally pinned to one account, that this workspace's
- * executions may use. The orchestrator always has every connected service; this only governs
- * workspace executions. The grouped picker UI is shared with the create modal via
+ * executions and its main chat may use (docs/agents-view-spec.md Phase 6). The app's main chat
+ * always has every connected service. The grouped picker UI is shared with the create modal via
  * ConnectorScopePicker; this wrapper adds the load-current / dirty / save (PUT + recycle) behavior.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -66,8 +66,8 @@ export function WorkspaceConnectorsSection({ workspaceId }: { workspaceId: strin
       <div>
         <h3 className="text-sm font-semibold text-foreground">Connectors</h3>
         <p className="text-[12px] leading-normal text-muted-foreground">
-          Services agents running in this workspace may use. The orchestrator always has every connected service; this
-          only scopes this workspace&apos;s executions.
+          Services this agent may use, in its executions and its main chat. The app&apos;s main chat always has every
+          connected service.
         </p>
       </div>
 

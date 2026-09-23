@@ -86,3 +86,32 @@ describe("an agent's main chat stays out of work surfaces", () => {
     expect(executions).toEqual([execution.id]);
   });
 });
+
+describe('listWorkspaceExecutionTasks', () => {
+  it("lists the open tasks the agent's active executions work, each with its executions", async () => {
+    const { q, ws, other, execution } = await seed();
+    const area = q.createArea({ name: 'Work' });
+    const open = q.createTask({ title: 'Ship the agent view', areaId: area.id });
+    const done = q.createTask({ title: 'Old work', areaId: area.id });
+    const elsewhere = q.createTask({ title: 'Other agent', areaId: area.id });
+    const { session: second } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Second' });
+    const { session: otherExec } = q.createExecutionWithChat({ workspaceId: other.id, harness: 'claude', label: 'x' });
+    q.attachExecutionToTask(execution.executionId!, open.id);
+    q.attachExecutionToTask(second.executionId!, open.id);
+    q.attachExecutionToTask(execution.executionId!, done.id);
+    q.attachExecutionToTask(otherExec.executionId!, elsewhere.id);
+    q.completeTask(done.id, { meta: { source: 'human' } });
+
+    const tasks = q.listWorkspaceExecutionTasks(ws.id);
+    expect(tasks.map((t) => t.id)).toEqual([open.id]);
+    expect(new Set(tasks[0]!.executionIds)).toEqual(new Set([execution.executionId, second.executionId]));
+  });
+
+  it('forgets archived executions', async () => {
+    const { q, ws, execution } = await seed();
+    const task = q.createTask({ title: 'Parked' });
+    q.attachExecutionToTask(execution.executionId!, task.id);
+    q.archiveExecution(execution.executionId!);
+    expect(q.listWorkspaceExecutionTasks(ws.id)).toEqual([]);
+  });
+});

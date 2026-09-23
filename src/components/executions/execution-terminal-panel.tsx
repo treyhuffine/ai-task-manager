@@ -3,13 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
 import { useTerminals, useCreateTerminal, useKillTerminal } from '@/hooks/use-terminals';
-import { useSession, useWorktreeScope } from '@/hooks/use-execution';
+import { useFolderRoot, useFolderScope } from '@/hooks/use-folder';
+import { folderApiBase, type FolderSource } from '@/lib/folders/source';
 import { ExecutionTerminalInstance } from './execution-terminal-instance';
 import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 
 interface ExecutionTerminalPanelProps {
-  sessionId: string;
+  /** The folder the shells run in: an execution's worktree, or an agent's own folder. */
+  source: FolderSource;
   /** Hide entirely — used while the worktree is still provisioning. */
   disabled?: boolean;
   disabledReason?: string;
@@ -34,21 +36,21 @@ interface ExecutionTerminalPanelProps {
  * extra clicks.
  */
 export function ExecutionTerminalPanel({
-  sessionId,
+  source,
   disabled,
   disabledReason,
   collapsed,
   onToggleCollapsed,
 }: ExecutionTerminalPanelProps) {
-  const { data: terminals = [], isLoading } = useTerminals(sessionId);
-  const createTerminal = useCreateTerminal(sessionId);
-  const killTerminal = useKillTerminal(sessionId);
+  const { data: terminals = [], isLoading } = useTerminals(source);
+  const createTerminal = useCreateTerminal(source);
+  const killTerminal = useKillTerminal(source);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   // Clear a stale spawn failure once the thing that caused it has changed.
   //
   // The mutation's error state is bound to this component instance, and
-  // the panel never remounts (it takes `sessionId` as a prop, not a key).
+  // the panel never remounts (it takes `source` as a prop, not a key).
   // Without this, one failed spawn — a worktree that vanished, say —
   // latched `isError` forever and silently suppressed auto-create for
   // every execution the user opened afterwards.
@@ -63,10 +65,10 @@ export function ExecutionTerminalPanel({
   //
   // Keying on the worktree path and the disabled gate as well means every
   // transition that could plausibly fix a failed spawn also clears it.
-  const scope = useWorktreeScope(sessionId);
-  const { data: session } = useSession(sessionId);
+  const scope = useFolderScope(source);
+  const root = useFolderRoot(source);
   const scopeKey = scope ? scope.join(':') : null;
-  const resetKey = `${scopeKey ?? ''}|${session?.worktreePath ?? ''}|${disabled ? 'off' : 'on'}`;
+  const resetKey = `${scopeKey ?? ''}|${root ?? ''}|${disabled ? 'off' : 'on'}`;
   const resetCreate = useRef(createTerminal.reset);
   resetCreate.current = createTerminal.reset;
   useEffect(() => { resetCreate.current(); }, [resetKey]);
@@ -182,7 +184,7 @@ export function ExecutionTerminalPanel({
             )}
           >
             <ExecutionTerminalInstance
-              sessionId={sessionId}
+              apiBase={folderApiBase(source)}
               terminalId={t.id}
               active={activeId === t.id}
               onExit={() => handleClose(t.id)}

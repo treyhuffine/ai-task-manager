@@ -23,7 +23,8 @@ import '@xterm/xterm/css/xterm.css';
 const RESIZE_SETTLE_MS = 120;
 
 interface ExecutionTerminalInstanceProps {
-  sessionId: string;
+  /** Route base for the folder's terminal routes (`folderApiBase`). */
+  apiBase: string;
   terminalId: string;
   active: boolean;
   onExit?: () => void;
@@ -41,15 +42,16 @@ interface ExecutionTerminalInstanceProps {
  *
  * Keyed on `terminalId` alone, deliberately. The PTY is owned by the
  * execution, so hopping between chats on one execution leaves the same
- * terminal on screen — and `sessionId` is only an address for reaching
- * it, not part of its identity. Including it in the effect deps would
+ * terminal on screen — and `apiBase` (which names a chat session, or the
+ * agent's workspace) is only an address for reaching it, not part of its
+ * identity. Including it in the effect deps would
  * dispose and rebuild xterm on every chat switch, throwing away
  * scrollback for a PTY that never went anywhere. Terminal ids are
  * unique per execution, so a genuinely different execution brings
  * different ids and remounts naturally.
  */
 export function ExecutionTerminalInstance({
-  sessionId,
+  apiBase,
   terminalId,
   active,
   onExit,
@@ -58,17 +60,19 @@ export function ExecutionTerminalInstance({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const onExitRef = useRef(onExit);
+  /** Attaches the WebGL renderer once, on first activation. See the note where it is set. */
+  const attachGpuRef = useRef<(() => void) | null>(null);
 
   // Keep the latest onExit without retriggering the main effect — that
   // would dispose and recreate the terminal, losing scrollback.
   useEffect(() => { onExitRef.current = onExit; }, [onExit]);
 
-  // Same trick for the session address: reads stay current, but a chat
-  // switch doesn't tear the terminal down. Any sibling chat's id routes
-  // to the same execution-owned PTY, so the already-open SSE connection
-  // stays valid even though its URL pins the id we mounted with.
-  const sessionIdRef = useRef(sessionId);
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  // Same trick for the address: reads stay current, but a chat switch
+  // doesn't tear the terminal down. Any sibling chat's id routes to the
+  // same execution-owned PTY, so the already-open SSE connection stays
+  // valid even though its URL pins the address we mounted with.
+  const apiBaseRef = useRef(apiBase);
+  useEffect(() => { apiBaseRef.current = apiBase; }, [apiBase]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -114,19 +118,34 @@ export function ExecutionTerminalInstance({
     // this same addon. It has to be loaded *after* `open()` because
     // `activate()` reaches for the terminal's element.
     //
+    // Attached on first activation (see the effect below), not here, and
+    // followed by a forced resize. The GL renderer only computes its canvas
+    // dimensions when the terminal resizes. In the execution view the bottom
+    // panel settles its size after mount, which happened to trigger that.
+    // The agent view's Terminal tab is full size from the start, so nothing
+    // resized and the renderer painted at the wrong scale: blank on a tall
+    // terminal, doubled and clipped on a short one, on a real GPU as well.
+    //
     // Both failure modes fall back to the DOM renderer rather than breaking
     // the terminal: `onContextLoss` fires when the GPU drops the context
     // (driver reset, tab backgrounded too long), and the constructor throws
     // outright where WebGL2 is unavailable.
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        try { webgl.dispose(); } catch { /* already gone */ }
-      });
-      term.loadAddon(webgl);
-    } catch {
-      // No WebGL2 — the DOM renderer stays active and everything works.
-    }
+    attachGpuRef.current = () => {
+      attachGpuRef.current = null;
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          try { webgl.dispose(); } catch { /* already gone */ }
+        });
+        term.loadAddon(webgl);
+        // Nudge a real resize so the renderer measures itself, then fit back.
+        // `fit()` alone is a no-op when the size already matches.
+        term.resize(term.cols, term.rows + 1);
+        fit.fit();
+      } catch {
+        // No WebGL2 — the DOM renderer stays active and everything works.
+      }
+    };
 
     try { fit.fit(); } catch { /* container may be 0px before paint */ }
 
@@ -138,7 +157,7 @@ export function ExecutionTerminalInstance({
     // stdin. Serialised and self-batching — see `input-queue.ts` for why
     // one-POST-per-keystroke both reorders bytes and drowns a tunnel.
     const input = createInputQueue({
-      send: (data) => terminalsApi.input(sessionIdRef.current, terminalId, data),
+      send: (data) => terminalsApi.input(apiBaseRef.current, terminalId, data),
     });
 
     // Mac-style shortcuts inside the terminal. Browser-reserved keys
@@ -202,7 +221,7 @@ export function ExecutionTerminalInstance({
     // it saw as `Last-Event-ID`, so the server can send only what we missed
     // instead of the whole buffer. A first connect has no cursor and gets
     // the full backlog, which is what makes a refresh land on a live screen.
-    const es = new EventSource(terminalsApi.streamUrl(sessionIdRef.current, terminalId));
+    const es = new EventSource(terminalsApi.streamUrl(apiBaseRef.current, terminalId));
 
     // A reconnect that couldn't be resumed (first view, or we were away
     // long enough that the missed output aged out of the server's ring)
@@ -238,7 +257,7 @@ export function ExecutionTerminalInstance({
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
         void terminalsApi
-          .resize(sessionIdRef.current, terminalId, { cols, rows })
+          .resize(apiBaseRef.current, terminalId, { cols, rows })
           .catch(() => { /* terminal may have exited mid-drag */ });
       }, RESIZE_SETTLE_MS);
     });
@@ -267,9 +286,9 @@ export function ExecutionTerminalInstance({
       try { term.dispose(); } catch { /* */ }
       termRef.current = null;
       fitRef.current = null;
+      attachGpuRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionId is
-    // read through a ref on purpose; see the note on this component.
+    // apiBase is read through a ref on purpose; see the note on this component.
   }, [terminalId]);
 
   // Re-fit + focus when this tab becomes active. Skipping the fit on
@@ -289,6 +308,8 @@ export function ExecutionTerminalInstance({
     const id = requestAnimationFrame(() => {
       try {
         fitRef.current?.fit();
+        // Visible and fitted now, so the GPU renderer can size itself right.
+        attachGpuRef.current?.();
         if (!isFirstActivation) {
           termRef.current?.focus();
         }

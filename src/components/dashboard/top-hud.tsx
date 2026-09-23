@@ -16,9 +16,11 @@ import { HudDayButton } from '@/components/calendar/hud-day-button';
 const SHOW_INBOX = true;
 
 export function TopHud() {
-  const { activeView, setActiveView, setQuickCaptureOpen } = useDashboard();
+  const { activeView, goHome, openExecution, setQuickCaptureOpen } = useDashboard();
   const [inboxOpen, setInboxOpen] = useState(false);
-  const isExecutionView = activeView !== 'command';
+  // The agent view and the execution view both close back to Home.
+  const closeLabel =
+    activeView.kind === 'execution' ? 'Close execution' : activeView.kind === 'agent' ? 'Close agent' : null;
   const latestExecutionId = useLatestExecutionId();
 
   return (
@@ -39,29 +41,29 @@ export function TopHud() {
 
       <RailStatusPills />
 
-      {isExecutionView ? (
+      {closeLabel ? (
         <button
-          onClick={() => setActiveView('command')}
+          onClick={goHome}
           className="flex items-center gap-1.5 h-7 pl-1.5 pr-1.5 rounded-lg border border-border bg-secondary text-foreground hover:bg-accent transition-all"
-          aria-label="Close execution"
-          title="Close execution"
+          aria-label={closeLabel}
+          title={closeLabel}
         >
           <X size={12} />
-          <span className="text-[11px] font-medium">Close execution</span>
+          <span className="text-[11px] font-medium">{closeLabel}</span>
           <kbd className="ml-0.5 px-1 py-0.5 bg-background/60 rounded text-[9px] font-mono leading-none text-muted-foreground">
-            {HOTKEYS.closeExecution.label}
+            {HOTKEYS.closeView.label}
           </kbd>
         </button>
       ) : latestExecutionId ? (
         <button
-          onClick={() => setActiveView(latestExecutionId)}
+          onClick={() => openExecution(latestExecutionId)}
           className="flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
           aria-label="Open latest execution"
           title="Open latest execution"
         >
           <span className="text-[11px] font-medium">Open latest execution</span>
           <kbd className="px-1 py-0.5 bg-muted rounded text-[9px] font-mono leading-none">
-            {HOTKEYS.closeExecution.label}
+            {HOTKEYS.closeView.label}
           </kbd>
         </button>
       ) : null}

@@ -9,6 +9,7 @@ import { useClaudeAuthStatus } from '@/hooks/use-claude-login';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import type { StuckSession } from '@/app/api/claude-auth/stuck-sessions/route';
+import { executionView } from '@/lib/client/active-view';
 
 const STUCK_KEY = ['claude-auth-stuck-sessions'] as const;
 
@@ -29,7 +30,7 @@ const STUCK_KEY = ['claude-auth-stuck-sessions'] as const;
  */
 export function AuthRecoveryCard() {
   const { data: authStatus } = useClaudeAuthStatus();
-  const { activeView } = useDashboard();
+  const { activeSessionId } = useDashboard();
   const isLoggedIn = authStatus?.loggedIn === true;
 
   const { data, refetch } = useQuery({
@@ -48,7 +49,7 @@ export function AuthRecoveryCard() {
   // the affordance and add noise. The card is purely the "other stuck
   // chats" surface.
   const allSessions = data?.sessions ?? [];
-  const sessions = allSessions.filter((s) => s.id !== activeView);
+  const sessions = allSessions.filter((s) => s.id !== activeSessionId);
   const sessionIdsKey = sessions.map((s) => s.id).join(',');
 
   // Dismissal is per-set-of-stuck-sessions: once the user closes the
@@ -133,7 +134,7 @@ function StuckSessionRow({ session }: { session: StuckSession }) {
     <div className="flex items-start gap-2 border-b border-border/60 px-3 py-2 last:border-b-0">
       <button
         type="button"
-        onClick={() => setActiveView(session.id)}
+        onClick={() => setActiveView(executionView(session.id))}
         className="flex-1 min-w-0 text-left"
       >
         <div className="flex items-center gap-1 text-[12px] font-medium text-foreground truncate">

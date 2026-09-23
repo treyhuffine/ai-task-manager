@@ -76,6 +76,7 @@ import { useLaunchSuggestions } from './use-launch-sources';
 import { closeLauncher, useLauncherStore, type LauncherSeed } from './launcher-store';
 import { startExecution } from '@/lib/executions/start-execution';
 import { toast } from 'sonner';
+import { executionView } from '@/lib/client/active-view';
 
 const CHIP_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; className?: string }>> = {
   pr: GitPullRequest,
@@ -482,7 +483,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
         });
         persistPrefs();
         clearComposerIfSent(send);
-        setActiveView(sessionId);
+        setActiveView(executionView(sessionId));
         closeLauncher();
         return;
       }
@@ -492,7 +493,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
       // wait on beyond that.
       persistPrefs();
       clearComposerIfSent(send);
-      setActiveView(targetSessionId);
+      setActiveView(executionView(targetSessionId));
       closeLauncher();
 
       if (send && content.trim().length > 0) {

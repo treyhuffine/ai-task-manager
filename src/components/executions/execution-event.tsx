@@ -21,6 +21,7 @@ import { Message, MessageContent, MessageResponse } from '@/components/ai-elemen
 import { EntityAwareText } from '@/components/ai-elements/entity-reference';
 import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
+import { SenderChip } from '@/components/chat/sender-chip';
 import { MessageFileChip } from '@/components/chat/message-file-chip';
 import { MessageEntityChip, type EntityLookup } from '@/components/chat/message-entity-chip';
 import {
@@ -107,6 +108,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       const isSending = clientStatus?.status === 'sending';
       return (
         <div className="group flex flex-col">
+          {event.senderSessionId && <SenderChip senderSessionId={event.senderSessionId} />}
           <Message from="user">
             <MessageContent
               className={cn(

@@ -18,7 +18,9 @@ export const HOTKEYS = {
   openFullPage: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
   toggleRail: { key: '\\', meta: true, label: '\u2318\\' },
   focusChatInput: { key: 'i', meta: true, label: '\u2318I' },
-  closeExecution: { key: 'e', meta: true, label: '\u2318E' },
+  // Closes the agent view or the execution view (back to Home). From Home it
+  // reopens the latest execution.
+  closeView: { key: 'e', meta: true, label: '\u2318E' },
   // Deliberately the same combo as `search`. A focused terminal claims it
   // for Terminal.app parity (clear the viewport) and search stays reachable
   // from everywhere else. Declared here rather than hardcoded in the

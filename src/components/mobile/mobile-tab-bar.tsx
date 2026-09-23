@@ -5,6 +5,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useNeedsReviewSessions } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import type { MobileTab } from '@/types/dashboard';
+import { HOME_VIEW } from '@/lib/client/active-view';
 
 const TABS: { id: MobileTab; label: string; icon: typeof MessageSquare }[] = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
@@ -74,7 +75,7 @@ export function MobileTabBar() {
               // showing it (mobileTab is already 'agents'), making the tap
               // feel inert.
               if (tab.id === 'agents') {
-                setActiveView('command');
+                setActiveView(HOME_VIEW);
               }
             }}
             className={cn(

@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import type { RailSession } from '@/lib/api/sessions';
 import { useSessionRowHover } from './session-hover-context';
+import { executionView } from '@/lib/client/active-view';
 
 interface SkinnySessionRowProps {
   session: RailSession;
@@ -22,10 +23,10 @@ interface SkinnySessionRowProps {
  * rows do via `useSessionRowHover`.
  */
 export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
-  const { activeView, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { activeSessionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
-  const isActive = activeView === session.id;
+  const isActive = activeSessionId === session.id;
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
   const isPinned = !!session.execution?.pinnedAt;
@@ -36,7 +37,7 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
 
   const handleOpen = () => {
     closeNow();
-    setActiveView(session.id);
+    setActiveView(executionView(session.id));
   };
 
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);

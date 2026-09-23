@@ -26,6 +26,7 @@ import { deriveExecutionHeaderStatus } from './execution-header-status';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
+import { HOME_VIEW } from '@/lib/client/active-view';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
 
@@ -195,7 +196,7 @@ export function ExecutionHeader({
     void confirmArchive({
       id: session.id,
       label: displayLabel,
-      onArchived: () => setActiveView('command'),
+      onArchived: () => setActiveView(HOME_VIEW),
     });
   };
 

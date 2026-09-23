@@ -12,6 +12,7 @@ import { DiffStatsPair } from './diff-stats';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 import { useWorkspaceSelection } from './workspace-selection-context';
+import { executionView } from '@/lib/client/active-view';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -66,7 +67,7 @@ export function SessionRow({
   onOpenLauncher,
   hidePinMarker,
 }: SessionRowProps) {
-  const { activeView, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
     session.worktreePath ? session.id : null,
     session.executionId,
@@ -99,7 +100,7 @@ export function SessionRow({
   // a different chat from the in-execution history doesn't drop the
   // highlight onto nothing. needs-review rows stay strict (per-chat).
   const isActive =
-    activeView === session.id ||
+    activeSessionId === session.id ||
     (variant === 'tree' &&
       !!session.executionId &&
       activeExecutionId === session.executionId);
@@ -115,7 +116,7 @@ export function SessionRow({
       return;
     }
     closeNow();
-    setActiveView(session.id);
+    setActiveView(executionView(session.id));
   };
 
   // Title by the execution (stable across its chats), falling back to the

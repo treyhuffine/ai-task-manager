@@ -11,8 +11,8 @@ import { withCompression } from '@/lib/api/compression';
  * composer popup), so it lives at its own route.
  *
  * Returns `{ prs: [] }` (never an error) when gh is missing, not
- * authenticated, the workspace is non-git, or the session has no
- * worktree yet — the popup's empty state already reads cleanly and the
+ * authenticated, the workspace is non-git or has no GitHub remote, or the
+ * session has no worktree yet — the popup's empty state already reads cleanly and the
  * composer shouldn't be noisy about missing infra.
  */
 
@@ -51,7 +51,8 @@ async function handleGET(
     if (ws.isGit !== true) return Response.json({ prs: [] } satisfies PrListResponse);
 
     // ESM-only — same dynamic import pattern the single-PR route uses.
-    const { github, NotInstalledError, NotAuthenticatedError } = await import('@agentex/github');
+    const { github, NotInstalledError, NotAuthenticatedError, RepoNotFoundError, GhCommandError } =
+      await import('@agentex/github');
     const repo = github.repo(ws.cwd);
 
     try {
@@ -87,6 +88,11 @@ async function handleGET(
           prs: [],
           ghStatus: 'not_authenticated',
         } satisfies PrListResponse);
+      }
+      // A local-only repo, or one whose remote isn't on GitHub, simply has
+      // no PRs to mention.
+      if (err instanceof RepoNotFoundError || (err instanceof GhCommandError && /no git remotes/i.test(err.message))) {
+        return Response.json({ prs: [] } satisfies PrListResponse);
       }
       throw err;
     }

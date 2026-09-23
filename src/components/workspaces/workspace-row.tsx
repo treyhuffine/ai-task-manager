@@ -7,6 +7,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useUpdateWorkspace, useWorkspaceSessions, useRailSessions } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
+import { useAgentViewMode } from '@/lib/client/agent-view-mode';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { sortSessionsHotnessDesc, isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
@@ -16,6 +17,7 @@ import { SessionRow } from './session-row';
 
 interface WorkspaceRowProps {
   workspace: WorkspaceWithCounts;
+  /** Open the agent's setup (its view, on the Setup tab). */
   onOpenSettings: (id: string) => void;
   /** Express lane — start immediately on remembered settings (shift-click). */
   onCreateExecution: (id: string) => void;
@@ -24,14 +26,15 @@ interface WorkspaceRowProps {
 }
 
 /**
- * One workspace in the left nav. The whole header is the drag handle —
- * dnd-kit's distance-activation constraint means a quick click still
- * fires the collapse toggle, only deliberate drag motion reorders.
+ * One agent (a workspace) in the left nav. The whole header is the drag
+ * handle — dnd-kit's distance-activation constraint means a quick click
+ * still fires, only deliberate drag motion reorders.
  *
- * The icon area swaps on hover: workspace icon (image / emoji / area
- * fallback / folder default) by default; collapse chevron when the
- * pointer is over the row. Cuts visual weight while idle and signals
- * "click here to fold" on hover.
+ * Clicking the name opens the agent's view, or folds its list when the
+ * trial preference says so (`agent-view-mode.ts`). The icon area swaps on
+ * hover: agent icon (image / emoji / area fallback / folder default) by
+ * default, the fold chevron when the pointer is over the row, and the
+ * chevron always folds.
  *
  * Aggregates work off the row's pre-counted candidates plus the runtime
  * streaming map: any child currently piping live stdio outranks "needs
@@ -44,7 +47,9 @@ export function WorkspaceRow({
   onCreateExecution,
   onOpenLauncher,
 }: WorkspaceRowProps) {
-  const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds, activeView, openAgent } = useDashboard();
+  const { opensView } = useAgentViewMode();
+  const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
   const updateWs = useUpdateWorkspace();
   const expanded = !workspace.collapsed;
   // Child rows are sourced from the shared rail query below, not a per-workspace
@@ -141,14 +146,19 @@ export function WorkspaceRow({
       <div
         {...attributes}
         {...listeners}
-        className="group flex items-center gap-1.5 px-1 py-1 rounded-md hover:bg-muted/40 transition-colors cursor-grab active:cursor-grabbing select-none touch-none"
+        className={cn(
+          'group flex items-center gap-1.5 px-1 py-1 rounded-md transition-colors cursor-grab active:cursor-grabbing select-none touch-none',
+          isActive ? 'bg-secondary' : 'hover:bg-muted/40',
+        )}
       >
-        <button
-          onClick={toggleCollapse}
-          className="flex-1 flex items-center gap-1 min-w-0"
-        >
-          {/* Icon swap on hover: emoji/image when idle, chevron-toggle on hover. */}
-          <span className="relative w-5 h-5 flex items-center justify-center flex-shrink-0">
+        <div className="flex-1 flex items-center gap-1 min-w-0">
+          {/* Icon swap on hover: emoji/image when idle, the fold chevron on hover. */}
+          <button
+            onClick={toggleCollapse}
+            className="relative w-5 h-5 flex items-center justify-center flex-shrink-0"
+            aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
+            title={expanded ? 'Fold' : 'Unfold'}
+          >
             <span className="group-hover:hidden flex items-center justify-center">
               {iconImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -166,11 +176,15 @@ export function WorkspaceRow({
                 expanded && 'rotate-90',
               )}
             />
-          </span>
-          <span className="text-[11.5px] font-semibold truncate text-foreground">
+          </button>
+          <button
+            onClick={() => (opensView ? openAgent(workspace.id) : toggleCollapse())}
+            className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
+            title={opensView ? `Open ${workspace.name}` : undefined}
+          >
             {workspace.name}
-          </span>
-        </button>
+          </button>
+        </div>
         {/* Action buttons + status dots share the same horizontal slot.
             At rest the dots are visible and the buttons are invisible
             and non-interactive; on row hover the dots fade out and the
@@ -184,8 +198,8 @@ export function WorkspaceRow({
               onOpenSettings(workspace.id);
             }}
             className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-            aria-label="Workspace settings"
-            title="Workspace settings"
+            aria-label="Agent setup"
+            title="Agent setup"
           >
             <Settings size={13} />
           </button>

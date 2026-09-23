@@ -95,7 +95,8 @@ async function handleGET(
 
     // `@agentex/github` is ESM-only; dynamic import for the same reason
     // `@agentex/workspace` is loaded lazily in `lib/workspaces/index.ts`.
-    const { github, NotInstalledError, NotAuthenticatedError } = await import('@agentex/github');
+    const { github, NotInstalledError, NotAuthenticatedError, RepoNotFoundError, GhCommandError } =
+      await import('@agentex/github');
     const repo = github.repo(ws.cwd);
 
     try {
@@ -151,6 +152,10 @@ async function handleGET(
       }
       if (err instanceof NotAuthenticatedError) {
         return Response.json({ pr: null, ghStatus: 'not_authenticated' });
+      }
+      // A local-only repo, or one whose remote isn't on GitHub, has no PR.
+      if (err instanceof RepoNotFoundError || (err instanceof GhCommandError && /no git remotes/i.test(err.message))) {
+        return Response.json({ pr: null });
       }
       throw err;
     }

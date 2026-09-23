@@ -13,6 +13,7 @@ import { OpenPrButton } from './open-pr-button';
 import { MergeButton } from './merge-button';
 import { ErrorModal } from '../error-modal';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
+import { HOME_VIEW } from '@/lib/client/active-view';
 
 interface ExecutionActionBarProps {
   session: ChatSessionWithExecution;
@@ -85,7 +86,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
     void confirmArchive({
       id: session.id,
       label: session.execution?.label ?? session.label,
-      onArchived: () => setActiveView('command'),
+      onArchived: () => setActiveView(HOME_VIEW),
     });
   };
 

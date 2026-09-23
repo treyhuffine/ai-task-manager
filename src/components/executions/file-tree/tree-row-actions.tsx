@@ -22,8 +22,9 @@ interface TreeRowActionsProps {
   kind: 'file' | 'dir';
   /** Always shown — the kebab fades in on hover but stays visible if open. */
   visible: boolean;
-  onRename: () => void;
-  onDelete: () => void;
+  /** Omitted for a read-only folder (the agent view's Files tab). */
+  onRename?: () => void;
+  onDelete?: () => void;
   /** Only available for dirs — files don't get child-create entries. */
   onCreateFile?: () => void;
   onCreateFolder?: () => void;
@@ -129,26 +130,30 @@ export function TreeRowActions({
             Copy absolute path
           </DropdownMenuItem>
         )}
-        {hasPathActions && <DropdownMenuSeparator />}
-        <DropdownMenuItem
-          onClick={(e) => {
-            e.stopPropagation();
-            onRename();
-          }}
-        >
-          <Pencil size={14} />
-          Rename
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          variant="destructive"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-        >
-          <Trash2 size={14} />
-          Delete
-        </DropdownMenuItem>
+        {hasPathActions && (onRename || onDelete) && <DropdownMenuSeparator />}
+        {onRename && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onRename();
+            }}
+          >
+            <Pencil size={14} />
+            Rename
+          </DropdownMenuItem>
+        )}
+        {onDelete && (
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 size={14} />
+            Delete
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -10,8 +10,8 @@ import { TreeRowActions } from './tree-row-actions';
 import { HighlightedText } from './match-highlight';
 
 interface RowActionsHandlers {
-  onRename: () => void;
-  onDelete: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
   onCreateFile?: () => void;
   onCreateFolder?: () => void;
   onCopyRelativePath?: () => void;

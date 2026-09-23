@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { normalizeTimestamp } from '@/lib/utils/timestamps';
 import type { RailSession } from '@/lib/api/sessions';
-import { WorkspaceSettingsSheet } from './workspace-settings-sheet';
 import { HistoryRow } from './history-row';
 
 const PILL_SCROLL_PRESETS = {
@@ -35,9 +34,10 @@ const PILL_SCROLL_PRESETS = {
  */
 export function HistoryView() {
   const { data, isLoading } = useHistorySessions();
-  const { setActiveView } = useDashboard();
+  const { setActiveView, openAgent } = useDashboard();
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
-  const [settingsId, setSettingsId] = useState<string | null>(null);
+  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  const openSetup = (id: string) => openAgent(id, 'setup');
 
   // Workspaces represented in this feed. Order by first-appearance
   // (which the server already sorted by recency) so the most-recently
@@ -137,7 +137,7 @@ export function HistoryView() {
                   <HistoryRow
                     key={s.id}
                     session={s}
-                    onOpenWorkspaceSettings={setSettingsId}
+                    onOpenWorkspaceSettings={openSetup}
                     onOpenLauncher={openLauncher}
                   />
                 ))}
@@ -146,8 +146,6 @@ export function HistoryView() {
           ))}
         </div>
       )}
-
-      <WorkspaceSettingsSheet workspaceId={settingsId} onClose={() => setSettingsId(null)} />
     </>
   );
 }

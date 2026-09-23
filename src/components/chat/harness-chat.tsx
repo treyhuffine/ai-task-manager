@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
-import { useOrchestratorChat, useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
+import { useMainChat, useNewMainChat, type MainChatScope } from '@/hooks/use-main-chat';
 import type { HarnessId } from '@/lib/harness/registry';
 import {
   useSession,
@@ -38,10 +38,23 @@ import type { EffortLevel } from '@/db/types';
  * (header, git action bar, file tree, terminals) that has no meaning for
  * a data-root session. Events arrive over the same SSE stream the
  * execution view uses.
+ *
+ * `scope` picks the main chat: null is the app's, a workspace id is that
+ * agent's (docs/agents-view-spec.md §4). Same component, same composer.
  */
-export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
-  const { data, isLoading, error, refetch } = useOrchestratorChat();
-  const newChat = useNewOrchestratorChat();
+export function HarnessChat({
+  isMobile = false,
+  scope = null,
+  composerPlaceholder,
+  autoFocusComposer,
+}: {
+  isMobile?: boolean;
+  scope?: MainChatScope;
+  composerPlaceholder?: string;
+  autoFocusComposer?: boolean;
+}) {
+  const { data, isLoading, error, refetch } = useMainChat(scope);
+  const newChat = useNewMainChat(scope);
   const sessionId = data?.session.id ?? null;
 
   if (isLoading) {
@@ -57,10 +70,12 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
       <div className="flex-1 flex items-center justify-center text-center px-8">
         <div>
           <p className="text-[12px] font-semibold text-foreground">
-            Couldn&apos;t load the orchestrator chat.
+            {scope === null ? 'Couldn\u2019t load the orchestrator chat.' : 'Couldn\u2019t load this agent\u2019s chat.'}
           </p>
           <p className="text-[11px] text-muted-foreground/80 mt-1">
-            {error instanceof ApiError ? error.message : 'Unknown error.'}
+            {error instanceof ApiError
+              ? ((error.body as { error?: string } | null)?.error ?? error.message)
+              : 'Unknown error.'}
           </p>
           <button
             onClick={() => refetch()}
@@ -77,6 +92,8 @@ export function HarnessChat({ isMobile = false }: { isMobile?: boolean }) {
     <HarnessChatSession
       sessionId={sessionId}
       isMobile={isMobile}
+      composerPlaceholder={composerPlaceholder}
+      autoFocusComposer={autoFocusComposer}
       onSwitchProvider={(next) => newChat.mutate({
         providerId: next.harness,
         model: next.model,

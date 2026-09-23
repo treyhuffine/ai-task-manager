@@ -4,6 +4,17 @@ import { createContext, useContext, useState, useCallback, useMemo, useRef, type
 import { useSearchParams } from 'next/navigation';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Agent, Task, StreamEvent } from '@/types/dashboard';
 import { hot } from '@/lib/_debug/hot-path';
+import {
+  HOME_VIEW,
+  activeSessionIdOf,
+  agentView,
+  applyViewToSearchParams,
+  executionView,
+  sameView,
+  viewFromSearchParams,
+  viewKey,
+} from '@/lib/client/active-view';
+import type { AgentTab } from '@/types/dashboard';
 
 interface FocusTask {
   title: string;
@@ -31,6 +42,8 @@ const SLIDEOUT_CLOSE_BEHAVIOR: SlideoutCloseBehavior = 'back';
 interface DashboardState {
   theme: Theme;
   activeView: ActiveView;
+  /** The execution chat on screen (`activeView.id` in the execution view), else null. */
+  activeSessionId: string | null;
   // Execution that the active view's chat belongs to. The workspace tree
   // shows one row per execution (keyed to its primary chat), so when the
   // user is on a *sibling* chat, `activeView` (a chat id) won't match any
@@ -95,6 +108,12 @@ interface DashboardActions {
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
   setActiveView: (view: ActiveView) => void;
+  /** Open an execution chat (the execution view). */
+  openExecution: (sessionId: string) => void;
+  /** Open an agent's view, optionally on a tools tab. */
+  openAgent: (workspaceId: string, tab?: AgentTab) => void;
+  /** Back to Home (the deck and chat panels). */
+  goHome: () => void;
   setActiveExecutionId: (id: string | null) => void;
   setPanelTab: (panel: PanelId, tab: AnyPanelTab) => void;
   setFocusedPanel: (panel: PanelId) => void;
@@ -183,10 +202,10 @@ const DEFAULT_PANEL_B_TAB: AnyPanelTab = 'chat';
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
   // ─── Active view (URL-canonical, local-mirror for snappy swaps) ──
-  // Which primary surface fills the main area: 'command' (default
-  // dashboard) or a chat_session id (execution view).
+  // Which primary surface fills the main area: Home (the deck and chat
+  // panels), an agent's view, or an execution (see `ActiveView`).
   //
-  // The URL (`?session=`) stays the canonical owner: it drives SSR (the home
+  // The URL (`?session=`, `?agent=&tab=`) stays the canonical owner: it drives SSR (the home
   // route is force-dynamic, so a `/?session=` link paints the right surface
   // on the first frame), deep links, and Back/Forward. But we *render* from a
   // local mirror seeded from the URL, because Next dispatches the
@@ -198,14 +217,18 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // Not a second source of truth: the mirror only ever reconciles *to* the
   // URL (effect below) — Back/Forward, deep links, and external <Link>s flow
   // URL→mirror; in-app nav writes both together. They can't durably diverge.
-  const urlView: ActiveView = useSearchParams().get('session') ?? 'command';
+  const searchParams = useSearchParams();
+  const urlView: ActiveView = viewFromSearchParams(searchParams);
+  const urlViewKey = viewKey(urlView);
   const [activeView, setActiveViewLocal] = useState<ActiveView>(urlView);
   useEffect(() => {
     // Reconcile when the URL changes from outside (Back/Forward, deep link,
     // a <Link> elsewhere). No-op right after our own setActiveView, since the
     // mirror already holds this value.
-    setActiveViewLocal((prev) => (prev === urlView ? prev : urlView));
-  }, [urlView]);
+    const next = viewFromSearchParams(new URLSearchParams(window.location.search));
+    setActiveViewLocal((prev) => (sameView(prev, next) ? prev : next));
+  }, [urlViewKey]);
+  const activeSessionId = activeSessionIdOf(activeView);
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const [panelATab, setPanelATab] = useState<AnyPanelTab>(DEFAULT_PANEL_A_TAB);
   const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(DEFAULT_PANEL_B_TAB);
@@ -330,10 +353,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // present. Persisted so it survives reload. Runs after the hydrate effect
   // above, so on a `/?session=x` deep link this freshest value wins.
   useEffect(() => {
-    if (activeView === 'command' || typeof window === 'undefined') return;
-    setLastExecutionIdState(activeView);
-    window.localStorage.setItem('ri.execution.lastId', activeView);
-  }, [activeView]);
+    if (!activeSessionId || typeof window === 'undefined') return;
+    setLastExecutionIdState(activeSessionId);
+    window.localStorage.setItem('ri.execution.lastId', activeSessionId);
+  }, [activeSessionId]);
 
   // ─── Execution-view rail open ───────────────────────────
   // Per-execution-view override: when on an execution surface the rail
@@ -484,7 +507,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // creates a real history entry, so Back/Forward move between executions;
   // the urgent mirror update keeps the swap snappy instead of waiting on the
   // router transition. Other query params are preserved so future surfaces
-  // (?task=, ?note=) can compose; 'command' just drops the `session` param.
+  // (?task=, ?note=) can compose. Switching tabs within one agent replaces
+  // the history entry rather than pushing one, so Back leaves the agent
+  // instead of stepping through every tab visited.
   // `activeExecutionId` is intentionally NOT touched here — ExecutionView
   // owns it (set from the loaded session, cleared on unmount), which keeps
   // click-nav and Back/Forward symmetric (the latter never calls this).
@@ -492,16 +517,25 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setActiveViewLocal(view);
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if (view === 'command') params.delete('session');
-    else params.set('session', view);
-    const qs = params.toString();
-    window.history.pushState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+    const current = viewFromSearchParams(params);
+    const tabOnly = current.kind === 'agent' && view.kind === 'agent' && current.id === view.id;
+    const qs = applyViewToSearchParams(params, view).toString();
+    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    if (tabOnly) window.history.replaceState(null, '', url);
+    else window.history.pushState(null, '', url);
   }, []);
+  const openExecution = useCallback((sessionId: string) => setActiveView(executionView(sessionId)), [setActiveView]);
+  const openAgent = useCallback(
+    (workspaceId: string, tab?: AgentTab) => setActiveView(agentView(workspaceId, tab)),
+    [setActiveView],
+  );
+  const goHome = useCallback(() => setActiveView(HOME_VIEW), [setActiveView]);
 
   return (
     <DashboardContext.Provider value={{
       theme,
       activeView,
+      activeSessionId,
       activeExecutionId,
       panelATab,
       panelBTab,
@@ -516,6 +550,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setTheme,
       toggleTheme,
       setActiveView,
+      openExecution,
+      openAgent,
+      goHome,
       setActiveExecutionId,
       setPanelTab,
       setFocusedPanel,

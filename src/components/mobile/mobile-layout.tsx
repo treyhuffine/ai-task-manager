@@ -10,18 +10,18 @@ import { MobileTopBar } from './mobile-top-bar';
 import { MobileCreateSheet } from './mobile-create-sheet';
 
 export function MobileLayout() {
-  const { mobileTab, activeView } = useDashboard();
+  const { mobileTab, activeSessionId } = useDashboard();
 
-  // When the user has tapped into a session (activeView is a session id,
-  // not 'command'), the agents tab takes over the whole content area
-  // with the chat surface — header + transcript + composer. The
-  // ExecutionHeader's close button (which calls setActiveView('command'))
-  // brings them back to the workspaces list. Other tabs aren't affected.
-  const isExecutionActive = activeView !== 'command';
+  // When the user has tapped into a session (the execution view), the
+  // agents tab takes over the whole content area with the chat surface —
+  // header + transcript + composer. The ExecutionHeader's close button
+  // (which goes Home) brings them back to the workspaces list. Other tabs
+  // aren't affected.
+  const isExecutionActive = activeSessionId !== null;
 
   const renderContent = () => {
     if (mobileTab === 'agents' && isExecutionActive) {
-      return <ExecutionView sessionId={activeView} />;
+      return <ExecutionView sessionId={activeSessionId} />;
     }
     switch (mobileTab) {
       case 'chat':

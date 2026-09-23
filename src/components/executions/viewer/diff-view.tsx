@@ -5,7 +5,8 @@ import { MergeView } from '@codemirror/merge';
 import { EditorView } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { FileX, Lock, FileWarning } from 'lucide-react';
-import { useSessionFile, useSessionBaseFile } from '@/hooks/use-execution';
+import { useFolderBaseFile, useFolderFile } from '@/hooks/use-folder';
+import type { FolderSource } from '@/lib/folders/source';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { TreeEntryStatus } from '@/lib/api/sessions';
 import { FileSkeleton } from '../skeletons';
@@ -13,7 +14,7 @@ import { languageFor } from './language-for';
 import { cmTheme } from './cm-theme';
 
 interface DiffViewProps {
-  sessionId: string;
+  source: FolderSource;
   path: string;
   /** From the tree entry — drives whether old/new might be empty. A
    *  'conflict' file normally routes to the conflict resolver, not here;
@@ -31,7 +32,7 @@ interface DiffViewProps {
  * lands on the actual change rather than at the top of an unchanged
  * preamble — matches GitHub PR review behavior.
  */
-export function DiffView({ sessionId, path, status }: DiffViewProps) {
+export function DiffView({ source, path, status }: DiffViewProps) {
   const { theme } = useDashboard();
   const isDark = theme === 'dark';
 
@@ -40,8 +41,8 @@ export function DiffView({ sessionId, path, status }: DiffViewProps) {
   const needsBase = status !== 'added' && status !== 'untracked';
   const needsCurrent = status !== 'deleted';
 
-  const currentQuery = useSessionFile(sessionId, needsCurrent ? path : null);
-  const baseQuery = useSessionBaseFile(sessionId, needsBase ? path : null);
+  const currentQuery = useFolderFile(source, needsCurrent ? path : null);
+  const baseQuery = useFolderBaseFile(source, needsBase ? path : null);
 
   // Strings we'll feed into the MergeView. Defaults handle the
   // added/deleted edges cleanly: added file → empty base, deleted →

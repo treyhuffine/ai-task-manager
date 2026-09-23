@@ -4,7 +4,8 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { EditorView, keymap } from '@codemirror/view';
 import { FileX, Lock, FileWarning } from 'lucide-react';
-import { useSessionFile, useSessionBaseFile } from '@/hooks/use-execution';
+import { useFolderBaseFile, useFolderFile } from '@/hooks/use-folder';
+import type { FolderSource } from '@/lib/folders/source';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { TreeEntryStatus } from '@/lib/api/sessions';
 import { FileSkeleton } from '../skeletons';
@@ -13,7 +14,7 @@ import { cmTheme } from './cm-theme';
 import { inlineDiffExtension } from './inline-diff';
 
 interface FileViewProps {
-  sessionId: string;
+  source: FolderSource;
   path: string;
   /** When false, the editor is locked (matches the legacy read-only viewer). */
   editable?: boolean;
@@ -44,7 +45,7 @@ export interface FileViewHandle {
 
 /**
  * Editable file viewer backed by CodeMirror 6. Source of truth lives
- * in `useSessionFile`; we mirror it into a local buffer so the user can
+ * in `useFolderFile`; we mirror it into a local buffer so the user can
  * type without each keystroke triggering a TanStack write. The buffer
  * resets when the file path changes, when the server content changes
  * AND the user has no unsaved edits (e.g. agent wrote the file), and
@@ -54,18 +55,18 @@ export interface FileViewHandle {
  * states rather than rendering an editor against null content.
  */
 export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileView(
-  { sessionId, path, editable = true, onDirtyChange, onSaveRequest, status },
+  { source, path, editable = true, onDirtyChange, onSaveRequest, status },
   ref,
 ) {
   const { theme } = useDashboard();
-  const { data, isLoading, error } = useSessionFile(sessionId, path);
+  const { data, isLoading, error } = useFolderFile(source, path);
 
   // Inline gutter bars (VS Code-style). Fetch the base-commit version
   // when the tree marks the file as changed; for added/untracked files
   // the base is empty by definition (every line is new). Deleted files
   // never reach this branch — FileViewer routes them to DiffView.
   const needsBaseFetch = status === 'modified' || status === 'staged';
-  const { data: baseData } = useSessionBaseFile(sessionId, needsBaseFetch ? path : null);
+  const { data: baseData } = useFolderBaseFile(source, needsBaseFetch ? path : null);
   const baseContent: string | null = useMemo(() => {
     if (!status) return null;
     if (status === 'added' || status === 'untracked') return '';

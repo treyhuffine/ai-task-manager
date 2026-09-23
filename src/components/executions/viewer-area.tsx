@@ -5,6 +5,7 @@ import { FileText, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePreviewState } from '@/hooks/use-preview';
 import type { PreviewServerStatus } from '@/lib/api/preview';
+import { sessionFolder } from '@/lib/folders/source';
 import { FileViewer } from './viewer/file-viewer';
 import { FileHistoryMenu } from './viewer/file-history-menu';
 import { PreviewPane } from './preview/preview-pane';
@@ -142,7 +143,7 @@ export function ViewerArea({
       <div className="min-h-0 flex-1">
         {tab === 'files' ? (
           <FileViewer
-            sessionId={sessionId}
+            source={sessionFolder(sessionId)}
             selectedPath={selectedPath}
             onClose={onCloseFile}
             onReferenceInChat={onReferenceInChat}

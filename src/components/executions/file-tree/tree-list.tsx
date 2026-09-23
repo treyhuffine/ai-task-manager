@@ -41,10 +41,11 @@ interface TreeListProps {
 
   // CRUD orchestration — all owned by `file-tree.tsx`. The list is
   // pass-through; it just routes the per-row callbacks.
-  onRename: (path: string, kind: 'file' | 'dir') => void;
-  onDelete: (path: string, kind: 'file' | 'dir') => void;
-  onCreateFile: (parentPath: string) => void;
-  onCreateFolder: (parentPath: string) => void;
+  /** The edit actions. Omitted for a read-only folder (the agent view's Files tab). */
+  onRename?: (path: string, kind: 'file' | 'dir') => void;
+  onDelete?: (path: string, kind: 'file' | 'dir') => void;
+  onCreateFile?: (parentPath: string) => void;
+  onCreateFolder?: (parentPath: string) => void;
   onCopyRelativePath: (path: string) => void;
   /** Returns undefined when the worktree path is unknown (non-git ws). */
   onCopyAbsolutePath?: (path: string) => void;
@@ -300,10 +301,10 @@ export function TreeList({
                     onToggle={() => onToggleDir(node.path)}
                     highlightQuery={isFiltering ? trimmedQuery : null}
                     actions={{
-                      onRename: () => onRename(node.path, 'dir'),
-                      onDelete: () => onDelete(node.path, 'dir'),
-                      onCreateFile: () => onCreateFile(node.path),
-                      onCreateFolder: () => onCreateFolder(node.path),
+                      onRename: onRename ? () => onRename(node.path, 'dir') : undefined,
+                      onDelete: onDelete ? () => onDelete(node.path, 'dir') : undefined,
+                      onCreateFile: onCreateFile ? () => onCreateFile(node.path) : undefined,
+                      onCreateFolder: onCreateFolder ? () => onCreateFolder(node.path) : undefined,
                       onCopyRelativePath: () => onCopyRelativePath(node.path),
                       onCopyAbsolutePath: onCopyAbsolutePath
                         ? () => onCopyAbsolutePath(node.path)
@@ -338,8 +339,8 @@ export function TreeList({
                   onSelect={() => onSelect(node.path)}
                   highlightQuery={isFiltering ? trimmedQuery : null}
                   actions={{
-                    onRename: () => onRename(node.path, 'file'),
-                    onDelete: () => onDelete(node.path, 'file'),
+                    onRename: onRename ? () => onRename(node.path, 'file') : undefined,
+                    onDelete: onDelete ? () => onDelete(node.path, 'file') : undefined,
                     onCopyRelativePath: () => onCopyRelativePath(node.path),
                     onCopyAbsolutePath: onCopyAbsolutePath
                       ? () => onCopyAbsolutePath(node.path)

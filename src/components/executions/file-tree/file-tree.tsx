@@ -6,8 +6,9 @@ import { Plus, FilePlus, FolderPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
 import { copyText } from '@/lib/clipboard';
+import { useFolderTree } from '@/hooks/use-folder';
+import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
 import {
-  useSessionTree,
   useCreateFile,
   useCreateDir,
   useDeletePath,
@@ -48,8 +49,12 @@ import { OpenWorktreeButton } from '../open-worktree-button';
 import { TreeRowsSkeleton } from '../skeletons';
 
 interface FileTreeProps {
-  /** Addresses the API (routes are session-scoped) and the file mutations. */
-  sessionId: string;
+  /**
+   * The folder to list: an execution's worktree (through a session, which
+   * also addresses the file mutations) or an agent's own folder, which is
+   * read-only here, so the create, rename and delete actions are hidden.
+   */
+  source: FolderSource;
   /**
    * Identity of the worktree being browsed — the execution id, or the
    * chat's own id when it has no execution. Persisted view mode and
@@ -130,14 +135,17 @@ interface DeleteTarget {
  * through unrelated panels.
  */
 export function FileTree({
-  sessionId,
+  source,
   worktreeId,
   selectedPath,
   onSelect,
   worktreePath,
   onReferenceInChat,
 }: FileTreeProps) {
-  const { data: tree, isFetching } = useSessionTree(sessionId);
+  const writable = folderIsWritable(source);
+  // Mutations address a session. A read-only folder never calls them.
+  const sessionId = source.kind === 'session' ? source.sessionId : '';
+  const { data: tree, isFetching } = useFolderTree(source);
   const entries = useMemo(() => tree?.entries ?? [], [tree?.entries]);
 
   const [mode, setModeState] = useState<TreeViewMode>(() => readPersistedMode(worktreeId));
@@ -443,6 +451,7 @@ export function FileTree({
           <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70 px-1">
             Files
           </span>
+          {writable && (
           <DropdownMenu>
             <DropdownMenuTrigger
               className="inline-flex items-center justify-center p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
@@ -462,6 +471,7 @@ export function FileTree({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
         </div>
         {worktreePath && (
           <div className="min-w-0 flex-shrink-0">
@@ -504,10 +514,10 @@ export function FileTree({
             onToggleDir={toggleDir}
             filterQuery={trimmedQuery}
             savingPaths={savingPaths}
-            onRename={beginRename}
-            onDelete={requestDelete}
-            onCreateFile={(p) => beginCreate(p, 'file')}
-            onCreateFolder={(p) => beginCreate(p, 'dir')}
+            onRename={writable ? beginRename : undefined}
+            onDelete={writable ? requestDelete : undefined}
+            onCreateFile={writable ? (p) => beginCreate(p, 'file') : undefined}
+            onCreateFolder={writable ? (p) => beginCreate(p, 'dir') : undefined}
             onCopyRelativePath={copyRelativePath}
             onCopyAbsolutePath={worktreePath ? copyAbsolutePath : undefined}
             onReferenceInChat={onReferenceInChat ? referenceInChat : undefined}

@@ -7,6 +7,7 @@ import { Link as LinkIcon, MessageSquare, ChevronRight } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { api } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import { executionView } from '@/lib/client/active-view';
 
 interface ReferencingSession {
   id: string;
@@ -89,7 +90,7 @@ export function ReferencingSessionsButton({ entityType, entityId }: ReferencingS
                   type="button"
                   onClick={() => {
                     setOpen(false);
-                    setActiveView(s.id);
+                    setActiveView(executionView(s.id));
                   }}
                   className={cn(
                     'group flex items-center gap-2 w-full px-3 py-1.5 text-left',

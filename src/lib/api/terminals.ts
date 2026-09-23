@@ -29,46 +29,51 @@ export interface TerminalDescriptor {
 const CREATE_TIMEOUT_MS = 20_000;
 const WRITE_TIMEOUT_MS = 30_000;
 
+/**
+ * Every call takes the folder's route base (`folderApiBase`):
+ * `/sessions/:id` for an execution's worktree, `/workspaces/:id` for an
+ * agent's own folder. Both expose the same terminal routes.
+ */
 export const terminalsApi = {
-  list(sessionId: string): Promise<TerminalDescriptor[]> {
-    return api.get<TerminalDescriptor[]>(`/sessions/${sessionId}/terminals`);
+  list(base: string): Promise<TerminalDescriptor[]> {
+    return api.get<TerminalDescriptor[]>(`${base}/terminals`);
   },
 
   create(
-    sessionId: string,
+    base: string,
     dims: { cols: number; rows: number },
   ): Promise<TerminalDescriptor> {
-    return api.post<TerminalDescriptor>(`/sessions/${sessionId}/terminals`, dims, {
+    return api.post<TerminalDescriptor>(`${base}/terminals`, dims, {
       timeoutMs: CREATE_TIMEOUT_MS,
     });
   },
 
-  kill(sessionId: string, terminalId: string): Promise<{ ok: true }> {
-    return api.delete<{ ok: true }>(`/sessions/${sessionId}/terminals/${terminalId}`);
+  kill(base: string, terminalId: string): Promise<{ ok: true }> {
+    return api.delete<{ ok: true }>(`${base}/terminals/${terminalId}`);
   },
 
-  input(sessionId: string, terminalId: string, data: string): Promise<{ ok: true }> {
+  input(base: string, terminalId: string, data: string): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(
-      `/sessions/${sessionId}/terminals/${terminalId}/input`,
+      `${base}/terminals/${terminalId}/input`,
       { data },
       { timeoutMs: WRITE_TIMEOUT_MS },
     );
   },
 
   resize(
-    sessionId: string,
+    base: string,
     terminalId: string,
     dims: { cols: number; rows: number },
   ): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(
-      `/sessions/${sessionId}/terminals/${terminalId}/resize`,
+      `${base}/terminals/${terminalId}/resize`,
       dims,
       { timeoutMs: WRITE_TIMEOUT_MS },
     );
   },
 
   /** Path used by `EventSource` for the SSE output stream. */
-  streamUrl(sessionId: string, terminalId: string): string {
-    return `/api/sessions/${sessionId}/terminals/${terminalId}/stream`;
+  streamUrl(base: string, terminalId: string): string {
+    return `/api${base}/terminals/${terminalId}/stream`;
   },
 };

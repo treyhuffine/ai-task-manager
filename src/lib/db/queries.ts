@@ -1607,6 +1607,40 @@ export function getExecutionTasks(executionId: string): TaskRecord[] {
 }
 
 /**
+ * The open tasks a workspace's active executions are working, newest
+ * association first, each with the executions that work it (the agent
+ * view's Overview). Done and archived tasks are left out.
+ */
+export function listWorkspaceExecutionTasks(
+  workspaceId: string,
+): Array<{ id: string; title: string; status: TaskRecord['status']; executionIds: string[] }> {
+  const rows = getDb()
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      executionId: executionTasks.executionId,
+    })
+    .from(executionTasks)
+    .innerJoin(tasks, eq(executionTasks.taskId, tasks.id))
+    .innerJoin(executions, eq(executionTasks.executionId, executions.id))
+    .where(and(
+      eq(executions.workspaceId, workspaceId),
+      eq(executions.status, 'active'),
+      sql`${tasks.status} NOT IN ('done', 'archived')`,
+    ))
+    .orderBy(desc(executionTasks.createdAt))
+    .all();
+  const byTask = new Map<string, { id: string; title: string; status: TaskRecord['status']; executionIds: string[] }>();
+  for (const row of rows) {
+    const entry = byTask.get(row.id);
+    if (entry) entry.executionIds.push(row.executionId);
+    else byTask.set(row.id, { id: row.id, title: row.title, status: row.status, executionIds: [row.executionId] });
+  }
+  return [...byTask.values()];
+}
+
+/**
  * Associate a workstream (execution) with a task. Many-to-many, so it simply
  * ensures the (execution, task) pair exists — idempotent, never a conflict.
  * Both must exist. This links durable context, it does not claim or start work.

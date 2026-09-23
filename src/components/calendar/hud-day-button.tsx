@@ -27,6 +27,7 @@ import { requestCalendarDate } from './calendar-store';
 import { dismissCalendarInvite, readInviteDismissed, subscribeInviteDismissed } from './invite';
 import { HudDayPeek } from './hud-day-peek';
 import { WeekOverlay } from './week-overlay';
+import { HOME_VIEW } from '@/lib/client/active-view';
 
 const STALE_MS = 15 * 60_000;
 const TICK_MS = 30_000;
@@ -105,7 +106,7 @@ export function HudDayButton() {
   const degraded = data.status === 'degraded' || data.status === 'error';
 
   const goToCalendarTab = () => {
-    setActiveView('command');
+    setActiveView(HOME_VIEW);
     setPanelTab('a', 'calendar');
   };
 

@@ -1,6 +1,19 @@
 export type Theme = 'dark' | 'light';
 export type WorkMode = 'light' | 'deep' | null;
-export type ActiveView = 'command' | string; // 'command' or an agent id
+/** Tabs in the agent view's tools panel (docs/agents-view-spec.md Phase 7). */
+export type AgentTab = 'overview' | 'files' | 'terminal' | 'preview' | 'setup';
+export const AGENT_TABS: readonly AgentTab[] = ['overview', 'files', 'terminal', 'preview', 'setup'];
+
+/**
+ * What fills the main area: Home (the deck and chat panels), an agent's
+ * view (a workspace, with an optional tools tab), or an execution. The URL
+ * carries it: nothing for Home, `?agent=<workspaceId>&tab=<tab>`, or
+ * `?session=<chatSessionId>`. Helpers live in `src/lib/client/active-view.ts`.
+ */
+export type ActiveView =
+  | { kind: 'home' }
+  | { kind: 'agent'; id: string; tab?: AgentTab }
+  | { kind: 'execution'; id: string };
 
 export type PanelTab = 'deck' | 'chat' | 'tasks' | 'stream' | 'notes';
 export type MorePanelTab = 'areas' | 'people' | 'decisions' | 'calendar';

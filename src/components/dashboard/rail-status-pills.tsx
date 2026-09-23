@@ -14,6 +14,7 @@ import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
+import { executionView } from '@/lib/client/active-view';
 
 // Top-HUD status pills. Same buckets as the rail body, just rendered as
 // a compact dot+count strip that stays visible regardless of rail
@@ -144,8 +145,8 @@ interface PillSessionRowProps {
 }
 
 function PillSessionRow({ session, onPick }: PillSessionRowProps) {
-  const { activeView, setActiveView } = useDashboard();
-  const isActive = activeView === session.id;
+  const { activeSessionId, setActiveView } = useDashboard();
+  const isActive = activeSessionId === session.id;
   // Rail rows are one-per-execution, so title by the stable execution label
   // (survives "new chat"); fall back to the chat label for legacy/orphaned rows.
   const label = session.execution?.label ?? session.label ?? 'Untitled';
@@ -155,7 +156,7 @@ function PillSessionRow({ session, onPick }: PillSessionRowProps) {
   const wsEmoji = session.workspaceEmoji;
 
   const handleOpen = () => {
-    setActiveView(session.id);
+    setActiveView(executionView(session.id));
     onPick();
   };
 

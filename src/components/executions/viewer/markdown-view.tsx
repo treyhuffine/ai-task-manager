@@ -1,12 +1,13 @@
 'use client';
 
 import { FileX, FileWarning, Lock } from 'lucide-react';
-import { useSessionFile } from '@/hooks/use-execution';
+import { useFolderFile } from '@/hooks/use-folder';
+import type { FolderSource } from '@/lib/folders/source';
 import { FileSkeleton } from '../skeletons';
 import { MessageResponse } from '@/components/ai-elements/message';
 
 interface MarkdownViewProps {
-  sessionId: string;
+  source: FolderSource;
   path: string;
 }
 
@@ -16,8 +17,8 @@ interface MarkdownViewProps {
  * styled render. Editing always happens in Current mode — Render is a
  * read affordance, not a WYSIWYG.
  */
-export function MarkdownView({ sessionId, path }: MarkdownViewProps) {
-  const { data, isLoading, error } = useSessionFile(sessionId, path);
+export function MarkdownView({ source, path }: MarkdownViewProps) {
+  const { data, isLoading, error } = useFolderFile(source, path);
 
   if (isLoading && !data) {
     return <FileSkeleton variant="prose" />;
