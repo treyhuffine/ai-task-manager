@@ -1,11 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
-import {
-  readWorkspaceFile,
-  readBaseFile,
-  FileReadError,
-} from '@/lib/workspaces/read-file';
+import { fileReadResponse } from '@/lib/workspaces/file-http';
 import { writeWorkspaceFile, deleteWorkspacePath } from '@/lib/workspaces/write-file';
 import { openSessionWorktree, mapFileError } from '../_helpers';
 import { withCompression } from '@/lib/api/compression';
@@ -54,30 +50,9 @@ async function handleGET(
     const handle = await openWorktreeHandle(session, ws.cwd);
     if (!handle) return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
 
-    if (wantBase) {
-      const content = await readBaseFile(handle, relPath);
-      return Response.json({
-        path: relPath,
-        content,
-        encoding: 'utf8',
-        mime: 'text/plain',
-        size: content.length,
-        isBinary: false,
-      });
-    }
-
-    const file = await readWorkspaceFile(handle, relPath);
-    return Response.json(file);
+    return await fileReadResponse(handle, relPath, wantBase);
   } catch (err) {
-    if (err instanceof FileReadError) {
-      const status =
-        err.code === 'not_found' ? 404 :
-        err.code === 'invalid_path' ? 400 :
-        err.code === 'is_directory' ? 400 : 500;
-      return Response.json({ error: err.message, code: err.code }, { status });
-    }
-    console.error('[GET /api/sessions/:id/file]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
+    return mapFileError(err, '[GET /api/sessions/:id/file]');
   }
 }
 

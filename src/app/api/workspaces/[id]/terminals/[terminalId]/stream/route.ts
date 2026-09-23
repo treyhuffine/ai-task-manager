@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { sessionTerminalOwner } from '@/lib/terminal/owner';
+import { workspaceTerminalOwner } from '@/lib/terminal/owner';
 import { terminalStreamResponse } from '@/lib/terminal/http';
 
 export const runtime = 'nodejs';
@@ -11,5 +11,5 @@ export async function GET(
   { params }: { params: Promise<{ id: string; terminalId: string }> },
 ) {
   const { id, terminalId } = await params;
-  return terminalStreamResponse(request, () => sessionTerminalOwner(id), terminalId);
+  return terminalStreamResponse(request, () => workspaceTerminalOwner(id), terminalId);
 }

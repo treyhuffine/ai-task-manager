@@ -107,7 +107,7 @@ Evidence gathered while aligning. Line numbers are as of 2026-09-22.
 
 - **Folder resolution already fits.** `resolveCwd` (`src/lib/executor/adapter.ts`) returns the worktree if there is one, else the workspace folder, else the Ri home. An agent main chat runs in the agent's folder with no change.
 - **Session file tree and terminal are worktree-centric.** `sessions/[id]/tree` returns an empty tree without a worktree. The terminal only falls back to the folder for non-git workspaces. The agent view needs workspace-level routes.
-- **Preview already has a workspace route:** `/api/workspaces/:id/preview`.
+- ~~**Preview already has a workspace route:** `/api/workspaces/:id/preview`.~~ Wrong, found in Phase 5: previews are per execution (`/api/executions/:id/preview/*`, `preview_targets.execution_id`). The only workspace route is `preview/restore-set`. See the Phase 5 note.
 - **The app's main chat is found by type alone.** `/api/orchestrator-chat` (plus `/history` and `/resume`) uses `listChatSessions({ type: 'orchestration', status: 'active' })`. Agent main chats would leak into it unless filtered by `workspace_id IS NULL`.
 - **Needs Review already excludes interactive orchestration chats** (`listNeedsReviewSessionCandidates`), and the rail lists executions, so agent main chats stay out of both without new code. Verify, don't assume.
 - **The orchestrator surface installs files into the Ri home** (`installOrchestratorSurface`, `claude-md-template.ts`). An agent main chat runs inside the user's own folder, so it must never install files there.
@@ -291,23 +291,34 @@ One registry generates both surfaces, so every item lands on both.
 
 ### Phase 5: REST routes
 
-- [ ] Workspace-level files and terminal on the agent's own folder:
+- [x] Workspace-level files and terminal on the agent's own folder:
   - `GET /api/workspaces/:id/tree`
   - `GET /api/workspaces/:id/file`
   - `GET` and `POST /api/workspaces/:id/terminals`
 
   Reuse the internals behind the session routes (`list-tree.ts`, the file reader, the terminal manager). For git agents these read the source checkout. The file viewer is read-only in this spec.
-- [ ] The agent's main chat, sharing one query helper with the app's main chat (`workspaceId` or null):
+  - Paths and response shapes mirror the session routes exactly, so the Phase 7 viewer and terminal panel only swap a base URL. A working terminal panel also needs `terminals/:terminalId` (GET, DELETE), `/input`, `/resize` and `/stream`, so those landed too. The session terminal routes and the new ones are thin wrappers over `src/lib/terminal/http.ts`, and the file read over `src/lib/workspaces/file-http.ts`.
+  - Agent terminals are owned by the workspace (`workspace:<id>`, `workspaceTerminalOwnerId`), separate from every execution's shells. An archived agent or a missing folder gets no new shell (409). Archiving an agent reaps its terminals.
+  - **Surprise, upstream bug:** agentex 0.0.4 cannot open a main checkout correctly. For a main checkout (not a linked worktree), `git rev-parse --git-path info/agentex.json` answers with a relative path, and agentex reads it relative to the *server process's* cwd. So opening any user's checkout read Ri's own `.git/info/agentex.json` (base `origin/main`, an unrelated sha), and where the server cwd has no such file it throws. The agent folder routes use a new `openFolderHandle` that passes the base explicitly: current branch at HEAD, so status flags mean uncommitted changes (empty tree for an unborn repo). agentex cannot open a detached HEAD at all, so that case falls back to a plain listing and direct reads. **Live-mode executions still open the source checkout the old way** and only work because the server's cwd happens to carry that metadata. Fixing them changes execution diff behavior, so it is left for the execution view work (§7) and the agentex fix.
+- [x] The agent's main chat, sharing one query helper with the app's main chat (`workspaceId` or null):
   - `GET /api/workspaces/:id/chat` (current chat, created if missing)
   - `POST /api/workspaces/:id/chat/new`
   - `GET /api/workspaces/:id/chat/history`
   - `POST /api/workspaces/:id/chat/resume`
-- [ ] `/api/orchestrator-chat`, `/history` and `/resume` filter on `workspace_id IS NULL` so agent main chats never appear in the app's main chat.
+  - Query: `listMainChats(workspaceId | null)`. Behavior: `src/lib/sessions/main-chat.ts` (ensure, new, history, resume), which both route families wrap. Concurrent opens of one scope share a single create. Resume refuses a chat from another scope (another agent, the app, an execution). An archived agent still returns its current chat and history, but never starts or resumes one (409).
+- [x] `/api/orchestrator-chat`, `/history` and `/resume` filter on `workspace_id IS NULL` so agent main chats never appear in the app's main chat.
+  - Also verified the other places an orchestration chat could leak: the rail (`listRailSessions`) inner-joins executions, session search is executions only, and `list_workspace_sessions` lists executions (Phase 4).
 - [x] `PATCH /api/workspaces/:id` accepts `purpose` and `instructions`. (Landed with Phase 3: the route already forwards fields, the query layer validates, and validation errors map to 400.)
-- [ ] Session, trigger and run responses carry `harness` (Phase 1).
-- [ ] Route tests for each new route, including the main-chat filter.
+- [x] Session, trigger and run responses carry `harness` (Phase 1).
+  - Confirmed no route emits `agentHarness` or `agentId`. `GET /api/runs` now forwards the `harness` filter too (it only forwarded the rejected `agentId`).
+- [x] Route tests for each new route, including the main-chat filter.
+  - `app/api/workspaces/[id]/chat/route.test.ts` (both scopes, isolation both ways, scheduled fires, concurrency, archived agents), `app/api/workspaces/[id]/folder.test.ts` (real git and plain folders, detached HEAD, terminal cwd and ownership, archive reaping), `lib/workspaces/open-folder.test.ts`.
 
 **Done when:** the agent view can load an agent's chat, tree, files, terminal and preview without an execution.
+
+**Status 2026-09-22:** landed.
+
+- **Preview, corrected premise.** §5.5 said a workspace preview route existed. It does not: a preview belongs to an execution, and `preview_targets` is keyed by execution. That is also the right model here. A git agent's main chat never edits the checkout, so the code worth previewing lives in executions, and a preview of the checkout itself is a live-mode execution. So instead of a folder preview (which would need a `preview_targets` rebuild), `GET /api/workspaces/:id/previews` lists the previews on the agent's active executions with live state and labels. Start, stop and pin stay on the execution routes, and `preview/restore-set` brings up the pinned ones. Listing passes `touch: false` so a polling Overview never defeats idle eviction. Phase 7's Preview tab and Overview line read this.
 
 ### Phase 6: The agent's main chat (backend)
 
@@ -365,6 +376,7 @@ One registry generates both surfaces, so every item lands on both.
 - [ ] **Files:** tree and read-only viewer on the agent's folder (Phase 5 routes). Reuse the file tree and viewer components by giving them a target (a session or a workspace).
 - [ ] **Terminal:** the terminal panel on the agent's folder (Phase 5 routes).
 - [ ] **Preview:** the existing preview pane pointed at the workspace preview.
+  - Revised by the Phase 5 finding: the agent's execution previews (`GET /api/workspaces/:id/previews`). Pick one to show it in the existing preview pane, with "Restore pinned" calling `preview/restore-set`.
 - [ ] **Setup** replaces `WorkspaceSettingsSheet`. Sections:
   - Basics: name, icon, area, purpose
   - Instructions

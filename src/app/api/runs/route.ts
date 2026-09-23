@@ -34,8 +34,10 @@ async function handleGET(request: NextRequest) {
   if (status !== undefined) input.status = status;
   const trigger = parseMulti(params.get('trigger'));
   if (trigger !== undefined) input.trigger = trigger;
-  // Single-value scalars pass through unchanged.
-  for (const key of ['triggerId', 'agentId', 'executionId', 'workspaceId', 'since']) {
+  // Single-value scalars pass through unchanged. `agentId` is forwarded only
+  // so the action rejects it loudly (the old agents table is gone, use
+  // `harness`), rather than being dropped into an unfiltered list.
+  for (const key of ['triggerId', 'harness', 'agentId', 'executionId', 'workspaceId', 'since']) {
     const v = params.get(key);
     if (v != null) input[key] = v;
   }

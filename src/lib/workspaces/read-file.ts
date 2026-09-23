@@ -33,7 +33,7 @@ export class FileReadError extends Error {
 }
 
 export async function readWorkspaceFile(
-  ws: Workspace,
+  ws: Pick<Workspace, 'path'>,
   relPath: string,
 ): Promise<FileResponse> {
   const safe = sanitizeRelPath(relPath);

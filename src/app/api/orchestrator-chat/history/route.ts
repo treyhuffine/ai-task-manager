@@ -1,14 +1,10 @@
-import { listChatSessions, getLastChatEventBySource } from '@/lib/db/queries';
+import { mainChatHistory } from '@/lib/sessions/main-chat';
 import { withCompression } from '@/lib/api/compression';
 
-const HISTORY_LIMIT = 50;
-const SNIPPET_MAX = 80;
-
 /**
- * Past + current interactive orchestrator chats, newest activity first.
- * Scheduled-fire chats (createdByRunId set) are excluded — they belong to
- * the runs surface. Capped: this backs the Chat tab's history menu, not an
- * archive browser.
+ * Past and current main chats of the app, newest activity first. Agent main
+ * chats and scheduled-fire chats are excluded. Capped: this backs the Chat
+ * tab's history menu, not an archive browser.
  *
  * Label model (docs/orchestrator-harness.md): orchestration chats carry no
  * first-message title. `label` is the retrospective summary written at
@@ -21,25 +17,7 @@ export const GET = withCompression(handleGET);
 
 async function handleGET() {
   try {
-    const sessions = listChatSessions({ type: 'orchestration' })
-      .filter((s) => s.createdByRunId === null)
-      .slice(0, HISTORY_LIMIT)
-      .map((s) => {
-        const lastUser = getLastChatEventBySource(s.id, 'user');
-        const raw = lastUser?.content?.trim().replace(/\s+/g, ' ') ?? null;
-        const snippet =
-          raw && raw.length > SNIPPET_MAX ? raw.slice(0, SNIPPET_MAX - 1).trimEnd() + '…' : raw;
-        return {
-          id: s.id,
-          label: s.label,
-          snippet,
-          status: s.status,
-          startedAt: s.startedAt,
-          lastOutcomeEventAt: s.lastOutcomeEventAt,
-          lastActivityAt: s.lastActivityAt,
-        };
-      });
-    return Response.json({ sessions });
+    return Response.json({ sessions: mainChatHistory(null) });
   } catch (err) {
     console.error('[GET /api/orchestrator-chat/history]', err);
     return Response.json({ error: String(err) }, { status: 500 });

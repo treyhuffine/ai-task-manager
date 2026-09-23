@@ -5366,6 +5366,21 @@ export function listPinnedPreviewTargetsForWorkspace(workspaceId: string): Previ
     .all();
 }
 
+/**
+ * Every preview target on one workspace's active executions, newest first
+ * (the agent view's Preview tab and Overview).
+ */
+export function listPreviewTargetsForWorkspace(workspaceId: string): PreviewTargetRecord[] {
+  const db = getDb();
+  return db
+    .select({ ...getTableColumns(previewTargets) })
+    .from(previewTargets)
+    .innerJoin(executions, eq(previewTargets.executionId, executions.id))
+    .where(and(eq(executions.workspaceId, workspaceId), eq(executions.status, 'active')))
+    .orderBy(desc(previewTargets.createdAt))
+    .all();
+}
+
 export function createPreviewTarget(input: CreatePreviewTargetInput): PreviewTargetRecord {
   const db = getDb();
   const now = new Date().toISOString();
@@ -5439,6 +5454,33 @@ export function listChatSessions(filter: {
     .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   return rows.map((r) => flattenSessionExecution(r as ChatSessionRecord & { execution: ExecutionRecord | null }));
+}
+
+/**
+ * Main chats: interactive orchestration chats, newest activity first. The
+ * app's main chat has no workspace (`workspaceId: null`), an agent's main
+ * chat has its workspace (docs/agents-view-spec.md §4). Scheduled fires also
+ * create orchestration chats, but they carry `createdByRunId` and belong to
+ * the runs surface, so they are never main chats.
+ */
+export function listMainChats(
+  workspaceId: string | null,
+  filter: { status?: 'active' | 'archived'; limit?: number } = {},
+): ChatSessionRecord[] {
+  const db = getDb();
+  const conditions: SQL[] = [
+    eq(chatSessions.type, 'orchestration'),
+    isNull(chatSessions.createdByRunId),
+    isNull(chatSessions.executionId),
+    workspaceId === null ? isNull(chatSessions.workspaceId) : eq(chatSessions.workspaceId, workspaceId),
+  ];
+  if (filter.status) conditions.push(eq(chatSessions.status, filter.status));
+  const query = db
+    .select()
+    .from(chatSessions)
+    .where(and(...conditions))
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`);
+  return filter.limit ? query.limit(filter.limit).all() : query.all();
 }
 
 export function getChatSession(id: string): ChatSessionRecord | undefined {

@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { sessionTerminalOwner } from '@/lib/terminal/owner';
+import { workspaceTerminalOwner } from '@/lib/terminal/owner';
 import { deleteTerminalResponse, getTerminalResponse } from '@/lib/terminal/http';
 import { withCompression } from '@/lib/api/compression';
 
@@ -15,7 +15,7 @@ async function handleGET(
   { params }: { params: Promise<{ id: string; terminalId: string }> },
 ) {
   const { id, terminalId } = await params;
-  return getTerminalResponse(sessionTerminalOwner(id), terminalId);
+  return getTerminalResponse(workspaceTerminalOwner(id), terminalId);
 }
 
 export async function DELETE(
@@ -23,5 +23,5 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; terminalId: string }> },
 ) {
   const { id, terminalId } = await params;
-  return deleteTerminalResponse(sessionTerminalOwner(id), terminalId);
+  return deleteTerminalResponse(workspaceTerminalOwner(id), terminalId);
 }

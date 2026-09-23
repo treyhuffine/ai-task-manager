@@ -1,95 +1,18 @@
-import {
-  listChatSessions,
-  createChatSession,
-  archiveChatSession,
-  getUserState,
-  updateUserState,
-  ensureHarnessSettings,
-} from '@/lib/db/queries';
-import type { ProviderId } from '@/lib/harness/options';
-import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
-import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
-import { isHarnessId } from '@/lib/harness/registry';
+import { ensureMainChat, parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
 import { withCompression } from '@/lib/api/compression';
 
-/** Optional per-chat provider/model override (the composer's "switch provider"). */
-interface ChatOverride {
-  providerId?: ProviderId;
-  model?: string;
-  variant?: string;
-  effort?: EffortLevel;
-}
-
-function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown }): ChatOverride {
-  const out: ChatOverride = {};
-  if (isHarnessId(src.providerId)) out.providerId = src.providerId;
-  if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
-  if (typeof src.variant === 'string' && src.variant.trim()) out.variant = src.variant.trim();
-  if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
-    out.effort = src.effort as EffortLevel;
-  }
-  return out;
-}
-
 /**
- * The dashboard's interactive orchestrator chat session (harness modes).
+ * The app's main chat: the dashboard's interactive orchestrator chat
+ * (harness modes). One current chat at a time:
+ *   GET  → return it, creating one if none exists ("ensure" semantics).
+ *   POST → start fresh: retire the current one (closing its cached harness
+ *          process) and create a new one. Used by "New chat", the
+ *          composer's provider switch, and mode switches.
  *
- * One active interactive orchestration session at a time:
- *   GET  → return it, creating one if none exists ("ensure" semantics —
- *          same pattern as the dev scratch route).
- *   POST → start fresh: archive the current one (closing its cached
- *          harness process) and create a new session. Used by the
- *          "New chat" affordance and by mode switches — mode flags are
- *          read at process spawn, so a new session is the clean cut.
- *
- * Scheduled orchestrator fires also create `type='orchestration'` chats;
- * those carry `createdByRunId` and are excluded here — this route only
- * manages the user-facing chat.
+ * Only chats with no workspace: an agent's main chat is served by
+ * `/api/workspaces/:id/chat`, and scheduled fires belong to the runs
+ * surface. Both share `src/lib/sessions/main-chat.ts`.
  */
-
-function findCurrent(): ChatSessionWithExecution | null {
-  const sessions = listChatSessions({ type: 'orchestration', status: 'active' });
-  return sessions.find((s) => s.createdByRunId === null) ?? null;
-}
-
-async function createInteractiveSession(override: ChatOverride = {}) {
-  const userState = getUserState();
-  const providerId = override.providerId
-    ?? userState?.defaultHarness
-    ?? 'claude';
-  const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
-  const harnessSettings = ensureHarnessSettings(providerId);
-  const requestedModel = override.model
-    ?? (savedTupleMatchesProvider ? userState?.defaultModel : null)
-    ?? harnessSettings.defaultModel;
-  const selection = await resolveHarnessSelection(providerId, {
-    model: requestedModel,
-    variant: override.variant
-      ?? (requestedModel === harnessSettings.defaultModel ? harnessSettings.defaultVariant : null),
-    effort: override.effort
-      ?? (savedTupleMatchesProvider ? userState?.defaultEffort : null)
-      ?? harnessSettings.defaultEffort,
-  }, { repairInvalidModel: override.model === undefined });
-  const session = createChatSession({
-    type: 'orchestration',
-    harness: selection.providerId,
-    model: selection.model,
-    modelVariant: selection.variant,
-    effort: selection.effort,
-    // Label stays null until the first send — the messages route's
-    // `deriveAndSetSessionLabel` (haiku-via-harness, same pipeline that
-    // names executions) only fires on unlabeled sessions. A hardcoded
-    // placeholder here would permanently block the generated title.
-    label: null,
-    status: 'active',
-  });
-  updateUserState({
-    defaultHarness: selection.providerId,
-    defaultModel: selection.model,
-    defaultEffort: selection.effort,
-  });
-  return session;
-}
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -97,8 +20,7 @@ export const GET = withCompression(handleGET);
 
 async function handleGET() {
   try {
-    const session = findCurrent() ?? await createInteractiveSession();
-    return Response.json({ session });
+    return Response.json({ session: await ensureMainChat(null) });
   } catch (err) {
     console.error('[GET /api/orchestrator-chat]', err);
     return Response.json({ error: String(err) }, { status: 500 });
@@ -106,35 +28,9 @@ async function handleGET() {
 }
 
 export async function POST(req: Request) {
-  let body: unknown;
+  const body: unknown = await req.json().catch(() => ({}));
   try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
-  const override = parseOverride((body ?? {}) as {
-    providerId?: unknown;
-    model?: unknown;
-    variant?: unknown;
-    effort?: unknown;
-  });
-  try {
-    const current = findCurrent();
-    if (current) {
-      // Tear down the cached AgentSession so the archived chat's process
-      // doesn't linger; the next dispatch on the new session spawns fresh
-      // with the current mode's flags.
-      const { close } = await import('@/lib/executor/adapter');
-      await close(current.id).catch(() => {});
-      archiveChatSession(current.id);
-      // Archive is the one moment a thread's whole arc is known — title it
-      // retrospectively (fire-and-forget; history shows a snippet until the
-      // summary lands, or forever if the call fails).
-      const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
-      void deriveRetrospectiveLabel(current.id);
-    }
-    const session = await createInteractiveSession(override);
-    return Response.json({ session });
+    return Response.json({ session: await startNewMainChat(null, parseChatOverride(body)) });
   } catch (err) {
     console.error('[POST /api/orchestrator-chat]', err);
     return Response.json({ error: String(err) }, { status: 500 });

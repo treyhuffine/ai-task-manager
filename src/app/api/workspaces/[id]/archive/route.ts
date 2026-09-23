@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { archiveWorkspace, listChatSessions } from '@/lib/db/queries';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
-import { terminalOwnerId } from '@/lib/terminal/owner';
+import { terminalOwnerId, workspaceTerminalOwnerId } from '@/lib/terminal/owner';
 import { close as closeHarnessSession } from '@/lib/executor/adapter';
 
 export const runtime = 'nodejs';
@@ -18,10 +18,13 @@ export async function POST(
     // workspace orphans them otherwise (they outlive it until the server
     // restarts). Both are safe no-ops when nothing's live:
     //   - node-pty terminals, owned per execution (deduped — many chats
-    //     share one execution, and killing an owner twice is wasted work)
-    //   - the cached agent CLI subprocess, one per chat
+    //     share one execution, and killing an owner twice is wasted work),
+    //     plus the agent's own terminals on its folder
+    //   - the cached harness subprocess, one per chat (the agent's main
+    //     chat included)
     const sessions = listChatSessions({ workspaceId: id });
-    for (const ownerId of new Set(sessions.map(terminalOwnerId))) killAllForOwner(ownerId);
+    const owners = new Set(sessions.map(terminalOwnerId)).add(workspaceTerminalOwnerId(id));
+    for (const ownerId of owners) killAllForOwner(ownerId);
     await Promise.all(sessions.map((s) => closeHarnessSession(s.id)));
     return Response.json(row);
   } catch (err) {

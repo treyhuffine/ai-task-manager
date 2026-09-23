@@ -547,6 +547,52 @@ export async function openWorktreeHandle(
   return handle;
 }
 
+/** Git's well-known empty tree: the base of a repo with no commits yet. */
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+async function gitOut(cwd: string, args: string[]): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', args, { cwd, env: sanitizeChildEnv(), timeout: 10_000 });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Open a folder the user owns (an agent's own folder, not a worktree we
+ * made) as a read handle. Returns null when the folder is gone, or when it is
+ * a git checkout on a detached HEAD (mid-rebase, bisect), which agentex
+ * cannot open: callers fall back to a plain listing and direct reads.
+ *
+ * A git checkout opens with an explicit base: its current branch at HEAD.
+ * Status flags and the diff "old" side then mean what they should for the
+ * user's own folder, uncommitted changes. An unborn repo bases on the empty
+ * tree, so every file reads as added. Anything else opens bare.
+ *
+ * The base is never read from agentex's worktree metadata. For a main
+ * checkout (as opposed to a linked worktree) `git rev-parse --git-path
+ * info/agentex.json` answers with a relative path, and agentex (0.0.4)
+ * resolves it against the server process's cwd, so it would read *Ri's own*
+ * repo's metadata, or throw where there is none.
+ */
+export async function openFolderHandle(cwd: string): Promise<import('@agentex/workspace').Workspace | null> {
+  if (!existsSync(cwd)) return null;
+  const lib = await loadLib();
+  try {
+    if ((await lib.workspace.detectKind(cwd)) !== 'git') return await lib.workspace.open(cwd, { source: cwd });
+    const [branch, head] = await Promise.all([
+      gitOut(cwd, ['symbolic-ref', '--short', 'HEAD']),
+      gitOut(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD']),
+    ]);
+    if (!branch) return null;
+    return await lib.workspace.open(cwd, { source: cwd, baseBranch: branch, baseSha: head ?? EMPTY_TREE_SHA });
+  } catch (err) {
+    if (err instanceof lib.WorkspaceNotFoundError) return null;
+    throw err;
+  }
+}
+
 /**
  * Live divergence point (merge-base) of the worktree's HEAD and its base
  * branch. Returns null when it can't be computed (no base branch, unresolvable

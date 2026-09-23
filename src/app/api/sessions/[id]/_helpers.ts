@@ -7,8 +7,6 @@
 
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
-import { FileReadError } from '@/lib/workspaces/read-file';
-import { FileWriteError } from '@/lib/workspaces/write-file';
 import type { Workspace } from '@agentex/workspace';
 
 export type WorktreeResolution =
@@ -49,29 +47,5 @@ export async function openSessionWorktree(id: string): Promise<WorktreeResolutio
   return { ok: true, handle };
 }
 
-/**
- * Convert a thrown FileReadError/FileWriteError into the right HTTP
- * status. Anything else falls through to a 500 with the message logged
- * — those are bugs, not user-correctable failures.
- */
-export function mapFileError(err: unknown, logTag: string): Response {
-  if (err instanceof FileReadError) {
-    const status =
-      err.code === 'not_found' ? 404 :
-      err.code === 'invalid_path' ? 400 :
-      err.code === 'is_directory' ? 400 : 500;
-    return Response.json({ error: err.message, code: err.code }, { status });
-  }
-  if (err instanceof FileWriteError) {
-    const status =
-      err.code === 'invalid_path' ? 400 :
-      err.code === 'is_directory' ? 400 :
-      err.code === 'is_file' ? 400 :
-      err.code === 'exists' ? 409 :
-      err.code === 'too_large' ? 413 :
-      err.code === 'not_found' ? 404 : 500;
-    return Response.json({ error: err.message, code: err.code }, { status });
-  }
-  console.error(logTag, err);
-  return Response.json({ error: String(err) }, { status: 500 });
-}
+/** Moved to lib so the agent's folder routes share it. */
+export { mapFileError } from '@/lib/workspaces/file-http';

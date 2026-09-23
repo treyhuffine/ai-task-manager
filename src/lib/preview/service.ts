@@ -27,6 +27,7 @@ import {
   touchPreviewTarget,
   listPreviewTargetsForExecution,
   listPinnedPreviewTargetsForWorkspace,
+  listPreviewTargetsForWorkspace,
   setExecutionPreviewUrls,
 } from '@/lib/db/queries';
 import type { ExecutionRecord, WorkspaceRecord, PreviewTargetRecord, PreviewUrl } from '@/db/types';
@@ -236,8 +237,17 @@ function activeRemoteProvider() {
   return { id, label: provider?.label ?? id, provider };
 }
 
-/** Cheap snapshot — no bring-up, no side effects beyond reading. */
-export function getPreviewState(executionId: string, service: string | null = null): PreviewState {
+/**
+ * Cheap snapshot — no bring-up. The one side effect: a live preview's
+ * `lastViewedAt` is bumped (a viewer is watching), unless `touch` is false,
+ * which a listing that merely reports state must pass so it never keeps
+ * every preview warm.
+ */
+export function getPreviewState(
+  executionId: string,
+  service: string | null = null,
+  opts: { touch?: boolean } = {},
+): PreviewState {
   const ctx = loadContext(executionId);
   const target = getPreviewTarget(executionId, service) ?? null;
   const remote = activeRemoteProvider();
@@ -248,7 +258,7 @@ export function getPreviewState(executionId: string, service: string | null = nu
   // idle-evict sweep doesn't reap a preview out from under an active viewer
   // who hasn't re-`resolve`d in a while (L2). The pane polls this every few
   // seconds, so it's an accurate "still watching" signal.
-  if (target && (rec?.status === 'running' || rec?.status === 'starting')) {
+  if (opts.touch !== false && target && (rec?.status === 'running' || rec?.status === 'starting')) {
     touchPreviewTarget(target.id);
   }
 
@@ -510,6 +520,29 @@ export async function restoreWorkspacePreviews(workspaceId: string): Promise<
     }
   }
   return results;
+}
+
+/**
+ * The previews on one workspace's active executions, with their live state:
+ * the agent view's Preview tab and Overview (docs/agents-view-spec.md
+ * Phase 5). Previews belong to executions, since that is where an agent's
+ * code runs. A preview of the checkout itself is a live-mode execution.
+ * Reading never keeps a preview warm (`touch: false`), so a polling
+ * overview does not defeat idle eviction.
+ */
+export function listWorkspacePreviews(workspaceId: string): Array<PreviewState & { label: string | null }> {
+  const out: Array<PreviewState & { label: string | null }> = [];
+  for (const target of listPreviewTargetsForWorkspace(workspaceId)) {
+    const execution = getExecution(target.executionId);
+    if (!execution) continue;
+    try {
+      out.push({ ...getPreviewState(target.executionId, target.service, { touch: false }), label: execution.label ?? null });
+    } catch (err) {
+      // One execution whose context no longer resolves must not hide the rest.
+      if (!(err instanceof PreviewServiceError)) throw err;
+    }
+  }
+  return out;
 }
 
 // ─── Idle-evict ───────────────────────────────────────────────

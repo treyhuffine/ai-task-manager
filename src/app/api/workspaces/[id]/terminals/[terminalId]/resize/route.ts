@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { sessionTerminalOwner } from '@/lib/terminal/owner';
+import { workspaceTerminalOwner } from '@/lib/terminal/owner';
 import { terminalResizeResponse } from '@/lib/terminal/http';
 
 export const runtime = 'nodejs';
@@ -11,9 +11,9 @@ export async function POST(
 ) {
   try {
     const { id, terminalId } = await params;
-    return await terminalResizeResponse(request, sessionTerminalOwner(id), terminalId);
+    return await terminalResizeResponse(request, workspaceTerminalOwner(id), terminalId);
   } catch (err) {
-    console.error('[POST /api/sessions/:id/terminals/:terminalId/resize]', err);
+    console.error('[POST /api/workspaces/:id/terminals/:terminalId/resize]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
 }

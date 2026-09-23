@@ -1,26 +1,11 @@
 import type { NextRequest } from 'next/server';
-import * as fs from 'node:fs';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
-import { createTerminal, listTerminals, TerminalSpawnError } from '@/lib/terminal/pty-manager';
-import { terminalOwnerId } from '@/lib/terminal/owner';
+import { isExistingDir, sessionTerminalOwner, terminalOwnerId, type TerminalCwd } from '@/lib/terminal/owner';
+import { createTerminalResponse, listTerminalsResponse } from '@/lib/terminal/http';
 import { withCompression } from '@/lib/api/compression';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type ResolvedCwd =
-  | { ok: true; cwd: string; ownerId: string }
-  | { ok: false; error: string; status: number };
-
-/** Does this path resolve to an existing directory on disk? */
-function isExistingDir(p: string | null | undefined): p is string {
-  if (!p) return false;
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Pick a usable cwd for the terminal.
@@ -40,7 +25,7 @@ function isExistingDir(p: string | null | undefined): p is string {
  * The workspace-cwd fallback only applies to non-git workspaces, where
  * there is no worktree and the agent legitimately runs in `ws.cwd`.
  */
-function resolveCwd(sessionId: string): ResolvedCwd {
+function resolveCwd(sessionId: string): TerminalCwd {
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return { ok: false, error: 'Session not found', status: 404 };
 
@@ -92,21 +77,14 @@ async function handleGET(
 ) {
   try {
     const { id } = await params;
-    const session = getChatSessionWithExecution(id);
-    if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     // Terminals belong to the execution, so every chat under it lists the
     // same shells — that's what keeps your terminal alive across a chat
     // switch instead of stranding it.
-    return Response.json(listTerminals(terminalOwnerId(session)));
+    return listTerminalsResponse(sessionTerminalOwner(id));
   } catch (err) {
     console.error('[GET /api/sessions/:id/terminals]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
-}
-
-interface CreateBody {
-  cols?: number;
-  rows?: number;
 }
 
 export async function POST(
@@ -115,46 +93,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const resolved = resolveCwd(id);
-    if (!resolved.ok) {
-      return Response.json({ error: resolved.error }, { status: resolved.status });
-    }
-
-    const body = (await request.json().catch(() => ({}))) as CreateBody;
-    const cols = Number.isFinite(body.cols) && body.cols! > 0 ? Math.floor(body.cols!) : 80;
-    const rows = Number.isFinite(body.rows) && body.rows! > 0 ? Math.floor(body.rows!) : 24;
-
-    let descriptor;
-    try {
-      descriptor = createTerminal({
-        ownerId: resolved.ownerId,
-        cwd: resolved.cwd,
-        cols,
-        rows,
-      });
-    } catch (err) {
-      // Check by name, not `instanceof` — Next.js HMR can re-evaluate
-      // the manager module so the class identity differs between the
-      // route's import and the throw site, and `instanceof` returns
-      // false. The name is stable across module copies.
-      const isSpawnError =
-        err instanceof Error &&
-        (err.name === 'TerminalSpawnError' ||
-          err instanceof TerminalSpawnError);
-      if (isSpawnError) {
-        const code = (err as TerminalSpawnError).code ?? 'spawn_failed';
-        const status = code === 'spawn_failed' ? 500 : 409;
-        console.error('[POST /api/sessions/:id/terminals] spawn failed:', err.message);
-        return Response.json({ error: err.message, code }, { status });
-      }
-      // Unknown failure — log + surface the message instead of letting
-      // the outer catch flatten it to "[object Object]" via String().
-      const message = err instanceof Error ? err.message : String(err);
-      console.error('[POST /api/sessions/:id/terminals] unexpected:', err);
-      return Response.json({ error: message }, { status: 500 });
-    }
-
-    return Response.json(descriptor, { status: 201 });
+    return await createTerminalResponse(request, resolveCwd(id), '[POST /api/sessions/:id/terminals]');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[POST /api/sessions/:id/terminals]', err);

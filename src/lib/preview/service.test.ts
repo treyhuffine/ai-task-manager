@@ -4,13 +4,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { resetDb } from '@/lib/db';
-import { createWorkspace, createExecution, getPreviewTarget, setExecutionSetupScript } from '@/lib/db/queries';
+import {
+  archiveExecution,
+  createExecution,
+  createWorkspace,
+  getPreviewTarget,
+  getPreviewTargetById,
+  setExecutionSetupScript,
+  updateExecution,
+} from '@/lib/db/queries';
 import {
   resolvePreview,
   getPreviewState,
   stopPreview,
   previewLogs,
   setPreviewUrls,
+  listWorkspacePreviews,
 } from './service';
 import { getSupervisor } from './supervisor';
 import { isPortListening } from './net';
@@ -200,4 +209,30 @@ describe('preview service (local flow)', () => {
     expect(cleared.remoteUrl).toBeNull();
     expect(cleared.remoteError?.code).toBe('no_remote_provider');
   }, 12_000);
+});
+
+describe('listWorkspacePreviews (the agent view)', () => {
+  it("lists the previews on the agent's active executions, with labels, without keeping them warm", async () => {
+    const { ws, exec } = makeExecution(PORT_SERVER);
+    updateExecution(exec.id, { label: 'Rate limiting' });
+    const idle = createExecution({ workspaceId: ws.id });
+    const gone = createExecution({ workspaceId: ws.id });
+    const running = await resolvePreview(exec.id, { remote: false });
+    await resolvePreview(gone.id, { remote: false });
+    archiveExecution(gone.id);
+
+    const before = getPreviewTargetById(getPreviewTarget(exec.id, null)!.id)!.lastViewedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    const previews = listWorkspacePreviews(ws.id);
+
+    expect(previews.map((p) => p.executionId)).toEqual([exec.id]);
+    expect(previews[0]).toMatchObject({ label: 'Rate limiting', serverStatus: 'running', port: running.port });
+    expect(previews.some((p) => p.executionId === idle.id)).toBe(false); // never previewed
+    expect(getPreviewTargetById(getPreviewTarget(exec.id, null)!.id)!.lastViewedAt).toBe(before);
+  }, 20_000);
+
+  it('is empty for an agent with no previews', () => {
+    const { ws } = makeExecution(PORT_SERVER);
+    expect(listWorkspacePreviews(ws.id)).toEqual([]);
+  });
 });
