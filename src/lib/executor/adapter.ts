@@ -51,6 +51,7 @@ import {
   updateChatSession,
   updateUserState,
   listChatSessions,
+  listMainChats,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
 import {
@@ -63,6 +64,7 @@ import {
 } from '@/lib/orchestrator/harness-surface';
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
+import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd, withFirstTurnPreamble } from './agent-main-chat';
 import {
   buildReferenceFolderSessionConfig,
   referenceFolderProviderWiring,
@@ -209,6 +211,13 @@ interface ExecutorState {
    * reads this to mark `available` on discovered descriptors.
    */
   sessionInventories: Map<string, RuntimeCommandInventory>;
+  /**
+   * Chat sessions owed a recycle once their current turn ends
+   * (`recycleWhenIdle`). Recycling closes the live handle, which would cut
+   * off a turn mid-flight, including the very turn that changed the setting
+   * (a main chat editing its own agent's instructions).
+   */
+  pendingRecycles: Set<string>;
 }
 
 const STATE_KEY = Symbol.for('@ri/executor-state');
@@ -225,6 +234,7 @@ if (!globalRef[STATE_KEY]) {
     backgroundTasks: new Map(),
     openStreamTurns: new Set(),
     sessionInventories: new Map(),
+    pendingRecycles: new Set(),
   };
 } else {
   // HMR migration: state survives from a build that predates these fields.
@@ -249,6 +259,9 @@ if (!globalRef[STATE_KEY]) {
   if (!globalRef[STATE_KEY].openStreamTurns) {
     globalRef[STATE_KEY].openStreamTurns = new Set();
   }
+  if (!globalRef[STATE_KEY].pendingRecycles) {
+    globalRef[STATE_KEY].pendingRecycles = new Set();
+  }
 }
 
 const {
@@ -260,6 +273,7 @@ const {
   dispatchGenerations,
   backgroundTasks,
   sessionInventories,
+  pendingRecycles,
 } = globalRef[STATE_KEY]!;
 
 /**
@@ -274,6 +288,12 @@ function setRunning(chatSessionId: string, running: boolean): void {
   else runningSessions.delete(chatSessionId);
   if (wasRunning !== running) {
     publishRuntime(chatSessionId, running);
+  }
+  // The turn a deferred recycle was waiting on just ended.
+  if (!running && pendingRecycles.delete(chatSessionId)) {
+    void recycleForModeChange(chatSessionId).catch((err) => {
+      console.error(`[executor] deferred recycle failed for ${chatSessionId}:`, err);
+    });
   }
 }
 
@@ -405,6 +425,16 @@ export function _recordSessionInventory(chatSessionId: string, event: StreamEven
   }
 }
 
+/** Test seam: put a handle in the session cache as if it had spawned. */
+export function _cacheHarnessSession(chatSessionId: string, handle: AgentSession): void {
+  harnessSessions.set(chatSessionId, handle);
+}
+
+/** Whether a session has a cached handle (a live harness process). */
+export function hasHarnessSession(chatSessionId: string): boolean {
+  return harnessSessions.has(chatSessionId);
+}
+
 /** Test / dev escape hatch: drop everything. Not for production paths. */
 export function _resetExecutorState(): void {
   // Retire every token handed out before the reset. The monotonic allocator is
@@ -418,6 +448,7 @@ export function _resetExecutorState(): void {
   backgroundTasks.clear();
   openStreamTurns.clear();
   sessionInventories.clear();
+  pendingRecycles.clear();
 }
 
 // ─── Public API ───────────────────────────────────────────────
@@ -744,7 +775,9 @@ export async function dispatch(
       effort: selection.effort,
       writer,
     });
-    const { result } = await agentSession.send(userMessage);
+    const { result } = await agentSession.send(
+      withFirstTurnPreamble(userMessage, takeFirstTurnPreamble(agentSession)),
+    );
     await result;
     if (manualRun?.ownsLifecycle) {
       markRunCompletedRow(manualRun.runId);
@@ -841,15 +874,41 @@ export async function close(chatSessionId: string): Promise<{ closed: boolean; e
 }
 
 /**
- * Recycle every live agent session for a workspace (spec §6f). Called after a workspace's connector
- * scopes change so a removed service takes effect immediately rather than next session — the harness
- * caches its tool list otherwise. A no-op for sessions that aren't currently live.
+ * Recycle every live session that carries a workspace's scope (spec §6f). Called after its connector
+ * scopes, browser switch, instructions or reference folders change, so the change takes effect now
+ * rather than next session (the harness caches its tool list and instructions otherwise). A session
+ * mid-turn is recycled when the turn ends. A no-op for sessions that aren't currently live.
  */
 export async function recycleWorkspaceSessions(workspaceId: string): Promise<void> {
-  // Only execution sessions consume the workspace connector scope (the orchestrator + content
-  // sessions stay broad), so only those need recycling — don't disturb live content/focused sessions.
-  const sessions = listChatSessions({ workspaceId, status: 'active', type: 'execution' });
-  await Promise.all(sessions.map((s) => recycleForModeChange(s.id)));
+  // The sessions that consume the workspace's scope: its executions and the agent's main chat
+  // (docs/agents-view-spec.md Phase 6). The app's main chat and content sessions stay broad, so
+  // they are left alone.
+  const sessions = [
+    ...listChatSessions({ workspaceId, status: 'active', type: 'execution' }),
+    ...listMainChats(workspaceId, { status: 'active' }),
+  ];
+  await Promise.all(sessions.map((s) => recycleWhenIdle(s.id)));
+}
+
+/**
+ * Recycle only the agent's main chat, for settings nothing else receives:
+ * its name and purpose live in the main chat's brief, not in executions.
+ */
+export async function recycleAgentMainChats(workspaceId: string): Promise<void> {
+  await Promise.all(listMainChats(workspaceId, { status: 'active' }).map((s) => recycleWhenIdle(s.id)));
+}
+
+/**
+ * Recycle a session now if it is idle, or as soon as its current turn ends.
+ * Settings changes use this rather than `recycleForModeChange`, because
+ * closing a handle mid-turn cuts the turn off.
+ */
+export async function recycleWhenIdle(chatSessionId: string): Promise<void> {
+  if (isRunning(chatSessionId)) {
+    pendingRecycles.add(chatSessionId);
+    return;
+  }
+  await recycleForModeChange(chatSessionId);
 }
 
 /**
@@ -861,14 +920,20 @@ export async function recycleWorkspaceSessions(workspaceId: string): Promise<voi
  * `recycleWorkspaceSessions`.
  *
  * A global reference (`workspaceId === null`) is visible everywhere, so it has
- * to recycle every workspace's execution sessions, not just one.
+ * to recycle every workspace's executions and agent main chats, not just one.
  */
 export async function recycleForReferenceFolderChange(
   workspaceId: string | null,
 ): Promise<void> {
   if (workspaceId) return recycleWorkspaceSessions(workspaceId);
-  const sessions = listChatSessions({ status: 'active', type: 'execution' });
-  await Promise.all(sessions.map((s) => recycleForModeChange(s.id)));
+  const sessions = [
+    ...listChatSessions({ status: 'active', type: 'execution' }),
+    // Every agent's main chat, not the app's (listMainChats(null)).
+    ...listChatSessions({ status: 'active', type: 'orchestration' }).filter(
+      (s) => s.workspaceId && !s.executionId && !s.createdByRunId,
+    ),
+  ];
+  await Promise.all(sessions.map((s) => recycleWhenIdle(s.id)));
 }
 
 /**
@@ -1013,7 +1078,30 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
   // tool-filtering or MCP wiring ignore the fields (Codex today), so the
   // config is safe to pass everywhere — but warn, because the write guard
   // genuinely doesn't hold there yet.
-  if (args.sessionType === 'orchestration' || args.sessionType === 'content') {
+  // An agent's main chat: an orchestration chat with a workspace, running in
+  // the user's own folder. Nothing is installed there, whatever the
+  // orchestrator mode says: the brief rides the session instructions file and
+  // the actions come over the session's MCP config. See agent-main-chat.ts.
+  const agentMainChat = args.sessionType === 'orchestration' && args.workspaceId
+    ? getWorkspace(args.workspaceId) ?? null
+    : null;
+  let firstTurnPreamble: string | null = null;
+  if (agentMainChat) {
+    const spawn = await prepareAgentMainChatSpawn({
+      chatSessionId: args.chatSessionId,
+      workspace: agentMainChat,
+      providerType,
+      strictMcpIsolation: runtime.capabilities.strictMcpIsolation.supported,
+      appBrowserEnabled: isBrowserEnabled(),
+      freshSession: !args.existingExternalSessionId,
+    });
+    Object.assign(config, spawn.config);
+    extraArgs.push(...spawn.extraArgs);
+    firstTurnPreamble = spawn.firstTurnPreamble;
+    for (const warning of spawn.warnings) {
+      console.warn(`[executor] agent main chat on provider "${providerType}": ${warning}.`);
+    }
+  } else if (args.sessionType === 'orchestration' || args.sessionType === 'content') {
     const orchestratorMode = resolveOrchestratorMode();
     try {
       await installOrchestratorSurface(orchestratorMode);
@@ -1180,7 +1268,16 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
   //   - Workspace: <workspace>/.ri/skills/<name>/SKILL.md (workspace wins
   //     on name collision). See src/lib/executor/skills.ts.
   const skillDirs = resolveSkillDirsForSession(args.cwd);
-  if (skillDirs.length > 0) config.skillDirs = skillDirs;
+  if (skillDirs.length > 0) {
+    if (agentMainChat && skillDirsWriteIntoCwd(providerType)) {
+      console.warn(
+        `[executor] agent main chat on provider "${providerType}": user skills are not attached, ` +
+          "because this harness would write them into the agent's folder.",
+      );
+    } else {
+      config.skillDirs = skillDirs;
+    }
+  }
 
   // Every session carries its caller credential, so an orchestrator action it
   // runs (MCP header or the CLI from its shell) knows which chat is calling.
@@ -1223,7 +1320,21 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
   if (promotedId) updateChatSession(args.chatSessionId, { externalSessionId: promotedId });
 
   harnessSessions.set(args.chatSessionId, handle);
+  if (firstTurnPreamble) firstTurnPreambles.set(handle, firstTurnPreamble);
   return handle;
+}
+
+/**
+ * Briefs waiting to ride the first message of a freshly spawned session,
+ * for harnesses that drop session instructions (agent-main-chat.ts). Keyed
+ * by the handle, so a recycled session never inherits a stale one.
+ */
+const firstTurnPreambles = new WeakMap<AgentSession, string>();
+
+function takeFirstTurnPreamble(handle: AgentSession): string | null {
+  const preamble = firstTurnPreambles.get(handle) ?? null;
+  if (preamble) firstTurnPreambles.delete(handle);
+  return preamble;
 }
 
 /**
@@ -1853,9 +1964,16 @@ function mapUnknownEvent(
  * which the scheduled path and the message route both run before
  * dispatch). The `ws.cwd` fallback is correct only for NON-git workspaces,
  * which have no worktree concept. (Live mode keeps `worktreePath ===
- * ws.cwd`, so the existence check above already returns it.)
+ * ws.cwd`, so the existence check above already returns it.) The one
+ * exception is an agent's main chat, which has no execution and runs in the
+ * folder by design (docs/agents-view-spec.md §4).
  */
-export function resolveCwd(session: { worktreePath: string | null; workspaceId: string | null }): string | null {
+export function resolveCwd(session: {
+  worktreePath: string | null;
+  workspaceId: string | null;
+  type: 'orchestration' | 'content' | 'execution';
+  executionId: string | null;
+}): string | null {
   if (session.worktreePath && existsSync(session.worktreePath)) return session.worktreePath;
   if (!session.workspaceId) {
     // No workspace → the session runs in the app data root. This is the
@@ -1868,6 +1986,14 @@ export function resolveCwd(session: { worktreePath: string | null; workspaceId: 
   }
   const workspace = getWorkspace(session.workspaceId);
   if (!workspace) return null;
+  // An agent's main chat (orchestration with a workspace, no execution)
+  // runs in the agent's own folder, git or not. It manages work there
+  // rather than doing it: in a git agent its file-editing tools are denied
+  // and changes go through executions (see agent-main-chat.ts). A folder
+  // that has gone away is refused like a missing worktree.
+  if (session.type === 'orchestration' && !session.executionId) {
+    return existsSync(workspace.cwd) ? workspace.cwd : null;
+  }
   // Git workspace with no usable worktree → refuse rather than silently
   // running the agent in the shared source checkout.
   if (workspace.isGit) return null;

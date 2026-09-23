@@ -51,42 +51,69 @@ beforeEach(() => getWorkspace.mockReset());
 const gitWs = { id: 'ws1', cwd: sourceCheckout, isGit: true };
 const nonGitWs = { id: 'ws2', cwd: sourceCheckout, isGit: false };
 
+/** An execution chat's pointer fields. */
+const exec = (worktreePath: string | null, workspaceId: string | null) =>
+  ({ worktreePath, workspaceId, type: 'execution' as const, executionId: 'e1' });
+
 describe('resolveCwd — worktree isolation safety', () => {
   it('git workspace, worktree exists → the worktree path', () => {
     getWorkspace.mockReturnValue(gitWs);
-    expect(resolveCwd({ worktreePath: worktreeDir, workspaceId: 'ws1' })).toBe(worktreeDir);
+    expect(resolveCwd(exec(worktreeDir, 'ws1'))).toBe(worktreeDir);
   });
 
   it('git workspace, worktreePath set but dir MISSING → null (never the source checkout)', () => {
     getWorkspace.mockReturnValue(gitWs);
-    const cwd = resolveCwd({ worktreePath: missingWorktree, workspaceId: 'ws1' });
+    const cwd = resolveCwd(exec(missingWorktree, 'ws1'));
     expect(cwd).toBeNull();
     expect(cwd).not.toBe(sourceCheckout);
   });
 
   it('git workspace, worktreePath null (still provisioning) → null', () => {
     getWorkspace.mockReturnValue(gitWs);
-    expect(resolveCwd({ worktreePath: null, workspaceId: 'ws1' })).toBeNull();
+    expect(resolveCwd(exec(null, 'ws1'))).toBeNull();
   });
 
   it('live mode (worktreePath === ws.cwd, exists) → that path', () => {
     // Live mode runs in-place: worktreePath is the source checkout itself.
     getWorkspace.mockReturnValue({ id: 'ws1', cwd: sourceCheckout, isGit: true });
-    expect(resolveCwd({ worktreePath: sourceCheckout, workspaceId: 'ws1' })).toBe(sourceCheckout);
+    expect(resolveCwd(exec(sourceCheckout, 'ws1'))).toBe(sourceCheckout);
   });
 
   it('non-git workspace → the workspace cwd', () => {
     getWorkspace.mockReturnValue(nonGitWs);
-    expect(resolveCwd({ worktreePath: null, workspaceId: 'ws2' })).toBe(sourceCheckout);
+    expect(resolveCwd(exec(null, 'ws2'))).toBe(sourceCheckout);
   });
 
   it('no workspace (orchestrator/content) → the app root', () => {
-    expect(resolveCwd({ worktreePath: null, workspaceId: null })).toBe('/tmp/test-app-root');
+    expect(resolveCwd({ worktreePath: null, workspaceId: null, type: 'orchestration', executionId: null }))
+      .toBe('/tmp/test-app-root');
     expect(getWorkspace).not.toHaveBeenCalled();
   });
 
   it('workspace id set but workspace not found → null', () => {
     getWorkspace.mockReturnValue(undefined);
-    expect(resolveCwd({ worktreePath: missingWorktree, workspaceId: 'gone' })).toBeNull();
+    expect(resolveCwd(exec(missingWorktree, 'gone'))).toBeNull();
+  });
+});
+
+describe("resolveCwd — an agent's main chat", () => {
+  const mainChat = (workspaceId: string) =>
+    ({ worktreePath: null, workspaceId, type: 'orchestration' as const, executionId: null });
+
+  it('runs in the agent folder, git or not (it has no worktree by design)', () => {
+    getWorkspace.mockReturnValue(gitWs);
+    expect(resolveCwd(mainChat('ws1'))).toBe(sourceCheckout);
+    getWorkspace.mockReturnValue(nonGitWs);
+    expect(resolveCwd(mainChat('ws2'))).toBe(sourceCheckout);
+  });
+
+  it('refuses a folder that has gone away', () => {
+    getWorkspace.mockReturnValue({ id: 'ws3', cwd: missingWorktree, isGit: true });
+    expect(resolveCwd(mainChat('ws3'))).toBeNull();
+  });
+
+  it('never loosens the rule for executions: a git execution with no worktree still gets null', () => {
+    getWorkspace.mockReturnValue(gitWs);
+    expect(resolveCwd({ worktreePath: null, workspaceId: 'ws1', type: 'execution', executionId: 'e1' })).toBeNull();
   });
 });

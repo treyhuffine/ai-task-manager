@@ -4,13 +4,17 @@ import { NextRequest } from 'next/server';
 /**
  * PATCH /api/workspaces/:id for the agent scope fields
  * (docs/agents-view-spec.md Phase 3). The real query layer validates, so a
- * bad value surfaces as a readable 400. Editing instructions recycles the
- * workspace's live sessions, because instructions are delivered at spawn.
+ * bad value surfaces as a readable 400. Session config is read at spawn, so
+ * a change recycles the live sessions that receive it: instructions, browser
+ * and folder reach every session, name and purpose only the agent's main
+ * chat (Phase 6).
  */
 
 const recycleWorkspaceSessions = vi.fn<(id: string) => Promise<void>>(async () => {});
+const recycleAgentMainChats = vi.fn<(id: string) => Promise<void>>(async () => {});
 vi.mock('@/lib/executor/adapter', () => ({
   recycleWorkspaceSessions: (id: string) => recycleWorkspaceSessions(id),
+  recycleAgentMainChats: (id: string) => recycleAgentMainChats(id),
 }));
 
 const updateWorkspace = vi.fn();
@@ -35,6 +39,7 @@ function patch(body: unknown) {
 
 beforeEach(() => {
   recycleWorkspaceSessions.mockClear();
+  recycleAgentMainChats.mockClear();
   updateWorkspace.mockReset().mockImplementation((id: string, input: object) => ({ id, ...input }));
 });
 
@@ -45,12 +50,26 @@ describe('PATCH /api/workspaces/:id scope fields', () => {
     expect(updateWorkspace).toHaveBeenCalledWith('ws-1', { purpose: 'Ship Ri', instructions: 'Be terse.' });
   });
 
-  it('recycles live sessions when instructions change, and not for purpose alone', async () => {
-    await patch({ purpose: 'Ship Ri' });
-    expect(recycleWorkspaceSessions).not.toHaveBeenCalled();
+  it('recycles every live session when instructions, the browser or the folder change', async () => {
+    for (const body of [{ instructions: 'Be terse.' }, { browserEnabled: false }, { cwd: '/elsewhere' }]) {
+      recycleWorkspaceSessions.mockClear();
+      await patch(body);
+      expect(recycleWorkspaceSessions).toHaveBeenCalledWith('ws-1');
+    }
+    expect(recycleAgentMainChats).not.toHaveBeenCalled();
+  });
 
-    await patch({ instructions: 'Be terse.' });
-    expect(recycleWorkspaceSessions).toHaveBeenCalledWith('ws-1');
+  it("recycles only the agent's main chat for name and purpose, which executions never receive", async () => {
+    await patch({ purpose: 'Ship Ri' });
+    await patch({ name: 'ri2' });
+    expect(recycleAgentMainChats).toHaveBeenCalledTimes(2);
+    expect(recycleWorkspaceSessions).not.toHaveBeenCalled();
+  });
+
+  it('recycles nothing for fields no session receives', async () => {
+    await patch({ emoji: '🚀' });
+    expect(recycleWorkspaceSessions).not.toHaveBeenCalled();
+    expect(recycleAgentMainChats).not.toHaveBeenCalled();
   });
 
   it('turns a validation failure into a 400 with the plain message', async () => {

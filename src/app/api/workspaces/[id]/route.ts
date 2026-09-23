@@ -2,7 +2,12 @@ import type { NextRequest } from 'next/server';
 import { getWorkspace, updateWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
 import type { UpdateWorkspaceInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
-import { recycleWorkspaceSessions } from '@/lib/executor/adapter';
+import { recycleAgentMainChats, recycleWorkspaceSessions } from '@/lib/executor/adapter';
+
+/** Fields every live session of the agent receives at spawn: its executions and its main chat. */
+const SESSION_FIELDS = ['browserEnabled', 'instructions', 'cwd', 'isGit'] as const;
+/** Fields only the agent's main chat receives (they are in its brief, not in executions). */
+const MAIN_CHAT_FIELDS = ['name', 'purpose'] as const;
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -35,11 +40,13 @@ export async function PATCH(
     const { connectorScopes: _ignored, ...body } = (await request.json()) as UpdateWorkspaceInput;
     const row = updateWorkspace(id, body);
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-    // Toggling the agent browser changes the execution tool set, and the
-    // agent's instructions are delivered at spawn, so recycle live sessions for
-    // this workspace (like connector-scope edits) to apply either now rather
-    // than only on the next session. The next message resumes the same chat.
-    if ('browserEnabled' in body || 'instructions' in body) await recycleWorkspaceSessions(id);
+    // Session config is fixed at spawn (the browser changes the tool set, the
+    // instructions and folder are read at spawn), so recycle live sessions to
+    // apply a change now rather than only on the next session. The next
+    // message resumes the same chat, and a session mid-turn is recycled when
+    // its turn ends. Name and purpose only reach the agent's main chat.
+    if (SESSION_FIELDS.some((field) => field in body)) await recycleWorkspaceSessions(id);
+    else if (MAIN_CHAT_FIELDS.some((field) => field in body)) await recycleAgentMainChats(id);
     return Response.json(row);
   } catch (err) {
     if (err instanceof WorkspaceFieldError) {

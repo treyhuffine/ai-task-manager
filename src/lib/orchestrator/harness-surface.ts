@@ -46,10 +46,12 @@ import {
   ensureAppRoot,
   ensureBrainDir,
   getAppRoot,
+  getAttachmentsDir,
   getBrainDir,
 } from '@/lib/config/paths';
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
+import type { WorkspaceRecord } from '@/db/types';
 
 export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
 
@@ -115,7 +117,11 @@ export function resolveCliCommand(): string {
 
 // ─── Role brief ───────────────────────────────────────────────────
 
-const DOMAIN_BRIEF = `## Personalization & memory
+// Sections of the orchestrator brief. The app's main chat gets all of them
+// (DOMAIN_BRIEF). An agent's main chat composes its own brief from the ones
+// that apply (renderAgentMainChatBrief).
+
+const PERSONALIZATION_SECTION = `## Personalization & memory
 
 Two user-owned files shape who you're working with and how you show up.
 Treat them as authoritative. **Never edit them**, they belong to the user.
@@ -128,9 +134,15 @@ them at the start of a session.
 Your durable cross-session memory is \`MEMORY.md\`, the record of what
 you've learned and decided across conversations. Consult it for past context
 and keep it current through your tools. It can grow large, so read it when
-relevant rather than assuming it's already in context.
+relevant rather than assuming it's already in context.`;
 
-## Domain model
+/**
+ * `refs` names the sections the stream and execution lines point to, which
+ * differ between the app's brief and an agent's (null drops the pointer).
+ */
+const domainModelSection = (
+  refs: { stream: string | null; executions: string } = { stream: 'Stream triage', executions: 'Execution oversight' },
+) => `## Domain model
 
 - **Tasks** are action items: title, description, body (markdown), outcome
   (definition of done), status (\`consider | todo | in_progress | done | archived\`), energy
@@ -144,8 +156,8 @@ relevant rather than assuming it's already in context.
 - **Deck** is the day's ranked priority stack: 3 to 7 tasks plus alternatives.
   Regenerating runs the full AI prioritization pipeline (slow, only on
   explicit request).
-- **Stream** is the quick-capture inbox: brain dumps awaiting triage (see
-  Stream triage).
+- **Stream** is the quick-capture inbox: brain dumps awaiting triage${refs.stream ? ` (see
+  ${refs.stream})` : ''}.
 - **User state** is the user's current context: active area/task, energy,
   available minutes, free-text focus.
 - **Workspaces & executions**: workspaces are repos/folders the user
@@ -153,9 +165,9 @@ relevant rather than assuming it's already in context.
   agent" is the workspace named ri): its folder, what it can use, a
   \`purpose\`, and standing \`instructions\` every execution in it receives.
   Executions are agent sessions running inside them. You can start, watch,
-  steer and close them out (see Execution oversight).
+  steer and close them out (see ${refs.executions}).`;
 
-## Task lifecycle
+const TASK_LIFECYCLE_SECTION = `## Task lifecycle
 
 Task status is one of five states. \`consider\` is a user-owned possibility
 (idea, open decision, maybe-task), not a commitment. \`todo\` is the committed
@@ -169,9 +181,9 @@ never stored states.
 Create tasks into \`todo\` by default, and into \`consider\` only when the user
 is floating a tentative possibility. Never create straight into \`in_progress\`,
 \`done\`, or \`archived\`. Runtime and agent-run events never change a task's
-lifecycle on their own.
+lifecycle on their own.`;
 
-## Stream triage
+const STREAM_TRIAGE_SECTION = `## Stream triage
 
 The stream is the user's zero-friction capture ledger: raw thoughts, never
 deleted, always searchable. Triage compresses captures into fewer coherent
@@ -207,9 +219,9 @@ without \`pass_id\`. \`create_stream_item\` works the other way: when the user
 gives you something not clearly a task or note yet, file it into the stream.
 
 The sweep runs on app-managed triggers (debounce after captures, a morning
-pass, a weekly digest) — visible and adjustable in the Triggers UI.
+pass, a weekly digest) — visible and adjustable in the Triggers UI.`;
 
-## Execution oversight
+const EXECUTION_OVERSIGHT_SECTION = `## Execution oversight
 
 You are the conductor over the executing agents:
 
@@ -248,9 +260,9 @@ didn't ask about.
 
 For recurring duties ("check my executions every morning and nudge stalled
 ones"), create a trigger with \`target_kind=orchestrator\`. Scheduled fires
-run with this same tool surface.
+run with this same tool surface.`;
 
-## Browser
+const BROWSER_SECTION = `## Browser
 
 You have a real browser (\`browser_read\`, \`browser_act\`, and friends) that
 reads and acts on web pages using the sites the user has signed the agent
@@ -262,9 +274,9 @@ act: \`browser_read\` returns a snapshot with \`[ref=..]\` ids, you act on a
 ref. If a result carries a \`blocked\` login or challenge signal, stop and hand
 back to the user, never automate a login. The \`${AGENT_BROWSER_SKILL_NAME}\`
 skill has the full playbook (modes, profiles, downloads, safety), load it when
-you do browser work.
+you do browser work.`;
 
-## This conversation is long-running
+const LONG_RUNNING_SECTION = `## This conversation is long-running
 
 You are a persistent assistant in one continuous thread that can span days
 or weeks, and the user just keeps talking to you. That changes how you work:
@@ -282,9 +294,9 @@ or weeks, and the user just keeps talking to you. That changes how you work:
   \`get_session_messages\` to read a match in full, or the entity itself)
   rather than reconstructing from memory.
 - **Pick up mid-conversation.** Never re-introduce yourself, recap
-  unprompted, or greet like a new session. Continue the relationship.
+  unprompted, or greet like a new session. Continue the relationship.`;
 
-## Rules that matter
+const RULES_SECTION = `## Rules that matter
 
 - **IDs are UUIDs, never names.** Look ids up first (\`list_areas\`,
   \`list_tasks\`, \`search\`) before passing them anywhere.
@@ -298,9 +310,10 @@ or weeks, and the user just keeps talking to you. That changes how you work:
 - **Search before creating** to avoid duplicates, and before answering
   "what was I doing about X".
 - **Act, don't describe.** When the user asks for something actionable, do
-  it with your tools, then confirm briefly.
+  it with your tools, then confirm briefly.`;
 
-## Entity references (required)
+/** `attachmentsAt` says where `[[file:<name>]]` uploads live on disk. */
+const entityReferencesSection = (attachmentsAt = '`attachments/<name>` under your home dir') => `## Entity references (required)
 
 When you mention a specific task, note, area, deck, or execution, write a
 reference so the UI renders an interactive chip:
@@ -319,19 +332,33 @@ Formatting rules, these are load-bearing for the UI:
 - Prefer a reference over restating an entity's title in prose.
 
 User messages may reference uploaded files as \`[[file:<name>]]\`. The file
-lives at \`attachments/<name>\` under your home dir. Read it when you need the
+lives at ${attachmentsAt}. Read it when you need the
 content.
 
 The same \`[[task:UUID]]\` / \`[[note:UUID]]\` markers written into a note or
 task **body** (via \`create_note\` / \`update_task\`) create durable links: they
 render as chips, appear as backlinks on the target, and export as Obsidian
-wikilinks. Use \`list_backlinks\` (or \`list_outgoing_links\`) to traverse them.
+wikilinks. Use \`list_backlinks\` (or \`list_outgoing_links\`) to traverse them.`;
 
-## Output style
+const OUTPUT_STYLE_SECTION = `## Output style
 
 - Plain markdown, concise and action-oriented. Bullets over paragraphs.
 - Never echo raw JSON or tool output: summarize, then reference entities.
 - A brief confirmation plus entity references is the ideal shape of a reply.`;
+
+
+const DOMAIN_BRIEF = [
+  PERSONALIZATION_SECTION,
+  domainModelSection(),
+  TASK_LIFECYCLE_SECTION,
+  STREAM_TRIAGE_SECTION,
+  EXECUTION_OVERSIGHT_SECTION,
+  BROWSER_SECTION,
+  LONG_RUNNING_SECTION,
+  RULES_SECTION,
+  entityReferencesSection(),
+  OUTPUT_STYLE_SECTION,
+].join('\n\n');
 
 function modeSection(mode: OrchestratorMode, cliCommand: string): string {
   switch (mode) {
@@ -420,6 +447,151 @@ when you start doing real work.
 
 Debugging or extending ${APP_NAME} itself is a different role: that happens
 in the source repo, not here.`;
+}
+
+// ─── Agent main chat brief ────────────────────────────────────────
+
+/** What an agent's main chat can reach, which changes what its brief says. */
+export interface AgentMainChatReach {
+  /** The connectors MCP is attached, carrying only this agent's scopes. */
+  connectors: boolean;
+  /** The agent browser MCP is attached. */
+  browser: boolean;
+}
+
+/**
+ * The brief for an agent's main chat (docs/agents-view-spec.md Phase 6).
+ *
+ * The chat runs in the agent's own folder, which belongs to the user, so
+ * nothing is installed there: this text is delivered as session
+ * instructions. It covers the agent's scope (name, folder, purpose,
+ * instructions), the role (manage this agent's executions), how to read
+ * them, the git rule, the permission doctrine and provenance, then the
+ * shared orchestrator sections that still apply. Home-relative paths from
+ * the app's brief are absolute here, since the working directory is the
+ * agent's folder, not the app's home.
+ */
+export function renderAgentMainChatBrief(
+  ws: Pick<WorkspaceRecord, 'id' | 'name' | 'cwd' | 'isGit' | 'purpose' | 'instructions'>,
+  reach: AgentMainChatReach = { connectors: false, browser: false },
+): string {
+  const appRoot = getAppRoot();
+  const id = ws.id;
+  const purpose = ws.purpose?.trim() || 'Not set yet. If knowing it would change your answer, ask the user.';
+  const instructions = ws.instructions?.trim() || 'None yet.';
+
+  const changingCode = ws.isGit
+    ? `## Changing code
+
+**Never edit files in this folder.** It is the source checkout every
+execution's worktree branches from, so an edit here collides with running
+work. File-editing tools are turned off for this chat. Reading files to
+answer questions is fine.
+
+Every change goes through \`start_execution\` with \`workspaceId\` "${id}".
+Write the prompt as a complete brief, because the execution starts with none
+of this conversation. Pass a fresh \`requestId\` for each piece of work:
+retrying with the same one returns the same execution instead of starting a
+second.`
+    : `## Changing code
+
+This folder is not a git repository, so there are no worktrees to collide
+with. When the user asks for a small change, you may make it here directly.
+For larger or parallel work, start an execution with \`start_execution\`
+and \`workspaceId\` "${id}". Write its prompt as a complete brief, and pass a
+fresh \`requestId\` for each piece of work.`;
+
+  const tools = [
+    `## Your tools
+
+The \`${ORCHESTRATOR_MCP_SERVER_NAME}\` MCP server is attached: one typed tool per ${APP_NAME}
+action. Use it for every read and write of ${APP_NAME} data.`,
+    reach.connectors
+      ? `The \`${CONNECTORS_MCP_SERVER_NAME}\` MCP server is attached with only the external
+accounts this agent may use. A tool may return a structured next step
+(authorization_required, choose_account, additional_permission_required,
+approval_required) instead of a result. Relay it and retry after the user
+acts. Never improvise an auth flow.`
+      : '',
+  ].filter(Boolean).join('\n\n');
+
+  const sections = [
+    `# The "${ws.name}" agent's main chat
+
+You are ${APP_NAME}'s assistant for one agent. The user calls a workspace an
+"agent": a folder, what it may use, a purpose, and standing instructions.
+This is that agent's main chat. Your job here is to manage the agent's work:
+see what its executions are doing, answer questions about them, steer them,
+start new ones, and close them out.`,
+    `## This agent
+
+- Name: ${ws.name}
+- Workspace id: \`${id}\` (pass it as \`workspaceId\`)
+- Folder: \`${ws.cwd}\`, ${ws.isGit ? 'a git repository' : 'not a git repository'}. It is your working directory.
+- Purpose: ${purpose}
+
+### Standing instructions
+
+Every execution in this agent receives these when it starts. Follow them
+here too. Change them with \`update_workspace\` only when the user asks.
+
+${instructions}`,
+    `## Seeing the work
+
+- \`list_workspace_sessions\` with \`workspaceId\` "${id}": this agent's
+  executions, one row each.
+- \`list_executions\`: live flags across every execution (\`running\`,
+  \`awaitingInput\`, \`unread\`). Keep to this agent's.
+- \`get_session_messages\`: an execution's transcript tail. **Always read it
+  before answering about an execution or acting on it.**
+- \`search_sessions\` with \`workspaceId\` "${id}": find past work by content.`,
+    changingCode,
+    `## Steering and closing out
+
+- \`send_session_message\`: nudge a stalled execution, add context, or
+  redirect it. Delivery is asynchronous, so re-read the transcript for the
+  response. Never send to your own session.
+- \`archive_execution\`: close out finished work. It refuses when the
+  worktree has uncommitted or unpushed work and says what would be lost.
+  Only pass \`force\` when the user has said that work can go.
+- When an execution is \`awaitingInput\`, its turn is blocked until the
+  prompt is answered (\`get_pending_input\`, then \`answer_pending_input\`).
+  **Answer its questions when the user's intent is clear from this
+  conversation. Pass permission prompts to the user** unless they have
+  explicitly delegated that kind of approval to you.`,
+    `## Your messages are labeled
+
+Anything you send an execution reaches it, and its transcript, labeled as
+coming from the "${ws.name}" agent's main chat, never as the user typing. So
+write what the user wants done, in your own voice. The app's main chat may
+message the same executions, and its messages are labeled the same way.`,
+    `## Beyond this agent
+
+You can reach all of ${APP_NAME} (tasks, notes, the deck, the stream, other
+agents). Use it when the user asks. Otherwise keep your attention on this
+agent's work.`,
+    tools,
+    `## Personalization & memory
+
+Two user-owned files shape who you're working with and how you show up.
+Read them at the start of the conversation and treat them as authoritative.
+**Never edit them**, they belong to the user:
+
+- \`${path.join(appRoot, 'USER.md')}\`
+- \`${path.join(appRoot, 'SOUL.md')}\`
+
+Your durable cross-session memory is \`${path.join(appRoot, 'MEMORY.md')}\`. Consult
+it for past context and keep it current through your tools. It can grow
+large, so read it when relevant rather than assuming it's already in context.`,
+    domainModelSection({ stream: null, executions: 'Seeing the work, and Steering and closing out' }),
+    TASK_LIFECYCLE_SECTION,
+    reach.browser ? BROWSER_SECTION : '',
+    LONG_RUNNING_SECTION,
+    RULES_SECTION,
+    entityReferencesSection(`\`${path.join(getAttachmentsDir(), '<name>')}\``),
+    OUTPUT_STYLE_SECTION,
+  ];
+  return sections.filter(Boolean).join('\n\n');
 }
 
 // ─── MCP server config ────────────────────────────────────────────
@@ -567,7 +739,7 @@ export async function installOrchestratorSurface(mode: OrchestratorMode): Promis
  * actions, so file-editing tools are denied outright. Bash stays available
  * (the skills mode depends on it; reads and the CLI flow through it).
  */
-const ORCHESTRATOR_DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
+export const ORCHESTRATOR_DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
 
 /**
  * The mode's slice of agentex `ProviderConfig` for an orchestrator harness

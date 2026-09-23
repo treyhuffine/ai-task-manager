@@ -224,7 +224,8 @@ Leave "agent" where it means the AI in general: "agent browser", the "Agent (tri
 - [x] `createWorkspace` / `updateWorkspace` accept both. Types follow from the schema. `POST /api/workspaces` passes them through too.
 - [x] Execution chats receive `instructions` through the session `instructionsFile`, merged with the reference-folder block in `adapter.ts`. Harnesses that ignore session instructions log the same warning the reference-folder path logs.
   - The per-session file is now generic: `src/lib/executor/session-instructions.ts` (`planSessionInstructions`, `writeSessionInstructions`, `clearSessionInstructions`, and the provider check moved here from the reference-folder module). The block comes from `src/lib/executor/prompts/agent-instructions.ts`, ahead of the reference-folder block. Editing instructions recycles the agent's live execution sessions (the next message resumes the same chat), the same as connector-scope and reference-folder edits.
-- [ ] The agent main chat's brief includes purpose and instructions (Phase 6).
+- [x] The agent main chat's brief includes purpose and instructions (Phase 6).
+  - Landed with Phase 6: `renderAgentMainChatBrief` in `harness-surface.ts`. Name and purpose edits recycle only the agent's main chat, since executions never receive them.
 - [x] Tests: caps, round-trip, delivery into an execution's instructions file.
   - `queries.workspace-scope.test.ts` (round-trip, trim, blank, partial update, caps at and over the limit, rejected writes leave the row alone, non-text), `session-instructions.test.ts` (block content, order, claude and codex deliver, cursor and opencode report the loss, the file's path, mode, rewrite and removal), `app/api/workspaces/[id]/route.test.ts` (400 mapping, recycle on instructions only). The live end-to-end check is part of Phase 10's run.
 
@@ -322,24 +323,37 @@ One registry generates both surfaces, so every item lands on both.
 
 ### Phase 6: The agent's main chat (backend)
 
-- [ ] Row shape per §4: `type = 'orchestration'`, `workspace_id` set, no execution. `harness` is the user's default provider.
-- [ ] Test that `resolveCwd` returns the agent's folder for it.
-- [ ] **Never write into the agent's folder.** No surface install there, whatever `user_state.orchestratorMode` says. The brief goes through session instructions. Orchestrator actions go through the session MCP config (the `harness_mcp` path).
-- [ ] The brief covers:
+- [x] Row shape per §4: `type = 'orchestration'`, `workspace_id` set, no execution. `harness` is the user's default provider.
+  - Created by `src/lib/sessions/main-chat.ts` (Phase 5).
+- [x] Test that `resolveCwd` returns the agent's folder for it.
+  - **Surprise:** §5.5 said this needed no change. It did. `resolveCwd` refuses a git workspace without a worktree (it returns null so an execution never runs in the source checkout), which would have refused every git agent's main chat. It now takes the chat's `type` and `executionId` and lets exactly one case through: an orchestration chat with a workspace and no execution runs in the folder, git or not, and a folder that is gone is refused. Executions keep the old rule, and a test pins that. All callers already passed full rows, so making the fields required cost nothing.
+- [x] **Never write into the agent's folder.** No surface install there, whatever `user_state.orchestratorMode` says. The brief goes through session instructions. Orchestrator actions go through the session MCP config (the `harness_mcp` path).
+  - `src/lib/executor/agent-main-chat.ts` (`prepareAgentMainChatSpawn`) builds the whole spawn: brief and reference folders in the instructions file under the work dir, MCP servers, write guard. The adapter's orchestration branch skips `installOrchestratorSurface` for it.
+  - Two more writers found and handled. **Codex symlinks `skillDirs` into `<cwd>/.agents/skills`** (agentex `injectWorkspaceSkills`), so an agent main chat on Codex gets no `skillDirs` and logs that. Claude builds a temp dir, and the rest use the home dir. **Cursor and OpenCode drop session instructions**, so the brief rides the first message of a fresh chat instead (`withFirstTurnPreamble`), framed as app instructions the user did not type. A resumed chat keeps the brief it started with.
+- [x] The brief covers:
   - the scope: name, folder, purpose, instructions
   - the role: manage this agent's executions (see, answer, steer, start, close out)
   - how to read them: `list_workspace_sessions`, `get_session_messages`, `search_sessions`
   - the git rule: changes go through `start_execution`
   - permission prompts: answer questions when the user's intent is clear, pass permission prompts to the user
   - provenance: its messages are labeled as coming from it
-- [ ] Write guard for git agents: the same `disallowedTools` as the orchestrator. On Codex it is prompt-only, and the adapter logs it.
-- [ ] Connectors: the agent's connector scopes, the same set its executions get.
-- [ ] It can use the full orchestrator surface (tasks, notes, deck). The brief keeps it focused on its agent.
-- [ ] Labels: none while live, retrospective summary at archive (the existing orchestration rule).
-- [ ] Verify it stays out of Needs Review and the rail.
-- [ ] Tests: brief contents, write guard on git versus non-git, no files created in the agent folder, connector scoping.
+  - `renderAgentMainChatBrief`. It also reuses the orchestrator brief's shared sections (the domain brief was split into named sections, and the app main chat's brief was verified byte-identical before and after). Home-relative paths (`@USER.md`, `attachments/`) are absolute here, since the working directory is the agent's folder.
+- [x] Write guard for git agents: the same `disallowedTools` as the orchestrator. On Codex it is prompt-only, and the adapter logs it.
+  - Only Claude enforces argv tool filtering, so every other harness gets the prompt-only warning. A non-git agent has no guard, and its brief says it may act directly.
+- [x] Connectors: the agent's connector scopes, the same set its executions get.
+  - Same gate as executions: attached only when the agent has scopes and the harness isolates MCP. **Decision:** "the same set its executions get" applied to the rest of the scope too, so the main chat also gets the agent browser (the isolated `ws-<id>` profile, when the app and the agent allow it) and the agent's reference folders (read-only). Scope and reference-folder edits recycle the main chat along with the executions.
+- [x] It can use the full orchestrator surface (tasks, notes, deck). The brief keeps it focused on its agent.
+- [x] Labels: none while live, retrospective summary at archive (the existing orchestration rule).
+  - Unchanged code: the messages route never titles orchestration chats, and `retireMainChat` derives the retrospective label.
+- [x] Verify it stays out of Needs Review and the rail.
+  - `src/lib/db/main-chats.test.ts`: not a Needs Review candidate even with an unread reply, not in `listRailSessions`, not in `listWorkspaceExecutions`. Session search is executions only.
+- [x] Tests: brief contents, write guard on git versus non-git, no files created in the agent folder, connector scoping.
+  - `src/lib/executor/agent-main-chat.test.ts` (brief, credentialed MCP, guard on git vs plain and Claude vs Codex, connectors, browser, reference folders, folder byte-for-byte unchanged, first-message fallback), `adapter.resolve-cwd.test.ts`, `adapter.recycle.test.ts`, `app/api/workspaces/[id]/route.test.ts`.
+- [x] Recycles wait for the turn to end. (Added.) A settings change recycles live sessions so the next message respawns with the new config, but recycling closes the handle, and a main chat that edits its own agent through `update_workspace` would have cut off the turn making the edit. The same was true of an execution mid-turn when the app's main chat edited its agent's instructions (a Phase 3 regression). `recycleWhenIdle` recycles idle sessions now and running ones when the turn ends, once, however many changes land. Name and purpose recycle only the main chat, and instructions, browser and folder recycle everything.
 
 **Done when:** an agent's main chat runs in its folder, can see and steer that agent's executions, and has left no files behind in the folder.
+
+**Status 2026-09-22:** landed. Verified through the spawn preparation with a real folder and database. A live harness run is part of Phase 10's end-to-end pass, which also checks `git status` in the folder afterwards.
 
 ### Phase 7: Agent view UI
 
