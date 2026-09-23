@@ -243,6 +243,8 @@ For runs of isolated-session schedules, each fire creates a fresh `chat_sessions
 
 ### 3.4 Heartbeat as agent property
 
+> **Superseded (2026-09-22).** The heartbeat shipped as an app-managed trigger, not as columns on `agents` (that table no longer exists) and not as a `HEARTBEAT.md` file. Its instructions and settings live on the trigger row and are edited in the app. See `docs/heartbeat.md` and `docs/heartbeat-spec.md`. The section below is kept as the original design record.
+
 The AI's pulse lives on the `agents` table, not in `schedules`. This is the conceptual claim of §1: heartbeat is *presence*, not work.
 
 Additions to `agents`:

@@ -1,6 +1,6 @@
 # Heartbeat
 
-> Status: Spec, 2026-09-22. Not built yet.
+> Status: Built, 2026-09-22. User-facing doc: `docs/heartbeat.md`. Where the build differs from the original text below, the section says so and §14 lists why.
 > Related: `docs/paperclip-work-model.md` (reference study), `docs/async-agents-v1.md` §10 and `docs/scheduled-async-agents-spec.md` §3.4 (the earlier heartbeat plans this replaces), `docs/deck-morning-trigger-spec.md` (the app-managed trigger pattern this reuses).
 
 ## 1. In plain English
@@ -56,8 +56,8 @@ It's seeded at boot, only if missing, by `ensureHeartbeatTrigger()` (new, in `sr
 | On or off | `enabled` | `false` | yes |
 | How often | `intervalSeconds` | `3600` | yes: 1800, 3600, 7200, 14400, 86400 |
 | Which hours | `activeHoursStart` / `activeHoursEnd` | `09:00` / `21:00` | yes, or cleared for any time |
-| Timezone | `timezone` | server local, as the stream triggers do | yes |
-| Program | `agentId` | `getOrCreateTriggerAgent('orchestrator')` | yes, through the provider switch |
+| Timezone | `timezone` | your timezone from Settings > General, else the host's | yes |
+| Provider | `harness` | `defaultTriggerHarness()` (your default provider) | yes, through the provider switch |
 | Model, effort | `model`, `effort` | `null` (the program's defaults) | yes |
 | Instructions | `prompt` | the default instructions (§8) | yes |
 | Also deliver results to | `deliverResultTo` | `[]` | yes |
@@ -72,17 +72,17 @@ The 30-minute limit is deliberate. A check-in that runs that long is stuck, and 
 
 ### 4.2 Per-trigger locked fields
 
-Today `RESERVED_LOCKED_FIELDS` is a single list for every app-managed trigger, and it locks `prompt` and `agentId`. It becomes a map by id:
+`RESERVED_LOCKED_FIELDS` was a single list for every app-managed trigger, and it locked `prompt`. It is now a map by id (`lockedFieldsFor(id)`):
 
 ```ts
 export const RESERVED_LOCKED_FIELDS: Record<ReservedTriggerId, readonly LockableField[]> = {
-  [morningDeck]: ['name', 'description', 'prompt', 'targetKind', 'agentId', 'kind'],
+  [morningDeck]: ['name', 'description', 'prompt', 'targetKind', 'kind'],
   // ...the three stream triggers, unchanged...
-  [heartbeat]: ['name', 'description', 'targetKind', 'kind', 'concurrencyPolicy', 'timeoutSeconds'],
+  [heartbeat]: ['name', 'description', 'targetKind', 'kind', 'concurrencyPolicy', 'catchUpPolicy', 'timeoutSeconds'],
 };
 ```
 
-The existing four keep exactly what they lock today. `update_trigger` (`src/lib/orchestrator/registry.ts`, the reserved check near line 2067) reads the map for the given id. The trigger detail page's "managed" notice names that trigger's own locked fields and links to the right settings section, which is `?settings=heartbeat` for the heartbeat.
+The existing four keep exactly what they locked before. `update_trigger` (`src/lib/orchestrator/registry.ts`) reads the map for the given id. The trigger detail page's "managed" notice names that trigger's own locked fields and links to the right settings section, which is `?settings=heartbeat` for the heartbeat.
 
 `reserved.ts` says that past a handful of managed triggers it should switch to a `managed_kind` column. Five is still a handful. Revisit at the sixth.
 
@@ -133,7 +133,7 @@ The chat already renders `[[task:ID]]` and `[[note:ID]]` markers as chips, so ev
 
 ### 5.4 Quiet detection
 
-When a heartbeat run finishes (`src/lib/runs/event-hooks.ts`, where `summary` and `artifactRefs` are set):
+When a heartbeat run completes (`finalizeRunSuccessIfPending` in `src/lib/runs/dispatch.ts`, calling `settleHeartbeatRun` in `src/lib/heartbeat/quiet.ts`):
 
 - If the final assistant message, trimmed, is exactly `HEARTBEAT_OK` **and** `artifactRefs` is empty, the run is quiet. Set `statusReason = 'heartbeat_quiet'`, set the summary to `Nothing needed`, and archive the chat.
 - Otherwise it's a normal completed run, and its chat reaches Unread the usual way (`lastOutcomeEventAt`).
@@ -147,7 +147,7 @@ Two new orchestrator actions in `registry.ts`, so the app, the CLI, and agents a
 | Action | Params | Returns |
 |---|---|---|
 | `get_heartbeat` | none | `HeartbeatConfig` |
-| `update_heartbeat` (mutating) | any of: `enabled`, `instructions`, `interval_seconds`, `active_hours_start`, `active_hours_end`, `timezone`, `provider`, `model`, `effort`, `deliver_result_to` | `HeartbeatConfig` |
+| `update_heartbeat` (mutating) | any of: `enabled`, `instructions`, `resetInstructions`, `intervalSeconds`, `activeHoursStart`, `activeHoursEnd`, `timezone`, `provider`, `model`, `effort`, `deliverResultTo` | `HeartbeatConfig` |
 
 ```ts
 interface HeartbeatConfig {
@@ -206,7 +206,7 @@ Checks in on your work on a schedule and tells you what it did.
 
 - The frequency options are 30 minutes, 1 hour, 2 hours, 4 hours, and once a day. The hours row can switch to "Any time".
 - The program, model, and effort pickers reuse the controls from the existing trigger form.
-- When it's off, only the switch and a one-line description show.
+- ~~When it's off, only the switch and a one-line description show.~~ Built: every setting shows whether it's on or off, so you can write instructions and try "Check in now" before turning it on (§14).
 - The instructions save on blur, with the same save feedback as the other settings text fields.
 - **Report** opens the check-in's chat. **Changes** opens `/runs/[id]`, which already lists what the run changed (`artifactRefs`), so you can check its work without relying on the report being complete.
 
@@ -283,6 +283,23 @@ Steps 1 and 2 can land and be tested without any UI, through `ri agent get_heart
 
 ## 13. Open questions
 
-1. **The program picker and the `agents` table.** Phase 1 of `docs/agents-view-spec.md` deletes the `agents` table and puts a `harness` column on triggers. The heartbeat only reaches the `agents` table through `provider` and one helper in `src/lib/heartbeat/trigger.ts`, never through `agentId` directly. If the heartbeat lands first, Phase 1 swaps `getOrCreateTriggerAgent` for a harness in that helper, alongside `deck/trigger.ts` and `stream-triage/triggers.ts`, and `get_heartbeat` reads `trigger.harness`. If Phase 1 lands first, build against `trigger.harness` directly.
+1. ~~**The program picker and the `agents` table.**~~ Resolved: Phase 1 of `docs/agents-view-spec.md` landed first, so the heartbeat was built against `trigger.harness` and the `provider` switch directly.
 2. **Starting work by default.** The default instructions offer agent work rather than starting it. After some use, decide whether the default should start it.
 3. **On by default for new installs?** v1 ships off. Decide after a few weeks of your own use.
+
+## 14. Built: decisions made during implementation
+
+1. **Run change tracking was broken, and is fixed at the action layer.** The spec assumed `runs.artifactRefs` already listed what a run changed. It was empty for every run (0 of 785 since 2026-09-01): the old code read refs back out of the harness's tool-result stream, where MCP tool names arrive prefixed (`mcp__orchestrator__update_task`) and the tool output arrives empty. It now records at `runAction`, which has the real action name, input, and result, and knows the calling chat from its session credential (`src/lib/runs/artifact-refs.ts`). That covers MCP and the CLI alike, for every trigger run, not just the heartbeat. The broken stream path is removed.
+2. **The run page lists changes by title.** It used to print raw `kind: id` pairs. "Changes" is the heartbeat's audit path, so it now shows each task and note by title, linked to where its history and undo live.
+3. **Settings show everything even when it's off.** A settings page that is only a switch leaves nothing to set up. You can write instructions and try "Check in now" first, then turn it on.
+4. **The first check-in is placed inside the active hours.** The scheduler drops slots outside the hours but keeps the cadence anchored to them, so a daily heartbeat turned on at 22:30 would never have fired inside 09:00 to 21:00. Turning it on, or changing when it runs, schedules one interval out, moved into the hours. When it's turned on before the hours start, the window opening wins if it comes sooner. Resending the same schedule never pushes the next check-in back.
+5. **Hours follow your timezone.** The row is seeded with your timezone from Settings > General (else the host's). Editing the schedule in the app brings the heartbeat's timezone along with yours. If they ever differ, Settings offers a one-click fix.
+6. **`catchUpPolicy` is locked too.** A heartbeat that replays missed slots would fire several check-ins back to back after the host wakes up.
+7. **Name collision fallback.** If you already have a trigger named "Heartbeat", the app's row takes "Ri heartbeat" instead and leaves yours alone. The name index is unique per scope.
+8. **The deck bar always renders.** It carries the heartbeat chip, so the focused layout's bar no longer hides when nothing is done yet.
+9. **The quiet reply check tolerates wrapping.** Backticks, bold, quotes, and a trailing period around `HEARTBEAT_OK` still count as quiet. Any other words make it a report.
+10. **"Check in now" works while it's off.** It fires the trigger once through `run_trigger`, independent of the schedule.
+11. **Provenance on task and note versions is unchanged.** `entity_versions.actorSessionId` is defined as the content chat that made an edit, and pointing it at an orchestrator chat could confuse the in-document diff features. The run's change list is the audit path instead. Linking versions to runs is a candidate follow-up.
+12. **Report formatting mirrors the orchestrator brief.** The first real reports showed the agent opening with a preamble, putting references inside bullets (where chips don't render), and once mistyping an id. The ground rules now spell out the same reference rules as the orchestrator brief (`[[task:ID]]`, `[[note:ID]]`, `[[execution:SESSION_ID]]`, each on its own line, ids copied from tool results) and ask for one opening line on what it checked and found fine (the agent wrote one anyway, and it's useful: it says what came back clean), then the sections.
+13. **Run summaries drop entity references.** A summary is one plain line for run lists. The raw `[[task:…]]` ids were noise there, and the chat already renders them as chips. This applies to every run's summary, not just the heartbeat's (`summarizeText` in `src/lib/runs/event-hooks.ts`).
+14. **Area changes are now part of task and note history.** Setting an area is the one thing the default instructions have the heartbeat do on its own, and history snapshots didn't record `areaId`, so that change couldn't be seen or undone. Snapshots now include it, the history view shows it by area name, and undo restores it. Older snapshots lack the field, which means "not recorded", so the diff skips it and undo leaves the current area alone. Undo also leaves the area alone if the recorded area no longer exists. Verified in the app: an agent's area change appears as "Area: Ri Product → Work", and "Undo this change" puts it back.
