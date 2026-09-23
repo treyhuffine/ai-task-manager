@@ -3,6 +3,7 @@
 import { useDashboard } from '@/contexts/dashboard-context';
 import { ContentPanel } from '@/components/dashboard/content-panel';
 import { ExecutionView } from '@/components/executions/execution-view';
+import { AgentView } from '@/components/agents/agent-view';
 import { MobileAgentsView } from './mobile-agents-view';
 import { MobileMoreView } from './mobile-more-view';
 import { MobileTabBar } from './mobile-tab-bar';
@@ -10,7 +11,7 @@ import { MobileTopBar } from './mobile-top-bar';
 import { MobileCreateSheet } from './mobile-create-sheet';
 
 export function MobileLayout() {
-  const { mobileTab, activeSessionId } = useDashboard();
+  const { mobileTab, activeSessionId, activeView, goHome } = useDashboard();
 
   // When the user has tapped into a session (the execution view), the
   // agents tab takes over the whole content area with the chat surface —
@@ -18,10 +19,18 @@ export function MobileLayout() {
   // (which goes Home) brings them back to the workspaces list. Other tabs
   // aren't affected.
   const isExecutionActive = activeSessionId !== null;
+  // An agent's view takes the agents tab over the same way: its main chat
+  // full screen, its tools behind a Chat / Tools switch. Back returns to
+  // the list of agents.
+  const agentId = activeView.kind === 'agent' ? activeView.id : null;
+  const agentTab = activeView.kind === 'agent' ? activeView.tab : undefined;
 
   const renderContent = () => {
     if (mobileTab === 'agents' && isExecutionActive) {
       return <ExecutionView sessionId={activeSessionId} />;
+    }
+    if (mobileTab === 'agents' && agentId) {
+      return <AgentView workspaceId={agentId} tab={agentTab} onBack={goHome} assumeNarrow />;
     }
     switch (mobileTab) {
       case 'chat':
@@ -39,7 +48,7 @@ export function MobileLayout() {
 
   // Hide the search/inbox top bar while in an execution chat — the
   // ExecutionHeader already serves as the page header on that screen.
-  const showTopBar = !(mobileTab === 'agents' && isExecutionActive);
+  const showTopBar = !(mobileTab === 'agents' && (isExecutionActive || agentId));
 
   return (
     <>

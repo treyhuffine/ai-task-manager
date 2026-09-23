@@ -11,6 +11,7 @@ import {
 } from 'react-resizable-panels';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useWorkspace } from '@/hooks/use-workspaces';
+import { useElementWidth } from '@/hooks/use-element-width';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { DEFAULT_AGENT_TAB, readLastAgentTab, writeLastAgentTab } from '@/lib/client/agent-view-tab';
 import type { AgentTab } from '@/types/dashboard';
@@ -27,6 +28,11 @@ import { AgentTools } from './agent-tools';
  *
  * One layout for every agent (`ri.agent.layout`), so each agent opens the
  * same shape. The tools panel collapses so the chat can go full width.
+ *
+ * Measured, not viewport-based: below `NARROW_WIDTH` of its own width (a
+ * phone, a tablet, a squeezed window) it shows one pane at a time, chat
+ * first, with a Chat / Tools switch in the header. Both panes stay mounted,
+ * so switching keeps the chat's draft and a terminal's scrollback.
  */
 
 const CHAT_PANEL = 'agent-chat';
@@ -38,7 +44,28 @@ const NOOP_STORAGE: LayoutStorage = { getItem: () => null, setItem: () => {} };
 
 const noopSubscribe = () => () => {};
 
-export function AgentView({ workspaceId, tab }: { workspaceId: string; tab?: AgentTab }) {
+/** Below this container width the view shows one pane at a time. */
+const NARROW_WIDTH = 820;
+
+export type AgentPane = 'chat' | 'tools';
+
+export function AgentView({
+  workspaceId,
+  tab,
+  onBack,
+  assumeNarrow = false,
+}: {
+  workspaceId: string;
+  tab?: AgentTab;
+  /** A back button in the header (the phone layout, where the view is a full screen). */
+  onBack?: () => void;
+  /** Start in one-pane mode until measured (the phone layout), so it never flashes two panels. */
+  assumeNarrow?: boolean;
+}) {
+  const [measureRef, width] = useElementWidth<HTMLDivElement>();
+  const narrow = width === null ? assumeNarrow : width < NARROW_WIDTH;
+  // A tab in the URL means the user asked for a tool, so narrow mode opens on it.
+  const [pane, setPane] = useState<AgentPane>(() => (tab ? 'tools' : 'chat'));
   const { data: workspace, isLoading } = useWorkspace(workspaceId);
   const { openAgent, goHome } = useDashboard();
 
@@ -71,16 +98,23 @@ export function AgentView({ workspaceId, tab }: { workspaceId: string; tab?: Age
     else panel.collapse();
   }, [toolsRef]);
 
+  // Measured in every state, so the layout is known before the agent loads.
+  const frame = (children: React.ReactNode) => (
+    <div ref={measureRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
+      {children}
+    </div>
+  );
+
   if (isLoading) {
-    return (
+    return frame(
       <div className="flex-1 flex items-center justify-center">
         <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
+      </div>,
     );
   }
 
   if (!workspace) {
-    return (
+    return frame(
       <div className="flex-1 flex items-center justify-center text-center px-8">
         <div>
           <p className="text-[13px] font-semibold text-foreground">This agent isn&apos;t here anymore.</p>
@@ -92,13 +126,35 @@ export function AgentView({ workspaceId, tab }: { workspaceId: string; tab?: Age
             Back to Home
           </button>
         </div>
-      </div>
+      </div>,
     );
   }
 
-  return (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
-      <AgentHeader workspace={workspace} toolsCollapsed={toolsCollapsed} onToggleTools={toggleTools} />
+  const chat = <AgentChatPanel key={workspace.id} workspace={workspace} />;
+  const tools = <AgentTools key={workspace.id} workspace={workspace} tab={activeTab} onSelectTab={selectTab} />;
+
+  return frame(
+    <>
+      <AgentHeader
+        workspace={workspace}
+        toolsCollapsed={toolsCollapsed}
+        onToggleTools={toggleTools}
+        onBack={onBack}
+        pane={narrow ? { value: pane, onChange: setPane } : undefined}
+      />
+      {narrow ? (
+        <div className="relative flex-1 min-h-0">
+          {(['chat', 'tools'] as const).map((p) => (
+            <div
+              key={p}
+              inert={pane !== p}
+              className={cn('absolute inset-0 flex flex-col min-h-0', pane === p ? 'z-10' : 'opacity-0')}
+            >
+              {p === 'chat' ? chat : tools}
+            </div>
+          ))}
+        </div>
+      ) : (
       <ResizablePanelGroup
         orientation="horizontal"
         defaultLayout={defaultLayout ?? DEFAULT_LAYOUT}
@@ -108,7 +164,7 @@ export function AgentView({ workspaceId, tab }: { workspaceId: string; tab?: Age
         <ResizablePanel id={CHAT_PANEL} minSize={360} className="flex flex-col min-w-0 min-h-0">
           {/* Keyed by agent so a switch between agents never shows the
               previous agent's chat for a frame. */}
-          <AgentChatPanel key={workspace.id} workspace={workspace} />
+          {chat}
         </ResizablePanel>
         <ResizableHandle
           className={cn(
@@ -125,9 +181,10 @@ export function AgentView({ workspaceId, tab }: { workspaceId: string; tab?: Age
           onResize={onToolsResize}
           className="flex flex-col min-w-0 min-h-0"
         >
-          <AgentTools key={workspace.id} workspace={workspace} tab={activeTab} onSelectTab={selectTab} />
+          {tools}
         </ResizablePanel>
       </ResizablePanelGroup>
-    </div>
+      )}
+    </>,
   );
 }

@@ -23,18 +23,6 @@ export type PanelId = 'a' | 'b';
 /** Mobile bottom tab bar navigation */
 export type MobileTab = 'chat' | 'agents' | 'create' | 'deck' | 'more';
 
-export interface Agent {
-  id: string;
-  name: string;
-  status: 'active' | 'idle' | 'paused';
-  task: string | null;
-  color: string;
-  bg: string;
-  progress: number;
-  icon: string;
-  lastUpdate: string | null;
-}
-
 export interface Task {
   id: number;
   text: string;

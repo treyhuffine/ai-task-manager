@@ -468,10 +468,15 @@ One registry generates both surfaces, so every item lands on both.
 
 ### Phase 9: Tablet and mobile
 
-- [ ] Mobile "Agents" tab (`mobile-agents-view.tsx`): tapping an agent opens its agent view with the chat full screen and the tools behind a tab switch, Overview first.
-- [ ] Tablet: the agent view collapses to one panel with a chat/tools switch when its container is narrow.
+- [x] Mobile "Agents" tab (`mobile-agents-view.tsx`): tapping an agent opens its agent view with the chat full screen and the tools behind a tab switch, Overview first.
+  - Tapping the name follows the trial preference, like the rail. The chevron folds. `mobile-layout.tsx` renders the agent view full screen with a back button to the list, and hides the top bar as it does for an execution.
+- [x] Tablet: the agent view collapses to one panel with a chat/tools switch when its container is narrow.
+  - `AgentView` measures its own width (`use-element-width.ts`). Below 820px it shows one pane with a Chat / Tools switch in the header (Tools shows the needs-you count). Both panes stay mounted and the hidden one is transparent and inert, so the draft and a terminal's scrollback survive the switch. It works at any width, a squeezed desktop window included.
+  - **Surprise:** the tablet layout never showed the agent view, or an execution. It always rendered Home, and its rail listed hard-coded placeholder agents ("Atlas", "Beacon", from the pre-workspace prototype). It now lists the real agents, with an amber dot where work needs the user, and renders Home, the agent view or the execution view. The placeholder data (`MOCK_AGENTS`, the `Agent` type) is deleted.
 
 **Done when:** you can use an agent's main chat and Overview comfortably on a phone.
+
+**Status 2026-09-22:** landed. Driven in the browser at 390x844 (phone: open an agent, chat full screen, switch to Tools on Overview, back to the list), 768x1024 (tablet: one pane with the switch) and 900x1180 (tablet: both panes). Screenshots are in `personal/agents-view-screenshots/` (`phone-*`, `tablet-*`).
 
 ### Phase 10: Docs and final verification
 

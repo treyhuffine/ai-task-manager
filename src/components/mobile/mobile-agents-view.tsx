@@ -26,6 +26,7 @@ import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceWithCounts } from '@/db/types';
 import { executionView } from '@/lib/client/active-view';
+import { useAgentViewMode } from '@/lib/client/agent-view-mode';
 
 /**
  * Mobile-tab "Agents" surface. Mirrors the desktop rail's structure
@@ -33,8 +34,9 @@ import { executionView } from '@/lib/client/active-view';
  * children) but with phone-sized tap targets — rows ~44px tall, larger
  * text, no hover-only affordances.
  *
- * Tapping a session row sets `activeView` to the session id; the
- * mobile shell flips to render `<ExecutionView>` full-screen.
+ * Tapping a session row opens that execution, and tapping an agent opens
+ * its view (or folds its list, per the agent-view trial preference); the
+ * mobile shell renders either full screen.
  */
 export function MobileAgentsView() {
   const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
@@ -125,7 +127,8 @@ function NeedsReviewBlock() {
 // ─── Workspace block (collapsible) ────────────────────────────────
 
 function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
-  const { streamingSessionIds, setActiveView, setMobileTab } = useDashboard();
+  const { streamingSessionIds, setActiveView, setMobileTab, openAgent } = useDashboard();
+  const { opensView } = useAgentViewMode();
   const { data: areas } = useAreas();
   const updateWs = useUpdateWorkspace();
   // Guards double-fire only — see WorkspaceNav.handleCreateExecution.
@@ -163,13 +166,18 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
 
   return (
     <div className="rounded-xl">
-      {/* Header row: the label area + chevron toggle collapse; the trailing
-          + button creates a new execution. Two sibling buttons (not nested)
-          so a tap on + never also fires the collapse toggle. */}
+      {/* Header row: the label area opens the agent's view (or folds, per
+          the trial preference), the chevron folds, and the trailing +
+          creates a new execution. Sibling buttons, not nested, so a tap on
+          one never also fires another. */}
       <div className="w-full flex items-center gap-2 px-2 py-2.5 rounded-lg active:bg-muted/40 transition-colors">
         <button
           type="button"
-          onClick={toggle}
+          onClick={() => {
+            if (!opensView) return toggle();
+            setMobileTab('agents');
+            openAgent(workspace.id);
+          }}
           className="flex items-center gap-3 flex-1 min-w-0 text-left"
         >
           <span className="w-8 h-8 flex items-center justify-center flex-shrink-0">

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useMemo, useRef, type ReactNode, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Agent, Task, StreamEvent } from '@/types/dashboard';
+import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Task, StreamEvent } from '@/types/dashboard';
 import { hot } from '@/lib/_debug/hot-path';
 import {
   HOME_VIEW,
@@ -58,7 +58,6 @@ interface DashboardState {
   focusTask: FocusTask | null;
   workMode: WorkMode;
   selectedProject: string;
-  agents: Agent[];
   tasks: Task[];
   streamEvents: StreamEvent[];
   // Derived from slideout stack for convenience — consumers don't need to know about the stack
@@ -173,12 +172,6 @@ interface DashboardActions {
 type DashboardContextType = DashboardState & DashboardActions;
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
-
-const MOCK_AGENTS: Agent[] = [
-  { id: "atlas", name: "Atlas", status: "active", task: "Building onboarding flow", color: "text-orange-500", bg: "bg-orange-500/10", progress: 65, icon: "\uD83E\uDDED", lastUpdate: "Component ready in ~12 min" },
-  { id: "beacon", name: "Beacon", status: "active", task: "Competitor pricing analysis", color: "text-blue-400", bg: "bg-blue-400/10", progress: 88, icon: "\uD83D\uDCE1", lastUpdate: "Found 3 new pricing tiers" },
-  { id: "ri", name: "Ri", status: "idle", task: null, color: "text-muted-foreground", bg: "bg-muted", progress: 0, icon: "\uD83E\uDDE0", lastUpdate: null },
-];
 
 const MOCK_TASKS: Task[] = [
   { id: 1, text: "Review Atlas onboarding component", project: "Atlas", due: "Today", status: "ready", color: "bg-orange-500" },
@@ -544,7 +537,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       focusTask,
       workMode,
       selectedProject,
-      agents: MOCK_AGENTS,
       tasks: MOCK_TASKS,
       streamEvents: MOCK_STREAM_EVENTS,
       setTheme,
