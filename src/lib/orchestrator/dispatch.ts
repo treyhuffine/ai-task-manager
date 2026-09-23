@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { Action, ActionContext } from './types';
 import { ActionError } from './types';
 import { actions } from './registry';
+import { recordRunArtifacts } from '@/lib/runs/artifact-refs';
 
 export function findAction(name: string): Action | undefined {
   return actions.find((a) => a.name === name);
@@ -61,6 +62,17 @@ export async function runAction(
 
   try {
     const result = await action.handler(ctx, parsed.data);
+    // Attribute what changed to the run in flight in the calling chat, so a
+    // run's "what did it change" list is exact whichever transport the agent
+    // used (MCP or the CLI from its shell).
+    if (action.mutating) {
+      recordRunArtifacts({
+        actionName: name,
+        input: parsed.data as Record<string, unknown>,
+        result,
+        chatSessionId: ctx.actor?.sessionId,
+      });
+    }
     return { ok: true, action: name, result };
   } catch (err) {
     if (err instanceof ActionError) {

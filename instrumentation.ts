@@ -207,6 +207,15 @@ export async function register() {
     console.warn('[stream-triage] trigger seed failed', err);
   }
 
+  // Seed the app-managed heartbeat trigger, off until the user turns it on.
+  // See src/lib/heartbeat/trigger.ts and docs/heartbeat-spec.md.
+  try {
+    const { ensureHeartbeatTrigger } = await import('@/lib/heartbeat/trigger');
+    ensureHeartbeatTrigger();
+  } catch (err) {
+    console.warn('[heartbeat] trigger seed failed', err);
+  }
+
   // Scheduler tick — fires every 60s, reads enabled `schedules` whose
   // `next_run_at` has matured, and dispatches runs. Includes its own
   // boot recovery (reaping stuck `running` runs from a prior process)

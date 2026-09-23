@@ -96,7 +96,7 @@ import {
   decodeBackgroundTaskEvent,
   isActiveBackgroundTaskEvent,
 } from './background-task-event';
-import { handleRunStreamEvent, registerToolCallName } from '@/lib/runs/event-hooks';
+import { handleRunStreamEvent } from '@/lib/runs/event-hooks';
 import { resolveSkillDirsForSession } from './skills';
 import { beginRun, endRun } from '@/lib/runs/artifact-bucket';
 import {
@@ -1299,11 +1299,10 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
           trackBackgroundTaskRuntime: true,
         });
         capturePromotedSessionId(args.chatSessionId, safeEvent);
-        // Run telemetry: cost capture (#13), artifact accumulation (#14),
-        // summary extraction (#15). No-op when there's no active run
-        // registered for this chat — the manual-dispatch path registers
-        // one before sending, scheduled dispatches do it via the
-        // dispatcher wrapper.
+        // Run telemetry: cost capture (#13) and summary extraction (#15).
+        // No-op when there's no active run registered for this chat;
+        // scheduled dispatches register one via the dispatcher wrapper.
+        // What the run changed is recorded at the action layer instead.
         await handleRunStreamEventSafe(args.chatSessionId, safeEvent);
       } catch (err) {
         // One bad event shouldn't crash the whole turn — log and keep going.
@@ -1549,20 +1548,16 @@ function capturePromotedSessionId(chatSessionId: string, event: StreamEvent): vo
 // ─── Stream event → chat_events row ───────────────────────────
 
 /**
- * Defensive wrapper around the run-telemetry hook. Captures tool-call
- * names as they pass through (so a later `tool_result` can be
- * attributed to a mutating action), then defers to `handleRunStreamEvent`
- * for cost + artifact + summary accumulation. Errors are swallowed —
- * dropping a telemetry event is preferable to losing the user's turn.
+ * Defensive wrapper around the run-telemetry hook (cost + summary; what a run
+ * changed is recorded at the action layer, see src/lib/runs/artifact-refs.ts).
+ * Errors are swallowed: dropping a telemetry event is preferable to losing
+ * the user's turn.
  */
 async function handleRunStreamEventSafe(
   chatSessionId: string,
   event: StreamEvent,
 ): Promise<void> {
   try {
-    if (event.type === 'tool_call' && event.toolCallId) {
-      registerToolCallName(event.toolCallId, event.name);
-    }
     await handleRunStreamEvent(chatSessionId, event);
   } catch (err) {
     console.warn(`[runs] telemetry hook failed for ${chatSessionId}:`, err);

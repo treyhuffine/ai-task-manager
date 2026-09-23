@@ -110,7 +110,14 @@ import { getNotifierUserId } from '@/lib/notifications/user';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
-import { isReservedTrigger, RESERVED_LOCKED_FIELDS } from '@/lib/triggers/reserved';
+import { isReservedTrigger, lockedFieldsFor } from '@/lib/triggers/reserved';
+import { getHeartbeatConfig, getHeartbeatTrigger, ensureHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
+import {
+  DEFAULT_HEARTBEAT_INSTRUCTIONS,
+  HEARTBEAT_INTERVALS,
+  isHeartbeatInterval,
+} from '@/lib/heartbeat/constants';
+import type { HeartbeatPatch } from '@/lib/heartbeat/types';
 import { HARNESS_IDS, HARNESS_REGISTRY, resumeCommandForHarness, type HarnessId } from '@/lib/harness/registry';
 import {
   customModelOption,
@@ -2168,7 +2175,7 @@ const update_trigger_action = defineAction({
     // is not. Reject edits to locked fields; the friendly editor (e.g. Deck
     // settings) owns those. Internal callers bypass this via raw updateTrigger.
     if (isReservedTrigger(id)) {
-      const locked = RESERVED_LOCKED_FIELDS.filter(
+      const locked = lockedFieldsFor(id).filter(
         (f) => (rest as Record<string, unknown>)[f] !== undefined,
       );
       if (locked.length > 0) {
@@ -2346,6 +2353,119 @@ const reset_trigger_failures_action = defineAction({
     const row = resetTriggerFailures(id);
     if (!row) throw new ActionError('not_found', `Trigger not found: ${id}`);
     return row;
+  },
+});
+
+// ── Heartbeat ─────────────────────────────────────────────────
+// A regular check-in: the reserved heartbeat trigger, edited as one settings
+// object instead of raw trigger fields. See docs/heartbeat-spec.md §6.
+
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function isValidTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const get_heartbeat_action = defineAction({
+  name: 'get_heartbeat',
+  description:
+    'Read the heartbeat: a regular check-in where an agent works through the user\'s own instructions on a schedule. ' +
+    'Returns whether it is on, its instructions, cadence, active hours, provider/model/effort, the next check-in, ' +
+    'and the last check-in (quiet, or with a report chat and how many items it changed).',
+  params: {},
+  handler: () => getHeartbeatConfig(),
+});
+
+const update_heartbeat_action = defineAction({
+  name: 'update_heartbeat',
+  description:
+    'Change the heartbeat. All fields optional; unspecified fields keep their value. ' +
+    `intervalSeconds must be one of ${HEARTBEAT_INTERVALS.map((i) => i.seconds).join(', ')}. ` +
+    'activeHoursStart/activeHoursEnd are HH:MM in the heartbeat\'s timezone, set together, or both null for any time of day. ' +
+    'instructions replace the user\'s instructions verbatim (the app\'s ground rules are added separately and cannot be edited). ' +
+    'resetInstructions restores the default instructions. Changing provider resets model and effort unless the same call sets them. ' +
+    'Turning it on schedules the first check-in one interval out, inside the active hours. Use run_trigger with the returned triggerId to check in now.',
+  params: {
+    enabled: z.boolean().optional(),
+    instructions: z.string().trim().min(1).max(20_000).optional(),
+    resetInstructions: z.boolean().optional(),
+    intervalSeconds: z.number().int().positive().optional(),
+    activeHoursStart: z.string().nullable().optional(),
+    activeHoursEnd: z.string().nullable().optional(),
+    timezone: z.string().min(1).optional(),
+    provider: triggerProvider.optional(),
+    model: z.string().nullable().optional(),
+    effort: effortLevel.nullable().optional(),
+    deliverResultTo: z.array(z.string().min(1)).optional(),
+  },
+  mutating: true,
+  handler: (_ctx, input) => {
+    const current = ensureHeartbeatTrigger() ?? getHeartbeatTrigger();
+    if (!current) throw new ActionError('conflict', 'The heartbeat trigger could not be created.');
+
+    if (input.instructions !== undefined && input.resetInstructions) {
+      throw new ActionError('invalid_params', 'Pass instructions or resetInstructions, not both.');
+    }
+    if (input.intervalSeconds !== undefined && !isHeartbeatInterval(input.intervalSeconds)) {
+      throw new ActionError(
+        'invalid_params',
+        `intervalSeconds must be one of ${HEARTBEAT_INTERVALS.map((i) => `${i.seconds} (${i.label})`).join(', ')}.`,
+      );
+    }
+
+    // Active hours: both set, or both cleared. Validate the pair as it will
+    // stand after this patch, so a one-sided edit can't leave half a window.
+    const startAfter = input.activeHoursStart !== undefined ? input.activeHoursStart : current.activeHoursStart;
+    const endAfter = input.activeHoursEnd !== undefined ? input.activeHoursEnd : current.activeHoursEnd;
+    if ((startAfter === null) !== (endAfter === null)) {
+      throw new ActionError(
+        'invalid_params',
+        'Set activeHoursStart and activeHoursEnd together, or both to null for any time of day.',
+      );
+    }
+    for (const value of [startAfter, endAfter]) {
+      if (value !== null && value !== undefined && !HH_MM.test(value)) {
+        throw new ActionError('invalid_params', `Active hours use HH:MM, 24-hour. Got "${value}".`);
+      }
+    }
+    if (startAfter && endAfter && startAfter === endAfter) {
+      throw new ActionError('invalid_params', 'Active hours start and end must differ. Clear both for any time of day.');
+    }
+    if (input.timezone !== undefined && !isValidTimezone(input.timezone)) {
+      throw new ActionError('invalid_params', `Unknown timezone: ${input.timezone}. Use an IANA name like America/Denver.`);
+    }
+
+    // Provider switch: model and effort only mean something within one
+    // provider, so a switch that doesn't restate them resets both.
+    const patch: HeartbeatPatch = {};
+    let model = input.model;
+    let effort = input.effort;
+    if (input.provider && input.provider !== current.harness) {
+      patch.harness = input.provider;
+      if (model === undefined) model = null;
+      if (effort === undefined) effort = null;
+    }
+    assertModelFitsProvider(input.provider ?? current.harness, model);
+
+    if (input.enabled !== undefined) patch.enabled = input.enabled;
+    if (input.resetInstructions) patch.instructions = DEFAULT_HEARTBEAT_INSTRUCTIONS;
+    else if (input.instructions !== undefined) patch.instructions = input.instructions;
+    if (input.intervalSeconds !== undefined) patch.intervalSeconds = input.intervalSeconds;
+    if (input.activeHoursStart !== undefined) patch.activeHoursStart = input.activeHoursStart;
+    if (input.activeHoursEnd !== undefined) patch.activeHoursEnd = input.activeHoursEnd;
+    if (input.timezone !== undefined) patch.timezone = input.timezone;
+    if (model !== undefined) patch.model = model;
+    if (effort !== undefined) patch.effort = effort;
+    if (input.deliverResultTo !== undefined) {
+      patch.deliverResultTo = validateDeliverResultTo(input.deliverResultTo, current.targetKind);
+    }
+
+    return updateHeartbeat(patch);
   },
 });
 
@@ -2588,6 +2708,8 @@ export const actions = [
   get_run_action,
   cancel_run_action,
   reset_trigger_failures_action,
+  get_heartbeat_action,
+  update_heartbeat_action,
   list_notification_channels_action,
   list_skills_action,
   ...browserActions,

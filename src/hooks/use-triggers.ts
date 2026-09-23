@@ -50,6 +50,8 @@ export function useUpdateTrigger() {
       // flashes the pre-edit value back between save and settle.
       if (row?.id) qc.setQueryData([...TRIGGERS_KEY, row.id], row);
       qc.invalidateQueries({ queryKey: TRIGGERS_KEY });
+      // The heartbeat is a trigger too; its settings surfaces read their own key.
+      qc.invalidateQueries({ queryKey: ['heartbeat'] });
     },
   });
 }
@@ -69,6 +71,7 @@ export function useRunTrigger() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: TRIGGERS_KEY });
       qc.invalidateQueries({ queryKey: RUNS_KEY });
+      qc.invalidateQueries({ queryKey: ['heartbeat'] });
     },
   });
 }

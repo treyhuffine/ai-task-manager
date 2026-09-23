@@ -49,6 +49,9 @@ import { dispatch as executorDispatch, abort as executorAbort } from '@/lib/exec
 import { provisionWorktreeForSession } from '@/lib/sessions/dispatch';
 import { runArtifactBucket } from './artifact-bucket';
 import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
+import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
+import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
+import { settleHeartbeatRun } from '@/lib/heartbeat/quiet';
 
 export interface DispatchRunArgs {
   trigger: TriggerRecord;
@@ -395,7 +398,7 @@ function composeCoalescedContent(
   triggerPayload: Record<string, unknown> | string | null,
 ): string {
   const header = `[from trigger ${trigger.name}]`;
-  return `${header}\n\n${composePromptWithPayload(trigger.prompt, triggerPayload)}`;
+  return `${header}\n\n${promptForTrigger(trigger, triggerPayload)}`;
 }
 
 function recordSkipped(args: RecordSkippedArgs): RunRecord {
@@ -454,7 +457,7 @@ async function runUnderLease(
       return;
     }
     await withApiLease(async () => {
-      const prompt = composePromptWithPayload(trigger.prompt, triggerPayload);
+      const prompt = promptForTrigger(trigger, triggerPayload);
       // Persist a user chat_event mirroring the route layer's pattern
       // for normal sends. Without this, scheduled chats show only the
       // agent's responses with no record of what triggered them — and
@@ -478,7 +481,7 @@ async function runUnderLease(
         ),
       );
     });
-    finalizeRunSuccessIfPending(runId, trigger.id);
+    finalizeRunSuccessIfPending(runId, trigger.id, chatSessionId);
   } catch (err) {
     finalizeRunFailure(runId, trigger.id, err);
   }
@@ -614,6 +617,22 @@ async function runWithTimeout<T>(
 }
 
 /**
+ * What a fire sends the agent. The heartbeat's prompt is the user's own
+ * instructions, so it goes out wrapped in the app's ground rules
+ * (src/lib/heartbeat/prompt.ts). Every other trigger's prompt goes out as is.
+ * The persisted first chat event is this same string, so the transcript shows
+ * exactly what the agent received.
+ */
+export function promptForTrigger(
+  trigger: Pick<TriggerRecord, 'id' | 'prompt'>,
+  payload: Record<string, unknown> | string | null,
+): string {
+  const base =
+    trigger.id === RESERVED_TRIGGER_IDS.heartbeat ? composeHeartbeatPrompt(trigger.prompt) : trigger.prompt;
+  return composePromptWithPayload(base, payload);
+}
+
+/**
  * Render the trigger's prompt with the trigger payload appended when
  * present. For webhook intake, the payload is the entire body the
  * external system sent — wrap as fenced JSON so the agent sees it
@@ -630,10 +649,21 @@ function composePromptWithPayload(
   return `${prompt}\n\n--- trigger payload (JSON) ---\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }
 
-function finalizeRunSuccessIfPending(runId: string, triggerId: string | null): void {
+function finalizeRunSuccessIfPending(runId: string, triggerId: string | null, chatSessionId: string): void {
   const completed = markRunCompleted(runId);
   if (completed && completed.status === 'completed' && triggerId) {
     setTriggerLastRun(triggerId, runId, 'completed');
+    // A heartbeat check-in with nothing to report archives its own chat, so it
+    // never reaches Unread, and the notifier below skips delivering it.
+    if (triggerId === RESERVED_TRIGGER_IDS.heartbeat) {
+      try {
+        settleHeartbeatRun(runId, chatSessionId);
+      } catch (err) {
+        // The run already completed. Failing to archive a quiet check-in only
+        // leaves it visible in Unread; it must not flip the run to failed.
+        console.warn(`[dispatch] could not settle heartbeat run ${runId}:`, err);
+      }
+    }
   }
   // Notifier (best-effort): execution.finished / trigger.run_completed (§2.4).
   void notifyRunTerminal(runId).catch(() => {});

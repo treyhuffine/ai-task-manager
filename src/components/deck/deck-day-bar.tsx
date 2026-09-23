@@ -5,6 +5,7 @@ import { Plus, Check, Circle, CheckCircle2, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { DeckItem, RoutineItem } from '@/types/dashboard';
 import { DayShapeStrip } from '@/components/calendar/day-shape-strip';
+import { HeartbeatChip } from '@/components/heartbeat/heartbeat-chip';
 
 interface DeckDayBarProps {
   /** Today's active deck items — slotted ones render on the day strip. */
@@ -34,15 +35,13 @@ export function DeckDayBar({ items, completedItems, routines, onRoutineComplete,
   const completedCount = completedItems.length;
   const routinesDone = routines.filter(r => r.completedCount >= r.targetCount).length;
 
-  // The action row is only worth its border when it has something in it. With
-  // the add button hidden (focused layout) and nothing done or habitual yet, it
-  // would otherwise render as an empty bordered bar.
-  const showActionRow = addTaskVariant !== 'hidden' || completedCount > 0 || routines.length > 0;
+  // The action row always carries the heartbeat chip, so it always renders.
+  // (It used to hide when the focused layout's add button was hidden and
+  // nothing was done or habitual yet, to avoid an empty bordered bar.)
 
   return (
     <div className="relative">
       <DayShapeStrip items={items} />
-      {showActionRow && (
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-border/50">
         {/* Left side — add task button + completed count */}
         <div className="flex items-center gap-3">
@@ -88,23 +87,25 @@ export function DeckDayBar({ items, completedItems, routines, onRoutineComplete,
           )}
         </div>
 
-        {/* Routines dropdown trigger — right side. Hidden until habits
-            are backed by real tracking; empty routines = nothing to show. */}
-        {routines.length > 0 && (
-          <button
-            onClick={() => toggle('routines')}
-            className={cn(
-              'flex items-center gap-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors',
-              openDropdown === 'routines' && 'text-muted-foreground',
-            )}
-          >
-            <Circle className="w-3 h-3" />
-            {routinesDone}/{routines.length} habits
-            <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', openDropdown === 'routines' && 'rotate-180')} />
-          </button>
-        )}
+        {/* Right side: the heartbeat, then routines. Routines stay hidden
+            until habits are backed by real tracking; empty = nothing to show. */}
+        <div className="flex items-center gap-3">
+          <HeartbeatChip />
+          {routines.length > 0 && (
+            <button
+              onClick={() => toggle('routines')}
+              className={cn(
+                'flex items-center gap-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors',
+                openDropdown === 'routines' && 'text-muted-foreground',
+              )}
+            >
+              <Circle className="w-3 h-3" />
+              {routinesDone}/{routines.length} habits
+              <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', openDropdown === 'routines' && 'rotate-180')} />
+            </button>
+          )}
+        </div>
       </div>
-      )}
 
       {/* Dropdown panels */}
       {openDropdown === 'completed' && completedCount > 0 && (

@@ -36,7 +36,7 @@ import { cn } from '@/lib/utils';
 import type { RunRecord } from '@/db/types';
 import { describeFrequency } from '@/lib/scheduler/frequency';
 import { RunActivityBadge } from '@/components/runs/run-activity-badge';
-import { isReservedTrigger } from '@/lib/triggers/reserved';
+import { isReservedTrigger, lockedFieldsFor, RESERVED_TRIGGER_IDS, type ReservedLockableField } from '@/lib/triggers/reserved';
 import { openSettings } from '@/components/settings/settings-store';
 import { TriggerRunsOn } from '@/components/triggers/trigger-runs-on';
 
@@ -63,6 +63,7 @@ export default function TriggerDetailPage() {
   const failing = trigger.consecutiveFailures >= 3;
   const lastFailedRun = (recentRuns ?? []).find((r) => r.status === 'failed');
   const managed = isReservedTrigger(id);
+  const isHeartbeat = id === RESERVED_TRIGGER_IDS.heartbeat;
 
   return (
     <div className="min-h-dvh bg-background text-foreground font-sans">
@@ -184,11 +185,12 @@ export default function TriggerDetailPage() {
         {managed && (
           <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
             <span className="flex-1">
-              This trigger is managed by the app. Its name, prompt, and target are locked, and it is
-              disabled rather than deleted. Edit its schedule in settings.
+              This trigger is managed by the app. {describeLocks(lockedFieldsFor(id))} It is turned off
+              rather than deleted.{' '}
+              {isHeartbeat ? 'Edit it in Settings > Heartbeat.' : 'Edit its schedule in settings.'}
             </span>
             <button
-              onClick={() => openSettings('general')}
+              onClick={() => openSettings(isHeartbeat ? 'heartbeat' : 'general')}
               className="flex-shrink-0 font-medium text-foreground hover:underline"
             >
               Open settings
@@ -205,8 +207,13 @@ export default function TriggerDetailPage() {
 
         <section>
           <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-            Prompt
+            {isHeartbeat ? 'Instructions' : 'Prompt'}
           </h2>
+          {isHeartbeat && (
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Sent after the app&apos;s ground rules, which it always follows.
+            </p>
+          )}
           <pre className="p-4 rounded-md border border-border bg-card text-sm whitespace-pre-wrap font-sans">
             {trigger.prompt}
           </pre>
@@ -303,6 +310,30 @@ function RunRowSmall({ run }: { run: RunRecord }) {
       )}
     </Link>
   );
+}
+
+const LOCK_LABELS: Record<ReservedLockableField, string> = {
+  name: 'name',
+  description: 'description',
+  prompt: 'prompt',
+  targetKind: 'target',
+  kind: 'trigger type',
+  concurrencyPolicy: 'overlap rule',
+  catchUpPolicy: 'missed-run rule',
+  timeoutSeconds: 'time limit',
+};
+
+/** "Its name, description, and target are locked." from a lock list. */
+function describeLocks(fields: readonly ReservedLockableField[]): string {
+  const labels = fields.map((f) => LOCK_LABELS[f]);
+  if (labels.length === 0) return '';
+  const list =
+    labels.length === 1
+      ? labels[0]
+      : labels.length === 2
+        ? `${labels[0]} and ${labels[1]}`
+        : `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
+  return `Its ${list} are locked.`;
 }
 
 function humanize(iso: string): string {

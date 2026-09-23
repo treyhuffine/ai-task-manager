@@ -12,7 +12,9 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { runsApi } from '@/lib/api/triggers';
-import type { RunRecord } from '@/db/types';
+import { useTask } from '@/hooks/use-tasks';
+import { useNote } from '@/hooks/use-notes';
+import type { RunArtifactRef, RunRecord } from '@/db/types';
 
 export default function RunDetailPage() {
   const params = useParams<{ id: string }>();
@@ -101,18 +103,50 @@ export default function RunDetailPage() {
         {Array.isArray(run.artifactRefs) && run.artifactRefs.length > 0 && (
           <section>
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
-              Artifacts produced
+              What it changed
             </p>
-            <ul className="text-sm space-y-0.5">
-              {run.artifactRefs.map((ref, i) => (
-                <li key={i} className="font-mono text-[12px]">
-                  {ref.kind}: {ref.id}
-                </li>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Open a task or note to see its history and undo a change.
+            </p>
+            <ul className="space-y-1">
+              {run.artifactRefs.map((ref) => (
+                <ArtifactRow key={`${ref.kind}:${ref.id}`} artifact={ref} />
               ))}
             </ul>
           </section>
         )}
       </main>
     </div>
+  );
+}
+
+const KIND_LABEL: Record<RunArtifactRef['kind'], string> = {
+  task: 'Task',
+  note: 'Note',
+  workspace: 'Agent',
+  memory: 'Memory',
+};
+
+/** One changed entity: its title, linked to where its history and undo live. */
+function ArtifactRow({ artifact }: { artifact: RunArtifactRef }) {
+  const task = useTask(artifact.kind === 'task' ? artifact.id : null);
+  const note = useNote(artifact.kind === 'note' ? artifact.id : null);
+  const entity = artifact.kind === 'task' ? task : artifact.kind === 'note' ? note : null;
+  const title = (entity?.data as { title?: string | null } | undefined)?.title;
+  const href =
+    artifact.kind === 'task' ? `/task/${artifact.id}` : artifact.kind === 'note' ? `/note/${artifact.id}` : null;
+  const label = title || (entity?.isError ? 'No longer exists' : entity?.isLoading ? 'Loading…' : artifact.id);
+
+  return (
+    <li className="flex items-center gap-2 text-sm">
+      <span className="w-12 shrink-0 text-[11px] text-muted-foreground">{KIND_LABEL[artifact.kind]}</span>
+      {href && !entity?.isError ? (
+        <Link href={href} className="truncate hover:underline">
+          {label}
+        </Link>
+      ) : (
+        <span className="truncate text-muted-foreground">{label}</span>
+      )}
+    </li>
   );
 }

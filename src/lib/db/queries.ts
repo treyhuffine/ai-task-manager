@@ -40,7 +40,7 @@ import type {
   ChatEventRecord, CreateChatEventInput, ChatEventSource,
   ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
   TriggerRecord, CreateTriggerInput, UpdateTriggerInput,
-  RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun,
+  RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun, RunArtifactRef,
   EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
   TaskStatus, Energy, Effort,
   NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput,
@@ -2194,6 +2194,7 @@ function taskSnapshot(t: TaskRecord): EntityVersionSnapshot {
   return {
     title: t.title ?? null,
     body: t.body ?? '',
+    areaId: t.areaId ?? null,
     description: t.description ?? null,
     // Recorded for history/diff only, normalized so no snapshot preserves a
     // legacy `active`. Lifecycle is NOT restored on revert (see
@@ -2214,6 +2215,7 @@ function noteSnapshot(n: NoteRecord): EntityVersionSnapshot {
   return {
     title: n.title ?? null,
     body: n.body,
+    areaId: n.areaId ?? null,
     url: n.url ?? null,
     status: n.status,
   };
@@ -2298,6 +2300,18 @@ export function getEntityVersion(id: string): EntityVersionRecord | null {
   return db.select().from(entityVersions).where(eq(entityVersions.id, id)).get() ?? null;
 }
 
+/**
+ * The area to restore from a snapshot, or nothing to leave the current area
+ * alone: when the snapshot predates area history (no `areaId` key), or when
+ * the area it names no longer exists.
+ */
+function restorableArea(snap: EntityVersionSnapshot): { areaId: string | null } | Record<string, never> {
+  if (!('areaId' in snap)) return {};
+  const areaId = snap.areaId ?? null;
+  if (areaId !== null && !getArea(areaId)) return {};
+  return { areaId };
+}
+
 function snapshotToTaskInput(snap: EntityVersionSnapshot): UpdateTaskInput {
   // Content-only restore. Lifecycle `status` and completion metadata are
   // deliberately NOT restored: an undo of an edit must never silently
@@ -2306,6 +2320,7 @@ function snapshotToTaskInput(snap: EntityVersionSnapshot): UpdateTaskInput {
   return {
     ...(snap.title != null ? { title: snap.title } : {}),
     body: snap.body,
+    ...restorableArea(snap),
     description: snap.description ?? null,
     energy: (snap.energy ?? null) as Energy | null,
     effort: (snap.effort ?? null) as Effort | null,
@@ -2324,6 +2339,7 @@ function snapshotToNoteInput(snap: EntityVersionSnapshot): UpdateNoteInput {
   return {
     title: snap.title,
     body: snap.body,
+    ...restorableArea(snap),
     url: snap.url ?? null,
   };
 }
@@ -7350,6 +7366,46 @@ export function findActiveRunForExecution(executionId: string): RunRecord | unde
     .from(runs)
     .where(and(eq(runs.executionId, executionId), eq(runs.status, 'running')))
     .get();
+}
+
+/**
+ * The run currently in flight in a chat, if any: the scheduled or webhook fire
+ * that owns the chat's current turn. Manual chat sends create no run, so this
+ * is null for them. Newest first, in case a stale row was left `running` by a
+ * crash before boot recovery reaped it.
+ */
+export function findActiveRunForChatSession(chatSessionId: string): RunRecord | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.chatSessionId, chatSessionId), inArray(runs.status, ['queued', 'running'])))
+    .orderBy(desc(runs.createdAt))
+    .get();
+}
+
+/**
+ * Record entities a run changed, merged into `runs.artifactRefs` and deduped
+ * by (kind, id). Read-merge-write inside one IMMEDIATE transaction, so two
+ * writers (the server's MCP route and a CLI process in the harness's shell)
+ * can't drop each other's refs. Returns the merged list, or null when the run
+ * is gone.
+ */
+export function appendRunArtifactRefs(runId: string, refs: RunArtifactRef[]): RunArtifactRef[] | null {
+  if (refs.length === 0) return getRun(runId)?.artifactRefs ?? null;
+  const db = getDb();
+  const merge = (): RunArtifactRef[] | null => {
+    const current = db.select({ artifactRefs: runs.artifactRefs }).from(runs).where(eq(runs.id, runId)).get();
+    if (!current) return null;
+    const merged = new Map<string, RunArtifactRef>();
+    for (const ref of [...(current.artifactRefs ?? []), ...refs]) merged.set(`${ref.kind}:${ref.id}`, ref);
+    const next = [...merged.values()];
+    db.update(runs).set({ artifactRefs: next }).where(eq(runs.id, runId)).run();
+    return next;
+  };
+  // Already inside a caller's transaction: its lock covers us.
+  if (getRawDb().inTransaction) return merge();
+  return db.transaction(merge, { behavior: 'immediate' });
 }
 
 /** Per-trigger concurrency check (distinct from the execution mutex). */

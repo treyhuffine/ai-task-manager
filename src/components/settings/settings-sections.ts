@@ -10,6 +10,7 @@ import {
   Chrome,
   ListChecks,
   Download,
+  HeartPulse,
   type LucideIcon,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
@@ -26,6 +27,7 @@ export type SectionId =
   | 'get-started'
   | 'profile'
   | 'general'
+  | 'heartbeat'
   | 'models'
   | 'voice'
   | 'browser'
@@ -70,6 +72,13 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     icon: SlidersHorizontal,
     title: 'General',
     description: 'Theme, timezone, working hours, and display preferences.',
+  },
+  {
+    id: 'heartbeat',
+    label: 'Heartbeat',
+    icon: HeartPulse,
+    title: 'Heartbeat',
+    description: 'A regular check-in on your work, following your instructions.',
   },
   {
     id: 'models',

@@ -22,6 +22,7 @@ import { useSetupChecklist, type SetupChecklist } from './use-setup-checklist';
 import { GetStartedSection } from './sections/get-started-section';
 import { ProfileSection } from './sections/profile-section';
 import { GeneralSection } from './sections/general-section';
+import { HeartbeatSection } from './sections/heartbeat-section';
 import { ModelsSection } from './sections/models-section';
 import { VoiceSection } from './sections/voice-section';
 import { BrowserSection } from './sections/browser-section';
@@ -41,6 +42,8 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
       return <ProfileSection />;
     case 'general':
       return <GeneralSection />;
+    case 'heartbeat':
+      return <HeartbeatSection />;
     case 'models':
       return <ModelsSection />;
     case 'voice':

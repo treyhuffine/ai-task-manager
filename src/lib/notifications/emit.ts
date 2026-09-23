@@ -5,6 +5,7 @@
  */
 import { getRun, getExecution, getTrigger, getChatSession } from '@/lib/db/queries';
 import { notify } from './notify';
+import { isQuietHeartbeatRun } from '@/lib/heartbeat/quiet';
 
 /**
  * A run reached a terminal status. Picks the event by target:
@@ -16,6 +17,9 @@ import { notify } from './notify';
 export async function notifyRunTerminal(runId: string): Promise<void> {
   const run = getRun(runId);
   if (!run || (run.status !== 'completed' && run.status !== 'failed')) return;
+  // A quiet heartbeat check-in had nothing to report. Delivering its reply
+  // would ping the user every interval with "nothing needed".
+  if (isQuietHeartbeatRun(run)) return;
   const ok = run.status === 'completed';
   const trigger = run.triggerId ? getTrigger(run.triggerId) : undefined;
 

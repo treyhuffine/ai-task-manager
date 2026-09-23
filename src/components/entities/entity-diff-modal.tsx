@@ -14,6 +14,7 @@ import {
   type ChangeGroup,
 } from '@/hooks/use-entity-versions';
 import { cn } from '@/lib/utils';
+import { useAreas } from '@/hooks/use-areas';
 import type { EntityVersionSnapshot } from '@/db/types';
 
 type EntityType = 'task' | 'note';
@@ -28,9 +29,20 @@ interface EntityDiffModalProps {
 interface FieldSpec {
   key: keyof EntityVersionSnapshot;
   label: string;
+  /**
+   * Added to snapshots later. Older snapshots lack the key, which means "not
+   * recorded", so a comparison with one of them is skipped rather than shown
+   * as a change.
+   */
+  recordedLater?: boolean;
+  /** Shown as the area's name rather than its id. */
+  area?: boolean;
 }
 
+const AREA_PROP: FieldSpec = { key: 'areaId', label: 'Area', recordedLater: true, area: true };
+
 const TASK_PROPS: FieldSpec[] = [
+  AREA_PROP,
   { key: 'status', label: 'Status' },
   { key: 'energy', label: 'Energy' },
   { key: 'effort', label: 'Effort' },
@@ -42,7 +54,7 @@ const TASK_PROPS: FieldSpec[] = [
   { key: 'userContext', label: 'Context' },
 ];
 
-const NOTE_PROPS: FieldSpec[] = [{ key: 'status', label: 'Status' }, { key: 'url', label: 'URL' }];
+const NOTE_PROPS: FieldSpec[] = [AREA_PROP, { key: 'status', label: 'Status' }, { key: 'url', label: 'URL' }];
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -80,6 +92,8 @@ export function EntityDiffModal({ open, onClose, entityType, entityId }: EntityD
   const groups = useMemo(() => groupVersions(data?.versions ?? []), [data]);
   const [groupIndex, setGroupIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'split' | 'unified'>('split');
+  const { data: areas } = useAreas();
+  const areaName = (id: string) => areas?.find((a) => a.id === id)?.name ?? 'Unknown area';
 
   const idx = Math.min(groupIndex, Math.max(0, groups.length - 1));
   const group = groups[idx] as ChangeGroup | undefined;
@@ -185,6 +199,7 @@ export function EntityDiffModal({ open, onClose, entityType, entityId }: EntityD
                 after={after}
                 fields={entityType === 'task' ? TASK_PROPS : NOTE_PROPS}
                 viewMode={viewMode}
+                areaName={areaName}
               />
             )}
           </div>
@@ -219,15 +234,26 @@ function DiffBody({
   after,
   fields,
   viewMode,
+  areaName,
 }: {
   before: EntityVersionSnapshot;
   after: EntityVersionSnapshot;
   fields: FieldSpec[];
   viewMode: 'split' | 'unified';
+  areaName: (id: string) => string;
 }) {
   const titleChanged = str(before.title) !== str(after.title);
   const bodyChanged = str(before.body) !== str(after.body);
-  const changedProps = fields.filter((f) => str(before[f.key]) !== str(after[f.key]));
+  const changedProps = fields.filter(
+    (f) =>
+      !(f.recordedLater && (!(f.key in before) || !(f.key in after))) &&
+      str(before[f.key]) !== str(after[f.key]),
+  );
+  const shown = (f: FieldSpec, snap: EntityVersionSnapshot) => {
+    const raw = str(snap[f.key]);
+    if (!raw) return '-';
+    return f.area ? areaName(raw) : raw;
+  };
 
   if (!titleChanged && !bodyChanged && changedProps.length === 0) {
     return <p className="py-8 text-center text-[12px] text-muted-foreground">No visible differences.</p>;
@@ -270,9 +296,9 @@ function DiffBody({
             {changedProps.map((f) => (
               <div key={String(f.key)} className="flex items-baseline gap-2 text-[12px]">
                 <span className="w-24 flex-shrink-0 text-muted-foreground">{f.label}</span>
-                <span className="text-red-500/80 line-through decoration-red-500/40">{str(before[f.key]) || '-'}</span>
+                <span className="text-red-500/80 line-through decoration-red-500/40">{shown(f, before)}</span>
                 <span className="text-muted-foreground/50">{'→'}</span>
-                <span className="text-emerald-600 dark:text-emerald-400">{str(after[f.key]) || '-'}</span>
+                <span className="text-emerald-600 dark:text-emerald-400">{shown(f, after)}</span>
               </div>
             ))}
           </div>

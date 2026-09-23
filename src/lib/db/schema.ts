@@ -1413,6 +1413,10 @@ export const entityVersions = sqliteTable(
 export interface EntityVersionSnapshot {
   title: string | null;
   body: string;
+  // Tasks and notes. Recorded since 2026-09-22 (agents set areas unattended,
+  // and an area change must be undoable). Absent on older snapshots, which
+  // means "not recorded", never "no area": diff and revert skip it then.
+  areaId?: string | null;
   // Task-only.
   description?: string | null;
   status?: string;
