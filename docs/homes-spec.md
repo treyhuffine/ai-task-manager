@@ -5,6 +5,7 @@
 
 **Related docs**
 - `docs/cursor-multi-machine-agents.md`: the Cursor, Claude Code and Codex research behind §6.4 to §6.8.
+- `docs/homes-mental-model.md`: the mental model behind this spec, reasoned from first principles on 2026-09-23, with the harness session test that informs Decision 14 and Phase 9, and a list of what it recommends changing.
 - `docs/agents-view-spec.md`: the agent view this builds on. Coordination is in §5.4.
 - `docs/philosophy-and-vision.md` §10 to §14: the reasoning behind homes and spaces.
 - `docs/workspaces-spec.md`, "Deferred: cross-machine execution": the model this doc now builds. It describes a home plus the computer you sit at, with GitHub carrying the code, and it added the `EventWriter` seam in advance.
@@ -70,7 +71,7 @@ These were locked in the design conversations on 2026-09-22 and 2026-09-23.
 11. **Every computer can run a Ri worker.** A connected laptop runs a small background worker with no database, and the worker runs agents for the home. Phones and browsers never run agents. This is a home plus the computers you sit at, not a fleet.
 12. **Where work runs is a chip.** Every execution runs on one device at a time, and that device is shown everywhere the execution appears. **Run on** picks it when you start. It defaults to the home, then remembers your last choice for each agent. **Move to** changes it. There is no separate local mode.
 13. **Work moves by git branch.** Moving an execution commits and pushes its branch, and the target builds its worktree from that branch. No file syncing.
-14. **Whether conversations move is still open.** In v1, a move starts a fresh harness session on the target, inside the same Ri chat, with a note about where things stand. A spike (Phase 9) tests carrying the harness's own session across, the way Claude Code's teleport does.
+14. **Whether conversations move is still open.** In v1, a move starts a fresh harness session on the target, inside the same Ri chat, with a note about where things stand. A spike (Phase 9) tests carrying the harness's own session across, the way Claude Code's teleport does. A one-machine run of that spike on 2026-09-23 passed for both harnesses (see the result under Phase 9), and `docs/homes-mental-model.md` §5 recommends carrying the session by default with the note as the fallback. Not yet decided.
 15. **Background work runs on the home.** Triggers, the heartbeat, deck delegation, and executions started by agents all run on the home. The exception is an agent that only exists on one computer.
 
 **Agents across machines**
@@ -1215,6 +1216,11 @@ This can run at any time. Its result decides step 6 of a move.
   - If not: record why, and keep the notes.
 
 **Done when:** the results and the decision are recorded here.
+
+**Result so far (2026-09-23, one machine, the Mac Mini).** Folder A to folder B, transcript moved by hand to stand in for a file arriving from another machine. Full notes in `docs/homes-mental-model.md` §5.
+- Claude Code 2.1.280: `claude --resume <id>` finds the session from any folder, because the lookup is by id across every `~/.claude/projects/*` folder. Resumed turns append to the same file, record the new cwd, and tools run in the new cwd. The file moved into a project folder for a path that does not exist on this machine still resumed. So a file copied from another machine works wherever it lands under `~/.claude/projects/`.
+- Codex 0.153.4: sessions live under `~/.codex/sessions/YYYY/MM/DD/` and are indexed by path in `~/.codex/state_5.sqlite` (`threads.rollout_path`). `codex exec resume <id>` works from any folder, and tools run in the new folder. A file with no index row is indexed on resume, from any date folder. The only failure was a file moved after it was indexed (a stale path), which is not the cross-machine case.
+- Still to run: the two-machine, ten-trial check, and a check with the harness versions the two machines actually have. Absolute paths inside the conversation content remain, and the move note should state the new folder.
 
 ### Phase 10: Restore, path rewrite, and transcripts
 
