@@ -219,13 +219,18 @@ Leave "agent" where it means the AI in general: "agent browser", the "Agent (tri
 ### Phase 3: Scope fields on workspaces
 
 - [x] Add `purpose` and `instructions` to `workspaces`: text, nullable, no default. Null means none. Plain `ADD COLUMN`. (In `0001_late_magus.sql`.)
-- [ ] Caps (proposed): purpose 500 characters, instructions 20,000 characters. Enforced in the query layer, surfaced as `invalid_params` / HTTP 400.
-- [ ] `createWorkspace` / `updateWorkspace` accept both. Types follow from the schema.
-- [ ] Execution chats receive `instructions` through the session `instructionsFile`, merged with the reference-folder block in `adapter.ts`. Harnesses that ignore session instructions log the same warning the reference-folder path logs.
+- [x] Caps (proposed): purpose 500 characters, instructions 20,000 characters. Enforced in the query layer, surfaced as `invalid_params` / HTTP 400.
+  - `WORKSPACE_PURPOSE_MAX` / `WORKSPACE_INSTRUCTIONS_MAX` and `WorkspaceFieldError` (code `invalid_params`) in `queries.ts`. Values are trimmed, blank means none (null), the cap is measured after trimming, non-text is rejected. Messages read "Purpose is 501 characters. The limit is 500." The create and update routes return them as a plain 400.
+- [x] `createWorkspace` / `updateWorkspace` accept both. Types follow from the schema. `POST /api/workspaces` passes them through too.
+- [x] Execution chats receive `instructions` through the session `instructionsFile`, merged with the reference-folder block in `adapter.ts`. Harnesses that ignore session instructions log the same warning the reference-folder path logs.
+  - The per-session file is now generic: `src/lib/executor/session-instructions.ts` (`planSessionInstructions`, `writeSessionInstructions`, `clearSessionInstructions`, and the provider check moved here from the reference-folder module). The block comes from `src/lib/executor/prompts/agent-instructions.ts`, ahead of the reference-folder block. Editing instructions recycles the agent's live execution sessions (the next message resumes the same chat), the same as connector-scope and reference-folder edits.
 - [ ] The agent main chat's brief includes purpose and instructions (Phase 6).
-- [ ] Tests: caps, round-trip, delivery into an execution's instructions file.
+- [x] Tests: caps, round-trip, delivery into an execution's instructions file.
+  - `queries.workspace-scope.test.ts` (round-trip, trim, blank, partial update, caps at and over the limit, rejected writes leave the row alone, non-text), `session-instructions.test.ts` (block content, order, claude and codex deliver, cursor and opencode report the loss, the file's path, mode, rewrite and removal), `app/api/workspaces/[id]/route.test.ts` (400 mapping, recycle on instructions only). The live end-to-end check is part of Phase 10's run.
 
 **Done when:** purpose and instructions can be set, and every new execution in that agent receives the instructions (or logs why it can't).
+
+**Status 2026-09-22:** done except the agent main chat line, which lands with Phase 6.
 
 ### Phase 4: Orchestrator actions (MCP and `ri agent` CLI)
 
@@ -284,7 +289,7 @@ One registry generates both surfaces, so every item lands on both.
   - `GET /api/workspaces/:id/chat/history`
   - `POST /api/workspaces/:id/chat/resume`
 - [ ] `/api/orchestrator-chat`, `/history` and `/resume` filter on `workspace_id IS NULL` so agent main chats never appear in the app's main chat.
-- [ ] `PATCH /api/workspaces/:id` accepts `purpose` and `instructions`.
+- [x] `PATCH /api/workspaces/:id` accepts `purpose` and `instructions`. (Landed with Phase 3: the route already forwards fields, the query layer validates, and validation errors map to 400.)
 - [ ] Session, trigger and run responses carry `harness` (Phase 1).
 - [ ] Route tests for each new route, including the main-chat filter.
 

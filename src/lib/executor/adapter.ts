@@ -65,10 +65,14 @@ import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import {
   buildReferenceFolderSessionConfig,
-  clearReferenceFolderInstructions,
   referenceFolderProviderWiring,
-  writeReferenceFolderInstructions,
 } from '@/lib/reference-folders/session-config';
+import {
+  clearSessionInstructions,
+  planSessionInstructions,
+  writeSessionInstructions,
+} from '@/lib/executor/session-instructions';
+import { renderAgentInstructionsPrompt } from '@/lib/executor/prompts/agent-instructions';
 import type {
   ChatEventSource,
   CreateChatEventInput,
@@ -830,7 +834,7 @@ export async function close(chatSessionId: string): Promise<{ closed: boolean; e
   setRunning(chatSessionId, false);
   clearBackgroundTasks(chatSessionId);
   clearStreamTurn(chatSessionId);
-  clearReferenceFolderInstructions(chatSessionId);
+  clearSessionInstructions(chatSessionId);
   rejectAllForSession(chatSessionId, 'Session closed');
   return { closed: true };
 }
@@ -1080,6 +1084,18 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
       }
     }
 
+    // Session instructions: agentex takes one `instructionsFile`, so every
+    // block an execution is told at spawn goes into it, in this order. First
+    // the agent's standing instructions (docs/agents-view-spec.md Phase 3),
+    // then the reference-folder block below.
+    const instructionAgent = args.workspaceId ? getWorkspace(args.workspaceId) : null;
+    const instructionBlocks = [
+      {
+        name: 'agent instructions',
+        text: instructionAgent ? renderAgentInstructionsPrompt(instructionAgent) : '',
+      },
+    ];
+
     // Reference folders (docs/reference-folders-spec.md §6/§7). The prompt
     // block is the feature — the agent can already read any absolute path, it
     // just never knows the folder is there. Delivered via `instructionsFile`
@@ -1099,10 +1115,7 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
       if (refConfig.instructions) {
         const wiring = referenceFolderProviderWiring(refConfig, providerType);
         if (wiring.deliversInstructions) {
-          config.instructionsFile = writeReferenceFolderInstructions(
-            args.chatSessionId,
-            refConfig.instructions,
-          );
+          instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
         }
         extraArgs.push(...wiring.extraArgs);
         if (wiring.disallowedTools.length > 0) {
@@ -1128,6 +1141,18 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
     } catch (err) {
       // A reference-folder failure must never cost the user their session.
       console.error('[executor] reference folder resolution failed:', err);
+    }
+
+    const plan = planSessionInstructions(providerType, instructionBlocks);
+    if (plan.text) config.instructionsFile = writeSessionInstructions(args.chatSessionId, plan.text);
+    // Reference folders report their own delivery above. Agent instructions
+    // are reported here, and the same way: a total loss, not a degradation.
+    if (plan.undelivered.includes('agent instructions')) {
+      console.warn(
+        `[executor] execution on provider "${providerType}": agent instructions configured but NOT ` +
+          'delivered — this harness ignores session-scoped instructions, so the agent will not see ' +
+          'them. Use claude or codex for agent instructions.',
+      );
     }
   }
 

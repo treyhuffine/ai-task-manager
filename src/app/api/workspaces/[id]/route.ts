@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getWorkspace, updateWorkspace } from '@/lib/db/queries';
+import { getWorkspace, updateWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
 import type { UpdateWorkspaceInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
 import { recycleWorkspaceSessions } from '@/lib/executor/adapter';
@@ -35,12 +35,16 @@ export async function PATCH(
     const { connectorScopes: _ignored, ...body } = (await request.json()) as UpdateWorkspaceInput;
     const row = updateWorkspace(id, body);
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-    // Toggling the agent browser changes the execution tool set, so recycle live
-    // sessions for this workspace (like connector-scope edits) to apply it now
-    // rather than only on the next session.
-    if ('browserEnabled' in body) await recycleWorkspaceSessions(id);
+    // Toggling the agent browser changes the execution tool set, and the
+    // agent's instructions are delivered at spawn, so recycle live sessions for
+    // this workspace (like connector-scope edits) to apply either now rather
+    // than only on the next session. The next message resumes the same chat.
+    if ('browserEnabled' in body || 'instructions' in body) await recycleWorkspaceSessions(id);
     return Response.json(row);
   } catch (err) {
+    if (err instanceof WorkspaceFieldError) {
+      return Response.json({ error: err.message }, { status: 400 });
+    }
     console.error('[PATCH /api/workspaces/:id]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }

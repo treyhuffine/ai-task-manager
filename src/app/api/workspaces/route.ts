@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import path from 'node:path';
-import { listWorkspaces, createWorkspace } from '@/lib/db/queries';
+import { listWorkspaces, createWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { parseConnectorScopes, validateConnectorScopes } from '@/lib/connectors/scopes';
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
@@ -60,12 +60,17 @@ export async function POST(request: NextRequest) {
       startCommand: body.startCommand ?? null,
       teardownCommand: body.teardownCommand ?? null,
       areaId: body.areaId ?? null,
+      ...(body.purpose !== undefined ? { purpose: body.purpose } : {}),
+      ...(body.instructions !== undefined ? { instructions: body.instructions } : {}),
       status: body.status ?? 'active',
       browserEnabled: body.browserEnabled ?? true,
       ...(connectorScopes !== undefined ? { connectorScopes } : {}),
     });
     return Response.json(row, { status: 201 });
   } catch (err) {
+    if (err instanceof WorkspaceFieldError) {
+      return Response.json({ error: err.message }, { status: 400 });
+    }
     console.error('[POST /api/workspaces]', err);
     return Response.json({ error: String(err) }, { status: 400 });
   }

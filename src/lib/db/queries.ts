@@ -4374,6 +4374,51 @@ export function getWorkspace(id: string): WorkspaceRecord | undefined {
 }
 
 /**
+ * Caps on the agent-scope text fields (docs/agents-view-spec.md Phase 3). The
+ * UI calls a workspace an agent. `purpose` is a sentence, `instructions` are
+ * delivered into every session the agent starts, so both are bounded.
+ */
+export const WORKSPACE_PURPOSE_MAX = 500;
+export const WORKSPACE_INSTRUCTIONS_MAX = 20_000;
+
+/** A workspace field failed validation. Routes map it to 400, actions to `invalid_params`. */
+export class WorkspaceFieldError extends Error {
+  readonly code = 'invalid_params' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkspaceFieldError';
+  }
+}
+
+/**
+ * Normalize `purpose` / `instructions`: trim the ends, store blank as null
+ * (meaning none), and enforce the cap. `undefined` means "not being set" and
+ * passes through, so a partial update leaves the column alone.
+ */
+function normalizeScopeText(value: unknown, label: string, max: number): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== 'string') throw new WorkspaceFieldError(`${label} must be text.`);
+  const text = value.trim();
+  if (!text) return null;
+  if (text.length > max) {
+    throw new WorkspaceFieldError(
+      `${label} is ${text.length.toLocaleString('en-US')} characters. The limit is ${max.toLocaleString('en-US')}.`,
+    );
+  }
+  return text;
+}
+
+function normalizeScopeFields<T extends { purpose?: string | null; instructions?: string | null }>(input: T): T {
+  const purpose = normalizeScopeText(input.purpose, 'Purpose', WORKSPACE_PURPOSE_MAX);
+  const instructions = normalizeScopeText(input.instructions, 'Instructions', WORKSPACE_INSTRUCTIONS_MAX);
+  return {
+    ...input,
+    ...(purpose !== undefined ? { purpose } : {}),
+    ...(instructions !== undefined ? { instructions } : {}),
+  };
+}
+
+/**
  * Create a workspace. Caller is responsible for filesystem detection
  * (`isGit`, `baseBranch`) — we don't shell out from the query layer.
  * If `slug` is omitted we derive a unique one from `name`.
@@ -4390,7 +4435,7 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
     .get();
   const position = input.position ?? ((maxPosition?.max ?? -1) + 1);
 
-  const { attachments: inputAttachments, ...rest } = input;
+  const { attachments: inputAttachments, ...rest } = normalizeScopeFields(input);
   const row = hydrateRow(db
     .insert(workspaces)
     .values({
@@ -4414,7 +4459,7 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
 
 export function updateWorkspace(id: string, input: UpdateWorkspaceInput): WorkspaceRecord | null {
   const db = getDb();
-  const { attachments: inputAttachments, ...rest } = input;
+  const { attachments: inputAttachments, ...rest } = normalizeScopeFields(input);
   const row = hydrateRow(db
     .update(workspaces)
     .set({

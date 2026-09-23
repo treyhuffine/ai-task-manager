@@ -30,10 +30,8 @@
  *     must not promise more.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-import { getWorkDir } from '@/lib/config/paths';
 import { renderReferenceFoldersPrompt } from '@/lib/executor/prompts/reference-folders';
+import { providerDeliversSessionInstructions } from '@/lib/executor/session-instructions';
 import type { ResolvedReferenceFolder } from '@/db/types';
 
 export interface ReferenceFolderSessionConfig {
@@ -68,21 +66,6 @@ export function buildReferenceFolderSessionConfig(
   };
 }
 
-/**
- * Providers whose *session* path honours agentex's `instructionsFile`.
- *
- * Checked against agentex 0.0.34 source, not assumed: `instructionsFile` is
- * read in `providers/<p>/session.ts` for claude, codex and pi, but only in
- * `execute.ts` (the one-shot path) for cursor and opencode. Ri always goes
- * through `createSession`, so on cursor and opencode the field is silently
- * dropped and the agent never learns the folders exist.
- *
- * That has to be reported honestly rather than warned about as a partial
- * degradation, because it is a total one. Revisit whenever agentex grows
- * session-scoped instructions for the remaining providers.
- */
-const SESSION_INSTRUCTIONS_PROVIDERS = new Set(['claude', 'codex', 'pi']);
-
 /** Providers that enforce argv tool filtering (`--add-dir`, `--disallowed-tools`). */
 const ARGV_TOOL_FILTER_PROVIDERS = new Set(['claude']);
 
@@ -116,7 +99,9 @@ export function referenceFolderProviderWiring(
     disallowedTools: [],
   };
   if (!config.instructions) return { ...inert, delivery: 'full' };
-  if (!SESSION_INSTRUCTIONS_PROVIDERS.has(providerType)) return inert;
+  // On cursor and opencode the session path drops `instructionsFile`, so the
+  // agent never learns the folders exist (see session-instructions.ts).
+  if (!providerDeliversSessionInstructions(providerType)) return inert;
   if (!ARGV_TOOL_FILTER_PROVIDERS.has(providerType)) {
     return { ...inert, delivery: 'prompt-only', deliversInstructions: true };
   }
@@ -126,41 +111,4 @@ export function referenceFolderProviderWiring(
     extraArgs: config.addDirs.flatMap((dir) => ['--add-dir', dir]),
     disallowedTools: config.disallowedTools,
   };
-}
-
-/**
- * Persist the prompt block so it can be handed over as `instructionsFile`.
- * Lives in the scratch work dir keyed by chat session, rewritten on every
- * session build, so it always matches the current reference list.
- */
-export function writeReferenceFolderInstructions(
-  chatSessionId: string,
-  instructions: string,
-): string {
-  mkdirSync(referenceInstructionsDir(), { recursive: true, mode: 0o700 });
-  const file = referenceInstructionsPath(chatSessionId);
-  writeFileSync(file, `${instructions}\n`, { mode: 0o600 });
-  return file;
-}
-
-function referenceInstructionsDir(): string {
-  return path.join(getWorkDir(), 'reference-folders');
-}
-
-export function referenceInstructionsPath(chatSessionId: string): string {
-  return path.join(referenceInstructionsDir(), `${chatSessionId}.md`);
-}
-
-/**
- * Drop a session's instruction file when its agent session closes. Without
- * this every chat session ever opened leaves a file behind in the scratch dir.
- * Best-effort: the file is regenerated on the next spawn, so a failure here is
- * never worth surfacing.
- */
-export function clearReferenceFolderInstructions(chatSessionId: string): void {
-  try {
-    rmSync(referenceInstructionsPath(chatSessionId), { force: true });
-  } catch {
-    /* scratch cleanup, never load-bearing */
-  }
 }
