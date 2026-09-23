@@ -35,8 +35,9 @@ browser  ─┘                         ├─> Acme space
 **What changes for you**
 - `ri` on your laptop opens your Mac Mini home instead of starting a second home.
 - `ri agent` on the laptop (what Claude Code calls through the Ri skill) talks to your home.
-- `ri continue` pulls an execution onto your laptop and `ri return` sends it back (handoff).
-- Installing Ri on a new machine asks "start a new home, or connect to mine?", so nobody ends up with two homes again.
+- Agent work can start on either machine. `ri new` starts an execution on the laptop, `ri continue` pulls one over from the Mac Mini, and `ri return` sends laptop work to the Mac Mini to keep going (handoff).
+- Adding a device means approving it from a device you already use. No links or keys to copy.
+- Installing Ri on a new machine asks "start a new home, or connect to mine?" and says the choice can be changed later. Nobody ends up with two homes again.
 - "Move my home here" moves everything to another machine in one guided step. The same bundle is a real full backup.
 - Later: a Family space on the Mac Mini that your wife can use from her phone, then company spaces.
 
@@ -63,10 +64,13 @@ Locked in the design conversation on 2026-09-22.
 15. **The space arbitrates conflicts:** last writer wins per field, in the order changes arrive at the space, with every overwritten value kept in version history so it can be undone.
 16. **Space notes are not mirrored into your home.** Agents search a space's notes when relevant. Mirroring is a later decision.
 17. **The deck is composed in your home from every source**, labelled by space, with a per-source quota so one busy space can't crowd out everything else. Spaces have no deck.
-18. **Agents run on the home.** A laptop runs an execution only through handoff. No runner pool and no per-run runner picker.
+18. **Every execution lives in one place at a time:** your home or one of your devices. It starts where you start it. From the app it runs on the home, and from `ri new` or `ri track` on a laptop it runs there (handoff §6.17). Handoff moves it either way. No runner pool and no runner picker.
 19. **The home's URL is part of its identity.** Prefer a stable name (a Beamd tunnel name or your own domain), so moving the home doesn't mean re-pairing devices.
 20. **Staged delivery.** Stage 1 (one home, many devices) is lived with before Stage 2 (spaces) starts. Each Stage 3 item gets its own spec before work begins.
 21. **Each phase lands as its own commit(s) on `main`** in the live checkout.
+22. **Connecting a device is approved from a device you already use.** The new device shows a code, and any signed-in device approves it. Pasting a pairing link and scanning a QR code stay as fallbacks.
+23. **The first-run choice is never a trap.** First run says it can be changed later, and Ri guides the move (§6.6).
+24. **Rollback stays safe.** Migrations only add, and every new column on an existing table is nullable or defaults to 0, so older code still boots on a newer database (§7.1).
 
 ---
 
@@ -80,6 +84,7 @@ Not decided. None of these block Stage 1.
 - **Whether every member may assign work**, or only admins. The default here is every member.
 - **Realtime push from a space to your home** (a server event stream) versus polling. v1 polls.
 - **Hosting:** where hosted homes run, pricing, and whether hosting offers an optional account. Out of scope until Phase 19.
+- **Onboarding as an AI chat** instead of a wizard, so setup feels fast. The steps in §6.2 and §6.16 are what it must cover either way. The current wizard is fine for now.
 
 ---
 
@@ -195,6 +200,8 @@ Set up Ri on this computer
   1. Start a new home here
   2. Connect this computer to my existing home
   3. Move my existing home to this computer
+
+You can change this later. Ri will guide you through moving your home.
 ```
 
 - **The default is 1** unless there is a sign a home already exists. The default becomes 2, with a one-line reason, when:
@@ -203,7 +210,10 @@ Set up Ri on this computer
 - **Option 2** runs `ri connect` (handoff spec §6.4), then opens the home.
 - **Option 3** runs the move flow (§6.6).
 - **Without a terminal** (no TTY), keep today's behavior and print one line: "Started a new home. If you already have one, run `ri connect` instead."
-- **The web welcome wizard** gets a small link on its first step: "Already have a Ri home? Use this computer as a device instead." By then this server is already running, so the link explains how to stop it and run `ri connect`.
+- **The web welcome wizard** gets a small link on its first step: "Already have a Ri home? Use this computer as a device instead. You can switch later." By then this server is already running, so the link explains how to stop it and run `ri connect`.
+- **A new home's onboarding gains two steps**, because every other device depends on them. Each can be skipped, and the Connections page (§6.16) keeps offering them until done:
+  - **Reach your home from anywhere:** one button signs into Beamd (device-code flow) and claims a stable address such as `trey.beamd.run`, with reconnect on startup turned on.
+  - **Start Ri when this computer starts:** installs a login item (a launchd agent on macOS) that runs `ri start` for this root.
 
 ### 6.3 Devices
 
@@ -219,6 +229,20 @@ This spec adds:
 - **A new device type `home`**, for another Ri home connected as a device (§6.8).
 - **Pairing works over any URL that reaches the home.** Settings shows the stable home URL first. Pairing over plain HTTP from outside a private network shows a warning, because the token would cross the open internet in the clear.
 
+**Connecting by approval** (the default way to add any device)
+1. **The new device asks.**
+   - CLI: `ri connect trey.beamd.run` (or first-run option 2) calls `POST /api/devices/requests { name, deviceType, platform }`.
+   - Browser or phone: opening the home's address while signed out shows **Ask to join**, next to the existing paste-a-token option.
+   - The endpoint is public, so it is rate limited (10 per minute per IP), capped at 5 pending requests, and each request expires after 10 minutes. It returns a request id, a short code (like `K7F-4QX`), and a poll token.
+2. **The new device shows the code and waits.**
+3. **Every signed-in browser of the home shows a prompt:** "MacBook Pro wants to join your home. Code K7F-4QX." with Approve and Deny, plus the device type, platform and IP. A push goes out through the notifier if one is set up. Only an already-authenticated device can approve.
+4. **The new device polls** `GET /api/devices/requests/:id` with its poll token. After approval, the next poll mints the device key and returns it once. The plaintext is never stored.
+5. **Denied or expired requests** show a clear message on the new device.
+
+**Finding the home on your network (optional).** The home advertises itself on the local network (mDNS, `_ri._tcp`, with its name and stable address). `ri connect` with no address lists the homes it finds. The device stores the stable address, so it keeps working away from home.
+
+**`device_requests`:** `id`, timestamps, `name`, `device_type`, `platform`, `ip`, `user_agent`, `code_hash`, `poll_token_hash`, `status` (`pending | approved | denied | expired`, a policy value the creator sets), `expires_at`, `approved_by_key_id`, `api_key_id` (the key minted when the approved request is picked up).
+
 ### 6.4 `ri agent` and the Ri skill on a device
 
 On your laptop, Claude Code or Codex uses the Ri skill, which calls `ri agent <action>`. That must reach your home.
@@ -232,9 +256,14 @@ On your laptop, Claude Code or Codex uses the Ri skill, which calls `ri agent <a
 
 ### 6.5 Where work runs
 
-- **Agents run on your home.** It is always on, so long work continues while your laptop is closed.
-- **For a tight loop, first move your view, not the work:** open the preview through the tunnel, and edit the home's files from your laptop editor over SSH (Cursor and VS Code both do this).
-- **When the work must run on the laptop, use handoff** (`docs/handoff-spec.md`): `ri continue`, `ri serve`, `ri return`. Code moves by branch, chats stay where they ran and are uploaded to your home, and notes carry context both ways.
+Every execution lives in one place at a time, your home or one of your devices, and it starts where you start it.
+
+- **Started from the app** (on any device): it runs on your home. The home is always on, so long work continues while your laptop is closed.
+- **Started on the laptop** with `ri new "<prompt>"` in a repo: it runs on the laptop from the first message. The home shows it under its agent as "On MacBook", with the chat streaming in.
+- **Already running `claude` by hand** in a folder: `ri track` makes it an execution in your home, located on the laptop, and follows its chat.
+- **Moving it:** "Continue on MacBook" (or `ri continue`) brings home work to the laptop. `ri return` sends laptop work to the home so it keeps going while the laptop is closed. Code moves by branch, chats stay where they ran and are uploaded to your home, and a note carries context each way. Details are in handoff §6.1 and §6.17.
+- **For a tight loop without moving anything:** open the preview through the tunnel, and edit the home's files from your laptop editor over SSH (Cursor and VS Code both do this).
+- **Sessions you never register** stay private to the laptop. `ri import-chats` (below) brings them in later.
 
 **Device agent history import (`ri import-chats`)**
 
@@ -319,7 +348,7 @@ The bundle contains secrets. It is written with mode 0600, and the CLI says so.
 - **Transcripts.** Each bundled transcript is written to its new location, with the Claude project folder name re-derived from the rewritten cwd. A chat whose transcript can't be placed keeps its Ri history, and starts a fresh harness session on next send with a summary of the old chat as the first message (reusing the handoff note builder). This also implements the rollover that `docs/chat-sessions.md` describes.
 - **Worktrees are not moved.** Executions get new worktrees on next use, on their own branch (below).
 
-**Reprovision on the execution's own branch** (fixes §5.2 gap 4, used by moves and by handoff Phase 9)
+**Reprovision on the execution's own branch** (fixes §5.2 gap 4, built in handoff Phase 3, and moves depend on it)
 - When an execution's worktree folder is missing, `ensureWorktreeReady` and `resumeWorktreeForSession` check out the execution's existing branch: the local branch if present, otherwise fetch `<remote>/<branch>` and track it.
 - Only when the branch exists nowhere do they fall back to a fresh branch off base, and they record a setup warning saying so.
 
@@ -567,11 +596,44 @@ These are all `ALTER TABLE ADD COLUMN`. There is no rebuild, so `tasks_fts` rowi
 - **`ActionContext.actor`:** agents-view Phase 4 adds session and execution provenance. This spec adds `deviceId` (Phase 3) and `memberId` (Phase 10). Agree one shape before either lands.
 - **The `harness` column:** agents-view Phase 1 moves the engine onto `chat_sessions.harness`. Imported and device chats are created through `createExecutionChat`, so they follow it.
 - **Rail vs top bar:** the rail belongs to agents and executions. The space switcher lives in the top bar.
-- **Migrations:** nothing in this spec rebuilds a table. The one rebuild in this whole plan is handoff Phase 7 (dropping takeover's foreign-key column), which waits on agents-view Phase 0.
+- **Migrations:** nothing in this spec rebuilds a table. The one rebuild in this whole plan is handoff Phase 8 (dropping takeover's foreign-key column). Agents-view Phase 0 (the foreign-keys-off runner, `runMigrations`) has landed, so it is unblocked, but it goes last because it is the hardest step to undo (§7.1).
 
 ### 6.15 Your own machines
 
 Your setup today: the laptop has `~/ri` (a second home), the Mac Mini has `~/ri` (your real home), and the laptop also has `~/ri-dev` (your dev home for building Ri). The target: the Mac Mini is the only home, the laptop is a device, and `~/ri-dev` stays for development. Phase 8 is the runbook. Every step renames rather than deletes, and counts rows before anything moves.
+
+### 6.16 The experience, per machine
+
+**Your host machine (the Mac Mini)**
+- Install Ri, run `ri`, and choose **Start a new home here**. The wizard runs, with the two new steps from §6.2: a stable address and start at login.
+- After that it just runs. Settings gets one **Connections** page (below).
+
+**Your laptop**
+- Install the CLI and run `ri`. Choose **Connect this computer to my existing home**, and type the address or pick it from the homes found on your network.
+- Approve it from your phone or any signed-in browser.
+- From then on:
+  - `ri` opens your home in the browser, already signed in (the browser and the CLI share one key).
+  - Claude Code on the laptop manages your real tasks through the Ri skill (§6.4).
+  - `ri new` starts agent work on the laptop, `ri continue` pulls work over from the home, and `ri return` sends it back.
+
+**Your phone:** open the home's address and tap **Ask to join**, then approve from another device. Or scan the QR code from **Add a device**.
+
+**Team laptops** (Stage 2)
+- **A teammate who only needs the team** (your wife, most teammates) opens the invite link, types a name, and is in the space's web page. Nothing to install, and it works on a phone.
+- **A teammate who also uses Ri personally** has their own home, usually their laptop. They paste the invite into **Connect a space**, which joins and connects in one step. Work assigned to them shows up in their own deck.
+- **The space runs on an always-on machine.** A family space can share your Mac Mini. A company should use a company machine or a small server, so company data isn't on a personal box.
+
+**Day to day, everywhere:** one deck of personal and team work, each item labeled, the space switcher in the top bar, and **Open <space>** to jump to a team's own board, signed in.
+
+**The Connections page** (one Settings page for all of this)
+- **This home:** name, id and address, whether the address is stable, and whether start at login is on. Unfinished onboarding steps show here with a button.
+- **Devices:** every device with its type, when it was last seen, and whether it has the CLI. Rename and revoke. Pending join requests, with Approve and Deny.
+- **Spaces** (Stage 2): every connected space with its sync status and last sync. Pause, remove, and Open.
+- **Buttons:** **Add a device** (a QR code, a copyable link, and the `ri connect <address>` line), **Connect a space**, **Create a space**.
+
+**Create a space** (Stage 2, in the app, not only the CLI)
+- Asks for a name, a color, and where it should run: **This computer** (a new root on this machine with its own port and address) or **Another machine** (shows the `ri space create` command to run there). Hosted comes later.
+- Ends on a share sheet: the invite link, a QR code, and **Copy invite** for Slack or email.
 
 ---
 
@@ -583,7 +645,14 @@ Your setup today: the laptop has `~/ri` (a second home), the Mac Mini has `~/ri`
 **Gate:** live with the Family space for two weeks and record a go or no-go.
 **Stage 3:** Phases 15 to 19. Each one needs its own spec first.
 
-### Phase 0: Align the docs
+### Phase 0: Safety net and docs
+
+**Safety net first**, so every later phase can be undone.
+- [ ] The bundle writer (`src/lib/home/bundle.ts`) and `ri home export` with `--no-transcripts` (§6.6), plus tests: contents, exclusions, checksums, 0600.
+- [ ] `docs/storage-architecture.md`: `ri home export` is the full backup, and `ri snapshot` stays the quick database-plus-mirror snapshot. Until `ri home import` exists (Phase 6), restoring means unpacking the bundle into a fresh root by hand. Write those steps there and try them once on a temp root.
+- [ ] Take a full export of the Mac Mini home and the laptop home before Phase 1, and again before each phase that migrates the database.
+
+**Docs**
 
 - [ ] `docs/team-product-direction.md`: a header pointing here. Replace "workspace switcher" with space switcher, `MODE=personal|team` with `home.kind`, `source`/`external_id` with `external_source_id`/`external_id`, and "users, memberships" with `members`.
 - [ ] `docs/deployment-mode-spec.md`: a header saying its shared-instance premise is superseded (Path B), and that its preview gate and space-safe rules carry into spaces (§6.7).
@@ -591,15 +660,21 @@ Your setup today: the laptop has `~/ri` (a second home), the Mac Mini has `~/ri`
 - [ ] `docs/storage-architecture.md`: say snapshots exclude attachments and `.config`, align the `data.db` sync statement with `paths.ts`, and point machine moves to §6.6.
 - [ ] `docs/cli-distribution.md`: the real paths (`~/ri/data.db`, `.config/config.json`), the real onboarding, and the new commands.
 
-**Done when:** no doc describes a design this spec replaces without saying so.
+**Done when:** both homes have a full export that has been restored once into a temp root, and no doc describes a design this spec replaces without saying so.
 
 ### Phase 1: Device identity and `ri connect`
 
 This is `docs/handoff-spec.md` Phases 1 and 2, plus:
 
 - [ ] `api_keys.cli_last_seen_at`, set by the proxy for `ri-cli/` user agents. The "Continue on…" picker and the Devices pane use it.
+- [ ] The `device_requests` table, `POST /api/devices/requests` (public, rate limited, capped, expiring), `GET /api/devices/requests/:id` (poll, mints the key once after approval), and the approve and deny routes, plus tests: rate limit, expiry, single pickup, and only authenticated devices can approve.
+- [ ] The approval prompt on every signed-in browser (realtime bus), and a push through the notifier.
+- [ ] `ri connect <address>` uses approval by default. The pasted link stays as the fallback.
+- [ ] **Ask to join** on the home's sign-in page, for browsers and phones.
+- [ ] The Connections page (§6.16): this home, devices, pending requests, and Add a device.
+- [ ] Optional: local network discovery (mDNS `_ri._tcp`), and `ri connect` with no address listing the homes found.
 
-**Done when:** handoff Phases 1 and 2 are done, and the laptop shows as a CLI device.
+**Done when:** handoff Phases 1 and 2 are done, the laptop and a phone both join by approval without copying anything, and the laptop shows as a CLI device.
 
 ### Phase 2: Home identity and machine roles
 
@@ -610,6 +685,8 @@ This is `docs/handoff-spec.md` Phases 1 and 2, plus:
 - [ ] `ri` by role: a device opens the home logged in, a fresh root gets the first-run choice (§6.2), plus tests of the branching.
 - [ ] First-run defaults: the `--connect <link>` flag and the Beamd `name_taken` probe, plus the no-TTY message.
 - [ ] Web welcome: the "use this computer as a device instead" link and its help text.
+- [ ] First-run copy in the CLI and the web link says the choice can be changed later, with a guided move (§6.2).
+- [ ] The two home onboarding steps (§6.2): "Reach your home from anywhere" (Beamd device-code login, a stable name, reconnect on startup) and "Start Ri when this computer starts" (a launchd login item for this root). Each can be skipped, and the Connections page offers them until done.
 - [ ] `ri status`.
 - [ ] Settings: a "This computer is your home" section with the home name (editable), the id, and whether the URL is stable.
 - [ ] Document the two onboarding flags (§6.1).
@@ -631,7 +708,7 @@ This is `docs/handoff-spec.md` Phases 1 and 2, plus:
 
 ### Phase 4: Handoff
 
-This is `docs/handoff-spec.md` Phases 3 to 8.
+This is `docs/handoff-spec.md` Phases 3 to 9, including starting work on the laptop (`ri new`, `ri track`).
 
 **Done when:** the handoff spec's end-to-end checklist passes.
 
@@ -646,19 +723,18 @@ Needs handoff Phase 5.
 
 **Done when:** the laptop's Claude and Codex history appears in the Mac Mini home, under the right agents, marked as coming from the laptop.
 
-### Phase 6: Full export and import, and reprovisioning on the branch
+### Phase 6: Import, path rewrite, and transcripts
 
-- [ ] The bundle format, manifest and writer (`src/lib/home/bundle.ts`), plus tests: contents, exclusions, checksums, 0600.
-- [ ] `ri home export` with `--no-transcripts`.
+Needs Phase 0 (the bundle writer) and handoff Phase 3 (reprovision on the execution's branch).
+
 - [ ] Restore (`src/lib/home/restore.ts`), plus tests. It refuses when `data.db` exists, verifies checksums, merges the home-scoped config fields, and runs before any `getDb()`.
 - [ ] `ri home import`.
 - [ ] Path rewrite (`src/lib/home/rewrite-paths.ts`), plus tests: identical paths skip, a root change, a username change, a missing cwd.
 - [ ] Transcript placement with the re-derived Claude project folder, plus tests.
 - [ ] Rollover on a missing transcript: start a fresh harness session seeded with a summary (the handoff note builder), plus a test.
 - [ ] Workspaces with a missing folder: the UI state, "Choose folder", and "Clone from remote".
-- [ ] Reprovision on the execution's own branch (`ensureWorktreeReady`, `resumeWorktreeForSession`), plus tests.
 - [ ] Round-trip test: export a seeded test home, import it into a new root at a different path, boot, and check row counts, that device keys are valid, and that a chat resumes or rolls over.
-- [ ] `docs/storage-architecture.md`: `ri home export` is the full backup. `ri snapshot` stays the quick database-plus-mirror snapshot.
+- [ ] `docs/storage-architecture.md`: replace the manual restore steps from Phase 0 with `ri home import`.
 
 **Done when:** a real `ri home export` of the Mac Mini home imports into a temporary root on the laptop (nothing replaced), boots, and shows the same row counts. Then delete the temporary root.
 
@@ -719,6 +795,7 @@ Needs handoff Phase 5.
 - [ ] Space-safe rules: preview off unless allowed, plus tests.
 - [ ] `change_log` and the revision bump in `queries.ts` (team kind only), plus tests.
 - [ ] `GET /api/space` (id, name, color).
+- [ ] **Create a space** in the app (§6.16): name, color, where it runs, and the invite share sheet.
 - [ ] Space UI: the tasks board (status, assignee filter, "Mine", assign), notes, members, activity. Hide the deck, stream and personal settings. Add the space banner.
 
 **Done when:** a space running on the Mac Mini under its own root, with two members (one using only a phone), can create, assign and complete tasks, and each change shows who made it.
@@ -727,7 +804,7 @@ Needs handoff Phase 5.
 
 - [ ] The task sync columns and index, the `sync_sources` table, and credentials in `.config/sources` (added to the bundle).
 - [ ] In the space: "Connect my Ri home" (mint a `home` key), the browser-link route, and `GET /api/space/changes`.
-- [ ] In your home: Settings, Spaces, with connect (by link or invite), list, pause and remove.
+- [ ] In your home: the Spaces section of the Connections page, with connect (by link or invite), sync status, last sync, pause, remove, and Open.
 - [ ] `applyRemoteTask`, `transitionTaskFromSync`, and tombstones, plus tests: idempotency, status changes in any direction, open subtasks, personal fields left untouched.
 - [ ] The pull worker (every 60 s, on focus, and "Sync now") with backoff, plus tests.
 - [ ] The per-source mirror setting and frontmatter fields.
@@ -798,6 +875,25 @@ Needs handoff Phase 5.
 - [ ] The spec: the business model and the infrastructure.
 - [ ] Moving a home to a hosted target.
 
+### 7.1 Reverting
+
+Every stage can be undone. Here is what each one takes.
+
+| What | How to undo | What stays behind |
+|---|---|---|
+| Any phase's code | `git revert` its commits, rebuild, restart | Its new tables and columns, which older code ignores |
+| The database | Nothing to do. `runMigrations` only applies migrations newer than the last one it recorded, so older code boots on a newer database | Unused tables and columns |
+| The laptop as a device | `ri disconnect`, rename `~/ri.retired-<date>` back to `~/ri`, and `ri start` | Anything created on the Mac Mini since then stays there. Copy it back through the API or from a `ri home export` |
+| A move | Move back with the same flow, or restore the pre-move export on the old machine and delete its `MOVED` marker | Changes made on the new machine, unless you move back |
+| Handoff | Bring back every active handoff, then revert. Takeover returns, because its columns stay until handoff Phase 8 | Laptop worktrees, which are harmless |
+| A space | Stop it and archive its root. Your home is untouched. Disconnecting asks whether to keep its tasks as personal ones | The space's own data, in its root |
+| Anything else | Restore the most recent `ri home export` into a fresh root | Changes since that export |
+
+Three rules keep this true:
+- **Rename, never delete.** Retired roots, moved roots, and replaced files are renamed with a date.
+- **Export before migrating.** Take a full export before each phase that migrates the database (Phase 0).
+- **Additive schema only.** Every new column on an existing table is nullable or defaults to 0, and nothing rebuilds a table except handoff Phase 8, which goes last.
+
 ---
 
 ## 8. Schema summary
@@ -805,6 +901,7 @@ Needs handoff Phase 5.
 | Change | Phase | Migration |
 |---|---|---|
 | `api_keys.cli_last_seen_at` | 1 | Add column |
+| `device_requests` | 1 | New table |
 | handoff schema (`handoffs`, chat and import columns) | 4 | See handoff spec (additive) |
 | `home` table and seed | 2 | New table plus a guarded insert |
 | `home_moves` table | 7 | New table |
@@ -819,6 +916,7 @@ Needs handoff Phase 5.
 
 - **Nothing here rebuilds an existing table.** Every migration is still generated, reviewed for rebuilds, and dry-run on a copy of prod with row counts recorded in its phase.
 - **Policy columns** (status, role, state) are NOT NULL with no default, and their creators set them, per CLAUDE.md "Column defaults".
+- **Rollback rule:** every new column on an existing table is nullable or defaults to 0, so older code keeps working on the migrated database (§7.1).
 
 ---
 

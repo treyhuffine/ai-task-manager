@@ -2,7 +2,7 @@
 
 **Status:** not started. Written 2026-09-22.
 **Replaces:** `docs/local-remote-takeover-spec.md` ("Take over locally").
-**Part of:** `docs/homes-spec.md` (Stage 1: its Phase 1 is this doc's Phases 1 and 2, and its Phase 4 is this doc's Phases 3 to 8).
+**Part of:** `docs/homes-spec.md` (Stage 1: its Phase 1 is this doc's Phases 1 and 2, and its Phase 4 is this doc's Phases 3 to 9).
 **How to use this doc:** it is the task list. Check a box (`- [x]`) when the work lands on `main`, and append the short commit hash when useful. Keep the "Done when" lines honest: a phase is done when every line under it is true, not when the code compiles. Record surprises inline under the task they affect.
 
 ---
@@ -17,6 +17,8 @@ Your home (the Mac Mini) runs Ri and your agents. Sometimes you want an executio
 - `ri return` pushes the laptop's work and hands the execution back. The home fast-forwards its worktree, writes a note about what changed, and the home agent keeps going.
 
 The laptop has no Ri database. It holds a worktree, the harness's own chat file, and one small config file that says which home it is connected to.
+
+Work can also start on the laptop. `ri new "<prompt>"` creates the execution in the home and runs it on the laptop from the first message, and `ri track` adopts an agent you already started there by hand. Either way, `ri return` moves it to the home so it keeps going while the laptop is closed.
 
 Handoff replaces "Take over locally". Takeover needs a pasted one-hour token per use, clones into a separate folder, never delivers its note to the agent, and can silently lose the laptop's work on resume (§5.2).
 
@@ -36,6 +38,7 @@ Handoff replaces "Take over locally". Takeover needs a pasted one-hour token per
 10. **v1 laptop harnesses: Claude Code and Codex.** Both keep local transcript files that agentex can read. OpenCode and Cursor are out of scope on the laptop side.
 11. **Takeover leaves the UI in the same commit that adds "Continue on…"**, so there are never two ways shown. Its columns are dropped later in the schema cleanup phase.
 12. **Each phase lands as its own commit(s) on `main`** in the live checkout.
+13. **Every execution lives in one place at a time:** the home or one device. It starts where you start it. From the app it starts on the home, and from `ri new` on a laptop it starts on the laptop. Handoff moves it either way. There is no runner picker.
 
 ---
 
@@ -44,7 +47,6 @@ Handoff replaces "Take over locally". Takeover needs a pasted one-hour token per
 Not decided. None of these block the phases below.
 
 - **Carrying the same conversation across machines** (copy the Claude session file and resume it on the other side). A later experiment, see §8.
-- **Device-code login for `ri connect`** (like `docs/beamd-device-code-contract.md`) instead of pasting a pairing link.
 - **Rail indicator.** This spec adds a small device icon to executions that are active elsewhere. Revisit after use.
 - **Wording.** This spec uses "Continue on {device}" and "Bring back". "Hand off to {device}" is the alternative.
 
@@ -99,11 +101,11 @@ Not decided. None of these block the phases below.
 3. **The history reader can't follow a growing file.** agentex rejects a file that changes during a read (`source_changed_during_read`), and the importer's final commit sets `syncOffset = Math.max(lastNextOffset, after.size)` (`external-agents.ts:975`), so a half-written last line is skipped forever. This also affects today's home imports.
 4. **The home would treat uploaded chats as its own imports.** Its scans would mark them "missing" (the transcript isn't on the home's disk), and "take over import" would try to resume them locally.
 5. **`GET /api/devices` returns whole `api_keys` rows, including `hash`** (`src/app/api/devices/route.ts:23`).
-6. **No "check out an existing remote branch" path.** `createWorktreeForSession` always creates a new branch. Only Phase 9 needs this.
+6. **No "check out an existing remote branch" path.** `createWorktreeForSession` always creates a new branch, and `ensureWorktreeReady` gives a missing worktree a fresh branch off base (`src/lib/runs/dispatch.ts:499`). Work that starts on a device (§6.17) and returns needs the home to build a worktree from a branch that only exists on the remote. Fixed in Phase 3.
 
 ### 5.5 Coordination with the agents view (`docs/agents-view-spec.md`)
 
-- Its **Phase 0** (foreign keys off during migrations, then `foreign_key_check`) must land before this spec's **Phase 7**. Dropping `executions.takeover_chat_session_id` requires rebuilding `executions`.
+- Its **Phase 0** (foreign keys off during migrations, then `foreign_key_check`) has landed as `runMigrations` (`src/lib/db/migrate.ts`). This spec's **Phase 8** needs it, because dropping `executions.takeover_chat_session_id` requires rebuilding `executions`.
 - Its **Phase 1** moves the engine onto `chat_sessions.harness`. Device chats are created through `createExecutionChat`, so they follow whichever representation is current when this lands.
 - Its **Phase 4** adds `chat_events.sender_session_id`. When it exists, the inbound handoff note records the device chat as its sender.
 - The UI says "agent" for a workspace. Copy in this spec follows that.
@@ -190,8 +192,10 @@ Indexes:
 
 The same steps appear inside the "Continue on…" dialog when no CLI device exists yet.
 
-**`ri connect [link]`:**
-- With no argument it prompts for the link with hidden input, which keeps the token out of shell history. The argument form still works for scripts.
+**`ri connect [address or link]`:** with a home address and no token, it uses approve-to-connect (`docs/homes-spec.md` §6.3): this machine shows a code and a device you already use approves it. Pasting a pairing link, described below, stays as the fallback.
+
+**The pasted-link path:**
+- `ri connect --link` prompts for the link with hidden input, which keeps the token out of shell history. Passing the link as an argument still works for scripts. `ri connect` with no argument uses approval and lists homes found on the network.
 - Parses `<base>/#token=<token>`.
 - Calls `GET <base>/api/health` (unauthenticated) and requires `{ ok, app }` with Ri's app id. Otherwise: "That URL isn't a Ri home."
 - Calls `GET <base>/api/devices/me` with the bearer to learn its own device id.
@@ -368,7 +372,7 @@ The answer is remembered in `home.json.checkouts`.
 `POST /api/handoffs/:id/return` with `{ headSha, continue, resolve? }`. Only the handoff's device may call it.
 
 1. Load the handoff. If it isn't active, return 409 `not_active` with its status. If it was already returned at the same `headSha`, return 200 (safe retry).
-2. Open the home worktree. If the folder is missing, recreate it on the same branch through the `continueExecutionSession` path (`reuseBranch: true`).
+2. Open the home worktree. If the folder is missing, or the home never had one (work that started on the device, §6.17), provision it on the execution's branch. Use the local branch if there is one, otherwise fetch `<remote>/<branch>` and track it (the reprovision fix in Phase 3).
 3. `git fetch <remote> <branch>`. Require `git merge-base --is-ancestor <headSha> <remote>/<branch>`, else 409 `not_pushed`.
 4. Require the home worktree to be clean and its HEAD to be an ancestor of `<remote>/<branch>`. Otherwise return 409 `home_dirty` or `home_diverged`, with the file list or commits.
    - With `resolve: 'stash'`: stash (`git stash push -u -m "ri handoff <id>: home changes before return"`), make a backup branch `ri/handoff-backup/<id>` at the old HEAD if diverged, then continue.
@@ -500,11 +504,41 @@ The response is `{ status, commits, filesChanged, continued }`.
 | Scheduled trigger fires into a handed-off execution | The run fails with `handed_off` and shows in run history |
 | `ri continue <ref>` for work with no active handoff | The CLI starts one targeting itself, with the same checks |
 
+
+### 6.17 Starting work on a device
+
+Most agent work on the laptop won't start on the home. This section covers work that starts there.
+
+**`ri new "<prompt>"`**, run inside a repo checkout on a connected device:
+1. Match the repo to a home agent (workspace) by remote URL (§6.7). If none matches, stop: "No agent in your home uses this repo. Add it in the app first."
+2. `POST /api/devices/me/executions { workspaceId, label, prompt, baseBranch?, harness }` creates, in one transaction:
+   - an execution with a branch name (the home's naming, `<slug>/<label-slug>`) and no worktree on the home
+   - an active handoff to this device with `source_chat_session_id` null, `base_sha` set to the base branch's current commit on the remote, and `note_to_device` set to the prompt
+
+   It returns the handoff, the branch, and the base SHA.
+3. The laptop makes the worktree on a new local branch from `<remote>/<base>` (the §6.8 path), runs Setup, launches the harness with the prompt, registers the device chat, and uploads it as in §6.10.
+
+The home shows the execution under its agent, marked "On <device>", from the first second.
+
+**`ri track`**, run in a folder where you already started Claude or Codex by hand:
+1. Find the newest session whose cwd is this folder (agentex `localHistory.discover`). `--session <id>` picks a different one.
+2. Match the repo to a home agent and read the current branch.
+3. If the current branch is the base branch (for example `main`), offer to create a branch for this work first (`git switch -c <name>`), because handoff moves work by branch. `--no-branch` tracks the chat only, and that execution can't be returned until it has a branch.
+4. Create the execution and the active handoff as in `ri new`, with `base_sha` set to the merge base with the base branch. Then register and upload the session as a device chat, and keep following it until the harness exits or the transcript has been idle for 10 minutes. `--detach` follows in the background.
+
+`ri track` leaves the work where it is. It doesn't move it into a Ri worktree.
+
+**Returning** is the normal `ri return` (§6.11). The home has no worktree for this execution yet, so it provisions one on the execution's branch from the remote (the Phase 3 fix). There is no source chat, so the inbound note goes to a new chat on the execution.
+
+**Sessions you never register** stay private to the laptop, as they are today. `ri import-chats` (`docs/homes-spec.md` Phase 5) can bring them in later as read-only chats.
+
+**Limit:** a folder that only exists on the laptop (not a git repo with a remote the home can reach) can be tracked, but it can only ever run on the laptop, and `ri return` refuses with the reason.
+
 ---
 
 ## 7. Phases
 
-Order: 1, 2, 3, 4, 5, 6. Phase 7 needs Phase 6 and agents-view Phase 0. Phase 8 comes last. Phase 9 is an optional follow-on after 8.
+Order: 1 to 9. Phase 8 needs Phase 7, and agents-view Phase 0 (landed). Do Phase 8 last of the build phases: it is the one step that is hard to undo (§7.1).
 
 ### Phase 1: Know which device made a request
 
@@ -525,7 +559,7 @@ Order: 1, 2, 3, 4, 5, 6. Phase 7 needs Phase 6 and agents-view Phase 0. Phase 8 
 - [ ] `ri disconnect`.
 - [ ] Settings, Devices, **Connect a computer**: mint the key, copy the link, show the steps.
 - [ ] Rescope the comment at `src/lib/auth/config-file.ts:4-5`.
-- [ ] ESLint `no-restricted-imports` blocking `@/lib/db` (and `queries`) from `src/cli/commands/{connect,continue,return,serve,handoffs}.ts`, `src/cli/lib/home-*.ts`, and `src/cli/lib/handoff/**`.
+- [ ] ESLint `no-restricted-imports` blocking `@/lib/db` (and `queries`) from `src/cli/commands/{connect,continue,return,serve,handoffs,new,track}.ts`, `src/cli/lib/home-*.ts`, and `src/cli/lib/handoff/**`.
 - [ ] A test that runs the new commands' entry points against a temp `RI_ROOT` and asserts no `data.db` is created.
 - [ ] `docs/remote-access.md`: a section "Connect a laptop's CLI to your home".
 
@@ -545,6 +579,10 @@ Order: 1, 2, 3, 4, 5, 6. Phase 7 needs Phase 6 and agents-view Phase 0. Phase 8 
 **Git** (`src/lib/handoff/git.ts`)
 - [ ] `checkpointAndPush`, `fetchBranch`, `isAncestor`, `fastForwardTo`, `stashChanges`, `createBackupBranch`, `commitsBetween`, `nameStatusBetween`, and `shortstatBetween`. Every call checks `exitCode`.
 - [ ] Tests with temp repos and a bare remote: clean, dirty, push rejected, fast-forward, diverged, dirty home.
+
+**Reprovision on the execution's own branch** (fixes gap 6, also used by `docs/homes-spec.md` moves)
+- [ ] When an execution's worktree folder is missing, `ensureWorktreeReady` and `resumeWorktreeForSession` check out the execution's existing branch: the local branch if present, otherwise fetch `<remote>/<branch>` and track it. Only when the branch exists nowhere do they fall back to a fresh branch off base, with a setup warning that says so.
+- [ ] Tests: local branch, remote-only branch, branch gone.
 
 **Notes** (`src/lib/handoff/notes.ts`)
 - [ ] Outbound and inbound builders, fallbacks, and caps.
@@ -609,7 +647,19 @@ Order: 1, 2, 3, 4, 5, 6. Phase 7 needs Phase 6 and agents-view Phase 0. Phase 8 
 - The home's own import scans never mark them missing.
 - The inbound note summarizes what happened on the laptop.
 
-### Phase 6: Home UI, and takeover leaves
+### Phase 6: Start work on a device
+
+Needs Phases 3 to 5.
+
+- [ ] `POST /api/devices/me/executions`: creates the execution (branch named like the home's, no home worktree) and an active handoff to the calling device in one transaction (§6.17), plus tests: workspace match, non-git refusal, device scope.
+- [ ] `ri new "<prompt>"`: match the repo to an agent, create the execution, make the worktree on a new branch from `<remote>/<base>`, run Setup, launch the harness with the prompt, register and upload the chat. Flags: `--harness`, `--model`, `--label`, `--base <branch>`, `--no-setup`, `--open`.
+- [ ] `ri track`: find the newest session for this folder (`--session <id>` to pick), match the agent, offer a branch when on the base branch (`--no-branch` to track the chat only), create the execution, upload, and follow until the harness exits or the transcript is idle for 10 minutes (`--detach` to follow in the background).
+- [ ] `ri return` on device-started work: the home provisions from the remote branch, and the inbound note goes to a new chat on the execution. Refuse with a reason for folders with no reachable remote.
+- [ ] Tests with temp repos for `ri new` and `ri track`: new branch, tracking on a feature branch, tracking on `main` with branch creation, chat-only tracking.
+
+**Done when:** on the laptop, `ri new` shows "On MacBook" in the home within seconds, `ri track` adopts a hand-started Claude session, and `ri return` on either one keeps the work going on the Mac Mini with the laptop closed.
+
+### Phase 7: Home UI, and takeover leaves
 
 - [ ] `src/lib/api/handoffs.ts` and `src/hooks/use-handoff.ts`.
 - [ ] Continue-on dialog, including the inline connect steps.
@@ -637,21 +687,21 @@ Order: 1, 2, 3, 4, 5, 6. Phase 7 needs Phase 6 and agents-view Phase 0. Phase 8 
 
 **Done when:** the whole flow works from the UI plus `ri continue` and `ri return`, takeover is gone from the UI and CLI, and `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, and `pnpm smoke:agent` pass.
 
-### Phase 7: Drop the takeover columns
+### Phase 8: Drop the takeover columns
 
-Needs agents-view Phase 0. It can ride in the same migration batch as agents-view Phase 1 if the timing lines up.
+Needs agents-view Phase 0, which has landed. Wait until you have lived with handoff and are sure you won't want takeover back (§7.1).
 
 - [ ] Remove the six `takeover_*` columns and `uniq_executions_takeover_token` from `schema.ts`.
 - [ ] Generate the migration and hand-check it:
   - the index drops first
   - the five plain columns use `ALTER TABLE ... DROP COLUMN`
-  - `takeover_chat_session_id` has a foreign key, so it needs an `executions` rebuild that copies `rowid` and every other column, run under Phase 0's foreign-keys-off runner
+  - `takeover_chat_session_id` has a foreign key, so it needs an `executions` rebuild that copies `rowid` and every other column, run under the foreign-keys-off runner (`runMigrations`)
 - [ ] Dry run on a copy of prod. Record before and after counts for `executions`, `chat_sessions`, `chat_events`, `execution_tasks`, `runs`, and `handoffs`. `PRAGMA foreign_key_check` must be empty.
 - [ ] Snapshot prod `data.db` before the first boot on the new code.
 
 **Done when:** the numbers are recorded here, prod boots, and a handoff round trip still works.
 
-### Phase 8: Docs and end-to-end check
+### Phase 9: Docs and end-to-end check
 
 - [ ] Add a "Superseded by `docs/handoff-spec.md`" header to `docs/local-remote-takeover-spec.md`.
 - [ ] `docs/executions-spec.md`: a short "Handoffs" section (one place at a time, device chats).
@@ -669,32 +719,29 @@ Needs agents-view Phase 0. It can ride in the same migration batch as agents-vie
   9. Bring back with the laptop offline pulls what was pushed.
   10. A Codex round trip.
   11. Revoking the laptop with an active handoff reclaims it.
+  12. `ri new` in a laptop repo: the execution shows "On MacBook" in the home at once, and its chat streams.
+  13. `ri track` in a folder where Claude was started by hand: the session shows up in the home and keeps following.
+  14. `ri return` on work that started on the laptop: the home builds a worktree from the remote branch and its agent continues.
 
 **Done when:** every step passes and the results are recorded above.
 
-### Phase 9 (follow-on): Start on the laptop, send to the home
+### 7.1 Reverting
 
-For work begun on the laptop outside any handoff, which you then want running on the home while the laptop is closed.
+Everything here can be undone, and one step is harder than the rest.
 
-- [ ] Home: an "adopt an existing remote branch" option in worktree creation: fetch, then `git worktree add <path> <branch>` tracking the remote, with no new branch.
-- [ ] Schema: `executions.origin_device_id` (nullable FK `api_keys.id`), so a device may upload chats to executions it created.
-- [ ] `POST /api/workspaces/:id/executions/adopt` with `{ branch, label? }` creates an execution and a chat on that branch.
-- [ ] `POST /api/device-chats` also accepts `{ executionId }` when the execution's `origin_device_id` is the caller.
-- [ ] `ri send` from a laptop repo:
-  - match the workspace by remote URL
-  - push the branch and adopt it on the home
-  - upload the current Claude or Codex chat for this folder
-  - start the home agent with an inbound note
-
-**Done when:** from a laptop repo, `ri send` puts the work on the Mac Mini, and the agent continues after the laptop lid closes.
+- **Code:** every phase is its own commits on `main`. `git revert` them, rebuild, and restart.
+- **Database:** every migration here only adds tables and columns, and every new column on an existing table is nullable or defaults to 0. An older build ignores them, and `runMigrations` only applies migrations newer than the last one recorded, so older code boots on a newer database. Keep that rule for every new column so rollback stays safe.
+- **The laptop's connection:** `ri disconnect` deletes `home.json` and revokes the key.
+- **Handoffs in flight:** Bring back every active handoff before reverting, so no execution is left marked "On <device>".
+- **Takeover:** Phase 7 removes it from the UI and CLI. Reverting those commits brings it back, since its columns are still there.
+- **The hard step is Phase 8.** Once the takeover columns are dropped, getting takeover back needs a new migration that re-adds them. Do Phase 8 only when you're sure.
 
 ---
 
 ## 8. Not in this spec
 
-- **Carrying the same conversation across machines.** Copy Claude's session file into the other machine's project folder for its worktree path, then `--resume` it. Worth a measured experiment after Phase 8. It is fragile because transcripts hold absolute paths and are keyed by folder.
+- **Carrying the same conversation across machines.** Copy Claude's session file into the other machine's project folder for its worktree path, then `--resume` it. Worth a measured experiment after Phase 9. It is fragile because transcripts hold absolute paths and are keyed by folder.
 - **Syncing uncommitted files without a commit** (mutagen, sshfs).
-- **Device-code login for `ri connect`.**
 - **Direct device-to-device handoffs** (laptop to desktop). Bring back, then continue on the other device.
 - **OpenCode and Cursor on the laptop.**
 - **Sending messages to a laptop terminal chat from the home or a phone.**
@@ -714,13 +761,14 @@ For work begun on the laptop outside any handoff, which you then want running on
 - `src/app/api/executions/[id]/handoffs/route.ts`
 - `src/app/api/handoffs/[id]/{pickup,return,reclaim,send-note}/route.ts`
 - `src/app/api/device-chats/route.ts`, `src/app/api/device-chats/[id]/windows/route.ts`
-- `src/cli/commands/{connect,disconnect,continue,return,serve,handoffs}.ts`
+- `src/cli/commands/{connect,disconnect,continue,return,serve,handoffs,new,track}.ts`
+- `src/app/api/devices/me/executions/route.ts`
 - `src/cli/lib/{home-config,home-client}.ts`
 - `src/cli/lib/handoff/{checkout,worktree,provision,launch,uploader,tail-reader,state}.ts`
 - `src/lib/api/handoffs.ts`, `src/hooks/use-handoff.ts`
 - `src/components/executions/handoff/{continue-on-dialog,handoff-banner,handoff-card}.tsx`
 - `src/components/settings/connect-computer.tsx`
-- Drizzle migrations (Phase 3 additive, Phase 7 cleanup)
+- Drizzle migrations (Phase 3 additive, Phase 8 cleanup)
 
 **Modified**
 - `src/proxy.ts`
