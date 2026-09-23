@@ -231,7 +231,7 @@ Leave "agent" where it means the AI in general: "agent browser", the "Agent (tri
 
 **Done when:** purpose and instructions can be set, and every new execution in that agent receives the instructions (or logs why it can't).
 
-**Status 2026-09-22:** done except the agent main chat line, which lands with Phase 6.
+**Status 2026-09-22:** done. The agent main chat line landed with Phase 6.
 
 ### Phase 4: Orchestrator actions (MCP and `ri agent` CLI)
 
