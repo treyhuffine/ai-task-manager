@@ -24,7 +24,7 @@ import { ReferencesButton } from './references-pane';
 import { ScratchpadButton } from './scratchpad-pane';
 import { deriveExecutionHeaderStatus } from './execution-header-status';
 import { ExecutionTaskChips } from './execution-task-chips';
-import { resumeCommandForHarness } from '@/lib/agents/registry';
+import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 
 type HeaderLayout = 'right' | 'inline' | 'center';
@@ -943,7 +943,7 @@ function CopyableDetailRow({
 }
 
 function resumeIdLabel(harness: string | null): string {
-  if (harness === 'claude' || harness === 'claude_code') return 'Claude id';
+  if (harness === 'claude') return 'Claude id';
   if (harness === 'codex') return 'Codex id';
   if (harness === 'cursor') return 'Cursor id';
   if (harness === 'opencode') return 'OpenCode id';

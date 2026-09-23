@@ -14,7 +14,7 @@ export function OpenCodeProviderPanel() {
   const queryClient = useQueryClient();
   const providers = useQuery({
     queryKey: ['opencode-providers'],
-    queryFn: () => api.get<{ providers: UpstreamProvider[] }>('/agent/opencode/providers'),
+    queryFn: () => api.get<{ providers: UpstreamProvider[] }>('/harness/opencode/providers'),
     staleTime: 30_000,
   });
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -91,7 +91,7 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
   const methods = useQuery({
     queryKey: ['opencode-provider-methods', provider.id],
     queryFn: () => api.get<{ methods: ProviderAuthMethod[]; canDisconnect: boolean }>(
-      `/agent/opencode/providers/${encodeURIComponent(provider.id)}`,
+      `/harness/opencode/providers/${encodeURIComponent(provider.id)}`,
     ),
   });
   const [methodId, setMethodId] = useState<string | null>(null);
@@ -102,7 +102,7 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
   const [code, setCode] = useState('');
 
   const setKey = useMutation({
-    mutationFn: () => api.put(`/agent/opencode/providers/${encodeURIComponent(provider.id)}`, { apiKey }),
+    mutationFn: () => api.put(`/harness/opencode/providers/${encodeURIComponent(provider.id)}`, { apiKey }),
     onSuccess: () => {
       setApiKey('');
       toast.success(`${provider.name} connected`);
@@ -110,7 +110,7 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
     },
   });
   const beginOAuth = useMutation({
-    mutationFn: () => api.post<ProviderAuthFlow>('/agent/opencode/oauth', {
+    mutationFn: () => api.post<ProviderAuthFlow>('/harness/opencode/oauth', {
       action: 'begin',
       providerId: provider.id,
       methodId: method?.id,
@@ -122,7 +122,7 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
     },
   });
   const completeOAuth = useMutation({
-    mutationFn: () => api.post('/agent/opencode/oauth', {
+    mutationFn: () => api.post('/harness/opencode/oauth', {
       action: 'complete',
       flowId: flow?.id,
       ...(code.trim() ? { code: code.trim() } : {}),
@@ -136,7 +136,7 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
   });
   const disconnect = useMutation({
     mutationFn: async () => {
-      const response = await api.raw(`/agent/opencode/providers/${encodeURIComponent(provider.id)}`, {
+      const response = await api.raw(`/harness/opencode/providers/${encodeURIComponent(provider.id)}`, {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: '{}',

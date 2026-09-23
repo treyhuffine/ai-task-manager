@@ -15,7 +15,7 @@ import { useTriggers, useUpdateTrigger } from '@/hooks/use-triggers';
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { describeFrequency } from '@/lib/scheduler/frequency';
-import { findProvider } from '@/lib/agent-options';
+import { findProvider } from '@/lib/harness/options';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
 
 export default function TriggersPage() {

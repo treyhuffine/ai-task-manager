@@ -102,7 +102,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
     // "Tell us about you" == the free-form context. Name alone (often set at
     // onboarding) doesn't count — the description is the substantive part.
     const profileDone = !!userState?.description?.trim();
-    const modelDone = !!userState?.defaultAgentHarness;
+    const modelDone = !!userState?.defaultHarness;
     const remoteDone = !!baseUrls.data?.tunnel;
     const notificationsDone = (channels.data?.channels.length ?? 0) > 0;
     const connectorsDone = (connections.data?.connections.length ?? 0) > 0;
@@ -119,7 +119,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
       { id: 'browser', section: 'browser', label: 'Set up the agent browser', hint: 'Pick a browser and sign into sites in the Browser tab any time.', done: browserDone },
     ];
     return base.map((i) => ({ ...i, dismissed: dismissed.has(i.id) }));
-  }, [userState?.name, userState?.description, userState?.defaultAgentHarness, baseUrls.data, channels.data, connections.data, browser.data, dismissed]);
+  }, [userState?.name, userState?.description, userState?.defaultHarness, baseUrls.data, channels.data, connections.data, browser.data, dismissed]);
 
   const doneCount = items.filter((i) => i.done).length;
   const pending = items.filter((i) => !i.done && !i.dismissed);

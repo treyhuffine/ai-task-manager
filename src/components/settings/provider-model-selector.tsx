@@ -1,10 +1,10 @@
 'use client';
 
 import { ModelList } from './model-list';
-import type { ModelOption, ProviderId } from '@/lib/agent-options';
+import type { ModelOption, ProviderId } from '@/lib/harness/options';
 
 interface ProviderModelSelectorProps {
-  /** Current provider (user_state.defaultAgentHarness vocabulary). */
+  /** Current provider (user_state.defaultHarness vocabulary). */
   harness: ProviderId;
   /** Current explicit default model id. */
   model: string;

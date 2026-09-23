@@ -39,11 +39,9 @@ import {
   explicitVariantForModel,
   effortOptionsForModel,
   harnessSupportsEffort,
-  providerHarnessKey,
   type ProviderId,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import { writeProviderEffort } from '@/lib/executions/provider-effort';
-import { mapHarnessToProvider } from '@/lib/executor/harness';
 import { ComposerProviderMenu } from './composer-provider-menu';
 import {
   ChatInputEditor,
@@ -54,7 +52,7 @@ import { AttachButton } from '@/components/chat/editor/attach-button';
 import { HOTKEYS } from '@/constants/commands';
 import { useSlashCommands, slashCommandsKey } from '@/hooks/use-slash-commands';
 import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
-import { useAgentHarnesses } from '@/hooks/use-agent-harnesses';
+import { useHarnesses } from '@/hooks/use-harnesses';
 import {
   useSessionReferenceFolders,
   useLoadReferenceTree,
@@ -67,7 +65,8 @@ import type {
 } from '@/components/chat/editor/mention-menu/types';
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { usePrList } from '@/hooks/use-prs';
-import { useAgentModels } from '@/hooks/use-agent-models';
+import { useHarnessModels } from '@/hooks/use-harness-models';
+import type { HarnessId } from '@/lib/harness/registry';
 
 /**
  * Imperative handle for the execution composer. Exposes the minimum
@@ -107,8 +106,8 @@ interface ExecutionComposerProps {
   modelVariant?: string | null;
   /** Per-session effort. Null is accepted only for legacy rows and repaired. */
   effort: EffortLevel | null;
-  /** Agent harness, used to choose the model catalog and supported controls. */
-  harness: string | null;
+  /** The session's harness: picks the model catalog and supported controls. */
+  harness: HarnessId | null;
   disabled?: boolean;
   disabledReason?: string;
   /** Helper copy under the composer, sets expectations. */
@@ -358,11 +357,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // The chip shows the explicit user selection, never what last ran. Claude
     // tier aliases (`opus`/`sonnet`/`haiku`/`fable`) stay generic because the precise
     // version that ran is a per-run fact surfaced in the transcript.
-    const providerId = harness
-      ? mapHarnessToProvider(harness) as ProviderId
-      : null;
-    const { models: harnessModels } = useAgentModels(providerId);
-    const harnesses = useAgentHarnesses();
+    const providerId: ProviderId | null = harness;
+    const { models: harnessModels } = useHarnessModels(providerId);
+    const harnesses = useHarnesses();
     const pinnedModelOption = explicitModelForProvider(
       providerId ?? 'claude',
       model,
@@ -385,7 +382,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOptions = effortOptionsForModel(harness, pinnedModelOption);
     const explicitEffort = explicitEffortForModel(
-      harness ?? providerHarnessKey(providerId ?? 'claude'),
+      providerId ?? 'claude',
       pinnedModelOption,
       effort,
     );
@@ -420,7 +417,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         harnessModels,
       );
       const nextEffort = explicitEffortForModel(
-        harness ?? providerHarnessKey(providerId ?? 'claude'),
+        providerId ?? 'claude',
         nextModel,
         explicitEffort,
       );
@@ -429,7 +426,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
           harness: providerId,
           model: nextModel.id,
           ...(explicitVariantForModel(nextModel, null) ? { variant: explicitVariantForModel(nextModel, null)! } : {}),
-          ...(harnessSupportsEffort(providerHarnessKey(providerId)) ? { effort: nextEffort } : {}),
+          ...(harnessSupportsEffort(providerId) ? { effort: nextEffort } : {}),
         }, editorRef.current?.snapshot() ?? null);
         return;
       }
@@ -453,7 +450,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
           harness: providerId,
           model: explicitModel,
           variant,
-          ...(harnessSupportsEffort(providerHarnessKey(providerId)) ? { effort: explicitEffort } : {}),
+          ...(harnessSupportsEffort(providerId) ? { effort: explicitEffort } : {}),
         }, editorRef.current?.snapshot() ?? null);
         return;
       }
@@ -466,7 +463,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       if (level === explicitEffort) return;
       // An explicit pick, so it's worth remembering for this provider — both
       // for later chats here and for the launcher.
-      writeProviderEffort(providerId ?? harness ?? null, level);
+      writeProviderEffort(providerId, level);
       if (!canChangeEffort && onSwitchProvider && providerId) {
         onSwitchProvider({
           harness: providerId,
@@ -761,7 +758,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     <ComposerProviderMenu
                       open={modelMenuOpen}
                       onOpenChange={setModelMenuOpen}
-                      currentProvider={mapHarnessToProvider(harness ?? 'claude_code') as ProviderId}
+                      currentProvider={providerId ?? 'claude'}
                       model={explicitModel}
                       fallbackLabel={displayModelLabel}
                       onSelectModel={setModel}

@@ -16,7 +16,7 @@ import type {
   RunStatus,
   RunTrigger,
 } from '@/db/types';
-import type { ProviderId } from '@/lib/agent-options';
+import type { ProviderId } from '@/lib/harness/options';
 
 /**
  * The wire picks the engine by `provider`. The create_trigger action stores it

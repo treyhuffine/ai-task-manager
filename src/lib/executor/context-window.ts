@@ -9,7 +9,7 @@
  *    `claude-<family>-<maj>-<min>` becomes "Family Maj.Min". A brand-new
  *    Opus version renders correctly with no code change. This is what lets
  *    us send the `opus`/`sonnet`/`haiku`/`fable` aliases (see
- *    ../agent-options) and
+ *    ../harness/options) and
  *    still show the precise resolved version once a turn has run.
  *
  *  - The **context-window cap** is the one thing the CLI *doesn't* report,

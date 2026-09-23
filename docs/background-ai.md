@@ -23,11 +23,11 @@ tightly-bounded `provider.execute` through `@agentex/agent`, read
   supplies a hand-written `shape` string kept next to its zod schema),
   parses tolerantly (`extractJsonObject` strips fences/prose), validates
   with zod, and retries once with the rejection reason before throwing.
-- `resolveBackgroundHarness()` — `defaultAgentHarness` from user state
+- `resolveBackgroundHarness()` — `defaultHarness` from user state
   (the same default the orchestrator chat uses), falling back to `claude`.
 - `backgroundModelFor(provider, tier)` — `fast` = the provider's cheap
   alias (`CHEAPEST_MODEL`: haiku / gpt-5.4-mini); `standard` = the user's
-  `defaultAgentModel` when it belongs to the provider, else the CLI's own
+  `defaultModel` when it belongs to the provider, else the CLI's own
   default model.
 
 ### Safety posture

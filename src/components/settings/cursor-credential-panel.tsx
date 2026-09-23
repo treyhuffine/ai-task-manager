@@ -18,10 +18,10 @@ export function CursorCredentialPanel() {
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ['cursor-credential'],
-    queryFn: () => api.get<CredentialStatus>('/agent/cursor/key'),
+    queryFn: () => api.get<CredentialStatus>('/harness/cursor/key'),
   });
   const save = useMutation({
-    mutationFn: () => api.put<CredentialStatus>('/agent/cursor/key', { apiKey: key }),
+    mutationFn: () => api.put<CredentialStatus>('/harness/cursor/key', { apiKey: key }),
     onSuccess: (data) => {
       setKey('');
       queryClient.setQueryData(['cursor-credential'], data);
@@ -31,7 +31,7 @@ export function CursorCredentialPanel() {
     },
   });
   const clear = useMutation({
-    mutationFn: () => api.delete<CredentialStatus>('/agent/cursor/key'),
+    mutationFn: () => api.delete<CredentialStatus>('/harness/cursor/key'),
     onSuccess: (data) => {
       queryClient.setQueryData(['cursor-credential'], data);
       void queryClient.invalidateQueries({ queryKey: ['agent-connection', 'cursor'] });

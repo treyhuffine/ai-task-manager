@@ -15,9 +15,9 @@
  * it adds a model tier, optional MCP attachment for tool-using calls, and a
  * structured-JSON variant with zod validation plus one retry.
  *
- * Harness resolution: `defaultAgentHarness` from user state (the same
+ * Harness resolution: `defaultHarness` from user state (the same
  * default the orchestrator chat uses), falling back to claude. Model:
- * `standard` prefers the user's `defaultAgentModel` when it belongs to the
+ * `standard` prefers the user's `defaultModel` when it belongs to the
  * resolved provider, else the CLI's own default; `fast` uses the provider's
  * cheap alias (haiku / gpt-5.4-mini).
  *
@@ -37,8 +37,8 @@ import {
 } from '@agentex/agent';
 import type { z } from 'zod';
 import { CHEAPEST_MODEL } from '@/lib/executor/harness';
-import { modelBelongsToProvider, type ProviderId } from '@/lib/agent-options';
-import { runtimeContextForHarness } from '@/lib/agents/runtime';
+import { modelBelongsToProvider, type ProviderId } from '@/lib/harness/options';
+import { runtimeContextForHarness } from '@/lib/harness/runtime';
 import { getAppRoot } from '@/lib/config/paths';
 import { getUserState } from '@/lib/db/queries';
 
@@ -85,7 +85,7 @@ export interface HarnessOneShotResult {
 
 /** The provider id background calls run on: the user's default agent harness. */
 export function resolveBackgroundHarness(): ProviderId {
-  return (getUserState()?.defaultAgentHarness as ProviderId | null) ?? 'claude';
+  return (getUserState()?.defaultHarness as ProviderId | null) ?? 'claude';
 }
 
 /** Whether the resolved harness can attach MCP servers (Claude yes, Codex not yet). */
@@ -103,7 +103,7 @@ export function harnessSupportsMcp(providerType: ProviderId = resolveBackgroundH
  * the resolved provider — stale cross-provider state falls back cleanly.
  */
 export function backgroundModelFor(providerType: ProviderId, tier: ModelTier): string | undefined {
-  const preferred = getUserState()?.defaultAgentModel?.trim() || undefined;
+  const preferred = getUserState()?.defaultModel?.trim() || undefined;
   const preferredValid = preferred && modelBelongsToProvider(providerType, preferred) ? preferred : undefined;
   if (tier === 'fast') return CHEAPEST_MODEL[providerType] ?? preferredValid;
   return preferredValid;

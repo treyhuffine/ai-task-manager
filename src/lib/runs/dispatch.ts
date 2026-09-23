@@ -311,7 +311,7 @@ function createChatForFire(
       // trigger-fired chats auto-allow rather than inheriting a stale default.
       permissionMode: DEFAULT_PERMISSION_MODE,
       // Propagate the trigger's per-run overrides onto the chat so the
-      // executor adapter's `ensureAgentSession` picks them up via the
+      // executor adapter's `ensureHarnessSession` picks them up via the
       // session row (it reads model/effort/permissionMode/etc. fresh
       // each turn). Trigger edits to model/effort take effect on the
       // next fire's chat — existing chats keep their snapshot.

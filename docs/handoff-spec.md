@@ -88,7 +88,7 @@ Not decided. None of these block the phases below.
 - **Worktree provisioning:** `copyFilesToWorktree` (`src/lib/workspaces/files-to-copy.ts:80`), `runWorktreeScript` (`src/lib/workspaces/index.ts:56`), and the env contract in `docs/worktree-scripts.md` (`RI_SOURCE_CHECKOUT_PATH`, `RI_WORKTREE_PATH`, `RI_BRANCH_NAME`, `PORT`).
 - **History import:** agentex `localHistory.discover / read / fingerprint` is read-only and has no database side, so it runs on the laptop. On the home, `historyEventInput` (`src/lib/import/external-agents.ts:590-619`) and `createHistoryWindowWriter` (801-883) commit one window plus its cursor in one transaction, and don't care where the window came from.
 - **Summaries:** `runHarnessText` (`src/lib/harness/one-shot.ts:113`), `buildRetrospectiveSample` (`src/lib/sessions/derive-label.ts:161`), `condenseEvents` (`src/lib/orchestrator/session-oversight.ts:46`).
-- **Harness commands:** `HARNESS_REGISTRY` and `resumeCommandForHarness` (`src/lib/agents/registry.ts`, around line 202). Verified flags: `claude --session-id <uuid> [prompt]`, `claude --resume <id> [prompt]` (reuses the id, `--fork-session` is opt-in), `codex [prompt]`, `codex resume [SESSION_ID] [PROMPT]`.
+- **Harness commands:** `HARNESS_REGISTRY` and `resumeCommandForHarness` (`src/lib/harness/registry.ts`, around line 202). Verified flags: `claude --session-id <uuid> [prompt]`, `claude --resume <id> [prompt]` (reuses the id, `--fork-session` is opt-in), `codex [prompt]`, `codex resume [SESSION_ID] [PROMPT]`.
 - **Devices:** `api_keys` (`schema.ts:665-691`), the Devices settings pane (`src/components/settings/devices-section.tsx`), pairing links (`buildPairingUrl`, `src/lib/auth/bootstrap.ts:95`).
 - **Unchanged:** same-machine detection (`src/hooks/use-client-location.ts`), open-in-editor via `POST /api/fs/open`, host info.
 
@@ -730,7 +730,7 @@ For work begun on the laptop outside any handoff, which you then want running on
 - Git-changing session routes under `src/app/api/sessions/[id]/`: `push`, `pull-base`, `merge`, `auto-merge`, `wip`, `continue`, `retry-setup`, `retry-setup-script`, `archive`
 - `src/lib/runs/dispatch.ts`
 - `src/lib/orchestrator/registry.ts` (`list_executions`, `send_session_message`)
-- `src/lib/agents/registry.ts` (argv templates)
+- `src/lib/harness/registry.ts` (argv templates)
 - `src/lib/import/external-agents.ts`, `src/lib/executor/reconcile.ts`
 - `src/app/api/sessions/[id]/take-over-import/route.ts`
 - Execution header, execution view, action bar, chat tabs, transcript rendering, and the rail session row

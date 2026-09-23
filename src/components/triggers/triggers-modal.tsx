@@ -35,7 +35,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
-import { findProvider } from '@/lib/agent-options';
+import { findProvider } from '@/lib/harness/options';
 
 type View = 'list' | 'new' | 'webhook-credentials';
 

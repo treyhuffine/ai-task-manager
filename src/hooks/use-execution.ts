@@ -10,7 +10,7 @@ import {
 } from '@/lib/api/sessions';
 import { ApiError } from '@/lib/api/client';
 import { isLaunchPending } from '@/lib/executions/pending-launch';
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 import type { PermissionMode, EffortLevel, Attachment } from '@/db/types';
 import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
@@ -728,6 +728,7 @@ export function useSendMessage(id: string) {
       const placeholder: ChatEventDTO = {
         id: input.eventId,
         sessionId: id,
+        senderSessionId: null,
         role: 'user',
         source: 'user',
         content: input.content,

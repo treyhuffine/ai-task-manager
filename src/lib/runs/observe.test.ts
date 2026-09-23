@@ -15,13 +15,13 @@ vi.mock('@agentex/agent', () => ({
 }));
 
 const isRunningMock = vi.fn();
-const isAgentSessionAliveMock = vi.fn();
+const isHarnessSessionAliveMock = vi.fn();
 vi.mock('@/lib/executor/adapter', () => ({
   dispatch: vi.fn(async () => {}),
   abort: vi.fn(async () => {}),
   isRunning: (id: string) => (isRunningMock as unknown as (id: string) => boolean)(id),
-  isAgentSessionAlive: (id: string) =>
-    (isAgentSessionAliveMock as unknown as (id: string) => boolean)(id),
+  isHarnessSessionAlive: (id: string) =>
+    (isHarnessSessionAliveMock as unknown as (id: string) => boolean)(id),
   ExecutorError: class extends Error {},
 }));
 
@@ -34,7 +34,7 @@ beforeEach(() => {
   }
   process.env.RI_DB_PATH = TEST_DB;
   isRunningMock.mockReset();
-  isAgentSessionAliveMock.mockReset();
+  isHarnessSessionAliveMock.mockReset();
 });
 
 afterAll(() => {
@@ -127,7 +127,7 @@ describe('observeRun', () => {
       startedAt: new Date(Date.now() - 60_000).toISOString(),
     });
     isRunningMock.mockReturnValue(false);
-    isAgentSessionAliveMock.mockReturnValue(false);
+    isHarnessSessionAliveMock.mockReturnValue(false);
     const { observeRun } = await import('./observe');
     const o = observeRun(runId)!;
     expect(o.activity.kind).toBe('crashed');
@@ -138,7 +138,7 @@ describe('observeRun', () => {
   it('awaiting_input: permission_request without response', async () => {
     const { runId, chatId } = await seedRun();
     isRunningMock.mockReturnValue(true);
-    isAgentSessionAliveMock.mockReturnValue(true);
+    isHarnessSessionAliveMock.mockReturnValue(true);
     await insertEvent(chatId, {
       source: 'permission_request',
       toolName: 'Bash',
@@ -153,7 +153,7 @@ describe('observeRun', () => {
   it('awaiting_input: cleared by a permission_response', async () => {
     const { runId, chatId } = await seedRun();
     isRunningMock.mockReturnValue(true);
-    isAgentSessionAliveMock.mockReturnValue(true);
+    isHarnessSessionAliveMock.mockReturnValue(true);
     await insertEvent(chatId, { source: 'permission_request', toolName: 'Bash', ageMs: 20_000 });
     await insertEvent(chatId, { source: 'permission_response', ageMs: 15_000 });
     await insertEvent(chatId, { source: 'agent', ageMs: 5_000 });
@@ -165,7 +165,7 @@ describe('observeRun', () => {
   it('tool_in_flight: tool_call with no matching tool_result', async () => {
     const { runId, chatId } = await seedRun();
     isRunningMock.mockReturnValue(true);
-    isAgentSessionAliveMock.mockReturnValue(true);
+    isHarnessSessionAliveMock.mockReturnValue(true);
     await insertEvent(chatId, {
       source: 'tool_call',
       toolName: 'Bash',
@@ -181,7 +181,7 @@ describe('observeRun', () => {
   it('tool_in_flight: matched tool_result clears it', async () => {
     const { runId, chatId } = await seedRun();
     isRunningMock.mockReturnValue(true);
-    isAgentSessionAliveMock.mockReturnValue(true);
+    isHarnessSessionAliveMock.mockReturnValue(true);
     await insertEvent(chatId, {
       source: 'tool_call',
       toolName: 'Bash',
@@ -202,7 +202,7 @@ describe('observeRun', () => {
   it('working: recent agent event', async () => {
     const { runId, chatId } = await seedRun();
     isRunningMock.mockReturnValue(true);
-    isAgentSessionAliveMock.mockReturnValue(true);
+    isHarnessSessionAliveMock.mockReturnValue(true);
     await insertEvent(chatId, { source: 'agent', ageMs: 5_000 });
     const { observeRun } = await import('./observe');
     const o = observeRun(runId)!;
@@ -213,7 +213,7 @@ describe('observeRun', () => {
   it('stalled: no events for > 5 minutes', async () => {
     const { runId, chatId } = await seedRun();
     isRunningMock.mockReturnValue(true);
-    isAgentSessionAliveMock.mockReturnValue(true);
+    isHarnessSessionAliveMock.mockReturnValue(true);
     await insertEvent(chatId, { source: 'agent', ageMs: 7 * 60_000 });
     const { observeRun } = await import('./observe');
     const o = observeRun(runId)!;
@@ -224,7 +224,7 @@ describe('observeRun', () => {
   it('quiet but not stalled (under threshold)', async () => {
     const { runId, chatId } = await seedRun();
     isRunningMock.mockReturnValue(true);
-    isAgentSessionAliveMock.mockReturnValue(true);
+    isHarnessSessionAliveMock.mockReturnValue(true);
     await insertEvent(chatId, { source: 'agent', ageMs: 90_000 });
     const { observeRun } = await import('./observe');
     const o = observeRun(runId)!;

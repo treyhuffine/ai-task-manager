@@ -6,7 +6,7 @@ import type {
   PermissionMode, EffortLevel, Attachment,
 } from '@/db/types';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 import type { SessionRuntimeStatus } from '@/lib/executor/runtime-status';
 
 // ─── Pending-input wire types ─────────────────────────────────

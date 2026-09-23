@@ -8,7 +8,7 @@ import os from 'node:os';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
-  tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, agentHarnessSettings, agentHarnessOperations, apiKeys,
+  tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -47,7 +47,7 @@ import type {
   WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
   NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
   SkillUsageRecord,
-  AgentHarnessSettingsRecord, UpsertAgentHarnessSettingsInput, AgentHarnessOperationRecord,
+  HarnessSettingsRecord, UpsertHarnessSettingsInput, HarnessOperationRecord,
   StreamStatus,
   TriagePassRecord, TriagePassTrigger,
   TriageDecisionRecord, TriageDecisionState, TriageActor,
@@ -55,7 +55,7 @@ import type {
   StreamOutcome, StreamRecordWithOutcomes,
   TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
 } from '@/db/types';
-import { isHarnessId, type HarnessId } from '@/lib/agents/registry';
+import { isHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -94,12 +94,11 @@ import type { StoredAttachment } from '@/lib/db/schema';
 import {
   bundledModelIds,
   curatedDefaultModelIds,
-  explicitAgentSelection,
+  explicitHarnessSelection,
   modelsForProvider,
   normalizeCustomModelId,
-  providerIdForHarness,
   reconcileEnabledModels,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
 
 // ─── Tasks ────────────────────────────────────────────────────
@@ -3926,13 +3925,13 @@ export function updateUserState(input: UpdateUserStateInput) {
 
 // ─── Agent Harness Settings ──────────────────────────────────
 
-export function getAgentHarnessSettings(harness: HarnessId): AgentHarnessSettingsRecord | undefined {
-  return getDb().select().from(agentHarnessSettings)
-    .where(eq(agentHarnessSettings.harness, harness)).get();
+export function getHarnessSettings(harness: HarnessId): HarnessSettingsRecord | undefined {
+  return getDb().select().from(harnessSettings)
+    .where(eq(harnessSettings.harness, harness)).get();
 }
 
-export function listAgentHarnessSettings(): AgentHarnessSettingsRecord[] {
-  return getDb().select().from(agentHarnessSettings).orderBy(asc(agentHarnessSettings.harness)).all();
+export function listHarnessSettings(): HarnessSettingsRecord[] {
+  return getDb().select().from(harnessSettings).orderBy(asc(harnessSettings.harness)).all();
 }
 
 /**
@@ -3940,15 +3939,15 @@ export function listAgentHarnessSettings(): AgentHarnessSettingsRecord[] {
  * useful default allowlist from the bundled fallback catalog. Dynamic-only
  * harnesses intentionally start empty until the user chooses live models.
  */
-export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSettingsRecord {
-  const existing = getAgentHarnessSettings(harness);
+export function ensureHarnessSettings(harness: HarnessId): HarnessSettingsRecord {
+  const existing = getHarnessSettings(harness);
   if (existing) {
     // Fold in any model bundled since this row was last touched, so a new
     // release surfaces in the picker instead of hiding behind "Show more" —
     // without re-enabling anything the user deliberately turned off.
     const reconciled = reconcileEnabledModels(harness, existing.enabledModels, existing.knownModels);
     if (!reconciled.changed) return existing;
-    return upsertAgentHarnessSettings({
+    return upsertHarnessSettings({
       ...existing,
       enabledModels: reconciled.enabledModels,
       knownModels: reconciled.knownModels,
@@ -3957,7 +3956,7 @@ export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSett
     });
   }
   const state = getUserState();
-  const preferred = state?.defaultAgentHarness === harness ? state.defaultAgentModel : null;
+  const preferred = state?.defaultHarness === harness ? state.defaultModel : null;
   // Seed the curated (non-legacy) bundled models. Claude's are tier aliases
   // that never go stale, so all of them are curated; Codex's superseded tail
   // is flagged legacy and stays one toggle away in settings. `knownModels`
@@ -3967,29 +3966,29 @@ export function ensureAgentHarnessSettings(harness: HarnessId): AgentHarnessSett
     ...(preferred ? [preferred] : []),
     ...curatedDefaultModelIds(harness),
   ])];
-  return upsertAgentHarnessSettings({
+  return upsertHarnessSettings({
     harness,
     enabledModels,
     customModels: [],
     knownModels: bundledModelIds(harness),
     defaultModel: preferred && enabledModels.includes(preferred) ? preferred : enabledModels[0] ?? null,
     defaultVariant: null,
-    defaultEffort: state?.defaultAgentHarness === harness && (harness === 'claude' || harness === 'codex')
-      ? state.defaultAgentEffort
+    defaultEffort: state?.defaultHarness === harness && (harness === 'claude' || harness === 'codex')
+      ? state.defaultEffort
       : null,
     catalogRefreshedAt: null,
   });
 }
 
-export function upsertAgentHarnessSettings(
-  input: UpsertAgentHarnessSettingsInput,
-): AgentHarnessSettingsRecord {
+export function upsertHarnessSettings(
+  input: UpsertHarnessSettingsInput,
+): HarnessSettingsRecord {
   const now = new Date().toISOString();
   const id = input.id ?? `harness:${input.harness}`;
-  return getDb().insert(agentHarnessSettings)
+  return getDb().insert(harnessSettings)
     .values({ ...input, id, updatedAt: now })
     .onConflictDoUpdate({
-      target: agentHarnessSettings.harness,
+      target: harnessSettings.harness,
       set: {
         enabledModels: input.enabledModels,
         // Omitted on the callers that only touch the allowlist, so the pinned
@@ -4018,17 +4017,17 @@ export function setEnabledHarnessModels(
   harness: HarnessId,
   models: string[],
   requestedDefault?: string | null,
-): AgentHarnessSettingsRecord {
+): HarnessSettingsRecord {
   const enabledModels = normalizeEnabledModels(models);
   const db = getDb();
   return db.transaction((tx) => {
-    const existing = tx.select().from(agentHarnessSettings)
-      .where(eq(agentHarnessSettings.harness, harness)).get();
+    const existing = tx.select().from(harnessSettings)
+      .where(eq(harnessSettings.harness, harness)).get();
     const defaultModel = requestedDefault ?? existing?.defaultModel ?? enabledModels[0] ?? null;
     if (defaultModel && !enabledModels.includes(defaultModel)) {
       throw new Error('The default model must be enabled');
     }
-    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultAgentHarness;
+    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultHarness;
     if (active === harness && enabledModels.length === 0) {
       throw new Error('The active harness must have at least one enabled model');
     }
@@ -4037,7 +4036,7 @@ export function setEnabledHarnessModels(
     // as a decision and won't be re-added as "new" on the next reconcile.
     const knownModels = reconcileEnabledModels(harness, enabledModels, existing?.knownModels).knownModels;
     const now = new Date().toISOString();
-    return tx.insert(agentHarnessSettings)
+    return tx.insert(harnessSettings)
       .values({
         id: `harness:${harness}`,
         harness,
@@ -4050,7 +4049,7 @@ export function setEnabledHarnessModels(
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: agentHarnessSettings.harness,
+        target: harnessSettings.harness,
         set: { enabledModels, knownModels, defaultModel, updatedAt: now },
       })
       .returning().get();
@@ -4065,22 +4064,22 @@ export function setEnabledHarnessModels(
  * every downstream validator (session PATCH, dispatch preflight, the enabled
  * allowlist route) reads the merged catalog rather than the raw column.
  */
-export function addCustomHarnessModel(harness: HarnessId, modelId: string): AgentHarnessSettingsRecord {
+export function addCustomHarnessModel(harness: HarnessId, modelId: string): HarnessSettingsRecord {
   const id = normalizeCustomModelId(modelId);
   if (!id) throw new Error('Enter a model ID with no spaces, for example claude-opus-4-8');
-  ensureAgentHarnessSettings(harness);
+  ensureHarnessSettings(harness);
   const db = getDb();
   return db.transaction((tx) => {
-    const row = tx.select().from(agentHarnessSettings)
-      .where(eq(agentHarnessSettings.harness, harness)).get()!;
+    const row = tx.select().from(harnessSettings)
+      .where(eq(harnessSettings.harness, harness)).get()!;
     const customModels = [...new Set([...row.customModels, id])];
     const enabledModels = [...new Set([...row.enabledModels, id])];
-    return tx.update(agentHarnessSettings).set({
+    return tx.update(harnessSettings).set({
       customModels,
       enabledModels,
       defaultModel: row.defaultModel ?? id,
       updatedAt: new Date().toISOString(),
-    }).where(eq(agentHarnessSettings.harness, harness)).returning().get();
+    }).where(eq(harnessSettings.harness, harness)).returning().get();
   });
 }
 
@@ -4091,12 +4090,12 @@ export function addCustomHarnessModel(harness: HarnessId, modelId: string): Agen
  * model (someone pinned `gpt-5.4` by hand): that one still resolves without
  * the pin, so unpinning must not also hide it from the picker.
  */
-export function removeCustomHarnessModel(harness: HarnessId, modelId: string): AgentHarnessSettingsRecord {
+export function removeCustomHarnessModel(harness: HarnessId, modelId: string): HarnessSettingsRecord {
   const id = modelId.trim();
   const db = getDb();
   return db.transaction((tx) => {
-    const row = tx.select().from(agentHarnessSettings)
-      .where(eq(agentHarnessSettings.harness, harness)).get();
+    const row = tx.select().from(harnessSettings)
+      .where(eq(harnessSettings.harness, harness)).get();
     if (!row) throw new Error(`No settings for ${harness}`);
     if (!row.customModels.includes(id)) return row;
     const customModels = row.customModels.filter((entry) => entry !== id);
@@ -4104,14 +4103,14 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): A
     const enabledModels = shadowsCatalogModel
       ? row.enabledModels
       : row.enabledModels.filter((entry) => entry !== id);
-    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultAgentHarness;
+    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultHarness;
     if (active === harness && enabledModels.length === 0) {
       throw new Error('The active harness must have at least one enabled model');
     }
     const replacesDefault = row.defaultModel === id && !shadowsCatalogModel;
     const defaultModel = replacesDefault ? enabledModels[0] ?? null : row.defaultModel;
     const now = new Date().toISOString();
-    const updated = tx.update(agentHarnessSettings).set({
+    const updated = tx.update(harnessSettings).set({
       customModels,
       enabledModels,
       defaultModel,
@@ -4119,11 +4118,11 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): A
       defaultVariant: replacesDefault ? null : row.defaultVariant,
       defaultEffort: replacesDefault ? null : row.defaultEffort,
       updatedAt: now,
-    }).where(eq(agentHarnessSettings.harness, harness)).returning().get();
+    }).where(eq(harnessSettings.harness, harness)).returning().get();
     if (replacesDefault && active === harness) {
       tx.update(userState).set({
-        defaultAgentModel: defaultModel,
-        defaultAgentEffort: null,
+        defaultModel: defaultModel,
+        defaultEffort: null,
         updatedAt: now,
       }).where(eq(userState.id, 1)).run();
     }
@@ -4133,24 +4132,24 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): A
 
 export function setHarnessDefaultSelection(
   harness: HarnessId,
-  selection: { model: string; variant?: string | null; effort?: AgentHarnessSettingsRecord['defaultEffort'] },
-): AgentHarnessSettingsRecord {
+  selection: { model: string; variant?: string | null; effort?: HarnessSettingsRecord['defaultEffort'] },
+): HarnessSettingsRecord {
   const db = getDb();
   return db.transaction((tx) => {
-    const row = tx.select().from(agentHarnessSettings)
-      .where(eq(agentHarnessSettings.harness, harness)).get();
+    const row = tx.select().from(harnessSettings)
+      .where(eq(harnessSettings.harness, harness)).get();
     if (!row || !row.enabledModels.includes(selection.model)) throw new Error('The default model must be enabled');
-    const updated = tx.update(agentHarnessSettings).set({
+    const updated = tx.update(harnessSettings).set({
       defaultModel: selection.model,
       defaultVariant: selection.variant ?? null,
       defaultEffort: selection.effort ?? null,
       updatedAt: new Date().toISOString(),
-    }).where(eq(agentHarnessSettings.harness, harness)).returning().get();
-    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultAgentHarness;
+    }).where(eq(harnessSettings.harness, harness)).returning().get();
+    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultHarness;
     if (active === harness) {
       tx.update(userState).set({
-        defaultAgentModel: selection.model,
-        defaultAgentEffort: selection.effort ?? null,
+        defaultModel: selection.model,
+        defaultEffort: selection.effort ?? null,
         updatedAt: new Date().toISOString(),
       }).where(eq(userState.id, 1)).run();
     }
@@ -4158,18 +4157,18 @@ export function setHarnessDefaultSelection(
   });
 }
 
-export function setActiveHarness(harness: HarnessId): AgentHarnessSettingsRecord {
+export function setActiveHarness(harness: HarnessId): HarnessSettingsRecord {
   const db = getDb();
   return db.transaction((tx) => {
-    const row = tx.select().from(agentHarnessSettings)
-      .where(eq(agentHarnessSettings.harness, harness)).get();
+    const row = tx.select().from(harnessSettings)
+      .where(eq(harnessSettings.harness, harness)).get();
     if (!row?.defaultModel || !row.enabledModels.includes(row.defaultModel)) {
       throw new Error('The selected harness needs an enabled default model');
     }
     tx.update(userState).set({
-      defaultAgentHarness: harness,
-      defaultAgentModel: row.defaultModel,
-      defaultAgentEffort: row.defaultEffort,
+      defaultHarness: harness,
+      defaultModel: row.defaultModel,
+      defaultEffort: row.defaultEffort,
       updatedAt: new Date().toISOString(),
     }).where(eq(userState.id, 1)).run();
     return row;
@@ -4180,23 +4179,23 @@ export function beginProviderDisconnectSaga(input: {
   upstreamProviderId: string;
   replacementHarness?: HarnessId | null;
   replacementModel?: string | null;
-}): AgentHarnessOperationRecord {
+}): HarnessOperationRecord {
   const db = getDb();
   return db.transaction((tx) => {
     if (input.replacementHarness) {
-      const replacement = tx.select().from(agentHarnessSettings)
-        .where(eq(agentHarnessSettings.harness, input.replacementHarness)).get();
+      const replacement = tx.select().from(harnessSettings)
+        .where(eq(harnessSettings.harness, input.replacementHarness)).get();
       if (!replacement || !input.replacementModel || !replacement.enabledModels.includes(input.replacementModel)) {
         throw new Error('A valid enabled replacement selection is required');
       }
       tx.update(userState).set({
-        defaultAgentHarness: input.replacementHarness,
-        defaultAgentModel: input.replacementModel,
-        defaultAgentEffort: replacement.defaultEffort,
+        defaultHarness: input.replacementHarness,
+        defaultModel: input.replacementModel,
+        defaultEffort: replacement.defaultEffort,
         updatedAt: new Date().toISOString(),
       }).where(eq(userState.id, 1)).run();
     }
-    return tx.insert(agentHarnessOperations).values({
+    return tx.insert(harnessOperations).values({
       id: uuidv7(),
       harness: 'opencode',
       operation: 'disconnect_upstream_provider',
@@ -4208,26 +4207,26 @@ export function beginProviderDisconnectSaga(input: {
   });
 }
 
-export function completeProviderDisconnectSaga(id: string): AgentHarnessOperationRecord | undefined {
-  return getDb().update(agentHarnessOperations).set({
+export function completeProviderDisconnectSaga(id: string): HarnessOperationRecord | undefined {
+  return getDb().update(harnessOperations).set({
     status: 'completed', lastErrorCode: null, updatedAt: new Date().toISOString(),
-  }).where(eq(agentHarnessOperations.id, id)).returning().get();
+  }).where(eq(harnessOperations.id, id)).returning().get();
 }
 
-export function failProviderDisconnectSaga(id: string, safeErrorCode: string): AgentHarnessOperationRecord | undefined {
-  return getDb().update(agentHarnessOperations).set({
+export function failProviderDisconnectSaga(id: string, safeErrorCode: string): HarnessOperationRecord | undefined {
+  return getDb().update(harnessOperations).set({
     status: 'failed', lastErrorCode: safeErrorCode.slice(0, 100), updatedAt: new Date().toISOString(),
-  }).where(eq(agentHarnessOperations.id, id)).returning().get();
+  }).where(eq(harnessOperations.id, id)).returning().get();
 }
 
-export function getProviderDisconnectSaga(id: string): AgentHarnessOperationRecord | undefined {
-  return getDb().select().from(agentHarnessOperations).where(eq(agentHarnessOperations.id, id)).get();
+export function getProviderDisconnectSaga(id: string): HarnessOperationRecord | undefined {
+  return getDb().select().from(harnessOperations).where(eq(harnessOperations.id, id)).get();
 }
 
-export function listRetryableProviderDisconnectSagas(): AgentHarnessOperationRecord[] {
-  return getDb().select().from(agentHarnessOperations)
-    .where(inArray(agentHarnessOperations.status, ['pending', 'failed']))
-    .orderBy(asc(agentHarnessOperations.createdAt)).all();
+export function listRetryableProviderDisconnectSagas(): HarnessOperationRecord[] {
+  return getDb().select().from(harnessOperations)
+    .where(inArray(harnessOperations.status, ['pending', 'failed']))
+    .orderBy(asc(harnessOperations.createdAt)).all();
 }
 
 // ─── API Keys ─────────────────────────────────────────────────
@@ -4823,7 +4822,7 @@ export function reorderWorkspaces(orderedIds: string[]): void {
  * Without it, a Codex user's triggers silently ran on Claude.
  */
 export function defaultTriggerHarness(): HarnessId {
-  const saved = getUserState()?.defaultAgentHarness;
+  const saved = getUserState()?.defaultHarness;
   // A saved provider that has since been switched off by its rollout flag
   // falls back rather than pinning a trigger that can never run.
   return isHarnessId(saved) ? saved : 'claude';
@@ -5405,7 +5404,7 @@ export function getChatSession(id: string): ChatSessionRecord | undefined {
 export function createChatSession(input: CreateChatSessionInput & { id?: string }): ChatSessionRecord {
   const db = getDb();
   const providerId = input.harness;
-  const selection = explicitAgentSelection(
+  const selection = explicitHarnessSelection(
     providerId,
     { model: input.model, variant: input.modelVariant, effort: input.effort },
   );
@@ -5454,7 +5453,7 @@ export function updateChatSession(id: string, input: UpdateChatSessionInput): Ch
         .get();
       normalized = {
         ...input,
-        externalProviderType: providerIdForHarness(session?.harness),
+        externalProviderType: session?.harness ?? null,
       };
     }
   }
@@ -5612,7 +5611,7 @@ export function createExecutionWithChat(params: {
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const db = getDb();
   const now = new Date().toISOString();
-  const selection = explicitAgentSelection(
+  const selection = explicitHarnessSelection(
     params.harness,
     { model: params.model, variant: params.modelVariant, effort: params.effort },
   );

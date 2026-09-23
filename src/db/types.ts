@@ -2,9 +2,9 @@
 // Source of truth: src/lib/db/schema.ts
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, agentHarnessSettings, agentHarnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -41,9 +41,9 @@ type PolicyOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 export type UserStateRecord = InferSelectModel<typeof userState>;
 export type UpdateUserStateInput = Partial<Omit<InferInsertModel<typeof userState>, 'id'>>;
 
-export type AgentHarnessSettingsRecord = InferSelectModel<typeof agentHarnessSettings>;
-export type UpsertAgentHarnessSettingsInput = Omit<InferInsertModel<typeof agentHarnessSettings>, 'id'> & { id?: string };
-export type AgentHarnessOperationRecord = InferSelectModel<typeof agentHarnessOperations>;
+export type HarnessSettingsRecord = InferSelectModel<typeof harnessSettings>;
+export type UpsertHarnessSettingsInput = Omit<InferInsertModel<typeof harnessSettings>, 'id'> & { id?: string };
+export type HarnessOperationRecord = InferSelectModel<typeof harnessOperations>;
 
 // ─── Areas ────────────────────────────────────────────────────
 

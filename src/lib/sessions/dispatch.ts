@@ -40,7 +40,7 @@ import {
   resetExecutionForReprovision,
   archiveExecution,
   unarchiveExecution,
-  ensureAgentHarnessSettings,
+  ensureHarnessSettings,
 } from '@/lib/db/queries';
 import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
 import {
@@ -54,10 +54,10 @@ import {
 import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
-import { invalidateAgentSession, close as closeAgentSession } from '@/lib/executor/adapter';
+import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord } from '@/db/types';
-import { providerHarnessKey, providerIdForHarness } from '@/lib/agent-options';
-import { resolveAgentSelection } from '@/lib/agent-model-discovery';
+import { requireHarnessId } from '@/lib/harness/options';
+import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 
 const execFileAsync = promisify(execFile);
 
@@ -105,7 +105,7 @@ export interface DispatchExecutionSessionArgs {
    * Explicit agent selection from the launcher's model control. When
    * omitted, the saved global default tuple is used (the historical
    * behavior). `model` is only meaningful alongside a matching `harness`
-   * — the launcher always sends the pair, and `resolveAgentSelection`
+   * — the launcher always sends the pair, and `resolveHarnessSelection`
    * repairs a mismatch rather than dispatching an invalid model.
    */
   model?: string | null;
@@ -185,20 +185,20 @@ export async function dispatchExecutionSession(
   }
 
   const userState = getUserState();
-  const harness = args.harness
-    ?? providerHarnessKey(userState?.defaultAgentHarness ?? 'claude');
-  const providerId = providerIdForHarness(harness);
-  const harnessSettings = ensureAgentHarnessSettings(providerId);
-  const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
+  const providerId = args.harness
+    ? requireHarnessId(args.harness)
+    : userState?.defaultHarness ?? 'claude';
+  const harnessSettings = ensureHarnessSettings(providerId);
+  const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
   // Explicit args (the launcher's model control) beat the saved default
   // tuple, which in turn beats the provider's own default.
-  const selection = await resolveAgentSelection(providerId, {
+  const selection = await resolveHarnessSelection(providerId, {
     model: args.model
-      ?? (savedTupleMatchesProvider ? userState?.defaultAgentModel : null)
+      ?? (savedTupleMatchesProvider ? userState?.defaultModel : null)
       ?? harnessSettings.defaultModel,
     variant: args.modelVariant ?? harnessSettings.defaultVariant,
     effort: args.effort
-      ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null)
+      ?? (savedTupleMatchesProvider ? userState?.defaultEffort : null)
       ?? harnessSettings.defaultEffort,
   }, { cwd: ws.cwd, repairInvalidModel: true });
   // The launcher supplies this so it can navigate before the create resolves;
@@ -562,7 +562,7 @@ export async function archiveExecutionSession(
   const reapSessionIds = session.executionId
     ? listChatSessions({ executionId: session.executionId }).map((s) => s.id)
     : [args.sessionId];
-  await Promise.all(reapSessionIds.map((id) => closeAgentSession(id)));
+  await Promise.all(reapSessionIds.map((id) => closeHarnessSession(id)));
 
   return getChatSessionWithExecution(args.sessionId);
 }
@@ -644,7 +644,7 @@ export async function continueExecutionSession(
       // The chat's harness process was torn down when it was archived.
       // Dropping any stale in-memory handle guarantees the next dispatch
       // fresh-spawns (and resumes off the persisted external session id).
-      invalidateAgentSession(args.sessionId);
+      invalidateHarnessSession(args.sessionId);
     }
     return getChatSessionWithExecution(args.sessionId);
   }
@@ -675,9 +675,9 @@ export async function continueExecutionSession(
     // Drop any in-process executor handle for this chat. The cached
     // `AgentSession` is keyed by chat id and may still hold a reference to
     // a subprocess that died (or worse, is hanging) when its worktree was
-    // pulled out from under it. `invalidateAgentSession` is cheap and
+    // pulled out from under it. `invalidateHarnessSession` is cheap and
     // guarantees the next dispatch goes through the fresh-spawn path.
-    invalidateAgentSession(args.sessionId);
+    invalidateHarnessSession(args.sessionId);
 
     void provisionWorktreeForSession({
       ws,

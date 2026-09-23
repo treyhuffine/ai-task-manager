@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api/client';
 import type { ChatSessionRecord, EffortLevel } from '@/db/types';
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 
 /** Mirrors `user_state.orchestratorMode` (see schema.ts). */
 export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';

@@ -280,7 +280,7 @@ Important constraints:
 
 - `ProviderId` is `'claude' | 'codex'`
 - Internal agent harness values are `'claude_code' | 'codex'`
-- `user_state.defaultAgentHarness` is typed for Claude and Codex only
+- `user_state.defaultHarness` is typed for Claude and Codex only
 - Agent model, auth, and verify routes hardcode allowlists
 - Onboarding hardcodes two harness cards
 - New-chat and document-chat routes accept only Claude and Codex
@@ -292,15 +292,15 @@ Important constraints:
 
 Primary app files include:
 
-- `src/lib/agent-options.ts`
-- `src/lib/agent-model-discovery.ts`
+- `src/lib/harness/options.ts`
+- `src/lib/harness/model-discovery.ts`
 - `src/lib/executor/harness.ts`
 - `src/lib/executor/adapter.ts`
 - `src/lib/executor/reconcile.ts`
 - `src/lib/sessions/dispatch.ts`
 - `src/lib/db/schema.ts`
 - `src/lib/db/queries.ts`
-- `src/app/api/agent/*`
+- `src/app/api/harness/*`
 - `src/app/api/orchestrator-chat/route.ts`
 - `src/app/api/document-chat/route.ts`
 - `src/app/api/sessions/[id]/*`
@@ -732,7 +732,7 @@ Create a single app registry that owns identity and presentation metadata.
 Suggested file:
 
 ```text
-src/lib/agents/registry.ts
+src/lib/harness/registry.ts
 ```
 
 Suggested shape:
@@ -917,13 +917,13 @@ Rules:
 
 ## 9. Persistence and migration
 
-### 9.1 New `agent_harness_settings` table
+### 9.1 New `harness_settings` table
 
 Add one row per local user and harness.
 
 ```ts
-export const agentHarnessSettings = sqliteTable(
-  'agent_harness_settings',
+export const harnessSettings = sqliteTable(
+  'harness_settings',
   {
     id: text().primaryKey(),
     ...timestamps,
@@ -957,7 +957,7 @@ Why a table instead of more singleton JSON on `user_state`:
 
 ### 9.2 `user_state`
 
-Expand `defaultAgentHarness` to:
+Expand `defaultHarness` to:
 
 ```text
 claude | codex | cursor | opencode
@@ -965,12 +965,12 @@ claude | codex | cursor | opencode
 
 Keep these existing fields during migration:
 
-- `defaultAgentModel`
-- `defaultAgentEffort`
+- `defaultModel`
+- `defaultEffort`
 
-`user_state.defaultAgentHarness` is the source of truth for the active harness. `agent_harness_settings` is the source of truth for that harness's default model, variant, effort, and allowlist.
+`user_state.defaultHarness` is the source of truth for the active harness. `harness_settings` is the source of truth for that harness's default model, variant, effort, and allowlist.
 
-Keep `defaultAgentModel` and `defaultAgentEffort` only as compatibility mirrors while old call sites are migrated. Update them transactionally from the active harness settings row. Do not add `defaultAgentVariant` to `user_state` because that would create another duplicated global tuple field.
+Keep `defaultModel` and `defaultEffort` only as compatibility mirrors while old call sites are migrated. Update them transactionally from the active harness settings row. Do not add `defaultAgentVariant` to `user_state` because that would create another duplicated global tuple field.
 
 ### 9.3 `chat_sessions`
 
@@ -988,11 +988,11 @@ For existing users:
 
 1. Create a Claude settings row with the existing Claude fallback models enabled
 2. Create a Codex settings row with the current Codex fallback models enabled
-3. If `user_state.defaultAgentHarness` and legacy model are set, ensure that model is enabled and defaulted in its harness row
+3. If `user_state.defaultHarness` and legacy model are set, ensure that model is enabled and defaulted in its harness row
 4. Do not create Cursor or OpenCode enabled-model selections until discovery or onboarding occurs
 5. Leave existing chat `modelVariant` null
 6. Preserve all existing chat model and effort values
-7. Mirror the active harness row back to legacy `defaultAgentModel` and `defaultAgentEffort` fields in the same transaction
+7. Mirror the active harness row back to legacy `defaultModel` and `defaultEffort` fields in the same transaction
 
 Migration must be idempotent at the query/helper level because local databases can skip onboarding paths.
 
@@ -1011,14 +1011,14 @@ setActiveHarness(harness)
 
 Route handlers must use these functions and must not write raw SQL.
 
-`setActiveHarness` must validate that the target harness has an enabled and usable default, update `defaultAgentHarness`, and mirror the target row's model and effort into legacy fields in one transaction.
+`setActiveHarness` must validate that the target harness has an enabled and usable default, update `defaultHarness`, and mirror the target row's model and effort into legacy fields in one transaction.
 
 ### 9.6 Agent harness operations
 
 Persist cross-store operations that require retry.
 
 ```ts
-export const agentHarnessOperations = sqliteTable('agent_harness_operations', {
+export const agentHarnessOperations = sqliteTable('harness_operations', {
   id: text().primaryKey(),
   ...timestamps,
   harness: text().notNull(),
@@ -1048,7 +1048,7 @@ listRetryableProviderDisconnectSagas()
 ### 10.1 List harnesses
 
 ```text
-GET /api/agent/harnesses
+GET /api/harness/harnesses
 ```
 
 Response:
@@ -1068,7 +1068,7 @@ interface HarnessSummary {
 ### 10.2 Catalog
 
 ```text
-GET /api/agent/models?harness=<id>&workspaceId=<optional>&refresh=<optional>
+GET /api/harness/models?harness=<id>&workspaceId=<optional>&refresh=<optional>
 ```
 
 Response is `HarnessCatalogResponse`.
@@ -1083,7 +1083,7 @@ Validation:
 ### 10.3 Enabled models
 
 ```text
-PUT /api/agent/models/enabled
+PUT /api/harness/models/enabled
 ```
 
 Request:
@@ -1115,8 +1115,8 @@ Behavior:
 Keep the existing routes but generalize their response model.
 
 ```text
-POST /api/agent/auth
-POST /api/agent/verify
+POST /api/harness/auth
+POST /api/harness/verify
 ```
 
 Auth response must support multiple paths:
@@ -1146,8 +1146,8 @@ Do not make `hasSubscription`, `hasApiKey`, or `hasBedrock` the universal client
 Cursor credential writes use explicit actions on the auth route or dedicated nested routes:
 
 ```text
-PUT    /api/agent/cursor/api-key
-DELETE /api/agent/cursor/api-key
+PUT    /api/harness/cursor/api-key
+DELETE /api/harness/cursor/api-key
 ```
 
 `PUT` accepts the key once, seals it immediately in precious-local storage, registers it with the runtime redactor, and returns only presence metadata. `DELETE` removes the sealed key and clears relevant auth and model caches. Execution and discovery open the key only long enough to construct a `CURSOR_API_KEY` environment overlay.
@@ -1157,12 +1157,12 @@ Verification chooses an enabled cheap model when possible. If no model is enable
 ### 10.5 OpenCode upstream providers
 
 ```text
-GET    /api/agent/opencode/providers
-GET    /api/agent/opencode/providers/:providerId/auth-methods
-PUT    /api/agent/opencode/providers/:providerId/api-key
-POST   /api/agent/opencode/providers/:providerId/oauth/begin
-POST   /api/agent/opencode/providers/:providerId/oauth/complete
-DELETE /api/agent/opencode/providers/:providerId/auth
+GET    /api/harness/opencode/providers
+GET    /api/harness/opencode/providers/:providerId/auth-methods
+PUT    /api/harness/opencode/providers/:providerId/api-key
+POST   /api/harness/opencode/providers/:providerId/oauth/begin
+POST   /api/harness/opencode/providers/:providerId/oauth/complete
+DELETE /api/harness/opencode/providers/:providerId/auth
 ```
 
 All routes delegate to `agentex` OpenCode configuration APIs.
@@ -2391,7 +2391,7 @@ Exit criteria:
 
 ### Milestone 1: App harness registry
 
-- [ ] `[APP]` Create `src/lib/agents/registry.ts`
+- [ ] `[APP]` Create `src/lib/harness/registry.ts`
 - [ ] `[APP]` Define `HarnessId` with exactly Claude, Codex, Cursor, and OpenCode
 - [ ] `[APP]` Define maximum and effective app capability models
 - [ ] `[APP]` Store only maximum capabilities in the static registry
@@ -2409,7 +2409,7 @@ Exit criteria:
 
 Affected app areas:
 
-- [ ] `[APP]` Update `src/lib/agent-options.ts`
+- [ ] `[APP]` Update `src/lib/harness/options.ts`
 - [ ] `[APP]` Update `src/lib/executor/harness.ts`
 - [ ] `[APP]` Update `src/lib/sessions/dispatch.ts`
 - [ ] `[APP]` Update orchestrator and document chat routes
@@ -2426,15 +2426,15 @@ Exit criteria:
 
 ### Milestone 2: Persistence and model allowlists
 
-- [ ] `[APP]` Add `agent_harness_settings` schema with shared timestamps
+- [ ] `[APP]` Add `harness_settings` schema with shared timestamps
 - [ ] `[APP]` Add derived types in `src/db/types.ts`
-- [ ] `[APP]` Expand `user_state.defaultAgentHarness`
-- [ ] `[APP]` Make `defaultAgentHarness` the active-harness source of truth
+- [ ] `[APP]` Expand `user_state.defaultHarness`
+- [ ] `[APP]` Make `defaultHarness` the active-harness source of truth
 - [ ] `[APP]` Store enabled models as model ID strings only
-- [ ] `[APP]` Store per-harness model, variant, and effort defaults only in `agent_harness_settings`
+- [ ] `[APP]` Store per-harness model, variant, and effort defaults only in `harness_settings`
 - [ ] `[APP]` Keep legacy global model and effort fields as transactionally mirrored compatibility fields
 - [ ] `[APP]` Add `chat_sessions.modelVariant`
-- [ ] `[APP]` Add secret-free `agent_harness_operations` table with shared timestamps
+- [ ] `[APP]` Add secret-free `harness_operations` table with shared timestamps
 - [ ] `[APP]` Add pending, completed, and failed disconnect operation states
 - [ ] `[APP]` Generate the Drizzle migration
 - [ ] `[APP]` Implement populated-database backfill for Claude and Codex settings
@@ -2457,15 +2457,15 @@ Exit criteria:
 ### Milestone 3: Catalog service and APIs
 
 - [ ] `[APP]` Replace `ModelOption` with the richer harness model view or add an adapter type
-- [ ] `[APP]` Refactor `src/lib/agent-model-discovery.ts` around the registry
+- [ ] `[APP]` Refactor `src/lib/harness/model-discovery.ts` around the registry
 - [ ] `[APP]` Add context-aware cache keys without raw secrets
 - [ ] `[APP]` Add manual refresh support
 - [ ] `[APP]` Add persisted unavailable-model merge behavior
 - [ ] `[APP]` Replace model availability boolean with status and reason
-- [ ] `[APP]` Add `GET /api/agent/harnesses`
+- [ ] `[APP]` Add `GET /api/harness/harnesses`
 - [ ] `[APP]` Return effective capabilities, binary compatibility, and protocol profile from the harness API
-- [ ] `[APP]` Generalize `GET /api/agent/models`
-- [ ] `[APP]` Add `PUT /api/agent/models/enabled`
+- [ ] `[APP]` Generalize `GET /api/harness/models`
+- [ ] `[APP]` Add `PUT /api/harness/models/enabled`
 - [ ] `[APP]` Update enabled model IDs and per-harness default selection atomically
 - [ ] `[APP]` Generalize auth response types
 - [ ] `[APP]` Generalize verify route selection
@@ -2908,8 +2908,8 @@ Cursor:
 
 Local source anchors:
 
-- App agent selection: `src/lib/agent-options.ts`
-- App model discovery: `src/lib/agent-model-discovery.ts`
+- App agent selection: `src/lib/harness/options.ts`
+- App model discovery: `src/lib/harness/model-discovery.ts`
 - App executor adapter: `src/lib/executor/adapter.ts`
 - App reconciliation: `src/lib/executor/reconcile.ts`
 - App schema: `src/lib/db/schema.ts`

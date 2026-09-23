@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { CornerDownLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { normalizeCustomModelId, type ModelOption, type ProviderId } from '@/lib/agent-options';
-import { useAddCustomModel } from '@/hooks/use-agent-harnesses';
+import { normalizeCustomModelId, type ModelOption, type ProviderId } from '@/lib/harness/options';
+import { useAddCustomModel } from '@/hooks/use-harnesses';
 
 /**
  * Type an exact provider model id and use it immediately.

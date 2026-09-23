@@ -1,28 +1,26 @@
-import type { AgentAuthResponse } from '@/app/api/agent/auth/route';
-import type { AgentVerifyResponse } from '@/app/api/agent/verify/route';
+import type { HarnessAuthResponse } from '@/app/api/harness/auth/route';
+import type { HarnessVerifyResponse } from '@/app/api/harness/verify/route';
 import type { Attachment } from '@/db/types';
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 
-export type AgentHarness = HarnessId;
-
-/** Wire shape returned by /api/agent/auth — imported so client and server
+/** Wire shape returned by /api/harness/auth — imported so client and server
  *  share a single source of truth. */
-export type AgentAuthReport = AgentAuthResponse;
+export type HarnessAuthReport = HarnessAuthResponse;
 
-export interface AgentVerifyState {
+export interface HarnessVerifyState {
   phase: 'idle' | 'running' | 'ok' | 'failed' | 'skipped';
-  result?: AgentVerifyResponse;
+  result?: HarnessVerifyResponse;
   error?: string;
 }
 
-export interface AgentAuthState {
+export interface HarnessAuthState {
   phase: 'idle' | 'checking' | 'ready' | 'error';
-  report?: AgentAuthReport;
+  report?: HarnessAuthReport;
   error?: string;
   /** Real round-trip verification that follows the fast auth check. Runs
    *  automatically once auth reports a usable path so the user can't reach
    *  the next step without confirming the agent actually responds. */
-  verify: AgentVerifyState;
+  verify: HarnessVerifyState;
   /** Explicit acknowledgement that the user accepts metered API-key billing
    *  when no subscription is available. Required to leave the Agent step in
    *  the api-key-only path. */
@@ -33,10 +31,10 @@ export interface WizardState {
   name: string;
   description: string;
   areas: Array<{ name: string; emoji: string | null; attachments: Attachment[] }>;
-  agentHarness: AgentHarness;
+  harness: HarnessId;
   /** Explicit default model id for the chosen provider. */
-  agentModel: string;
-  agentAuth: AgentAuthState;
+  model: string;
+  harnessAuth: HarnessAuthState;
   /** User-level skill discovery for ordinary agent sessions in any project. */
   globalSkillEnabled: boolean | null;
   importSkipped: boolean;

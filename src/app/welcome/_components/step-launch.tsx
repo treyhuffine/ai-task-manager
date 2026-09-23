@@ -2,7 +2,7 @@ import { Rocket, Check, User, Layers, Bot, Upload, Globe2 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import type { WizardState } from './types';
 
-const HARNESS_LABEL: Record<WizardState['agentHarness'], string> = {
+const HARNESS_LABEL: Record<WizardState['harness'], string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   cursor: 'Cursor',
@@ -10,7 +10,7 @@ const HARNESS_LABEL: Record<WizardState['agentHarness'], string> = {
 };
 
 function agentAuthSummary(state: WizardState): string {
-  const auth = state.agentAuth;
+  const auth = state.harnessAuth;
   if (auth.phase !== 'ready' || !auth.report) return 'Authentication not verified';
   const { hasSubscription, hasApiKey, hasBedrock } = auth.report;
   if (hasSubscription && hasApiKey) return 'Subscription active (API key also set)';
@@ -35,7 +35,7 @@ export function StepLaunch({ state }: { state: WizardState }) {
     },
     {
       icon: Bot,
-      label: HARNESS_LABEL[state.agentHarness],
+      label: HARNESS_LABEL[state.harness],
       sub: agentAuthSummary(state),
     },
     {

@@ -9,7 +9,7 @@ const setExecutionLabel = vi.fn();
 const isRunning = vi.fn();
 const resolveCwd = vi.fn();
 const recycleForModeChange = vi.fn<(id: string) => Promise<void>>().mockResolvedValue(undefined);
-const getAgentModelCatalog = vi.fn();
+const getHarnessModelCatalog = vi.fn();
 const getHarnessRuntime = vi.fn();
 
 vi.mock('@/lib/db/queries', () => ({
@@ -26,12 +26,12 @@ vi.mock('@/lib/executor/adapter', () => ({
   recycleForModeChange: (id: string) => recycleForModeChange(id),
 }));
 
-vi.mock('@/lib/agent-model-discovery', () => ({
-  getAgentModelCatalog: (providerId: string, options: unknown) =>
-    getAgentModelCatalog(providerId, options),
+vi.mock('@/lib/harness/model-discovery', () => ({
+  getHarnessModelCatalog: (providerId: string, options: unknown) =>
+    getHarnessModelCatalog(providerId, options),
 }));
 
-vi.mock('@/lib/agents/runtime', () => ({
+vi.mock('@/lib/harness/runtime', () => ({
   getHarnessRuntime: (providerId: string, options: unknown) =>
     getHarnessRuntime(providerId, options),
 }));
@@ -78,7 +78,7 @@ beforeEach(() => {
   isRunning.mockReset().mockReturnValue(false);
   resolveCwd.mockReset().mockReturnValue('/tmp/workspace');
   recycleForModeChange.mockClear();
-  getAgentModelCatalog.mockReset().mockResolvedValue([
+  getHarnessModelCatalog.mockReset().mockResolvedValue([
     { id: 'opus', label: 'Opus' },
     { id: 'sonnet', label: 'Sonnet' },
   ]);
@@ -119,9 +119,9 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     expect(response.status).toBe(200);
     expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { effort: 'xhigh' });
     expect(updateUserState).toHaveBeenCalledWith({
-      defaultAgentHarness: 'claude',
-      defaultAgentModel: 'opus',
-      defaultAgentEffort: 'xhigh',
+      defaultHarness: 'claude',
+      defaultModel: 'opus',
+      defaultEffort: 'xhigh',
     });
     expect(recycleForModeChange).toHaveBeenCalledWith(SESSION_ID);
   });
@@ -171,7 +171,7 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
       model: 'opencode/grok-code',
       effort: null,
     });
-    getAgentModelCatalog.mockResolvedValue([
+    getHarnessModelCatalog.mockResolvedValue([
       { id: 'opencode/grok-code', label: 'Grok Code' },
       { id: 'opencode/grok-4.5', label: 'Grok 4.5' },
     ]);
@@ -193,9 +193,9 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     expect(response.status).toBe(200);
     expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { model: 'opencode/grok-4.5' });
     expect(updateUserState).toHaveBeenCalledWith({
-      defaultAgentHarness: 'opencode',
-      defaultAgentModel: 'opencode/grok-4.5',
-      defaultAgentEffort: null,
+      defaultHarness: 'opencode',
+      defaultModel: 'opencode/grok-4.5',
+      defaultEffort: null,
     });
   });
 });

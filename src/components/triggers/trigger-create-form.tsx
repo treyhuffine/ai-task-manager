@@ -35,20 +35,18 @@ import {
   type Weekday,
 } from '@/lib/scheduler/frequency';
 import type { EffortLevel, TriggerRecord } from '@/db/types';
-import { useAgentModels } from '@/hooks/use-agent-models';
+import { useHarnessModels } from '@/hooks/use-harness-models';
 import {
   defaultModelFor,
   explicitEffortForModel,
   harnessSupportsEffort,
-  providerHarnessKey,
-  providerIdForHarness,
   type ProviderId,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import { readProviderEfforts } from '@/lib/executions/provider-effort';
 import {
   EffortControl,
   ModelControl,
-  type LaunchAgentSelection,
+  type LaunchHarnessSelection,
 } from '@/components/workspaces/launcher/launch-controls';
 import { cn } from '@/lib/utils';
 
@@ -95,7 +93,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   // Who runs it. Null until the user picks, so the form opens on their default
   // provider and model, the same tuple the launcher starts from.
-  const [agent, setAgent] = useState<LaunchAgentSelection | null>(null);
+  const [harnessPick, setHarnessPick] = useState<LaunchHarnessSelection | null>(null);
   const [efforts, setEfforts] = useState<Record<string, EffortLevel>>({});
   const [frequency, setFrequency] = useState<FrequencyKind>('manual');
   const [time, setTime] = useState('09:00');
@@ -126,25 +124,25 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
   // shouldn't retune the effort your next chat starts with.
   useEffect(() => setEfforts(readProviderEfforts()), []);
 
-  const fallbackProvider: ProviderId = providerIdForHarness(userState?.defaultAgentHarness ?? 'claude');
-  const fallbackModel = userState?.defaultAgentModel ?? defaultModelFor(fallbackProvider);
+  const fallbackProvider: ProviderId = userState?.defaultHarness ?? 'claude';
+  const fallbackModel = userState?.defaultModel ?? defaultModelFor(fallbackProvider);
   const selection = {
-    harness: agent?.harness ?? fallbackProvider,
-    model: agent?.model ?? fallbackModel,
+    harness: harnessPick?.harness ?? fallbackProvider,
+    model: harnessPick?.model ?? fallbackModel,
   };
-  const { models } = useAgentModels(selection.harness);
+  const { models } = useHarnessModels(selection.harness);
   const selectedModelOption = models.find((m) => m.id === selection.model) ?? null;
-  const harnessKey = providerHarnessKey(selection.harness);
+  const harnessKey = selection.harness;
   // Until the user picks, show the effort the run will actually use rather
   // than an empty control.
   const effort: EffortLevel | null =
-    agent?.effort
+    harnessPick?.effort
     ?? (selectedModelOption && harnessSupportsEffort(harnessKey)
       ? explicitEffortForModel(harnessKey, selectedModelOption, efforts[selection.harness] ?? null)
       : null);
 
   function handleEffortChange(next: EffortLevel) {
-    setAgent((prev) => ({
+    setHarnessPick((prev) => ({
       harness: prev?.harness ?? fallbackProvider,
       model: prev?.model ?? fallbackModel,
       variant: prev?.variant ?? null,
@@ -257,7 +255,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
               selection={selection}
               label={selectedModelOption?.label ?? selection.model}
               rememberedEfforts={efforts}
-              onChange={setAgent}
+              onChange={setHarnessPick}
               disabled={createTrigger.isPending}
             />
             <EffortControl

@@ -9,9 +9,9 @@ import {
 import { PERMISSION_MODES, EFFORT_LEVELS, type PermissionMode, type EffortLevel } from '@/db/types';
 import * as executor from '@/lib/executor/adapter';
 import { supportedPermissionModes } from '@/lib/executor/permission-map';
-import { explicitAgentSelection } from '@/lib/agent-options';
-import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
-import { getHarnessRuntime } from '@/lib/agents/runtime';
+import { explicitHarnessSelection } from '@/lib/harness/options';
+import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
+import { getHarnessRuntime } from '@/lib/harness/runtime';
 import { getAppRoot } from '@/lib/config/paths';
 import { withCompression } from '@/lib/api/compression';
 
@@ -140,12 +140,12 @@ export async function PATCH(
         }
       }
     }
-    let nextSelection: ReturnType<typeof explicitAgentSelection> | null = null;
+    let nextSelection: ReturnType<typeof explicitHarnessSelection> | null = null;
     if ('model' in body || 'modelVariant' in body || 'effort' in body) {
       const providerId = existing.harness;
       const cwd = executor.resolveCwd(existing) ?? getAppRoot();
       const [catalog, runtime] = await Promise.all([
-        getAgentModelCatalog(providerId, { cwd }),
+        getHarnessModelCatalog(providerId, { cwd }),
         getHarnessRuntime(providerId, { cwd }),
       ]);
       const requestedModel = 'model' in body ? body.model?.trim() : existing.model;
@@ -167,7 +167,7 @@ export async function PATCH(
         );
       }
 
-      nextSelection = explicitAgentSelection(
+      nextSelection = explicitHarnessSelection(
         providerId,
         { model: requestedModel, variant: requestedVariant, effort: requestedEffort },
         catalog,
@@ -268,9 +268,9 @@ export async function PATCH(
     // above, so reload the flattened row to reflect it.
     if (nextSelection) {
       updateUserState({
-        defaultAgentHarness: nextSelection.providerId,
-        defaultAgentModel: nextSelection.model,
-        defaultAgentEffort: nextSelection.effort,
+        defaultHarness: nextSelection.providerId,
+        defaultModel: nextSelection.model,
+        defaultEffort: nextSelection.effort,
       });
     }
     if (Object.keys(updates).length === 0) {

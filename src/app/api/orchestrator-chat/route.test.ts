@@ -8,7 +8,7 @@ import { GET } from './route';
 
 /**
  * New orchestrator chats seed their model + effort from the user's saved
- * defaults (`user_state.defaultAgentModel` / `defaultAgentEffort`), which the
+ * defaults (`user_state.defaultModel` / `defaultEffort`), which the
  * composer writes on every pick. This is what makes a selection "stick" across
  * new chats instead of snapping back to Default/Effort. Runs against a real
  * throwaway DB so the schema column, the seeding read, and persistence are all
@@ -36,11 +36,11 @@ beforeEach(() => {
 afterAll(wipe);
 
 describe('GET /api/orchestrator-chat — seeds model + effort from defaults', () => {
-  it('a fresh chat inherits defaultAgentModel + defaultAgentEffort', async () => {
+  it('a fresh chat inherits defaultModel + defaultEffort', async () => {
     updateUserState({
-      defaultAgentHarness: 'claude',
-      defaultAgentModel: 'opus',
-      defaultAgentEffort: 'high',
+      defaultHarness: 'claude',
+      defaultModel: 'opus',
+      defaultEffort: 'high',
     });
 
     const { session } = await (await GET(new Request('http://localhost/api'))).json();
@@ -53,17 +53,17 @@ describe('GET /api/orchestrator-chat — seeds model + effort from defaults', ()
     expect(session.model).toBe('opus');
     expect(session.effort).toBe('medium');
     expect(getUserState()).toMatchObject({
-      defaultAgentHarness: 'claude',
-      defaultAgentModel: 'opus',
-      defaultAgentEffort: 'medium',
+      defaultHarness: 'claude',
+      defaultModel: 'opus',
+      defaultEffort: 'medium',
     });
   });
 
   it('does not send a saved Codex model to the Claude runner', async () => {
     updateUserState({
-      defaultAgentHarness: 'claude',
-      defaultAgentModel: 'gpt-5.5',
-      defaultAgentEffort: 'ultra',
+      defaultHarness: 'claude',
+      defaultModel: 'gpt-5.5',
+      defaultEffort: 'ultra',
     });
 
     const { session } = await (await GET(new Request('http://localhost/api'))).json();
@@ -81,7 +81,7 @@ describe('GET /api/orchestrator-chat — seeds model + effort from defaults', ()
 
     // Changing the default later must not reach back into the live chat —
     // its per-session effort is the source of truth once created.
-    updateUserState({ defaultAgentEffort: 'max' });
+    updateUserState({ defaultEffort: 'max' });
     const second = await (await GET(new Request('http://localhost/api'))).json();
     expect(second.session.id).toBe(first.session.id);
     expect(second.session.effort).toBe('medium');

@@ -188,8 +188,9 @@ Leave "agent" where it means the AI in general: "agent browser", the "Agent (tri
 
 - [x] Add the rule to CLAUDE.md: "harness" is the engine, "agent" in the UI is a workspace's scope.
   - The harness half landed with Phase 1 (Rules). Add the "agent in the UI" half with Phase 8, when the UI actually says it.
-- [ ] Move `src/lib/agents/` (registry, runtime, credentials, opencode, redaction) into `src/lib/harness/`, next to `one-shot.ts`. Move `src/lib/agent-options.ts` to `src/lib/harness/options.ts`.
-- [ ] Rename identifiers:
+- [x] Move `src/lib/agents/` (registry, runtime, credentials, opencode, redaction) into `src/lib/harness/`, next to `one-shot.ts`. Move `src/lib/agent-options.ts` to `src/lib/harness/options.ts`.
+  - Also moved, same reason: `agent-model-discovery.ts` → `src/lib/harness/model-discovery.ts`, the hooks `use-agent-models` / `use-agent-harnesses` / `use-agent-connection` → `use-harness-models` / `use-harnesses` / `use-harness-connection`, the settings components `agent-settings-panel` / `agent-connection-ui` → `harness-*`, and the onboarding `step-agent` → `step-harness`.
+- [x] Rename identifiers:
   - `getAgentModelCatalog` → `getHarnessModelCatalog`
   - `getAgentModels` → `getHarnessModels`
   - `useAgentModels` → `useHarnessModels`
@@ -203,14 +204,21 @@ Leave "agent" where it means the AI in general: "agent browser", the "Agent (tri
   - `getAgentHarnessSettings`, `listAgentHarnessSettings`, `ensureAgentHarnessSettings` → the `HarnessSettings` forms
   - `AgentHarnessOperationRecord` → `HarnessOperationRecord`
   - `harnessIdForAgentRecord` → deleted once Phase 1 removes its only purpose
-- [ ] Rename routes `/api/agent/*` (`auth`, `cursor`, `harnesses`, `models`, `opencode`, `skills`, `verify`) to `/api/harness/*`, with every caller in the UI, CLI and docs.
-- [ ] Rename tables `agent_harness_settings` → `harness_settings` and `agent_harness_operations` → `harness_operations`. `ALTER TABLE ... RENAME` keeps rowids. drizzle-kit asks interactively whether a table was renamed or recreated. Answer "renamed", or write the `ALTER TABLE` by hand and check the generated snapshot matches.
+  - Found in the sweep and renamed too: `clearAgentModelCache`, `resolveAgentSelection`, `ExplicitAgentSelection`, `upsertAgentHarnessSettings`, `UpsertAgentHarnessSettingsInput`, the `useAgentConnection` / `HarnessAuth*` / `HarnessVerify*` family, `registerAgentRuntimeSecret`, `redactAgentRuntimeValue`, `DEFAULT_AGENT_EFFORT` → `DEFAULT_EFFORT`, the executor's live-session helpers (`ensureHarnessSession`, `isHarnessSessionAlive`, `invalidateHarnessSession`, `closeHarnessSession`, `harnessSessions`; agentex's own `AgentSession` type keeps its name), and local state in the launcher and trigger form.
+  - **One spelling for the engine.** The old `claude_code` vocabulary is gone everywhere: `AgentHarness`, `agentRecordHarness`, `providerHarnessKey`, `providerIdForHarness` and the executor's `mapHarnessToProvider` are deleted. `MODEL_OPTIONS` and the model-reconcile snapshot are keyed by `HarnessId`, `ExplicitHarnessSelection` drops its duplicate `harness` field, and untyped input is narrowed with `requireHarnessId` (accepts every known harness, including rollout-disabled ones, so history always reads). `isKnownHarnessId` joins the registry for the same reason.
+  - Deliberately unchanged, because "agent" there means the AI or an external tool, not our engine field: agentex's `AgentSession`, the external-agent history import (`ExternalAgent*`, `/api/imports/agents`), the `ri agent` CLI namespace (§3), the agent browser, the entity "Agent (trial)" view, `runMcpAgent`, subagents, "Start with agent", and the `'agent'` values of `chat_events.source` / `actor` / `createdBy`. User-facing copy that says "agent" for the engine is handled in the Phase 8 copy sweep, so the UI never uses "agent" for two things.
+- [x] Rename routes `/api/agent/*` (`auth`, `cursor`, `harnesses`, `models`, `opencode`, `skills`, `verify`) to `/api/harness/*`, with every caller in the UI, CLI and docs.
+- [x] Rename tables `agent_harness_settings` → `harness_settings` and `agent_harness_operations` → `harness_operations`. `ALTER TABLE ... RENAME` keeps rowids. drizzle-kit asks interactively whether a table was renamed or recreated. Answer "renamed", or write the `ALTER TABLE` by hand and check the generated snapshot matches.
+  - Generated as `drizzle/0001_late_magus.sql` (Trey ran `pnpm db:generate` and answered the rename prompts, no hand edits). The sweep also found `user_state.default_agent_harness` / `default_agent_model` / `default_agent_effort`, renamed in the same migration to `default_harness` / `default_model` / `default_effort` (TS `defaultHarness` / `defaultModel` / `defaultEffort`). The migration also carries the Phase 3 and Phase 4 columns, so the spec needs one migration in total. Every statement is an in-place `RENAME` or `ADD COLUMN`.
+  - Rehearsed on copies of dev and prod with `runMigrations`: every row count and rowid unchanged, the user's saved default (`claude` / `opus` / `xhigh` on prod) carried over, new columns empty, schema equal to a fresh install, `foreign_key_check` clean, `quick_check` ok, 1.2 s on prod. Applies on the next app restart.
 
 **Done when:** no identifier, route or table uses "agent" to mean the engine, and all checks pass.
 
+**Status 2026-09-22:** done. `pnpm ts` clean, lint clean on every touched file (two pre-existing `set-state-in-effect` errors in `use-setup-checklist.ts` and `triggers-modal.tsx` are on lines this phase didn't touch), `pnpm test` 1,934 passed. A pre-existing intermittent vitest teardown error in `registry.stream.test.ts` (reproduced 3 of 5 runs on unmodified `main`) is reduced to about 1 in 6 by stubbing the background embedding upsert, the pattern other entity-creating suites use. The remaining late log only appears under full-suite load and is left as a known flake.
+
 ### Phase 3: Scope fields on workspaces
 
-- [ ] Add `purpose` and `instructions` to `workspaces`: text, nullable, no default. Null means none. Plain `ADD COLUMN`.
+- [x] Add `purpose` and `instructions` to `workspaces`: text, nullable, no default. Null means none. Plain `ADD COLUMN`. (In `0001_late_magus.sql`.)
 - [ ] Caps (proposed): purpose 500 characters, instructions 20,000 characters. Enforced in the query layer, surfaced as `invalid_params` / HTTP 400.
 - [ ] `createWorkspace` / `updateWorkspace` accept both. Types follow from the schema.
 - [ ] Execution chats receive `instructions` through the session `instructionsFile`, merged with the reference-folder block in `adapter.ts`. Harnesses that ignore session instructions log the same warning the reference-folder path logs.
@@ -249,7 +257,8 @@ One registry generates both surfaces, so every item lands on both.
 
 **Provenance**
 
-- [ ] Add `chat_events.sender_session_id`: text, nullable, foreign key to `chat_sessions`, `ON DELETE SET NULL`. Plain `ADD COLUMN`.
+- [x] Add `chat_events.sender_session_id`: text, nullable, foreign key to `chat_sessions`, `ON DELETE SET NULL`. Plain `ADD COLUMN`. (In `0001_late_magus.sql`.)
+  - **Changed to a soft reference (no FK).** A scratch generate showed drizzle-kit emits `ADD sender_session_id text REFERENCES chat_sessions(id)` and silently drops the `ON DELETE SET NULL`, so existing databases would get a stricter constraint than fresh installs, and deleting a chat that had sent a message would fail. Fixing that needs hand-edited SQL, so the column is a plain nullable text id and readers treat an unresolvable id as "a deleted chat".
 - [ ] `send_session_message` passes `ctx.actor.sessionId` to the messages route, which stores it on the event.
 - [ ] The receiving harness gets the message with a one-line header naming the sender, for example `[Message from the ri agent's main chat]` or `[Message from the orchestrator]`. Messages you type are unchanged.
 - [ ] Enforce "never send to your own session" using the actor.

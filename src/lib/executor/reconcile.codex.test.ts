@@ -43,7 +43,7 @@ vi.mock('./adapter', () => ({
   resolveCwd: () => '/repo',
   isRunning: mocks.isRunning,
 }));
-vi.mock('@/lib/agents/runtime', () => ({ runtimeContextForHarness: vi.fn() }));
+vi.mock('@/lib/harness/runtime', () => ({ runtimeContextForHarness: vi.fn() }));
 
 import { reconcileSession } from './reconcile';
 

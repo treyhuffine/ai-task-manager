@@ -1,6 +1,6 @@
 'use client';
 
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -49,7 +49,6 @@ import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { DRAFT_STORAGE_PREFIX } from '@/components/chat/editor/draft-storage';
 import { hot } from '@/lib/_debug/hot-path';
-import { providerHarnessKey } from '@/lib/agent-options';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -612,7 +611,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           model={session.model}
           modelVariant={session.modelVariant}
           effort={session.effort}
-          harness={providerHarnessKey(session.harness)}
+          harness={session.harness}
           disabled={composerDisabled}
           disabledReason={composerDisabledReason}
           submitOnEnter={submitOnEnter}

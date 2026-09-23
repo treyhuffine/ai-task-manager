@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { formatElapsed } from '@/lib/executions/duration';
-import { harnessDefinition, isHarnessId } from '@/lib/agents/registry';
+import { harnessDefinition, isHarnessId } from '@/lib/harness/registry';
 import { ThinkingDots } from './thinking-dots';
 
 /**

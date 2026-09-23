@@ -8,14 +8,13 @@ import {
   explicitVariantForModel,
   harnessSupportsEffort,
   findProvider,
-  providerHarnessKey,
   type ModelOption,
   type ProviderId,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import type { EffortLevel } from '@/db/types';
-import { useAgentModels } from '@/hooks/use-agent-models';
+import { useHarnessModels } from '@/hooks/use-harness-models';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
-import { ProviderIcon } from '@/components/settings/agent-connection-ui';
+import { ProviderIcon } from '@/components/settings/harness-connection-ui';
 import { openSettings } from '@/components/settings/settings-store';
 import { readProviderEffort } from '@/lib/executions/provider-effort';
 import { cn } from '@/lib/utils';
@@ -82,7 +81,7 @@ export function ComposerProviderMenu({
 
   const selected: ModelSelection = pending ?? { harness: currentProvider, model };
   const pendingProvider = pending ? findProvider(pending.harness) : null;
-  const { models: pendingModels } = useAgentModels(pending?.harness);
+  const { models: pendingModels } = useHarnessModels(pending?.harness);
   const pendingModel = pending
     ? pendingModels.find((candidate) => candidate.id === pending.model) ?? null
     : null;
@@ -131,7 +130,7 @@ export function ComposerProviderMenu({
                 type="button"
                 onClick={() => {
                   const modelOption = pendingModel ?? { id: pending.model, label: pending.model };
-                  const harnessKey = providerHarnessKey(pending.harness);
+                  const harnessKey = pending.harness;
                   const effort = harnessSupportsEffort(harnessKey)
                     // Remembered effort for the DESTINATION provider, validated
                     // against the picked model. Passing null here reset you to

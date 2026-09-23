@@ -24,7 +24,7 @@ first-class model everywhere.
 
 ## Model
 
-One concept, `customModels`, stored per provider on `agent_harness_settings`:
+One concept, `customModels`, stored per provider on `harness_settings`:
 
 ```ts
 customModels: text({ mode: 'json' }).$type<string[]>().notNull().default([])
@@ -35,7 +35,7 @@ Two invariants make everything else fall out:
 1. **A pin is always enabled.** `addCustomHarnessModel` writes the id into
    `customModels` and `enabledModels` in one transaction. A pin that is not
    visible in the picker is indistinguishable from one that never saved.
-2. **A pin is a catalog member.** `getAgentModelCatalog` merges
+2. **A pin is a catalog member.** `getHarnessModelCatalog` merges
    `customModelCatalog(providerId)` alongside discovered and bundled models, so
    every validator that already asks "is this model real?" accepts it with no
    per-caller exemption:
@@ -43,8 +43,8 @@ Two invariants make everything else fall out:
    | Gate | File |
    | --- | --- |
    | Session model change | `src/app/api/sessions/[id]/route.ts` |
-   | New chat / launcher / triggers | `resolveAgentSelection` in `src/lib/agent-model-discovery.ts` |
-   | Allowlist save | `src/app/api/agent/models/enabled/route.ts` |
+   | New chat / launcher / triggers | `resolveHarnessSelection` in `src/lib/harness/model-discovery.ts` |
+   | Allowlist save | `src/app/api/harness/models/enabled/route.ts` |
    | Provider-boundary preflight | `dispatch` in `src/lib/executor/adapter.ts` |
 
 The catalog read is live (a plain settings read), not routed through the
@@ -121,13 +121,13 @@ to the harness default instead of failing.
 ## API
 
 ```
-POST   /api/agent/models/custom          { harness, modelId } -> { settings, model }
-DELETE /api/agent/models/custom?harness=<id>&modelId=<id>     -> { settings }
-GET    /api/agent/models?provider=<id>   -> { ..., customModelIds, models[].custom }
+POST   /api/harness/models/custom          { harness, modelId } -> { settings, model }
+DELETE /api/harness/models/custom?harness=<id>&modelId=<id>     -> { settings }
+GET    /api/harness/models?provider=<id>   -> { ..., customModelIds, models[].custom }
 ```
 
 ## Tests
 
-- `src/lib/agent-options.test.ts` — id normalization, pin option shape, resolution through a merged catalog
+- `src/lib/harness/options.test.ts` — id normalization, pin option shape, resolution through a merged catalog
 - `src/lib/db/queries.harness-settings.test.ts` — pin/unpin invariants, default repair, survival across an ordinary model save
-- `src/lib/agent-model-discovery.custom.test.ts` — pins reach the validation catalog and read live
+- `src/lib/harness/model-discovery.custom.test.ts` — pins reach the validation catalog and read live

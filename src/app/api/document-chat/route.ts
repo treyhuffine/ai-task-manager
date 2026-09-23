@@ -4,12 +4,12 @@ import {
   archiveChatSession,
   getUserState,
   updateUserState,
-  ensureAgentHarnessSettings,
+  ensureHarnessSettings,
 } from '@/lib/db/queries';
-import type { ProviderId } from '@/lib/agent-options';
+import type { ProviderId } from '@/lib/harness/options';
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
-import { resolveAgentSelection } from '@/lib/agent-model-discovery';
-import { isHarnessId } from '@/lib/agents/registry';
+import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
+import { isHarnessId } from '@/lib/harness/registry';
 import { withCompression } from '@/lib/api/compression';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
@@ -40,7 +40,7 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
  * user's subscription), acting through the orchestrator action surface — so
  * its edits flow through `queries.ts` (embeddings, mirror, attachment
  * derivation, and change versioning) instead of bypassing it. See
- * `ensureAgentSession`'s `content` branch in `src/lib/executor/adapter.ts`
+ * `ensureHarnessSession`'s `content` branch in `src/lib/executor/adapter.ts`
  * for how the per-entity focus is installed.
  *
  * One active session per entity at a time:
@@ -87,19 +87,19 @@ function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
 async function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
   const userState = getUserState();
   const providerId = override.providerId
-    ?? userState?.defaultAgentHarness
+    ?? userState?.defaultHarness
     ?? 'claude';
-  const savedTupleMatchesProvider = userState?.defaultAgentHarness === providerId;
-  const harnessSettings = ensureAgentHarnessSettings(providerId);
+  const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
+  const harnessSettings = ensureHarnessSettings(providerId);
   const requestedModel = override.model
-    ?? (savedTupleMatchesProvider ? userState?.defaultAgentModel : null)
+    ?? (savedTupleMatchesProvider ? userState?.defaultModel : null)
     ?? harnessSettings.defaultModel;
-  const selection = await resolveAgentSelection(providerId, {
+  const selection = await resolveHarnessSelection(providerId, {
     model: requestedModel,
     variant: override.variant
       ?? (requestedModel === harnessSettings.defaultModel ? harnessSettings.defaultVariant : null),
     effort: override.effort
-      ?? (savedTupleMatchesProvider ? userState?.defaultAgentEffort : null)
+      ?? (savedTupleMatchesProvider ? userState?.defaultEffort : null)
       ?? harnessSettings.defaultEffort,
   }, { repairInvalidModel: override.model === undefined });
   const session = createChatSession({
@@ -118,9 +118,9 @@ async function createFocusedSession(ref: EntityRef, override: ChatOverride = {})
     status: 'active',
   });
   updateUserState({
-    defaultAgentHarness: selection.providerId,
-    defaultAgentModel: selection.model,
-    defaultAgentEffort: selection.effort,
+    defaultHarness: selection.providerId,
+    defaultModel: selection.model,
+    defaultEffort: selection.effort,
   });
   return session;
 }

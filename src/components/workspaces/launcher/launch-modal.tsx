@@ -23,19 +23,17 @@ import {
 } from 'lucide-react';
 import { useWorkspaces, useWorkspacePRs } from '@/hooks/use-workspaces';
 import { useUserState } from '@/hooks/use-user-state';
-import { useAgentModels } from '@/hooks/use-agent-models';
+import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { sessionsApi } from '@/lib/api/sessions';
 import { workspacesApi } from '@/lib/api/workspaces';
 import { tasksApi } from '@/lib/api/tasks';
 import { api, apiErrorText } from '@/lib/api/client';
 import {
-  providerIdForHarness,
   defaultModelFor,
   explicitEffortForModel,
-  providerHarnessKey,
   type ProviderId,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import {
   applyPick,
   canLaunch,
@@ -72,7 +70,7 @@ import {
   LiveModeNotice,
   ModeControl,
   ModelControl,
-  type LaunchAgentSelection,
+  type LaunchHarnessSelection,
 } from './launch-controls';
 import { useLaunchSuggestions } from './use-launch-sources';
 import { closeLauncher, useLauncherStore, type LauncherSeed } from './launcher-store';
@@ -159,12 +157,12 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
   // one over. A `staging` base branch following you into a repo that has no
   // such branch is exactly the bug global prefs would cause.
   const [mode, setMode] = useState<LaunchMode>('worktree');
-  const [agent, setAgent] = useState<LaunchAgentSelection | null>(null);
+  const [harnessPick, setHarnessPick] = useState<LaunchHarnessSelection | null>(null);
   const [efforts, setEfforts] = useState<Record<string, EffortLevel>>({});
   const prefsWorkspaceRef = useRef<string | null>(null);
 
-  const fallbackProvider: ProviderId = providerIdForHarness(userState?.defaultAgentHarness ?? 'claude');
-  const fallbackModel = userState?.defaultAgentModel ?? defaultModelFor(fallbackProvider);
+  const fallbackProvider: ProviderId = userState?.defaultHarness ?? 'claude';
+  const fallbackModel = userState?.defaultModel ?? defaultModelFor(fallbackProvider);
 
   useEffect(() => {
     if (!workspaceId || prefsWorkspaceRef.current === workspaceId) return;
@@ -172,7 +170,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
     const prefs = readLaunchPrefs(workspaceId);
     setMode(prefs.mode);
     setEfforts(readProviderEfforts());
-    setAgent(
+    setHarnessPick(
       prefs.harness && prefs.model
         ? {
             harness: prefs.harness as ProviderId,
@@ -198,12 +196,12 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
 
   const selection = useMemo(
     () => ({
-      harness: agent?.harness ?? fallbackProvider,
-      model: agent?.model ?? fallbackModel,
+      harness: harnessPick?.harness ?? fallbackProvider,
+      model: harnessPick?.model ?? fallbackModel,
     }),
-    [agent, fallbackProvider, fallbackModel],
+    [harnessPick, fallbackProvider, fallbackModel],
   );
-  const { models } = useAgentModels(selection.harness);
+  const { models } = useHarnessModels(selection.harness);
   const selectedModelOption = useMemo(
     () => models.find((m) => m.id === selection.model) ?? null,
     [models, selection.model],
@@ -212,10 +210,10 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
   // Fall back to what the model itself would pick, so the control reads as the
   // effort that will actually be used rather than an empty placeholder.
   const effort: EffortLevel | null =
-    agent?.effort
+    harnessPick?.effort
     ?? (selectedModelOption
       ? explicitEffortForModel(
-          providerHarnessKey(selection.harness),
+          selection.harness,
           selectedModelOption,
           efforts[selection.harness] ?? null,
         )
@@ -337,9 +335,9 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
     [persistPrefs],
   );
 
-  const handleAgentChange = useCallback(
-    (next: LaunchAgentSelection) => {
-      setAgent(next);
+  const handleHarnessChange = useCallback(
+    (next: LaunchHarnessSelection) => {
+      setHarnessPick(next);
       // `next.effort` already resolved this provider's remembered value against
       // what the picked model supports (see ModelControl), so record it back to
       // the shared store the composer also reads.
@@ -352,8 +350,8 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
 
   const handleEffortChange = useCallback(
     (next: EffortLevel) => {
-      const harness = agent?.harness ?? fallbackProvider;
-      setAgent((prev) => ({
+      const harness = harnessPick?.harness ?? fallbackProvider;
+      setHarnessPick((prev) => ({
         harness: prev?.harness ?? fallbackProvider,
         model: prev?.model ?? fallbackModel,
         variant: prev?.variant ?? null,
@@ -362,7 +360,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
       writeProviderEffort(harness, next);
       setEfforts(readProviderEfforts());
     },
-    [efforts, agent?.harness, fallbackProvider, fallbackModel],
+    [efforts, harnessPick?.harness, fallbackProvider, fallbackModel],
   );
 
   /**
@@ -477,7 +475,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
           liveMode: live,
           harness: selection.harness,
           model: selection.model,
-          modelVariant: agent?.variant ?? null,
+          modelVariant: harnessPick?.variant ?? null,
           effort,
           message: send ? { content, attachments: output.attachments } : null,
           taskId: seed?.taskId ?? null,
@@ -752,7 +750,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
                     selection={selection}
                     label={modelLabel}
                     rememberedEfforts={efforts}
-                    onChange={handleAgentChange}
+                    onChange={handleHarnessChange}
                     disabled={launching}
                   />
                   <EffortControl

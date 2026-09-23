@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { StreamEvent } from '@agentex/agent';
 import type { CreateChatEventInput } from '@/db/types';
-import { registerAgentRuntimeSecret } from '@/lib/agents/redaction';
+import { registerHarnessRuntimeSecret } from '@/lib/harness/redaction';
 import { parseStreamEvent, persistStreamEvent } from './adapter';
 
 function base(type: StreamEvent['type'], patch: Record<string, unknown>): StreamEvent {
@@ -55,7 +55,7 @@ describe('OpenCode event persistence', () => {
 
   it('redacts a registered Cursor key from normalized content and raw event data', async () => {
     const secret = 'cursor-key-do-not-persist';
-    registerAgentRuntimeSecret(secret, 'cursor-api-key');
+    registerHarnessRuntimeSecret(secret, 'cursor-api-key');
     const write = vi.fn(async (event: CreateChatEventInput) => { void event; });
     await persistStreamEvent('chat-1', {
       type: 'tool_result',

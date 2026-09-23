@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import type { OrchestratorMode } from '@/hooks/use-orchestrator-chat';
-import { AgentSettingsPanel } from '@/components/settings/agent-settings-panel';
+import { HarnessSettingsPanel } from '@/components/settings/harness-settings-panel';
 import { BillingSection } from './billing-section';
 
 const ORCHESTRATOR_MODES: { id: OrchestratorMode; label: string; description: string }[] = [
@@ -13,7 +13,7 @@ const ORCHESTRATOR_MODES: { id: OrchestratorMode; label: string; description: st
 ];
 
 /**
- * Default agent provider/model (reuses AgentSettingsPanel) plus the
+ * Default agent provider/model (reuses HarnessSettingsPanel) plus the
  * orchestrator brain used by the main chat. Both persist to user_state and
  * seed future sessions; switching mode here just sets the preference (it does
  * not start a new chat — that happens the next time you chat).
@@ -25,7 +25,7 @@ export function ModelsSection() {
 
   return (
     <div className="space-y-7">
-      <AgentSettingsPanel />
+      <HarnessSettingsPanel />
 
       <section className="space-y-3 text-[12px]">
         <header className="space-y-0.5">

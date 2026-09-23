@@ -5,12 +5,12 @@ import {
   deleteChatSessionIfEmpty,
   setExecutionLabel,
   updateUserState,
-  ensureAgentHarnessSettings,
+  ensureHarnessSettings,
 } from '@/lib/db/queries';
-import type { ProviderId } from '@/lib/agent-options';
+import type { ProviderId } from '@/lib/harness/options';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
-import { resolveAgentSelection } from '@/lib/agent-model-discovery';
-import { isHarnessId } from '@/lib/agents/registry';
+import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
+import { isHarnessId } from '@/lib/harness/registry';
 
 /**
  * Start a fresh chat against the SAME execution as `:id` — a new conversation
@@ -71,10 +71,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // the destination model + effort supplied by the picker.
     const providerId = override.providerId ?? current.harness;
     const switchingProvider = providerId !== current.harness;
-    const harnessSettings = ensureAgentHarnessSettings(providerId);
+    const harnessSettings = ensureHarnessSettings(providerId);
     const requestedModel = override.model
       ?? (switchingProvider ? harnessSettings.defaultModel : current.model);
-    const selection = await resolveAgentSelection(providerId, {
+    const selection = await resolveHarnessSelection(providerId, {
       model: requestedModel,
       variant: override.variant
         ?? (switchingProvider && requestedModel === harnessSettings.defaultModel
@@ -113,9 +113,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     updateUserState({
-      defaultAgentHarness: selection.providerId,
-      defaultAgentModel: selection.model,
-      defaultAgentEffort: selection.effort,
+      defaultHarness: selection.providerId,
+      defaultModel: selection.model,
+      defaultEffort: selection.effort,
     });
 
     // Return the same shape as `GET /api/sessions/:id` (execution state

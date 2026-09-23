@@ -8,16 +8,15 @@ import { APP_NAME } from '@/constants/app';
 import { api } from '@/lib/api/client';
 import { StepYou } from './step-you';
 import { StepAreas } from './step-areas';
-import { StepAgent } from './step-agent';
+import { StepHarness } from './step-harness';
 import { StepImport } from './step-import';
 import { StepLaunch } from './step-launch';
 import { STEPS, type WizardState, type StepId } from './types';
 import {
-  DEFAULT_AGENT_EFFORT,
+  DEFAULT_EFFORT,
   defaultModelFor,
   harnessSupportsEffort,
-  providerHarnessKey,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 
 const INITIAL_STATE: WizardState = {
   name: '',
@@ -26,9 +25,9 @@ const INITIAL_STATE: WizardState = {
     { name: 'Work', emoji: '💼', attachments: [] },
     { name: 'Personal', emoji: '🏡', attachments: [] },
   ],
-  agentHarness: 'claude',
-  agentModel: defaultModelFor('claude'),
-  agentAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
+  harness: 'claude',
+  model: defaultModelFor('claude'),
+  harnessAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
   // Global by default: agents can manage tasks and notes from any project.
   // No onboarding decision — the scope is adjustable later in Settings.
   globalSkillEnabled: true,
@@ -90,9 +89,9 @@ export function Wizard() {
         // user who doesn't yet know the product.
         return true;
       case 'agent': {
-        if (!state.agentHarness) return false;
-        if (!state.agentModel) return false;
-        const a = state.agentAuth;
+        if (!state.harness) return false;
+        if (!state.model) return false;
+        const a = state.harnessAuth;
         if (a.phase !== 'ready' || !a.report) return false;
         if (!a.report.binary.installed) return false;
         // The real test request is the ultimate truth — if it succeeded,
@@ -153,7 +152,7 @@ export function Wizard() {
       // This also cleans old app-owned project symlinks without touching
       // unrelated skill entries.
       try {
-        await api.put('/agent/skills/global', {
+        await api.put('/harness/skills/global', {
           enabled: state.globalSkillEnabled ?? true,
         });
       } catch {
@@ -162,14 +161,14 @@ export function Wizard() {
 
       // 3. Save the selected model as the first visible model and make this
       // harness active. More models can be enabled from Settings later.
-      const defaultEffort = harnessSupportsEffort(providerHarnessKey(state.agentHarness))
-        ? DEFAULT_AGENT_EFFORT
+      const defaultEffort = harnessSupportsEffort(state.harness)
+        ? DEFAULT_EFFORT
         : null;
       try {
-        await api.put('/agent/models/enabled', {
-          harness: state.agentHarness,
-          enabledModelIds: [state.agentModel],
-          defaultModel: state.agentModel,
+        await api.put('/harness/models/enabled', {
+          harness: state.harness,
+          enabledModelIds: [state.model],
+          defaultModel: state.model,
           defaultEffort,
           makeActive: true,
         });
@@ -182,9 +181,9 @@ export function Wizard() {
         await api.patch('/user-state', {
           name: state.name.trim(),
           description: state.description.trim(),
-          defaultAgentHarness: state.agentHarness,
-          defaultAgentModel: state.agentModel,
-          defaultAgentEffort: defaultEffort,
+          defaultHarness: state.harness,
+          defaultModel: state.model,
+          defaultEffort: defaultEffort,
           onboardedAt: new Date().toISOString(),
         });
       } catch {
@@ -243,7 +242,7 @@ export function Wizard() {
       <main className="min-h-0 flex-1 overflow-y-auto">
         {current === 'you' && <StepYou state={state} update={update} />}
         {current === 'areas' && <StepAreas state={state} update={update} />}
-        {current === 'agent' && <StepAgent state={state} update={update} />}
+        {current === 'agent' && <StepHarness state={state} update={update} />}
         {current === 'import' && <StepImport />}
         {current === 'launch' && <StepLaunch state={state} />}
       </main>

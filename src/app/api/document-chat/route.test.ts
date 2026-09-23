@@ -32,11 +32,11 @@ beforeEach(() => {
 afterAll(wipe);
 
 describe('GET /api/document-chat — seeds model + effort from defaults', () => {
-  it('a fresh focused chat inherits defaultAgentModel + defaultAgentEffort', async () => {
+  it('a fresh focused chat inherits defaultModel + defaultEffort', async () => {
     updateUserState({
-      defaultAgentHarness: 'claude',
-      defaultAgentModel: 'sonnet',
-      defaultAgentEffort: 'medium',
+      defaultHarness: 'claude',
+      defaultModel: 'sonnet',
+      defaultEffort: 'medium',
     });
 
     const req = new Request('http://test/api/document-chat?entityType=task&entityId=task_seed_1');

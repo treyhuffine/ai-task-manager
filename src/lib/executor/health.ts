@@ -11,7 +11,7 @@
  *
  * That's the whole job. The transcript is what Claude sees; if our DB
  * mirrors it AND our in-memory state isn't broken, the user can chat
- * and `ensureAgentSession` will spawn fresh on their next send. Cases
+ * and `ensureHarnessSession` will spawn fresh on their next send. Cases
  * where the agent died mid-turn (no `result` event at the tail) need
  * no special handling — the user can read the trailing message and
  * decide what to say next; their send will spawn the subprocess and
@@ -33,8 +33,8 @@ import {
 import { expandMarkers } from '@/lib/attachments/expand-markers';
 import type { ChatEventRecord, ChatEventSource, Attachment } from '@/db/types';
 import {
-  isAgentSessionAlive,
-  invalidateAgentSession,
+  isHarnessSessionAlive,
+  invalidateHarnessSession,
   forceClearInflight,
   isRunning,
   dispatch,
@@ -146,14 +146,14 @@ export async function healthCheckSession(
   }
 
   // 2. In-memory ↔ reality.
-  const alive = isAgentSessionAlive(sessionId);
+  const alive = isHarnessSessionAlive(sessionId);
   const wasRunning = isRunning(sessionId);
 
   if (!alive) {
-    // invalidateAgentSession is a no-op when no cached handle exists,
+    // invalidateHarnessSession is a no-op when no cached handle exists,
     // so this covers both "handle present but dead" and "no handle but
     // still flagged running" cases.
-    invalidateAgentSession(sessionId);
+    invalidateHarnessSession(sessionId);
     if (wasRunning) {
       forceClearInflight(sessionId);
       fixes.push('cleared stale running flag');

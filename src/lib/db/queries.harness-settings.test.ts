@@ -41,14 +41,14 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  db.getDb().delete(schema.agentHarnessSettings).run();
+  db.getDb().delete(schema.harnessSettings).run();
 });
 
-describe('ensureAgentHarnessSettings', () => {
+describe('ensureHarnessSettings', () => {
   it('seeds every Claude tier alias, Fable included', () => {
     // The aliases resolve to whatever the installed CLI ships as that tier, so
     // none of them go stale and there is no reason to withhold one.
-    expect(q.ensureAgentHarnessSettings('claude').enabledModels).toEqual([
+    expect(q.ensureHarnessSettings('claude').enabledModels).toEqual([
       'opus',
       'sonnet',
       'haiku',
@@ -57,7 +57,7 @@ describe('ensureAgentHarnessSettings', () => {
   });
 
   it('seeds only the curated Codex models and leaves the legacy tail off', () => {
-    const enabled = q.ensureAgentHarnessSettings('codex').enabledModels;
+    const enabled = q.ensureHarnessSettings('codex').enabledModels;
     expect(enabled).toEqual([
       'gpt-6-astra',
       'gpt-5.5',
@@ -69,7 +69,7 @@ describe('ensureAgentHarnessSettings', () => {
   });
 
   it('records the whole bundled catalog as known so the legacy tail is never mistaken for new', () => {
-    const row = q.ensureAgentHarnessSettings('codex');
+    const row = q.ensureHarnessSettings('codex');
     expect(row.knownModels).toEqual([
       'gpt-6-astra',
       'gpt-5.5',
@@ -85,7 +85,7 @@ describe('ensureAgentHarnessSettings', () => {
   it('auto-enables a model bundled after a row was last seen, without re-adding user removals', () => {
     // A row as it looked before astra shipped: no knownModels, and the user had
     // already trimmed 5.5 out of the seeded set.
-    q.upsertAgentHarnessSettings({
+    q.upsertHarnessSettings({
       harness: 'codex',
       enabledModels: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
       customModels: [],
@@ -96,7 +96,7 @@ describe('ensureAgentHarnessSettings', () => {
       catalogRefreshedAt: null,
     });
 
-    const row = q.ensureAgentHarnessSettings('codex');
+    const row = q.ensureHarnessSettings('codex');
     expect(row.enabledModels).toContain('gpt-6-astra');      // shipped after → surfaces
     expect(row.enabledModels).not.toContain('gpt-5.5');       // prior removal → respected
     expect(row.enabledModels).not.toContain('gpt-5.4');       // legacy → never auto-on
@@ -104,29 +104,29 @@ describe('ensureAgentHarnessSettings', () => {
     expect(row.knownModels).toContain('gpt-6-astra');         // snapshot advanced
 
     // Reconciliation is one-shot: a second pass neither changes nor rewrites.
-    const again = q.ensureAgentHarnessSettings('codex');
+    const again = q.ensureHarnessSettings('codex');
     expect(again.enabledModels).toEqual(row.enabledModels);
     expect(again.updatedAt).toBe(row.updatedAt);
   });
 
   it('keeps a curated model off once the user turns it off after it shipped', () => {
-    q.ensureAgentHarnessSettings('codex'); // astra enabled + known covers it
+    q.ensureHarnessSettings('codex'); // astra enabled + known covers it
     q.setEnabledHarnessModels(
       'codex',
       ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
       'gpt-5.6-sol',
     );
-    expect(q.ensureAgentHarnessSettings('codex').enabledModels).not.toContain('gpt-6-astra');
+    expect(q.ensureHarnessSettings('codex').enabledModels).not.toContain('gpt-6-astra');
   });
 
   it('defaults to the flagship model of the seeded set', () => {
-    expect(q.ensureAgentHarnessSettings('claude').defaultModel).toBe('opus');
+    expect(q.ensureHarnessSettings('claude').defaultModel).toBe('opus');
   });
 
   it('never re-widens an allowlist the user has narrowed', () => {
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     q.setEnabledHarnessModels('claude', ['opus'], 'opus');
-    expect(q.ensureAgentHarnessSettings('claude').enabledModels).toEqual(['opus']);
+    expect(q.ensureHarnessSettings('claude').enabledModels).toEqual(['opus']);
   });
 });
 
@@ -139,7 +139,7 @@ describe('ensureAgentHarnessSettings', () => {
  */
 describe('custom (pinned) harness models', () => {
   it('pins an exact id and makes it visible in the same write', () => {
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     const settings = q.addCustomHarnessModel('claude', 'claude-opus-4-8');
     expect(settings.customModels).toEqual(['claude-opus-4-8']);
     // Enabling is not a convenience: every downstream validator resolves
@@ -148,7 +148,7 @@ describe('custom (pinned) harness models', () => {
   });
 
   it('trims and rejects ids that cannot be a model', () => {
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     expect(q.addCustomHarnessModel('claude', '  claude-opus-4-8  ').customModels)
       .toEqual(['claude-opus-4-8']);
     expect(() => q.addCustomHarnessModel('claude', 'claude opus 4 8')).toThrow();
@@ -156,7 +156,7 @@ describe('custom (pinned) harness models', () => {
   });
 
   it('is idempotent, so a repeated pin does not duplicate the row', () => {
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     q.addCustomHarnessModel('claude', 'claude-opus-4-8');
     const settings = q.addCustomHarnessModel('claude', 'claude-opus-4-8');
     expect(settings.customModels).toEqual(['claude-opus-4-8']);
@@ -166,16 +166,16 @@ describe('custom (pinned) harness models', () => {
   it('adopts the pin as the default only when there is no default yet', () => {
     q.setEnabledHarnessModels('cursor', [], null);
     expect(q.addCustomHarnessModel('cursor', 'composer-1').defaultModel).toBe('composer-1');
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     expect(q.addCustomHarnessModel('claude', 'claude-opus-4-8').defaultModel).toBe('opus');
   });
 
   it('survives an ordinary model save', () => {
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     q.addCustomHarnessModel('claude', 'claude-opus-4-8');
     const saved = q.setEnabledHarnessModels('claude', ['opus', 'claude-opus-4-8'], 'opus');
     expect(saved.customModels).toEqual(['claude-opus-4-8']);
-    expect(q.upsertAgentHarnessSettings({
+    expect(q.upsertHarnessSettings({
       ...saved,
       customModels: undefined,
       catalogRefreshedAt: new Date().toISOString(),
@@ -183,7 +183,7 @@ describe('custom (pinned) harness models', () => {
   });
 
   it('unpins from both lists and hands the default to a model that resolves', () => {
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     q.addCustomHarnessModel('claude', 'claude-opus-4-8');
     q.setHarnessDefaultSelection('claude', { model: 'claude-opus-4-8', effort: 'high' });
     const settings = q.removeCustomHarnessModel('claude', 'claude-opus-4-8');
@@ -195,20 +195,20 @@ describe('custom (pinned) harness models', () => {
   });
 
   it('leaves an unrelated default alone', () => {
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     q.addCustomHarnessModel('claude', 'claude-opus-4-8');
     expect(q.removeCustomHarnessModel('claude', 'claude-opus-4-8').defaultModel).toBe('opus');
   });
 
   it('ignores an id that was never pinned', () => {
-    const before = q.ensureAgentHarnessSettings('claude');
+    const before = q.ensureHarnessSettings('claude');
     expect(q.removeCustomHarnessModel('claude', 'opus').enabledModels).toEqual(before.enabledModels);
   });
 
   it('keeps a pin that shadows a real catalog model visible after unpinning', () => {
     // Pinning `opus` by hand is redundant but legal. Unpinning it must drop
     // only the pin, because the alias still resolves on its own.
-    q.ensureAgentHarnessSettings('claude');
+    q.ensureHarnessSettings('claude');
     q.addCustomHarnessModel('claude', 'opus');
     const settings = q.removeCustomHarnessModel('claude', 'opus');
     expect(settings.customModels).toEqual([]);
@@ -223,6 +223,6 @@ describe('custom (pinned) harness models', () => {
     expect(() => q.removeCustomHarnessModel('cursor', 'composer-1')).toThrow(/at least one/);
     // `user_state` outlives the per-test settings reset, so hand the active
     // harness back rather than leaking it into whatever runs next.
-    q.updateUserState({ defaultAgentHarness: 'claude' });
+    q.updateUserState({ defaultHarness: 'claude' });
   });
 });

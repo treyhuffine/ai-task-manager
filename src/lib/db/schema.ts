@@ -105,9 +105,9 @@ export const userState = sqliteTable('user_state', {
   // Last explicit provider-bound harness + model + effort tuple. The columns
   // remain nullable for pre-onboarding and legacy databases, but chat creation
   // resolves them to concrete values before anything reaches a runner.
-  defaultAgentHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
-  defaultAgentModel: text(),
-  defaultAgentEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
+  defaultHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
+  defaultModel: text(),
+  defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
   // Which brain powers the dashboard orchestrator chat:
   //   legacy         — hand-rolled streamText agent (src/lib/ai/chat-tools.ts)
   //   harness_skills — harness session (cwd = data root), actions via CLI/skills
@@ -131,14 +131,14 @@ export const userState = sqliteTable('user_state', {
   onboardedAt: text(),
 });
 
-// ─── Agent Harness Settings ───────────────────────────────────
+// ─── Harness Settings ─────────────────────────────────────────
 
 // The engines a chat can run on. Same vocabulary as `HarnessId` in
-// src/lib/agents/registry.ts (a type test in src/db/types.ts keeps the two in
+// src/lib/harness/registry.ts (a type test in src/db/types.ts keeps the two in
 // step). Stored on every chat, trigger and run as a fact: which engine ran it.
 const HARNESS_VALUES = ['claude', 'codex', 'cursor', 'opencode'] as const;
 
-export const agentHarnessSettings = sqliteTable('agent_harness_settings', {
+export const harnessSettings = sqliteTable('harness_settings', {
   id: text().primaryKey(),
   ...timestamps,
   harness: text({ enum: HARNESS_VALUES }).notNull().unique(),
@@ -164,8 +164,8 @@ export const agentHarnessSettings = sqliteTable('agent_harness_settings', {
   catalogRefreshedAt: text(),
 });
 
-export const agentHarnessOperations = sqliteTable(
-  'agent_harness_operations',
+export const harnessOperations = sqliteTable(
+  'harness_operations',
   {
     id: text().primaryKey(),
     ...timestamps,
@@ -177,7 +177,7 @@ export const agentHarnessOperations = sqliteTable(
     replacementModel: text(),
     lastErrorCode: text(),
   },
-  (table) => [index('idx_agent_harness_operations_status').on(table.status, table.updatedAt)],
+  (table) => [index('idx_harness_operations_status').on(table.status, table.updatedAt)],
 );
 
 // ─── Areas ────────────────────────────────────────────────────
@@ -746,6 +746,13 @@ export const workspaces = sqliteTable(
     // `previewCommand`; matches `preview_targets.startCommand`.)
     startCommand: text(),
     areaId: text().references(() => areas.id, { onDelete: 'set null' }),
+    // What this agent is for, in a sentence (the UI calls a workspace an
+    // agent). Null means unset. Capped in the query layer.
+    purpose: text(),
+    // Standing instructions for this agent's chats: delivered to its main chat
+    // and to every execution it starts. Null means none. Capped in the query
+    // layer.
+    instructions: text(),
     position: integer().notNull().default(0),
     collapsed: integer({ mode: 'boolean' }).notNull(),
     // When true, the Live-session explainer modal is skipped for this workspace
@@ -1300,6 +1307,14 @@ export const chatEvents = sqliteTable(
     sessionId: text()
       .notNull()
       .references(() => chatSessions.id, { onDelete: 'cascade' }),
+    // The chat that sent this message into the session, when another chat did
+    // (an agent's main chat or the app's main chat steering an execution via
+    // `send_session_message`). Null for messages the user typed and for
+    // everything the harness emits. A soft reference on purpose: drizzle-kit
+    // drops ON DELETE clauses from ADD COLUMN, so a real FK would give
+    // existing databases a stricter constraint than fresh ones. Readers treat
+    // an id that no longer resolves as "a deleted chat".
+    senderSessionId: text(),
     role: text().notNull(),
     source: text().notNull(),
     content: text(),

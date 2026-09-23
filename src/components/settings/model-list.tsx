@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronRight, Loader2, MessageSquarePlus, Settings2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { PROVIDERS, findProvider, type ModelOption, type ProviderId } from '@/lib/agent-options';
-import { useAgentConnection } from '@/hooks/use-agent-connection';
-import { useAgentModels } from '@/hooks/use-agent-models';
-import { useRemoveCustomModel, useSaveHarnessModels } from '@/hooks/use-agent-harnesses';
-import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './agent-connection-ui';
+import { PROVIDERS, findProvider, type ModelOption, type ProviderId } from '@/lib/harness/options';
+import { useHarnessConnection } from '@/hooks/use-harness-connection';
+import { useHarnessModels } from '@/hooks/use-harness-models';
+import { useRemoveCustomModel, useSaveHarnessModels } from '@/hooks/use-harnesses';
+import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './harness-connection-ui';
 import { PinModelInput } from './pin-model-input';
 import { cn } from '@/lib/utils';
 
@@ -81,14 +81,14 @@ function ProviderGroup({
   onPick: (harness: ProviderId, model: ModelOption) => void;
   isSwitch?: boolean;
 }) {
-  const { connection } = useAgentConnection(providerId);
-  const { models } = useAgentModels(providerId);
+  const { connection } = useHarnessConnection(providerId);
+  const { models } = useHarnessModels(providerId);
   // Bundled models we ship auto-join the allowlist on upgrade (see
   // reconcileEnabledModels), so a new default sits in the main list, not behind
   // this drawer. The drawer still backs everything the *provider* discovers
   // beyond our curated set — those stay one click away instead of one settings
   // trip away — plus typing in an exact model id.
-  const catalog = useAgentModels(providerId, { catalog: true });
+  const catalog = useHarnessModels(providerId, { catalog: true });
   const save = useSaveHarnessModels();
   const removeCustom = useRemoveCustomModel();
   const queryClient = useQueryClient();

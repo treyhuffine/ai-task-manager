@@ -21,6 +21,7 @@ function ev(source: string, content: string | null): ChatEventRecord {
     createdAt: `2026-07-30T00:00:${String(seq).padStart(2, '0')}Z`,
     updatedAt: `2026-07-30T00:00:${String(seq).padStart(2, '0')}Z`,
     sessionId: 's1',
+    senderSessionId: null,
     role: source === 'user' ? 'user' : 'assistant',
     source,
     content,

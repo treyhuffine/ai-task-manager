@@ -86,7 +86,7 @@ import {
   getNotificationChannel,
   defaultTriggerHarness,
   withTriggerProvider,
-  getAgentHarnessSettings,
+  getHarnessSettings,
   getStreamAutonomy,
   effectiveAutonomyLevel,
   proposeTriageDecisions,
@@ -109,12 +109,12 @@ import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/worksp
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { isReservedTrigger, RESERVED_LOCKED_FIELDS } from '@/lib/triggers/reserved';
-import { HARNESS_IDS, HARNESS_REGISTRY, resumeCommandForHarness, type HarnessId } from '@/lib/agents/registry';
+import { HARNESS_IDS, HARNESS_REGISTRY, resumeCommandForHarness, type HarnessId } from '@/lib/harness/registry';
 import {
   customModelOption,
   modelBelongsToProvider,
   modelsForProvider,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
@@ -1747,7 +1747,7 @@ const triggerConcurrencyPolicy = z.enum([
 ]);
 const triggerCatchUpPolicy = z.enum(['skip_missed', 'run_all']);
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
-// Provider vocabulary, the same ids `user_state.default_agent_harness` stores.
+// Provider vocabulary, the same ids `user_state.default_harness` stores.
 // Only providers their rollout flag leaves enabled.
 const triggerProvider = z.enum(HARNESS_IDS as unknown as [HarnessId, ...HarnessId[]]);
 const runStatusFilter = z.enum(['queued', 'running', 'completed', 'failed', 'skipped', 'cancelled']);
@@ -1783,7 +1783,7 @@ function assertModelFitsProvider(provider: HarnessId, model: string | null | und
   if (!model) return;
   const bundled = modelsForProvider(provider);
   if (bundled.length === 0) return;
-  const settings = getAgentHarnessSettings(provider);
+  const settings = getHarnessSettings(provider);
   const known = [
     ...bundled,
     ...[...(settings?.enabledModels ?? []), ...(settings?.customModels ?? [])].map(customModelOption),

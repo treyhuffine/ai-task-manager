@@ -15,10 +15,9 @@ import {
   explicitEffortForModel,
   explicitVariantForModel,
   harnessSupportsEffort,
-  providerHarnessKey,
   type ModelOption,
   type ProviderId,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import type { EffortLevel } from '@/db/types';
 import type { LaunchBase, LaunchMode } from '@/lib/executions/launch-draft';
 import { cn } from '@/lib/utils';
@@ -258,7 +257,7 @@ export function BaseControl({
   );
 }
 
-export interface LaunchAgentSelection {
+export interface LaunchHarnessSelection {
   harness: ProviderId;
   model: string;
   variant: string | null;
@@ -281,13 +280,13 @@ export function ModelControl({
   label: string;
   /** Per-provider effort the user last chose, applied when switching to it. */
   rememberedEfforts?: Record<string, EffortLevel>;
-  onChange: (next: LaunchAgentSelection) => void;
+  onChange: (next: LaunchHarnessSelection) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
   const handlePick = (harness: ProviderId, model: ModelOption) => {
-    const harnessKey = providerHarnessKey(harness);
+    const harnessKey = harness;
     // Resolved here rather than in the caller because this is the only place
     // holding the picked ModelOption — `explicitEffortForModel` needs it to
     // check the remembered value against what this model actually supports,

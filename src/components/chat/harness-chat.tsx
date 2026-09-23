@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useOrchestratorChat, useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 import {
   useSession,
   useSendMessage,
@@ -24,7 +24,6 @@ import { SyncingPill } from '@/components/executions/syncing-pill';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { ApiError } from '@/lib/api/client';
 import type { EffortLevel } from '@/db/types';
-import { providerHarnessKey } from '@/lib/agent-options';
 
 /**
  * The harness-backed orchestrator chat — the dashboard Chat tab when
@@ -199,7 +198,7 @@ export function HarnessChatSession({
           model={session.model}
           modelVariant={session.modelVariant}
           effort={session.effort}
-          harness={providerHarnessKey(session.harness)}
+          harness={session.harness}
           submitOnEnter={!isMobile}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}

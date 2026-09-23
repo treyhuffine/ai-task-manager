@@ -9,7 +9,7 @@ import { HarnessChatSession } from '@/components/chat/harness-chat'
 import { cn } from '@/lib/utils'
 import { hasRuntimeActivity } from '@/lib/executor/runtime-status'
 import type { TaskRecord, NoteRecord, ChatSessionRecord, EffortLevel } from '@/db/types'
-import type { ProviderId } from '@/lib/agent-options'
+import type { ProviderId } from '@/lib/harness/options'
 
 const CHAT_PANEL_MIN_WIDTH = 420
 

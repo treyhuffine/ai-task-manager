@@ -90,7 +90,7 @@ action needed.
   `runs.queuedAt` (1840) `(datetime('now'))`
 
 ### Empty JSON collections (`[]` / `{}`)
-- `agentHarnessSettings.enabledModels` (134), `.customModels` (141)
+- `harnessSettings.enabledModels` (134), `.customModels` (141)
 - `*.attachments` on areas/stream/tasks/decks/workspaces/executions/chatEvents/notes (180, 234, 441, 725, 1365, 1477)
 - `tasks.contextTags` (437), `.foldedHeadings` (442); `notes.foldedHeadings` (1478), `.contextTags` (1482); `stream`/`decks` contextTags (581)
 - `decks.items` (583), `.alternatives` (584), `.changes` (606), `.calendarSnapshot` (611)

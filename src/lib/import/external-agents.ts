@@ -37,9 +37,9 @@ import {
   publishReconcileStarted,
   publishReconcileDone,
 } from '@/lib/realtime/bus';
-import { explicitAgentSelection } from '@/lib/agent-options';
-import { openCodeRuntimeContext } from '@/lib/agents/opencode';
-import { runtimeContextForHarness } from '@/lib/agents/runtime';
+import { explicitHarnessSelection } from '@/lib/harness/options';
+import { openCodeRuntimeContext } from '@/lib/harness/opencode';
+import { runtimeContextForHarness } from '@/lib/harness/runtime';
 import { getAppRoot } from '@/lib/config/paths';
 import { detectBaseBranch, detectIsGit } from '@/lib/workspaces';
 import type {
@@ -652,7 +652,7 @@ function createImportSkeleton(
   workspaceCwd: string,
 ): { ledger: ExternalSessionImportRecord; chatSessionId: string; executionId: string } {
   const db = getDb();
-  const selection = explicitAgentSelection(candidate.source, {});
+  const selection = explicitHarnessSelection(candidate.source, {});
   const executionId = uuidv7();
   const chatSessionId = uuidv7();
   const ledgerId = uuidv7();

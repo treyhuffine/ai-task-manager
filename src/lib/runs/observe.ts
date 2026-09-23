@@ -11,7 +11,7 @@
  *
  * Three layers of evidence, in order of confidence:
  *
- *   1. **Process state** — `isAgentSessionAlive` peeks the SDK
+ *   1. **Process state** — `isHarnessSessionAlive` peeks the SDK
  *      handle's process. If the subprocess has exited cleanly without
  *      a `result` event landing, the run is dead.
  *
@@ -36,7 +36,7 @@ import { getDb } from '@/lib/db';
 import { chatEvents } from '@/lib/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { getRun, getChatSession } from '@/lib/db/queries';
-import { isAgentSessionAlive, isRunning } from '@/lib/executor/adapter';
+import { isHarnessSessionAlive, isRunning } from '@/lib/executor/adapter';
 import type { ChatEventRecord, ChatEventSource, RunRecord } from '@/db/types';
 
 /**
@@ -152,7 +152,7 @@ export function observeRun(runId: string, now: Date = new Date()): RunObservatio
     : null;
 
   const processAlive = chatSessionId
-    ? isRunning(chatSessionId) && isAgentSessionAlive(chatSessionId)
+    ? isRunning(chatSessionId) && isHarnessSessionAlive(chatSessionId)
     : false;
 
   // Process gone but row still running → crashed mid-flight.

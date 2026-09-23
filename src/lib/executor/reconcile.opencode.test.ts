@@ -44,7 +44,7 @@ vi.mock('./adapter', () => ({
   isRunning: () => false,
 }));
 vi.mock('./codex-on-disk', () => ({ mapCodexLineToInput: vi.fn() }));
-vi.mock('@/lib/agents/runtime', () => ({
+vi.mock('@/lib/harness/runtime', () => ({
   runtimeContextForHarness: vi.fn(async () => ({ cwd: '/repo', config: { command: 'opencode' } })),
 }));
 

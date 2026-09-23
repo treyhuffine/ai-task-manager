@@ -7,7 +7,7 @@ vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ execute: executeMock, capabilities }),
 }));
 
-let userState: { defaultAgentHarness?: string | null; defaultAgentModel?: string | null } | undefined;
+let userState: { defaultHarness?: string | null; defaultModel?: string | null } | undefined;
 vi.mock('@/lib/db/queries', () => ({
   getUserState: () => userState,
 }));
@@ -32,21 +32,21 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
   });
 
   it('follows the user default harness from user state', async () => {
-    userState = { defaultAgentHarness: 'codex' };
+    userState = { defaultHarness: 'codex' };
     const { resolveBackgroundHarness } = await import('./one-shot');
     expect(resolveBackgroundHarness()).toBe('codex');
   });
 
   it('standard tier trusts the default model only when it belongs to the provider', async () => {
     const { backgroundModelFor } = await import('./one-shot');
-    const { modelsForProvider } = await import('@/lib/agent-options');
+    const { modelsForProvider } = await import('@/lib/harness/options');
     const claudeModel = modelsForProvider('claude')[0].id;
 
-    userState = { defaultAgentModel: claudeModel };
+    userState = { defaultModel: claudeModel };
     expect(backgroundModelFor('claude', 'standard')).toBe(claudeModel);
 
     // Cross-provider leftovers (stale state) fall back to the CLI default.
-    userState = { defaultAgentModel: 'gpt-5.4-mini' };
+    userState = { defaultModel: 'gpt-5.4-mini' };
     expect(backgroundModelFor('claude', 'standard')).toBeUndefined();
   });
 });

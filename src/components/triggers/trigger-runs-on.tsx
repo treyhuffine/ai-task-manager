@@ -13,15 +13,14 @@
 
 import { useState } from 'react';
 import { useUpdateTrigger } from '@/hooks/use-triggers';
-import { useAgentModels } from '@/hooks/use-agent-models';
+import { useHarnessModels } from '@/hooks/use-harness-models';
 import {
   explicitEffortForModel,
   findProvider,
   harnessSupportsEffort,
-  providerHarnessKey,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import { readProviderEfforts } from '@/lib/executions/provider-effort';
-import { ProviderIcon } from '@/components/settings/agent-connection-ui';
+import { ProviderIcon } from '@/components/settings/harness-connection-ui';
 import { EffortControl, ModelControl } from '@/components/workspaces/launcher/launch-controls';
 import type { EffortLevel, TriggerView } from '@/db/types';
 
@@ -37,7 +36,7 @@ export function TriggerRunsOn({ trigger }: { trigger: TriggerView }) {
   const model = pending?.model !== undefined ? pending.model : trigger.model;
   const savedEffort = pending?.effort !== undefined ? pending.effort : trigger.effort;
 
-  const { models } = useAgentModels(provider);
+  const { models } = useHarnessModels(provider);
 
   if (!provider) {
     return (
@@ -48,7 +47,7 @@ export function TriggerRunsOn({ trigger }: { trigger: TriggerView }) {
   }
 
   const selectedModelOption = model ? models.find((m) => m.id === model) ?? null : null;
-  const harnessKey = providerHarnessKey(provider);
+  const harnessKey = provider;
   // A null effort means "the model's default", so show that rather than an
   // empty control.
   const effort: EffortLevel | null =

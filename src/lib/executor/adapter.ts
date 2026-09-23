@@ -5,7 +5,7 @@
  * `EventWriter` (defaults to the local DB).
  *
  * Module-scope state is intentional: in this single-process Node server,
- * `agentSessions` is the in-memory cache of live AgentSession handles
+ * `harnessSessions` is the in-memory cache of live AgentSession handles
  * keyed by our `chat_sessions.id`. `runningSessions` is the truth source
  * for "is this turn currently mid-stream"; the runtime-status endpoint
  * reads it. Process restart empties both maps; the next dispatch picks
@@ -76,7 +76,6 @@ import type {
   EffortLevel,
 } from '@/db/types';
 import { localEventWriter, type EventWriter } from './event-writer';
-import { mapHarnessToProvider } from './harness';
 import { harnessPermissionConfig } from './permission-map';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import {
@@ -103,15 +102,14 @@ import {
 import { notifyNeedsInput, notifyRunTerminal } from '@/lib/notifications/emit';
 import { budgetGate } from '@/lib/runs/budget';
 import {
-  explicitAgentSelection,
-  providerIdForHarness,
+  explicitHarnessSelection,
   type ProviderId,
-} from '@/lib/agent-options';
+} from '@/lib/harness/options';
 import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
-import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/agents/runtime';
-import { getAgentModelCatalog } from '@/lib/agent-model-discovery';
-import { redactAgentRuntimeValue } from '@/lib/agents/redaction';
-import { isHarnessEnabled } from '@/lib/agents/registry';
+import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/harness/runtime';
+import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
+import { redactHarnessRuntimeValue } from '@/lib/harness/redaction';
+import { harnessDefinition, isHarnessEnabled, type HarnessId } from '@/lib/harness/registry';
 
 // ─── Public errors ────────────────────────────────────────────
 
@@ -161,7 +159,7 @@ export interface DispatchOptions {
 // Next.js dev-mode HMR + bundling story.
 
 interface ExecutorState {
-  agentSessions: Map<string, AgentSession>;
+  harnessSessions: Map<string, AgentSession>;
   runningSessions: Set<string>;
   /**
    * Number of in-flight preparation and provider-send references per
@@ -213,7 +211,7 @@ const globalRef = globalThis as unknown as { [STATE_KEY]?: ExecutorState };
 
 if (!globalRef[STATE_KEY]) {
   globalRef[STATE_KEY] = {
-    agentSessions: new Map(),
+    harnessSessions: new Map(),
     runningSessions: new Set(),
     inflightCount: new Map(),
     activeDispatchCount: new Map(),
@@ -249,7 +247,7 @@ if (!globalRef[STATE_KEY]) {
 }
 
 const {
-  agentSessions,
+  harnessSessions,
   runningSessions,
   openStreamTurns,
   inflightCount,
@@ -407,7 +405,7 @@ export function _resetExecutorState(): void {
   // Retire every token handed out before the reset. The monotonic allocator is
   // deliberately not reset, so a late finalizer can never match new work.
   globalRef[STATE_KEY]!.nextDispatchGeneration++;
-  agentSessions.clear();
+  harnessSessions.clear();
   runningSessions.clear();
   inflightCount.clear();
   activeDispatchCount.clear();
@@ -440,8 +438,8 @@ export function isRunning(chatSessionId: string): boolean {
  * alone — which is the failure mode we're working around in the
  * first place.
  */
-export function isAgentSessionAlive(chatSessionId: string): boolean {
-  const handle = agentSessions.get(chatSessionId);
+export function isHarnessSessionAlive(chatSessionId: string): boolean {
+  const handle = harnessSessions.get(chatSessionId);
   if (!handle) return false;
   if (handle.state === 'closed') return false;
   const proc = (handle as unknown as {
@@ -459,8 +457,8 @@ export function isAgentSessionAlive(chatSessionId: string): boolean {
  * subprocess is already gone, so there's nothing to gracefully shut
  * down. Next dispatch lazily spawns a fresh one.
  */
-export function invalidateAgentSession(chatSessionId: string): void {
-  agentSessions.delete(chatSessionId);
+export function invalidateHarnessSession(chatSessionId: string): void {
+  harnessSessions.delete(chatSessionId);
   sessionInventories.delete(chatSessionId);
   clearBackgroundTasks(chatSessionId);
   clearStreamTurn(chatSessionId);
@@ -620,14 +618,14 @@ export async function dispatch(
   if (!isHarnessEnabled(providerId)) {
     throw new ExecutorError('unsupported', `${providerId} is disabled by the rollout configuration`);
   }
-  const catalog = await getAgentModelCatalog(providerId, { cwd });
+  const catalog = await getHarnessModelCatalog(providerId, { cwd });
   if (session.model && !catalog.some((model) => model.id === session.model)) {
     throw new ExecutorError(
       'invalid_state',
       `Model ${session.model} is unavailable. Reconnect the provider or choose another enabled model.`,
     );
   }
-  const selection = explicitAgentSelection(
+  const selection = explicitHarnessSelection(
     providerId,
     { model: session.model, variant: session.modelVariant, effort: session.effort },
     catalog,
@@ -652,14 +650,14 @@ export async function dispatch(
   if (!options.internalCall) {
     const savedSelection = getUserState();
     if (
-      savedSelection?.defaultAgentHarness !== selection.providerId
-      || savedSelection?.defaultAgentModel !== selection.model
-      || savedSelection?.defaultAgentEffort !== selection.effort
+      savedSelection?.defaultHarness !== selection.providerId
+      || savedSelection?.defaultModel !== selection.model
+      || savedSelection?.defaultEffort !== selection.effort
     ) {
       updateUserState({
-        defaultAgentHarness: selection.providerId,
-        defaultAgentModel: selection.model,
-        defaultAgentEffort: selection.effort,
+        defaultHarness: selection.providerId,
+        defaultModel: selection.model,
+        defaultEffort: selection.effort,
       });
     }
   }
@@ -726,7 +724,7 @@ export async function dispatch(
       manualRun = { runId: created.id, ownsLifecycle: true };
     }
 
-    const agentSession = await ensureAgentSession({
+    const agentSession = await ensureHarnessSession({
       chatSessionId,
       harness: session.harness,
       cwd,
@@ -756,7 +754,7 @@ export async function dispatch(
       void notifyRunTerminal(manualRun.runId).catch(() => {});
       // Touch the chat's outcome timestamp so a failure before any
       // assistant turn still surfaces in the inbox. Without this, a
-      // turn that throws inside `ensureAgentSession` / the first
+      // turn that throws inside `ensureHarnessSession` / the first
       // `send` would leave the chat invisibly stuck — the unread
       // derivation only ticks on `agent` / `result` events written
       // through the event writer.
@@ -777,7 +775,7 @@ export async function dispatch(
  * resolves (typically with a `result` event flagged as aborted).
  */
 export async function abort(chatSessionId: string): Promise<void> {
-  const handle = agentSessions.get(chatSessionId);
+  const handle = harnessSessions.get(chatSessionId);
   if (!handle) return;
   await handle.interrupt();
 }
@@ -796,7 +794,7 @@ export async function stopTask(
   chatSessionId: string,
   taskId: string,
 ): Promise<{ stopped: boolean }> {
-  const handle = agentSessions.get(chatSessionId);
+  const handle = harnessSessions.get(chatSessionId);
   if (!handle) return { stopped: false };
   return handle.stopTask(taskId);
 }
@@ -811,7 +809,7 @@ export async function stopTask(
  * refuse to claim the agent stopped when the close failed.
  */
 export async function close(chatSessionId: string): Promise<{ closed: boolean; error?: string }> {
-  const handle = agentSessions.get(chatSessionId);
+  const handle = harnessSessions.get(chatSessionId);
   // Close the process FIRST, while the handle is still tracked. If close fails
   // the process may still be alive, so we keep the handle cached (still
   // trackable / retryable) and DO NOT clear running state or the caches — losing
@@ -824,7 +822,7 @@ export async function close(chatSessionId: string): Promise<{ closed: boolean; e
       return { closed: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
-  agentSessions.delete(chatSessionId);
+  harnessSessions.delete(chatSessionId);
   sessionInventories.delete(chatSessionId);
   advanceDispatchGeneration(chatSessionId);
   inflightCount.delete(chatSessionId);
@@ -875,7 +873,7 @@ export async function recycleForReferenceFolderChange(
  */
 export async function recycleHarnessSessions(harness: ProviderId): Promise<void> {
   const affected: string[] = [];
-  for (const sessionId of agentSessions.keys()) {
+  for (const sessionId of harnessSessions.keys()) {
     const session = getChatSession(sessionId);
     if (session?.harness === harness) affected.push(sessionId);
   }
@@ -892,9 +890,9 @@ export async function recycleHarnessSessions(harness: ProviderId): Promise<void>
  * use it for lifecycle invalidation where closing the old handle is expected.
  */
 export async function recycleForModeChange(chatSessionId: string): Promise<void> {
-  const handle = agentSessions.get(chatSessionId);
+  const handle = harnessSessions.get(chatSessionId);
   if (!handle) return;
-  agentSessions.delete(chatSessionId);
+  harnessSessions.delete(chatSessionId);
   // Drop the inventory too — the recycled session will emit a fresh
   // system/init with potentially different available skills (e.g. plan
   // mode restricts the toolset).
@@ -910,7 +908,7 @@ export async function recycleForModeChange(chatSessionId: string): Promise<void>
 
 interface EnsureArgs {
   chatSessionId: string;
-  harness: string;
+  harness: HarnessId;
   cwd: string;
   /** chat_sessions.type — orchestration sessions get the data-root surface. */
   sessionType: 'orchestration' | 'content' | 'execution';
@@ -943,18 +941,18 @@ function resolveOrchestratorMode(): Exclude<OrchestratorMode, 'legacy'> {
   return mode === 'harness_skills' || mode === 'harness_mcp' ? mode : 'harness_mcp';
 }
 
-async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
-  const cached = agentSessions.get(args.chatSessionId);
+async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
+  const cached = harnessSessions.get(args.chatSessionId);
   if (cached) {
-    if (isAgentSessionAlive(args.chatSessionId)) return cached;
+    if (isHarnessSessionAlive(args.chatSessionId)) return cached;
     // Stale corpse: the SDK or our liveness probe knows the subprocess
     // is gone. Drop it and fall through to a fresh spawn. The previous
-    // ensureAgentSession returned dead handles unconditionally, which
+    // ensureHarnessSession returned dead handles unconditionally, which
     // produced silent "Session is closed" throws on the very next send.
-    invalidateAgentSession(args.chatSessionId);
+    invalidateHarnessSession(args.chatSessionId);
   }
 
-  const providerType = mapHarnessToProvider(args.harness);
+  const providerType = harnessDefinition(args.harness).agentexProviderId;
   const provider = getProvider(providerType);
   if (!provider.createSession) {
     throw new ExecutorError(
@@ -966,7 +964,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   // Build the agentex ProviderConfig from session-level overrides. Each
   // field falls back to the harness default when unset, so a fresh
   // session with all-null overrides produces no extra CLI flags.
-  const harness = providerIdForHarness(args.harness);
+  const harness = args.harness;
   const [runtimeContext, runtime] = await Promise.all([
     runtimeContextForHarness(harness, { cwd: args.cwd }),
     getHarnessRuntime(harness, { cwd: args.cwd }),
@@ -1168,7 +1166,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
     onUserInputRequest: (req) => handleUserInputRequest(args.chatSessionId, args.writer, req),
     onEvent: async (event) => {
       try {
-        const safeEvent = redactAgentRuntimeValue(event);
+        const safeEvent = redactHarnessRuntimeValue(event);
         _recordSessionInventory(args.chatSessionId, safeEvent);
         await persistStreamEvent(args.chatSessionId, safeEvent, args.writer, {
           trackBackgroundTaskRuntime: true,
@@ -1194,7 +1192,7 @@ async function ensureAgentSession(args: EnsureArgs): Promise<AgentSession> {
   const promotedId = typeof record?.params.sessionId === 'string' ? record.params.sessionId : handle.sessionId;
   if (promotedId) updateChatSession(args.chatSessionId, { externalSessionId: promotedId });
 
-  agentSessions.set(args.chatSessionId, handle);
+  harnessSessions.set(args.chatSessionId, handle);
   return handle;
 }
 
@@ -1436,7 +1434,7 @@ export async function persistStreamEvent(
   writer: EventWriter = localEventWriter,
   options: { trackBackgroundTaskRuntime?: boolean } = {},
 ): Promise<void> {
-  const safeEvent = redactAgentRuntimeValue(event);
+  const safeEvent = redactHarnessRuntimeValue(event);
   // Runtime signal, not transcript content — and it has to be applied even
   // though the event persists nothing, which is why it runs before the
   // early return below.
@@ -1834,7 +1832,7 @@ export function resolveCwd(session: { worktreePath: string | null; workspaceId: 
     // orchestrator/content path: interactive orchestrator chats and
     // scheduled `targetKind='orchestrator'` fires both land here (the
     // latter previously dead-ended with "no resolvable cwd"). The
-    // orchestrator branch in `ensureAgentSession` runs `ensureAppRoot()`
+    // orchestrator branch in `ensureHarnessSession` runs `ensureAppRoot()`
     // via the surface installer before the process spawns.
     return getAppRoot();
   }

@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import * as executor from '@/lib/executor/adapter';
-import { clearHarnessRuntimeCache } from '@/lib/agents/runtime';
+import { clearHarnessRuntimeCache } from '@/lib/harness/runtime';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

@@ -58,7 +58,7 @@ import {
 import type { ChatSessionRecord, ChatSessionWithExecution } from '@/db/types';
 import { persistStreamEvent, resolveCwd, isRunning } from './adapter';
 import { codexLiveCoverage, createCodexReplayFilter, mapCodexLineToInput } from './codex-on-disk';
-import { runtimeContextForHarness } from '@/lib/agents/runtime';
+import { runtimeContextForHarness } from '@/lib/harness/runtime';
 
 export interface ReconcileResult {
   /** Whether the on-disk transcript was ahead of our chat_events. */

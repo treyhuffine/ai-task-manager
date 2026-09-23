@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { HarnessId } from '@/lib/agents/registry';
+import type { HarnessId } from '@/lib/harness/registry';
 
 vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ capabilities: { concurrentSend: true } }),
@@ -51,8 +51,8 @@ async function setDefaultProvider(provider: HarnessId) {
   const { getDb } = await import('@/lib/db');
   const { userState } = await import('@/lib/db/schema');
   getDb().insert(userState)
-    .values({ id: 1, defaultAgentHarness: provider })
-    .onConflictDoUpdate({ target: userState.id, set: { defaultAgentHarness: provider } })
+    .values({ id: 1, defaultHarness: provider })
+    .onConflictDoUpdate({ target: userState.id, set: { defaultHarness: provider } })
     .run();
 }
 
@@ -287,9 +287,9 @@ describe('orchestrator trigger + run actions', () => {
     it('create_trigger accepts a model the user pinned by hand', async () => {
       await seed();
       const queries = await import('@/lib/db/queries');
-      queries.ensureAgentHarnessSettings('codex');
-      queries.upsertAgentHarnessSettings({
-        ...queries.getAgentHarnessSettings('codex')!,
+      queries.ensureHarnessSettings('codex');
+      queries.upsertHarnessSettings({
+        ...queries.getHarnessSettings('codex')!,
         customModels: ['my-private-codex-model'],
       });
       const action = await findAction('create_trigger');

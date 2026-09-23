@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { archiveWorkspace, listChatSessions } from '@/lib/db/queries';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
-import { close as closeAgentSession } from '@/lib/executor/adapter';
+import { close as closeHarnessSession } from '@/lib/executor/adapter';
 
 export const runtime = 'nodejs';
 
@@ -22,7 +22,7 @@ export async function POST(
     //   - the cached agent CLI subprocess, one per chat
     const sessions = listChatSessions({ workspaceId: id });
     for (const ownerId of new Set(sessions.map(terminalOwnerId))) killAllForOwner(ownerId);
-    await Promise.all(sessions.map((s) => closeAgentSession(s.id)));
+    await Promise.all(sessions.map((s) => closeHarnessSession(s.id)));
     return Response.json(row);
   } catch (err) {
     console.error('[POST /api/workspaces/:id/archive]', err);
