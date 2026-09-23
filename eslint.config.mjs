@@ -34,6 +34,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Build output of `pnpm smoke:*` (NEXT_DIST_DIR), gitignored like .next.
+    ".next-smoke/**",
   ]),
 ]);
 
