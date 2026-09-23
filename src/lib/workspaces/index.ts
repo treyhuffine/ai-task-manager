@@ -135,11 +135,16 @@ export async function detectBaseBranch(absolutePath: string, remote = 'origin'):
 /**
  * Slug for the session-label half of a branch name. Prefixed with the
  * workspace slug at call time: `<workspace.slug>/<session-slug>`.
+ *
+ * Unlabeled sessions fall back to the id's random chars, like the worktree
+ * leaf. The first 8 chars of a UUIDv7 are the top of its timestamp and only
+ * change every ~65 seconds, so two unlabeled starts a minute apart used to
+ * ask for the same branch.
  */
 export function deriveSessionLabelSlug(label: string | null | undefined, sessionId: string): string {
   const slug = label ? slugify(label) : '';
   if (slug) return slug;
-  return `session-${sessionId.slice(0, 8)}`;
+  return `session-${worktreeIdSuffix(sessionId)}`;
 }
 
 /**
@@ -379,11 +384,23 @@ export async function createWorktreeForSession(args: {
         warning,
       };
     } catch (err) {
-      if (err instanceof lib.BranchExistsError) continue;
+      if (err instanceof lib.BranchExistsError || lostBranchRace(err, branch)) continue;
       throw err;
     }
   }
   throw new Error(`Could not allocate a unique branch from ${baseBranchName}`);
+}
+
+/**
+ * Another create took the branch between agentex's existence check and its
+ * `git worktree add -b`. agentex maps git's "a branch named ... already
+ * exists" to `BranchExistsError` but not the ref-lock wording git uses when
+ * the two land at the same moment, so it arrives here as a plain error.
+ */
+function lostBranchRace(err: unknown, branch: string): boolean {
+  const stderr = err && typeof err === 'object' && 'stderr' in err ? String((err as { stderr: unknown }).stderr) : '';
+  const text = `${stderr}\n${err instanceof Error ? err.message : ''}`;
+  return text.includes(`cannot lock ref 'refs/heads/${branch}'`) && text.includes('reference already exists');
 }
 
 /**

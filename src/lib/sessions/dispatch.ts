@@ -351,6 +351,12 @@ export interface ProvisionArgs {
   };
 }
 
+/** Provisions running now, by execution id. On globalThis so every route bundle sees the same map. */
+const PROVISIONS_KEY = Symbol.for('ri.worktreeProvisions.inflight');
+const inflightProvisions: Map<string, Promise<void>> =
+  ((globalThis as Record<symbol, unknown>)[PROVISIONS_KEY] as Map<string, Promise<void>> | undefined)
+  ?? ((globalThis as Record<symbol, unknown>)[PROVISIONS_KEY] = new Map());
+
 /**
  * Background worktree creation for an execution. Two modes:
  *
@@ -372,8 +378,23 @@ export interface ProvisionArgs {
  * first and passes that ref as the base — works for same-repo and fork
  * PRs alike. Resume mode ignores `prNumber` since we're checking out an
  * existing branch.
+ *
+ * One provision per execution at a time: a call while one is running joins
+ * it, whatever its own args say. Creating a session (or continuing one)
+ * starts a provision in the background, and the first message's self-heal
+ * (`ensureWorktreeReady`) sees no worktree yet and asks for one too. Before
+ * this, both built a worktree and a branch, the later one was recorded, and
+ * the other was left on disk with nothing pointing at it.
  */
-export async function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
+export function provisionWorktreeForSession(args: ProvisionArgs): Promise<void> {
+  const pending = inflightProvisions.get(args.executionId);
+  if (pending) return pending;
+  const run = provisionOnce(args).finally(() => inflightProvisions.delete(args.executionId));
+  inflightProvisions.set(args.executionId, run);
+  return run;
+}
+
+async function provisionOnce(args: ProvisionArgs): Promise<void> {
   const { ws, executionId, sessionId, label, baseBranchOverride, prNumber, resume } = args;
   try {
     let worktree: CreateWorktreeForSessionResult | null = null;
