@@ -247,33 +247,47 @@ One registry generates both surfaces, so every item lands on both.
 
 **Caller identity** (§5.4)
 
-- [ ] Give every harness session a way to identify itself to the orchestrator:
+- [x] Give every harness session a way to identify itself to the orchestrator:
   - MCP mode: the executor adds a per-session credential to the orchestrator MCP server config it attaches to the session. The `/api/orchestrator/[transport]` route resolves it to `ctx.actor`.
   - Skills mode: the executor exports the session id and a per-session token into the harness environment, and the CLI forwards them.
-- [ ] A bare header or env var without a valid token is ignored, so an untrusted caller cannot claim to be a session. Human CLI calls keep today's behavior (actor unset).
-- [ ] Test: an action called from a session sees that session in `ctx.actor.sessionId`, and a forged id does not.
+  - One value carries both: `<chatSessionId>.<HMAC-SHA256(localToken, "ri-session:<id>")>` (`src/lib/orchestrator/session-credential.ts`). Nothing is stored, since any process holding the local token can re-verify it. MCP sends it as the `x-ri-session` header (`orchestratorMcpServer(port, { sessionId })`). Every session's env gets `RI_SESSION_CREDENTIAL`, which `ri agent` reads (`actorFromSessionCredential`).
+- [x] A bare header or env var without a valid token is ignored, so an untrusted caller cannot claim to be a session. Human CLI calls keep today's behavior (actor unset).
+  - A forged signature, a bare id, or a credential for a deleted chat all resolve to no actor. This is identity only. `ctx.remote` still decides what the transport may do.
+- [x] Test: an action called from a session sees that session in `ctx.actor.sessionId`, and a forged id does not.
+  - `session-credential.test.ts` (sign, verify, forge, header parsing, actor lookup) and `app/api/orchestrator/[transport]/route.test.ts`, which drives the real MCP handler with signed, forged, bare and missing headers.
 
 **New actions**
 
-- [ ] `start_execution`: `workspaceId`, `prompt`, optional `provider`, `model`, `effort`, `permissionMode`, `taskId`, `label`, and a required `requestId` for retry safety. Goes through the server, like `send_session_message`: create via `POST /api/workspaces/:id/sessions`, then send the prompt through the messages route. A retry with the same `requestId` returns the same execution. Returns `sessionId` and `executionId`.
-- [ ] `archive_execution`: `sessionId`, optional `force`. Goes through the server's archive route. A dirty worktree without `force` fails with `conflict` and says what would be lost. Archiving an archived execution succeeds as a no-op.
-- [ ] `update_workspace`: `name`, `emoji`, `areaId`, `purpose`, `instructions`, `connectorScopes`, `browserEnabled`. **The folder, scripts (setup, teardown, start) and files-to-copy are not in this action.** Those execute commands or move files on the machine, so they stay in the app UI.
-- [ ] `get_workspace` and `list_workspaces` return `purpose` and `instructions`.
+- [x] `start_execution`: `workspaceId`, `prompt`, optional `provider`, `model`, `effort`, `permissionMode`, `taskId`, `label`, and a required `requestId` for retry safety. Goes through the server, like `send_session_message`: create via `POST /api/workspaces/:id/sessions`, then send the prompt through the messages route. A retry with the same `requestId` returns the same execution. Returns `sessionId` and `executionId`.
+  - Retry safety without a new table: the chat id and the prompt's event id are UUIDv8s derived from `sha256("ri:start_execution:<kind>:<workspaceId>:<requestId>")`. A retry finds the chat already there and skips the create. It resends the prompt under the same event id, which the messages route already dedupes. `requestId` is scoped per agent, so two agents reusing one id never collide. `permissionMode` is PATCHed before the prompt, and only when it differs from the session default. Server refusals map to `not_found`, `conflict` (with the route's reason, e.g. a task that cannot start) or `invalid_params`.
+- [x] `archive_execution`: `sessionId`, optional `force`. Goes through the server's archive route. A dirty worktree without `force` fails with `conflict` and says what would be lost. Archiving an archived execution succeeds as a no-op.
+  - Refuses non-execution chats with `invalid_params`. The conflict carries the route's detail and a `force: true` suggestion.
+- [x] `update_workspace`: `name`, `emoji`, `areaId`, `purpose`, `instructions`, `connectorScopes`, `browserEnabled`. **The folder, scripts (setup, teardown, start) and files-to-copy are not in this action.** Those execute commands or move files on the machine, so they stay in the app UI.
+  - `connectorScopes` and `browserEnabled` widen what the agent can reach, so they need the trusted local CLI (`ctx.remote === false`). Over MCP, or with the transport unset, they fail with `invalid_params`. Plain fields go through `PATCH /api/workspaces/:id` (so an instructions change recycles live sessions). Scopes go through `PUT /api/workspaces/:id/connector-scopes`, which validates toolkits. Validation messages come back as `invalid_params`.
+- [x] `get_workspace` and `list_workspaces` return `purpose` and `instructions`.
+  - They return the full row, so the new columns came along. `create_workspace` also takes both. `list_workspace_sessions` now lists executions only, so an agent's main chat never shows up as work.
 
 **Provenance**
 
 - [x] Add `chat_events.sender_session_id`: text, nullable, foreign key to `chat_sessions`, `ON DELETE SET NULL`. Plain `ADD COLUMN`. (In `0001_late_magus.sql`.)
   - **Changed to a soft reference (no FK).** A scratch generate showed drizzle-kit emits `ADD sender_session_id text REFERENCES chat_sessions(id)` and silently drops the `ON DELETE SET NULL`, so existing databases would get a stricter constraint than fresh installs, and deleting a chat that had sent a message would fail. Fixing that needs hand-edited SQL, so the column is a plain nullable text id and readers treat an unresolvable id as "a deleted chat".
-- [ ] `send_session_message` passes `ctx.actor.sessionId` to the messages route, which stores it on the event.
-- [ ] The receiving harness gets the message with a one-line header naming the sender, for example `[Message from the ri agent's main chat]` or `[Message from the orchestrator]`. Messages you type are unchanged.
-- [ ] Enforce "never send to your own session" using the actor.
+- [x] `send_session_message` passes `ctx.actor.sessionId` to the messages route, which stores it on the event.
+  - Passed as a signed `x-ri-session` header, not a body field, so the route verifies it and a request cannot claim a sender. The result carries `sentFrom`.
+- [x] The receiving harness gets the message with a one-line header naming the sender, for example `[Message from the ri agent's main chat]` or `[Message from the orchestrator]`. Messages you type are unchanged.
+  - `src/lib/sessions/sender.ts`: `[Message from the "ri" agent's main chat, sent on the user's behalf]`, then a blank line. The stored event keeps the text as sent, so the label is only in what the harness receives. Orphan redispatch (`health.ts`) applies the same label.
+- [x] Enforce "never send to your own session" using the actor.
+  - Both layers: the action refuses before calling the server, and the messages route refuses a credential naming the target (400).
 
 **Briefs and skills**
 
-- [ ] Update the orchestrator brief (`harness-surface.ts`, `claude-md-template.ts`) and `skills/orchestrator/SKILL.md`: the new actions, provenance, and "a workspace is what the user calls an agent".
-- [ ] Registry tests for every change above (`registry.triggers.test.ts`, `registry.oversight.test.ts`, new tests for the new actions).
+- [x] Update the orchestrator brief (`harness-surface.ts`, `claude-md-template.ts`) and `skills/orchestrator/SKILL.md`: the new actions, provenance, and "a workspace is what the user calls an agent".
+  - SKILL.md also had stale `schedule` action names from before triggers. Fixed.
+- [x] Registry tests for every change above (`registry.triggers.test.ts`, `registry.oversight.test.ts`, new tests for the new actions).
+  - `registry.agents.test.ts` covers the new actions, provenance, the capability gate and the executions-only list. Trigger changes were tested with Phase 1. `server-client.test.ts` covers the structured `ServerResponseError`.
 
 **Done when:** an orchestrator session can start, message and archive an execution. The execution's transcript shows who sent each message, and retries do not duplicate work.
+
+**Status 2026-09-22:** landed. Every action is tested through `runAction` with the app server mocked and the database and credentials real, and caller identity through the real MCP handler. `get_session_messages` marks steered rows with `sentBy`, so an overseeing agent can tell them from typed ones. The transcript chip in the UI is Phase 7. A live run against a real harness is part of the Phase 10 end-to-end pass.
 
 ### Phase 5: REST routes
 

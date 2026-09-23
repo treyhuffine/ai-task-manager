@@ -187,6 +187,25 @@ describe('orchestratorMcpServer', () => {
     fs.mkdirSync(root, { recursive: true });
     expect(orchestratorMcpServer(4224)).toBeNull();
   });
+
+  it('carries the calling chat\'s signed credential when given a session, and none otherwise', async () => {
+    fs.mkdirSync(root, { recursive: true });
+    seedToken();
+    const { verifySessionCredential } = await import('./session-credential');
+    const bare = orchestratorMcpServer(5151) as { headers: Record<string, string> };
+    expect(bare.headers).toEqual({ Authorization: 'Bearer tok_test_123' });
+
+    const scoped = orchestratorMcpServer(5151, { sessionId: 'chat-42' }) as { headers: Record<string, string> };
+    expect(scoped.headers.Authorization).toBe('Bearer tok_test_123');
+    expect(verifySessionCredential(scoped.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
+
+    // orchestratorSessionConfig threads the session through to the same header.
+    const config = orchestratorSessionConfig('harness_mcp', { port: 5151, sessionId: 'chat-42' });
+    const orchestrator = config.mcpServers?.find((server) => server.name === 'orchestrator') as
+      | { headers: Record<string, string> }
+      | undefined;
+    expect(verifySessionCredential(orchestrator?.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
+  });
 });
 
 describe('connectorsMcpServer', () => {

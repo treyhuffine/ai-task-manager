@@ -28,8 +28,9 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 - Deck: `get_deck`, `update_deck`, `regenerate_deck`
 - Search: `search`
 - User state: `get_user_state`, `update_user_state`
-- Execution oversight: `list_executions`, `get_session_messages`, `send_session_message`, `get_pending_input`, `answer_pending_input`
-- Workspaces / schedules / runs: `list_workspaces`, `get_workspace`, `create_workspace`, `archive_workspace`, `list_workspace_sessions`, `list_schedules`, `get_schedule`, `create_schedule`, `update_schedule`, `delete_schedule`, `run_schedule`, `list_runs`, `get_run`, `cancel_run`, `reset_schedule_failures`
+- Execution oversight: `list_executions`, `get_session_messages`, `send_session_message`, `get_pending_input`, `answer_pending_input`, `start_execution`, `archive_execution`
+- Workspaces (the user calls a workspace an "agent"): `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `archive_workspace`, `list_workspace_sessions`
+- Triggers / runs: `list_triggers`, `get_trigger`, `create_trigger`, `update_trigger`, `delete_trigger`, `run_trigger`, `list_runs`, `get_run`, `cancel_run`, `reset_trigger_failures`
 
 **CLI**: `<cli> agent <action> [params]` (the concrete `<cli>` binary is named in the CLAUDE.md at the app's data root). Output is JSON on stdout — pipe to `jq`. Run `<cli> agent <action> --help` to see params, or `<cli> agent describe_paths` to confirm where the app is installed on this machine.
 
@@ -82,19 +83,31 @@ shape isn't clear yet.
 
 ## Execution oversight
 
-Executions are agent sessions doing delegated work inside workspaces. The
-oversight loop: `list_executions` (`running` / `awaitingInput` / `unread`
-flags — unread mirrors the rail's Unread section) →
+Executions are agent sessions doing delegated work inside workspaces. The user
+calls a workspace an **agent** ("the ri agent" is the workspace named ri): its
+folder, what it can use, a `purpose`, and standing `instructions` that every
+execution in it receives. The oversight loop: `list_executions` (`running` /
+`awaitingInput` / `unread` flags — unread mirrors the rail's Unread section) →
 `get_session_messages` (condensed transcript tail — **read before acting**) →
 `send_session_message` (nudge, add context, redirect). Sends are
-asynchronous — re-check the transcript for the response.
+asynchronous — re-check the transcript for the response. A message you send is
+labeled with the chat it came from, in the transcript and for the receiving
+agent, so it is never mistaken for the user typing.
+
+Start new work with `start_execution` (workspace, a complete first prompt, and
+a fresh `requestId` per piece of work: retrying with the same one returns the
+same execution rather than starting a second). Close out finished work with
+`archive_execution`. It refuses when the worktree holds uncommitted or unpushed
+work and says so. Only pass `force` when the user has said that work can go.
+`update_workspace` edits an agent's name, emoji, area, `purpose` and
+`instructions`. Connector access and the browser change only in the app.
 
 A session that's `awaitingInput` is **blocked** — queued messages won't reach
 it. Use `get_pending_input` for the prompt + requestId, then
 `answer_pending_input`: questions when the user's intent is clear from
 context; permission prompts default to surfacing to the user — approve only
 what they explicitly asked for or delegated. Never send to your own session.
-Recurring oversight belongs in a schedule with `target_kind=orchestrator`,
+Recurring oversight belongs in a trigger with `target_kind=orchestrator`,
 which fires with this same surface.
 
 When reporting on an execution, reference it as `[[execution:SESSION_ID]]`

@@ -21,6 +21,7 @@ import { Command } from 'commander';
 import type { z } from 'zod';
 import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
+import { SESSION_CREDENTIAL_ENV, actorFromSessionCredential } from '@/lib/orchestrator/session-credential';
 import type { Action } from '@/lib/orchestrator/types';
 
 export function registerAgentCommand(program: Command) {
@@ -77,7 +78,11 @@ export function registerAgentCommand(program: Command) {
         Object.assign(input, blob);
       }
 
-      const envelope = await runAction(action.name, input, { remote: false });
+      // Run from a harness session's shell (skills mode), the session's signed
+      // credential is in the environment, so the action knows which chat is
+      // calling. A human at a terminal has none, and runs with no actor.
+      const actor = actorFromSessionCredential(process.env[SESSION_CREDENTIAL_ENV]);
+      const envelope = await runAction(action.name, input, { remote: false, actor });
       if (!envelope.ok) {
         process.stderr.write(JSON.stringify(envelope, null, 2) + '\n');
         process.exit(1);

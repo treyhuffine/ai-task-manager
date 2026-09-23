@@ -17,6 +17,8 @@ import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
 import * as executor from '@/lib/executor/adapter';
 import { healthCheckSession } from '@/lib/executor/health';
 import type { Attachment } from '@/db/types';
+import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
+import { withSenderLabel } from '@/lib/sessions/sender';
 
 interface PostBody {
   content?: string;
@@ -100,6 +102,15 @@ export async function POST(
     // executor — confusing and wrong. The orphan-healing path below
     // (via `healthCheckSession`) handles the actual re-dispatch
     // decision. `getChatEventById` is a cheap PK lookup.
+    // A message another chat sent (send_session_message, start_execution)
+    // carries that chat's signed credential. Verified, never trusted as a
+    // bare id, so a client can't make a message look like it came from a
+    // chat that didn't send it. See src/lib/orchestrator/session-credential.ts.
+    const senderSessionId = verifySessionCredential(request.headers.get(SESSION_CREDENTIAL_HEADER));
+    if (senderSessionId === id) {
+      return Response.json({ error: 'A chat cannot send a message to itself.' }, { status: 400 });
+    }
+
     const isExistingRetry = !!(body.id && getChatEventById(body.id));
 
     // We deliberately do NOT gate manual sends on a run already in
@@ -151,6 +162,7 @@ export async function POST(
       sessionId: id,
       role: 'user',
       source: 'user',
+      senderSessionId,
       content,
       attachments,
       createdAt: new Date().toISOString(),
@@ -255,7 +267,10 @@ export async function POST(
             );
             return;
           }
-          await executor.dispatch(id, expanded);
+          // Labeled with the sending chat when another chat sent it. The
+          // stored event keeps the message as sent, and the first-message
+          // title above is derived from it without the label.
+          await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId));
         } finally {
           executor.endDispatchPreparation(id, preparationRef);
         }

@@ -1,12 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { serverBaseUrl } from './server-client';
+import { serverBaseUrl, serverFetch, ServerResponseError } from './server-client';
 import { PUBLIC_BASE_URL_ENV, publishServerRuntime } from '@/lib/server-runtime/record';
 
 let tmpRoot: string;
-const saved = { port: process.env.PORT, pub: process.env[PUBLIC_BASE_URL_ENV], work: process.env.RI_WORK_DIR };
+const saved = {
+  port: process.env.PORT,
+  pub: process.env[PUBLIC_BASE_URL_ENV],
+  work: process.env.RI_WORK_DIR,
+  config: process.env.RI_CONFIG_DIR,
+};
 
 beforeEach(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-sc-'));
@@ -22,6 +27,9 @@ afterEach(() => {
   else process.env[PUBLIC_BASE_URL_ENV] = saved.pub;
   if (saved.work === undefined) delete process.env.RI_WORK_DIR;
   else process.env.RI_WORK_DIR = saved.work;
+  if (saved.config === undefined) delete process.env.RI_CONFIG_DIR;
+  else process.env.RI_CONFIG_DIR = saved.config;
+  vi.unstubAllGlobals();
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 });
 
@@ -69,5 +77,34 @@ describe('serverBaseUrl — internal self-call routing', () => {
     const base = serverBaseUrl();
     expect(base.startsWith('http://')).toBe(true);
     expect(base.startsWith('https://')).toBe(false);
+  });
+});
+
+describe('serverFetch errors', () => {
+  function withToken() {
+    process.env.RI_CONFIG_DIR = path.join(tmpRoot, '.config');
+    fs.mkdirSync(process.env.RI_CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.RI_CONFIG_DIR, 'config.json'), JSON.stringify({ version: 1, localToken: 'tok' }));
+  }
+
+  it('keeps the status and body of a non-2xx answer, so callers can map it', async () => {
+    withToken();
+    const body = JSON.stringify({ error: 'DirtyWorktreeError', code: 'dirty_worktree' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 409 })));
+    const error = await serverFetch('/sessions/s1/archive', { method: 'POST' }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ServerResponseError);
+    const failure = error as ServerResponseError;
+    expect(failure.status).toBe(409);
+    expect(failure.code).toBe('conflict');
+    expect(failure.json()).toEqual({ error: 'DirtyWorktreeError', code: 'dirty_worktree' });
+    expect(failure.message).toContain('POST /sessions/s1/archive → 409');
+  });
+
+  it('returns null from json() for a body that is not a JSON object', async () => {
+    withToken();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('Bad gateway', { status: 502 })));
+    const error = (await serverFetch('/x').catch((e: unknown) => e)) as ServerResponseError;
+    expect(error.status).toBe(502);
+    expect(error.json()).toBeNull();
   });
 });

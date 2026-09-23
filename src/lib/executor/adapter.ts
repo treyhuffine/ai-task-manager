@@ -73,6 +73,7 @@ import {
   writeSessionInstructions,
 } from '@/lib/executor/session-instructions';
 import { renderAgentInstructionsPrompt } from '@/lib/executor/prompts/agent-instructions';
+import { SESSION_CREDENTIAL_ENV, sessionCredential } from '@/lib/orchestrator/session-credential';
 import type {
   ChatEventSource,
   CreateChatEventInput,
@@ -1016,7 +1017,7 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
     const orchestratorMode = resolveOrchestratorMode();
     try {
       await installOrchestratorSurface(orchestratorMode);
-      Object.assign(config, orchestratorSessionConfig(orchestratorMode));
+      Object.assign(config, orchestratorSessionConfig(orchestratorMode, { sessionId: args.chatSessionId }));
       // A `content` session is a *focused* orchestrator session: same
       // installed surface + tool set, narrowed to the one task/note the user
       // is viewing in the editor. The focus rides Claude's
@@ -1181,9 +1182,13 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
   const skillDirs = resolveSkillDirsForSession(args.cwd);
   if (skillDirs.length > 0) config.skillDirs = skillDirs;
 
+  // Every session carries its caller credential, so an orchestrator action it
+  // runs (MCP header or the CLI from its shell) knows which chat is calling.
+  // See src/lib/orchestrator/session-credential.ts.
+  const credential = sessionCredential(args.chatSessionId);
   const handle = await provider.createSession({
     cwd: args.cwd,
-    env: runtimeContext.env,
+    env: credential ? { ...runtimeContext.env, [SESSION_CREDENTIAL_ENV]: credential } : runtimeContext.env,
     sessionParams: args.existingExternalSessionId
       ? { sessionId: args.existingExternalSessionId }
       : undefined,

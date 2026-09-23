@@ -40,6 +40,7 @@ import {
   dispatch,
 } from './adapter';
 import { reconcileSession } from './reconcile';
+import { withSenderLabel } from '@/lib/sessions/sender';
 
 /**
  * - `healthy`   — session is in a state where the user can send and
@@ -213,7 +214,8 @@ export async function healthCheckSession(
         // Fire-and-forget: awaiting the full turn would block the
         // sweep for minutes. Errors are logged and the throttle
         // prevents thrash if dispatch keeps failing.
-        void dispatch(sessionId, expanded).catch((err) => {
+        // Same label the messages route adds when another chat sent it.
+        void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId)).catch((err) => {
           console.error(`[health] orphan redispatch failed for ${sessionId}:`, err);
         });
         redispatched = true;

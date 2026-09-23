@@ -49,6 +49,7 @@ import {
   getBrainDir,
 } from '@/lib/config/paths';
 import { readAuthConfig } from '@/lib/auth/config-file';
+import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
 
 export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
 
@@ -148,8 +149,11 @@ relevant rather than assuming it's already in context.
 - **User state** is the user's current context: active area/task, energy,
   available minutes, free-text focus.
 - **Workspaces & executions**: workspaces are repos/folders the user
-  delegates coding work into. Executions are agent sessions running inside
-  them. You can watch and steer them (see Execution oversight).
+  delegates work into. **The user calls a workspace an "agent"** ("the ri
+  agent" is the workspace named ri): its folder, what it can use, a
+  \`purpose\`, and standing \`instructions\` every execution in it receives.
+  Executions are agent sessions running inside them. You can start, watch,
+  steer and close them out (see Execution oversight).
 
 ## Task lifecycle
 
@@ -217,7 +221,20 @@ You are the conductor over the executing agents:
   **Always read before acting.** Know where the agent actually is.
 - \`send_session_message\`: drop a message into an execution: nudge a
   stalled one, add context, redirect. Delivery is asynchronous. Re-check
-  the transcript for the response.
+  the transcript for the response. Your message is labeled as coming from
+  you, in the transcript and for the receiving agent, so it is never
+  mistaken for the user typing.
+- \`start_execution\`: start new work in a workspace with a first prompt
+  (its own worktree for git workspaces). Pass a fresh \`requestId\` per piece
+  of work: retrying with the same one returns the same execution instead of
+  starting a second. Write the prompt as a complete brief, since the new
+  session starts with none of this conversation.
+- \`archive_execution\`: close out finished work. It refuses when the
+  worktree has uncommitted or unpushed work, and says so. Only pass
+  \`force\` when the user has said that work can go.
+- \`update_workspace\`: edit an agent's name, emoji, area, \`purpose\` or
+  standing \`instructions\` when the user asks. Connector access and the
+  browser can only be changed in the app.
 - \`get_pending_input\` / \`answer_pending_input\`: when a session is
   \`awaitingInput\`, its turn is **blocked**: queued messages won't reach it
   until the prompt is resolved. Fetch the prompt, then answer it:
@@ -332,7 +349,8 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`update_deck\`, \`regenerate_deck\`, \`reconcile_deck\`, \`search\`, \`get_user_state\`,
 \`update_user_state\`. Execution oversight via \`list_executions\`,
 \`get_session_messages\`, \`send_session_message\`, \`get_pending_input\`,
-\`answer_pending_input\`. Browser via \`browser_read\`, \`browser_act\`,
+\`answer_pending_input\`, \`start_execution\`, \`archive_execution\`. Workspaces
+(agents) via \`list_workspaces\`, \`get_workspace\`, \`update_workspace\`. Browser via \`browser_read\`, \`browser_act\`,
 \`browser_batch\`, \`browser_tabs\`, \`browser_open\`, \`browser_profiles\`,
 \`browser_status\`, \`browser_close\`. Plus workspace/trigger/run management and
 \`describe_paths\` / \`describe_schema\` / \`list_skills\`.
@@ -415,17 +433,26 @@ in the source repo, not here.`;
  * Returns null (with a warning) when no local token exists yet — the
  * session still runs, just without MCP tools.
  */
-export function orchestratorMcpServer(port = resolveServerPort()): McpServerConfig | null {
+export function orchestratorMcpServer(
+  port = resolveServerPort(),
+  opts: { sessionId?: string | null } = {},
+): McpServerConfig | null {
   const token = readAuthConfig()?.localToken;
   if (!token) {
     console.warn('[harness-surface] no localToken in config.json, skipping MCP attachment');
     return null;
   }
+  // Tell the orchestrator which chat is calling, so actions can record who
+  // did what (see session-credential.ts). Signed with the same local token.
+  const credential = opts.sessionId ? sessionCredential(opts.sessionId, token) : null;
   return {
     name: ORCHESTRATOR_MCP_SERVER_NAME,
     type: 'http',
     url: `http://localhost:${port}/api/orchestrator/mcp`,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {}),
+    },
   };
 }
 
@@ -560,7 +587,7 @@ const ORCHESTRATOR_DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
  */
 export function orchestratorSessionConfig(
   mode: OrchestratorMode,
-  opts: { port?: number } = {},
+  opts: { port?: number; sessionId?: string | null } = {},
 ): Partial<ProviderConfig> {
   if (mode === 'legacy') return {};
   const config: Partial<ProviderConfig> = {
@@ -570,7 +597,10 @@ export function orchestratorSessionConfig(
   if (mode === 'harness_mcp') {
     // Attach the orchestrator MCP (tasks/notes/deck/…) + the connectors MCP (Gmail/Slack/…),
     // both over localhost + the local bearer. Each routes through its own gated runtime.
-    const servers = [orchestratorMcpServer(opts.port), connectorsMcpServer(opts.port)].filter(
+    const servers = [
+      orchestratorMcpServer(opts.port, { sessionId: opts.sessionId }),
+      connectorsMcpServer(opts.port),
+    ].filter(
       (s): s is McpServerConfig => s !== null,
     );
     if (servers.length > 0) config.mcpServers = servers;

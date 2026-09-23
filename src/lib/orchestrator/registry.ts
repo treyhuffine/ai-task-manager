@@ -10,6 +10,7 @@
  * markdown-mirror sync, attachment derivation).
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { z } from 'zod';
 import { uuidv7 } from 'uuidv7';
@@ -96,6 +97,7 @@ import {
   TriageError,
   listBacklinks,
   listOutgoingLinks,
+  WorkspaceFieldError,
   type TriageDecisionInput,
 } from '@/lib/db/queries';
 import { stripHighlight } from '@/lib/search/highlight';
@@ -123,7 +125,10 @@ import {
 // dev CLI boot under tsx and matches the actual call graph: `run_trigger`
 // and `cancel_run` are the only paths that touch the executor.
 import { inventorySkills } from '@/lib/executor/skills';
-import { fetchLiveSignals, serverFetch } from './server-client';
+import { fetchLiveSignals, serverFetch, ServerResponseError } from './server-client';
+import { SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
+import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import { APP_SHORT_ID } from '@/constants/app';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
@@ -1327,7 +1332,9 @@ const workspaceStatus = z.enum(['active', 'archived']);
 
 const list_workspaces_action = defineAction({
   name: 'list_workspaces',
-  description: 'List workspaces with aggregated session counts. Default filter is active.',
+  description:
+    'List workspaces with aggregated session counts. Default filter is active. The user calls a workspace ' +
+    'an agent: its folder plus what it can use, its `purpose`, and its standing `instructions`.',
   params: {
     status: workspaceStatus.optional(),
   },
@@ -1336,7 +1343,9 @@ const list_workspaces_action = defineAction({
 
 const get_workspace_action = defineAction({
   name: 'get_workspace',
-  description: 'Fetch a single workspace by id.',
+  description:
+    'Fetch a single workspace by id (the user calls it an agent), including its `purpose` and standing ' +
+    '`instructions`.',
   params: { id: z.string().min(1) },
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
@@ -1358,6 +1367,8 @@ const create_workspace_action = defineAction({
     baseBranch: z.string().nullable().optional(),
     remoteName: z.string().optional(),
     worktreeRoot: z.string().nullable().optional(),
+    purpose: z.string().nullable().optional(),
+    instructions: z.string().nullable().optional(),
   },
   mutating: true,
   handler: async (_ctx, input) => {
@@ -1366,17 +1377,84 @@ const create_workspace_action = defineAction({
     const baseBranch = isGit
       ? input.baseBranch ?? (await detectBaseBranch(cwd, input.remoteName ?? 'origin'))
       : null;
-    return createWorkspace({
-      name: input.name,
-      emoji: input.emoji ?? null,
-      cwd,
-      isGit: isGit,
-      baseBranch: baseBranch,
-      remoteName: isGit ? input.remoteName ?? 'origin' : null,
-      worktreeRoot: isGit ? input.worktreeRoot ?? defaultWorktreeRoot(input.name) : null,
-      areaId: input.areaId ?? null,
-      status: 'active',
-    });
+    try {
+      return createWorkspace({
+        name: input.name,
+        emoji: input.emoji ?? null,
+        cwd,
+        isGit: isGit,
+        baseBranch: baseBranch,
+        remoteName: isGit ? input.remoteName ?? 'origin' : null,
+        worktreeRoot: isGit ? input.worktreeRoot ?? defaultWorktreeRoot(input.name) : null,
+        areaId: input.areaId ?? null,
+        purpose: input.purpose,
+        instructions: input.instructions,
+        status: 'active',
+      });
+    } catch (err) {
+      if (err instanceof WorkspaceFieldError) throw new ActionError(err.code, err.message);
+      throw err;
+    }
+  },
+});
+
+const update_workspace_action = defineAction({
+  name: 'update_workspace',
+  description:
+    'Edit a workspace (the user calls it an agent): name, emoji, area, `purpose` (a sentence, 500 characters ' +
+    'max), standing `instructions` (delivered to every execution it starts, 20,000 characters max), ' +
+    'connector access, and the agent browser. Pass null to clear purpose or instructions. Its folder, ' +
+    'scripts and files-to-copy are not editable here: they run commands or move files on the machine, so ' +
+    'they stay in the app. Connector access and the browser can only be changed from the app or the local ' +
+    'CLI, not over MCP. Goes through the app server so live sessions pick the change up.',
+  params: {
+    id: z.string().min(1),
+    name: z.string().min(1).optional(),
+    emoji: z.string().nullable().optional(),
+    areaId: z.string().nullable().optional(),
+    purpose: z.string().nullable().optional(),
+    instructions: z.string().nullable().optional(),
+    connectorScopes: z
+      .array(z.object({ toolkitId: z.string().min(1), account: z.string().nullable().optional() }))
+      .optional(),
+    browserEnabled: z.boolean().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['id'] },
+  handler: async (ctx, input) => {
+    const { id, connectorScopes, ...fields } = input;
+    if (!getWorkspace(id)) throw new ActionError('not_found', `Workspace not found: ${id}`);
+    // Granting connector access or the browser widens what this agent's
+    // executions can reach. Over MCP the caller is a harness session that
+    // reads untrusted content (web pages, email), so an injected instruction
+    // must not be able to grant itself tools. Default to the remote rule when
+    // the transport is unknown.
+    if ((connectorScopes !== undefined || fields.browserEnabled !== undefined) && ctx.remote !== false) {
+      throw new ActionError(
+        'invalid_params',
+        'Connector access and the agent browser can only be changed from the app or the local CLI, not over MCP.',
+        'Ask the user to change it in the agent\'s Setup tab.',
+      );
+    }
+    try {
+      if (Object.keys(fields).length > 0) {
+        await serverFetch(`/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify(fields) });
+      }
+      if (connectorScopes !== undefined) {
+        await serverFetch(`/workspaces/${id}/connector-scopes`, {
+          method: 'PUT',
+          body: JSON.stringify({ scopes: connectorScopes }),
+        });
+      }
+    } catch (err) {
+      // The routes answer a bad value with 400 and a plain message.
+      if (err instanceof ServerResponseError && err.status === 400) {
+        const message = err.json()?.error;
+        throw new ActionError('invalid_params', typeof message === 'string' ? message : err.message);
+      }
+      throw err;
+    }
+    return getWorkspace(id);
   },
 });
 
@@ -1511,14 +1589,18 @@ const archive_reference_folder_action = defineAction({
 
 const list_workspace_sessions_action = defineAction({
   name: 'list_workspace_sessions',
-  description: 'List active execution sessions in a workspace, newest activity first.',
+  description:
+    'List the execution sessions in a workspace (the user calls a workspace an agent), newest activity ' +
+    'first. Active by default.',
   params: {
     workspaceId: z.string().min(1),
     status: workspaceStatus.optional(),
   },
   cli: { positional: ['workspaceId'] },
+  // Executions only: the agent's own main chat lives in the same workspace
+  // but is not a piece of work.
   handler: (_ctx, { workspaceId, status }) =>
-    listChatSessions({ workspaceId, status: status ?? 'active' }),
+    listChatSessions({ workspaceId, status: status ?? 'active', type: 'execution' }),
 });
 
 const search_sessions_action = defineAction({
@@ -1610,7 +1692,8 @@ const get_session_messages_action = defineAction({
     'Read the latest messages of a session (execution or orchestrator chat) as a condensed transcript ' +
     'tail (user/agent text, one-line tool calls, errors), plus whether the session is running or ' +
     'blocked on a permission/question prompt. The response includes app and provider ids plus a ' +
-    'provider resume command when one is available. Read this before nudging a session.',
+    'provider resume command when one is available. A user row with `sentBy` was sent by that chat ' +
+    '(send_session_message or start_execution), not typed by the user. Read this before nudging a session.',
   params: {
     sessionId: z.string().min(1),
     limit: z.number().int().positive().max(200).optional(),
@@ -1695,21 +1778,55 @@ const answer_pending_input_action = defineAction({
   },
 });
 
+/**
+ * Headers that tell the messages route which chat is sending, signed so the
+ * route can trust it (session-credential.ts). Empty for a human at the CLI.
+ */
+function senderHeaders(ctx: ActionContext): Record<string, string> {
+  const credential = ctx.actor?.sessionId ? sessionCredential(ctx.actor.sessionId) : null;
+  return credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {};
+}
+
+/**
+ * A stable UUID for one start_execution request, so a retry lands on the same
+ * chat and the same prompt event instead of starting work twice. Scoped by
+ * workspace, so the same requestId in two agents never collides. Shaped as a
+ * UUIDv8 (hash-derived): ids are only ever tie-breakers after timestamps.
+ */
+function requestScopedId(kind: 'session' | 'prompt', workspaceId: string, requestId: string): string {
+  const hash = crypto
+    .createHash('sha256')
+    .update(`${APP_SHORT_ID}:start_execution:${kind}:${workspaceId}:${requestId}`)
+    .digest();
+  hash[6] = (hash[6] & 0x0f) | 0x80; // version 8
+  hash[8] = (hash[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = hash.subarray(0, 16).toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 const send_session_message_action = defineAction({
   name: 'send_session_message',
   description:
     'Send a message into a session: nudge a stalled execution, answer a question in prose, or steer ' +
     'direction. Delivered through the app server: it lands in the agent\'s queue mid-turn or starts a ' +
-    'new turn. Fire-and-forget. Poll get_session_messages for the response. Never send to your own session.',
+    'new turn. Fire-and-forget. Poll get_session_messages for the response. The message is labeled with ' +
+    'the chat it came from, in the transcript and for the receiving agent, so it is never mistaken for ' +
+    'the user typing. You cannot send to your own session.',
   params: {
     sessionId: z.string().min(1),
     content: z.string().min(1),
   },
   mutating: true,
   cli: { positional: ['sessionId'] },
-  handler: async (_ctx, { sessionId, content }) => {
+  handler: async (ctx, { sessionId, content }) => {
     const session = getChatSession(sessionId);
     if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
+    if (ctx.actor?.sessionId === sessionId) {
+      throw new ActionError(
+        'invalid_params',
+        'That is your own session. send_session_message is for messaging another chat.',
+      );
+    }
     if (session.status === 'archived') {
       throw new ActionError(
         'conflict',
@@ -1725,12 +1842,14 @@ const send_session_message_action = defineAction({
     const event = await serverFetch<{ id: string }>(`/sessions/${sessionId}/messages`, {
       method: 'POST',
       body: JSON.stringify({ content }),
+      headers: senderHeaders(ctx),
     });
 
     return {
       delivered: true,
       sessionId,
       eventId: event?.id ?? null,
+      sentFrom: ctx.actor?.sessionId ?? null,
       note: 'Dispatched. The session processes asynchronously. Check get_session_messages shortly.',
     };
   },
@@ -2230,6 +2349,142 @@ const reset_trigger_failures_action = defineAction({
   },
 });
 
+// ── Starting and closing out executions ─────────────────────
+
+const start_execution_action = defineAction({
+  name: 'start_execution',
+  description:
+    'Start a new execution in a workspace (the user calls a workspace an agent) and send it its first ' +
+    'prompt. Git workspaces get their own worktree, so it never touches the checkout other work is using. ' +
+    'Delivered through the app server and fire-and-forget: poll get_session_messages for progress. ' +
+    '`requestId` makes it safe to retry: the same requestId in the same workspace always returns the same ' +
+    'execution instead of starting a second one, so pick a fresh one per piece of work. provider, model ' +
+    'and effort default to the user\'s defaults. taskId links a task and moves it to in progress. The ' +
+    'prompt is labeled with the chat that started it.',
+  params: {
+    workspaceId: z.string().min(1),
+    prompt: z.string().min(1),
+    requestId: z.string().min(1).max(200),
+    provider: triggerProvider.optional(),
+    model: z.string().min(1).optional(),
+    effort: effortLevel.optional(),
+    permissionMode: z.enum(PERMISSION_MODES).optional(),
+    taskId: z.string().min(1).optional(),
+    label: z.string().min(1).optional(),
+  },
+  mutating: true,
+  cli: { positional: ['workspaceId'] },
+  handler: async (ctx, input) => {
+    const workspace = getWorkspace(input.workspaceId);
+    if (!workspace) throw new ActionError('not_found', `Workspace not found: ${input.workspaceId}`);
+    if (workspace.status === 'archived') {
+      throw new ActionError('conflict', `Workspace "${workspace.name}" is archived. Restore it before starting work there.`);
+    }
+    const sessionId = requestScopedId('session', workspace.id, input.requestId);
+    const eventId = requestScopedId('prompt', workspace.id, input.requestId);
+    const existing = getChatSession(sessionId);
+
+    // 1. The execution and its chat. The route is idempotent on sessionId, so
+    //    a retry converges on the execution the first attempt created.
+    let created: { id: string; executionId: string | null };
+    try {
+      created = existing
+        ? { id: existing.id, executionId: existing.executionId ?? null }
+        : await serverFetch<{ id: string; executionId: string | null }>(`/workspaces/${workspace.id}/sessions`, {
+            method: 'POST',
+            body: JSON.stringify({
+              sessionId,
+              ...(input.label ? { label: input.label } : {}),
+              ...(input.provider ? { harness: input.provider } : {}),
+              ...(input.model ? { model: input.model } : {}),
+              ...(input.effort ? { effort: input.effort } : {}),
+              ...(input.taskId ? { taskId: input.taskId } : {}),
+            }),
+          });
+    } catch (err) {
+      if (err instanceof ServerResponseError && (err.status === 404 || err.status === 409 || err.status === 400)) {
+        const body = err.json();
+        const message = (body?.message ?? body?.error) as string | undefined;
+        throw new ActionError(
+          err.status === 404 ? 'not_found' : err.status === 409 ? 'conflict' : 'invalid_params',
+          message ?? err.message,
+        );
+      }
+      throw err;
+    }
+
+    // 2. Permission mode, only when it differs, so a retry after the first
+    //    turn started doesn't try to change it mid-run.
+    if (input.permissionMode && getChatSession(created.id)?.permissionMode !== input.permissionMode) {
+      await serverFetch(`/sessions/${created.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ permissionMode: input.permissionMode }),
+      });
+    }
+
+    // 3. The prompt, idempotent on its event id, labeled with who sent it.
+    await serverFetch(`/sessions/${created.id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content: input.prompt, id: eventId }),
+      headers: senderHeaders(ctx),
+    });
+
+    return {
+      started: !existing,
+      sessionId: created.id,
+      executionId: created.executionId ?? getChatSession(created.id)?.executionId ?? null,
+      workspace: { id: workspace.id, name: workspace.name },
+      requestId: input.requestId,
+      note: existing
+        ? 'Already started by an earlier call with this requestId. Returned the same execution.'
+        : 'Started. The execution works asynchronously. Check get_session_messages for progress.',
+    };
+  },
+});
+
+const archive_execution_action = defineAction({
+  name: 'archive_execution',
+  description:
+    'Archive an execution when its work is done: removes its worktree (git workspaces) and hides it from ' +
+    'active lists. Pass any chat of the execution. If the worktree has uncommitted or unpushed work, this ' +
+    'fails with a conflict that says so, and force: true archives anyway, losing that work. Archiving an ' +
+    'archived execution is a no-op.',
+  params: {
+    sessionId: z.string().min(1),
+    force: z.boolean().optional(),
+  },
+  mutating: true,
+  cli: { positional: ['sessionId'] },
+  handler: async (_ctx, { sessionId, force }) => {
+    const session = getChatSession(sessionId);
+    if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
+    if (!session.executionId) {
+      throw new ActionError('invalid_params', 'Not an execution chat. Only executions can be archived here.');
+    }
+    if (session.status === 'archived') {
+      return { archived: true, alreadyArchived: true, sessionId, executionId: session.executionId };
+    }
+    try {
+      await serverFetch(`/sessions/${sessionId}/archive`, {
+        method: 'POST',
+        body: JSON.stringify({ force: force === true }),
+      });
+    } catch (err) {
+      if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'dirty_worktree') {
+        const detail = err.json()?.message;
+        throw new ActionError(
+          'conflict',
+          'This execution has uncommitted or unpushed work in its worktree. Archiving removes the worktree and ' +
+            `that work with it.${typeof detail === 'string' ? ` (${detail})` : ''}`,
+          'Commit or push it first, or pass force: true to archive anyway.',
+        );
+      }
+      throw err;
+    }
+    return { archived: true, alreadyArchived: false, sessionId, executionId: session.executionId };
+  },
+});
+
 const list_notification_channels_action = defineAction({
   name: 'list_notification_channels',
   description:
@@ -2308,6 +2563,7 @@ export const actions = [
   list_workspaces_action,
   get_workspace_action,
   create_workspace_action,
+  update_workspace_action,
   archive_workspace_action,
   list_reference_folders_action,
   create_reference_folder_action,
@@ -2320,6 +2576,8 @@ export const actions = [
   get_pending_input_action,
   answer_pending_input_action,
   send_session_message_action,
+  start_execution_action,
+  archive_execution_action,
   list_triggers_action,
   get_trigger_action,
   create_trigger_action,

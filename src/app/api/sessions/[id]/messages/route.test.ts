@@ -42,6 +42,7 @@ const healthCheckSession = vi.fn(async () => {});
 const expandMarkers = vi.fn(async (s: string) => s);
 const expandEntityMarkers = vi.fn((s: string) => s);
 const deriveAndSetSessionLabel = vi.fn(async () => {});
+const getWorkspace = vi.fn();
 
 // Mocks reference the top-level spy fns via untyped pass-through. The
 // `as never` casts paper over `vi.fn()`'s very-precise default
@@ -55,7 +56,12 @@ vi.mock('@/lib/db/queries', () => ({
   materializeEventRefs: (a: string, b: string, c: string) =>
     (materializeEventRefs as unknown as (...args: unknown[]) => unknown)(a, b, c),
   getExecution: (id: string) => (getExecution as unknown as (id: string) => unknown)(id),
+  getWorkspace: (id: string) => (getWorkspace as unknown as (id: string) => unknown)(id),
+  getChatSession: (id: string) => (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),
 }));
+
+// A local token, so the real session-credential module can mint and verify.
+vi.mock('@/lib/auth/config-file', () => ({ readAuthConfig: () => ({ localToken: 'test-token' }) }));
 
 vi.mock('@/lib/runs/budget', () => ({
   budgetGate: () => (budgetGate as unknown as () => string)(),
@@ -272,5 +278,89 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
       makeParams(),
     );
     expect(res.status).toBe(201);
+  });
+});
+
+/**
+ * Provenance (docs/agents-view-spec.md Phase 4): a message another chat sends
+ * carries that chat's signed credential. The route verifies it, records the
+ * sender on the event, and labels the text the harness receives. A forged or
+ * missing credential means "the user typed it".
+ */
+describe('POST /api/sessions/[id]/messages — sender provenance', () => {
+  const AGENT_CHAT = 'agent-chat-1';
+
+  function requestFrom(credential: string | null, body: Record<string, unknown>): NextRequest {
+    return new Request('http://localhost/api/sessions/sess-1/messages', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: {
+        'content-type': 'application/json',
+        ...(credential ? { 'x-ri-session': credential } : {}),
+      },
+    }) as unknown as NextRequest;
+  }
+
+  beforeEach(() => {
+    getChatEventById.mockReturnValue(undefined);
+    getWorkspace.mockReset().mockReturnValue({ id: 'ws-1', name: 'ri' });
+    getChatSessionWithExecution.mockImplementation((id: string) =>
+      id === AGENT_CHAT
+        ? { id: AGENT_CHAT, type: 'orchestration', workspaceId: 'ws-1', status: 'active', execution: null }
+        : {
+            id: SESSION_ID,
+            status: 'active',
+            type: 'execution',
+            executionId: EXECUTION_ID,
+            harness: 'claude',
+            label: null,
+            workspaceId: 'ws-1',
+            takeoverStartedAt: null,
+          },
+    );
+    insertChatEvent.mockImplementation((input: Record<string, unknown>) => ({
+      ...input,
+      id: CLIENT_ID,
+    }));
+  });
+
+  it('records a verified sender and labels what the harness receives', async () => {
+    const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
+    const res = await POST(
+      requestFrom(sessionCredential(AGENT_CHAT, 'test-token'), { content: 'hello', id: CLIENT_ID }),
+      makeParams(),
+    );
+    expect(res.status).toBe(201);
+    expect(insertChatEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ senderSessionId: AGENT_CHAT, content: 'hello' }),
+    );
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalled());
+    expect(dispatch).toHaveBeenCalledWith(
+      SESSION_ID,
+      '[Message from the "ri" agent\'s main chat, sent on the user\'s behalf]\n\nhello',
+    );
+    // The chat's first-message title comes from the message itself, not the label.
+    expect(deriveAndSetSessionLabel).toHaveBeenCalledWith(SESSION_ID, 'hello', 'claude');
+    expect(((await res.json()) as { senderSessionId: string }).senderSessionId).toBe(AGENT_CHAT);
+  });
+
+  it('ignores a forged credential: the message counts as typed by the user', async () => {
+    const res = await POST(requestFrom(`${AGENT_CHAT}.not-a-real-signature`, { content: 'hello' }), makeParams());
+    expect(res.status).toBe(201);
+    expect(insertChatEvent).toHaveBeenCalledWith(expect.objectContaining({ senderSessionId: null }));
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello'));
+  });
+
+  it('leaves a message with no credential unlabeled', async () => {
+    await POST(requestFrom(null, { content: 'hello' }), makeParams());
+    expect(insertChatEvent).toHaveBeenCalledWith(expect.objectContaining({ senderSessionId: null }));
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello'));
+  });
+
+  it('refuses a chat messaging itself', async () => {
+    const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
+    const res = await POST(requestFrom(sessionCredential(SESSION_ID, 'test-token'), { content: 'hello' }), makeParams());
+    expect(res.status).toBe(400);
+    expect(insertChatEvent).not.toHaveBeenCalled();
   });
 });

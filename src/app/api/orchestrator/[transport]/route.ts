@@ -18,6 +18,10 @@ import { createMcpHandler } from 'mcp-handler';
 import { APP_NAME } from '@/constants/app';
 import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
+import {
+  actorFromSessionCredential,
+  sessionCredentialFromHeaders,
+} from '@/lib/orchestrator/session-credential';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} orchestrator: typed, fine-grained tools for reading and writing the user's productivity brain.
 
@@ -40,8 +44,13 @@ const handler = createMcpHandler(
           description: action.description,
           inputSchema: action.params,
         },
-        async (input: Record<string, unknown>) => {
-          const envelope = await runAction(action.name, input, { remote: true });
+        async (input: Record<string, unknown>, extra) => {
+          // Which chat is calling, when the session was spawned with a signed
+          // credential (session-credential.ts). Unsigned or unknown: no actor.
+          const actor = actorFromSessionCredential(
+            sessionCredentialFromHeaders(extra?.requestInfo?.headers),
+          );
+          const envelope = await runAction(action.name, input, { remote: true, actor });
           return {
             content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
             isError: !envelope.ok,

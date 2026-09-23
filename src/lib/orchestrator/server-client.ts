@@ -60,6 +60,32 @@ export function serverBaseUrl(): string {
  * `Connection: close` — node's undici pool reuses sockets the Next dev
  * server has already closed, surfacing as spurious "fetch failed".
  */
+/**
+ * The app server answered with a non-2xx status. Still an `ActionError`
+ * (`conflict`) for callers that just surface it, but carries the status and
+ * body so a caller can turn a known failure into a clearer message.
+ */
+export class ServerResponseError extends ActionError {
+  constructor(
+    public status: number,
+    public body: string,
+    message: string,
+  ) {
+    super('conflict', message);
+    this.name = 'ServerResponseError';
+  }
+
+  /** The body parsed as JSON, or null when it isn't. */
+  json(): Record<string, unknown> | null {
+    try {
+      const parsed = JSON.parse(this.body) as unknown;
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
 export async function serverFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = readAuthConfig()?.localToken;
   if (!token) {
@@ -88,8 +114,9 @@ export async function serverFetch<T>(path: string, init: RequestInit = {}): Prom
   }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new ActionError(
-      'conflict',
+    throw new ServerResponseError(
+      res.status,
+      body,
       `${init.method ?? 'GET'} ${path} → ${res.status}: ${body.slice(0, 300)}`,
     );
   }

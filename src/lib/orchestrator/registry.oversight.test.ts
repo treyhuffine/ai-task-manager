@@ -235,6 +235,25 @@ describe('execution oversight actions', () => {
     expect(result.pendingDetail).toBeNull();
   });
 
+  it('get_session_messages marks messages another chat sent, and leaves typed ones unmarked', async () => {
+    await resetDb();
+    const { session } = await seedExecutionSession();
+    const q = await import('@/lib/db/queries');
+    const steerer = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
+    q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'Typed by the user', createdAt: new Date(Date.now() - 2000).toISOString() });
+    q.insertChatEvent({
+      sessionId: session.id, role: 'user', source: 'user', content: 'Sent by the orchestrator',
+      senderSessionId: steerer.id, createdAt: new Date(Date.now() - 1000).toISOString(),
+    });
+
+    const get = await findAction('get_session_messages');
+    const result = (await get.handler(ctx, { sessionId: session.id } as never)) as {
+      messages: Array<{ text?: string; sentBy?: string }>;
+    };
+    expect(result.messages.find((m) => m.text === 'Typed by the user')?.sentBy).toBeUndefined();
+    expect(result.messages.find((m) => m.text === 'Sent by the orchestrator')?.sentBy).toBe(steerer.id);
+  });
+
   it('get_session_messages throws not_found for unknown sessions', async () => {
     await resetDb();
     const get = await findAction('get_session_messages');

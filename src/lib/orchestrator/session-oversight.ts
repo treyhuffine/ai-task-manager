@@ -38,6 +38,12 @@ export interface CondensedEvent {
    * so an agent can group a fan-out back together.
    */
   nestedUnder?: string;
+  /**
+   * Present on a user row that another chat sent with send_session_message
+   * or start_execution: the sending chat's session id. Absent means the user
+   * typed it.
+   */
+  sentBy?: string;
 }
 
 /** Sources that carry no signal for an overseeing agent. */
@@ -62,6 +68,7 @@ export function condenseEvents(events: ChatEventRecord[]): CondensedEvent[] {
     }
     if (e.content) row.text = truncate(e.content, CONTENT_MAX);
     if (e.toolIsError) row.isError = true;
+    if (e.senderSessionId) row.sentBy = e.senderSessionId;
     // Empty rows (e.g. a tool_call whose input we dropped) still mark that
     // the call happened — keep them, they cost almost nothing.
     out.push(row);

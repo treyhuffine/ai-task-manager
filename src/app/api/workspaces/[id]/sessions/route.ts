@@ -3,6 +3,7 @@ import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
 import type { EffortLevel } from '@/db/types';
 import { dispatchExecutionSession, WorkspaceNotFoundForDispatch, TaskNotStartableForDispatch } from '@/lib/sessions/dispatch';
 import { withCompression } from '@/lib/api/compression';
+import { isKnownHarnessId } from '@/lib/harness/registry';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -67,6 +68,12 @@ export async function POST(
     // navigated to that id, and a silent substitution would strand it there.
     if (body.sessionId !== undefined && !UUID_RE.test(body.sessionId ?? '')) {
       return Response.json({ error: 'sessionId must be a UUID' }, { status: 400 });
+    }
+    if (body.harness !== undefined && !isKnownHarnessId(body.harness)) {
+      return Response.json(
+        { error: `Unknown harness: ${String(body.harness)}. Use claude, codex, cursor or opencode.` },
+        { status: 400 },
+      );
     }
     const row = await dispatchExecutionSession({
       workspaceId: id,
