@@ -14,10 +14,10 @@
  *   2. `harness_skills` — switch mode (fresh session), same prompt shape,
  *      and assert: task landed, the session used Bash/CLI (no MCP tool
  *      calls in its transcript).
- *   3. Scheduled orchestrator fire — `create_schedule` with
- *      `targetKind='orchestrator'` + `run_schedule`, assert the run
- *      completes and its task landed (this path used to die with
- *      "Session has no resolvable cwd").
+ *   3. Scheduled orchestrator fire — a manual trigger with
+ *      `targetKind='orchestrator'` (`POST /api/triggers`), fired with
+ *      `?action=run`, assert the run completes and its task landed (this
+ *      path used to die with "Session has no resolvable cwd").
  *
  * Skips (exit 2) when the Claude CLI or its auth isn't available — same
  * contract as the level-3 smoke. Exit 0 = pass, 1 = fail.
@@ -360,6 +360,18 @@ async function main() {
     child.kill('SIGTERM');
     await sleep(500);
     if (!child.killed) child.kill('SIGKILL');
+    removeSmokeRouteTypes(repoRoot);
+  }
+}
+
+/**
+ * Next writes route types into `.next-smoke/dev/types`, and tsconfig includes
+ * them. Left behind, they go stale at the next route rename and break
+ * `pnpm ts` and `pnpm build` in this checkout.
+ */
+function removeSmokeRouteTypes(repoRoot: string) {
+  for (const dir of [['types'], ['dev', 'types']]) {
+    fs.rmSync(path.join(repoRoot, '.next-smoke', ...dir), { recursive: true, force: true });
   }
 }
 

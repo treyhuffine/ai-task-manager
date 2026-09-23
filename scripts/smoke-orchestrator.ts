@@ -5,9 +5,13 @@
  * Wipes an isolated test data root, runs the bootstrap steps in-process
  * (auth, skill install, DB init), and asserts the filesystem ended up right:
  *   - CLAUDE.md written at the app root
- *   - orchestrator skill symlinked into .claude/skills/ and .agents/skills/
- *   - brain/data.db created on first DB touch
- *   - config.json populated with a local token
+ *   - every shipped skill symlinked into .claude/skills/ and .agents/skills/
+ *   - data.db created at the app root on first DB touch (no brain/ subfolder)
+ *   - .config/config.json populated with a local token
+ *
+ * Paths come from the same helpers the app uses (src/lib/config/paths.ts) and
+ * the skill list from `shippedSkillNames()`, so a layout change can't leave
+ * this checking an old one.
  *
  * Deliberately skips booting the Next.js dev server — that would collide with
  * your main dev server's `.next/dev/lock` and doesn't add coverage at this
@@ -24,7 +28,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import pc from 'picocolors';
 
-import { APP_ROOT_ENV, getTestAppRoot } from '../src/lib/config/paths';
+import { APP_ROOT_ENV, getConfigPath, getDbPath, getTestAppRoot } from '../src/lib/config/paths';
+import { shippedSkillNames } from '../src/lib/agent-skills/shipped';
 
 const TEST_ROOT = process.env[APP_ROOT_ENV] ?? getTestAppRoot();
 process.env[APP_ROOT_ENV] = TEST_ROOT;
@@ -42,10 +47,15 @@ async function main() {
   console.log(pc.dim(`  wiping…`));
   fs.rmSync(TEST_ROOT, { recursive: true, force: true });
 
+  // Global skills are the user's own choice, so the smoke only checks it
+  // didn't change them.
+  const globalSkillDirs = shippedSkillNames().map((name) => path.join(process.env.HOME ?? '', '.claude', 'skills', name));
+  const globalBefore = globalSkillDirs.map((p) => fs.existsSync(p));
+
   // Bootstrap in-process. Order matches `ri start --dev`:
   //   ensureLocalToken → ensureAppRoot (writes CLAUDE.md, config.json)
   //   installWorkspaceSkills → symlinks
-  //   getDb → brain/data.db
+  //   getDb → data.db
   console.log(pc.dim(`  bootstrapping…`));
   const { ensureLocalToken } = await import('../src/lib/auth/bootstrap');
   ensureLocalToken();
@@ -55,7 +65,7 @@ async function main() {
   console.log(pc.dim(`  skills: installed=${installResult.installed} skipped=${installResult.skipped}`));
 
   const { getDb, resetDb } = await import('../src/lib/db');
-  getDb(); // creates brain/data.db + runs migrations
+  getDb(); // creates data.db + runs migrations
   resetDb(); // release handle so file checks are clean
 
   const checks: Check[] = [
@@ -69,53 +79,47 @@ async function main() {
       run: () => fs.existsSync(path.join(TEST_ROOT, 'CLAUDE.md')),
     },
     {
-      name: 'config.json written to app root',
-      run: () => fs.existsSync(path.join(TEST_ROOT, 'config.json')),
+      name: 'config.json written to .config/',
+      run: () => fs.existsSync(getConfigPath()),
+      detail: getConfigPath(),
     },
     {
       name: 'config.json contains a localToken',
       run: () => {
-        const cfg = JSON.parse(fs.readFileSync(path.join(TEST_ROOT, 'config.json'), 'utf8')) as {
+        const cfg = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8')) as {
           localToken?: string;
         };
         return typeof cfg.localToken === 'string' && cfg.localToken.length > 0;
       },
     },
     {
-      name: 'brain/ directory created',
-      run: () => fs.statSync(path.join(TEST_ROOT, 'brain')).isDirectory(),
+      name: 'data.db created at the app root',
+      run: () => getDbPath() === path.join(TEST_ROOT, 'data.db') && fs.existsSync(getDbPath()),
     },
     {
-      name: 'brain/data.db exists',
-      run: () => fs.existsSync(path.join(TEST_ROOT, 'brain', 'data.db')),
+      name: 'no brain/ subfolder (content lives at the home root)',
+      run: () => !fs.existsSync(path.join(TEST_ROOT, 'brain')),
     },
-    {
-      name: 'orchestrator skill symlinked into .claude/skills/',
-      run: () => {
-        const p = path.join(TEST_ROOT, '.claude', 'skills', 'orchestrator');
-        return fs.existsSync(p) && fs.lstatSync(p).isSymbolicLink();
+    ...shippedSkillNames().flatMap((name): Check[] => [
+      ...(['.claude', '.agents'] as const).map((dir) => ({
+        name: `${name} symlinked into ${dir}/skills/`,
+        run: () => {
+          const p = path.join(TEST_ROOT, dir, 'skills', name);
+          return fs.existsSync(p) && fs.lstatSync(p).isSymbolicLink();
+        },
+      })),
+      {
+        name: `${name} resolves to a SKILL.md named ${name}`,
+        run: () => {
+          const linked = fs.realpathSync(path.join(TEST_ROOT, '.claude', 'skills', name));
+          const md = fs.readFileSync(path.join(linked, 'SKILL.md'), 'utf8');
+          return new RegExp(`^name: ${name}$`, 'm').test(md);
+        },
       },
-    },
+    ]),
     {
-      name: 'orchestrator skill symlinked into .agents/skills/',
-      run: () => {
-        const p = path.join(TEST_ROOT, '.agents', 'skills', 'orchestrator');
-        return fs.existsSync(p) && fs.lstatSync(p).isSymbolicLink();
-      },
-    },
-    {
-      name: 'skill symlinks resolve to a real SKILL.md',
-      run: () => {
-        const linked = fs.realpathSync(
-          path.join(TEST_ROOT, '.claude', 'skills', 'orchestrator'),
-        );
-        return fs.existsSync(path.join(linked, 'SKILL.md'));
-      },
-    },
-    {
-      name: 'Global ~/.claude/skills/orchestrator was NOT created',
-      run: () =>
-        !fs.existsSync(path.join(process.env.HOME ?? '', '.claude', 'skills', 'orchestrator')),
+      name: 'Global ~/.claude/skills/ left as it was',
+      run: () => globalSkillDirs.every((p, i) => fs.existsSync(p) === globalBefore[i]),
     },
   ];
 

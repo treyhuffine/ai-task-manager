@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import pc from 'picocolors';
 
-import { APP_ROOT_ENV, getTestAppRoot } from '../src/lib/config/paths';
+import { APP_ROOT_ENV, getConfigPath, getTestAppRoot } from '../src/lib/config/paths';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -99,7 +99,7 @@ async function main() {
     const healthy = await waitForHealth(port, 30_000);
     if (!healthy) throw new Error(`server never came up on :${port}`);
 
-    const token = readLocalToken(TEST_ROOT);
+    const token = readLocalToken();
     writeMcpConfig(TEST_ROOT, port, token);
     console.log(pc.dim(`  .mcp.json written`));
 
@@ -132,13 +132,13 @@ async function main() {
       console.log(pc.dim(`    status: ${match.status}`));
       console.log();
       console.log(pc.green(pc.bold('✓ Level 3 passed')));
-      process.exit(0);
+      process.exitCode = 0;
     } else {
       console.log(pc.red(`  ✗ expected task with title "${MARKER}" not found`));
       console.log(pc.dim(`  tasks in DB matching "smoke-test-":`));
       for (const t of tasks) console.log(pc.dim(`    - ${t.title}`));
       console.log(pc.red(pc.bold('\n✗ Level 3 failed')));
-      process.exit(1);
+      process.exitCode = 1;
     }
   } catch (err) {
     console.log(pc.red(`\n  error: ${err instanceof Error ? err.message : String(err)}`));
@@ -146,16 +146,33 @@ async function main() {
       console.log(pc.dim(`\n--- server stderr ---`));
       console.log(pc.dim(stderrBuf.join('').trim()));
     }
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
+    // `exitCode`, never `process.exit()`, above: exiting skips this block and
+    // leaves the server running.
     child.kill('SIGTERM');
     await sleep(300);
     if (!child.killed) child.kill('SIGKILL');
+    removeSmokeRouteTypes(repoRoot);
+  }
+  // The in-process DB handle and stray timers would otherwise hold the process open.
+  process.exit(process.exitCode ?? 0);
+}
+
+/**
+ * Next writes route types into `.next-smoke/dev/types`, and tsconfig includes
+ * them. Left behind, they go stale at the next route rename and break
+ * `pnpm ts` and `pnpm build` in this checkout.
+ */
+function removeSmokeRouteTypes(repoRoot: string) {
+  for (const dir of [['types'], ['dev', 'types']]) {
+    fs.rmSync(path.join(repoRoot, '.next-smoke', ...dir), { recursive: true, force: true });
   }
 }
 
-function readLocalToken(root: string): string {
-  const configPath = path.join(root, 'config.json');
+/** The token lives in `<app-root>/.config/config.json`, found through the app's own helper. */
+function readLocalToken(): string {
+  const configPath = getConfigPath();
   const raw = fs.readFileSync(configPath, 'utf8');
   const cfg = JSON.parse(raw) as { localToken?: string };
   if (!cfg.localToken) throw new Error(`localToken missing from ${configPath}`);
