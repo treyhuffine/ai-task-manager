@@ -8,6 +8,14 @@ vi.mock('@agentex/agent', () => ({
   listInstalledSkills: vi.fn(async () => ({})),
   commandInventoryFromEvent: () => null,
 }));
+// Promoting stream items creates tasks and notes, which fire-and-forget an
+// embedding upsert. Left real, it can log after this file tears down, which
+// vitest reports as an unhandled "Closing rpc while onUserConsoleLog was
+// pending" error. Same stub the other entity-creating suites use.
+vi.mock('@/lib/embeddings/embed', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/embeddings/embed')>(),
+  upsertEmbedding: vi.fn(async () => {}),
+}));
 vi.mock('@/lib/executor/adapter', () => ({
   dispatch: vi.fn(async () => {}),
   abort: vi.fn(async () => {}),
