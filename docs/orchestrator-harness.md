@@ -19,14 +19,18 @@ clobbering what works.
 1. The Chat tab (harness modes) ensures a persistent `type='orchestration'`
    chat session via `GET /api/orchestrator-chat` (created on the user's
    default harness, stored as `chat_sessions.harness`). "New" archives it
-   and starts fresh (`POST /api/orchestrator-chat`).
+   and starts fresh (`POST /api/orchestrator-chat`). This is the app's main
+   chat: an orchestration chat with no workspace. Each agent has its own
+   main chat too (see [Agent main chats](#agent-main-chats)), and both are
+   served by one helper, `src/lib/sessions/main-chat.ts`, keyed by workspace
+   id or null (`listMainChats`), so neither ever picks up the other.
 2. Sends go through the normal sessions API (`POST /api/sessions/:id/messages`)
    into `executor.dispatch` — the same adapter executions use.
 3. `resolveCwd` resolves sessions without a workspace to the **app data root**
    (`~/ri`, `~/ri-dev` in dev). This is also what un-broke scheduled
    `targetKind='orchestrator'` fires, which previously threw
    `Session has no resolvable cwd`.
-4. Before spawn, `ensureAgentSession` installs the **surface**
+4. Before spawn, `ensureHarnessSession` installs the **surface**
    (`src/lib/orchestrator/harness-surface.ts`):
    - `CLAUDE.md` + `AGENTS.md` at the data root — the role brief (domain
      model, entity-marker syntax, conventions, mode-specific tool guidance).
@@ -102,6 +106,17 @@ is frozen and doesn't get these):
   detail derived from the event log.
 - `send_session_message` — message into a session, delivered **through the
   server's messages route**, never `executor.dispatch` from the handler.
+- `start_execution` — create an execution in a workspace and send its first
+  prompt, both through the server. A required `requestId` makes it
+  retry-safe: the chat id and the prompt's event id are UUIDv8s derived from
+  `ri:start_execution:<kind>:<workspaceId>:<requestId>`, so a retry finds the
+  chat and the messages route dedupes the prompt.
+- `archive_execution` — close out through the server's archive route. A
+  dirty worktree fails with `conflict` and a `force` suggestion.
+- `update_workspace` — an agent's name, emoji, area, purpose and standing
+  instructions. Connector scopes and the browser widen what the agent can
+  reach, so they need the trusted local CLI (`ctx.remote === false`). The
+  folder, scripts and files-to-copy stay in the app.
 - `get_pending_input` / `answer_pending_input` — fetch and resolve the
   permission/question prompts a session is blocked on, via the server's
   pending-input endpoints (the resolvers are in-memory server state). This
@@ -118,10 +133,68 @@ over the server's HTTP API with the local token. When the server is
 unreachable, live flags degrade to unknown (and sends fail with a clear
 error) rather than lying.
 
-Scheduled oversight comes free: orchestrator-target schedules fire with this
+**Caller identity.** Every harness session is spawned with a credential,
+`<chatSessionId>.<HMAC-SHA256(localToken, "ri-session:<id>")>`
+(`src/lib/orchestrator/session-credential.ts`). MCP sessions send it as the
+`x-ri-session` header on their orchestrator MCP config, and every session's
+env carries it as `RI_SESSION_CREDENTIAL` for `ri agent` in skills mode. The
+MCP route and the CLI resolve it to `ctx.actor`. A bare id, a forged
+signature or a credential for a deleted chat resolves to no actor, which is
+what a human at the CLI gets. This is identity, not authorization:
+`ctx.remote` still decides what a transport may do.
+
+**Provenance.** `send_session_message` and `start_execution` pass the
+caller's credential to the messages route, which verifies it, stores the
+sender on the event (`chat_events.sender_session_id`, a soft reference), and
+hands the receiving harness the message behind a one-line label such as
+`[Message from the "ri" agent's main chat, sent on the user's behalf]`
+(`src/lib/sessions/sender.ts`). The stored text stays as sent, and
+`get_session_messages` marks those rows with `sentBy`. Sending to your own
+session is refused at both layers.
+
+Scheduled oversight comes free: orchestrator-target triggers fire with this
 same surface, so "every morning, check executions and nudge stalled ones" is
-just a `create_schedule` with `target_kind=orchestrator` — which the
+just a `create_trigger` with `target_kind=orchestrator` — which the
 orchestrator itself can create on request.
+
+## Agent main chats
+
+An agent (a workspace, in code) has its own main chat that manages its work
+(docs/agents-view-spec.md). It is an orchestration chat with the workspace
+set and no execution:
+
+- **Routes.** `GET /api/workspaces/:id/chat` (ensure), `POST .../chat/new`,
+  `GET .../chat/history`, `POST .../chat/resume`. Same shapes as the app's
+  main chat. Resume refuses another scope's chat. An archived agent keeps
+  its chat and history but never starts or resumes one.
+- **Where it runs.** `resolveCwd` puts it in the agent's folder, git or not.
+  That is the one exception to "a git workspace without a worktree gets no
+  cwd".
+- **Nothing is written into the folder**, whatever the orchestrator mode.
+  `prepareAgentMainChatSpawn` (`src/lib/executor/agent-main-chat.ts`) sends
+  the brief (`renderAgentMainChatBrief`) and the agent's reference folders
+  through the session instructions file under the work dir, and attaches
+  the orchestrator MCP over the session config. Codex would symlink
+  `skillDirs` into the folder, so it gets none. Cursor and OpenCode drop
+  session instructions, so the brief rides the first message of a fresh
+  chat.
+- **Scope.** The same as its executions: its connector scopes (when the
+  harness isolates MCP), the agent browser on the isolated `ws-<id>`
+  profile, and its reference folders.
+- **The git rule.** In a git agent the file-editing tools are denied and the
+  brief sends every change through `start_execution`, because the checkout
+  is what every execution's worktree branches from. Only Claude enforces
+  the tool filter, so elsewhere it is prompt-only and the adapter logs it. A
+  non-git agent may act directly.
+- **Recycling.** Session config is fixed at spawn. Instructions, browser,
+  folder, connector-scope and reference-folder edits recycle the agent's
+  executions and main chat, and name and purpose edits recycle only the
+  main chat. A session mid-turn is recycled when the turn ends
+  (`recycleWhenIdle`), so a chat editing its own agent never cuts itself
+  off.
+- **Where it doesn't show.** Not in Needs Review (interactive orchestration
+  chats never are), not in the rail or the agent's execution list (both
+  list executions), not in session search.
 
 ## Stream triage
 
@@ -184,8 +257,13 @@ actions.
   `orchestratorMcpServer`) (+ tests in `harness-surface.test.ts`)
 - `src/lib/config/claude-md-template.ts` — managed markers + base brief
 - `src/lib/executor/adapter.ts` — cwd fallback, orchestration branch in
-  `ensureAgentSession`
-- `src/app/api/orchestrator-chat/route.ts` — ensure/new session
+  `ensureHarnessSession`, `recycleWhenIdle`
+- `src/lib/executor/agent-main-chat.ts` — an agent main chat's spawn
+- `src/lib/sessions/main-chat.ts` — ensure/new/history/resume for any main
+  chat; `src/app/api/orchestrator-chat/*` and
+  `src/app/api/workspaces/[id]/chat/*` wrap it
+- `src/lib/orchestrator/session-credential.ts` — caller identity
+- `src/lib/sessions/sender.ts` — the sender label
 - `src/components/chat/harness-chat.tsx` — the harness chat column
 - `src/components/dashboard/content-panel.tsx` — mode switch (`ChatModeBar`)
 - `skills/orchestrator/SKILL.md` — bundled skill (CLI/MCP conventions)

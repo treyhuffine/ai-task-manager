@@ -452,8 +452,10 @@ One registry generates both surfaces, so every item lands on both.
 
 - [x] `docs/workspaces-spec.md`: replace "Agent = the persona" in the mental model with a pointer to this spec. (Landed with Phase 1.)
 - [x] `docs/chat-sessions.md`: the Agents section says the table is gone and the harness lives on the chat. (Landed with Phase 1, along with `docs/async-agents-v1.md` and the one stale line in `docs/orchestrator-harness.md`.)
-- [ ] `docs/orchestrator-harness.md`: new actions, caller identity, provenance, the agent main chat.
-- [ ] CLAUDE.md: the glossary line (Phase 2), the migration note (Phase 0), and a line in the Orchestrator section about agent main chats.
+- [x] `docs/orchestrator-harness.md`: new actions, caller identity, provenance, the agent main chat.
+  - Also fixed two stale names there (`ensureAgentSession`, `create_schedule`).
+- [x] CLAUDE.md: the glossary line (Phase 2), the migration note (Phase 0), and a line in the Orchestrator section about agent main chats.
+  - The "agent in the UI" half of the glossary lands with Phase 8's copy sweep.
 - [ ] `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, `pnpm smoke:agent`, `pnpm smoke:harness`, `pnpm build`.
 - [ ] End-to-end run on dev (port 42241):
   1. Create an agent.

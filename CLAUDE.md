@@ -82,6 +82,8 @@ Actions defined in `src/lib/orchestrator/registry.ts` generate both the CLI (`<c
 
 Distinct from the thin NL MCP at `/api/[transport]` (two tools `query`/`update`, routes through `runMcpAgent`). Don't conflate them.
 
+Every harness session carries a signed caller credential (`src/lib/orchestrator/session-credential.ts`), so actions see the calling chat in `ctx.actor`, and messages one chat sends another record the sender and reach the harness labeled. An agent's main chat (an orchestration chat with a workspace and no execution) runs in the agent's own folder and must never write into it: its brief goes through session instructions and its actions through the session MCP config (`src/lib/executor/agent-main-chat.ts`). Details: `docs/orchestrator-harness.md`.
+
 Handler rules:
 
 - **Dispatch through `queries.ts`** — never raw SQL, never direct Drizzle from a handler. The query layer enforces embedding upsert, markdown-mirror sync, and attachment derivation. Bypassing it corrupts invariants silently.
