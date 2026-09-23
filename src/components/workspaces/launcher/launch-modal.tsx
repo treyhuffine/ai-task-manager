@@ -389,7 +389,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
   const launch = async ({ send = true }: { send?: boolean } = {}) => {
     if (launching) return;
     if (!workspaceId) {
-      setError('Pick a workspace first.');
+      setError('Pick an agent first.');
       return;
     }
     // The disabled Start button covers clicks, but Enter submits from inside
@@ -872,7 +872,7 @@ function WorkspacePicker({
           ) : (
             <Folder size={12} className="text-muted-foreground/70" />
           )}
-          {current?.name ?? 'Pick a workspace'}
+          {current?.name ?? 'Pick an agent'}
           <ChevronDown size={11} className="text-muted-foreground/60" />
         </button>
       </PopoverTrigger>

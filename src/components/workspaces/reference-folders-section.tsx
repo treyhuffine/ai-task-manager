@@ -125,8 +125,8 @@ export function ReferenceFoldersSection({
     const ok = await confirm({
       title: `Remove @${ref.alias}?`,
       description: ref.global
-        ? 'This reference is visible in every workspace, so removing it affects all of them. Nothing on disk is touched.'
-        : 'Agents in this workspace stop being told about the folder. Nothing on disk is touched.',
+        ? 'This reference is visible in every agent, so removing it affects all of them. Nothing on disk is touched.'
+        : 'This agent and its executions stop being told about the folder. Nothing on disk is touched.',
       confirmLabel: 'Remove',
     });
     if (!ok) return;
@@ -141,7 +141,7 @@ export function ReferenceFoldersSection({
       <div>
         <h3 className="text-sm font-semibold text-foreground">Reference folders</h3>
         <p className="text-[12px] leading-normal text-muted-foreground">
-          Read-only folders this workspace can see. Agents are told they exist and may search them,
+          Read-only folders this agent can see. Its executions and main chat are told they exist and may search them,
           so they stop guessing at what a sibling repo contains.
         </p>
       </div>
@@ -168,7 +168,7 @@ export function ReferenceFoldersSection({
                     <span className="font-mono font-semibold text-foreground">@{ref.alias}</span>
                     {ref.global && (
                       <span
-                        title="Visible in every workspace"
+                        title="Visible in every agent"
                         className="flex items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground"
                       >
                         <Globe size={8} /> global
@@ -181,7 +181,7 @@ export function ReferenceFoldersSection({
                     )}
                     {ref.redundantWithCwd && (
                       <span
-                        title="Already inside this workspace's own folder"
+                        title="Already inside this agent's own folder"
                         className="rounded bg-amber-500/15 px-1 py-px text-[9px] text-amber-500"
                       >
                         inside cwd
@@ -248,7 +248,7 @@ export function ReferenceFoldersSection({
           <span>
             Referenced by{' '}
             {referencedBy.referencedBy
-              .map((r) => r.workspaceName ?? 'every workspace (global)')
+              .map((r) => r.workspaceName ?? 'every agent (global)')
               .join(', ')}
             . References are one-way, so those agents can read this folder but nothing here
             changes.
@@ -258,7 +258,7 @@ export function ReferenceFoldersSection({
 
       <p className="text-[10px] leading-snug text-muted-foreground/60">
         Read-only means an instruction plus a tool filter that blocks the editing tools, not an OS
-        sandbox. To change one of these folders, open it as its own workspace.
+        sandbox. To change one of these folders, add it as its own agent.
       </p>
 
       <ReferenceFolderDialog

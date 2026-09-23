@@ -110,7 +110,7 @@ if ($dialog.ShowDialog($owner) -eq 'OK') { Write-Output $dialog.SelectedPath }
   return path ? { path } : { cancelled: true };
 }
 
-export async function pickFolder(prompt = 'Choose a workspace folder'): Promise<PickFolderResult> {
+export async function pickFolder(prompt = 'Choose a folder for the agent'): Promise<PickFolderResult> {
   switch (process.platform) {
     case 'darwin':
       return pickFolderMac(prompt);

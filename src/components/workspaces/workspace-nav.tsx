@@ -192,7 +192,7 @@ function WorkspaceNavInner() {
           ) : (
             <>
               <span className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
-                Workspaces
+                Agents
               </span>
               <div className="flex items-center gap-1">
                 <button
@@ -206,8 +206,8 @@ function WorkspaceNavInner() {
                 <button
                   onClick={() => setCreateOpen(true)}
                   className="p-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                  aria-label="New workspace"
-                  title="New workspace"
+                  aria-label="New agent"
+                  title="New agent"
                 >
                   <FolderPlus size={12} />
                 </button>
@@ -264,13 +264,13 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
     <div className="px-3 py-4 text-center">
       <Folder size={20} className="mx-auto text-muted-foreground/40 mb-2" />
       <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-        No workspaces yet. Add one to get started.
+        No agents yet. Add one to get started.
       </p>
       <button
         onClick={onCreate}
         className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium text-primary hover:bg-primary/10 transition-colors"
       >
-        <FolderPlus size={11} /> New workspace
+        <FolderPlus size={11} /> New agent
       </button>
     </div>
   );

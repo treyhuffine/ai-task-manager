@@ -280,7 +280,7 @@ function RailHeader({ collapsed, tab, onSelectTab, onToggle }: RailHeaderProps) 
   return (
     <div className="flex items-center gap-0.5 px-1 pt-1 pb-1.5 border-b border-border/40">
       <TabButton active={tab === 'workspace'} onClick={() => onSelectTab('workspace')}>
-        Workspace
+        Agents
       </TabButton>
       <TabButton active={tab === 'status'} onClick={() => onSelectTab('status')}>
         Status

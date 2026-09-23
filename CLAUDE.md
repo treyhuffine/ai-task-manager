@@ -37,6 +37,7 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - **API routes** use shared query functions from `src/lib/db/queries.ts` — do not write raw SQL in route handlers
 - **Paths** resolve via `src/lib/config/paths.ts` helpers (`getAppRoot`, `getDbPath`, `getAttachmentsDir`, `getConfigDir`, `getWorkDir`) — never hardcode the `<app-short-id>` directory name; use placeholders like `<app-root>` or defer to the orchestrator's `describe_paths` action. The helpers respect the `<APP>_ROOT`, `<APP>_DB_PATH`, `<APP>_CONFIG_DIR`, `<APP>_WORK_DIR` env overrides. (`getBrainDir` is a deprecated alias for `getAppRoot` — content lives at the home root now; there is no `brain/` subfolder, and `<APP>_BRAIN_PATH` is ignored.)
 - **Harness** means the engine a chat runs on (`claude | codex | cursor | opencode`, the `HarnessId` values), stored as `harness` on chats, triggers and runs. Don't call the engine an "agent" in new code.
+- **Agent** in the UI means a workspace, presented as a scope: its folder, what it can use, its purpose, and its standing instructions. User-visible copy says "agent", never "workspace". Code keeps `workspace` (table, types, API paths, orchestrator actions) until the open rename question in `docs/agents-view-spec.md` is decided.
 - **Hotkeys** are defined in `src/constants/commands.ts` and must be used by components. Use `matchesHotkey(e, HOTKEYS.focusChatInput)` etc. rather than ad-hoc checks.
 
 ## Timestamps

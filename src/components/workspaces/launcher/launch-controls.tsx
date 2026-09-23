@@ -67,7 +67,7 @@ export function ModeControl({
         onSelect={() => onChange('live')}
         icon={<Zap size={11} />}
         label="Live"
-        title="Runs in your workspace folder, no isolation"
+        title="Runs in the agent's own folder, no isolation"
         tone="warning"
       />
     </div>
@@ -120,7 +120,7 @@ export function LiveModeNotice() {
     <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-[10.5px] leading-snug text-amber-700 dark:text-amber-400">
       <Zap size={12} className="mt-px flex-shrink-0" />
       <span>
-        The agent edits your actual workspace folder on whatever branch is checked out. No
+        This edits the agent&apos;s own folder on whatever branch is checked out. No
         isolation, commits land on that branch, and two Live sessions will race on files.
       </span>
     </div>
@@ -196,7 +196,7 @@ export function BaseControl({
               className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               <X size={11} />
-              Use the workspace default instead
+              Use the agent&apos;s default instead
             </button>
           </div>
         ) : (
@@ -222,7 +222,7 @@ export function BaseControl({
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11.5px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                 >
                   <X size={11} />
-                  Workspace default
+                  Agent default
                   {workspaceDefault && <span className="font-mono opacity-70">({workspaceDefault})</span>}
                 </button>
               )}

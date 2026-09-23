@@ -217,7 +217,7 @@ async function ensureServerListening(
       'no_command',
       'No start command set for this worktree.',
       400,
-      'Set a start command in workspace settings.',
+      "Set a start command in the agent's setup.",
     );
   }
   if (target.port == null) {

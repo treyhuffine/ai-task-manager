@@ -49,7 +49,7 @@ export function HarnessSettingsPanel() {
       <header className="space-y-1">
         <div className="flex items-center gap-2 text-foreground">
           <Bot size={14} className="text-muted-foreground" />
-          <h3 className="text-[13px] font-semibold">Agent harnesses and models</h3>
+          <h3 className="text-[13px] font-semibold">Harnesses and models</h3>
         </div>
         <p className="text-[11px] text-muted-foreground/85">
           Connect providers, choose the models you want to see, and set the default for new work.

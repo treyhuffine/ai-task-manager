@@ -245,7 +245,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
           />
           <div className="flex items-center gap-2 px-2 py-2 border-t border-border/60">
             <WorkspacePill
-              label={selectedWorkspace?.name ?? 'Pick a workspace'}
+              label={selectedWorkspace?.name ?? 'Pick an agent'}
               emoji={selectedWorkspace?.emoji ?? null}
               onChange={setWorkspaceId}
               workspaces={workspaces ?? []}
@@ -269,7 +269,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
         </div>
         {noWorkspaces && (
           <p className="text-[11px] text-destructive mt-1">
-            Create a workspace before adding a scheduled task.
+            Create an agent before adding a scheduled task.
           </p>
         )}
       </div>
@@ -511,7 +511,7 @@ function WorkspacePill({
         <div className="absolute left-0 top-full mt-1 z-20 min-w-[180px] rounded-md border border-border bg-card shadow-md p-1">
           {workspaces.length === 0 && (
             <p className="px-2 py-1 text-[11px] text-muted-foreground">
-              No workspaces.
+              No agents.
             </p>
           )}
           {workspaces.map((w) => (

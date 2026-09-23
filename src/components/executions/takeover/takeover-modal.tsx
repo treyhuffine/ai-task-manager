@@ -70,7 +70,7 @@ export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) 
           <VisuallyHidden.Root>
             <DialogPrimitive.Title>Take over locally</DialogPrimitive.Title>
             <DialogPrimitive.Description>
-              Copy the command into your laptop terminal to clone the workspace and pick up where the agent left off.
+              Copy the command into your laptop terminal to clone the repo and pick up where the execution left off.
             </DialogPrimitive.Description>
           </VisuallyHidden.Root>
           <div className="bg-popover border border-border rounded-lg shadow-xl overflow-hidden">
@@ -91,7 +91,7 @@ export function TakeoverModal({ sessionId, data, onClose }: TakeoverModalProps) 
                 <div className="text-[11px] text-muted-foreground/85 mb-1.5">
                   Branch <span className="font-mono text-foreground/85">{data.branch}</span> has been
                   pushed to <span className="font-mono text-foreground/85">{data.remoteUrl}</span>.
-                  Run this on your laptop to clone, check out, and open the workspace:
+                  Run this on your laptop to clone, check out, and open the repo:
                 </div>
                 <CommandBlock command={data.cliCommand} />
                 <div className="text-[10.5px] text-muted-foreground/70 mt-1.5">

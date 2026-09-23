@@ -241,7 +241,7 @@ export function FolderPickerDialog({
           <VisuallyHidden.Root>
             <DialogPrimitive.Title>Choose a folder</DialogPrimitive.Title>
             <DialogPrimitive.Description>
-              Browse the filesystem and pick a folder for your workspace.
+              Browse the filesystem and pick a folder for your agent.
             </DialogPrimitive.Description>
           </VisuallyHidden.Root>
           <div className="rounded-xl border border-border bg-card shadow-2xl overflow-hidden flex flex-col h-[640px] max-h-[85vh]">

@@ -69,7 +69,7 @@ export function HistoryRow({
   const label = session.label ?? session.execution?.label ?? 'Untitled';
   const labelIsPlaceholder = !(session.label ?? session.execution?.label);
 
-  const wsName = session.workspaceName ?? 'Workspace removed';
+  const wsName = session.workspaceName ?? 'Agent removed';
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);
   const wsEmoji = session.workspaceEmoji;
   const branch = session.branchName;

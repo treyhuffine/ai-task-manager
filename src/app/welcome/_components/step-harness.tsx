@@ -203,15 +203,15 @@ export function StepHarness({
           <Bot className="size-5" />
         </div>
         <div>
-          <h2 className="text-xl font-semibold">Pick your agent</h2>
+          <h2 className="text-xl font-semibold">Pick your harness</h2>
           <p className="text-sm text-muted-foreground">
-            {APP_NAME} runs agent tasks through one of these coding CLIs. Each uses its own authentication.
+            {APP_NAME} runs chats and executions through one of these coding CLIs, its harness. Each uses its own sign-in.
           </p>
         </div>
       </header>
 
       <div className="space-y-2">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">Agent</div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">Harness</div>
         <div className="grid grid-cols-2 gap-2">
           {HARNESSES.filter((h) => HARNESS_IDS.includes(h.id)).map((h) => {
             const selected = state.harness === h.id;

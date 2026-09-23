@@ -433,7 +433,7 @@ One registry generates both surfaces, so every item lands on both.
 
 ### Phase 8: Rail and navigation
 
-- [ ] Agent row (`workspace-row.tsx`):
+- [x] Agent row (`workspace-row.tsx`):
 
   | Action | Today | New |
   |---|---|---|
@@ -444,18 +444,27 @@ One registry generates both surfaces, so every item lands on both.
   | Click an execution | execution view | unchanged |
 
   The active agent gets a highlight.
-- [ ] Rail state per view: Home and the agent view keep whatever the user set. The execution view still collapses the rail automatically. That contrast is part of what makes the two views feel different.
-- [ ] Execution header (`execution-header.tsx`): a breadcrumb "ri › Refactor auth". Clicking the agent name opens the agent view.
-- [ ] Top bar (`top-hud.tsx`): in the agent view a "Close agent" button goes Home, with the same hotkey as "Close execution". Rename the hotkey `closeExecution` to `closeView` in `src/constants/commands.ts`, since it now closes either view.
-- [ ] Copy sweep: every user-visible "workspace" becomes "agent". Covers:
+  - Landed with Phase 7 (the view needed a way in). The icon slot is its own fold button, the name is the open button, and the gear's label says "Agent setup".
+- [x] Rail state per view: Home and the agent view keep whatever the user set. The execution view still collapses the rail automatically. That contrast is part of what makes the two views feel different.
+  - `PowerRail compact` is true only for the execution view, and ⌘\ toggles the global rail state everywhere else.
+- [x] Execution header (`execution-header.tsx`): a breadcrumb "ri › Refactor auth". Clicking the agent name opens the agent view.
+  - Desktop header. Also fixed the close button's tooltip, which said Esc while the hotkey is ⌘E, and the details rows now say "Agent".
+- [x] Top bar (`top-hud.tsx`): in the agent view a "Close agent" button goes Home, with the same hotkey as "Close execution". Rename the hotkey `closeExecution` to `closeView` in `src/constants/commands.ts`, since it now closes either view.
+  - Landed with Phase 7.
+- [x] Copy sweep: every user-visible "workspace" becomes "agent". Covers:
   - the rail tab ("Agents"), the "AGENTS" header, "New agent", and the empty state ("No agents yet. Add one to get started.")
   - the create modal, launcher and trigger form
   - toasts, aria-labels and titles
   - mobile
 
   Find them with `grep -rnE "['\">][^'\"<>]*\b[Ww]orkspaces?\b" src/components src/app`. Code identifiers keep "workspace".
+  - That grep misses JSX text on its own line, so the sweep ran on every string literal, template and JSX text node through the TypeScript compiler. About 80 strings changed, each reworded rather than swapped (for example "Plain folder, not a git repo", "clone the repo", and "the agent's setup" where the old copy said workspace settings). Copy that called the running engine an "agent" now avoids the word where it would read as the scope. The welcome step and settings header say "harness".
+  - **Kept on purpose:** the connector category "Workspace" (Google Workspace and Microsoft 365), beamd's own "workspace" slug, and REST error messages about the `workspace` resource, which the CLI and agents read and which match `/api/workspaces`. Three server strings that surface as product copy did change (the preview's start-command hint, the macOS folder picker title, the imported-chat error).
+- [x] The "agent in the UI" half of the CLAUDE.md glossary. (Added.)
 
 **Done when:** you can go Home → agent → execution → agent → Home with clicks, the breadcrumb, the hotkey and the browser back button, and no user-visible "workspace" remains.
+
+**Status 2026-09-22:** landed. Verified in the browser on dev: rail to agent, Overview to execution, breadcrumb back to the agent, ⌘E to Home, Back twice, ⌘E from an execution, and ⌘E from Home reopening the latest execution, all passing. The compiler-based sweep finds no user-visible "workspace" beyond the kept cases above.
 
 ### Phase 9: Tablet and mobile
 

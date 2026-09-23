@@ -48,7 +48,7 @@ export type WizardUpdate = (
 
 export const STEPS: Array<{ id: StepId; label: string }> = [
   { id: 'you', label: 'You' },
-  { id: 'agent', label: 'Agent' },
+  { id: 'agent', label: 'Harness' },
   { id: 'import', label: 'Import' },
   { id: 'areas', label: 'Areas' },
   { id: 'launch', label: 'Launch' },

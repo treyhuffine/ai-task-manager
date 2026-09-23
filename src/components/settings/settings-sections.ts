@@ -12,6 +12,7 @@ import {
   Download,
   type LucideIcon,
 } from 'lucide-react';
+import { APP_NAME } from '@/constants/app';
 
 /**
  * Single source of truth for the unified settings modal.
@@ -133,7 +134,7 @@ export const GET_STARTED_SECTION: SettingsSectionDef = {
   label: 'Get started',
   icon: ListChecks,
   title: 'Get started',
-  description: 'A few quick steps to get the most out of your workspace.',
+  description: `A few quick steps to get the most out of ${APP_NAME}.`,
 };
 
 const ALL_SECTIONS: readonly SettingsSectionDef[] = [GET_STARTED_SECTION, ...SECTIONS];

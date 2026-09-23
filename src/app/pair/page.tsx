@@ -158,7 +158,7 @@ export default function PairPage() {
             Device Pairing
           </h1>
           <p className="text-sm text-muted-foreground/90 max-w-[280px] mx-auto leading-relaxed">
-            Connect this browser to your secure workspace using a pairing token.
+            Connect this browser to your secure {APP_NAME} using a pairing token.
           </p>
         </div>
 

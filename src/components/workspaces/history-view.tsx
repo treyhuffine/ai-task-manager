@@ -49,7 +49,7 @@ export function HistoryView() {
       if (!s.workspaceId || seen.has(s.workspaceId)) continue;
       seen.set(s.workspaceId, {
         id: s.workspaceId,
-        name: s.workspaceName ?? 'Workspace',
+        name: s.workspaceName ?? 'Agent',
         emoji: s.workspaceEmoji,
         image: coverAttachmentUrl(s.workspaceAttachments),
       });
@@ -103,7 +103,7 @@ export function HistoryView() {
               <button
                 onClick={() => setSelectedWs(new Set())}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors flex-shrink-0"
-                title="Clear workspace filter"
+                title="Clear agent filter"
               >
                 <X size={9} /> Clear
               </button>

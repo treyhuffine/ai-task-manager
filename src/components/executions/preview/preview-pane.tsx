@@ -232,7 +232,7 @@ export function PreviewPane({ executionId, workspaceId, active = true, onOpenWor
           <iframe
             key={iframeKey}
             src={resolved.url}
-            title="Workspace preview"
+            title="Preview"
             // Both modes load a different-origin URL (the dev server / the
             // tunnel), so SOP isolates Ri's origin for free. allow-same-
             // origin refers to the iframe's OWN origin (the dev app), which it
@@ -328,7 +328,7 @@ function PreviewBody(props: PreviewBodyProps) {
         <Loader2 size={16} className="animate-spin text-muted-foreground" />
         <span className="text-[13px] text-muted-foreground">Installing dependencies…</span>
         <span className="max-w-xs text-center text-[11px] text-muted-foreground/60">
-          Running the workspace setup script. The preview starts automatically when it finishes.
+          Running the agent&apos;s setup script. The preview starts automatically when it finishes.
         </span>
       </Centered>
     );
@@ -516,10 +516,10 @@ function SetupRecovery({
       ? 'No setup command configured'
       : 'Dependencies may be missing';
   const body = isError
-    ? 'The workspace setup script errored, so the preview may be missing dependencies.'
+    ? 'The agent’s setup script errored, so the preview may be missing dependencies.'
     : isConfigure
-      ? 'The dev server couldn’t start. If your app needs a dependency install (e.g. yarn install / pnpm install), add it as the workspace setup command. It runs once per worktree before the preview starts.'
-      : 'The dev server couldn’t start. If dependencies aren’t installed, re-run the workspace setup script.';
+      ? 'The dev server couldn’t start. If your app needs a dependency install (e.g. yarn install / pnpm install), add it as the agent’s setup command. It runs once per worktree before the preview starts.'
+      : 'The dev server couldn’t start. If dependencies aren’t installed, re-run the agent’s setup script.';
   return (
     <div className="w-full rounded-md border border-border bg-card/40 p-3">
       <div className="flex items-start gap-2">

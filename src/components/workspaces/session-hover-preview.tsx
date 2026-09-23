@@ -300,7 +300,7 @@ function PreviewHeader({
   const label = session?.label ?? null;
   const labelText = label ?? 'Untitled';
   const labelIsPlaceholder = !label;
-  const wsName = workspace?.name ?? 'No workspace';
+  const wsName = workspace?.name ?? 'No agent';
 
   return (
     <div className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border/60">

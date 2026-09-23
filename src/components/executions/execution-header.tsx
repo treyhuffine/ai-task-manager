@@ -6,6 +6,7 @@ import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { HOTKEYS } from '@/constants/commands';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { useUpdateSession } from '@/hooks/use-execution';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
@@ -80,7 +81,7 @@ export function ExecutionHeader({
   isRunning,
   hasBackgroundTasks,
 }: ExecutionHeaderProps) {
-  const { pendingInputSessionIds, setActiveView } = useDashboard();
+  const { pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
   const { confirmArchive } = useArchiveWithConfirm();
   const updateSession = useUpdateSession();
   const markRead = useMarkSessionRead();
@@ -407,7 +408,7 @@ export function ExecutionHeader({
               >
                 <div className="p-3 space-y-2.5 text-[12px]">
                   <DetailRow
-                    label="Workspace"
+                    label="Agent"
                     value={workspace?.name ?? '-'}
                     valueClass="font-medium text-foreground"
                   />
@@ -505,7 +506,7 @@ export function ExecutionHeader({
           onClick={onClose}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0"
           aria-label="Close execution"
-          title="Close (Esc)"
+          title={`Close (${HOTKEYS.closeView.label})`}
         >
           <X size={14} />
         </button>
@@ -518,9 +519,22 @@ export function ExecutionHeader({
             headerLayout === 'inline' ? 'max-w-[25%]' : 'max-w-[45%]',
           )}
         >
-          {workspace?.emoji && <span className="flex-shrink-0">{workspace.emoji}</span>}
-          <span className="font-medium truncate">{workspace?.name ?? 'Workspace'}</span>
-          <span className="text-muted-foreground/40 flex-shrink-0">/</span>
+          {/* Breadcrumb: the agent opens its view, the way back up from
+              the workbench to the oversight surface. */}
+          {workspace ? (
+            <button
+              type="button"
+              onClick={() => openAgent(workspace.id)}
+              title={`Open ${workspace.name}`}
+              className="flex items-center gap-1.5 min-w-0 rounded px-0.5 -mx-0.5 hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              {workspace.emoji && <span className="flex-shrink-0">{workspace.emoji}</span>}
+              <span className="font-medium truncate">{workspace.name}</span>
+            </button>
+          ) : (
+            <span className="font-medium truncate">Agent</span>
+          )}
+          <span className="text-muted-foreground/40 flex-shrink-0" aria-hidden>›</span>
           {labelElement ?? (
             <button
               type="button"
@@ -568,7 +582,7 @@ export function ExecutionHeader({
             >
               <div className="p-3 space-y-2.5 text-[12px]">
                 <DetailRow
-                  label="Workspace"
+                  label="Agent"
                   value={workspace?.name ?? '-'}
                   valueClass="font-medium text-foreground"
                 />
@@ -786,7 +800,7 @@ function LiveBadge({ branch }: { branch: string | null }) {
         <div className="space-y-1 max-w-[260px]">
           <div className="font-semibold">Live session</div>
           <div className="text-[11px] opacity-90 leading-snug">
-            Agent is editing the workspace folder directly on{' '}
+            Editing the agent&apos;s own folder directly on{' '}
             {branch ? (
               <span className="font-mono">{branch}</span>
             ) : (

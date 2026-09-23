@@ -127,7 +127,7 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
           icon={<Zap size={11} className="text-amber-500/80" />}
           text={
             <span className="font-mono">
-              <span className="text-muted-foreground/80">Running in your workspace on </span>
+              <span className="text-muted-foreground/80">Running in the agent&apos;s folder on </span>
               <span className="text-foreground/90">{session.branchName}</span>
               {session.baseSha && (
                 <span className="text-muted-foreground/60">{' @'}{session.baseSha.slice(0, 7)}</span>
@@ -178,7 +178,7 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
           icon={<AlertCircle size={11} className="text-amber-500/80" />}
           text={
             <span>
-              Non-git workspace · agent runs in{' '}
+              Plain folder, not a git repo · runs in{' '}
               <span className="font-mono text-foreground/80">{workspace.cwd}</span>
               <span className="text-muted-foreground/60"> · no isolation</span>
             </span>

@@ -4,6 +4,7 @@ import { CheckCircle2, Circle, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { setSettingsSection } from '@/components/settings/settings-store';
 import type { SetupChecklist } from '@/components/settings/use-setup-checklist';
+import { APP_NAME } from '@/constants/app';
 
 /**
  * The "Get started" checklist. Each item is derived-done, actionable (jump to
@@ -19,7 +20,7 @@ export function GetStartedSection({ checklist }: { checklist: SetupChecklist }) 
     <div className="space-y-5">
       <div className="space-y-2">
         <p className="text-[12.5px] leading-relaxed text-foreground/90">
-          A few quick steps to get the most out of your workspace. Do what&apos;s useful, skip what isn&apos;t. This
+          A few quick steps to get the most out of {APP_NAME}. Do what&apos;s useful, skip what isn&apos;t. This
           disappears once you&apos;re set.
         </p>
         <div className="flex items-center gap-3">

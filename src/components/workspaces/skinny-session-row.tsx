@@ -42,7 +42,7 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
 
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);
   const wsEmoji = session.workspaceEmoji;
-  const wsName = session.workspaceName ?? 'No workspace';
+  const wsName = session.workspaceName ?? 'No agent';
 
   return (
     <div

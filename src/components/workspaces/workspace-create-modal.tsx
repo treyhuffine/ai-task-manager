@@ -213,13 +213,13 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
           <VisuallyHidden.Root>
-            <DialogPrimitive.Title>New Workspace</DialogPrimitive.Title>
-            <DialogPrimitive.Description>Create a new workspace</DialogPrimitive.Description>
+            <DialogPrimitive.Title>New agent</DialogPrimitive.Title>
+            <DialogPrimitive.Description>Create a new agent</DialogPrimitive.Description>
           </VisuallyHidden.Root>
           <div className="flex max-h-[88vh] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
             <div className="flex shrink-0 items-center justify-between px-5 py-3 border-b border-border">
               <span className="text-xs font-semibold tracking-wide text-foreground">
-                New Workspace
+                New agent
               </span>
               <DialogPrimitive.Close asChild>
                 <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
@@ -287,7 +287,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                       <div className="relative group">
                         <img
                           src={`/api/attachments/${attachment.fileName}`}
-                          alt="Workspace cover"
+                          alt="Agent icon"
                           className="w-20 h-20 rounded-xl object-cover border border-border"
                         />
                         <button
@@ -399,8 +399,8 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                       Connectors (optional)
                     </label>
                     <p className="mb-2 text-[10px] text-muted-foreground/70">
-                      Services agents running in this workspace may use. The orchestrator always has every connected
-                      service; this only scopes this workspace&apos;s executions. You can change it later in settings.
+                      Services this agent may use, in its executions and its main chat. The app&apos;s main chat always
+                      has every connected service. You can change this later in the agent&apos;s setup.
                     </p>
                     <ConnectorScopePicker scopes={connectorScopes} onChange={setConnectorScopes} disabled={createWs.isPending} />
                   </div>
@@ -411,16 +411,16 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                         Agent browser
                       </span>
                       <p className="text-[10px] text-muted-foreground/70">
-                        Let this workspace&apos;s executions read and act on the web. They browse an
-                        isolated profile, not your logged-in one. On by default, change it later in
-                        settings.
+                        Let this agent read and act on the web, in its executions and its main chat. It
+                        browses an isolated profile, not your logged-in one. On by default, change it
+                        later in the agent&apos;s setup.
                       </p>
                     </div>
                     <Switch
                       checked={browserEnabled}
                       onCheckedChange={setBrowserEnabled}
                       disabled={createWs.isPending}
-                      aria-label="Agent browser for this workspace"
+                      aria-label="Agent browser"
                     />
                   </label>
                 </>
@@ -445,7 +445,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                 className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {createWs.isPending && <Loader2 size={14} className="animate-spin" />}
-                Create workspace
+                Create agent
               </button>
             </div>
           </div>

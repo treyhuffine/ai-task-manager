@@ -165,7 +165,7 @@ export function ReferencesPane({
               <Section title="In this chat" rows={filtered.inChat} onInsert={onInsertChip} />
             )}
             {filtered.workspace.length > 0 && (
-              <Section title="In this workspace" rows={filtered.workspace} onInsert={onInsertChip} />
+              <Section title="In this agent" rows={filtered.workspace} onInsert={onInsertChip} />
             )}
             {filtered.all.length > 0 && (
               <Section title="All" rows={filtered.all} onInsert={onInsertChip} />
@@ -176,7 +176,7 @@ export function ReferencesPane({
                   ? `No tasks or notes match “${search}”.`
                   : workspaceId
                     ? 'Nothing here yet. Use "+ New" below to create one.'
-                    : 'Nothing here yet. This chat has no workspace.'}
+                    : 'Nothing here yet. This chat has no agent.'}
               </div>
             )}
           </>
@@ -452,7 +452,7 @@ function CreateRow({
           New note
         </button>
         <span className="ml-auto text-[10px] text-muted-foreground/50">
-          {workspaceId ? 'Scoped to this workspace' : 'No workspace'}
+          {workspaceId ? 'Scoped to this agent' : 'No agent'}
         </span>
       </div>
     );

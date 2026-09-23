@@ -143,7 +143,7 @@ export function SessionRowMenu({
             )}
             {onOpenWorkspaceSettings && workspaceId && (
               <DropdownMenuItem onSelect={() => onOpenWorkspaceSettings(workspaceId)}>
-                <Settings size={12} /> Workspace settings
+                <Settings size={12} /> Agent setup
               </DropdownMenuItem>
             )}
           </>

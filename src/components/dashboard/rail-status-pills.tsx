@@ -151,7 +151,7 @@ function PillSessionRow({ session, onPick }: PillSessionRowProps) {
   // (survives "new chat"); fall back to the chat label for legacy/orphaned rows.
   const label = session.execution?.label ?? session.label ?? 'Untitled';
   const labelIsPlaceholder = !(session.execution?.label ?? session.label);
-  const wsName = session.workspaceName ?? 'No workspace';
+  const wsName = session.workspaceName ?? 'No agent';
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);
   const wsEmoji = session.workspaceEmoji;
 

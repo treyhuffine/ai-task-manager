@@ -52,7 +52,7 @@ export function StatusSessionRow({
   const labelIsPlaceholder = !(session.execution?.label ?? session.label);
   const isPinned = !!session.execution?.pinnedAt;
 
-  const wsName = session.workspaceName ?? 'No workspace';
+  const wsName = session.workspaceName ?? 'No agent';
   const wsImage = coverAttachmentUrl(session.workspaceAttachments);
   const wsEmoji = session.workspaceEmoji;
 

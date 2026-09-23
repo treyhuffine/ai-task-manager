@@ -62,7 +62,7 @@ export function StepLaunch({ state }: { state: WizardState }) {
         <div>
           <h2 className="text-xl font-semibold">Ready to launch</h2>
           <p className="text-sm text-muted-foreground">
-            Everything is set up. Launching will save your workspace and open {APP_NAME}.
+            Everything is set up. Launching will save your setup and open {APP_NAME}.
           </p>
         </div>
       </header>

@@ -428,7 +428,7 @@ export function useLaunchSources({
         emptyHint: searching
           ? 'No chat matched. Search covers your and the agent\u2019s messages, not tool output.'
           : includeArchivedChats
-            ? 'No chats in this workspace, archived or otherwise.'
+            ? 'No chats in this agent, archived or otherwise.'
             : 'No active chats. Turn on Show archived to include finished work.',
         items: chatItems,
       });

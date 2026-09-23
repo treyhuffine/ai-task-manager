@@ -155,7 +155,7 @@ export function ReferenceFolderDialog({
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit reference folder' : 'Add reference folder'}</DialogTitle>
             <DialogDescription>
-              A folder this workspace&apos;s agents can read and search but never change.
+              A folder this agent can read and search but never change.
             </DialogDescription>
           </DialogHeader>
 
@@ -165,7 +165,7 @@ export function ReferenceFolderDialog({
                 Folder on disk
               </ModeTab>
               <ModeTab active={mode === 'workspace'} onClick={() => setMode('workspace')}>
-                Another workspace
+                Another agent
               </ModeTab>
             </div>
 
@@ -194,13 +194,13 @@ export function ReferenceFolderDialog({
                 </FieldHint>
               </Field>
             ) : (
-              <Field label="Workspace">
+              <Field label="Agent">
                 <select
                   value={targetWorkspaceId}
                   onChange={(e) => setTargetWorkspaceId(e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  <option value="">Choose a workspace…</option>
+                  <option value="">Choose an agent…</option>
                   {selectableWorkspaces.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.emoji ? `${w.emoji} ${w.name}` : w.name}
@@ -208,8 +208,8 @@ export function ReferenceFolderDialog({
                   ))}
                 </select>
                 <FieldHint>
-                  Follows the workspace if its folder moves. The agent reads whatever is checked
-                  out there, not any in-progress worktree.
+                  Follows that agent if its folder moves. This agent reads whatever is checked out
+                  there, not any in-progress worktree.
                 </FieldHint>
               </Field>
             )}
@@ -256,7 +256,7 @@ export function ReferenceFolderDialog({
 
             <label className="flex cursor-pointer items-start justify-between gap-3">
               <span className="text-[11px] leading-relaxed text-muted-foreground/85">
-                Visible in every workspace
+                Visible in every agent
                 <span className="block text-muted-foreground/60">
                   Use for something shared, like a design system several apps consume.
                 </span>
@@ -271,7 +271,7 @@ export function ReferenceFolderDialog({
                   <span className="block text-muted-foreground/60">
                     Adds{' '}
                     <span className="font-mono">@{slugify(workspaceName ?? '', { separator: '-' })}</span>{' '}
-                    inside {reverseTargetName ?? 'that workspace'}, so the two can read each other.
+                    inside {reverseTargetName ?? 'that agent'}, so the two can read each other.
                   </span>
                 </span>
                 <Switch checked={addReverse} onCheckedChange={setAddReverse} className="mt-0.5" />
@@ -280,14 +280,14 @@ export function ReferenceFolderDialog({
 
             {duplicate && (
               <Notice tone="error">
-                A {global ? 'global' : 'workspace'} reference named{' '}
+                {global ? 'A global' : 'An agent'} reference named{' '}
                 <code className="font-mono">{normalizedAlias}</code> already exists.
               </Notice>
             )}
             {!duplicate && shadowed && (
               <Notice tone="warning">
                 This shadows the global <code className="font-mono">{normalizedAlias}</code>. In
-                this workspace, yours wins.
+                this agent, yours wins.
               </Notice>
             )}
             {error && <Notice tone="error">{error}</Notice>}

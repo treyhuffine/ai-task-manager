@@ -52,7 +52,7 @@ export function useArchiveWithConfirm() {
 
       const ok = await confirm({
         title: 'Archive execution?',
-        description: `"${name}" moves to your archive. Its chat history is kept and you can bring it back anytime with Continue from History. For git workspaces the on-disk worktree is removed, but the branch and its commits stay.`,
+        description: `"${name}" moves to your archive. Its chat history is kept and you can bring it back anytime with Continue from History. For git agents the on-disk worktree is removed, but the branch and its commits stay.`,
         confirmLabel: 'Archive',
       });
       if (!ok) return false;

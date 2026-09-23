@@ -120,7 +120,7 @@ function renderBody(props: PreviewEmptyProps) {
         <Subtle>
           Your command is running but didn&apos;t print a recognizable
           {' '}<code className="rounded bg-muted px-1.5 py-0.5 text-[12px]">localhost:PORT</code>{' '}
-          line. Set the port manually in workspace settings, then stop and start the preview again.
+          line. Set the port manually in the agent&apos;s setup, then stop and start the preview again.
         </Subtle>
         {command && <CommandReadonly command={command} />}
         {props.onOpenWorkspaceSettings && (
@@ -130,7 +130,7 @@ function renderBody(props: PreviewEmptyProps) {
             className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] font-medium text-foreground hover:bg-muted"
           >
             <SettingsIcon size={13} />
-            Open workspace settings
+            Open agent setup
           </button>
         )}
       </>

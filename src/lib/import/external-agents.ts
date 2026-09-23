@@ -1252,7 +1252,7 @@ export function takeOverImportedSession(chatSessionId: string): ImportedTakeover
     throw new Error('The provider transcript this chat was imported from is no longer available.');
   }
   const workspace = session.workspaceId ? getWorkspace(session.workspaceId) : null;
-  if (!workspace) throw new Error('This chat has no workspace to run in.');
+  if (!workspace) throw new Error('This chat has no agent to run in.');
 
   // Idempotent: a second call returns the same answer rather than re-pointing
   // a chat that is already live at a session it has since moved past.

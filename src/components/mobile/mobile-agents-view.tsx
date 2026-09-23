@@ -46,13 +46,13 @@ export function MobileAgentsView() {
 
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
         <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
-          Workspaces
+          Agents
         </span>
         <button
           type="button"
           onClick={() => setCreateWsOpen(true)}
           className="w-8 h-8 -mr-1.5 flex items-center justify-center rounded-lg text-primary bg-primary/10 active:bg-primary/20 transition-colors"
-          aria-label="New workspace"
+          aria-label="New agent"
         >
           <FolderPlus size={16} />
         </button>
@@ -206,7 +206,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
           type="button"
           onClick={toggle}
           className="w-6 h-8 flex items-center justify-center flex-shrink-0"
-          aria-label={expanded ? 'Collapse workspace' : 'Expand workspace'}
+          aria-label={expanded ? 'Fold agent' : 'Unfold agent'}
         >
           <ChevronRight
             size={16}
@@ -365,9 +365,9 @@ function EmptyWorkspaces({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="px-6 py-10 text-center text-muted-foreground">
       <Inbox className="w-8 h-8 mx-auto opacity-30 mb-3" />
-      <p className="text-[13px] font-medium text-foreground">No workspaces yet</p>
+      <p className="text-[13px] font-medium text-foreground">No agents yet</p>
       <p className="text-[11px] text-muted-foreground/70 mt-1 leading-relaxed">
-        Add a workspace to start running agents.
+        Add one to get started.
       </p>
       <button
         type="button"
@@ -375,7 +375,7 @@ function EmptyWorkspaces({ onCreate }: { onCreate: () => void }) {
         className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-primary bg-primary/10 active:bg-primary/20 transition-colors"
       >
         <FolderPlus size={13} />
-        New workspace
+        New agent
       </button>
     </div>
   );
