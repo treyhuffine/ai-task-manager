@@ -1,6 +1,6 @@
 # Agents view: spec and task list
 
-**Status:** in progress. Written 2026-09-22.
+**Status:** done 2026-09-22 (Phases 0 to 10). Written 2026-09-22. Follow-ups are in §7.
 **How to use this doc:** it is the task list. Check a box (`- [x]`) when the work lands on `main`, and append the short commit hash when useful. Keep the "Done when" lines honest: a phase is done when every line under it is true, not when the code compiles. Record surprises inline under the task they affect.
 
 ---
@@ -180,7 +180,7 @@ A first pass shipped this as a hand-edited `0001` migration. Trey asked for it t
 
 **Done when:** no code references the `agents` table or `agentId`. `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, `pnpm smoke:agent` and `pnpm smoke:harness` pass. The dry-run numbers are recorded above.
 
-**Status 2026-09-22:** landed. `pnpm ts` clean, `pnpm lint` 0 errors, `pnpm test` 1,937 passed. `pnpm smoke:harness` passes end to end against real Claude, including a new assertion that a scheduled fire carries the trigger's harness onto its run and chat. It had been failing on two stale paths (`config.json` moved into `.config/`, `/schedules` renamed to `/triggers`), fixed along the way. `pnpm smoke` and `pnpm smoke:agent` fail identically on unmodified `main` (they still expect the pre-`.config/` layout, a `brain/` folder, and root skill symlinks), so they are unrelated and left for a separate fix. The only remaining `agentId` is the rejected legacy param described under Phase 4.
+**Status 2026-09-22:** landed. `pnpm ts` clean, `pnpm lint` 0 errors, `pnpm test` 1,937 passed. `pnpm smoke:harness` passes end to end against real Claude, including a new assertion that a scheduled fire carries the trigger's harness onto its run and chat. It had been failing on two stale paths (`config.json` moved into `.config/`, `/schedules` renamed to `/triggers`), fixed along the way. `pnpm smoke` and `pnpm smoke:agent` fail identically on unmodified `main` (they still expect the pre-`.config/` layout, a `brain/` folder, and root skill symlinks), so they are unrelated and left for a separate fix. (Fixed in Phase 10.) The only remaining `agentId` is the rejected legacy param described under Phase 4.
 
 ### Phase 2: "Harness" wherever we mean the engine
 
@@ -486,8 +486,13 @@ One registry generates both surfaces, so every item lands on both.
   - Also fixed two stale names there (`ensureAgentSession`, `create_schedule`).
 - [x] CLAUDE.md: the glossary line (Phase 2), the migration note (Phase 0), and a line in the Orchestrator section about agent main chats.
   - The "agent in the UI" half of the glossary lands with Phase 8's copy sweep.
-- [ ] `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, `pnpm smoke:agent`, `pnpm smoke:harness`, `pnpm build`.
-- [ ] End-to-end run on dev (port 42241):
+- [x] `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, `pnpm smoke:agent`, `pnpm smoke:harness`, `pnpm build`.
+  - `pnpm ts`: no errors in source. The only errors are in the running prod build's generated `.next/types`, which still names the old `/api/agent/*` routes. The cutover `pnpm build` regenerates it.
+  - `pnpm lint`: 134 errors, all older than this work. Every file this spec touched has the same count it had at `58a7464`.
+  - `pnpm test`: 216 files, 2070 tests pass.
+  - `pnpm build` (into `.next-verify`, so prod's `.next` is untouched): compiles, type-checks, and emits every route, including the new `/api/workspaces/:id/{chat,tree,file,terminals,previews}` families.
+  - `pnpm smoke`, `smoke:agent`, `smoke:harness`: all pass. **Surprise:** `smoke` and `smoke:agent` had been failing on `main` since the home layout change, checking for `brain/`, a root `config.json` and a skill named `orchestrator`. They now read paths from `src/lib/config/paths.ts` and skills from `shippedSkillNames()`, so they can't go stale that way again. Two more old smoke bugs: `smoke:agent` called `process.exit()` inside `try`, so its `finally` never ran and its server stayed up. And neither network smoke removed the route types Next writes into `.next-smoke/dev/types`, which tsconfig includes. After this spec's route renames, those stale types failed `pnpm build`, and they would have failed the cutover build too. Both smokes now remove them on teardown.
+- [x] End-to-end run on dev (port 42241):
   1. Create an agent.
   2. Open its agent view.
   3. Ask its main chat to start an execution.
@@ -496,8 +501,17 @@ One registry generates both surfaces, so every item lands on both.
   6. Have the app's main chat message the same execution.
   7. Archive the execution from the agent's main chat.
 
-  Record the result here.
-- [ ] Update this doc's status line to done.
+  **Result 2026-09-22: passed**, on Claude, with a git agent `e2e-app` (folder `~/ri-dev-scratch/e2e-app`):
+  1. Agent created, view opened on Overview with the main chat on the left.
+  2. Asked the main chat to create `HELLO.md` in new work. It called `start_execution`. The execution ("Create HELLO.md") appeared in Overview, and its first prompt carries the main chat as sender.
+  3. The main chat steered it to add a second line. The transcript's sender chip names the agent's main chat.
+  4. The app's main chat messaged the same execution. Its sender is recorded as the app's main chat, and the execution answered from its worktree ("2 lines").
+  5. "Archive that execution now" was refused (uncommitted `HELLO.md`), and the main chat explained what would be lost instead of forcing.
+  6. "That file can be discarded. Archive it with force." archived it and removed the worktree.
+  7. The agent's own folder was untouched: only `.git` and `README.md`, `git status` clean. The main chat never wrote to it.
+
+  **Surprise, older bug found by this run:** the execution's worktree was built twice. Creating a session provisions its worktree in the background, and the first message's self-heal (`ensureWorktreeReady`) found none yet and provisioned again. The later worktree was recorded and the first stayed on disk, unreferenced, with its branch. `start_execution` sends its prompt right after the create, so it hits this every time, and the launcher can too. Prod shows the same pattern: 6 unreferenced worktrees (about 9.7 GB, no commits of their own) next to executions recorded on a `-2` path. Fixed in `30644c5`: a provision already running for an execution is joined, never repeated. Two smaller causes of the same symptom were fixed with it. Unlabeled branches were named after the UUIDv7 timestamp, which repeats for ~65 seconds. And git's "cannot lock ref" wording for a same-instant branch race wasn't treated as "branch exists". Tests run real git (`src/lib/sessions/provision-worktree.test.ts`). The prod orphans are listed for the user to remove, not deleted.
+- [x] Update this doc's status line to done.
 
 ---
 
@@ -513,6 +527,13 @@ Recorded so they are not lost:
 - **Renaming Connectors to Plugins.**
 - **Editing files from the agent view's Files tab.**
 
+Found during the work and left open:
+
+- **agentex reads a main checkout's metadata against the server's cwd** (Phase 5). The agent view avoids it with `openFolderHandle`. Live-mode executions still depend on it, so fix it in agentex and move them over with the execution view work.
+- **Six orphaned worktrees in prod** from the double-provision bug fixed in `30644c5`, about 9.7 GB. None has commits of its own. Two show a modified `.env.example`, which is the provisioning file copy, not agent work. Remove them with `git worktree remove` plus `git branch -D` once reviewed.
+- **An intermittent hydration warning** naming a Radix popover id (Phase 7).
+- **134 lint errors older than this work**, mostly React compiler rules in `src/components`.
+
 ---
 
 ## 8. File reference
@@ -523,9 +544,11 @@ Recorded so they are not lost:
 | Orchestrator | `src/lib/orchestrator/registry.ts`, `types.ts`, `harness-surface.ts`, `server-client.ts`, `src/app/api/orchestrator/[transport]/route.ts`, `skills/orchestrator/SKILL.md`, `src/lib/config/claude-md-template.ts` |
 | Chats and execution | `src/lib/sessions/dispatch.ts`, `src/lib/executor/adapter.ts`, `src/lib/executor/harness.ts`, `src/lib/executor/reconcile.ts`, `src/lib/sessions/derive-label.ts`, `src/app/api/sessions/[id]/*`, `src/app/api/orchestrator-chat/*`, `src/app/api/document-chat/route.ts` |
 | Triggers and runs | `src/lib/runs/dispatch.ts`, `src/lib/deck/trigger.ts`, `src/lib/stream-triage/triggers.ts`, `src/cli/commands/trigger.ts` |
-| Harness naming | `src/lib/agents/*`, `src/lib/agent-options.ts`, `src/app/api/agent/*`, `src/hooks/use-agent-*` |
-| Rail | `src/components/dashboard/power-rail.tsx`, `src/components/workspaces/rail-tabs.tsx`, `workspace-nav.tsx`, `workspace-row.tsx`, `workspace-settings-sheet.tsx`, `pinned-rail.tsx`, `status-view.tsx` |
+| Harness naming | `src/lib/harness/*` (was `src/lib/agents/*` and `src/lib/agent-options.ts`), `src/app/api/harness/*` (was `src/app/api/agent/*`), `src/hooks/use-harness*.ts` |
+| Rail | `src/components/dashboard/power-rail.tsx`, `src/components/workspaces/rail-tabs.tsx`, `workspace-nav.tsx`, `workspace-row.tsx`, `pinned-rail.tsx`, `status-view.tsx`. `workspace-settings-sheet.tsx` is gone, its fields live in the Setup tab. |
 | Shell and navigation | `src/components/dashboard/dashboard.tsx`, `panel-layout.tsx`, `top-hud.tsx`, `src/contexts/dashboard-context.tsx`, `src/types/dashboard.ts`, `src/constants/commands.ts` |
+| Agent main chat | `src/lib/sessions/main-chat.ts`, `src/lib/executor/agent-main-chat.ts`, `src/app/api/workspaces/[id]/chat/*`, `src/hooks/use-main-chat.ts`, `src/components/chat/main-chat-history-menu.tsx`, `sender-chip.tsx`, `src/lib/sessions/sender.ts` |
+| Agent view | `src/components/agents/*`, `src/lib/client/active-view.ts`, `agent-view-tab.ts`, `src/lib/folders/source.ts`, `src/hooks/use-agent.ts`, `use-folder.ts`, `use-terminals.ts`, `src/app/api/workspaces/[id]/{tree,file,terminals,previews}`, `src/lib/terminal/{http,owner}.ts` |
 | Reused view parts | `src/components/chat/harness-chat.tsx`, `src/components/executions/file-tree/`, `viewer/`, `execution-terminal-panel.tsx`, `preview/`, `execution-header.tsx` |
-| Trial preference | `src/lib/client/entity-view-mode.ts` (pattern), `src/components/settings/sections/general-section.tsx` |
-| Mobile | `src/components/mobile/mobile-agents-view.tsx`, `tablet-layout.tsx` |
+| Trial preference | `src/lib/client/agent-view-mode.ts` (after the `entity-view-mode.ts` pattern), `src/components/settings/sections/general-section.tsx` |
+| Mobile | `src/components/mobile/mobile-layout.tsx`, `mobile-agents-view.tsx`, `tablet-layout.tsx`, `src/hooks/use-element-width.ts` |
