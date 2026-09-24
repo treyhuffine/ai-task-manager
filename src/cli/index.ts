@@ -18,6 +18,8 @@ import { registerResumeCommand } from './commands/resume';
 import { registerBrowserCommands } from './commands/browser';
 import { registerTlsCommand } from './commands/tls';
 import { registerHomeCommand } from './commands/home';
+import { registerStatusCommand } from './commands/status';
+import { installRoleGuard } from './lib/role-guard';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -97,6 +99,8 @@ registerResumeCommand(program);
 registerBrowserCommands(program);
 registerTlsCommand(program);
 registerHomeCommand(program);
+registerStatusCommand(program);
+installRoleGuard(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);

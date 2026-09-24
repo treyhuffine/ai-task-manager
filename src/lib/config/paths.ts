@@ -136,6 +136,16 @@ export function getMachineIdentityPath(): string {
   return path.join(getConfigDir(), 'machine.json');
 }
 
+/**
+ * On a computer connected to a home elsewhere: which home, its address, and
+ * this computer's credential for it (src/lib/connection/config.ts). Its
+ * presence without a database makes this root a connected installation,
+ * which never opens a database of its own (src/lib/config/role.ts).
+ */
+export function getConnectionPath(): string {
+  return path.join(getConfigDir(), 'connection.json');
+}
+
 // ─── .work — regenerable scratch (don't sync, safe to delete) ─────
 
 /** Machine-local scratch: worktrees, clones, tmp, backups, pids, icons. */

@@ -13,6 +13,8 @@ import {
   buildPairingUrl,
 } from '@/lib/auth/bootstrap';
 import { ensureHomeIdentity, HomeIdentityError } from '@/lib/home/identity';
+import { getInstallationRole, type InstallationRole } from '@/lib/config/role';
+import { runConnected } from './connected';
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { resolveHttp2Enabled, isChainTrustFailure, certCoversHost } from '@/lib/config/http2';
 import {
@@ -112,6 +114,22 @@ export async function startCommand(opts: StartOptions) {
   }
   if (opts.hot) {
     log.info(pc.dim('Hot-path tracker enabled (NEXT_PUBLIC_HOT=1), see src/lib/_debug/hot-path.ts'));
+  }
+
+  // What this folder is decides what `ri` does (docs/homes-spec.md §3.1). A
+  // connected computer keeps no data: it opens the home, and never starts a
+  // server or a database here.
+  let role: InstallationRole;
+  try {
+    role = getInstallationRole();
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+    return;
+  }
+  if (role === 'connected') {
+    await runConnected({ open: opts.open });
+    return;
   }
 
   // Resolve --portless before anything that reads the static URL (auth bootstrap
