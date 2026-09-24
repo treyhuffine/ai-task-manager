@@ -9,6 +9,7 @@
     "dev:hot": "NEXT_PUBLIC_HOT=1 RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
     "dev:web": "RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",
+    "iso": "tsx scripts/isolated.ts",
     "build": "next build",
     "start": "next start",
     "ts": "tsc --noEmit",
