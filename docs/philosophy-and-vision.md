@@ -136,6 +136,8 @@ Compressed: the diagnosis is right, the delegation-native inversion is the most 
 
 ## 10. Teams: paths considered
 
+> Historical team exploration. The principles and alternatives remain context, not additional requirements. The [homes build specification](homes-spec.md#9-teams-without-mandatory-ai) defines the team product and build order.
+
 Five architectures were weighed. Recorded so the reasoning survives.
 
 **Path A: cloud multi-tenant SaaS.** Rejected. Destroys local-first, fights Notion and Linear on their turf, near-total rewrite. A hosted convenience offering may exist someday but must not shape the data model.

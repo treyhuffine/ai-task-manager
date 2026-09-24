@@ -1,6 +1,8 @@
 # One Ri: the mental model for your computers and your teams
 
-**Written:** 2026-09-23. A decision memo behind `docs/homes-spec.md`. It reasons from first principles, checks the result against the spec, and reports a test of both harnesses run the same day on the Mac Mini. It does not replace the spec. Where it disagrees, §9 says so and the spec's Decisions list stays the record of what was chosen.
+**Written:** 2026-09-23. Historical decision memo and experiment record. The [homes build specification](homes-spec.md) is the sole build contract for this feature. This memo is background, not additional requirements.
+
+**Evidence boundary:** The reported harness tests used one Mac Mini with changed folders and transcript locations. They support further testing, not a verified promise of cross-machine native resumption. Preserve the observations in section 5. Use [the current native-session policy](homes-spec.md#84-native-session-transfer) for implementation decisions.
 
 ---
 

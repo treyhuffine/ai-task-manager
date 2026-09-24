@@ -602,6 +602,8 @@ If anything feels under-specified during implementation, leave a TODO in code wi
 
 ## Deferred: cross-machine execution
 
+> Historical exploration. This section is superseded by the [homes specification and task list](homes-spec.md). In particular, internet access does not imply the home is reachable, and current transfer rules require a reachable source with a confirmed stop. The earlier single-machine implementation sections remain useful context.
+
 This section captures thinking, not implementation. Nothing here ships in v1. It exists so a future contributor (and future me) doesn't have to re-derive the model.
 
 ### Mental model we're building toward

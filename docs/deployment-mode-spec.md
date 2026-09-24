@@ -1,5 +1,7 @@
 # Deployment Mode: Solo vs Team
 
+> Historical deployment proposal, not an additional build plan. Use the [homes build specification](homes-spec.md#9-teams-without-mandatory-ai) for team behavior and implementation order. Hiding features or setting a deployment flag does not replace member authorization.
+
 Self-contained plan for splitting Ri into two deployment modes —
 **solo** (the current single-trusted-user behavior) and **team**
 (multi-user shared instance) — and gating features that aren't yet

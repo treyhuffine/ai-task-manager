@@ -1,5 +1,7 @@
 # Local/Remote Client Awareness + Take Over Locally: Implementation Spec
 
+> Historical takeover design, not an additional build plan. The [homes build specification](homes-spec.md#8-reviewing-locally-and-continuing-elsewhere) defines review snapshots, execution ownership, continuation, and their task sequence.
+
 Self-contained plan for adapting the execution view to the machine the
 user is currently on, plus a "Take over locally" escape hatch when the
 agent gets stuck and the user wants hands on the code from their laptop.

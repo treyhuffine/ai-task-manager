@@ -1,6 +1,6 @@
 # Running agents across machines: what Cursor, Claude Code and Codex do
 
-**Written:** 2026-09-23. Research notes behind `docs/homes-spec.md` §6.4 to §6.8.
+**Written:** 2026-09-23. Dated research background. The [homes build specification](homes-spec.md) is the sole build contract for this feature. Architecture suggestions below are historical, not additional requirements or verified native-session portability.
 **Question:** Ri needs agents to run on your home (an always-on Mac Mini) and on the laptop you're sitting at, and it has to feel effortless, with no commands to learn. Cursor is the closest reference. Claude Code and Codex matter too, because they are the harnesses Ri runs.
 
 ---
@@ -57,7 +57,7 @@ From two screenshots of Cursor's Agents Window (taken 2026-09-23):
 
 ## 5. What Ri can't copy directly
 
-- **The brain and hands split.** Ri runs Claude Code and Codex, whose loop runs wherever they're started and keeps the conversation in local files. So in Ri, a conversation moves only if the harness session file moves with it, the way teleport does. That's an open question, tested by a spike (`docs/homes-spec.md` Phase 9). Until then, a move starts a fresh harness session in the same Ri chat, seeded with a note about where things stand. The home already has every message, so the note can always be written, even when the source computer is offline.
+- **The brain and hands split.** Ri's build contract separates a shared Ri conversation from native harness resumption. See [the native-session policy](homes-spec.md#84-native-session-transfer) and [P4](homes-spec.md#p4-review-and-continue-local-work). A recorded conversation supports a handoff, but does not prove that an unreachable source has stopped or that all its output has reached the home. Initial ownership transfers require a reachable source and confirmed stop.
 - **A vendor cloud.** Ri's "cloud" is your home, or hosting later. The data stays yours.
 
 ## 6. What Ri deliberately keeps different
