@@ -74,7 +74,7 @@ export function AgentHeader({
       {!archived && (
         <button
           onClick={() => openLauncher(workspace.id)}
-          className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg border border-border text-foreground text-[11px] font-semibold hover:bg-muted/60 transition-colors"
+          className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity"
           title={`New execution in ${workspace.name}`}
           aria-label="New execution"
         >
