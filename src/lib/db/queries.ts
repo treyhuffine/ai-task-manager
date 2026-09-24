@@ -9,6 +9,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
+  home, computers,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -30,6 +31,7 @@ import type {
   DeckRecord, CreateDeckInput, UpdateDeckInput,
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
+  HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
@@ -4277,6 +4279,92 @@ export function listRetryableProviderDisconnectSagas(): HarnessOperationRecord[]
   return getDb().select().from(harnessOperations)
     .where(inArray(harnessOperations.status, ['pending', 'failed']))
     .orderBy(asc(harnessOperations.createdAt)).all();
+}
+
+// ─── Home and computers (docs/homes-spec.md §5.1) ─────────────
+
+/** This home's identity row, or null before `ensureHomeIdentity` has made it. */
+export function getHome(): HomeRecord | null {
+  return getDb().select().from(home).get() ?? null;
+}
+
+/**
+ * Create this home and the computer it runs on, together. Refuses when a
+ * home already exists: a database holds exactly one. The ids come from the
+ * caller, which writes them to the machine identity file first, so a crash
+ * between the two steps repeats the same ids.
+ */
+export function createHomeIdentity(input: {
+  homeId: string;
+  kind: HomeKind;
+  name: string;
+  host: CreateComputerInput & { id: string };
+}): { home: HomeRecord; computer: ComputerRecord } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const existing = tx.select().from(home).get();
+    if (existing) throw new Error(`This database already belongs to home ${existing.id}.`);
+    const now = new Date().toISOString();
+    const computer = tx
+      .insert(computers)
+      .values({ ...input.host, status: input.host.status ?? 'active', createdAt: now, updatedAt: now })
+      .onConflictDoNothing()
+      .returning()
+      .get() ?? tx.select().from(computers).where(eq(computers.id, input.host.id)).get()!;
+    const row = tx
+      .insert(home)
+      .values({ id: input.homeId, kind: input.kind, name: input.name, hostComputerId: computer.id, createdAt: now, updatedAt: now })
+      .returning()
+      .get();
+    return { home: row, computer };
+  }, { behavior: 'immediate' });
+}
+
+export function createComputer(input: CreateComputerInput): ComputerRecord {
+  const now = new Date().toISOString();
+  return getDb()
+    .insert(computers)
+    .values({ ...input, id: input.id ?? uuidv7(), status: input.status ?? 'active', createdAt: now, updatedAt: now })
+    .returning()
+    .get();
+}
+
+export function getComputer(id: string): ComputerRecord | null {
+  return getDb().select().from(computers).where(eq(computers.id, id)).get() ?? null;
+}
+
+export function listComputers(options: { includeRevoked?: boolean } = {}): ComputerRecord[] {
+  const q = getDb().select().from(computers);
+  return (options.includeRevoked ? q : q.where(eq(computers.status, 'active'))).orderBy(asc(computers.createdAt)).all();
+}
+
+export function updateComputer(id: string, input: UpdateComputerInput): ComputerRecord | null {
+  return getDb()
+    .update(computers)
+    .set({ ...input, updatedAt: new Date().toISOString() })
+    .where(eq(computers.id, id))
+    .returning()
+    .get() ?? null;
+}
+
+/**
+ * Make `computerId` the machine this home runs on. Used when a person
+ * explicitly selects a restored root as the active home (§10.3).
+ */
+export function setHomeHost(computerId: string): HomeRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const current = tx.select().from(home).get();
+    if (!current) throw new Error('This database has no home yet.');
+    const computer = tx.select().from(computers).where(eq(computers.id, computerId)).get();
+    if (!computer || computer.status !== 'active') throw new Error(`Computer ${computerId} is not an active computer of this home.`);
+    return tx
+      .update(home)
+      .set({ hostComputerId: computerId, updatedAt: new Date().toISOString() })
+      .where(eq(home.id, current.id))
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
 }
 
 // ─── API Keys ─────────────────────────────────────────────────

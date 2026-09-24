@@ -18,6 +18,10 @@
  *   to production checkouts and worktrees. Provisioning, continuing, or a
  *   setup script there would change production's repositories.
  *
+ * - **Identity.** A development copy is a different home. It gets a new home
+ *   id and a new host computer (this machine, written to its own
+ *   `machine.json`), and the original's computers are revoked in the copy.
+ *
  * This clears the first three and detaches every folder path by moving it
  * under `<root>/.detached/`, where it does not exist. Every folder action in
  * the copy then fails as "folder missing" instead of touching the original,
@@ -29,7 +33,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import Database from 'better-sqlite3';
+import { uuidv7 } from 'uuidv7';
 
 export const DETACHED_DIR = '.detached';
 
@@ -49,6 +55,8 @@ const CONFIG_REMOVED = ['connectors', 'notifications', 'agents', 'sources'];
 
 export interface DevCopyReport {
   root: string;
+  /** The copy's new home id, when the copy has a home identity. */
+  homeId: string | null;
   config: string[];
   removed: string[];
   database: Record<string, number>;
@@ -64,7 +72,7 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
   const dbPath = path.join(root, 'data.db');
   if (!fs.existsSync(dbPath)) throw new Error(`No database at ${dbPath}.`);
 
-  const report: DevCopyReport = { root, config: [], removed: [], database: {} };
+  const report: DevCopyReport = { root, homeId: null, config: [], removed: [], database: {} };
 
   const configFile = path.join(root, '.config', 'config.json');
   if (fs.existsSync(configFile)) {
@@ -85,6 +93,9 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
     }
   }
 
+  // Assigned inside the transaction callback, so hold it in an object that
+  // TypeScript doesn't narrow back to null.
+  const identity: { value: { homeId: string; computerId: string } | null } = { value: null };
   const db = new Database(dbPath);
   try {
     const tables = new Set(
@@ -146,6 +157,30 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
             WHERE external_session_id IS NOT NULL OR external_transcript_path IS NOT NULL`,
         );
       }
+      if (tables.has('home') && tables.has('computers')) {
+        const original = db.prepare('SELECT id, name FROM home').get() as { id: string; name: string } | undefined;
+        if (original) {
+          const homeId = uuidv7();
+          const computerId = uuidv7();
+          run(
+            'computers revoked',
+            "UPDATE computers SET status = 'revoked', revoked_at = ? WHERE status = 'active'",
+            now,
+          );
+          db.prepare(
+            `INSERT INTO computers (id, created_at, updated_at, name, platform, hostname, status)
+             VALUES (?, ?, ?, ?, ?, ?, 'active')`,
+          ).run(computerId, now, now, os.hostname().replace(/\.local$/, ''), process.platform, os.hostname());
+          db.prepare('UPDATE home SET id = ?, name = ?, host_computer_id = ?, updated_at = ?').run(
+            homeId,
+            original.name.endsWith(' (dev copy)') ? original.name : `${original.name} (dev copy)`,
+            computerId,
+            now,
+          );
+          report.homeId = homeId;
+          identity.value = { homeId, computerId };
+        }
+      }
       detach('workspaces', 'cwd');
       detach('workspaces', 'worktree_root');
       detach('executions', 'worktree_path');
@@ -154,6 +189,15 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
     })();
   } finally {
     db.close();
+  }
+  if (identity.value) {
+    const file = path.join(root, '.config', 'machine.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ version: 1, ...identity.value, createdAt: new Date().toISOString() }, null, 2) + '\n',
+      { mode: 0o600 },
+    );
   }
   return report;
 }

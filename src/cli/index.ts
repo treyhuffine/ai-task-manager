@@ -17,6 +17,7 @@ import { registerTakeoverCommand } from './commands/takeover';
 import { registerResumeCommand } from './commands/resume';
 import { registerBrowserCommands } from './commands/browser';
 import { registerTlsCommand } from './commands/tls';
+import { registerHomeCommand } from './commands/home';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -95,6 +96,7 @@ registerTakeoverCommand(program);
 registerResumeCommand(program);
 registerBrowserCommands(program);
 registerTlsCommand(program);
+registerHomeCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);

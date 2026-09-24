@@ -695,6 +695,46 @@ export const apiKeys = sqliteTable(
   ],
 );
 
+// ─── Home and computers ───────────────────────────────────────
+// docs/homes-spec.md §2.2 and §5.1. `home` is this home's identity: one row,
+// made at boot by `ensureHomeIdentity` (src/lib/home/identity.ts). Its id
+// never changes when the home's address or machine does. `computers` holds
+// each machine enrolled to do work for this home, the home's own machine
+// included. Which row a machine is lives in its `<config>/machine.json`,
+// which backups never carry, so a restored copy can't take itself for the
+// original host.
+
+export const computers = sqliteTable(
+  'computers',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    // What people call it, e.g. "Mac Mini". Editable. A hostname, address or
+    // tunnel URL never identifies a computer (spec §3.3).
+    name: text().notNull(),
+    // Reported facts, for display and diagnostics only.
+    platform: text(),
+    hostname: text(),
+    status: text({ enum: ['active', 'revoked'] }).notNull(),
+    revokedAt: text(),
+    lastSeenAt: text(),
+  },
+  (table) => [index('idx_computers_status').on(table.status)],
+);
+
+export const home = sqliteTable('home', {
+  id: text().primaryKey(),
+  ...timestamps,
+  // A fact set at creation: a personal home, or a team space.
+  kind: text({ enum: ['personal', 'team'] }).notNull(),
+  name: text().notNull(),
+  // The computer whose in-process runner serves this home. It changes only
+  // when the home moves to another machine.
+  hostComputerId: text()
+    .notNull()
+    .references(() => computers.id),
+});
+
 // ─── Workspaces ───────────────────────────────────────────────
 // A workspace is a folder on disk the user organizes around. For git
 // workspaces, every execution session gets its own worktree so concurrent

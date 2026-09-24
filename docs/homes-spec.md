@@ -583,7 +583,7 @@ Build the phases in order. Each gate must demonstrate the stated behavior before
 
 ### P1. One home and local setup
 
-- [ ] P1.1 Add stable home and computer identity, separate from credentials and URLs.
+- [x] P1.1 Add stable home and computer identity, separate from credentials and URLs. `home` and `computers` tables (migration 0002, new tables only), a machine-local `machine.json` that backups never carry, and `ensureHomeIdentity` at CLI start and server boot. A root whose data came from another computer does no background work and answers 503 until `ri home claim`. `GET /api/home` returns the stable id. Tests: first boot, restart, crash recovery, restored copy, wrong home, wrong host, claim, proxy 503. The dev home created its identity on restart.
 - [ ] P1.2 Add explicit connected installation mode. Prevent database initialization/fallback on connected computers.
 - [ ] P1.3 Route supported connected-device CLI actions through the home API with session attribution.
 - [ ] P1.4 Implement .ri.local.json parsing, atomic/revision-checked writes, local registration, observed setup reports, relinking, and confirmed restoration of a deleted configuration.

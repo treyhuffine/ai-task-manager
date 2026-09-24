@@ -127,6 +127,15 @@ export function getConfigPath(): string {
   return path.join(getConfigDir(), 'config.json');
 }
 
+/**
+ * This machine's identity for the home in this root: which home and which
+ * computer row it is (src/lib/home/identity.ts). Machine-local: backups never
+ * carry it, so a restored copy can't take itself for the original host.
+ */
+export function getMachineIdentityPath(): string {
+  return path.join(getConfigDir(), 'machine.json');
+}
+
 // ─── .work — regenerable scratch (don't sync, safe to delete) ─────
 
 /** Machine-local scratch: worktrees, clones, tmp, backups, pids, icons. */

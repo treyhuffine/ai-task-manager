@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { hashToken } from '@/lib/auth/tokens';
 import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
+import { isHomeActive } from '@/lib/home/identity';
 
 export const config = {
   matcher: ['/api/:path*'],
@@ -88,6 +89,18 @@ export function proxy(request: NextRequest) {
 
   const token = extractToken(request);
   if (!token) return unauthorized();
+
+  // A root whose data came from another computer serves nothing until it is
+  // claimed, so two copies never act as one home (docs/homes-spec.md §10.3).
+  if (!isHomeActive()) {
+    return NextResponse.json(
+      {
+        error: 'home_not_active',
+        message: 'This copy of your home is not active on this computer. Run `ri home claim` here if it should be.',
+      },
+      { status: 503 },
+    );
+  }
 
   const key = findApiKeyByHash(hashToken(token));
   if (!key || key.revokedAt) return unauthorized();

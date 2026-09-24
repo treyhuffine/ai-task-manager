@@ -88,6 +88,8 @@ export interface BackupManifest {
     platform: NodeJS.Platform;
   };
   database: {
+    /** The home's stable id, when the database has one. */
+    homeId?: string | null;
     migrations: string[];
     rowCounts: Record<string, number>;
     quickCheck: string;
@@ -174,7 +176,10 @@ export function databaseFacts(dbPath: string): BackupManifest['database'] {
     const quickCheck = String(
       (db.prepare('PRAGMA quick_check').get() as { quick_check: string }).quick_check,
     );
-    return { migrations, rowCounts, quickCheck };
+    const homeId = tables.includes('home')
+      ? ((db.prepare('SELECT id FROM home').get() as { id: string } | undefined)?.id ?? null)
+      : null;
+    return { homeId, migrations, rowCounts, quickCheck };
   } finally {
     db.close();
   }

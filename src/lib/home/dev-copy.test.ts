@@ -25,6 +25,7 @@ const PROD_CWD = '/Users/someone/code/app';
 const PROD_WORKTREE = '/Users/someone/ri/worktrees/app/app-abc123';
 
 let ids: { chat: string; workspace: string; execution: string };
+let ids0: { home: string; host: string };
 
 beforeAll(async () => {
   process.env.RI_ROOT = ROOT;
@@ -48,7 +49,11 @@ beforeAll(async () => {
 
   const { getDb, resetDb } = await import('@/lib/db');
   const q = await import('@/lib/db/queries');
+  const identity = await import('@/lib/home/identity');
   getDb();
+  const original = identity.resolveHomeIdentity({ name: 'Trey' });
+  ids0 = { home: original.home.id, host: original.home.hostComputerId };
+  identity.resetHomeIdentityCache();
   q.createApiKey({ name: 'Phone', deviceType: 'phone' });
   const ws = q.createWorkspace({
     name: 'app',
@@ -129,11 +134,28 @@ describe('prepareDevelopmentCopy', () => {
     db.close();
   });
 
+  it('makes the copy a new home hosted on this machine', async () => {
+    const identity = await import('@/lib/home/identity');
+    const { resetDb } = await import('@/lib/db');
+    resetDb();
+    identity.resetHomeIdentityCache();
+    const status = identity.resolveHomeIdentity();
+    expect(status.state).toBe('active');
+    expect(status.home.id).not.toBe(ids0.home);
+    expect(status.home.name).toBe('Trey (dev copy)');
+    expect(status.home.hostComputerId).not.toBe(ids0.host);
+    const { getComputer } = await import('@/lib/db/queries');
+    expect(getComputer(ids0.host)?.status).toBe('revoked');
+    resetDb();
+  });
+
   it('is safe to run twice', () => {
     const second = prepareDevelopmentCopy(ROOT);
     expect(second.config).toEqual([]);
     expect(second.removed).toEqual([]);
     expect(second.database['workspaces.cwd detached']).toBe(0);
     expect(second.database['api_keys revoked']).toBe(0);
+    // Each run makes a fresh identity, which is what a new copy needs.
+    expect(second.homeId).not.toBeNull();
   });
 });

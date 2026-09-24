@@ -65,6 +65,15 @@ In `src/test/fixtures/`, each checked against the real app by `fixtures.test.ts`
 
 The worker connection fixtures (a fake worker and a home served over HTTP for reconnect, replay and revocation tests) are built with the worker protocol in P2.2, since they exercise that protocol.
 
+## P1.1 Identity as built
+
+- `home` and `computers` tables (migration `0002`), queries in the "Home and computers" section of `queries.ts`, logic in `src/lib/home/identity.ts`.
+- A new home is named "My Ri" and is editable later. A computer is named from macOS's Computer Name ("AI Mac Mini"), falling back to the hostname without `.local`.
+- The first boot writes `machine.json` with create-if-absent, so the CLI's `start` and the server booting a new root at the same time agree on the ids. If the database insert loses a race, the winner's row decides.
+- A root that needs claiming: `ri start` refuses with the reason, the server's boot hook starts no background work (mirror, reconcile, sweeps, tunnel, triggers, scheduler), and the proxy answers `503 home_not_active` to everything except health and session. `ri home claim` makes this machine the host, reusing its computer row when the home already has one, and leaves the previous host as an active computer that can reconnect as a worker.
+- `dev-copy` gives a development copy a new home id and host computer, names it "<name> (dev copy)", and revokes the original's computers in the copy.
+- Backup manifests record the home id.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

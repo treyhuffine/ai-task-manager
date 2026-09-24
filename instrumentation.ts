@@ -29,6 +29,18 @@ export async function register() {
     console.error('[auth] failed to initialize local token:', err);
   }
 
+  // Home identity (docs/homes-spec.md §10.3). A root whose data came from
+  // another computer does not act as the home: no background work starts,
+  // and the API answers 503 until someone runs `ri home claim`.
+  try {
+    const { ensureHomeIdentity } = await import('@/lib/home/identity');
+    const identity = ensureHomeIdentity();
+    if (identity.created) console.log(`[home] created home ${identity.home.id} on ${identity.computer.name}`);
+  } catch (err) {
+    console.error(`[home] not acting as the home: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
   // Start the DB-to-markdown mirror: live export on every write + periodic
   // reconcile. Non-blocking; failures here don't stop the app.
   try {

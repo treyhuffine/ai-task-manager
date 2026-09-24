@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -161,6 +161,12 @@ export type CreateDeckInput = PolicyOptional<Omit<InferInsertModel<typeof decks>
 export type UpdateDeckInput = Partial<Omit<CreateDeckInput, 'createdAt'>>;
 
 // ─── API Keys ─────────────────────────────────────────────────
+
+export type HomeRecord = InferSelectModel<typeof home>;
+export type HomeKind = HomeRecord['kind'];
+export type ComputerRecord = InferSelectModel<typeof computers>;
+export type CreateComputerInput = PolicyOptional<Omit<InferInsertModel<typeof computers>, 'id'>, 'status'> & { id?: string };
+export type UpdateComputerInput = Partial<Pick<ComputerRecord, 'name' | 'platform' | 'hostname' | 'lastSeenAt'>>;
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>, 'deviceType' | 'env'>;

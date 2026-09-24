@@ -12,6 +12,7 @@ import {
   setStaticUrl,
   buildPairingUrl,
 } from '@/lib/auth/bootstrap';
+import { ensureHomeIdentity, HomeIdentityError } from '@/lib/home/identity';
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { resolveHttp2Enabled, isChainTrustFailure, certCoversHost } from '@/lib/config/http2';
 import {
@@ -154,6 +155,20 @@ export async function startCommand(opts: StartOptions) {
   // Auth first — used by both the health probe and the eventual app session.
   s.start('Bootstrapping auth');
   const info = ensureLocalToken();
+  // A root whose data came from another computer doesn't act as the home
+  // until someone claims it (docs/homes-spec.md §10.3).
+  try {
+    const identity = ensureHomeIdentity();
+    if (identity.created) log.success(`Created your home on ${identity.computer.name}`);
+  } catch (err) {
+    s.stop('Not starting');
+    if (err instanceof HomeIdentityError) {
+      log.error(err.message);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
   try {
     const projectSkillCleanup = await cleanupKnownProjectSkillLinks();
     if (projectSkillCleanup.removed > 0) {
