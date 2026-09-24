@@ -1378,7 +1378,8 @@ const create_workspace_action = defineAction({
     instructions: z.string().nullable().optional(),
   },
   mutating: true,
-  handler: async (_ctx, input) => {
+  handler: async (ctx, input) => {
+    assertCallerOnHome(ctx, 'Creating an agent from a folder path');
     const cwd = path.resolve(input.cwd);
     const isGit = await detectIsGit(cwd);
     const baseBranch = isGit
@@ -1499,6 +1500,23 @@ function rethrowReferenceFolderError(err: unknown): never {
  * summarized back. The local CLI is trusted and may pass any path; a remote
  * caller has to go through a workspace, which the user already vouched for.
  */
+/**
+ * A folder path in an action's input is resolved on the home's disk. From
+ * another computer that path names a folder on that computer instead, so
+ * the result would describe the wrong folder, or none. Refuse, and say
+ * where the work belongs (docs/homes-spec.md §4.1). Callers that don't say
+ * where they are count as elsewhere.
+ */
+function assertCallerOnHome(ctx: ActionContext, what: string): void {
+  if (ctx.remote === false) return;
+  if (ctx.caller?.location === 'home') return;
+  throw new ActionError(
+    'unsupported',
+    `${what} runs against folders on the home computer, and this call came from another computer.`,
+    "Run it on the home, or set up the agent's folder on this computer from the app.",
+  );
+}
+
 function assertPathAllowed(ctx: { remote?: boolean }, path: string | null | undefined): void {
   if (!path) return;
   if (ctx.remote ?? true) {
@@ -2629,7 +2647,10 @@ const list_skills_action = defineAction({
   params: {
     workspaceCwd: z.string().nullable().optional(),
   },
-  handler: (_ctx, { workspaceCwd }) => inventorySkills(workspaceCwd ?? null),
+  handler: (ctx, { workspaceCwd }) => {
+    if (workspaceCwd) assertCallerOnHome(ctx, 'Listing skills for a folder path');
+    return inventorySkills(workspaceCwd ?? null);
+  },
 });
 
 export const actions = [

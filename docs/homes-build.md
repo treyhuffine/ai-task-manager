@@ -74,6 +74,18 @@ The worker connection fixtures (a fake worker and a home served over HTTP for re
 - `dev-copy` gives a development copy a new home id and host computer, names it "<name> (dev copy)", and revokes the original's computers in the copy.
 - Backup manifests record the home id.
 
+## P1.2 and P1.3 as built
+
+- A folder's role comes from what it holds (`src/lib/config/role.ts`). `getDb()` refuses to create a database where `connection.json` exists, and the CLI's pre-action guard refuses data commands on fresh and connected folders (`src/cli/lib/role-guard.ts`).
+- `src/lib/connection/home-client.ts` is the only way a connected computer calls its home. It maps failures to the spec's states (§3.5): unreachable, access removed, a different home at the address, not active, an older home, an untrusted certificate.
+- The proxy now forwards the validated key as `x-ri-api-key-id` and `x-ri-api-key-type`, after deleting any inbound copies, on every route. Handlers read them with `src/lib/auth/request-key.ts`.
+- `ActionContext.caller` says whether the caller is on the home's machine (the host key) or elsewhere. Only the transports set it, from the key.
+- Actions a connected computer can't run, and why:
+  - Folder paths resolve on the home: `create_workspace`, and `list_skills` with a folder. A connected computer sets up its own folders through its local setup (P1.4).
+  - The trusted local CLI only, as for MCP: `repair_attachment_metadata`, bare-path reference folders, and connector scopes or the browser switch in `update_workspace`.
+  - `ri browser` drives the browser on the machine it runs on, so it stays refused on a connected computer.
+- `ri trigger run` and `ri run cancel` on a connected computer run inside the home's server. On the home itself they still run in the CLI process, which is gap 1 in P0.4, fixed in P2.4.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

@@ -14,15 +14,15 @@
  *  - `--input @-` or `--input path.json` reads a JSON blob as the full input,
  *    merged on top of any positional/flag values. This is the agent-friendly
  *    path — hand the action the full params in one blob.
+ *  - On a computer connected to a home, actions run on the home over its API
+ *    (docs/homes-spec.md §5.3). Nothing is written locally.
  */
 
 import fs from 'node:fs';
 import { Command } from 'commander';
 import type { z } from 'zod';
 import { actions } from '@/lib/orchestrator/registry';
-import { runAction } from '@/lib/orchestrator/dispatch';
-import { SESSION_CREDENTIAL_ENV, actorFromSessionCredential } from '@/lib/orchestrator/session-credential';
-import type { Action } from '@/lib/orchestrator/types';
+import { dispatchAction } from '../lib/dispatch';
 
 export function registerAgentCommand(program: Command) {
   const agent = program
@@ -78,11 +78,9 @@ export function registerAgentCommand(program: Command) {
         Object.assign(input, blob);
       }
 
-      // Run from a harness session's shell (skills mode), the session's signed
-      // credential is in the environment, so the action knows which chat is
-      // calling. A human at a terminal has none, and runs with no actor.
-      const actor = actorFromSessionCredential(process.env[SESSION_CREDENTIAL_ENV]);
-      const envelope = await runAction(action.name, input, { remote: false, actor });
+      // On a home this runs here. On a computer connected to a home it runs
+      // there, with the calling session's credential (src/cli/lib/dispatch.ts).
+      const envelope = await dispatchAction(action.name, input);
       if (!envelope.ok) {
         process.stderr.write(JSON.stringify(envelope, null, 2) + '\n');
         process.exit(1);

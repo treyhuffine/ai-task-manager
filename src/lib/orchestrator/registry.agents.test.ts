@@ -317,9 +317,11 @@ describe('update_workspace', () => {
 
 describe('workspace reads and create', () => {
   it('create_workspace stores purpose and instructions, and maps a cap error to invalid_params', async () => {
-    const created = await run('create_workspace', { name: 'docs', cwd: ROOT, purpose: '  Keep the docs honest ', instructions: 'Plain English.' });
+    // The home's own sessions: remote transport, host key.
+    const onHome = { remote: true, caller: { location: 'home' } };
+    const created = await run('create_workspace', { name: 'docs', cwd: ROOT, purpose: '  Keep the docs honest ', instructions: 'Plain English.' }, onHome);
     expect(created).toMatchObject({ ok: true, result: { purpose: 'Keep the docs honest', instructions: 'Plain English.' } });
-    const tooLong = await run('create_workspace', { name: 'docs2', cwd: ROOT, purpose: 'p'.repeat(501) });
+    const tooLong = await run('create_workspace', { name: 'docs2', cwd: ROOT, purpose: 'p'.repeat(501) }, onHome);
     expect(tooLong).toMatchObject({ ok: false, error: { code: 'invalid_params', message: 'Purpose is 501 characters. The limit is 500.' } });
   });
 

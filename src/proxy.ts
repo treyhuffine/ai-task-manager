@@ -3,6 +3,7 @@ import { hashToken } from '@/lib/auth/tokens';
 import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isHomeActive } from '@/lib/home/identity';
+import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, FORWARDED_KEY_HEADERS } from '@/lib/auth/request-key';
 
 export const config = {
   matcher: ['/api/:path*'],
@@ -50,13 +51,20 @@ function extractToken(request: NextRequest): string | null {
   return null;
 }
 
+/** Continue with the caller's key headers removed, so no handler trusts a forged one. */
+function nextWithoutKeyHeaders(request: NextRequest) {
+  const headers = new Headers(request.headers);
+  for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+  return NextResponse.next({ request: { headers } });
+}
+
 export function proxy(request: NextRequest) {
   if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
   if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
   // `/api/connectors/callback` is the OAuth redirect target. The provider
@@ -66,14 +74,14 @@ export function proxy(request: NextRequest) {
   // AuthRequest — a strictly weaker, single-purpose credential. Exempted so the
   // round-trip completes.
   if (request.nextUrl.pathname === '/api/connectors/callback') {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
   // `/api/connectors/mcp-oauth/<sid>` is the OAuth redirect target for an ingested MCP server.
   // Same rationale as the connectors callback: the provider redirects the user's browser here
   // without the app Bearer; the SDK's single-use authorization code + PKCE verifier are the auth.
   if (request.nextUrl.pathname.startsWith('/api/connectors/mcp-oauth/')) {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
   // `/api/takeover/<token>/...` is the CLI surface for "Take over locally."
@@ -84,7 +92,7 @@ export function proxy(request: NextRequest) {
   // key. Exempted here so the CLI can reach the endpoints without
   // needing the user's long-lived account token.
   if (request.nextUrl.pathname.startsWith('/api/takeover/')) {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
   const token = extractToken(request);
@@ -118,5 +126,11 @@ export function proxy(request: NextRequest) {
     console.error('[auth] touchApiKey failed:', err);
   }
 
-  return NextResponse.next();
+  // Tell handlers which key this is. Set after removing any the caller sent,
+  // so they can be trusted (src/lib/auth/request-key.ts).
+  const headers = new Headers(request.headers);
+  for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+  headers.set(API_KEY_ID_HEADER, key.id);
+  headers.set(API_KEY_TYPE_HEADER, key.deviceType);
+  return NextResponse.next({ request: { headers } });
 }

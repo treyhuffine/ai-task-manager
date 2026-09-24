@@ -4,7 +4,7 @@
  * Wraps the orchestrator's `create_trigger`, `list_triggers`,
  * `update_trigger`, `delete_trigger`, `run_trigger`,
  * `cancel_run`, etc. with friendlier flag shapes, name-based lookups,
- * and pretty terminal output. Everything routes through `runAction`
+ * and pretty terminal output. Everything routes through `dispatchAction`
  * so the behavior matches the MCP transport exactly.
  *
  * Also registers `<cli> runs` and `<cli> spend` since they share the
@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
 import { Command } from 'commander';
-import { runAction } from '@/lib/orchestrator/dispatch';
+import { dispatchAction } from '../lib/dispatch';
 import type { TriggerRecord, RunRecord, TriggerWithLastRun } from '@/db/types';
 
 export function registerTriggerCommands(program: Command) {
@@ -110,7 +110,7 @@ function registerTriggerCommand(program: Command) {
         activeHoursEnd: endHours,
         concurrencyPolicy: opts.concurrency,
       };
-      const envelope = await runAction('create_trigger', input, { remote: false });
+      const envelope = await dispatchAction('create_trigger', input);
       unwrapAndPrint(envelope);
     });
 
@@ -120,14 +120,10 @@ function registerTriggerCommand(program: Command) {
     .option('--enabled', 'Only enabled triggers.')
     .option('--workspace <id>', 'Restrict to a workspace.')
     .action(async (opts) => {
-      const envelope = await runAction(
-        'list_triggers',
-        {
+      const envelope = await dispatchAction('list_triggers', {
           ...(opts.enabled ? { enabled: true } : {}),
           ...(opts.workspace ? { workspaceId: opts.workspace } : {}),
-        },
-        { remote: false },
-      );
+        });
       if (!envelope.ok) return printErrorAndExit(envelope);
       printTriggerTable(envelope.result as TriggerWithLastRun[]);
     });
@@ -146,11 +142,7 @@ function registerTriggerCommand(program: Command) {
     .option('--wait', 'Block until the run terminates.')
     .action(async (idOrName) => {
       const trigger = await resolveTriggerByIdOrName(idOrName);
-      const envelope = await runAction(
-        'run_trigger',
-        { id: trigger.id },
-        { remote: false },
-      );
+      const envelope = await dispatchAction('run_trigger', { id: trigger.id });
       unwrapAndPrint(envelope);
       // --wait poll loop omitted for V1 — the run row is durable in
       // the DB; `ri run show <id>` covers the status check.
@@ -161,11 +153,7 @@ function registerTriggerCommand(program: Command) {
     .description('Disable a trigger. Existing runs are unaffected.')
     .action(async (idOrName) => {
       const target = await resolveTriggerByIdOrName(idOrName);
-      const envelope = await runAction(
-        'update_trigger',
-        { id: target.id, enabled: false },
-        { remote: false },
-      );
+      const envelope = await dispatchAction('update_trigger', { id: target.id, enabled: false });
       unwrapAndPrint(envelope);
     });
 
@@ -174,11 +162,7 @@ function registerTriggerCommand(program: Command) {
     .description('Re-enable a previously paused trigger.')
     .action(async (idOrName) => {
       const target = await resolveTriggerByIdOrName(idOrName);
-      const envelope = await runAction(
-        'update_trigger',
-        { id: target.id, enabled: true, disabledReason: null },
-        { remote: false },
-      );
+      const envelope = await dispatchAction('update_trigger', { id: target.id, enabled: true, disabledReason: null });
       unwrapAndPrint(envelope);
     });
 
@@ -207,7 +191,7 @@ function registerTriggerCommand(program: Command) {
       if (opts.provider) patch.provider = opts.provider;
       if (opts.model) patch.model = opts.model === 'default' ? null : opts.model;
       if (opts.effort) patch.effort = opts.effort === 'default' ? null : opts.effort;
-      const envelope = await runAction('update_trigger', patch, { remote: false });
+      const envelope = await dispatchAction('update_trigger', patch);
       unwrapAndPrint(envelope);
     });
 
@@ -224,11 +208,7 @@ function registerTriggerCommand(program: Command) {
           return;
         }
       }
-      const envelope = await runAction(
-        'delete_trigger',
-        { id: target.id },
-        { remote: false },
-      );
+      const envelope = await dispatchAction('delete_trigger', { id: target.id });
       unwrapAndPrint(envelope);
     });
 }
@@ -254,16 +234,12 @@ function registerRunsCommand(program: Command) {
           : raw.includes(',')
             ? raw.split(',').map((s) => s.trim()).filter(Boolean)
             : raw;
-      const envelope = await runAction(
-        'list_runs',
-        {
+      const envelope = await dispatchAction('list_runs', {
           ...(opts.status ? { status: splitMulti(opts.status) } : {}),
           ...(opts.trigger ? { trigger: splitMulti(opts.trigger) } : {}),
           ...(opts.triggerId ? { triggerId: opts.triggerId } : {}),
           ...(opts.limit ? { limit: opts.limit } : { limit: 25 }),
-        },
-        { remote: false },
-      );
+        });
       if (!envelope.ok) return printErrorAndExit(envelope);
       printRunTable(envelope.result as RunRecord[]);
     });
@@ -276,7 +252,7 @@ function registerRunsCommand(program: Command) {
     .command('show <id>')
     .description('Fetch a single run.')
     .action(async (id) => {
-      const envelope = await runAction('get_run', { id }, { remote: false });
+      const envelope = await dispatchAction('get_run', { id });
       unwrapAndPrint(envelope);
     });
 
@@ -284,7 +260,7 @@ function registerRunsCommand(program: Command) {
     .command('cancel <id>')
     .description('Cancel an in-flight run (SIGTERM the executor).')
     .action(async (id) => {
-      const envelope = await runAction('cancel_run', { id }, { remote: false });
+      const envelope = await dispatchAction('cancel_run', { id });
       unwrapAndPrint(envelope);
     });
 }
@@ -302,11 +278,7 @@ function registerSpendCommand(program: Command) {
       const since = new Date();
       since.setUTCDate(1);
       since.setUTCHours(0, 0, 0, 0);
-      const envelope = await runAction(
-        'list_runs',
-        { since: since.toISOString(), limit: 500 },
-        { remote: false },
-      );
+      const envelope = await dispatchAction('list_runs', { since: since.toISOString(), limit: 500 });
       if (!envelope.ok) return printErrorAndExit(envelope);
       const runs = envelope.result as RunRecord[];
       const now = new Date();
@@ -360,14 +332,10 @@ function printErrorAndExit(envelope: ActionEnvelope) {
 
 async function resolveTriggerByIdOrName(idOrName: string): Promise<TriggerRecord> {
   // Try id first.
-  const byId = await runAction('get_trigger', { id: idOrName }, { remote: false });
+  const byId = await dispatchAction('get_trigger', { id: idOrName });
   if (byId.ok) return byId.result as TriggerRecord;
   // Fall back to name (brain-level scope).
-  const byName = await runAction(
-    'get_trigger',
-    { name: idOrName, workspaceId: null },
-    { remote: false },
-  );
+  const byName = await dispatchAction('get_trigger', { name: idOrName, workspaceId: null });
   if (byName.ok) return byName.result as TriggerRecord;
   printErrorAndExit(byName as ActionEnvelope);
   throw new Error('unreachable');

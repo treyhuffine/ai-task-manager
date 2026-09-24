@@ -35,8 +35,13 @@ const DATA_COMMANDS = new Set([
   'home',
 ]);
 
-/** Data commands that reach the home over its API when this computer is connected. */
-export const ROUTED_WHEN_CONNECTED = new Set<string>();
+/**
+ * Data commands that reach the home over its API when this computer is
+ * connected (src/cli/lib/dispatch.ts). `browser` stays refused: it drives a
+ * browser on the machine it runs on, and a connected computer's own browser
+ * is not the home's.
+ */
+export const ROUTED_WHEN_CONNECTED = new Set(['agent', 'trigger', 'runs', 'run', 'spend']);
 
 export class RoleGuardError extends Error {
   constructor(message: string) {

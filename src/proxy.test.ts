@@ -35,6 +35,9 @@ function request(pathname: string, bearer?: string) {
 
 const passesThrough = (res: Response) => res.headers.get('x-middleware-next') === '1';
 
+/** The value a header will have for the route handler, after the proxy. */
+const forwarded = (res: Response, name: string) => res.headers.get(`x-middleware-request-${name}`);
+
 describe('proxy', () => {
   it('refuses a request without a valid key', async () => {
     const { proxy } = await import('./proxy');
@@ -45,6 +48,28 @@ describe('proxy', () => {
   it('lets an authenticated request through to an active home', async () => {
     const { proxy } = await import('./proxy');
     expect(passesThrough(proxy(request('/api/tasks', token)))).toBe(true);
+  });
+
+  it('tells handlers which key called, replacing anything the caller claimed', async () => {
+    const { proxy } = await import('./proxy');
+    const { findApiKeyByHash } = await import('@/lib/db/queries');
+    const { hashToken } = await import('@/lib/auth/tokens');
+    const key = findApiKeyByHash(hashToken(token))!;
+    const req = new NextRequest('http://127.0.0.1/api/tasks', {
+      headers: { authorization: `Bearer ${token}`, 'x-ri-api-key-id': 'forged', 'x-ri-api-key-type': 'host' },
+    });
+    const res = proxy(req);
+    expect(forwarded(res, 'x-ri-api-key-id')).toBe(key.id);
+    expect(forwarded(res, 'x-ri-api-key-type')).toBe('phone');
+  });
+
+  it('strips claimed key headers on public routes too', async () => {
+    const { proxy } = await import('./proxy');
+    const res = proxy(
+      new NextRequest('http://127.0.0.1/api/health', { headers: { 'x-ri-api-key-type': 'host' } }),
+    );
+    expect(passesThrough(res)).toBe(true);
+    expect(forwarded(res, 'x-ri-api-key-type')).toBeNull();
   });
 
   it('answers 503 on a root that is not the active home, apart from health', async () => {

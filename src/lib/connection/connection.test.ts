@@ -81,6 +81,16 @@ function json(res: http.ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+async function rejection(p: Promise<unknown>): Promise<HomeRequestError> {
+  try {
+    await p;
+  } catch (err) {
+    if (err instanceof HomeRequestError) return err;
+    throw err;
+  }
+  throw new Error('expected a HomeRequestError');
+}
+
 async function problemOf(p: Promise<unknown>): Promise<HomeProblem> {
   try {
     await p;
@@ -114,13 +124,13 @@ describe('homeFetch and checkHome', () => {
     expect(await problemOf(checkHome(connection()))).toBe('wrong_home');
 
     handler = (_req, res) => json(res, 404, {});
-    const older = await checkHome(connection()).catch((e) => e as HomeRequestError);
+    const older = await rejection(checkHome(connection()));
     expect(older.message).toMatch(/older version of Ri/);
   });
 
   it('reports an unreachable home without a local fallback', async () => {
     const closed = { ...connection(), homeUrl: 'http://127.0.0.1:1' };
-    const err = await homeFetch(closed, '/api/home').catch((e) => e as HomeRequestError);
+    const err = await rejection(homeFetch(closed, '/api/home'));
     expect(err.problem).toBe('unreachable');
     expect(err.message).toBe('Cannot reach your Ri on Mac Mini. Check that it is awake and online, then try again.');
   });
@@ -129,7 +139,7 @@ describe('homeFetch and checkHome', () => {
     handler = () => {
       /* never respond */
     };
-    const err = await homeFetch(connection(), '/api/home', { timeoutMs: 100 }).catch((e) => e as HomeRequestError);
+    const err = await rejection(homeFetch(connection(), '/api/home', { timeoutMs: 100 }));
     expect(err.problem).toBe('unreachable');
   });
 });
