@@ -122,7 +122,116 @@ An independent review ran the branch through `pnpm iso` in `/private/tmp`, and f
 10. A whole-folder copy that included `machine.json` started as the home. Identity is now bound to the machine and folder.
 11. `getDb()` opened a database beside a connection record.
 
-The review agreed with the P0.3 runner design, and asked for the exact home and worker messages (command ids, placement generations, event positions, replay that can't double-count) to be written down before P2 code. That is the next section to write.
+The review agreed with the P0.3 runner design, and asked for the exact home and worker messages (command ids, placement generations, event positions, replay that can't double-count) to be written down before P2 code. They are in [P2 protocol](#p2-protocol-home-and-worker-messages).
+
+## P2 protocol: home and worker messages
+
+Written before P2 code, as the review asked. It refines the P0.3 records below; where they differ, this section wins. It is the contract the worker, the home's routes, and the home's in-process runner all follow.
+
+### Credentials
+
+- **Worker key.** An `api_keys` row with `computer_id` set and a worker scope, issued only by redeeming an enrollment grant (P2.2). A viewing key never gains it. The worker routes accept only worker keys, and a worker key reaches nothing else. The computer the worker acts as comes from the key, never from a field it sends.
+- **Session tokens for sessions on a worker.** A harness on the laptop still calls the home's orchestrator, connector and browser servers. Giving it the worker key would let a session act as the worker, so the home mints a token per session instead. The token is bound to the chat, the computer and the placement generation, reaches only those servers, and resolves to that session as the actor, with location `elsewhere`. The home's own sessions keep using the home's key.
+
+### Connection
+
+- `GET /api/workers/me/commands?after=<seq>` is a server-sent event stream. It sends `command`, `request` (an ephemeral read), `revoked`, and a keepalive `ping`. It resumes after the last command sequence the worker saw.
+- `POST /api/workers/me/commands/:id/ack` reports a command's delivery state.
+- `POST /api/workers/me/requests/:id/result` answers a read.
+- `POST /api/workers/me/events` delivers a batch of journaled events, and returns the highest contiguous position stored.
+- `POST /api/workers/me/heartbeat` sends every 20 seconds: protocol, version, harnesses, `awake | asleep | stopped`, and the placements the worker holds (execution id and generation).
+- Every request carries `x-ri-worker-protocol`. A home that can't speak it answers `426` with "Update Ri on MacBook". It never sends a command the worker can't read.
+
+### Commands
+
+```ts
+interface WorkerCommand {
+  id: string;            // UUIDv7, stable: the idempotency key
+  seq: number;           // per computer, strictly increasing: where a stream resumes
+  kind: 'prepare' | 'send' | 'interrupt' | 'stop_task' | 'stop' | 'answer_pending_input'
+      | 'run_script' | 'write_setup' | 'git';
+  target: { executionId?: string; chatSessionId?: string; generation?: number };
+  actor: { source: 'human' | 'ai' | 'system'; sessionId?: string | null; apiKeyId?: string | null };
+  issuedAt: string;
+  payload: unknown;      // per kind
+}
+```
+
+- **Persisted first.** A command is written to `worker_commands` in the same transaction as what it acts on. For `send`, that's the user's `chat_events` row, whose id the payload carries. Only then is it streamed.
+- **Delivery states:**
+  - `queued`: saved at home.
+  - `sent`: written to the stream.
+  - `delivered`: the worker acknowledged it applied it. For `send`, the harness accepted the message.
+  - `failed`: the worker refused it, with a reason.
+  - `stale`: the generation didn't match.
+  - `uncertain`: see below.
+  - `cancelled`: withdrawn before `sent`. A `sent` command can't be cancelled. Stopping the execution is the way out.
+- **`send` carries everything to start or resume the session:**
+  - the session spec (harness, model, permission mode and its provider config, instructions, reference aliases and descriptions, the orchestrator and connector servers with the session's token, first-turn brief), plus the chat's current native session id;
+  - the text as the harness should receive it, with markers and sender label already applied;
+  - attachments as downloadable references, which the worker fetches onto its own disk. A home disk path is never sent;
+  - the `runId` the home created for the turn.
+- **Reads are not commands.** Tree, file, diff, status, diff stats, folder discovery and history listing go as `request` with a timeout and are never persisted.
+
+### Fencing
+
+- Every execution-scoped command carries the placement generation the home had when it queued it. This includes `interrupt`, `stop_task`, `stop` and `answer_pending_input`, not only `send`.
+- The worker keeps the generation of each placement it holds. It acknowledges any mismatch as `stale` and does nothing.
+- A pending-input answer must match the request id, chat, and generation. A late answer to a prompt from before a move is rejected.
+- **On reconnect**, the heartbeat lists the placements the worker holds. The home answers with any that are no longer the worker's (the computer was revoked, or the execution moved), and the worker stops those before it processes any queued command. A revoked worker gets `revoked` and nothing else, so replaying an old queue can't give it control back.
+
+### Events
+
+```ts
+interface WorkerEvent {
+  position: number;      // per computer journal, contiguous from 1
+  eventId: string;       // UUIDv7 minted on the worker when parsed
+  generation: number;
+  executionId?: string;
+  chatSessionId: string;
+  occurredAt: string;
+  kind: 'chat_event' | 'signal';
+  chatEvent?: CreateChatEventInput & { partRevision?: number };   // id = eventId
+  signal?:
+    | { type: 'turn_start' | 'turn_end'; turnId: string }
+    | { type: 'turn_result'; runId: string; status: string; costUsd: number | null; summary: string | null; error: string | null }
+    | { type: 'pending_input'; requestId: string; request: unknown }
+    | { type: 'pending_resolved'; requestId: string }
+    | { type: 'native_session'; harness: string; nativeSessionId: string; nativePath: string | null }
+    | { type: 'background_tasks'; active: string[] }
+    | { type: 'inventory'; commands: unknown }
+    | { type: 'prepare_result'; commandId: string; ok: boolean; worktreePath?: string; checkpointSha?: string; error?: string }
+    | { type: 'process_state'; running: boolean };
+}
+```
+
+- **The worker journals before it sends.** Each event is appended to `<workDir>/journal/<homeId>.jsonl` with its position and flushed to disk before being posted. The last acknowledged position is kept beside it, and the acknowledged prefix is compacted. After a restart or reconnect the worker resends from the last acknowledged position plus one.
+- **The home applies one event per transaction, in order.** A position at or below the stored one is a replay and is skipped. A gap stops the batch and returns the stored position, so the worker resends from there. Otherwise, in one transaction: apply the event, then advance `computers.acked_event_seq`.
+- **Applying is idempotent by key:**
+  - A chat event inserts by id, and nothing happens on conflict.
+  - A cumulative part replaces only with a higher `partRevision`.
+  - `turn_result` completes the run by `runId` only if it is still running, and records cost only on that transition.
+  - `native_session` upserts the binding.
+- **Side effects run only after commit.** The realtime publish and notifications happen after the transaction. Notifications carry a dedupe key built from the run and the event (`notification_deliveries` is already unique on dedupe key and channel), so a replay after a crash between commit and notify sends nothing twice.
+- **Old generations stay history, not state.** An event from an older generation is still stored as history, because it happened. Its signals don't change running flags, pending prompts, or run state for the new placement.
+
+### Uncertain delivery
+
+- The worker writes `received` to its journal before injecting a `send`, and `injected` after the harness accepts it.
+- If it restarts between the two, it looks for the message in the native history. Found means `delivered`. Not found, or no history to check, means `uncertain`.
+- An uncertain send is shown as such, and is retried only when the person asks (P3.2). It is never retried automatically, which could run a turn twice.
+
+### While the home is unreachable
+
+- A turn already running finishes under the permissions it started with. Its output is journaled.
+- A permission prompt waits. The worker accepts no new turns and no approvals, apart from the person stopping work through the companion on that computer.
+- The home never reassigns an execution because contact was lost, and shows "MacBook disconnected. Last heard from …" rather than stopped.
+
+### The home's own computer
+
+- The in-process runner uses the same command records and delivery states, delivering at once.
+- It sends its events through the same idempotent apply functions, straight into the database. There's no journal, because there's no network in between.
+- Run completion, cost and notifications are therefore driven by `turn_result` everywhere, rather than by `dispatch` awaiting a whole turn.
 
 ## Dogfood gate A: the real laptop and phone
 
