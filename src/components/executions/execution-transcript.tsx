@@ -18,6 +18,7 @@ import {
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { ExecutionEvent } from './execution-event';
+import { cn } from '@/lib/utils';
 import { ActivityGroup } from './activity-group';
 import { TurnFilesFooter } from './file-chip';
 import { buildTranscriptNodes } from './transcript-grouping';
@@ -233,7 +234,13 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
           </span>
         </div>
       )}
-      <ConversationScrollButton />
+      {/* "Back to latest", centered on the conversation column. The frame
+          spans the whole chat column (so the scrollbar sits at its edge),
+          so this mirrors the scroller's padding to stay over the messages
+          instead of drifting to the far right under the tools box. */}
+      <div className={cn('pointer-events-none absolute inset-x-0 bottom-4 flex justify-center', scrollClassName)}>
+        <ConversationScrollButton className="pointer-events-auto static shadow-md" />
+      </div>
     </Conversation>
   );
 }
