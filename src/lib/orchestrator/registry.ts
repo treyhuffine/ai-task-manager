@@ -2640,6 +2640,126 @@ const list_notification_channels_action = defineAction({
   },
 });
 
+// ─── Computers and agent setups (docs/homes-spec.md §4.2) ─────
+
+/**
+ * The computer making this call: the home's own for the local CLI and the
+ * home's sessions, otherwise the computer registered with the caller's key.
+ */
+async function callerComputer(ctx: ActionContext) {
+  if (ctx.remote === false || ctx.caller?.location === 'home') {
+    const { ensureHomeIdentity } = await import('@/lib/home/identity');
+    return ensureHomeIdentity().computer;
+  }
+  const { getComputerForApiKey } = await import('@/lib/db/queries');
+  const computer = ctx.caller?.apiKeyId ? getComputerForApiKey(ctx.caller.apiKeyId) : null;
+  if (!computer) {
+    throw new ActionError(
+      'conflict',
+      'This computer is not registered with your home yet.',
+      'Run `ri setup` on it, which registers it first.',
+    );
+  }
+  if (computer.status !== 'active') throw new ActionError('conflict', `${computer.name} was removed from your home.`);
+  return computer;
+}
+
+const setupReferenceSchema = z.object({
+  alias: z.string().min(1),
+  value: z.union([z.string().min(1), z.object({ agentId: z.string().min(1) }), z.null()]).optional(),
+  form: z.enum(['path', 'agent', 'omitted', 'unconfigured']),
+  path: z.string().nullable(),
+  exists: z.boolean(),
+  problem: z.string().nullable(),
+});
+
+const setupReportSchema = z.object({
+  agentId: z.string().min(1),
+  sourcePath: z.string().min(1),
+  configRevision: z.string().nullable(),
+  references: z.array(setupReferenceSchema),
+  status: z.enum(['ready', 'missing_folder', 'missing_file', 'invalid_config', 'wrong_home', 'missing_reference', 'duplicate']),
+  problem: z.string().nullable(),
+});
+
+const register_computer_action = defineAction({
+  name: 'register_computer',
+  description:
+    "Register the calling computer with this home, or refresh its details. A connected computer does this once, so its agent setups can be reported. It grants no authority to run work.",
+  params: {
+    name: z.string().min(1).max(120),
+    platform: z.string().max(40).nullable().optional(),
+    hostname: z.string().max(255).nullable().optional(),
+  },
+  mutating: true,
+  handler: async (ctx, input) => {
+    if (ctx.remote === false || ctx.caller?.location === 'home') {
+      const { ensureHomeIdentity } = await import('@/lib/home/identity');
+      return { computer: ensureHomeIdentity().computer, created: false };
+    }
+    if (!ctx.caller?.apiKeyId) throw new ActionError('unsupported', 'Registering a computer needs a key to register it under.');
+    const { registerComputerForApiKey } = await import('@/lib/db/queries');
+    return registerComputerForApiKey({ apiKeyId: ctx.caller.apiKeyId, ...input });
+  },
+});
+
+const rename_computer_action = defineAction({
+  name: 'rename_computer',
+  description:
+    'Rename a computer of this home, e.g. "MacBook" or "Mac Mini". Without computerId, renames the calling computer. Names are for people: they never identify a computer.',
+  params: {
+    computerId: z.string().optional(),
+    name: z.string().trim().min(1).max(120),
+  },
+  mutating: true,
+  handler: async (ctx, { computerId, name }) => {
+    const { getComputer, updateComputer } = await import('@/lib/db/queries');
+    const target = computerId ? getComputer(computerId) : await callerComputer(ctx);
+    if (!target) throw new ActionError('not_found', `No computer ${computerId}.`);
+    return updateComputer(target.id, { name });
+  },
+});
+
+const get_setup_context_action = defineAction({
+  name: 'get_setup_context',
+  description:
+    "What the calling computer needs to check its agent folders: this home's id, its agents, the reference aliases each expects, and what the home last observed on this computer.",
+  params: {},
+  handler: async (ctx) => {
+    const { buildSetupContext } = await import('@/lib/setups/home-context');
+    return buildSetupContext(await callerComputer(ctx));
+  },
+});
+
+const report_agent_setups_action = defineAction({
+  name: 'report_agent_setups',
+  description:
+    "Record the calling computer's agent setups as it resolved them from its own setup files. With complete=true, setups it no longer reports are removed. The home never edits these paths itself.",
+  params: {
+    reports: z.array(setupReportSchema).max(500),
+    complete: z.boolean(),
+  },
+  mutating: true,
+  handler: async (ctx, { reports, complete }) => {
+    const computer = await callerComputer(ctx);
+    const { recordAgentSetupReports } = await import('@/lib/db/queries');
+    return { computerId: computer.id, ...recordAgentSetupReports(computer.id, reports, { complete }) };
+  },
+});
+
+const list_agent_setups_action = defineAction({
+  name: 'list_agent_setups',
+  description:
+    "Where each agent is set up: one row per agent per computer, with the folder that computer reported, each reference, and whether the setup is ready.",
+  params: {
+    workspaceId: z.string().optional(),
+  },
+  handler: async (_ctx, { workspaceId }) => {
+    const { listAgentSetups } = await import('@/lib/db/queries');
+    return listAgentSetups(workspaceId ? { workspaceId } : {});
+  },
+});
+
 const list_skills_action = defineAction({
   name: 'list_skills',
   description:
@@ -2654,6 +2774,11 @@ const list_skills_action = defineAction({
 });
 
 export const actions = [
+  register_computer_action,
+  rename_computer_action,
+  get_setup_context_action,
+  report_agent_setups_action,
+  list_agent_setups_action,
   describe_paths,
   describe_schema,
   list_tasks_action,

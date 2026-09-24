@@ -23,6 +23,8 @@ export interface ConnectionConfig {
   /** This computer's key for the home. Never printed. */
   credential: string;
   connectedAt: string;
+  /** This computer's id at the home, once it has registered (for setups). */
+  computerId?: string | null;
 }
 
 export class ConnectionConfigError extends Error {
@@ -61,6 +63,7 @@ export function readConnection(): ConnectionConfig | null {
     homeHostName: parsed.homeHostName ?? null,
     credential: parsed.credential!,
     connectedAt: parsed.connectedAt ?? new Date().toISOString(),
+    computerId: parsed.computerId ?? null,
   };
 }
 

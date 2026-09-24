@@ -18,9 +18,7 @@
  *   as one home by accident.
  */
 
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { uuidv7 } from 'uuidv7';
 import { getMachineIdentityPath, getDbPath } from '@/lib/config/paths';
@@ -32,6 +30,9 @@ import {
   setHomeHost,
 } from '@/lib/db/queries';
 import type { ComputerRecord, HomeKind, HomeRecord } from '@/db/types';
+import { thisComputerFacts } from './computer-name';
+
+export { defaultComputerName } from './computer-name';
 
 export const MACHINE_IDENTITY_VERSION = 1;
 
@@ -111,20 +112,6 @@ function writeMachineIdentityOnce(identity: Omit<MachineIdentity, 'version'>): M
     fs.rmSync(tmp, { force: true });
   }
   return readMachineIdentity()!;
-}
-
-/** A person's name for this computer: "Mac Mini", not "AI-Mac-Mini.local". */
-export function defaultComputerName(): string {
-  if (process.platform === 'darwin') {
-    const out = spawnSync('scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000 });
-    const name = out.status === 0 ? out.stdout.trim() : '';
-    if (name) return name;
-  }
-  return os.hostname().replace(/\.local$/, '') || 'This computer';
-}
-
-function thisComputerFacts() {
-  return { name: defaultComputerName(), platform: process.platform, hostname: os.hostname() };
 }
 
 export interface ResolveOptions {

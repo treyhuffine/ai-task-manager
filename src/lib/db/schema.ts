@@ -687,9 +687,14 @@ export const apiKeys = sqliteTable(
     lastUsedUserAgent: text(),
     revokedAt: text(),
     revokedReason: text(),
+    // The computer this key belongs to, when a computer registered with it
+    // (docs/homes-spec.md §5.1). Links identity only: a viewing key never
+    // gains the authority to run work by being linked.
+    computerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
   },
   (table) => [
     index('idx_api_keys_hash').on(table.hash),
+    index('idx_api_keys_computer').on(table.computerId),
     index('idx_api_keys_prefix').on(table.prefix),
     index('idx_api_keys_revoked').on(table.revokedAt),
   ],
@@ -734,6 +739,52 @@ export const home = sqliteTable('home', {
     .notNull()
     .references(() => computers.id),
 });
+
+// ─── Agent setups ─────────────────────────────────────────────
+// What each computer last reported about an agent's folder on it
+// (docs/homes-spec.md §4.2). The authority is the `.ri.local.json` in that
+// folder on that computer. This is the home's observed index, for display
+// and to check a setup before sending work there. The home never edits a
+// computer's paths through it.
+
+export const agentSetups = sqliteTable(
+  'agent_setups',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    workspaceId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => workspaces.id, { onDelete: 'cascade' }),
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    // The source folder on that computer, as reported.
+    sourcePath: text().notNull(),
+    // sha256 of the setup file as last read. Null when the file was unreadable or gone.
+    configRevision: text(),
+    references: text({ mode: 'json' }).$type<SetupReferenceReport[]>().notNull().default([]),
+    // Reported state. Anything but `ready` blocks starting work with this setup.
+    status: text({
+      enum: ['ready', 'missing_folder', 'missing_file', 'invalid_config', 'wrong_home', 'missing_reference', 'duplicate'],
+    }).notNull(),
+    problem: text(),
+    reportedAt: text().notNull(),
+  },
+  (table) => [
+    uniqueIndex('uniq_agent_setups_agent_computer').on(table.workspaceId, table.computerId),
+    index('idx_agent_setups_computer').on(table.computerId),
+  ],
+);
+
+/** One reference as a computer resolved it (src/lib/setups/resolve.ts). */
+export interface SetupReferenceReport {
+  alias: string;
+  value?: string | { agentId: string } | null;
+  form: 'path' | 'agent' | 'omitted' | 'unconfigured';
+  path: string | null;
+  exists: boolean;
+  problem: string | null;
+}
 
 // ─── Workspaces ───────────────────────────────────────────────
 // A workspace is a folder on disk the user organizes around. For git

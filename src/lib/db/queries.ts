@@ -9,7 +9,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, computers,
+  home, computers, agentSetups,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -32,6 +32,7 @@ import type {
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
+  AgentSetupRecord, SetupReferenceReport,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
@@ -4365,6 +4366,191 @@ export function setHomeHost(computerId: string): HomeRecord {
       .returning()
       .get();
   }, { behavior: 'immediate' });
+}
+
+/** The computer a key belongs to, when one registered with it. */
+export function getComputerForApiKey(apiKeyId: string): ComputerRecord | null {
+  const row = getDb()
+    .select({ computer: getTableColumns(computers) })
+    .from(apiKeys)
+    .innerJoin(computers, eq(apiKeys.computerId, computers.id))
+    .where(eq(apiKeys.id, apiKeyId))
+    .get();
+  return row?.computer ?? null;
+}
+
+/**
+ * Register the computer calling with `apiKeyId`, or refresh its facts when
+ * it registered before. The key is linked to the computer, so later reports
+ * from that key are that computer's. Linking grants no authority to run
+ * work (docs/homes-spec.md §3.1).
+ */
+export function registerComputerForApiKey(input: {
+  apiKeyId: string;
+  name: string;
+  platform?: string | null;
+  hostname?: string | null;
+}): { computer: ComputerRecord; created: boolean } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const key = tx.select().from(apiKeys).where(eq(apiKeys.id, input.apiKeyId)).get();
+    if (!key || key.revokedAt) throw new Error('This key is not active.');
+    const now = new Date().toISOString();
+    if (key.computerId) {
+      const computer = tx
+        .update(computers)
+        .set({ platform: input.platform ?? null, hostname: input.hostname ?? null, lastSeenAt: now, updatedAt: now })
+        .where(eq(computers.id, key.computerId))
+        .returning()
+        .get();
+      if (computer) return { computer, created: false };
+    }
+    const computer = tx
+      .insert(computers)
+      .values({
+        id: uuidv7(),
+        name: input.name,
+        platform: input.platform ?? null,
+        hostname: input.hostname ?? null,
+        status: 'active',
+        lastSeenAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    tx.update(apiKeys).set({ computerId: computer.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+    return { computer, created: true };
+  }, { behavior: 'immediate' });
+}
+
+// ─── Agent setups (docs/homes-spec.md §4.2) ───────────────────
+
+/** Statuses that mean the setup file couldn't be read, so its references are unknown. */
+const SETUP_LOCATION_PROBLEMS = new Set<AgentSetupRecord['status']>(['missing_folder', 'missing_file', 'invalid_config', 'wrong_home']);
+
+export interface AgentSetupReportInput {
+  agentId: string;
+  sourcePath: string;
+  configRevision: string | null;
+  references: SetupReferenceReport[];
+  status: AgentSetupRecord['status'];
+  problem: string | null;
+}
+
+/**
+ * Store what a computer reported about its setups. With `complete`, the
+ * reports are everything the computer has, so setups it no longer reports
+ * are removed. Reports for agents this home doesn't have are returned as
+ * ignored rather than stored.
+ */
+export function recordAgentSetupReports(
+  computerId: string,
+  reports: AgentSetupReportInput[],
+  opts: { complete: boolean },
+): { stored: number; removed: number; ignored: string[] } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const known = new Set(tx.select({ id: workspaces.id }).from(workspaces).all().map((w) => w.id));
+    const ignored: string[] = [];
+    let stored = 0;
+    for (const r of reports) {
+      if (!known.has(r.agentId)) {
+        ignored.push(r.agentId);
+        continue;
+      }
+      // A report about a folder or file that can't be read carries only the
+      // problem. Keep the references last observed there, which is what
+      // "Restore setup from the last observed report" rebuilds from.
+      const previous = SETUP_LOCATION_PROBLEMS.has(r.status)
+        ? tx
+            .select({ references: agentSetups.references, sourcePath: agentSetups.sourcePath })
+            .from(agentSetups)
+            .where(and(eq(agentSetups.workspaceId, r.agentId), eq(agentSetups.computerId, computerId)))
+            .get()
+        : undefined;
+      const values = {
+        sourcePath: r.sourcePath,
+        configRevision: r.configRevision,
+        references: previous && previous.sourcePath === r.sourcePath && r.references.length === 0 ? previous.references : r.references,
+        status: r.status,
+        problem: r.problem,
+        reportedAt: now,
+        updatedAt: now,
+      };
+      tx.insert(agentSetups)
+        .values({ id: uuidv7(), workspaceId: r.agentId, computerId, createdAt: now, ...values })
+        .onConflictDoUpdate({ target: [agentSetups.workspaceId, agentSetups.computerId], set: values })
+        .run();
+      stored++;
+    }
+    let removed = 0;
+    if (opts.complete) {
+      const reported = reports.map((r) => r.agentId).filter((id) => known.has(id));
+      const stale = tx
+        .select({ id: agentSetups.id })
+        .from(agentSetups)
+        .where(
+          reported.length
+            ? and(eq(agentSetups.computerId, computerId), sql`${agentSetups.workspaceId} NOT IN (${sql.join(reported.map((id) => sql`${id}`), sql`, `)})`)
+            : eq(agentSetups.computerId, computerId),
+        )
+        .all();
+      for (const row of stale) tx.delete(agentSetups).where(eq(agentSetups.id, row.id)).run();
+      removed = stale.length;
+    }
+    tx.update(computers).set({ lastSeenAt: now }).where(eq(computers.id, computerId)).run();
+    return { stored, removed, ignored };
+  }, { behavior: 'immediate' });
+}
+
+export type AgentSetupWithComputer = AgentSetupRecord & { computerName: string };
+
+export function listAgentSetups(filter: { workspaceId?: string; computerId?: string } = {}): AgentSetupWithComputer[] {
+  const conds: SQL[] = [];
+  if (filter.workspaceId) conds.push(eq(agentSetups.workspaceId, filter.workspaceId));
+  if (filter.computerId) conds.push(eq(agentSetups.computerId, filter.computerId));
+  return getDb()
+    .select({ ...getTableColumns(agentSetups), computerName: computers.name })
+    .from(agentSetups)
+    .innerJoin(computers, eq(agentSetups.computerId, computers.id))
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(asc(computers.name))
+    .all();
+}
+
+export function getAgentSetup(workspaceId: string, computerId: string): AgentSetupRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(agentSetups)
+      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .get() ?? null
+  );
+}
+
+/** Where each agent's setup was last seen on a computer, for resolving problems. */
+export function lastSeenSetupPaths(computerId: string): Record<string, string> {
+  const rows = getDb()
+    .select({ workspaceId: agentSetups.workspaceId, sourcePath: agentSetups.sourcePath })
+    .from(agentSetups)
+    .where(eq(agentSetups.computerId, computerId))
+    .all();
+  return Object.fromEntries(rows.map((r) => [r.workspaceId, r.sourcePath]));
+}
+
+/**
+ * The reference aliases each active agent expects a computer to map: the
+ * global ones plus its own, its own winning on a name clash, the same set
+ * sessions are told about.
+ */
+export function expectedReferenceAliases(): Record<string, { alias: string; description: string | null }[]> {
+  const out: Record<string, { alias: string; description: string | null }[]> = {};
+  for (const ws of getDb().select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.status, 'active')).all()) {
+    out[ws.id] = listReferenceFoldersForWorkspace(ws.id).map((r) => ({ alias: r.alias, description: r.description }));
+  }
+  return out;
 }
 
 // ─── API Keys ─────────────────────────────────────────────────

@@ -86,6 +86,14 @@ The worker connection fixtures (a fake worker and a home served over HTTP for re
   - `ri browser` drives the browser on the machine it runs on, so it stays refused on a connected computer.
 - `ri trigger run` and `ri run cancel` on a connected computer run inside the home's server. On the home itself they still run in the CLI process, which is gap 1 in P0.4, fixed in P2.4.
 
+## P1.4 Setups as built
+
+- Files: `local-file.ts` (format, revision, writes, Git exclude), `registry.ts` (this computer's `<config>/setups.json`, locations only), `resolve.ts` (reports), `service.ts` (attach, ref, relink, restore, detach, all followed by a full report), `home-context.ts` (the home's side and its in-process link). The CLI's link is `src/cli/lib/setup-link.ts`.
+- Actions: `register_computer`, `rename_computer`, `get_setup_context`, `report_agent_setups`, `list_agent_setups`. The calling computer comes from the key: the host key means the home's own computer, and any other key must have registered.
+- A connected computer registers on its first `ri setup`, and keeps the id in `connection.json`. The key is linked to the computer in `api_keys.computer_id`. Linking identifies the computer and grants no authority to run work: worker authority is a separate credential in P2.2.
+- A report about a folder or file that can't be read keeps the last observed references in the index. That's what restore rebuilds from. An agent removed from a computer's files disappears from the index on the next complete report.
+- Deliberately not in P1.4: creating an agent from a computer with no folder on the home (it needs `workspaces.cwd` to become optional, which is P1.5), editing setups from the web UI, and suggesting folders from harness history.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

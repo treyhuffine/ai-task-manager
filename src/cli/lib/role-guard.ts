@@ -33,6 +33,7 @@ const DATA_COMMANDS = new Set([
   'pair',
   'onboard',
   'home',
+  'setup',
 ]);
 
 /**
@@ -41,7 +42,7 @@ const DATA_COMMANDS = new Set([
  * browser on the machine it runs on, and a connected computer's own browser
  * is not the home's.
  */
-export const ROUTED_WHEN_CONNECTED = new Set(['agent', 'trigger', 'runs', 'run', 'spend']);
+export const ROUTED_WHEN_CONNECTED = new Set(['agent', 'trigger', 'runs', 'run', 'spend', 'setup']);
 
 export class RoleGuardError extends Error {
   constructor(message: string) {

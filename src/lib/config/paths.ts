@@ -146,6 +146,15 @@ export function getConnectionPath(): string {
   return path.join(getConfigDir(), 'connection.json');
 }
 
+/**
+ * Where this computer's registered setup files are: a list of source folders
+ * holding a `.ri.local.json` (src/lib/setups/registry.ts). It locates the
+ * files and holds no paths of its own beyond that.
+ */
+export function getSetupRegistryPath(): string {
+  return path.join(getConfigDir(), 'setups.json');
+}
+
 // ─── .work — regenerable scratch (don't sync, safe to delete) ─────
 
 /** Machine-local scratch: worktrees, clones, tmp, backups, pids, icons. */

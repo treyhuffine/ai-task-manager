@@ -4,13 +4,14 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, agentSetups,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
+export type { SetupReferenceReport } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition, LifecycleCommandResult } from '@/lib/db/schema';
 
 /**
@@ -167,6 +168,8 @@ export type HomeKind = HomeRecord['kind'];
 export type ComputerRecord = InferSelectModel<typeof computers>;
 export type CreateComputerInput = PolicyOptional<Omit<InferInsertModel<typeof computers>, 'id'>, 'status'> & { id?: string };
 export type UpdateComputerInput = Partial<Pick<ComputerRecord, 'name' | 'platform' | 'hostname' | 'lastSeenAt'>>;
+export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
+export type AgentSetupStatus = AgentSetupRecord['status'];
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>, 'deviceType' | 'env'>;
