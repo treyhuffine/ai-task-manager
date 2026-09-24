@@ -3,82 +3,109 @@
 import type { HarnessId } from '@/lib/harness/registry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { MessageSquare } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useSession, useSendMessage, useRuntimeStatus, useInterruptSession, useContinueSession, useNewExecutionChat, useWorktreeScope } from '@/hooks/use-execution';
+import {
+  useSession,
+  useSendMessage,
+  useRuntimeStatus,
+  useInterruptSession,
+  useContinueSession,
+  useNewExecutionChat,
+  useWorktreeScope,
+  useSessionReferences,
+  useScratchpad,
+} from '@/hooks/use-execution';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { useSessionReconcile } from '@/hooks/use-session-reconcile';
-import { useWorkspace, useMarkSessionRead } from '@/hooks/use-workspaces';
-import {
-  useExecutionLayoutSizes,
-  HORIZONTAL_PANEL_IDS,
-  VERTICAL_PANEL_IDS,
-} from '@/hooks/use-execution-layout-sizes';
+import { useWorkspace, useMarkSessionRead, useDiffStats } from '@/hooks/use-workspaces';
+import { useElementWidth } from '@/hooks/use-element-width';
 import type { RailResponse } from '@/lib/api/sessions';
 import type { EffortLevel } from '@/db/types';
 import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '@/components/ui/resizable';
-import type { PanelImperativeHandle } from 'react-resizable-panels';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
+import { cn } from '@/lib/utils';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionChatTabs } from './execution-chat-tabs';
 import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionReviewBar } from './execution-review-bar';
 import { ExecutionComposer, type ExecutionComposerHandle } from './execution-composer';
 import { BackgroundTasksBar } from './background-tasks-bar';
-import { ExecutionTerminalPanel } from './execution-terminal-panel';
 import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
 import { sessionFolder } from '@/lib/folders/source';
-import { FileTree } from './file-tree/file-tree';
-import { ViewerArea } from './viewer-area';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
 import { useFileHistory } from '@/hooks/use-file-history';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverBanner } from './takeover/takeover-banner';
-import { SetupPlaceholder } from './setup-placeholder';
 import { ImportedTakeoverBar } from './imported-takeover-bar';
 import { providerLabel as importedProviderLabel } from './setup-card';
 import { ExecutionSkeleton } from './execution-skeleton';
-import { ReferencesPane } from './references-pane';
-import { ScratchpadPane } from './scratchpad-pane';
 import { useOpenReferenceListener } from '@/lib/entity-refs/open-event';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { DRAFT_STORAGE_PREFIX } from '@/components/chat/editor/draft-storage';
 import { hot } from '@/lib/_debug/hot-path';
 import { HOME_VIEW, executionView } from '@/lib/client/active-view';
+import { usePreviewController } from './preview/use-preview-controller';
+import { runDotClass } from './preview/run-status';
+import { useWorkbench, DEFAULT_PANEL_PCT, DEFAULT_TERMINAL_PCT } from './workbench/use-workbench';
+import { PANEL_VIEW_LABELS, type PanelView } from './workbench/workbench-state';
+import { WorkbenchPanel } from './workbench/workbench-panel';
+import { TerminalDrawer } from './workbench/terminal-drawer';
+import { ToolsBox } from './workbench/tools-box';
+import { ResizeHandle } from './workbench/resize-handle';
+import { MobileDestination, MobileToolsSheet } from './workbench/mobile-workbench';
+import type { WorkbenchViewContext } from './workbench/workbench-views';
 
 interface ExecutionViewProps {
   sessionId: string;
 }
 
+/** Text fields keep Escape for themselves (closing menus, cancelling edits). */
+function isEditableTarget(el: HTMLElement | null): boolean {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
 /**
- * The right-side surface when the user has an execution selected.
- * Three horizontal columns (chat / file tree / viewer+terminal), each
- * resizable. The right column splits vertically (viewer over terminal).
+ * The surface for an open execution: the workbench.
+ *
+ *   header      identity · the chat's status · menu · [Terminal] [Tools] · git
+ *   chat        tabs, transcript, composer. A floating tools box sits on its
+ *               right while the panel is closed.
+ *   panel       Run · Preview · Changes · Files · More (Notes & tasks,
+ *               Scratchpad), opened from the box or the Tools toggle.
+ *   terminal    a drawer across the whole bottom, for commands you type.
+ *
+ * The phone gets the chat with a Tools sheet, and opens tools full width.
+ * Rules and rationale: docs/execution-view-spec.md, "Workbench layout".
+ *
+ * This view mounts more than once at a time (the dashboard renders its
+ * desktop, tablet and phone layouts together and hides two with CSS, and
+ * each instance has a desktop and a phone subtree). So anything heavy (the
+ * panel, the terminal, a phone destination) mounts only in the subtree that
+ * is actually on screen, measured by width. That also keeps a hidden copy
+ * from spawning a terminal.
  *
  * Marks the session as viewed on open so it leaves the Needs Review
  * surface — opening the session is the read receipt.
  */
 export function ExecutionView({ sessionId }: ExecutionViewProps) {
-  const { setActiveView, setActiveExecutionId, setSessionStreaming, openAgent } = useDashboard();
+  const { setActiveView, setActiveExecutionId, setSessionStreaming, openAgent, pendingInputSessionIds } = useDashboard();
   const qc = useQueryClient();
   const { data: session, isLoading, error } = useSession(sessionId);
   const { data: workspace } = useWorkspace(session?.workspaceId ?? null);
   const { data: runtime } = useRuntimeStatus(sessionId);
   const hasBackgroundTasks = runtime?.backgroundTasks ?? false;
   // Live chat-event stream: appends rows into the events cache as the
-  // executor (or any other write path) inserts them. Replaces the 3s
-  // poll that used to live in `useSessionEvents`.
+  // executor (or any other write path) inserts them.
   useSessionStream(sessionId);
-  // Catch up to the on-disk Claude JSONL on open. Fires the POST in
-  // the background; the indicator below renders only if the server
-  // actually finds drift and starts a replay (server pushes
-  // `reconcile: started` over SSE).
+  // Catch up to the on-disk Claude JSONL on open. The indicator below
+  // renders only if the server actually finds drift and starts a replay.
   const { reconciling } = useSessionReconcile(sessionId);
 
   // Tell the rail which execution is open so its (one-row-per-execution)
@@ -101,12 +128,10 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // The execution, not the chat, is what "which code am I looking at"
   // means. Every reset below keys off this: a new chat on the same
   // execution is the same worktree, the same files, the same terminal —
-  // so selection, panes, and layout must survive it. A genuinely
-  // different execution still resets, which is what the guards were
-  // always for.
+  // so selection, the workbench and the preview survive it.
   const executionId = session?.executionId ?? null;
 
-  // Stable id for per-worktree UI state (layout, file-open history).
+  // Stable id for per-worktree UI state (workbench, file-open history).
   // Falls back to the chat's own id for execution-less sessions, matching
   // how the query scope resolves.
   const worktreeId = executionId ?? sessionId;
@@ -140,25 +165,13 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
   // Conductor-style auto-resume: opening an archived execution is the
   // signal to reopen — fire `continue` once on mount so the row flips to
-  // active and a fresh worktree provisions in the background. By the time
-  // the user reads a few lines of transcript and decides to type, the
-  // worktree is usually already there. The existing setting-up state
-  // (driven by `isSettingUp` above) covers the wait.
-  //
-  // Doing this on view (rather than on send, which we tried first) avoids
-  // a multi-second hiccup between hitting send and the agent actually
-  // dispatching. The user-perceived latency hides inside the page
-  // transition, matching the way Conductor handles archived sessions.
-  //
-  // Per-session ref guards against re-fire after the mutation succeeds
-  // and the cache refetches (status will be 'active' on the next render,
-  // so the gate would self-clear anyway; the ref is belt-and-suspenders
-  // against transient errors that leave status='archived').
+  // active and a fresh worktree provisions in the background. The
+  // setting-up state covers the wait.
   //
   // The ref is consumed only when the resume actually FIRES. Consuming it
   // on first sight of the session would defeat the resume whenever the
   // first render serves a stale cached row: reopening a just-closed chat
-  // from the tab strip's "older" chip mounts with the cached
+  // from the tab strip's "All chats" list mounts with the cached
   // status='active' (marked stale, refetch in flight), and by the time
   // the fresh 'archived' lands the guard would already be spent.
   const resumedSessionIdRef = useRef<string | null>(null);
@@ -172,36 +185,20 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status, sessionId]);
 
-  // Persisted resizable column / row sizes — per-execution in
-  // localStorage. Keyed off the execution because the layout describes
-  // how you're looking at this *code*: dragging the tree wider and then
-  // starting a new chat on the same worktree shouldn't snap it back.
-  const {
-    horizontal,
-    vertical,
-    terminalOpenPct,
-    setHorizontal,
-    setVertical,
-    setTerminalOpenPct,
-  } = useExecutionLayoutSizes(worktreeId);
-
   // Setting-up state: dispatch creates the chat_session row immediately
   // and provisions the worktree in the background (~2-5s for `git
   // worktree add` + fromSource apply). Until worktreePath lands on the
-  // row we render the SettingUp variant of the SetupCard. The row gets
-  // updated by the server, so we poll the session query.
+  // row the worktree views show a placeholder. The row gets updated by
+  // the server, so we poll the session query.
   const isSettingUp =
     !!session && !!workspace && workspace.isGit === true && !session.worktreePath;
 
-  // Gate for the terminal panel's auto-spawn. The terminal's cwd resolves
-  // to the session's worktree, but `workspace` loads from a separate query
-  // than `session` — so there's a window where the session is ready while
-  // `workspace` is still `undefined`. In that window `isSettingUp` is false
-  // (it needs `workspace.isGit === true`), so without this guard the panel
-  // would auto-create a terminal before we know the worktree state and the
-  // server would resolve cwd to the workspace's main checkout. The spawned
-  // PTY's cwd is frozen for its lifetime, so that lands the user in the
-  // main repo for good. Treat "workspace not loaded yet" as not-ready.
+  // Gate for the terminal's auto-spawn. Its cwd resolves to the session's
+  // worktree, but `workspace` loads from a separate query than `session` —
+  // so there's a window where the session is ready while `workspace` is
+  // still `undefined`. Spawning then would land the PTY in the workspace's
+  // main checkout for good (a PTY's cwd is frozen), so treat "workspace not
+  // loaded yet" as not ready.
   const terminalNotReady =
     isSettingUp || (!!session?.workspaceId && workspace === undefined);
 
@@ -227,11 +224,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     return () => setSessionStreaming(sessionId, false);
   }, [sessionId, isRunning, setSessionStreaming]);
 
-  // Events and runtime-status come through the SSE stream in order, so
-  // the thinking-vs-message race is gone. Diff state, though, isn't
-  // streamed. Refresh it and the session metadata whenever either the root
-  // turn or detached child work ends. A child can keep editing after the
-  // root result, so the background edge needs its own refresh.
+  // Events and runtime-status come through the SSE stream in order. Diff
+  // state, though, isn't streamed. Refresh it and the session metadata
+  // whenever either the root turn or detached child work ends. A child can
+  // keep editing after the root result, so the background edge needs its
+  // own refresh.
   const prevRunningRef = useRef(isRunning);
   const prevBackgroundTasksRef = useRef(hasBackgroundTasks);
   useEffect(() => {
@@ -254,8 +251,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
   // Worktree just landed (provisioning finished) → pull the file tree + diff
   // immediately. The tree was fetched empty while `worktreePath` was null, and
-  // nothing else refetches it on this transition — so without this it sits on
-  // "No files" until the 30s tree poll, which reads as slow-and-empty.
+  // nothing else refetches it on this transition.
   const prevWorktreeRef = useRef(!!session?.worktreePath);
   useEffect(() => {
     hot('effect ExecutionView.worktree-edge');
@@ -266,8 +262,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     qc.invalidateQueries({ queryKey: [...worktreeScope!, 'tree'] });
     qc.invalidateQueries({ queryKey: [...worktreeScope!, 'diff'] });
     // The background copy (.env etc.) lands a beat after the worktree itself —
-    // pull the tree again so those files appear without waiting out the 30s
-    // poll. (The setup-script poll covers slower, longer-running output.)
+    // pull the tree again so those files appear without waiting out the poll.
     const t = setTimeout(
       () => qc.invalidateQueries({ queryKey: [...worktreeScope!, 'tree'] }),
       2500,
@@ -276,115 +271,92 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   }, [session?.worktreePath, sessionId, worktreeScope, qc]);
 
   // Voice-sent event ids tracked in client memory for this open session.
-  // Lost on reload by design — same model the orchestrator uses. The
-  // VoiceSentBadge is a soft signal, not a permanent attribute, so we
-  // don't persist it. The set only grows; nothing removes ids.
+  // Lost on reload by design. The set only grows.
   const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(() => new Set());
 
-  // Selected file path in the file tree / viewer pair. Lifted here so
-  // the tree and viewer can render in different columns and still share
-  // selection state. Starts empty on every open: auto-opening a file was
-  // an expensive fetch (content + diff) for a view the user usually
-  // didn't ask for, so the viewer shows its empty CTA until a pick.
-  //
-  // Reset on execution change. ExecutionView is mounted once and just
-  // re-renders when sessionId changes (no `key={sessionId}` upstream),
-  // so without this reset, a file picked in execution A would leak
-  // into execution B.
-  //
-  // Guarded on executionId rather than sessionId: sibling chats share a
-  // worktree, so clearing the open file when you switch chats would be
-  // throwing away a selection that's still perfectly valid.
+  // ── Which subtree is on screen ───────────────────────────────────────
+  // Width 0 means hidden (this subtree, or this whole instance). Heavy
+  // parts mount only where the width is real.
+  const [desktopRef, desktopWidth] = useElementWidth<HTMLDivElement>();
+  const [mobileRef, mobileWidth] = useElementWidth<HTMLDivElement>();
+  const desktopVisible = (desktopWidth ?? 0) > 0;
+  const mobileVisible = (mobileWidth ?? 0) > 0;
+  const desktopVisibleRef = useRef(desktopVisible);
+  desktopVisibleRef.current = desktopVisible;
+  const mobileVisibleRef = useRef(mobileVisible);
+  mobileVisibleRef.current = mobileVisible;
+
+  // ── Workbench state ──────────────────────────────────────────────────
+  const workbench = useWorkbench(worktreeId);
+  const wb = workbench.state;
+  const workbenchRef = useRef(workbench);
+  workbenchRef.current = workbench;
+
+  // The phone's own navigation: a tool opened full width, and the sheet.
+  const [mobileView, setMobileView] = useState<PanelView | null>(null);
+  const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
+
+  // Selected file in the Files view. Lifted here because Changes (open in
+  // Files), the transcript's file chips and the tree all set it. Starts
+  // empty on every open, and resets on a different execution, but survives
+  // hopping between chats on one execution (same worktree, same files).
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const lastSelectedExecutionRef = useRef(executionId);
-  if (lastSelectedExecutionRef.current !== executionId) {
-    lastSelectedExecutionRef.current = executionId;
+  const lastExecutionRef = useRef(executionId);
+  if (lastExecutionRef.current !== executionId) {
+    lastExecutionRef.current = executionId;
     setSelectedPath(null);
+    setMobileView(null);
+    setToolsSheetOpen(false);
   }
 
-  // Monotonic signal the ViewerArea watches to know "the user picked a
-  // file". Bumped here in the tree's onSelect path; ViewerArea swaps to
-  // its Files tab when this changes. Closing a file (onSelect(null))
-  // does NOT bump it — closing isn't a request to view files.
-  const [filePickSignal, setFilePickSignal] = useState(0);
-
-  // Per-execution LRU of files opened in the viewer, surfaced by the
-  // history menu in the viewer's tab strip. Recorded here because this is
-  // the one place every "open a file" path converges (tree pick below and
-  // the transcript-chip listener), keyed on the same execution the
-  // selection reset uses — the list is about files in this worktree, so
-  // it outlives any one chat.
+  // Per-execution LRU of files opened, surfaced by the Files view's history
+  // menu and its empty state.
   const { history: fileHistory, recordOpen: recordFileOpen } = useFileHistory(worktreeId);
 
-  const handleFilePicked = (path: string | null) => {
-    setSelectedPath(path);
-    if (path) {
-      setFilePickSignal((n) => n + 1);
-      recordFileOpen(path);
-    }
-  };
+  const selectFile = useCallback(
+    (path: string | null) => {
+      setSelectedPath(path);
+      if (path) recordFileOpen(path);
+    },
+    [recordFileOpen],
+  );
 
-  // Transcript file chips fire `ri:open-file` (a window event) when
-  // clicked; route it to the same tree/viewer selection the file tree
-  // uses, normalizing absolute tool-input paths to worktree-relative.
+  /** Open a view where the user is: the desktop panel, or full width on a phone. */
+  const openViewHere = useCallback((view: PanelView, how: 'show' | 'jump') => {
+    if (desktopVisibleRef.current) {
+      if (how === 'jump') workbenchRef.current.jump(view);
+      else workbenchRef.current.show(view);
+    } else if (mobileVisibleRef.current) {
+      setToolsSheetOpen(false);
+      setMobileView(view);
+    }
+  }, []);
+
+  // Transcript file chips fire `ri:open-file` (a window event) when clicked;
+  // open the file in Files, normalizing absolute tool-input paths to
+  // worktree-relative. A jump, so the panel offers a way back.
   useOpenFileListener(
     useCallback(
       (detail) => {
         const rel = toWorktreeRelative(detail.path, session?.worktreePath ?? null);
         if (!rel) return;
-        setSelectedPath(rel);
-        setFilePickSignal((n) => n + 1);
-        recordFileOpen(rel);
+        selectFile(rel);
+        openViewHere('files', 'jump');
       },
-      [session?.worktreePath, recordFileOpen],
+      [session?.worktreePath, selectFile, openViewHere],
     ),
   );
 
-  // Lets the file tree drop an `@<path>` token into the composer when
-  // the user picks "Reference in chat" from a row's kebab. The composer
-  // exposes a narrow imperative handle; we hold it here so the tree
-  // doesn't need to know how to reach the composer otherwise.
+  // Transcript task / note chips fire `ri:open-reference`: show Notes & tasks.
+  useOpenReferenceListener(useCallback(() => openViewHere('notes', 'jump'), [openViewHere]));
+
+  // Lets the file tree drop an `@<path>` token into the composer when the
+  // user picks "Reference in chat" from a row's menu.
   const composerHandleRef = useRef<ExecutionComposerHandle | null>(null);
-  const handleReferenceFileInChat = (relativePath: string) => {
+  const handleReferenceFileInChat = useCallback((relativePath: string) => {
     composerHandleRef.current?.insertTextAtCursor(`@${relativePath} `);
     composerHandleRef.current?.focus({ end: true });
-  };
-
-  // Slide-over panes that overlay the tree + viewer columns. One at a
-  // time — opening references closes the scratchpad and vice versa.
-  // Clicking the active pane's button again toggles it closed.
-  const [activePane, setActivePane] = useState<'references' | 'scratchpad' | null>(null);
-  const toggleReferences = useCallback(
-    () => setActivePane((p) => (p === 'references' ? null : 'references')),
-    [],
-  );
-  const toggleScratchpad = useCallback(
-    () => setActivePane((p) => (p === 'scratchpad' ? null : 'scratchpad')),
-    [],
-  );
-  const closePane = useCallback(() => setActivePane(null), []);
-
-  // Reset pane when the execution changes so a pane left open on
-  // execution A doesn't leak into execution B's viewer column. Chat hops
-  // within one execution leave it alone — the pane's contents (references,
-  // scratchpad) are still about the same work.
-  const lastPaneExecutionRef = useRef(executionId);
-  if (lastPaneExecutionRef.current !== executionId) {
-    lastPaneExecutionRef.current = executionId;
-    if (activePane !== null) setActivePane(null);
-  }
-
-  // Transcript chips fire `ri:open-reference` events on click; surface
-  // the references pane so the user can browse / open the entity
-  // without losing chat state.
-  useOpenReferenceListener(
-    useCallback(() => {
-      setActivePane('references');
-    }, []),
-  );
-
-  // Composer-bound chip insertion used by both panes. Lives here so the
-  // pane components don't have to know about the editor's command API.
+  }, []);
   const handleInsertChip = useCallback(
     (attrs: { kind: 'task' | 'note' | 'scratchpad'; id: string; title: string; status?: string }) => {
       composerHandleRef.current?.insertEntityChip(attrs);
@@ -397,66 +369,77 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     composerHandleRef.current?.focus({ end: true });
   }, []);
 
-  // Terminal collapse state. We manage open/closed ourselves rather than
-  // using the library's `collapsible` + `collapsedSize` props — those store
-  // the "expand-to" size at the moment of toggle, which conflates "user
-  // dragged to a tiny size" with "user clicked collapse" and produces
-  // wildly inconsistent open heights on the next toggle. Instead the panel
-  // has `minSize="32px"` (the tab strip can never disappear) and we snap
-  // it between exactly two sizes: 32px (closed) and `terminalOpenPct`
-  // (open, persisted across reloads).
-  const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
-  const [terminalCollapsed, setTerminalCollapsed] = useState(false);
-  // Read-the-latest ref so the toggle doesn't capture a stale openPct
-  // from the closure it was created with.
-  const terminalOpenPctRef = useRef(terminalOpenPct);
-  terminalOpenPctRef.current = terminalOpenPct;
-  const handleToggleTerminal = () => {
-    const panel = terminalPanelRef.current;
-    if (!panel) return;
-    const size = panel.getSize();
-    if (size.inPixels > 40) {
-      // Open → closed. Remember the current size so the next expand
-      // restores to where the user had it.
-      setTerminalOpenPct(size.asPercentage);
-      panel.resize('32px');
-    } else {
-      panel.resize(`${terminalOpenPctRef.current}%`);
-    }
-  };
-  const handleVerticalLayoutChanged = (layout: Parameters<typeof setVertical>[0]) => {
-    setVertical(layout);
-    // Track the user's preferred open height from drag commits — but only
-    // when the terminal is actually in its open state. We read the
-    // panel's rendered pixel size directly rather than `terminalCollapsed`
-    // because the React state hasn't necessarily been updated yet when
-    // the library first fires this callback on mount.
-    const panel = terminalPanelRef.current;
-    if (!panel) return;
-    if (panel.getSize().inPixels <= 40) return;
-    const t = layout[VERTICAL_PANEL_IDS.terminal];
-    if (typeof t === 'number' && Number.isFinite(t)) {
-      setTerminalOpenPct(t);
-    }
-  };
+  // ── The app process (Run) and its interface (Preview) ────────────────
+  const controller = usePreviewController(executionId, session?.workspaceId ?? null, {
+    active: desktopVisible || mobileVisible,
+    logs: (desktopVisible && wb.view === 'run') || (mobileVisible && mobileView === 'run'),
+  });
+  const startAndPreview = useCallback(() => {
+    controller.start();
+    openViewHere('preview', 'show');
+  }, [controller, openViewHere]);
+
+  // Status for the box, tabs and sheet.
+  const diffStats = useDiffStats(session?.worktreePath ? sessionId : null, executionId);
+  const references = useSessionReferences(sessionId, 'all');
+  const linkedCount = references.data?.inChat.length ?? 0;
+  const { data: scratch } = useScratchpad(sessionId);
+  const scratchHasContent = !!scratch?.scratchPad?.trim();
+
+  // ── Keyboard: ⌃` terminal, ⌘P go to file, Escape restores then closes ─
+  useEffect(() => {
+    const focusTreeSearch = () => {
+      let tries = 0;
+      const tick = () => {
+        const input = document.querySelector<HTMLInputElement>('[data-tree-search]');
+        if (input && input.offsetParent !== null) {
+          input.focus();
+          input.select();
+        } else if (tries++ < 20) {
+          window.setTimeout(tick, 50);
+        }
+      };
+      tick();
+    };
+    // Capture phase, so a focused terminal can't swallow the toggle.
+    const onKeyCapture = (e: KeyboardEvent) => {
+      if (!desktopVisibleRef.current) return;
+      if (matchesHotkey(e, HOTKEYS.toggleTerminal)) {
+        e.preventDefault();
+        e.stopPropagation();
+        workbenchRef.current.dispatch({ type: 'toggleTerminal' });
+      } else if (matchesHotkey(e, HOTKEYS.goToFile)) {
+        e.preventDefault();
+        e.stopPropagation();
+        workbenchRef.current.show('files');
+        focusTreeSearch();
+      }
+    };
+    // Bubble phase for Escape, so dialogs, menus, editors and the terminal
+    // get it first and can claim it.
+    const onKey = (e: KeyboardEvent) => {
+      if (!desktopVisibleRef.current || !matchesHotkey(e, HOTKEYS.slideoutBack)) return;
+      if (e.defaultPrevented || e.isComposing) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target && (target.closest('.xterm') || isEditableTarget(target) || target.closest('[role="dialog"],[role="menu"]'))) return;
+      const s = workbenchRef.current.state;
+      if (!s.maximized && !s.view) return;
+      e.preventDefault();
+      workbenchRef.current.dispatch({ type: 'escape' });
+    };
+    window.addEventListener('keydown', onKeyCapture, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKeyCapture, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
 
   // Navigate-away read receipt. The composer fires markRead eagerly on
   // focus and send, so all engaged-then-leave cases are covered already.
-  // This cleanup handles the remaining case: "user entered an unread
-  // chat, looked at it, left without engaging." We mark read only if
-  // the unread state at leave is the SAME one that was there at entry —
-  // i.e., no new activity landed during the visit.
-  //
-  // Snapshot at mount: if the chat is currently unread, capture the
-  // latest-activity timestamp. On leave, if that timestamp hasn't moved
-  // and the chat is still unread, the user saw what was there — clear
-  // the unread. If the timestamp moved (agent did another turn, an
-  // unread marker landed) the user didn't see the new content, so we
-  // leave it unread for next time.
-  //
-  // We snapshot from the rail cache, which the dashboard always has
-  // loaded. If by some race the cache is empty (direct URL entry, etc.)
-  // we fall back to the safe peek default — never mark read.
+  // This cleanup handles "user entered an unread chat, looked at it, left
+  // without engaging": mark read only if the unread state at leave is the
+  // same one that was there at entry (no new activity landed meanwhile).
   const markRead = useMarkSessionRead();
   const markReadRef = useRef(markRead);
   markReadRef.current = markRead;
@@ -483,12 +466,14 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
   const handleClose = () => setActiveView(HOME_VIEW);
 
+  // Layout refs for the two resizable splits.
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+
   if (isLoading) {
-    // Mirror the real 3-column layout while the session record loads,
-    // sized off the user's persisted column widths so the swap from
-    // skeleton → content is content-only (no panel reflow / jump).
-    // Mobile collapses to chat-only inside the skeleton itself.
-    return <ExecutionSkeleton horizontal={horizontal} vertical={vertical} />;
+    return <ExecutionSkeleton />;
   }
 
   if (error || !session) {
@@ -511,20 +496,14 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   }
 
   // While running, leave the composer enabled so the stop button reads
-  // as active (it lives in the send slot). The send button itself
-  // doesn't render — `isRunning` swaps it for stop in the composer.
+  // as active (it lives in the send slot).
   //
   // Archived: covers the brief window between mount and the auto-resume
-  // mutation succeeding. As soon as `continueWork` flips the row to
-  // `active` and clears `worktreePath`, the next branch (`isSettingUp`)
-  // takes over and the message reads as the normal setup spinner. Avoids
-  // a race where a very fast user could send during the ~200-500ms
-  // round-trip and hit a 400 from `/messages`.
+  // mutation succeeding, to avoid a 400 from a very fast send.
+  //
   // An imported chat mirrors a session this app doesn't drive. Sending would
   // spawn an agent with none of the context shown above it, so the composer
-  // stays locked until the user takes the chat over on purpose
-  // (`ImportedTakeoverBar`). `externalSessionId` is the flip: once it's set,
-  // the chat owns a provider session and behaves like any other.
+  // stays locked until the user takes the chat over on purpose.
   const isMirroredImport =
     session.surfaceKind === 'imported_agent' && !session.externalSessionId;
   const isResuming = session.status === 'archived';
@@ -537,21 +516,52 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         ? 'Continue here to reply'
         : undefined;
 
-  // Chat body — WIP banner + transcript + composer. Used in both
-  // desktop and mobile chat columns. The header (and on desktop, the
-  // action bar) lives elsewhere; the WIP banner stays in-column so it
-  // reads as part of the agent conversation rather than a full-width
-  // app-wide alert.
+  const isGitWorktree = !!workspace?.isGit && !!session.worktreePath;
+  const chatLabel = session.label ?? 'this chat';
+  const needsInput = pendingInputSessionIds.has(session.id);
+  const openWorkspaceSettings = session.workspaceId ? () => openAgent(session.workspaceId!, 'setup') : undefined;
+
+  const toolsListProps = {
+    controller,
+    branchName: session.branchName ?? null,
+    diffStats: diffStats.data,
+    linkedCount,
+    scratchHasContent,
+  };
+
+  const viewContext = (surface: 'desktop' | 'phone'): WorkbenchViewContext => ({
+    sessionId: session.id,
+    workspaceId: session.workspaceId ?? null,
+    worktreeId,
+    worktreePath: session.worktreePath ?? null,
+    baseBranch: workspace?.baseBranch ?? null,
+    chatLabel,
+    settingUp: isSettingUp ? { failed: !!session.setupError } : null,
+    controller,
+    selectedPath,
+    onSelectFile: selectFile,
+    fileHistory,
+    onReferenceInChat: handleReferenceFileInChat,
+    onInsertChip: handleInsertChip,
+    onInsertText: handleInsertText,
+    onOpenWorkspaceSettings: openWorkspaceSettings,
+    onStartAndPreview: startAndPreview,
+    show: surface === 'desktop' ? workbench.show : (v) => setMobileView(v),
+    jump: surface === 'desktop' ? workbench.jump : (v) => setMobileView(v),
+    autoFocus: surface === 'desktop' ? workbench.openedThisVisit : () => true,
+  });
+
+  // Chat body — tabs, WIP banner, transcript, composer. Rendered in both
+  // the phone (`lg:hidden`) and desktop (`hidden lg:flex`) subtrees, with
+  // opposite Enter semantics: the phone composer treats Enter as a newline
+  // (send via button, like a native keyboard), the desktop composer
+  // submits on Enter. Binding it to the subtree rather than a runtime
+  // viewport check keeps each instance matched to the layout it's in.
   //
-  // Parametrized by `submitOnEnter` because the same body renders in both
-  // the mobile (`lg:hidden`) and desktop (`hidden lg:flex`) subtrees, and
-  // they want opposite Enter semantics: the mobile composer treats Enter
-  // as a newline (send via button, like a native phone keyboard); the
-  // desktop composer submits on Enter. Both subtrees mount simultaneously
-  // (see project_composer_double_mount), so binding the behavior to the
-  // column rather than to a runtime viewport check keeps each instance
-  // matched to the layout that's actually visible at its breakpoint.
-  const renderChatBody = (submitOnEnter: boolean) => (
+  // `withBox` floats the tools box over the chat's right side. The chat
+  // pads for it where it would otherwise cover the transcript, and below
+  // ~1060px of chat width the box folds into an icon strip.
+  const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => (
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"
       onFiles={(files) => {
@@ -560,10 +570,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       }}
       disabled={composerDisabled}
     >
-      {/* Sibling-chat tabs. Sits at the top of the chat column (directly
-          under the HUD on desktop, under the action bar on mobile) and
-          renders nothing for single-chat executions. Chat-scoped, so it
-          belongs in-column rather than spanning the tree/viewer panes. */}
+      {/* Sibling-chat tabs: conversations only, never files. */}
       {!!session.executionId && (
         <ExecutionChatTabs
           sessionId={session.id}
@@ -572,288 +579,265 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           newChatPending={newExecutionChat.isPending}
         />
       )}
-      {workspace?.isGit &&
-        !!session.worktreePath &&
-        session.worktreePath !== workspace.cwd && (
-          // Skip for Live / in-place sessions: their "worktree" IS the source
-          // checkout (worktreePath === cwd), so no WIP ever "stayed behind" —
-          // the agent edits the same tree the user does.
-          <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
+      <div
+        className={cn(
+          'relative flex min-h-0 flex-1 flex-col',
+          withBox && '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]',
         )}
-      {reconciling && <SyncingPill />}
-      <ExecutionTranscript
-        session={session}
-        workspace={workspace}
-        isRunning={isRunning}
-        voiceSentIds={voiceSentIds}
-      />
-      {session.executionId && !isRunning && <ExecutionReviewBar executionId={session.executionId} />}
-      {/* Pending input + composer share a single top border so they
-          read as one connected input region. PendingInputArea returns
-          null when nothing's pending, in which case the composer is
-          the sole child and the wrapper is just a thin border. */}
-      <div className="flex-shrink-0 border-t border-border bg-background">
-        <BackgroundTasksBar
-          sessionId={session.id}
-          runtimeHasBackgroundTasks={runtime?.backgroundTasks}
-          runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
+      >
+        {workspace?.isGit &&
+          !!session.worktreePath &&
+          session.worktreePath !== workspace.cwd && (
+            // Skip for Live / in-place sessions: their "worktree" IS the source
+            // checkout, so no WIP ever "stayed behind".
+            <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
+          )}
+        {reconciling && <SyncingPill />}
+        <ExecutionTranscript
+          session={session}
+          workspace={workspace}
+          isRunning={isRunning}
+          voiceSentIds={voiceSentIds}
         />
-        <PendingInputArea sessionId={session.id} />
-        {isMirroredImport && (
-          <ImportedTakeoverBar
+        {session.executionId && !isRunning && <ExecutionReviewBar executionId={session.executionId} />}
+        {/* Pending input + composer share a single top border so they
+            read as one connected input region. */}
+        <div className="flex-shrink-0 border-t border-border bg-background">
+          <BackgroundTasksBar
             sessionId={session.id}
-            providerLabel={importedProviderLabel(session.surfaceRef)}
-            cwd={workspace?.cwd ?? null}
+            runtimeHasBackgroundTasks={runtime?.backgroundTasks}
+            runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
+          />
+          <PendingInputArea sessionId={session.id} />
+          {isMirroredImport && (
+            <ImportedTakeoverBar
+              sessionId={session.id}
+              providerLabel={importedProviderLabel(session.surfaceRef)}
+              cwd={workspace?.cwd ?? null}
+            />
+          )}
+          <ExecutionComposer
+            ref={composerHandleRef}
+            sessionId={session.id}
+            permissionMode={session.permissionMode}
+            model={session.model}
+            modelVariant={session.modelVariant}
+            effort={session.effort}
+            harness={session.harness}
+            disabled={composerDisabled}
+            disabledReason={composerDisabledReason}
+            submitOnEnter={submitOnEnter}
+            isRunning={isRunning}
+            onSwitchProvider={(next, draft) => startNewChat({
+              providerId: next.harness,
+              model: next.model,
+              variant: next.variant,
+              effort: next.effort,
+            }, draft)}
+            switchingProvider={newExecutionChat.isPending}
+            onSend={async (content, opts) => {
+              const event = await sendMessage.mutateAsync({
+                content,
+                attachments: opts?.attachments,
+              });
+              if (opts?.viaVoice && event?.id) {
+                setVoiceSentIds((prev) => {
+                  if (prev.has(event.id)) return prev;
+                  const next = new Set(prev);
+                  next.add(event.id);
+                  return next;
+                });
+              }
+            }}
+            onStop={async () => { await interruptSession.mutateAsync(); }}
+          />
+        </div>
+        {withBox && desktopVisible && (
+          <ToolsBox
+            {...toolsListProps}
+            onShow={workbench.show}
+            onStartAndPreview={startAndPreview}
+            terminal={{ open: wb.terminalOpen, onToggle: () => workbench.dispatch({ type: 'toggleTerminal' }) }}
           />
         )}
-        <ExecutionComposer
-          ref={composerHandleRef}
-          sessionId={session.id}
-          permissionMode={session.permissionMode}
-          model={session.model}
-          modelVariant={session.modelVariant}
-          effort={session.effort}
-          harness={session.harness}
-          disabled={composerDisabled}
-          disabledReason={composerDisabledReason}
-          submitOnEnter={submitOnEnter}
-          isRunning={isRunning}
-          onSwitchProvider={(next, draft) => startNewChat({
-            providerId: next.harness,
-            model: next.model,
-            variant: next.variant,
-            effort: next.effort,
-          }, draft)}
-          switchingProvider={newExecutionChat.isPending}
-          onSend={async (content, opts) => {
-            const event = await sendMessage.mutateAsync({
-              content,
-              attachments: opts?.attachments,
-            });
-            if (opts?.viaVoice && event?.id) {
-              setVoiceSentIds((prev) => {
-                if (prev.has(event.id)) return prev;
-                const next = new Set(prev);
-                next.add(event.id);
-                return next;
-              });
-            }
-          }}
-          onStop={async () => { await interruptSession.mutateAsync(); }}
-        />
       </div>
     </ChatDropZone>
   );
 
-  // Mobile (under lg): the header, action bar (its own row), then
-  // chat body. Same as the prior mobile experience — the four-column
-  // layout doesn't fit on narrow viewports.
-  const mobileChatColumn = (
-    <div className="flex h-full flex-col min-w-0 bg-background">
-      <ExecutionHeader
-        session={session}
-        workspace={workspace}
-        onClose={handleClose}
-        onToggleReferences={toggleReferences}
-        onToggleScratchpad={toggleScratchpad}
-        referencesOpen={activePane === 'references'}
-        scratchpadOpen={activePane === 'scratchpad'}
-        isRunning={isRunning}
-        hasBackgroundTasks={hasBackgroundTasks}
-      />
-      <TakeoverBanner session={session} />
-      {workspace?.isGit && !!session.worktreePath && (
-        <ExecutionActionBar session={session} workspace={workspace} />
-      )}
-      {/* Mobile: Enter inserts a newline; the send button submits. */}
-      {renderChatBody(false)}
-    </div>
-  );
+  const panelOpen = !!wb.view;
+  const maximized = panelOpen && wb.maximized;
+  const terminalOpen = wb.terminalOpen && !!session.workspaceId;
+  const terminalMax = terminalOpen && wb.terminalMaximized;
+  const runDot =
+    controller.runStatus === 'stopped' || controller.runStatus === 'not-configured' ? null : runDotClass(controller.runStatus);
 
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">
-      {/* Mobile / tablet: single-pane chat-only view. */}
-      <div className="lg:hidden flex flex-1 min-w-0 min-h-0">
-        {mobileChatColumn}
+      {/* ─── Phone / tablet (under lg) ─────────────────────────────────── */}
+      <div ref={mobileRef} className="lg:hidden relative flex flex-1 min-w-0 min-h-0">
+        {/* The chat stays mounted under a tool opened full width, so its
+            scroll position and draft survive the round trip. */}
+        <div className={cn('flex h-full flex-1 flex-col min-w-0 bg-background', mobileVisible && mobileView && 'hidden')}>
+          <ExecutionHeader
+            session={session}
+            workspace={workspace}
+            onClose={handleClose}
+            isRunning={isRunning}
+            hasBackgroundTasks={hasBackgroundTasks}
+            onOpenTools={() => setToolsSheetOpen(true)}
+            toolsBadgeClass={runDot}
+          />
+          <TakeoverBanner session={session} />
+          {isGitWorktree && workspace && (
+            // `empty:hidden`: the chip renders nothing in some states (a clean
+            // worktree with no branch commits), and the row goes with it.
+            <div className="flex-shrink-0 border-b border-border px-3 py-2 empty:hidden">
+              <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
+            </div>
+          )}
+          {/* Phone: Enter inserts a newline; the send button submits. */}
+          {renderChatBody(false, false)}
+        </div>
+        {mobileVisible && mobileView && (
+          <MobileDestination
+            view={mobileView}
+            ctx={viewContext('phone')}
+            onShow={setMobileView}
+            onBack={() => setMobileView(null)}
+            needsInput={needsInput}
+          />
+        )}
+        {mobileVisible && (
+          <MobileToolsSheet
+            open={toolsSheetOpen}
+            onOpenChange={setToolsSheetOpen}
+            {...toolsListProps}
+            onShow={(v) => {
+              setToolsSheetOpen(false);
+              setMobileView(v);
+            }}
+            onStartAndPreview={() => {
+              setToolsSheetOpen(false);
+              controller.start();
+              setMobileView('preview');
+            }}
+          />
+        )}
       </div>
 
-      {/* Desktop ≥lg: full-width header above a 3-column panel group.
-          Header carries the action bar inline so the workspace name,
-          git actions, status, and menu all sit on one row. The WIP
-          banner stays in the chat column (rendered by `chatBody`). */}
-      <div className="hidden lg:flex flex-col flex-1 min-w-0 min-h-0">
+      {/* ─── Desktop (lg+) ─────────────────────────────────────────────── */}
+      <div ref={desktopRef} className="@container/exec hidden lg:flex flex-col flex-1 min-w-0 min-h-0">
         <ExecutionHeader
           session={session}
           workspace={workspace}
           onClose={handleClose}
-          onToggleReferences={toggleReferences}
-          onToggleScratchpad={toggleScratchpad}
-          referencesOpen={activePane === 'references'}
-          scratchpadOpen={activePane === 'scratchpad'}
           isRunning={isRunning}
           hasBackgroundTasks={hasBackgroundTasks}
+          workbench={{
+            terminalOpen,
+            onToggleTerminal: () => workbench.dispatch({ type: 'toggleTerminal' }),
+            panelOpen,
+            onTogglePanel: () => workbench.dispatch({ type: 'togglePanel' }),
+            panelLabel: PANEL_VIEW_LABELS[wb.last],
+          }}
         />
         <TakeoverBanner session={session} />
-        <div className="flex flex-1 min-w-0 min-h-0 relative">
-          <ResizablePanelGroup
-            orientation="horizontal"
-            defaultLayout={horizontal}
-            onLayoutChanged={setHorizontal}
-            className="h-full w-full"
-          >
-            {/* Chat column. Min ~20% (≈360px on a 1800px viewport). The
-              header is hoisted to the full-width row above, so here we
-              just render the chat body (transcript + composer). */}
-            <ResizablePanel
-              id={HORIZONTAL_PANEL_IDS.chat}
-              defaultSize={horizontal[HORIZONTAL_PANEL_IDS.chat]}
-              minSize={20}
-            >
-              <div className="flex h-full flex-col min-w-0 bg-background">
-                {/* Desktop: Enter submits (Shift+Enter for a newline). */}
-                {renderChatBody(true)}
+        <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
+          <div ref={rowRef} className={cn('relative flex min-h-0 flex-1', terminalMax && 'hidden')}>
+            {maximized && (
+              <div key="strip" className="flex w-11 flex-shrink-0 flex-col items-center gap-2 border-r border-border py-2">
+                <button
+                  type="button"
+                  onClick={() => workbench.dispatch({ type: 'toggleMaximize' })}
+                  title="Bring the chat back (Esc)"
+                  aria-label="Bring the chat back"
+                  className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  <MessageSquare size={15} />
+                </button>
+                {(isRunning || needsInput) && (
+                  <span
+                    aria-label={needsInput ? 'Needs input' : 'Working'}
+                    title={needsInput ? 'This chat needs input' : 'This chat is working'}
+                    className={cn('h-1.5 w-1.5 animate-pulse rounded-full', needsInput ? 'bg-amber-500' : 'bg-emerald-500')}
+                  />
+                )}
+                <span className="mt-1 max-h-60 truncate text-[11.5px] text-muted-foreground [writing-mode:vertical-rl] rotate-180">
+                  {chatLabel}
+                </span>
               </div>
-            </ResizablePanel>
-
-            <ResizableHandle withHandle />
-
-            {/* File tree column. Min ~12% (≈200px on a 1800px viewport). */}
-            <ResizablePanel
-              id={HORIZONTAL_PANEL_IDS.tree}
-              defaultSize={horizontal[HORIZONTAL_PANEL_IDS.tree]}
-              minSize={12}
-            >
-              {isSettingUp ? (
-                <SetupPlaceholder
-                  variant="tree"
-                  animated={!session.setupError}
-                  label={
-                    session.setupError
-                      ? 'Setup failed, see chat to retry'
-                      : 'Preparing environment…'
-                  }
-                />
-              ) : (
-                <FileTree
-                  source={sessionFolder(session.id)}
-                  worktreeId={worktreeId}
-                  selectedPath={selectedPath}
-                  onSelect={handleFilePicked}
-                  worktreePath={session.worktreePath}
-                  onReferenceInChat={handleReferenceFileInChat}
-                />
-              )}
-            </ResizablePanel>
-
-            <ResizableHandle withHandle />
-
-            {/* Viewer + terminal column. Min ~24% (≈400px on a 1800px viewport).
-              The references / scratchpad overlay (rendered below the
-              ResizablePanelGroup) spans tree + this column when open
-              so the panes cover everything except the chat. */}
-            <ResizablePanel
-              id={HORIZONTAL_PANEL_IDS.right}
-              defaultSize={horizontal[HORIZONTAL_PANEL_IDS.right]}
-              minSize={24}
-            >
-              <ResizablePanelGroup
-                orientation="vertical"
-                defaultLayout={vertical}
-                onLayoutChanged={handleVerticalLayoutChanged}
-                className="h-full w-full"
-              >
-                <ResizablePanel
-                  id={VERTICAL_PANEL_IDS.viewer}
-                  defaultSize={vertical[VERTICAL_PANEL_IDS.viewer]}
-                  minSize={15}
-                >
-                  {isSettingUp ? (
-                    <SetupPlaceholder
-                      variant="viewer"
-                      animated={!session.setupError}
-                      label={
-                        session.setupError
-                          ? 'Setup failed, see chat to retry'
-                          : 'Preparing environment…'
-                      }
-                    />
-                  ) : (
-                    <ViewerArea
-                      sessionId={session.id}
-                      workspaceId={session.workspaceId ?? null}
-                      executionId={session.executionId ?? null}
-                      selectedPath={selectedPath}
-                      onCloseFile={() => setSelectedPath(null)}
-                      filePickSignal={filePickSignal}
-                      fileHistory={fileHistory}
-                      onReferenceInChat={handleReferenceFileInChat}
-                      onOpenWorkspaceSettings={
-                        session.workspaceId ? () => openAgent(session.workspaceId!, 'setup') : undefined
-                      }
-                      active
-                    />
-                  )}
-                </ResizablePanel>
-
-                <ResizableHandle withHandle />
-
-                <ResizablePanel
-                  id={VERTICAL_PANEL_IDS.terminal}
-                  panelRef={terminalPanelRef}
-                  defaultSize={vertical[VERTICAL_PANEL_IDS.terminal]}
-                  minSize="32px"
-                  onResize={(size) => {
-                    // 32px = the tab strip; anything under ~40px reads as
-                    // "collapsed". Pixel-based so a short right column
-                    // can't collapse below the strip's visible height.
-                    setTerminalCollapsed(size.inPixels <= 40);
-                  }}
-                >
-                  {session.workspaceId && (
-                    <ExecutionTerminalPanel
-                      source={sessionFolder(session.id)}
-                      disabled={terminalNotReady}
-                      disabledReason={terminalNotReady ? 'Setting up worktree…' : undefined}
-                      collapsed={terminalCollapsed}
-                      onToggleCollapsed={handleToggleTerminal}
-                    />
-                  )}
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-
-          {/* References / scratchpad overlay. Positioned to start at the
-            right edge of the chat column so the pane covers both the
-            file tree and the viewer+terminal columns. Chat stays
-            interactive on the left. The left offset follows
-            `horizontal[chat]` (a percentage), so dragging the chat
-            divider moves the overlay's edge with it. */}
-          {activePane !== null && (
-            <div
-              className="absolute top-0 right-0 bottom-0 z-30"
-              style={{ left: `${horizontal[HORIZONTAL_PANEL_IDS.chat]}%` }}
-            >
-              {activePane === 'references' && (
-                <ReferencesPane
-                  sessionId={session.id}
-                  workspaceId={session.workspaceId ?? null}
-                  open
-                  onClose={closePane}
-                  onInsertChip={handleInsertChip}
-                />
-              )}
-              {activePane === 'scratchpad' && (
-                <ScratchpadPane
-                  sessionId={session.id}
-                  workspaceId={session.workspaceId ?? null}
-                  open
-                  onClose={closePane}
-                  onInsertText={handleInsertText}
-                  onInsertChip={handleInsertChip}
-                />
-              )}
+            )}
+            <div key="chat" className={cn('@container/chat relative flex min-h-0 min-w-0 flex-1 flex-col bg-background', maximized && 'hidden')}>
+              {/* Desktop: Enter submits (Shift+Enter for a newline). */}
+              {renderChatBody(true, !panelOpen)}
             </div>
+            {panelOpen && desktopVisible && (
+              <>
+                {!maximized && (
+                  <ResizeHandle
+                    key="split"
+                    axis="columns"
+                    targetRef={panelRef}
+                    containerRef={rowRef}
+                    pct={workbench.panelPct}
+                    minPct={25}
+                    maxPct={80}
+                    minOtherPx={340}
+                    minTargetPx={380}
+                    defaultPct={DEFAULT_PANEL_PCT}
+                    onCommit={workbench.setPanelPct}
+                    label="Resize the panel"
+                  />
+                )}
+                <div
+                  key="panel"
+                  ref={panelRef}
+                  style={maximized ? undefined : { width: `${workbench.panelPct}%` }}
+                  className={cn('min-h-0 min-w-0', maximized ? 'flex-1' : 'flex-shrink-0')}
+                >
+                  <WorkbenchPanel
+                    workbench={workbench}
+                    ctx={viewContext('desktop')}
+                    changedFiles={diffStats.data?.files ?? null}
+                    linkedCount={linkedCount}
+                    scratchHasContent={scratchHasContent}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          {terminalOpen && desktopVisible && (
+            <>
+              {!terminalMax && (
+                <ResizeHandle
+                  axis="rows"
+                  targetRef={drawerRef}
+                  containerRef={bodyRef}
+                  pct={workbench.terminalPct}
+                  minPct={12}
+                  maxPct={80}
+                  minOtherPx={200}
+                  minTargetPx={120}
+                  defaultPct={DEFAULT_TERMINAL_PCT}
+                  onCommit={workbench.setTerminalPct}
+                  label="Resize the terminal"
+                />
+              )}
+              <div
+                ref={drawerRef}
+                style={terminalMax ? undefined : { height: `${workbench.terminalPct}%` }}
+                className={cn('min-h-0', terminalMax ? 'flex-1' : 'flex-shrink-0')}
+              >
+                <TerminalDrawer
+                  source={sessionFolder(session.id)}
+                  disabled={terminalNotReady}
+                  disabledReason={terminalNotReady ? 'Setting up worktree…' : undefined}
+                  maximized={terminalMax}
+                  onToggleMaximize={() => workbench.dispatch({ type: 'toggleTerminalMaximize' })}
+                  onHide={() => workbench.dispatch({ type: 'toggleTerminal' })}
+                />
+              </div>
+            </>
           )}
         </div>
       </div>

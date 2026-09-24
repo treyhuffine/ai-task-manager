@@ -30,6 +30,12 @@ interface ExecutionActionBarProps {
    *     by the desktop header's narrative layout variant.
    */
   variant?: 'row' | 'inline' | 'narrative';
+  /**
+   * Narrative only: size the chip to its content instead of stretching to
+   * the row. The desktop header sets this, since the chip sits at its far
+   * right next to the layout toggles.
+   */
+  fit?: boolean;
 }
 
 /**
@@ -40,7 +46,7 @@ interface ExecutionActionBarProps {
  * For non-git workspaces and not-yet-provisioned worktrees the bar
  * collapses to nothing (handled at the call site).
  */
-export function ExecutionActionBar({ session, workspace, variant = 'row' }: ExecutionActionBarProps) {
+export function ExecutionActionBar({ session, workspace, variant = 'row', fit = false }: ExecutionActionBarProps) {
   const { state, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts } = useExecutionActions(
     session,
     workspace?.isGit ?? false,
@@ -225,6 +231,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row' }: Exec
       <>
         <Narrative
           state={state}
+          fit={fit}
           sessionId={session.id}
           push={{ pending: push.isPending, onClick: handlePush }}
           pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
@@ -507,7 +514,11 @@ function PrChip({ sessionId, prNumber, prUrl, closed }: PrChipProps) {
         <span>PR #{prNumber}</span>
         <ArrowUpRight size={11} className="opacity-70" />
       </a>
-      {!closed && <PrStatusBadges sessionId={sessionId} />}
+      {!closed && (
+        <span className="inline-flex items-center gap-1.5 @max-[1120px]/exec:hidden">
+          <PrStatusBadges sessionId={sessionId} />
+        </span>
+      )}
     </span>
   );
 }
@@ -581,6 +592,7 @@ function ReviewBadge({ decision }: { decision: PrReviewDecision }) {
 
 interface NarrativeProps {
   state: ActionState;
+  fit?: boolean;
   sessionId: string;
   push: { pending: boolean; onClick: () => void };
   pullBase: { pending: boolean; onClick: () => void };
@@ -666,13 +678,13 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
  * (via `justify-between`), and the chip itself is tinted by state so
  * the user can recognize the situation at a glance.
  */
-function Narrative({ state, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeProps) {
+function Narrative({ state, fit, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeProps) {
   const theme = THEME_BY_STATE[state.kind];
   if (!theme) return null;
 
   return (
     <div
-      className={`inline-flex w-full items-center justify-between gap-3 rounded-lg border pl-1 pr-1 py-1 text-[11px] max-w-full overflow-hidden ${theme.chip}`}
+      className={`inline-flex ${fit ? 'w-auto' : 'w-full'} items-center justify-between gap-3 rounded-lg border pl-1 pr-1 py-1 text-[11px] max-w-full overflow-hidden ${theme.chip}`}
     >
       <NarrativeBody
         state={state}
@@ -919,7 +931,7 @@ function NarrativeLeft({ children }: { children: React.ReactNode }) {
 
 function NarrativeText({ children, themed }: { children: React.ReactNode; themed: string }) {
   return (
-    <span className={`truncate font-medium ${themed}`}>
+    <span className={`whitespace-nowrap font-medium ${themed}`}>
       {children}
     </span>
   );

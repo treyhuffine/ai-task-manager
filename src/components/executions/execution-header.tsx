@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, StretchHorizontal, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -14,6 +14,7 @@ import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
+import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { fsApi } from '@/lib/api/fs';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
@@ -21,65 +22,80 @@ import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { TakeoverButton } from './takeover/takeover-button';
 import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
-import { ReferencesButton } from './references-pane';
-import { ScratchpadButton } from './scratchpad-pane';
-import { deriveExecutionHeaderStatus } from './execution-header-status';
+import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { HOME_VIEW } from '@/lib/client/active-view';
 
-type HeaderLayout = 'right' | 'inline' | 'center';
-
-const HEADER_LAYOUT_KEY = 'ri.execution.header.layout';
-const DEFAULT_HEADER_LAYOUT: HeaderLayout = 'right';
-
-function readPersistedLayout(): HeaderLayout {
-  if (typeof window === 'undefined') return DEFAULT_HEADER_LAYOUT;
-  try {
-    const raw = window.localStorage.getItem(HEADER_LAYOUT_KEY);
-    if (raw === 'right' || raw === 'inline' || raw === 'center') return raw;
-    // Migrate the old `narrative` value (which was center+narrative) to `center`.
-    if (raw === 'narrative') return 'center';
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_HEADER_LAYOUT;
-}
-
 interface ExecutionHeaderProps {
   session: ChatSessionWithExecution;
   workspace: WorkspaceRecord | undefined;
+  /** Phone: the back button. (Desktop closes from the top bar and ⌘E.) */
   onClose: () => void;
-  /** Toggle the Notes & Tasks slide-over. */
-  onToggleReferences?: () => void;
-  /** Toggle the Scratchpad slide-out. */
-  onToggleScratchpad?: () => void;
-  /** True when the references pane is currently visible. */
-  referencesOpen?: boolean;
-  /** True when the scratchpad pane is currently visible. */
-  scratchpadOpen?: boolean;
   /** Live runtime state from this session's dedicated status stream. */
   isRunning: boolean;
   /** Authoritative active child/process state from this session's runtime stream. */
   hasBackgroundTasks: boolean;
+  /** Desktop: the labeled Terminal and Tools toggles. */
+  workbench?: {
+    terminalOpen: boolean;
+    onToggleTerminal: () => void;
+    panelOpen: boolean;
+    onTogglePanel: () => void;
+    /** What the Tools toggle reopens, for its tooltip. */
+    panelLabel: string;
+  };
+  /** Phone: opens the Tools sheet. */
+  onOpenTools?: () => void;
+  /** A small status dot for the phone's Tools button (the app is running, failed…). */
+  toolsBadgeClass?: string | null;
+}
+
+const TONE_DOT: Record<ChatStatusTone, string> = {
+  green: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+  blue: 'bg-blue-500',
+  muted: 'bg-transparent ring-[1.5px] ring-inset ring-muted-foreground/60',
+};
+
+const TONE_TEXT: Record<ChatStatusTone, string> = {
+  green: 'text-muted-foreground',
+  amber: 'text-amber-700 dark:text-amber-400',
+  rose: 'text-rose-700 dark:text-rose-400',
+  blue: 'text-muted-foreground',
+  muted: 'text-muted-foreground',
+};
+
+/** Re-render on an interval so "Finished 5m ago" stays true. */
+function useMinuteTick() {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 }
 
 /**
- * Top strip of the execution view: workspace + label, branch + base sha,
- * status pill, action affordances. The open execution's dedicated runtime
- * status is passed directly so a slower rail snapshot cannot overwrite it.
+ * The execution's header. Desktop: the agent and title, the selected chat's
+ * status in words, the menu, then the labeled Terminal and Tools toggles
+ * and, at the far right, the git chip (colored by state, with the one next
+ * step). The header reads, the chip acts, and the toggles only change what
+ * you're looking at.
+ *
+ * Phone: back, the title with the status under it, a Tools button that
+ * opens the tools sheet, and the menu. The git chip gets its own row below.
  */
 export function ExecutionHeader({
   session,
   workspace,
   onClose,
-  onToggleReferences,
-  onToggleScratchpad,
-  referencesOpen,
-  scratchpadOpen,
   isRunning,
   hasBackgroundTasks,
+  workbench,
+  onOpenTools,
+  toolsBadgeClass,
 }: ExecutionHeaderProps) {
   const { pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
   const { confirmArchive } = useArchiveWithConfirm();
@@ -88,11 +104,7 @@ export function ExecutionHeader({
   const markUnread = useMarkSessionUnread();
   const pin = usePinSession();
   const unpin = useUnpinSession();
-
-  // Header layout variant — three arrangements the user can flip between
-  // to compare. Persisted in localStorage. Default `right` (actions
-  // adjacent to the right cluster).
-  const [headerLayout] = useState<HeaderLayout>(() => readPersistedLayout());
+  useMinuteTick();
 
   // Inline rename: click the label → swap to input. Enter / blur saves
   // via PATCH /api/sessions/:id; Escape cancels. The local draft holds
@@ -154,11 +166,6 @@ export function ExecutionHeader({
   const isSettingUp =
     !!workspace && workspace.isGit === true && !session.worktreePath && !isSetupFailed;
 
-  // Single tagged state — keeps label, dot color, and pill chrome from
-  // drifting out of sync. Order matters: archived/failed/setup are
-  // terminal-ish blockers; pending wins over running because the
-  // agent process is still alive but blocked on the user, so "working"
-  // would be misleading; needsResponse > idle > ready.
   const statusKind = deriveExecutionHeaderStatus({
     isArchived,
     isSetupFailed,
@@ -169,29 +176,20 @@ export function ExecutionHeader({
     lastOutcomeEventAt: session.lastOutcomeEventAt,
     lastViewedAt: session.lastViewedAt,
   });
-
-  const statusLabel = statusKind === 'setting-up'
-    ? 'setting up'
-    : statusKind === 'setup-failed'
-      ? 'setup failed'
-      : statusKind === 'pending'
-        ? 'needs input'
-        : statusKind;
-
-  const statusColor =
-    statusKind === 'working'
-      ? 'bg-emerald-500'
-      : statusKind === 'background'
-        ? 'bg-amber-500'
-        : statusKind === 'setup-failed'
-          ? 'bg-rose-500'
-          : statusKind === 'setting-up'
-            ? 'bg-blue-500'
-            : statusKind === 'pending' || statusKind === 'respond'
-              ? 'bg-amber-500'
-              : statusKind === 'ready'
-                ? 'bg-blue-500'
-                : 'bg-zinc-400';
+  // The selected chat's status in words. Status is text with a dot: no
+  // border, no hover, so it never reads as a button.
+  const chatStatus = describeChatStatus(statusKind, session.lastOutcomeEventAt, formatCompactRelative);
+  const statusEl = (
+    <span
+      title={chatStatus.title}
+      aria-label={`Status: ${chatStatus.label}${chatStatus.detail ? `, ${chatStatus.detail}` : ''}`}
+      className={cn('inline-flex min-w-0 cursor-default items-center gap-1.5 whitespace-nowrap text-[12px]', TONE_TEXT[chatStatus.tone])}
+    >
+      <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', TONE_DOT[chatStatus.tone], chatStatus.pulse && 'animate-pulse')} />
+      <span>{chatStatus.label}</span>
+      {chatStatus.detail && <span className="truncate text-muted-foreground/80">· {chatStatus.detail}</span>}
+    </span>
+  );
 
   const handleArchive = () => {
     void confirmArchive({
@@ -201,8 +199,6 @@ export function ExecutionHeader({
     });
   };
 
-  // Shared elements between layouts. Defined once so mobile + desktop
-  // pick the same code paths for rename, archive, status, etc.
   const labelElement = editing ? (
     <input
       ref={inputRef}
@@ -221,53 +217,10 @@ export function ExecutionHeader({
       }}
       placeholder="Untitled"
       maxLength={120}
-      className="flex-1 min-w-0 bg-background border border-primary/40 rounded px-1.5 py-0.5 text-[13px] lg:text-[11px] font-semibold text-foreground focus:outline-none"
+      className="flex-1 min-w-0 bg-background border border-primary/40 rounded px-1.5 py-0.5 text-[13px] lg:text-[12.5px] font-semibold text-foreground focus:outline-none"
       spellCheck={false}
     />
   ) : null;
-
-  // Pulse for live activity: agent working, setup in progress, or
-  // blocking on a user response that the user should notice.
-  const dotPulses =
-    statusKind === 'working'
-    || statusKind === 'background'
-    || statusKind === 'setting-up'
-    || statusKind === 'pending';
-  const statusDot = (
-    <span className={cn('w-1.5 h-1.5 rounded-full', statusColor, dotPulses && 'animate-pulse')} />
-  );
-
-  // Tinted pill styling per state — sits adjacent to the execution label
-  // in the left cluster so the user reads it as part of the session
-  // identity, not as right-rail metadata.
-  const statusPillBg =
-    statusKind === 'working'
-      ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-400'
-      : statusKind === 'background'
-        ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
-        : statusKind === 'setup-failed'
-          ? 'bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-400'
-          : statusKind === 'setting-up'
-            ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
-            : statusKind === 'pending' || statusKind === 'respond'
-              ? 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400'
-              : statusKind === 'ready'
-                ? 'bg-blue-500/10 border-blue-500/25 text-blue-700 dark:text-blue-400'
-                : 'bg-muted/60 border-border text-muted-foreground';
-
-  const statusPill = (
-    <span
-      aria-label={`Status: ${statusLabel}`}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5',
-        'text-[10px] font-semibold capitalize flex-shrink-0',
-        statusPillBg,
-      )}
-    >
-      {statusDot}
-      {statusLabel}
-    </span>
-  );
 
   const archiveMenuItem = !isArchived && (
     <button
@@ -347,10 +300,111 @@ export function ExecutionHeader({
   const providerResumeCommand = session.externalSessionId
     ? resumeCommandForHarness(session.harness, session.externalSessionId)
     : null;
+  const showGit = !!workspace?.isGit && (!!session.worktreePath || !!session.setupError);
+
+  // One menu for passive details and meta actions, shared by both layouts.
+  const menu = (align: 'start' | 'end', triggerClass: string, iconSize: number) => (
+    <PopoverPrimitive.Root>
+      <PopoverPrimitive.Trigger asChild>
+        <button type="button" aria-label="Execution menu" title="Execution menu" className={triggerClass}>
+          <MoreHorizontal size={iconSize} />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="bottom"
+          align={align}
+          sideOffset={6}
+          collisionPadding={12}
+          className="z-50 max-h-[min(80vh,640px)] w-[min(22rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-border bg-popover shadow-xl pointer-events-auto outline-none"
+        >
+          <div className="p-1">
+            <button
+              type="button"
+              onClick={beginRename}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+            >
+              <Pencil12 />
+              Rename
+            </button>
+            {pinMenuItem}
+            {readStateMenuItem}
+            <DensityMenuItem />
+          </div>
+
+          {worktreeLinks && (
+            <>
+              <div className="h-px bg-border" />
+              <div className="p-1.5">{worktreeLinks}</div>
+            </>
+          )}
+
+          <div className="h-px bg-border" />
+          <div className="p-1">{takeoverMenuItem}</div>
+
+          <div className="h-px bg-border" />
+          <div className="p-2">
+            <LinkPrSection sessionId={session.id} linkedNumber={session.prNumber ?? null} />
+          </div>
+
+          <div className="h-px bg-border" />
+          <div className="p-1"><RestartMenuItem sessionId={session.id} /></div>
+          <div className="p-1 pt-0"><ResyncMenuItem sessionId={session.id} imported={session.surfaceKind === 'imported_agent'} /></div>
+
+          <div className="h-px bg-border" />
+          <div className="p-3 space-y-2.5 text-[12px]">
+            <DetailRow label="Agent" value={workspace?.name ?? '-'} valueClass="font-medium text-foreground" />
+            {workspace?.baseBranch && (
+              <DetailRow label="Base" value={workspace.baseBranch} valueClass="font-mono text-foreground" />
+            )}
+            {session.branchName && (
+              <DetailRow label="Branch" value={session.branchName} valueClass="font-mono text-foreground break-all" />
+            )}
+            {session.baseSha && (
+              <DetailRow label="Base sha" value={`@${session.baseSha.slice(0, 7)}`} valueClass="font-mono text-foreground" />
+            )}
+            <DetailRow label="Status" value={chatStatus.label} valueClass="text-foreground" />
+            <CopyableDetailRow label="Session" value={session.id} copyLabel="app session id" />
+            {session.executionId && (
+              <CopyableDetailRow label="Execution" value={session.executionId} copyLabel="execution id" />
+            )}
+            {session.externalSessionId && (
+              <>
+                <CopyableDetailRow
+                  label={resumeIdLabel(session.harness)}
+                  value={session.externalSessionId}
+                  copyLabel={`${resumeIdLabel(session.harness).toLowerCase()}`}
+                />
+                {providerResumeCommand && (
+                  <CopyableDetailRow label="Resume" value={providerResumeCommand} copyLabel="resume command" />
+                )}
+              </>
+            )}
+            {session.worktreePath && (
+              <DetailRow label="Path" value={session.worktreePath} valueClass="font-mono text-[11px] text-foreground/80 break-all" />
+            )}
+            {session.startedAt && (
+              <DetailRow label="Started" value={new Date(session.startedAt).toLocaleString()} valueClass="text-foreground/85" />
+            )}
+            {session.prNumber != null && (
+              <DetailRow label="Linked PR" value={`#${session.prNumber}`} valueClass="font-mono text-foreground" />
+            )}
+          </div>
+
+          {archiveMenuItem && (
+            <>
+              <div className="h-px bg-border" />
+              <div className="p-1">{archiveMenuItem}</div>
+            </>
+          )}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
 
   return (
     <div className="flex-shrink-0 border-b border-border bg-background">
-      {/* ─── Mobile header (under lg) ────────────────────────── */}
+      {/* ─── Phone header (under lg) ────────────────────────── */}
       <div className="lg:hidden flex items-center gap-1 px-2 py-2">
         <button
           onClick={onClose}
@@ -360,165 +414,48 @@ export function ExecutionHeader({
           <ChevronLeft size={20} />
         </button>
 
-        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          {workspace?.emoji && <span className="text-base flex-shrink-0">{workspace.emoji}</span>}
-          {labelElement ?? (
-            <button
-              type="button"
-              onClick={beginRename}
-              title="Rename"
-              className={cn(
-                'truncate text-left rounded px-1 -mx-1 py-0.5',
-                'active:bg-muted/40 transition-colors cursor-text',
-                displayLabel
-                  ? 'text-foreground font-semibold text-[14px]'
-                  : 'text-muted-foreground/70 italic font-normal text-[14px]',
-              )}
-            >
-              {displayLabel ?? 'Untitled'}
-            </button>
-          )}
-        </div>
-
-        {statusPill}
-
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          {liveBadge}
-          <DensityToggle />
-
-          {/* Consolidated session menu — details on top, archive below
-              the divider. Same shape as desktop. */}
-          <PopoverPrimitive.Root>
-            <PopoverPrimitive.Trigger asChild>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {workspace?.emoji && <span className="text-base flex-shrink-0">{workspace.emoji}</span>}
+            {labelElement ?? (
               <button
                 type="button"
-                aria-label="Session menu"
-                className="p-2 rounded-md text-muted-foreground active:bg-muted/40"
+                onClick={beginRename}
+                title="Rename"
+                className={cn(
+                  'truncate text-left rounded px-1 -mx-1 py-0.5',
+                  'active:bg-muted/40 transition-colors cursor-text',
+                  displayLabel
+                    ? 'text-foreground font-semibold text-[14.5px]'
+                    : 'text-muted-foreground/70 italic font-normal text-[14.5px]',
+                )}
               >
-                <MoreHorizontal size={16} />
+                {displayLabel ?? 'Untitled'}
               </button>
-            </PopoverPrimitive.Trigger>
-            <PopoverPrimitive.Portal>
-              <PopoverPrimitive.Content
-                side="bottom"
-                align="end"
-                sideOffset={6}
-                collisionPadding={12}
-                className="z-50 w-[min(20rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-popover shadow-xl pointer-events-auto outline-none"
-              >
-                <div className="p-3 space-y-2.5 text-[12px]">
-                  <DetailRow
-                    label="Agent"
-                    value={workspace?.name ?? '-'}
-                    valueClass="font-medium text-foreground"
-                  />
-                  {session.branchName && (
-                    <DetailRow
-                      label="Branch"
-                      value={session.branchName}
-                      valueClass="font-mono text-foreground break-all"
-                    />
-                  )}
-                  {session.baseSha && (
-                    <DetailRow
-                      label="Base"
-                      value={`@${session.baseSha.slice(0, 7)}`}
-                      valueClass="font-mono text-foreground"
-                    />
-                  )}
-                  <DetailRow
-                    label="Status"
-                    value={statusLabel}
-                    valueClass="text-foreground capitalize"
-                  />
-                  <CopyableDetailRow
-                    label="Session"
-                    value={session.id}
-                    copyLabel="app session id"
-                  />
-                  {session.executionId && (
-                    <CopyableDetailRow
-                      label="Execution"
-                      value={session.executionId}
-                      copyLabel="execution id"
-                    />
-                  )}
-                  {session.externalSessionId && (
-                    <>
-                      <CopyableDetailRow
-                        label={resumeIdLabel(session.harness)}
-                        value={session.externalSessionId}
-                        copyLabel={`${resumeIdLabel(session.harness).toLowerCase()}`}
-                      />
-                      {providerResumeCommand && (
-                        <CopyableDetailRow
-                          label="Resume"
-                          value={providerResumeCommand}
-                          copyLabel="resume command"
-                        />
-                      )}
-                    </>
-                  )}
-                  {session.worktreePath && (
-                    <DetailRow
-                      label="Path"
-                      value={session.worktreePath}
-                      valueClass="font-mono text-[11px] text-foreground/80 break-all"
-                    />
-                  )}
-                </div>
-                <div className="h-px bg-border" />
-                <div className="p-1">
-                  {readStateMenuItem}
-                  {pinMenuItem}
-                </div>
-                {worktreeLinks && (
-                  <>
-                    <div className="h-px bg-border" />
-                    <div className="p-1.5">{worktreeLinks}</div>
-                  </>
-                )}
-                <div className="h-px bg-border" />
-                <div className="p-1">{takeoverMenuItem}</div>
-                <div className="h-px bg-border" />
-                <div className="p-1"><RestartMenuItem sessionId={session.id} /></div>
-                <div className="h-px bg-border" />
-                <div className="p-1"><ResyncMenuItem sessionId={session.id} imported={session.surfaceKind === 'imported_agent'} /></div>
-                {archiveMenuItem && (
-                  <>
-                    <div className="h-px bg-border" />
-                    <div className="p-1">{archiveMenuItem}</div>
-                  </>
-                )}
-              </PopoverPrimitive.Content>
-            </PopoverPrimitive.Portal>
-          </PopoverPrimitive.Root>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0 pl-0.5">
+            {statusEl}
+            {liveBadge}
+          </div>
         </div>
+
+        {onOpenTools && (
+          <button
+            type="button"
+            onClick={onOpenTools}
+            className="relative flex h-9 flex-shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium text-foreground/90 active:bg-muted/50"
+          >
+            Tools
+            {toolsBadgeClass && <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', toolsBadgeClass)} />}
+          </button>
+        )}
+        {menu('end', 'p-2 rounded-md text-muted-foreground active:bg-muted/40', 16)}
       </div>
 
       {/* ─── Desktop header (lg+) ────────────────────────────── */}
-      <div className="hidden lg:flex items-center gap-2 px-2 py-1 min-w-0">
-        {/* Left cluster: close + workspace/label + consolidated menu.
-            The ⋯ menu is the one passive-info-and-archive surface for
-            this session — replaces the separate ⓘ and ⋯ buttons that
-            used to sit on the right edge. */}
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0"
-          aria-label="Close execution"
-          title={`Close (${HOTKEYS.closeView.label})`}
-        >
-          <X size={14} />
-        </button>
-
-        <div
-          className={cn(
-            'flex items-center gap-1.5 text-[11px] text-muted-foreground/80 min-w-0',
-            // The label shrinks when the narrative chip sits adjacent to
-            // it (`inline`); otherwise the label gets more room.
-            headerLayout === 'inline' ? 'max-w-[25%]' : 'max-w-[45%]',
-          )}
-        >
+      <div className="hidden lg:flex items-center gap-2 px-3 h-11 min-w-0">
+        <div className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground/80 min-w-0">
           {/* Breadcrumb: the agent opens its view, the way back up from
               the workbench to the oversight surface. */}
           {workspace ? (
@@ -526,10 +463,10 @@ export function ExecutionHeader({
               type="button"
               onClick={() => openAgent(workspace.id)}
               title={`Open ${workspace.name}`}
-              className="flex items-center gap-1.5 min-w-0 rounded px-0.5 -mx-0.5 hover:text-foreground hover:bg-muted/50 transition-colors"
+              className="flex items-center gap-1.5 min-w-0 flex-shrink-0 rounded px-0.5 -mx-0.5 hover:text-foreground hover:bg-muted/50 transition-colors"
             >
               {workspace.emoji && <span className="flex-shrink-0">{workspace.emoji}</span>}
-              <span className="font-medium truncate">{workspace.name}</span>
+              <span className="font-medium truncate max-w-[14rem] @max-[1120px]/exec:hidden">{workspace.name}</span>
             </button>
           ) : (
             <span className="font-medium truncate">Agent</span>
@@ -541,11 +478,9 @@ export function ExecutionHeader({
               onClick={beginRename}
               title="Rename"
               className={cn(
-                'truncate text-left rounded px-0.5 -mx-0.5 min-w-0',
+                'truncate text-left rounded px-0.5 -mx-0.5 min-w-0 text-[13px]',
                 'hover:bg-muted/50 transition-colors cursor-text',
-                displayLabel
-                  ? 'text-foreground font-semibold'
-                  : 'text-muted-foreground/60 italic font-normal',
+                displayLabel ? 'text-foreground font-semibold' : 'text-muted-foreground/60 italic font-normal',
               )}
             >
               {displayLabel ?? 'Untitled'}
@@ -553,192 +488,41 @@ export function ExecutionHeader({
           )}
         </div>
 
-        {statusPill}
+        {statusEl}
+        {liveBadge}
+        {menu('start', 'p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0', 14)}
 
-        {/* Chat management (tabs, new chat, history) lives in the chat
-            tab strip below the header — see ExecutionChatTabs. */}
+        <span className="flex-1" />
 
-        {/* Session menu — sits adjacent to the label so all the
-            "passive info + meta actions" live in one spot. Details
-            section (read-only) on top, actions below the divider. */}
-        <PopoverPrimitive.Root>
-          <PopoverPrimitive.Trigger asChild>
-            <button
-              type="button"
-              aria-label="Session menu"
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0"
-              title="Session details"
-            >
-              <MoreHorizontal size={14} />
-            </button>
-          </PopoverPrimitive.Trigger>
-          <PopoverPrimitive.Portal>
-            <PopoverPrimitive.Content
-              side="bottom"
-              align="start"
-              sideOffset={6}
-              collisionPadding={12}
-              className="z-50 w-[min(22rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-popover shadow-xl pointer-events-auto outline-none"
-            >
-              <div className="p-3 space-y-2.5 text-[12px]">
-                <DetailRow
-                  label="Agent"
-                  value={workspace?.name ?? '-'}
-                  valueClass="font-medium text-foreground"
-                />
-                {workspace?.baseBranch && (
-                  <DetailRow
-                    label="Base branch"
-                    value={workspace.baseBranch}
-                    valueClass="font-mono text-foreground"
-                  />
-                )}
-                {session.branchName && (
-                  <DetailRow
-                    label="Branch"
-                    value={session.branchName}
-                    valueClass="font-mono text-foreground break-all"
-                  />
-                )}
-                {session.baseSha && (
-                  <DetailRow
-                    label="Base sha"
-                    value={`@${session.baseSha.slice(0, 7)}`}
-                    valueClass="font-mono text-foreground"
-                  />
-                )}
-                <DetailRow
-                  label="Status"
-                  value={statusLabel}
-                  valueClass="text-foreground capitalize"
-                />
-                <CopyableDetailRow
-                  label="Session"
-                  value={session.id}
-                  copyLabel="app session id"
-                />
-                {session.executionId && (
-                  <CopyableDetailRow
-                    label="Execution"
-                    value={session.executionId}
-                    copyLabel="execution id"
-                  />
-                )}
-                {session.externalSessionId && (
-                  <>
-                    <CopyableDetailRow
-                      label={resumeIdLabel(session.harness)}
-                      value={session.externalSessionId}
-                      copyLabel={`${resumeIdLabel(session.harness).toLowerCase()}`}
-                    />
-                    {providerResumeCommand && (
-                      <CopyableDetailRow
-                        label="Resume"
-                        value={providerResumeCommand}
-                        copyLabel="resume command"
-                      />
-                    )}
-                  </>
-                )}
-                {session.worktreePath && (
-                  <DetailRow
-                    label="Path"
-                    value={session.worktreePath}
-                    valueClass="font-mono text-[11px] text-foreground/80 break-all"
-                  />
-                )}
-                {session.startedAt && (
-                  <DetailRow
-                    label="Started"
-                    value={new Date(session.startedAt).toLocaleString()}
-                    valueClass="text-foreground/85"
-                  />
-                )}
-                {session.prNumber != null && (
-                  <DetailRow
-                    label="Linked PR"
-                    value={`#${session.prNumber}`}
-                    valueClass="font-mono text-foreground"
-                  />
-                )}
-              </div>
-
-              <div className="h-px bg-border" />
-              <div className="p-1">
-                {readStateMenuItem}
-                {pinMenuItem}
-              </div>
-
-              {/* Link / unlink a PR explicitly. Useful when the PR's
-                  head ref doesn't match the session's branch name
-                  (e.g. someone opened the PR from a fork or renamed
-                  the branch). The PR route prefers this when set. */}
-              <div className="h-px bg-border" />
-              <div className="p-2">
-                <LinkPrSection
-                  sessionId={session.id}
-                  linkedNumber={session.prNumber ?? null}
-                />
-              </div>
-
-              {worktreeLinks && (
-                <>
-                  <div className="h-px bg-border" />
-                  <div className="p-1.5">{worktreeLinks}</div>
-                </>
-              )}
-
-              <div className="h-px bg-border" />
-              <div className="p-1">{takeoverMenuItem}</div>
-
-              <div className="h-px bg-border" />
-              <div className="p-1"><RestartMenuItem sessionId={session.id} /></div>
-
-              <div className="h-px bg-border" />
-              <div className="p-1"><ResyncMenuItem sessionId={session.id} imported={session.surfaceKind === 'imported_agent'} /></div>
-
-              {archiveMenuItem && (
-                <>
-                  <div className="h-px bg-border" />
-                  <div className="p-1">{archiveMenuItem}</div>
-                </>
-              )}
-            </PopoverPrimitive.Content>
-          </PopoverPrimitive.Portal>
-        </PopoverPrimitive.Root>
-
-        {/* All three layouts now use the narrative chip — only its
-            position differs. `inline` sits adjacent to the label;
-            `center` floats in the middle spacer; `right` lives in the
-            right cluster just before state + editor. */}
-        {headerLayout === 'inline' && workspace?.isGit && (!!session.worktreePath || !!session.setupError) && (
-          <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
+        {workbench && (
+          <>
+            <ToggleButton
+              on={workbench.terminalOpen}
+              onClick={workbench.onToggleTerminal}
+              label="Terminal"
+              title={`${workbench.terminalOpen ? 'Hide' : 'Show'} the terminal (${HOTKEYS.toggleTerminal.label}). Shells keep running.`}
+              icon={<BottomPanelIcon filled={workbench.terminalOpen} />}
+            />
+            <ToggleButton
+              on={workbench.panelOpen}
+              onClick={workbench.onTogglePanel}
+              label="Tools"
+              title={workbench.panelOpen ? 'Hide the tools panel' : `Show ${workbench.panelLabel}`}
+              icon={<RightPanelIcon filled={workbench.panelOpen} />}
+            />
+          </>
         )}
 
-        <div
-          className={cn(
-            'flex-1 flex items-center min-w-0 overflow-hidden px-2',
-            headerLayout === 'center' ? 'justify-center' : '',
-          )}
-        >
-          {headerLayout === 'center' && workspace?.isGit && (!!session.worktreePath || !!session.setupError) && (
-            <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {liveBadge}
-          <DensityToggle />
-          {onToggleReferences && (
-            <ReferencesButton open={referencesOpen} onClick={onToggleReferences} />
-          )}
-          {onToggleScratchpad && (
-            <ScratchpadButton sessionId={session.id} open={scratchpadOpen} onClick={onToggleScratchpad} />
-          )}
-          {headerLayout === 'right' && workspace?.isGit && (!!session.worktreePath || !!session.setupError) && (
-            <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
-          )}
-        </div>
+        {showGit && workspace && (
+          // The chip renders nothing in some states (a clean worktree with
+          // no branch commits yet). `has-[>div:empty]` drops the divider too.
+          <div className="flex flex-shrink-0 items-center gap-2 has-[>div:empty]:hidden">
+            <span aria-hidden className="mx-1 h-5 w-px flex-shrink-0 bg-border" />
+            <div className="flex-shrink-0">
+              <ExecutionActionBar session={session} workspace={workspace} variant="narrative" fit />
+            </div>
+          </div>
+        )}
       </div>
       {/* What this workstream is working — one task or several. */}
       {session.executionId && <ExecutionTaskChips executionId={session.executionId} />}
@@ -747,29 +531,96 @@ export function ExecutionHeader({
 }
 
 /**
- * Quick toggle for transcript density (condensed ↔ full feed). Persists
+ * A labeled layout toggle. The words are on purpose: the two panel glyphs
+ * are nearly identical, and a redundant label costs less than a wrong
+ * click. They fold to icons when the header runs out of room.
+ */
+function ToggleButton({
+  on,
+  onClick,
+  label,
+  title,
+  icon,
+}: {
+  on: boolean;
+  onClick: () => void;
+  label: string;
+  title: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={on}
+      className={cn(
+        'flex h-7 flex-shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium transition-colors',
+        on ? 'bg-muted/70 text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+      )}
+    >
+      {icon}
+      <span className="@max-[1040px]/exec:hidden">{label}</span>
+    </button>
+  );
+}
+
+function BottomPanelIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 15h18" />
+      {filled && <path d="M3 15h18v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" />}
+    </svg>
+  );
+}
+
+function RightPanelIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M15 3v18" />
+      {filled && <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4z" fill="currentColor" />}
+    </svg>
+  );
+}
+
+function Pencil12() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+    </svg>
+  );
+}
+
+/**
+ * Transcript density (condensed ↔ full feed), as a menu toggle. Persists
  * via the shared `useTranscriptDensity` preference, so it stays in sync
  * with the Settings control and across tabs.
  */
-function DensityToggle() {
+function DensityMenuItem() {
   const { density, toggle } = useTranscriptDensity();
   const condensed = density === 'condensed';
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={condensed ? 'Switch to full feed' : 'Switch to condensed'}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0"
-        >
-          {condensed ? <Rows3 size={14} /> : <StretchHorizontal size={14} />}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={4}>
-        {condensed ? 'Condensed, tap for full feed' : 'Full feed, tap to condense'}
-      </TooltipContent>
-    </Tooltip>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={condensed}
+      onClick={toggle}
+      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
+    >
+      <Rows3 size={12} />
+      Condensed transcript
+      <span
+        aria-hidden
+        className={cn(
+          'ml-auto inline-flex h-4 w-7 items-center rounded-full p-0.5 transition-colors',
+          condensed ? 'bg-foreground' : 'bg-muted-foreground/30',
+        )}
+      >
+        <span className={cn('h-3 w-3 rounded-full bg-background transition-transform', condensed && 'translate-x-3')} />
+      </span>
+    </button>
   );
 }
 

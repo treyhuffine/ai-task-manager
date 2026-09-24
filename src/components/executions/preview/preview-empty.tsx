@@ -221,7 +221,7 @@ interface CommandEditorProps {
  * Keyboard: Enter saves, Escape cancels. The textarea is single-line
  * so Enter doesn't insert a newline.
  */
-function CommandEditor({
+export function CommandEditor({
   initialValue, startInEditMode, placeholder, onSave, isSaving,
 }: CommandEditorProps) {
   const [editing, setEditing] = useState(!!startInEditMode);

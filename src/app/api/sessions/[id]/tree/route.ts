@@ -6,7 +6,7 @@ import { withCompression } from '@/lib/api/compression';
 
 /**
  * Flat list of the worktree's tracked + untracked files for the file
- * tree column of the execution view. Status flags are layered in for
+ * tree in the execution workbench's Files view. Status flags are layered in for
  * changed files; everything else is bare path + name.
  *
  * Non-git workspaces fall back to a `ws.tree()` walk with the common

@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 /**
- * Shared loading skeletons for the execution view's worktree columns.
+ * Shared loading skeletons for the execution workbench's worktree views.
  *
  * One module so every "this pane is loading" moment reads the same:
  * the full-view `<ExecutionSkeleton>` on a cold session, the file tree

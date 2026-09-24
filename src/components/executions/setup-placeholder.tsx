@@ -3,7 +3,7 @@
 import { FileSkeleton, TreeRowsSkeleton } from './skeletons';
 
 /**
- * Cover for the file tree and viewer columns while the worktree is being
+ * Cover for the workbench's worktree views while the worktree is being
  * created (or failed and is awaiting a retry click on the SetupCard).
  * The same skeletons those columns use once they're mounted, plus a
  * one-line status label — so provisioning, loading and "file still

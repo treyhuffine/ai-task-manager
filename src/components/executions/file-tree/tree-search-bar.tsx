@@ -70,6 +70,8 @@ export function TreeSearchBar({
       </button>
       <input
         ref={inputRef}
+        // Go to file (⌘P) focuses this from the execution workbench.
+        data-tree-search=""
         type="text"
         value={query}
         onChange={(e) => onChange(e.target.value)}

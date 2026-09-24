@@ -291,7 +291,7 @@ export function useSessionDiff(id: string | null, file?: string) {
 }
 
 /**
- * The file tree shown in the execution view's tree column. Tier-2 of the
+ * The file tree shown in the execution workbench's Files view. Tier-2 of the
  * refresh strategy: a slow 30s poll catches edits the user made outside
  * the agent (e.g. via VS Code), and the cache is invalidated by the
  * `useSessionStream` consumer for mutating tool calls (Tier 1). Also

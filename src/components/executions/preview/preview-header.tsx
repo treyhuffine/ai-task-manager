@@ -14,21 +14,25 @@ interface PreviewHeaderProps {
   /** Whether the iframe is currently showing content. */
   isLive: boolean;
   /** True while a Start mutation is in flight. */
-  isStarting: boolean;
+  isStarting?: boolean;
   /** True when the server is up / coming up (so Start flips to Stop). */
-  isStarted: boolean;
+  isStarted?: boolean;
   /** Disable the Start button (e.g. setup script still installing deps). */
   disableStart?: boolean;
   /** Tooltip explaining why Start is disabled. */
   disableStartReason?: string;
   /** Whether the logs strip is visible. */
-  logsOpen: boolean;
+  logsOpen?: boolean;
   /** "Open on another device" control — rendered when a preview is live. */
   shareControl?: React.ReactNode;
-  onStart: () => void;
-  onStop: () => void;
+  /**
+   * Process controls. Omit them for an interface-only header: the workbench's
+   * Preview tab leaves Start / Stop / Logs to the Run tab.
+   */
+  onStart?: () => void;
+  onStop?: () => void;
   onRefresh: () => void;
-  onToggleLogs: () => void;
+  onToggleLogs?: () => void;
 }
 
 export function PreviewHeader({
@@ -62,7 +66,7 @@ export function PreviewHeader({
 
   return (
     <div className="flex h-9 items-center gap-1.5 border-b border-border bg-background px-2">
-      {isStarted || isStarting ? (
+      {!onStart || !onStop ? null : isStarted || isStarting ? (
         <button
           type="button"
           onClick={onStop}
@@ -147,7 +151,7 @@ export function PreviewHeader({
 
       {shareControl}
 
-      <button
+      {onToggleLogs && <button
         type="button"
         onClick={onToggleLogs}
         className={cn(
@@ -158,7 +162,7 @@ export function PreviewHeader({
       >
         {logsOpen ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
         Logs
-      </button>
+      </button>}
     </div>
   );
 }

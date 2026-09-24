@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveExecutionHeaderStatus } from './execution-header-status';
+import { deriveExecutionHeaderStatus, describeChatStatus } from './execution-header-status';
 
 const base = {
   isArchived: false,
@@ -53,5 +53,34 @@ describe('deriveExecutionHeaderStatus', () => {
       isPending: true,
       isRunning: true,
     })).toBe('pending');
+  });
+});
+
+describe('describeChatStatus', () => {
+  const ago = (value: string) => () => value;
+
+  it('says when a turn finished instead of a vague "ready"', () => {
+    expect(describeChatStatus('idle', '2026-07-15T20:00:00.000Z', ago('5m')).label).toBe('Finished 5m ago');
+    expect(describeChatStatus('respond', '2026-07-15T20:00:00.000Z', ago('now')).label).toBe('Finished just now');
+    expect(describeChatStatus('idle', '2026-07-15T20:00:00.000Z', ago('Mar 12')).label).toBe('Finished Mar 12');
+  });
+
+  it('keeps background work visible after the turn ends', () => {
+    const s = describeChatStatus('background', '2026-07-15T20:00:00.000Z', ago('3m'));
+    expect(s).toMatchObject({ label: 'Finished 3m ago', detail: 'background task running', pulse: true });
+  });
+
+  it('names the states that need the user', () => {
+    expect(describeChatStatus('pending', null, ago('')).label).toBe('Needs input');
+    expect(describeChatStatus('setup-failed', null, ago('')).tone).toBe('rose');
+  });
+
+  it('a chat with no turns yet is not "finished"', () => {
+    expect(describeChatStatus('ready', null, ago('')).label).toBe('Not started');
+  });
+
+  it('never says "Ready"', () => {
+    const kinds = ['archived', 'setup-failed', 'setting-up', 'pending', 'working', 'background', 'respond', 'idle', 'ready'] as const;
+    for (const k of kinds) expect(describeChatStatus(k, '2026-07-15T20:00:00.000Z', ago('1m')).label).not.toMatch(/ready/i);
   });
 });

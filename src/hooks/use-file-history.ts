@@ -49,11 +49,11 @@ function writeHistory(sessionId: string, entries: FileHistoryEntry[]): void {
 }
 
 /**
- * Per-session LRU of files opened in the execution's viewer. Lifted into
- * `ExecutionView` — the single chokepoint every "open a file" path passes
- * through (tree click, rename/create, transcript chip) — and handed down
- * to `ViewerArea`, so the history menu and the recorder share one source
- * of truth. A second `useState` in the menu wouldn't see opens triggered
+ * Per-session LRU of files opened in the execution's Files view. Lifted
+ * into `ExecutionView` — the single chokepoint every "open a file" path
+ * passes through (tree click, Changes, transcript chip) — and handed down
+ * to the Files view, so its history menu, its empty state and the
+ * recorder share one source of truth. A second `useState` in the menu wouldn't see opens triggered
  * from the tree or chips.
  *
  * Persisted in localStorage keyed by session so the list survives reload

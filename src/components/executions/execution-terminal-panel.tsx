@@ -23,6 +23,10 @@ interface ExecutionTerminalPanelProps {
   collapsed?: boolean;
   /** Toggle the wrapping panel between collapsed and expanded states. */
   onToggleCollapsed?: () => void;
+  /** Tooltip for the collapse chevron, e.g. "Hide terminal". */
+  collapseTitle?: string;
+  /** Extra controls at the right of the tab strip, before the chevron. */
+  headerExtra?: React.ReactNode;
 }
 
 /**
@@ -41,6 +45,8 @@ export function ExecutionTerminalPanel({
   disabledReason,
   collapsed,
   onToggleCollapsed,
+  collapseTitle,
+  headerExtra,
 }: ExecutionTerminalPanelProps) {
   const { data: terminals = [], isLoading } = useTerminals(source);
   const createTerminal = useCreateTerminal(source);
@@ -160,13 +166,14 @@ export function ExecutionTerminalPanel({
             </button>
           )}
         </div>
+        {headerExtra}
         {onToggleCollapsed && (
           <button
             type="button"
             onClick={onToggleCollapsed}
             className="inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 flex-shrink-0"
-            title={collapsed ? 'Expand terminal' : 'Collapse terminal'}
-            aria-label={collapsed ? 'Expand terminal' : 'Collapse terminal'}
+            title={collapseTitle ?? (collapsed ? 'Expand terminal' : 'Collapse terminal')}
+            aria-label={collapseTitle ?? (collapsed ? 'Expand terminal' : 'Collapse terminal')}
           >
             {collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>

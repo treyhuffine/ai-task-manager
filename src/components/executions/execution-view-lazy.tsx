@@ -92,7 +92,7 @@
 //   () => import('./execution-view').then((m) => m.ExecutionView),
 //   {
 //     ssr: false,
-//     loading: () => <ExecutionSkeleton horizontal={{}} vertical={{}} />,
+//     loading: () => <ExecutionSkeleton />,
 //   },
 // );
 

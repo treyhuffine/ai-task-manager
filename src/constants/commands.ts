@@ -26,6 +26,12 @@ export const HOTKEYS = {
   // from everywhere else. Declared here rather than hardcoded in the
   // terminal so the collision is visible in one place.
   terminalClear: { key: 'k', meta: true, label: '\u2318K' },
+  // Execution workbench. `matchesHotkey` treats Ctrl like Cmd, so this is
+  // ⌃` (VS Code's terminal toggle). ⌘` itself belongs to macOS window
+  // cycling and never reaches the page.
+  toggleTerminal: { key: '`', meta: true, label: '\u2303`' },
+  // Open Files and focus the tree's search, like an editor's Go to File.
+  goToFile: { key: 'p', meta: true, label: '\u2318P' },
 } as const satisfies Record<string, Hotkey>;
 
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */

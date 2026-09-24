@@ -1,89 +1,65 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import Placeholder from '@tiptap/extension-placeholder';
-import { X, NotebookPen, Plus, Loader2, ArrowRight } from 'lucide-react';
+import { Plus, Loader2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import { useScratchpad, useSetScratchpad } from '@/hooks/use-execution';
-import { ScratchpadIcon } from '@/components/shared/scratchpad-icon';
 import { api } from '@/lib/api/client';
 
 interface ScratchpadPaneProps {
   sessionId: string;
   workspaceId: string | null;
-  open: boolean;
-  onClose: () => void;
   /** Insert raw text into the composer (used by "Send to chat"). */
   onInsertText: (text: string) => void;
   /** Insert a task / note chip into the composer (used by Promote). */
   onInsertChip: (attrs: { kind: 'task' | 'note'; id: string; title: string }) => void;
+  /**
+   * Drop the caret into the editor on mount. True when the user just opened
+   * the scratchpad, false when the panel restored it on load, so a restore
+   * never steals focus from the message box.
+   */
+  autoFocus?: boolean;
 }
 
 const SAVE_DEBOUNCE_MS = 500;
 
 /**
- * The 📝-button slide-over. Single Tiptap editor over the viewer
- * column, auto-saves on debounce. The body is Markdown text in the DB,
+ * The Scratchpad view in the execution workbench panel. A private draft
+ * space for one chat (it's stored per chat), so the panel names the chat
+ * it belongs to. Single Tiptap editor, auto-saves on debounce. The body is Markdown text in the DB,
  * round-tripped through the @tiptap/markdown extension (getMarkdown on
  * save, markdown.parse on load) so multi-line notes survive a remount —
  * reloading the stored string as HTML collapsed every newline into one
  * block. Promote / Send-to-chat selection actions live in a thin toolbar
  * above the editor (visible whenever the user has a non-empty selection).
  *
- * Mounting is gated on `open` so the editor doesn't pay its setup cost
- * when nothing's visible.
+ * The panel owns the chrome (tab, close, expand), so this just fills its
+ * container.
  */
 export function ScratchpadPane({
   sessionId,
   workspaceId,
-  open,
-  onClose,
   onInsertText,
   onInsertChip,
+  autoFocus = false,
 }: ScratchpadPaneProps) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="flex flex-col h-full w-full bg-background border-l border-border shadow-xl"
-      role="dialog"
-      aria-label="Scratchpad"
-    >
-      <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border">
-        <NotebookPen size={12} className="text-muted-foreground/80" />
-        <span className="text-[12px] font-semibold text-foreground">Scratchpad</span>
-        <span className="text-[10.5px] text-muted-foreground/70">
-          for this session
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-          aria-label="Close scratchpad"
-          title="Close (Esc)"
-        >
-          <X size={13} />
-        </button>
-      </div>
+    <div className="flex flex-col h-full w-full bg-background" aria-label="Scratchpad">
       <ScratchpadEditor
+        // A different chat is a different scratchpad: remount so the editor
+        // loads that chat's text instead of carrying the last one's.
+        key={sessionId}
         sessionId={sessionId}
         workspaceId={workspaceId}
         onInsertText={onInsertText}
         onInsertChip={onInsertChip}
+        autoFocus={autoFocus}
       />
     </div>
   );
@@ -94,15 +70,24 @@ function ScratchpadEditor({
   workspaceId,
   onInsertText,
   onInsertChip,
+  autoFocus,
 }: {
   sessionId: string;
   workspaceId: string | null;
   onInsertText: (text: string) => void;
   onInsertChip: (attrs: { kind: 'task' | 'note'; id: string; title: string }) => void;
+  autoFocus: boolean;
 }) {
   const { data } = useScratchpad(sessionId);
   const setMutation = useSetScratchpad(sessionId);
+  const setMutationRef = useRef(setMutation);
+  useEffect(() => {
+    setMutationRef.current = setMutation;
+  });
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The text waiting on the debounce, so an unmount (a tab switch, closing
+  // the panel) can still save it instead of dropping the last keystrokes.
+  const pendingTextRef = useRef<string | null>(null);
   const lastSavedRef = useRef<string | null>(data?.scratchPad ?? null);
   const [selectionText, setSelectionText] = useState('');
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -119,7 +104,7 @@ function ScratchpadEditor({
       // on load so paragraph breaks round-trip instead of collapsing.
       Markdown,
       Placeholder.configure({
-        placeholder: 'Jot quick thoughts for this session…',
+        placeholder: 'Jot thoughts for this chat. Nothing is sent until you choose to.',
       }),
     ],
     content: data?.scratchPad ?? '',
@@ -143,7 +128,9 @@ function ScratchpadEditor({
       const text = editor.getMarkdown();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       setStatus('saving');
+      pendingTextRef.current = text;
       saveTimerRef.current = setTimeout(() => {
+        pendingTextRef.current = null;
         if (text === lastSavedRef.current) {
           setStatus('idle');
           return;
@@ -177,15 +164,13 @@ function ScratchpadEditor({
     lastSavedRef.current = stored;
   }, [editor, data]);
 
-  // Autofocus once Tiptap is mounted. The pane component only mounts
-  // when `open` flips true (parent renders null otherwise), so this
-  // fires exactly once per open and drops the user straight into the
-  // editor — no manual click required.
+  // Autofocus once Tiptap is mounted, when the user just opened the
+  // scratchpad. A restored panel leaves focus where it was.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || !autoFocus) return;
     const t = setTimeout(() => editor.commands.focus('end'), 0);
     return () => clearTimeout(t);
-  }, [editor]);
+  }, [editor, autoFocus]);
 
   // Click anywhere inside the editor surface focuses Tiptap. Without
   // this, clicks below the last text line (in the empty padding area)
@@ -195,10 +180,17 @@ function ScratchpadEditor({
     if (editor && !editor.isFocused) editor.commands.focus('end');
   };
 
-  // Flush on unmount in case the debounce hadn't fired.
+  // Flush on unmount in case the debounce hadn't fired. Switching tabs or
+  // closing the panel unmounts the editor, so without this the last half
+  // second of typing would be lost.
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      const pending = pendingTextRef.current;
+      if (pending !== null && pending !== lastSavedRef.current) {
+        lastSavedRef.current = pending;
+        setMutationRef.current.mutate(pending.length === 0 ? null : pending);
+      }
     };
   }, []);
 
@@ -380,61 +372,5 @@ function PromotionBar({
         </button>
       </div>
     </div>
-  );
-}
-
-interface ScratchpadButtonProps {
-  /** Session whose scratchpad this toggles — drives the empty/content icon. */
-  sessionId: string;
-  /** True when the scratchpad pane is currently visible. */
-  open?: boolean;
-  /** Toggles the pane — click again to close. */
-  onClick: () => void;
-}
-
-/**
- * Header toggle for the scratchpad. The icon mirrors the notes
- * empty-vs-content convention: a blank notebook when the scratchpad is
- * empty, a lined notebook once it has content (see {@link ScratchpadIcon}).
- * Reads the same cached `useScratchpad` query the editor writes, so the
- * indicator updates the moment a jot is saved. A small dot keeps the
- * has-content signal visible even while the pane is open (icon shows `X`).
- */
-export function ScratchpadButton({ sessionId, open, onClick }: ScratchpadButtonProps) {
-  const { data } = useScratchpad(sessionId);
-  const hasContent = !!data?.scratchPad?.trim();
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={!!open}
-      className={cn(
-        'relative inline-flex items-center gap-1.5 px-2 py-1 rounded-md',
-        'text-[11px] font-medium transition-colors flex-shrink-0',
-        open
-          ? 'bg-primary/15 text-primary hover:bg-primary/20'
-          : 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-      )}
-      title={
-        open
-          ? 'Close scratchpad'
-          : hasContent
-            ? 'Scratchpad: this session has notes'
-            : 'Scratchpad: jot thoughts for this session'
-      }
-      aria-label={open ? 'Close scratchpad' : 'Scratchpad'}
-    >
-      {open ? <X size={12} /> : <ScratchpadIcon content={data?.scratchPad} size={12} />}
-      <span>{open ? 'Close' : 'Scratchpad'}</span>
-      {hasContent && (
-        <span
-          aria-hidden
-          className={cn(
-            'absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full',
-            'bg-primary ring-2 ring-background',
-          )}
-        />
-      )}
-    </button>
   );
 }

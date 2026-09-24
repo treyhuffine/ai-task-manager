@@ -54,6 +54,19 @@ export function useSessionStream(sessionId: string | null): void {
     // the session row being in cache — which it is by the time any frame
     // arrives, but isn't guaranteed when this effect first runs.
     const treeKey = () => [...worktreeScopeFromCache(queryClient, sessionId), 'tree'] as const;
+    // The diff and its totals (the workbench's Changes view, the tools box
+    // and the rail's +/- counts) follow the same edits, debounced so a
+    // burst of edits costs one refetch. Only on-screen queries refetch.
+    let diffTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleDiffRefresh = () => {
+      if (diffTimer) clearTimeout(diffTimer);
+      diffTimer = setTimeout(() => {
+        diffTimer = null;
+        const scope = worktreeScopeFromCache(queryClient, sessionId);
+        queryClient.invalidateQueries({ queryKey: [...scope, 'diff'] });
+        queryClient.invalidateQueries({ queryKey: [...scope, 'diff-stats'] });
+      }, 1_500);
+    };
 
     // Any state change for this session that the rail cares about —
     // turn finished, runtime flipped, pending request changed — is a
@@ -111,6 +124,7 @@ export function useSessionStream(sessionId: string | null): void {
       // positives just trigger a cheap refetch.
       if (isMutatingToolUse(event)) {
         queryClient.invalidateQueries({ queryKey: treeKey() });
+        scheduleDiffRefresh();
       }
     };
 
@@ -192,6 +206,7 @@ export function useSessionStream(sessionId: string | null): void {
       source.removeEventListener('background_tasks', handleBackgroundTasks);
       source.removeEventListener('pending_input', handlePendingInput);
       source.removeEventListener('reconcile', handleReconcile);
+      if (diffTimer) clearTimeout(diffTimer);
       source.close();
     };
   }, [sessionId, queryClient]);

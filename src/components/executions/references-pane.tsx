@@ -6,7 +6,6 @@ import {
   CheckSquare,
   Square,
   StickyNote,
-  BookOpen,
   Search,
   ChevronRight,
   X,
@@ -30,8 +29,11 @@ export interface EntityChipInsert {
 interface ReferencesPaneProps {
   sessionId: string;
   workspaceId: string | null;
-  open: boolean;
-  onClose: () => void;
+  /**
+   * Focus the search on mount. True when the user just opened Notes &
+   * tasks, false when the panel restored it on load.
+   */
+  autoFocus?: boolean;
   /**
    * Insert a task / note / scratchpad chip into the composer. Plumbed
    * through from ExecutionView's composerHandleRef so the pane stays
@@ -41,7 +43,8 @@ interface ReferencesPaneProps {
 }
 
 /**
- * The Notes & Tasks slide-over. Sibling to ScratchpadPane. Single
+ * The Notes & tasks view in the execution workbench panel. Sibling to
+ * ScratchpadPane. Single
  * scrollable list with three tiered sections (Session → Workspace →
  * All) and a Cmd+K-style search at the top — no tabs. Sections only
  * render when they have at least one matching row, so a narrow search
@@ -50,15 +53,13 @@ interface ReferencesPaneProps {
  * Each row's `→` inserts a task/note chip into the composer. The pane
  * stays open across pushes so the user can pick several in a row.
  *
- * Positioning is handled by the parent (ExecutionView places the pane
- * in an overlay div that covers tree + viewer); this component just
+ * The panel owns the chrome (tab, close, expand), so this component just
  * fills its container.
  */
 export function ReferencesPane({
   sessionId,
   workspaceId,
-  open,
-  onClose,
+  autoFocus = false,
   onInsertChip,
 }: ReferencesPaneProps) {
   const [search, setSearch] = useState('');
@@ -68,26 +69,13 @@ export function ReferencesPane({
   // there's no scope state. The slice/filter happens client-side.
   const referencesQuery = useSessionReferences(sessionId, 'all');
 
-  // Esc closes when open; auto-focus search on open.
+  // Focus the search when the user just opened this view. A restored
+  // panel leaves focus where it was.
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  useEffect(() => {
-    if (!open) return;
+    if (!autoFocus) return;
     const t = setTimeout(() => searchRef.current?.focus(), 0);
     return () => clearTimeout(t);
-  }, [open]);
-
-  // Reset search when the pane closes so the next open starts clean.
-  useEffect(() => {
-    if (!open) setSearch('');
-  }, [open]);
+  }, [autoFocus]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -103,32 +91,12 @@ export function ReferencesPane({
     };
   }, [referencesQuery.data, search]);
 
-  if (!open) return null;
-
   const isLoading = referencesQuery.isLoading;
   const totalMatches =
     filtered.inChat.length + filtered.workspace.length + filtered.all.length;
 
   return (
-    <div
-      className="flex flex-col h-full w-full bg-background border-l border-border shadow-xl"
-      role="dialog"
-      aria-label="Notes and tasks"
-    >
-      {/* ─── Header ───────────────────────────────── */}
-      <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border">
-        <BookOpen size={12} className="text-muted-foreground/80" />
-        <span className="text-[12px] font-semibold text-foreground">Notes &amp; Tasks</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-          aria-label="Close"
-          title="Close (Esc)"
-        >
-          <X size={13} />
-        </button>
-      </div>
+    <div className="flex flex-col h-full w-full bg-background" aria-label="Notes and tasks">
 
       {/* ─── Search ───────────────────────────────── */}
       <div className="flex-shrink-0 px-3 py-2 border-b border-border">
@@ -502,40 +470,5 @@ function CreateRow({
         <X size={11} />
       </button>
     </div>
-  );
-}
-
-// ─── Header button ───────────────────────────────────────────────
-
-interface ReferencesButtonProps {
-  count?: number;
-  /** True when the references pane is currently visible. */
-  open?: boolean;
-  /** Toggles the pane — click again to close. */
-  onClick: () => void;
-}
-
-export function ReferencesButton({ count, open, onClick }: ReferencesButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={!!open}
-      className={cn(
-        'inline-flex items-center gap-1.5 px-2 py-1 rounded-md',
-        'text-[11px] font-medium transition-colors flex-shrink-0',
-        open
-          ? 'bg-primary/15 text-primary hover:bg-primary/20'
-          : 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-      )}
-      title={open ? 'Close notes & tasks' : 'Notes & tasks for this session'}
-      aria-label={open ? 'Close notes and tasks' : 'Notes and tasks'}
-    >
-      {open ? <X size={12} /> : <BookOpen size={12} />}
-      <span>{open ? 'Close' : 'Notes & Tasks'}</span>
-      {!open && count != null && count > 0 && (
-        <span className="text-muted-foreground/80 tabular-nums">{count}</span>
-      )}
-    </button>
   );
 }

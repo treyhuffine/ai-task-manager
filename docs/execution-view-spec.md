@@ -1,5 +1,12 @@
 # Execution View Refactor: Implementation Spec
 
+> **Current layout: the workbench (2026-09-24).** The four-zone layout
+> this spec first built (chat / tree / viewer / terminal, always open) was
+> replaced by the workbench described in "Workbench layout" below. The
+> original layout section is kept further down as history. Everything
+> else here (data flow, git state machine, tree refresh, merge conflicts,
+> multi-chat) still describes the current code.
+
 Self-contained plan for rebuilding the agent execution surface around a
 four-zone layout — rail / chat / file tree / file viewer + terminal —
 so the user can actually review what the agent built without leaving
@@ -25,7 +32,119 @@ When the user opens an execution, in one screen they can:
 Non-goals (v1): multiple chats per worktree, editable diffs, live
 preview of a running webapp, user-configurable sort orders.
 
-## Layout
+## Workbench layout
+
+The chat owns the space. Tools open only when asked for, in one panel on
+the right, and the terminal is a drawer across the bottom. Code:
+`src/components/executions/execution-view.tsx` and
+`src/components/executions/workbench/`.
+
+```
+┌──┬──────────────────────────────────────────────────────────────────────┐
+│ R│ demo-app › Login page  ○ Finished 5m ago  ⋯   ▭ Terminal  ◧ Tools │ git chip │
+│ a├──────────────────────────────────┬───────────────────────────────────┤
+│ i│ ≡ 3 │ Chat A │ Chat B │ +        │ Run · Preview · Changes · Files · More ▾ ⤢ ✕ │
+│ l│                                  │                                   │
+│  │ transcript            ┌────────┐ │   (panel, when open)              │
+│  │                       │ tools  │ │                                   │
+│  │                       │ box    │ │                                   │
+│  │ composer              └────────┘ │                                   │
+│  ├──────────────────────────────────┴───────────────────────────────────┤
+│  │ Terminal (drawer, full width, when open)                             │
+└──┴──────────────────────────────────────────────────────────────────────┘
+```
+
+**Header.** Agent › title, the selected chat's status in words, the ⋯
+menu, then two labeled toggles (**Terminal**, **Tools**) and, at the far
+right, the git chip. Rules: the header reads, the chip acts, the toggles
+only change what you look at. The labels are deliberate: the two panel
+glyphs are nearly identical, and a redundant word costs less than a wrong
+click. When the header is tight, things give way in order: the PR's CI
+and review badges, then the agent name, then the toggle labels. The title
+and the git status never truncate.
+
+**Status is precise and scoped.** The header describes the selected chat:
+Working, Needs input, Finished 5m ago (never "Ready", since a finished
+turn is not finished work), plus "background task running" when child work
+outlives the turn (`describeChatStatus` in `execution-header-status.ts`).
+The Run row describes the app process. Changes counts describe the whole
+worktree, from every chat, and say so.
+
+**Git chip.** Today's `ExecutionActionBar` narrative, unchanged in
+behavior: colored by state, status on the left, the one next step on the
+right (Commit & push, Push, Open PR, Pull, Merge #N, Resolve conflicts,
+Archive), with the PR number linking to GitHub. It never goes in the box
+or the panel. On the phone it gets its own row under the header.
+
+**Tools box (panel closed).** A borderless floating card on the chat's
+right (`tools-box.tsx`): the branch, a **Run** row (status, a labeled
+Start / Stop / Restart, opens Run), a **Preview** row (opens the
+interface, or offers an explicit "Start & preview" when stopped), then
+Changes (N files, +/-), Files (⌘P), Terminal (⌃`), then Notes & tasks and
+Scratchpad. Status is text, rows navigate (chevron), labeled buttons run
+something. The chat pads for the box where it would cover text, and the
+box folds to an icon strip when the chat column is narrow.
+
+**Panel (open).** The same tools as tabs: Run · Preview · Changes · Files,
+plus More ▾ holding Notes & tasks and Scratchpad (More takes the name of
+whichever is open). Expand (⤢ or double-click a tab) gives the panel the
+width and folds the chat to a strip. Views stay mounted once visited, so
+switching keeps the preview loaded, the open file, and scroll positions.
+
+- **Run** (`preview/run-view.tsx`): the process. Status, Start / Stop /
+  Restart, full-height output, the start command, setup-script recovery,
+  and setup when no command exists.
+- **Preview** (`preview/preview-view.tsx`): the interface only. Iframe,
+  URL, reload, open in a tab, open on another device, remote providers.
+  Never starts the server on its own, never stops it when closed.
+- **Changes** (`workbench/changes-view.tsx`): every file that differs
+  from the base, sorted by path, each expandable to its diff inline, with
+  "open in Files".
+- **Files** (`workbench/files-view.tsx`): tree and file side by side, the
+  tree can hide. With nothing open: files changed in this worktree and
+  recently opened files.
+- **Notes & tasks**, **Scratchpad**: the former slide-overs, now panel
+  views. The scratchpad is stored per chat, so its view names the chat.
+
+**Terminal.** A drawer across the whole bottom (under the chat and the
+panel), resizable and expandable. Mounted only while open. Hiding it never
+kills a shell: PTYs live on the server and reattach with their output.
+
+**Navigation rules** (`workbench/workbench-state.ts`, tested):
+1. A tab, box row or More item is a peer switch and builds no history.
+2. A jump (a file chip in the chat, Changes → open in Files, a task chip)
+   remembers where you were and shows a "‹ Changes" pill to go back.
+3. The Tools toggle reopens the panel exactly as left. A restore never
+   starts anything.
+4. Escape restores an expanded panel first, then closes it. It never
+   touches the terminal, text fields, menus or dialogs.
+5. The panel view and terminal persist per execution. Panel width and
+   terminal height are global.
+6. Chat tabs hold conversations only, never files. Switching chats keeps
+   the workbench, the preview, the files and the terminal.
+
+**Chat tabs.** "≡ N" (all chats) leads the strip and never scrolls, then
+the open tabs, then +. Only the tabs scroll. + follows the last tab and
+pins to the edge on overflow, with a fade on whichever edge hides tabs.
+"New chat · same worktree" is also the first row of the all-chats list.
+
+**Phone.** The chat, with a **Tools** button in the header that opens the
+same list as a bottom sheet (no terminal: the phone is a thin client).
+A tool opens full width with "‹ Chat" and a Run · Preview · Changes ·
+Files selector (⋯ for the rest). If the chat needs an answer meanwhile, a
+"Needs input · Answer" bar stays on screen and returns to the approval.
+
+**Hotkeys** (`src/constants/commands.ts`): ⌃` toggles the terminal
+(captured so a focused terminal can't swallow it), ⌘P opens Files and
+focuses the tree search, Esc as above.
+
+**Mounting.** The dashboard renders its desktop, tablet and phone layouts
+at once and hides two with CSS, and each `ExecutionView` has a desktop and
+a phone subtree. The heavy parts (panel, terminal, phone destinations,
+the tools box) mount only in the subtree whose measured width is non-zero,
+so hidden copies never spawn terminals or poll.
+
+## Layout (original, superseded by "Workbench layout")
 
 ```
 ┌──┬───────────────┬─────────────┬───────────────────────────┐

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutationState } from '@tanstack/react-query';
-import { Plus, FilePlus, FolderPlus } from 'lucide-react';
+import { Plus, FilePlus, FolderPlus, PanelLeftClose } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
 import { copyText } from '@/lib/clipboard';
@@ -82,6 +82,10 @@ interface FileTreeProps {
    * entry doesn't render.
    */
   onReferenceInChat?: (relativePath: string) => void;
+  /** Extra controls for the title row, e.g. the recent-files menu. */
+  headerExtra?: React.ReactNode;
+  /** When set, the title row offers a button to hide the tree. */
+  onCollapse?: () => void;
 }
 
 const VIEW_MODE_KEY = (id: string) => `ri.execution.tree-view.${id}`;
@@ -122,7 +126,8 @@ interface DeleteTarget {
 }
 
 /**
- * The file tree column of the execution view. Owns:
+ * The file tree in the execution workbench's Files view (and the Agents
+ * view's Files tool). Owns:
  *
  *   - View mode (`changed` vs `all`), persisted per-session.
  *   - Directory expand/collapse state, persisted per-session.
@@ -141,6 +146,8 @@ export function FileTree({
   onSelect,
   worktreePath,
   onReferenceInChat,
+  headerExtra,
+  onCollapse,
 }: FileTreeProps) {
   const writable = folderIsWritable(source);
   // Mutations address a session. A read-only folder never calls them.
@@ -473,11 +480,21 @@ export function FileTree({
           </DropdownMenu>
           )}
         </div>
-        {worktreePath && (
-          <div className="min-w-0 flex-shrink-0">
-            <OpenWorktreeButton path={worktreePath} />
-          </div>
-        )}
+        <div className="flex min-w-0 flex-shrink-0 items-center gap-0.5">
+          {headerExtra}
+          {worktreePath && <OpenWorktreeButton path={worktreePath} />}
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              title="Hide the file tree"
+              aria-label="Hide the file tree"
+              className="inline-flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            >
+              <PanelLeftClose size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="border-b border-border px-2 py-1 min-w-0">

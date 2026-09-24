@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { Plus, X, History as HistoryIcon, Loader2, Check } from 'lucide-react';
+import { Plus, X, List, Loader2, Check } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -78,11 +78,13 @@ function byTabOrder(a: ExecutionChatHistoryEntry, b: ExecutionChatHistoryEntry):
  *   lands on the most recent open sibling first. A lone tab has no X.
  * - Double-click a tab to rename the chat (`chat_sessions.label` — never
  *   the execution's title, which is edited in the header).
- * - The trailing history chip opens a COMPLETE jump-list of every chat on
- *   this execution (open tabs included, current one marked), so navigating
- *   from it never removes a chat from the list. Opening an archived chat
- *   there reactivates it via the view's auto-resume, graduating it back
- *   into a tab.
+ * - The leading "All chats" button (list icon + count) opens a COMPLETE
+ *   jump-list of every chat on this execution (open tabs included, current
+ *   one marked), with "New chat" as its first row. Navigating from it never
+ *   removes a chat from the list. Opening an archived chat there reactivates
+ *   it via the view's auto-resume, graduating it back into a tab.
+ * - Only the tabs scroll. + follows the last tab and pins to the edge once
+ *   the tabs overflow, with a fade on whichever edge hides tabs.
  *
  * Freshness: the chat list is keyed by EXECUTION, so switching chats reuses
  * one stable cache entry (no blank flash, no per-chat duplicate queries) and
@@ -111,6 +113,14 @@ export function ExecutionChatTabs({
   const { setActiveView } = useDashboard();
   const qc = useQueryClient();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [edges, setEdges] = useState<ScrollEdges>({ left: false, right: false });
+  const updateEdges = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const next = readEdges(el);
+    setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+  }, []);
   const { data } = useExecutionChats(executionId, sessionId, { refetchInterval: 30_000 });
   const closeChat = useCloseExecutionChat();
   const updateSession = useUpdateSession();
@@ -153,6 +163,24 @@ export function ExecutionChatTabs({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefetchIds.join(','), sessionId]);
 
+  // Keep the current tab in view (a chat you just created lands at the end),
+  // and keep the edge fades honest as the strip resizes.
+  const tabKey = (data?.sessions ?? []).map((s) => `${s.id}:${s.status}:${s.tabSortKey ?? ''}`).join(',');
+  const hasData = !!data;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.querySelector<HTMLElement>('[data-current="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    updateEdges();
+  }, [sessionId, tabKey, updateEdges]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(updateEdges);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [updateEdges, hasData]);
+
   if (!data) return null;
 
   // `isCurrent` is recomputed from the viewed chat rather than trusted from
@@ -168,9 +196,6 @@ export function ExecutionChatTabs({
   // open tabs included — so navigating to one never drops it from the list
   // (the prior version listed only archived chats, and opening one made it
   // vanish). Server order is hotness, which reads as a "recent chats" menu.
-  // Shown whenever there's more than one chat to jump between.
-  const showMenu = entries.length > 1;
-  const menuUnread = entries.some((s) => !s.isCurrent && isSessionUnread(s));
 
   const handleClose = (entry: ExecutionChatHistoryEntry) => {
     if (entry.isCurrent) {
@@ -257,9 +282,130 @@ export function ExecutionChatTabs({
       });
   };
 
+  // The list button's dot is for unread chats you can't already see as a
+  // tab (closed or archived), so an open tab's own dot isn't signalled twice.
+  const hiddenUnread = entries.some((s) => !s.isCurrent && isSessionUnread(s) && !tabs.some((t) => t.id === s.id));
+
   return (
     <div className="flex h-9 flex-shrink-0 items-center gap-0.5 border-b border-border bg-background px-1.5">
-      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+      {/* All chats leads the strip and never scrolls: overview first, then
+          the open tabs, then + for a new one. New chat is also its first row,
+          since the list is where you look for a chat before starting one. */}
+      <PopoverPrimitive.Root open={historyOpen} onOpenChange={setHistoryOpen}>
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
+            title={`All chats on this execution (${entries.length})`}
+            aria-label="All chats"
+            className={cn(
+              'relative flex h-7 flex-shrink-0 items-center gap-1.5 rounded px-1.5 text-[11.5px] font-medium tabular-nums transition-colors',
+              historyOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+            )}
+          >
+            <List size={12} />
+            <span>{entries.length}</span>
+            {hiddenUnread && (
+              <span aria-hidden className="absolute right-0.5 top-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
+            )}
+          </button>
+        </PopoverPrimitive.Trigger>
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            collisionPadding={12}
+            className="z-50 max-h-[360px] w-[min(19rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl outline-none"
+          >
+            {onNewChat && (
+              <>
+                <button
+                  type="button"
+                  disabled={newChatPending}
+                  onClick={() => {
+                    setHistoryOpen(false);
+                    onNewChat();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+                >
+                  {newChatPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                  New chat
+                  <span className="ml-auto text-[10.5px] font-normal text-muted-foreground/75">same worktree</span>
+                </button>
+                <div className="my-1 h-px bg-border" />
+              </>
+            )}
+            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              All chats
+            </div>
+            {entries.map((s) => {
+              const unread = !s.isCurrent && isSessionUnread(s);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    if (!s.isCurrent) setActiveView(executionView(s.id));
+                    setHistoryOpen(false);
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+                    s.isCurrent ? 'bg-primary/10' : 'hover:bg-muted/50',
+                  )}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                    <span className="flex w-full items-center gap-1.5">
+                      {unread && (
+                        <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
+                      )}
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 truncate text-[12px] text-foreground',
+                          unread ? 'font-semibold' : 'font-medium',
+                        )}
+                      >
+                        {s.label ?? 'Untitled chat'}
+                      </span>
+                      {s.running && (
+                        <span
+                          aria-hidden
+                          className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
+                        />
+                      )}
+                    </span>
+                    <span className="text-[10.5px] text-muted-foreground/75">
+                      {s.isCurrent ? (
+                        'Current'
+                      ) : (
+                        <>
+                          {unread && <span className="text-primary">Unread · </span>}
+                          {s.status === 'archived' && 'Archived · '}
+                          {formatWhen(latestActivityAt(s) ?? s.startedAt)}
+                        </>
+                      )}
+                    </span>
+                  </span>
+                  {s.isCurrent && (
+                    <Check size={12} className="flex-shrink-0 text-primary" strokeWidth={3} />
+                  )}
+                </button>
+              );
+            })}
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Root>
+
+      <span aria-hidden className="mx-1 h-4 w-px flex-shrink-0 bg-border" />
+
+      {/* Only the tabs scroll. The strip shrinks to fit, so + sits right
+          after the last tab while there's room and pins to the edge once the
+          tabs overflow. A soft fade marks whichever edge hides tabs. */}
+      <div
+        ref={scrollRef}
+        onScroll={updateEdges}
+        className="no-scrollbar flex min-w-0 flex-shrink items-center gap-0.5 overflow-x-auto"
+        style={edgeFadeStyle(edges)}
+      >
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
             {tabs.map((s) => (
@@ -289,106 +435,45 @@ export function ExecutionChatTabs({
             ))}
           </SortableContext>
         </DndContext>
-        {onNewChat && (
-          <button
-            type="button"
-            onClick={onNewChat}
-            disabled={newChatPending}
-            title="New chat on this worktree"
-            aria-label="New chat"
-            className="ml-0.5 inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
-          >
-            {newChatPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-          </button>
-        )}
       </div>
-
-      {showMenu && (
-        <PopoverPrimitive.Root open={historyOpen} onOpenChange={setHistoryOpen}>
-          <PopoverPrimitive.Trigger asChild>
-            <button
-              type="button"
-              title="All chats"
-              aria-label="All chats"
-              className="ml-1 flex h-7 flex-shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            >
-              <HistoryIcon size={11} />
-              <span>{entries.length}</span>
-              {menuUnread && (
-                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
-              )}
-            </button>
-          </PopoverPrimitive.Trigger>
-          <PopoverPrimitive.Portal>
-            <PopoverPrimitive.Content
-              side="bottom"
-              align="end"
-              sideOffset={6}
-              collisionPadding={12}
-              className="z-50 max-h-[320px] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl outline-none"
-            >
-              <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                All chats
-              </div>
-              {entries.map((s) => {
-                const unread = !s.isCurrent && isSessionUnread(s);
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => {
-                      if (!s.isCurrent) setActiveView(executionView(s.id));
-                      setHistoryOpen(false);
-                    }}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-                      s.isCurrent ? 'bg-primary/10' : 'hover:bg-muted/50',
-                    )}
-                  >
-                    <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                      <span className="flex w-full items-center gap-1.5">
-                        {unread && (
-                          <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
-                        )}
-                        <span
-                          className={cn(
-                            'min-w-0 flex-1 truncate text-[12px] text-foreground',
-                            unread ? 'font-semibold' : 'font-medium',
-                          )}
-                        >
-                          {s.label ?? 'Untitled chat'}
-                        </span>
-                        {s.running && (
-                          <span
-                            aria-hidden
-                            className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
-                          />
-                        )}
-                      </span>
-                      <span className="text-[10.5px] text-muted-foreground/75">
-                        {s.isCurrent ? (
-                          'Current'
-                        ) : (
-                          <>
-                            {unread && <span className="text-primary">Unread · </span>}
-                            {s.status === 'archived' && 'Archived · '}
-                            {formatWhen(latestActivityAt(s) ?? s.startedAt)}
-                          </>
-                        )}
-                      </span>
-                    </span>
-                    {s.isCurrent && (
-                      <Check size={12} className="flex-shrink-0 text-primary" strokeWidth={3} />
-                    )}
-                  </button>
-                );
-              })}
-            </PopoverPrimitive.Content>
-          </PopoverPrimitive.Portal>
-        </PopoverPrimitive.Root>
+      {onNewChat && (
+        <button
+          type="button"
+          onClick={onNewChat}
+          disabled={newChatPending}
+          title="New chat on this worktree"
+          aria-label="New chat"
+          className="ml-0.5 inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+        >
+          {newChatPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+        </button>
       )}
     </div>
   );
+}
+
+/** Which edges of a horizontally scrolling strip hide content. */
+interface ScrollEdges {
+  left: boolean;
+  right: boolean;
+}
+
+function readEdges(el: HTMLElement): ScrollEdges {
+  return {
+    left: el.scrollLeft > 1,
+    right: el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
+  };
+}
+
+/** A mask that fades only the edges with hidden tabs behind them. */
+function edgeFadeStyle(edges: ScrollEdges): React.CSSProperties | undefined {
+  if (!edges.left && !edges.right) return undefined;
+  const stops = [
+    edges.left ? 'transparent 0, #000 28px' : '#000 0',
+    edges.right ? '#000 calc(100% - 28px), transparent 100%' : '#000 100%',
+  ].join(', ');
+  const mask = `linear-gradient(to right, ${stops})`;
+  return { maskImage: mask, WebkitMaskImage: mask };
 }
 
 function ChatTab({
@@ -449,6 +534,7 @@ function ChatTab({
     <div
       ref={setNodeRef}
       style={style}
+      data-current={entry.isCurrent ? 'true' : undefined}
       {...attributes}
       className={cn(
         'group flex h-7 flex-shrink-0 items-center rounded transition-colors',
