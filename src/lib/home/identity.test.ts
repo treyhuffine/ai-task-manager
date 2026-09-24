@@ -85,6 +85,62 @@ describe('a root whose data came from elsewhere', () => {
   });
 });
 
+describe('a whole-folder copy, machine.json included', () => {
+  it('needs claiming in another folder on this computer', async () => {
+    resolveHomeIdentity();
+    const { resetDb } = await import('@/lib/db');
+    resetDb();
+    const copy = `${home.root}-copy`;
+    fs.cpSync(home.root, copy, { recursive: true });
+    const saved = { root: process.env.RI_ROOT, db: process.env.RI_DB_PATH, config: process.env.RI_CONFIG_DIR };
+    try {
+      process.env.RI_ROOT = copy;
+      process.env.RI_DB_PATH = path.join(copy, 'data.db');
+      process.env.RI_CONFIG_DIR = path.join(copy, '.config');
+      resetHomeIdentityCache();
+      expect(resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'moved_or_copied' });
+      // Claiming it here keeps the same computer: the hardware didn't change.
+      const before = resolveHomeIdentity().home.hostComputerId;
+      expect(claimHome().computer.id).toBe(before);
+    } finally {
+      resetDb();
+      resetHomeIdentityCache();
+      process.env.RI_ROOT = saved.root;
+      process.env.RI_DB_PATH = saved.db;
+      process.env.RI_CONFIG_DIR = saved.config;
+      fs.rmSync(copy, { recursive: true, force: true });
+    }
+  });
+
+  it('needs claiming on another computer, which becomes a new computer of the home', async () => {
+    const made = resolveHomeIdentity();
+    const { _setMachineFingerprintForTests } = await import('./machine-fingerprint');
+    _setMachineFingerprintForTests('another-mac');
+    try {
+      resetHomeIdentityCache();
+      expect(resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'other_machine' });
+      const claimed = claimHome();
+      expect(claimed.computer.id).not.toBe(made.home.hostComputerId);
+      expect(readMachineIdentity()).toMatchObject({ machine: 'another-mac' });
+    } finally {
+      _setMachineFingerprintForTests(undefined);
+    }
+  });
+
+  it('binds an older identity file to this machine and folder the first time it matches', () => {
+    const made = resolveHomeIdentity();
+    fs.writeFileSync(
+      machineFile(),
+      JSON.stringify({ version: 1, homeId: made.home.id, computerId: made.home.hostComputerId, createdAt: 'x' }),
+    );
+    resetHomeIdentityCache();
+    expect(resolveHomeIdentity().state).toBe('active');
+    const bound = readMachineIdentity();
+    expect(bound?.root).toBe(fs.realpathSync(home.root));
+    expect(bound).toHaveProperty('machine');
+  });
+});
+
 describe('claimHome', () => {
   it('makes this machine the host of a restored home, keeping the home id', async () => {
     const made = resolveHomeIdentity();

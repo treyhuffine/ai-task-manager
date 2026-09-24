@@ -63,6 +63,39 @@ export class SetupError extends Error {
   }
 }
 
+/**
+ * Read a setup file to change it: fresh from disk, and only if it belongs to
+ * this home. A file for another home, or one that can't be read, is never
+ * changed. Returns `null` when there is no file.
+ */
+function readOwned(dir: string, homeId: string): { revision: string; file: SetupFile } | null {
+  const read = readSetupFile(dir);
+  if (read.state === 'missing') return null;
+  if (read.state === 'invalid') throw new SetupError(`${read.problem} Nothing was changed.`);
+  if (read.file.homeId !== homeId) {
+    throw new SetupError(`${path.join(dir, SETUP_FILE)} belongs to a different Ri home. Nothing was changed.`);
+  }
+  return { revision: read.revision, file: read.file };
+}
+
+/**
+ * Whether `folder` can hold this home's setup for an agent: it exists, and
+ * any setup file in it is readable and belongs to this home. Throws the
+ * reason otherwise. Changes nothing, so callers check before they act.
+ */
+export function assertFolderCanHoldSetup(folder: string, homeId: string): string {
+  const dir = path.resolve(folder);
+  let isDir = false;
+  try {
+    isDir = fs.statSync(dir).isDirectory();
+  } catch {
+    /* missing */
+  }
+  if (!isDir) throw new SetupError(`${dir} doesn't exist or isn't a folder.`);
+  readOwned(dir, homeId);
+  return dir;
+}
+
 export function findAgent(ctx: SetupContext, idOrName: string): SetupAgentSummary {
   const byId = ctx.agents.find((a) => a.id === idOrName);
   if (byId) return byId;
@@ -72,15 +105,26 @@ export function findAgent(ctx: SetupContext, idOrName: string): SetupAgentSummar
   throw new SetupError(`${ctx.homeName} has no agent "${idOrName}".`);
 }
 
-/** Resolve every registered setup on this computer and report them all. */
-export async function syncSetups(link: SetupHomeLink, ctx?: SetupContext): Promise<SetupReport[]> {
+/**
+ * Resolve every registered setup on this computer and report them all.
+ * `forget` names agents deliberately removed here, so a folder they were last
+ * seen in doesn't keep reporting them as broken.
+ */
+export async function syncSetups(
+  link: SetupHomeLink,
+  ctx?: SetupContext,
+  opts: { forget?: Set<string> } = {},
+): Promise<SetupReport[]> {
   const context = ctx ?? (await link.context());
-  const reports = resolveSetups({
+  const resolved = resolveSetups({
     homeId: context.homeId,
     registered: listRegisteredLocations().map((l) => l.dir),
     expected: Object.fromEntries(Object.entries(context.expected).map(([id, refs]) => [id, refs.map((r) => ({ alias: r.alias }))])),
-    lastSeen: Object.fromEntries(context.observed.map((o) => [o.agentId, o.sourcePath])),
+    lastSeen: Object.fromEntries(
+      context.observed.filter((o) => !opts.forget?.has(o.agentId)).map((o) => [o.agentId, o.sourcePath]),
+    ),
   });
+  const reports = opts.forget ? resolved.filter((r) => !opts.forget!.has(r.agentId)) : resolved;
   await link.report(reports, true);
   return reports;
 }
@@ -90,21 +134,18 @@ export interface AttachOptions {
   folder: string;
   /** Initial reference mappings. Aliases not given stay unset, which blocks until chosen. */
   references?: Record<string, ReferenceValue>;
+  /**
+   * Move the agent here from a different folder it has on this computer. The
+   * new folder is set up first, and the old one is only cleared after that
+   * succeeds, so a failed move leaves the old setup as it was.
+   */
+  replace?: boolean;
 }
 
 export async function attach(link: SetupHomeLink, opts: AttachOptions): Promise<SetupReport> {
   const ctx = await link.context();
   const agent = findAgent(ctx, opts.agent);
-  const dir = path.resolve(opts.folder);
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new SetupError(`${dir} is not a folder.`);
-
-  const elsewhere = ctx.observed.find((o) => o.agentId === agent.id && path.resolve(o.sourcePath) !== dir);
-  if (elsewhere && fs.existsSync(elsewhere.sourcePath)) {
-    throw new SetupError(
-      `${agent.name} is already set up on ${ctx.computerName} at ${elsewhere.sourcePath}. ` +
-        'An agent has one folder per computer: relink it, or detach it there first.',
-    );
-  }
+  const dir = assertFolderCanHoldSetup(opts.folder, ctx.homeId);
 
   const unknown = Object.keys(opts.references ?? {}).filter(
     (alias) => !(ctx.expected[agent.id] ?? []).some((r) => r.alias === alias),
@@ -113,24 +154,54 @@ export async function attach(link: SetupHomeLink, opts: AttachOptions): Promise<
     throw new SetupError(`${agent.name} has no reference named ${unknown.map((a) => `"${a}"`).join(', ')}.`);
   }
 
-  const current = readSetupFile(dir);
-  if (current.state === 'invalid') throw new SetupError(`${current.problem} Fix it, or move it aside and attach again.`);
-  if (current.state === 'ok' && current.file.homeId !== ctx.homeId) {
-    throw new SetupError(`${path.join(dir, SETUP_FILE)} belongs to a different Ri home.`);
+  const previous = ctx.observed.find((o) => o.agentId === agent.id && path.resolve(o.sourcePath) !== dir);
+  if (previous && fs.existsSync(previous.sourcePath) && !opts.replace) {
+    throw new SetupError(
+      `${agent.name} is already set up on ${ctx.computerName} at ${previous.sourcePath}. ` +
+        'An agent has one folder per computer: relink it, or detach it there first.',
+    );
   }
-  if (current.state === 'ok' && current.file.agents[agent.id]) {
-    // Already in the file here: attaching again only (re)registers it.
-    registerLocation(dir);
-  } else {
-    const next: SetupFile =
-      current.state === 'ok'
-        ? { ...current.file, agents: { ...current.file.agents, [agent.id]: { references: opts.references ?? {} } } }
-        : { version: 1, homeId: ctx.homeId, agents: { [agent.id]: { references: opts.references ?? {} } } };
-    writeSetupFile(dir, next, current.state === 'ok' ? current.revision : null);
-    registerLocation(dir);
+
+  // The new folder first.
+  const current = readOwned(dir, ctx.homeId);
+  if (!current?.file.agents[agent.id]) {
+    const next: SetupFile = current
+      ? { ...current.file, agents: { ...current.file.agents, [agent.id]: { references: opts.references ?? {} } } }
+      : { version: 1, homeId: ctx.homeId, agents: { [agent.id]: { references: opts.references ?? {} } } };
+    writeSetupFile(dir, next, current?.revision ?? null);
   }
+  registerLocation(dir);
+
+  // Then clear the old one, only now that the new one exists.
+  if (previous) removeAgentFrom(path.resolve(previous.sourcePath), agent.id, ctx);
+
   const reports = await syncSetups(link, ctx);
   return reports.find((r) => r.agentId === agent.id)!;
+}
+
+/**
+ * Take an agent out of a folder's setup file. The file goes, and the folder
+ * is unregistered, only when no other agent uses it. A folder whose file is
+ * already gone or can't be read is left registered when other agents were
+ * last seen there, so their setups can still be restored.
+ */
+function removeAgentFrom(dir: string, agentId: string, ctx: SetupContext): void {
+  const read = readSetupFile(dir);
+  if (read.state === 'ok') {
+    if (read.file.homeId !== ctx.homeId) return;
+    if (!read.file.agents[agentId]) return;
+    const agents = { ...read.file.agents };
+    delete agents[agentId];
+    if (Object.keys(agents).length === 0) {
+      fs.rmSync(path.join(dir, SETUP_FILE));
+      unregisterLocation(dir);
+    } else {
+      writeSetupFile(dir, { ...read.file, agents }, read.revision);
+    }
+    return;
+  }
+  const others = ctx.observed.some((o) => o.agentId !== agentId && path.resolve(o.sourcePath) === dir);
+  if (!others) unregisterLocation(dir);
 }
 
 /** Set one reference for an agent on this computer. `undefined` value removes the mapping. */
@@ -144,8 +215,8 @@ export async function setReference(
     throw new SetupError(`${agent.name} has no reference named "${opts.alias}".`);
   }
   const dir = folderOf(ctx, agent.id);
-  const current = readSetupFile(dir);
-  if (current.state !== 'ok' || !current.file.agents[agent.id]) {
+  const current = readOwned(dir, ctx.homeId);
+  if (!current?.file.agents[agent.id]) {
     throw new SetupError(`${agent.name} isn't set up in ${dir}. Attach or restore it first.`);
   }
   const references = { ...current.file.agents[agent.id]!.references };
@@ -239,22 +310,12 @@ export async function detach(link: SetupHomeLink, opts: { agent: string }): Prom
   const ctx = await link.context();
   const agent = findAgent(ctx, opts.agent);
   const dir = folderOf(ctx, agent.id);
-  const current = readSetupFile(dir);
-  if (current.state === 'ok' && current.file.agents[agent.id]) {
-    const agents = { ...current.file.agents };
-    delete agents[agent.id];
-    if (Object.keys(agents).length === 0) {
-      fs.rmSync(path.join(dir, SETUP_FILE));
-      unregisterLocation(dir);
-    } else {
-      writeSetupFile(dir, { ...current.file, agents }, current.revision);
-    }
-  } else if (!listRegisteredLocations().some((l) => path.resolve(l.dir) === dir)) {
-    throw new SetupError(`${agent.name} isn't set up on ${ctx.computerName}.`);
-  } else {
-    unregisterLocation(dir);
+  const read = readSetupFile(dir);
+  if (read.state === 'ok' && read.file.homeId !== ctx.homeId) {
+    throw new SetupError(`${path.join(dir, SETUP_FILE)} belongs to a different Ri home. Nothing was changed.`);
   }
-  await syncSetups(link, ctx);
+  removeAgentFrom(dir, agent.id, ctx);
+  await syncSetups(link, ctx, { forget: new Set([agent.id]) });
 }
 
 function folderOf(ctx: SetupContext, agentId: string): string {

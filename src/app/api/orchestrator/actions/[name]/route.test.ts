@@ -4,7 +4,7 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
-import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER } from '@/lib/auth/request-key';
+import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, CALLER_LOCATION_HEADER } from '@/lib/auth/request-key';
 
 /**
  * A connected computer's CLI runs actions on its home through this route,
@@ -29,8 +29,8 @@ function post(name: string, body: unknown, headers: Record<string, string>) {
   });
 }
 
-const fromLaptop = { [API_KEY_ID_HEADER]: 'key-laptop', [API_KEY_TYPE_HEADER]: 'computer' };
-const fromHome = { [API_KEY_ID_HEADER]: 'key-host', [API_KEY_TYPE_HEADER]: 'host' };
+const fromLaptop = { [API_KEY_ID_HEADER]: 'key-laptop', [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' };
+const fromHome = { [API_KEY_ID_HEADER]: 'key-host', [API_KEY_TYPE_HEADER]: 'host', [CALLER_LOCATION_HEADER]: 'home' };
 
 async function call(name: string, body: unknown, headers: Record<string, string>) {
   const { POST } = await import('./route');
@@ -104,7 +104,7 @@ describe('computers and setups over the route', () => {
   it('registers a computer under its key, and only that key reports for it', async () => {
     const q = await import('@/lib/db/queries');
     const laptopKey = q.createApiKey({ name: 'MacBook', deviceType: 'computer' }).key;
-    const asLaptop = { [API_KEY_ID_HEADER]: laptopKey.id, [API_KEY_TYPE_HEADER]: 'computer' };
+    const asLaptop = { [API_KEY_ID_HEADER]: laptopKey.id, [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' };
 
     const before = await call('get_setup_context', {}, asLaptop);
     expect(before.body.error?.code).toBe('conflict');
@@ -142,9 +142,33 @@ describe('computers and setups over the route', () => {
 
     // Another key has no computer, so it can't report as the MacBook.
     const phoneKey = q.createApiKey({ name: 'Phone', deviceType: 'phone' }).key;
-    const asPhone = { [API_KEY_ID_HEADER]: phoneKey.id, [API_KEY_TYPE_HEADER]: 'phone' };
+    const asPhone = { [API_KEY_ID_HEADER]: phoneKey.id, [API_KEY_TYPE_HEADER]: 'phone', [CALLER_LOCATION_HEADER]: 'elsewhere' };
     const spoof = await call('report_agent_setups', { reports: [report], complete: true }, asPhone);
     expect(spoof.body.error?.code).toBe('conflict');
+  });
+
+  it('keeps the same computer when it pairs again with a new key, and never binds to the home itself', async () => {
+    const q = await import('@/lib/db/queries');
+    const as = (id: string) => ({ [API_KEY_ID_HEADER]: id, [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' });
+    const first = q.createApiKey({ name: 'MacBook', deviceType: 'computer' }).key;
+    const made = await call('register_computer', { name: 'MacBook' }, as(first.id));
+    const computerId = (made.body.result as unknown as { computer: { id: string } }).computer.id;
+
+    const second = q.createApiKey({ name: 'MacBook, re-paired', deviceType: 'computer' }).key;
+    const again = await call('register_computer', { name: 'MacBook', computerId }, as(second.id));
+    expect((again.body.result as unknown as { computer: { id: string }; created: boolean })).toMatchObject({
+      computer: { id: computerId },
+      created: false,
+    });
+    expect(q.listComputers().filter((c) => c.name === 'MacBook')).toHaveLength(1);
+
+    const { ensureHomeIdentity, resetHomeIdentityCache } = await import('@/lib/home/identity');
+    resetHomeIdentityCache();
+    const hostId = ensureHomeIdentity().computer.id;
+    const third = q.createApiKey({ name: 'Sneaky', deviceType: 'computer' }).key;
+    const sneaky = await call('register_computer', { name: 'Sneaky', computerId: hostId }, as(third.id));
+    expect((sneaky.body.result as unknown as { computer: { id: string } }).computer.id).not.toBe(hostId);
+    resetHomeIdentityCache();
   });
 
   it("gives the home's own callers the host computer", async () => {

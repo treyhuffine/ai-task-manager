@@ -22,10 +22,15 @@ vi.mock('@/lib/db/queries', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/db/queries')>();
   return {
     WorkspaceFieldError: actual.WorkspaceFieldError,
-    getWorkspace: vi.fn(),
+    getWorkspace: vi.fn(() => ({ id: 'ws-1' })),
     updateWorkspace: (id: string, input: unknown) => updateWorkspace(id, input),
   };
 });
+
+// A folder change sets up the new folder first (src/lib/setups/home-context.ts,
+// covered on a real home in src/test/regressions/homes-review.test.ts).
+const setHomeFolder = vi.fn(async () => ({}));
+vi.mock('@/lib/setups/home-context', () => ({ setHomeFolder: (...args: unknown[]) => setHomeFolder(...(args as [])) }));
 
 const { PATCH } = await import('./route');
 const { WorkspaceFieldError } = await import('@/lib/db/queries');

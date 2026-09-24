@@ -8,7 +8,7 @@
  */
 
 import { getInstallationRole } from '@/lib/config/role';
-import { readConnection, writeConnection } from '@/lib/connection/config';
+import { readConnection, rememberComputerId, rememberedComputerId, writeConnection } from '@/lib/connection/config';
 import { thisComputerFacts } from '@/lib/home/computer-name';
 import type { DispatchEnvelope } from '@/lib/orchestrator/dispatch';
 import { SetupError, type SetupContext, type SetupHomeLink } from '@/lib/setups/service';
@@ -22,8 +22,11 @@ function unwrap<T>(envelope: DispatchEnvelope): T {
 async function ensureRegistered(): Promise<void> {
   const connection = readConnection();
   if (!connection || connection.computerId) return;
-  const { computer } = unwrap<{ computer: { id: string } }>(await dispatchAction('register_computer', thisComputerFacts()));
+  const { computer } = unwrap<{ computer: { id: string } }>(
+    await dispatchAction('register_computer', { ...thisComputerFacts(), computerId: rememberedComputerId(connection.homeId) }),
+  );
   writeConnection({ ...connection, computerId: computer.id });
+  rememberComputerId(connection.homeId, computer.id);
 }
 
 export async function setupLinkForThisComputer(): Promise<SetupHomeLink> {

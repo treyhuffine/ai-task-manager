@@ -15,7 +15,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('connectivity', () => {
   it('stays reachable when a request fails but the home answers health', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, app: 'ri' })));
     await reportNetworkFailure();
     expect(getConnectivity().reachable).toBe(true);
   });
@@ -32,6 +32,12 @@ describe('connectivity', () => {
     expect(getConnectivity().reachable).toBe(true);
     expect(seen).toEqual([false, true]);
     off();
+  });
+
+  it("doesn't believe a tunnel's page that isn't Ri", async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Tunnel is up, origin is down</html>', { status: 200 })));
+    await reportNetworkFailure();
+    expect(getConnectivity().reachable).toBe(false);
   });
 
   it('counts only network failures, not aborts', () => {

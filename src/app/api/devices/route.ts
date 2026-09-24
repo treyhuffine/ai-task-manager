@@ -4,8 +4,9 @@ import { deviceTypeFromUserAgent } from '@/lib/auth/device-type';
 import type { CreateApiKeyInput, DeviceType } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
 
+// `host` is reserved for the home's own key, which `ensureLocalToken` mints.
+// A device can't give itself that label.
 const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
-  'host',
   'computer',
   'phone',
   'tablet',
@@ -42,6 +43,9 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'name is required' }, { status: 400 });
     }
 
+    if (body.deviceType === 'host') {
+      return Response.json({ error: "deviceType 'host' is reserved for the home's own key" }, { status: 400 });
+    }
     const deviceType: DeviceType =
       body.deviceType && ALLOWED_DEVICE_TYPES.includes(body.deviceType)
         ? body.deviceType

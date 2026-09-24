@@ -42,7 +42,10 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as CreateReferenceFolderInput;
     const row = createReferenceFolder(body);
     // Map it in this computer's setup files, where agent paths live (§4.2).
-    await applyReferenceToHomeSetups(row).catch((err) => console.warn('[reference-folders] setup files not updated:', err));
+    const setupFiles = await applyReferenceToHomeSetups(row).catch((err: unknown) => ({
+      updated: [] as string[],
+      failed: [{ dir: '', error: err instanceof Error ? err.message : String(err) }],
+    }));
     // Live sessions cache their config at spawn, so a new folder is invisible
     // to them until they recycle.
     await recycleForReferenceFolderChange(row.workspaceId);
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
     // broken badge) without refetching the whole list.
     const consumerCwd = row.workspaceId ? getWorkspace(row.workspaceId)?.cwd ?? null : null;
     const resolved = await resolveReferenceFolder(row, { consumerCwd });
-    return Response.json(resolved ?? row, { status: 201 });
+    return Response.json({ ...(resolved ?? row), setupFiles }, { status: 201 });
   } catch (err) {
     if (err instanceof ReferenceFolderError) {
       return Response.json(

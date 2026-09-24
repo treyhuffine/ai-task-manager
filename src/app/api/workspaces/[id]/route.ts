@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { NextRequest } from 'next/server';
 import { getWorkspace, updateWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
 import type { UpdateWorkspaceInput } from '@/db/types';
@@ -38,15 +39,25 @@ export async function PATCH(
     // must go through PUT /connector-scopes, which validates pins and recycles live sessions. Strip it
     // here so the generic PATCH can't write scopes unvalidated and without a session recycle.
     const { connectorScopes: _ignored, ...body } = (await request.json()) as UpdateWorkspaceInput;
+    // A new folder for the agent on this computer is a new setup (§4.2). Set
+    // it up first: the new folder's `.ri.local.json` is written before the
+    // old one is cleared, and nothing in the database changes if it fails.
+    if (typeof body.cwd === 'string') {
+      if (!getWorkspace(id)) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+      const { setHomeFolder } = await import('@/lib/setups/home-context');
+      const { SetupError } = await import('@/lib/setups/service');
+      try {
+        await setHomeFolder(id, path.resolve(body.cwd));
+      } catch (err) {
+        if (err instanceof SetupError || (err instanceof Error && err.name === 'SetupFileConflictError')) {
+          return Response.json({ error: err.message }, { status: 400 });
+        }
+        throw err;
+      }
+      body.cwd = path.resolve(body.cwd);
+    }
     const row = updateWorkspace(id, body);
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-    // A new folder for the agent on this computer is a new setup: it moves
-    // the agent's `.ri.local.json` from the old folder to the new one
-    // (docs/homes-spec.md §4.2).
-    if (typeof body.cwd === 'string') {
-      const { setHomeFolder } = await import('@/lib/setups/home-context');
-      await setHomeFolder(id, row.cwd);
-    }
     // Session config is fixed at spawn (the browser changes the tool set, the
     // instructions and folder are read at spawn), so recycle live sessions to
     // apply a change now rather than only on the next session. The next

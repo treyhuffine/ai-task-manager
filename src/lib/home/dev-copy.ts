@@ -36,6 +36,8 @@ import path from 'node:path';
 import os from 'node:os';
 import Database from 'better-sqlite3';
 import { uuidv7 } from 'uuidv7';
+import { canonicalPath } from '@/lib/config/canonical-path';
+import { machineFingerprint } from './machine-fingerprint';
 
 export const DETACHED_DIR = '.detached';
 
@@ -195,7 +197,17 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     fs.writeFileSync(
       file,
-      JSON.stringify({ version: 1, ...identity.value, createdAt: new Date().toISOString() }, null, 2) + '\n',
+      JSON.stringify(
+        {
+          version: 1,
+          ...identity.value,
+          createdAt: new Date().toISOString(),
+          machine: machineFingerprint(),
+          root: canonicalPath(root),
+        },
+        null,
+        2,
+      ) + '\n',
       { mode: 0o600 },
     );
   }

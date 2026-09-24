@@ -12,16 +12,23 @@
  *   `machine.json` first, so a crash between the two steps repeats them.
  * - Home row and matching `machine.json`: active.
  * - Anything else means the database came from somewhere else: a restored
- *   backup (which never carries `machine.json`), a copied root, or a moved
- *   home. The root stays out of service until a person claims it with
- *   `ri home claim`, which makes this machine the host. Two roots never act
- *   as one home by accident.
+ *   backup (which never carries `machine.json`), or a moved home. The root
+ *   stays out of service until a person claims it with `ri home claim`,
+ *   which makes this machine the host.
+ *
+ * `machine.json` also records this machine's fingerprint and the folder's
+ * real location. A whole-folder copy carries `machine.json` along, so a copy
+ * on another computer (Migration Assistant, a disk clone) or in another
+ * folder needs claiming too. What this can't stop: after a copy is claimed,
+ * the original still runs where it is until it's retired (P5.3).
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { uuidv7 } from 'uuidv7';
-import { getMachineIdentityPath, getDbPath } from '@/lib/config/paths';
+import { getAppRoot, getMachineIdentityPath, getDbPath } from '@/lib/config/paths';
+import { canonicalPath } from '@/lib/config/canonical-path';
+import { machineFingerprint } from './machine-fingerprint';
 import {
   createComputer,
   createHomeIdentity,
@@ -41,6 +48,15 @@ export interface MachineIdentity {
   homeId: string;
   computerId: string;
   createdAt: string;
+  /** This machine's fingerprint when written (src/lib/home/machine-fingerprint.ts). */
+  machine?: string | null;
+  /** The home folder's real location when written. */
+  root?: string;
+}
+
+/** What binds the identity to this machine and this folder. */
+function binding(): { machine: string | null; root: string } {
+  return { machine: machineFingerprint(), root: canonicalPath(getAppRoot()) };
 }
 
 export type NeedsClaimReason =
@@ -49,7 +65,11 @@ export type NeedsClaimReason =
   /** This machine's identity belongs to a different home. */
   | 'other_home'
   /** The home is hosted by another computer, e.g. after a move. */
-  | 'other_host';
+  | 'other_host'
+  /** The whole folder was copied or moved here from another computer. */
+  | 'other_machine'
+  /** The whole folder was copied or moved to another place on this computer. */
+  | 'moved_or_copied';
 
 export type HomeIdentityStatus =
   | { state: 'active'; home: HomeRecord; computer: ComputerRecord; created: boolean }
@@ -77,14 +97,18 @@ export function readMachineIdentity(): MachineIdentity | null {
     homeId: parsed.homeId,
     computerId: parsed.computerId,
     createdAt: parsed.createdAt ?? new Date().toISOString(),
+    ...(parsed.machine !== undefined ? { machine: parsed.machine } : {}),
+    ...(parsed.root !== undefined ? { root: parsed.root } : {}),
   };
 }
 
 /** Atomic write, 0600 in a 0700 directory. */
-export function writeMachineIdentity(identity: Omit<MachineIdentity, 'version'>): MachineIdentity {
+export function writeMachineIdentity(
+  identity: Omit<MachineIdentity, 'version' | 'machine' | 'root'>,
+): MachineIdentity {
   const file = getMachineIdentityPath();
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const record: MachineIdentity = { version: MACHINE_IDENTITY_VERSION, ...identity };
+  const record: MachineIdentity = { version: MACHINE_IDENTITY_VERSION, ...identity, ...binding() };
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, file);
@@ -97,11 +121,11 @@ export function writeMachineIdentity(identity: Omit<MachineIdentity, 'version'>)
  * server) must end up with the same ids, or the loser would find itself a
  * stranger in its own home.
  */
-function writeMachineIdentityOnce(identity: Omit<MachineIdentity, 'version'>): MachineIdentity {
+function writeMachineIdentityOnce(identity: Omit<MachineIdentity, 'version' | 'machine' | 'root'>): MachineIdentity {
   const file = getMachineIdentityPath();
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ version: MACHINE_IDENTITY_VERSION, ...identity }, null, 2) + '\n', {
+  fs.writeFileSync(tmp, JSON.stringify({ version: MACHINE_IDENTITY_VERSION, ...identity, ...binding() }, null, 2) + '\n', {
     mode: 0o600,
   });
   try {
@@ -149,6 +173,17 @@ export function resolveHomeIdentity(opts: ResolveOptions = {}): HomeIdentityStat
   if (machine.computerId !== current.hostComputerId) {
     return { state: 'needs_claim', home: current, reason: 'other_host', machine };
   }
+  const here = binding();
+  if (machine.machine && here.machine && machine.machine !== here.machine) {
+    return { state: 'needs_claim', home: current, reason: 'other_machine', machine };
+  }
+  if (machine.root && machine.root !== here.root) {
+    return { state: 'needs_claim', home: current, reason: 'moved_or_copied', machine };
+  }
+  // Written before identities were bound to a machine and folder: bind now.
+  if (machine.machine === undefined || machine.root === undefined) {
+    writeMachineIdentity({ homeId: machine.homeId, computerId: machine.computerId, createdAt: machine.createdAt });
+  }
   const computer = getComputer(current.hostComputerId);
   if (!computer) throw new Error(`Home ${current.id} names host ${current.hostComputerId}, which does not exist.`);
   return { state: 'active', home: current, computer, created: false };
@@ -159,6 +194,8 @@ export function describeNeedsClaim(reason: NeedsClaimReason): string {
     no_machine_identity: 'This data was restored or copied here, so this computer is not recorded as its host.',
     other_home: 'This computer belongs to a different home than the data in this folder.',
     other_host: 'This home is hosted by another computer.',
+    other_machine: 'This home was copied or moved here from another computer, which may still be running it.',
+    moved_or_copied: 'This home was copied or moved to this folder from another place on this computer.',
   }[reason];
   return `${why} If this computer should now be the home, run \`ri home claim\`. Until then it will not act as the home, so two copies never run as one.`;
 }
@@ -215,7 +252,12 @@ export function resetHomeIdentityCache(): void {
 export function claimHome(): Extract<HomeIdentityStatus, { state: 'active' }> {
   const status = resolveHomeIdentity();
   if (status.state === 'active') return status;
-  const known = status.machine && status.machine.homeId === status.home.id ? getComputer(status.machine.computerId) : null;
+  // The computer row this machine already has, unless the folder came from
+  // different hardware: then this is a new computer, and the old one stays
+  // a computer of the home.
+  const sameHardware = status.reason !== 'other_machine';
+  const known =
+    sameHardware && status.machine && status.machine.homeId === status.home.id ? getComputer(status.machine.computerId) : null;
   const computer = known && known.status === 'active' ? known : createComputer(thisComputerFacts());
   setHomeHost(computer.id);
   writeMachineIdentity({ homeId: status.home.id, computerId: computer.id, createdAt: new Date().toISOString() });

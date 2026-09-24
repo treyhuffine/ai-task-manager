@@ -22,7 +22,7 @@ import {
   actorFromSessionCredential,
   sessionCredentialFromHeaders,
 } from '@/lib/orchestrator/session-credential';
-import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER } from '@/lib/auth/request-key';
+import { API_KEY_ID_HEADER, CALLER_LOCATION_HEADER } from '@/lib/auth/request-key';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} orchestrator: typed, fine-grained tools for reading and writing the user's productivity brain.
 
@@ -52,7 +52,7 @@ const handler = createMcpHandler(
             sessionCredentialFromHeaders(extra?.requestInfo?.headers),
           );
           // Which key called, as the proxy validated it. The home's own
-          // sessions use the host key, so their folder paths are the home's.
+          // sessions use the home's own key, so their folder paths are the home's.
           const headers = extra?.requestInfo?.headers;
           const header = (name: string): string | undefined => {
             if (!headers) return undefined;
@@ -66,7 +66,7 @@ const handler = createMcpHandler(
             remote: true,
             actor,
             caller: {
-              location: header(API_KEY_TYPE_HEADER) === 'host' ? 'home' : 'elsewhere',
+              location: header(CALLER_LOCATION_HEADER) === 'home' ? 'home' : 'elsewhere',
               apiKeyId: header(API_KEY_ID_HEADER) ?? null,
             },
           });

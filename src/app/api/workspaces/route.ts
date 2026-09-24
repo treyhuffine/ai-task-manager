@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server';
 import path from 'node:path';
-import { listWorkspaces, createWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
+import { archiveWorkspace, listWorkspaces, createWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
 import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
 import { parseConnectorScopes, validateConnectorScopes } from '@/lib/connectors/scopes';
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
-import { setHomeFolder } from '@/lib/setups/home-context';
+import { assertHomeFolderUsable, setHomeFolder } from '@/lib/setups/home-context';
+import { SetupError } from '@/lib/setups/service';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -31,6 +32,14 @@ export async function POST(request: NextRequest) {
     if (!body.cwd) return Response.json({ error: 'cwd is required' }, { status: 400 });
 
     const cwd = path.resolve(body.cwd);
+    // The folder becomes this agent's setup on this computer: check it can
+    // be before creating anything (docs/homes-spec.md §4.2).
+    try {
+      assertHomeFolderUsable(cwd);
+    } catch (err) {
+      if (err instanceof SetupError) return Response.json({ error: err.message }, { status: 400 });
+      throw err;
+    }
 
     const isGit = body.isGit ?? (await detectIsGit(cwd));
     const baseBranch = isGit ? body.baseBranch ?? (await detectBaseBranch(cwd, body.remoteName ?? 'origin')) : null;
@@ -68,8 +77,18 @@ export async function POST(request: NextRequest) {
       ...(connectorScopes !== undefined ? { connectorScopes } : {}),
     });
     // The folder is this computer's setup for the agent, kept in the folder's
-    // own `.ri.local.json` (docs/homes-spec.md §4).
-    await setHomeFolder(row.id, cwd);
+    // own `.ri.local.json` (docs/homes-spec.md §4). If that fails after the
+    // check above (a race, a disk error), the new agent is archived rather
+    // than left without a folder, and the reason returned.
+    try {
+      await setHomeFolder(row.id, cwd);
+    } catch (err) {
+      archiveWorkspace(row.id);
+      return Response.json(
+        { error: `The agent's folder couldn't be set up: ${err instanceof Error ? err.message : String(err)}` },
+        { status: err instanceof SetupError ? 409 : 500 },
+      );
+    }
     return Response.json(row, { status: 201 });
   } catch (err) {
     if (err instanceof WorkspaceFieldError) {

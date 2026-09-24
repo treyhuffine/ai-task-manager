@@ -4,7 +4,7 @@ import * as sqliteVec from 'sqlite-vec';
 import fs from 'fs';
 import path from 'path';
 import { getDbPath, ensureBrainDir, DB_PATH_ENV } from '@/lib/config/paths';
-import { assertMayCreateDatabase } from '@/lib/config/role';
+import { assertMayOpenDatabase } from '@/lib/config/role';
 import * as schema from './schema';
 import { runMigrations } from './migrate';
 
@@ -326,9 +326,10 @@ export function getDb(dbPath?: string): DB {
   }
 
   // A computer connected to a home elsewhere keeps no data of its own. Refuse
-  // here, the one place a database gets created, so no command can quietly
-  // start a second home on it (docs/homes-spec.md §3.1).
-  assertMayCreateDatabase(resolvedPath);
+  // here, where every connection opens, so no command can quietly start a
+  // second home on it or use a database beside a connection record
+  // (docs/homes-spec.md §3.1).
+  assertMayOpenDatabase(resolvedPath);
 
   // Default path sits inside brain/ — use the helper so the dir gets created
   // with 0o700 (the db contains all user data). Custom DB_PATH overrides can

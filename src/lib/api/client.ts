@@ -24,7 +24,7 @@
  */
 
 import { APP_SHORT_ID } from '@/constants/app';
-import { isNetworkFailure, reportNetworkFailure, reportReachable } from './connectivity';
+import { isGatewayFailure, isNetworkFailure, reportNetworkFailure, reportReachable } from './connectivity';
 
 export const AUTH_TOKEN_STORAGE_KEY = `${APP_SHORT_ID}.token`;
 const DEFAULT_BASE_URL = '/api';
@@ -210,7 +210,8 @@ export class ApiClient {
       if (isNetworkFailure(err)) void reportNetworkFailure();
       throw err;
     }
-    reportReachable();
+    if (isGatewayFailure(res.status)) void reportNetworkFailure();
+    else reportReachable();
     return res;
   }
 

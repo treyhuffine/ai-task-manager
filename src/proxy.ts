@@ -3,7 +3,8 @@ import { hashToken } from '@/lib/auth/tokens';
 import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isHomeActive } from '@/lib/home/identity';
-import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, FORWARDED_KEY_HEADERS } from '@/lib/auth/request-key';
+import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, CALLER_LOCATION_HEADER, FORWARDED_KEY_HEADERS } from '@/lib/auth/request-key';
+import { isHostKeyHash } from '@/lib/auth/host-key';
 
 export const config = {
   matcher: ['/api/:path*'],
@@ -63,6 +64,20 @@ export function proxy(request: NextRequest) {
     return nextWithoutKeyHeaders(request);
   }
 
+  // A root whose data came from another computer serves nothing until it is
+  // claimed, so two copies never act as one home (docs/homes-spec.md §10.3).
+  // Checked before the routes that carry their own credentials (webhooks,
+  // OAuth callbacks, takeover), since those can start work too.
+  if (!isHomeActive()) {
+    return NextResponse.json(
+      {
+        error: 'home_not_active',
+        message: 'This copy of your home is not active on this computer. Run `ri home claim` here if it should be.',
+      },
+      { status: 503 },
+    );
+  }
+
   if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
     return nextWithoutKeyHeaders(request);
   }
@@ -98,19 +113,9 @@ export function proxy(request: NextRequest) {
   const token = extractToken(request);
   if (!token) return unauthorized();
 
-  // A root whose data came from another computer serves nothing until it is
-  // claimed, so two copies never act as one home (docs/homes-spec.md §10.3).
-  if (!isHomeActive()) {
-    return NextResponse.json(
-      {
-        error: 'home_not_active',
-        message: 'This copy of your home is not active on this computer. Run `ri home claim` here if it should be.',
-      },
-      { status: 503 },
-    );
-  }
 
-  const key = findApiKeyByHash(hashToken(token));
+  const tokenHash = hashToken(token);
+  const key = findApiKeyByHash(tokenHash);
   if (!key || key.revokedAt) return unauthorized();
 
   if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
@@ -132,5 +137,6 @@ export function proxy(request: NextRequest) {
   for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
   headers.set(API_KEY_ID_HEADER, key.id);
   headers.set(API_KEY_TYPE_HEADER, key.deviceType);
+  headers.set(CALLER_LOCATION_HEADER, isHostKeyHash(tokenHash) ? 'home' : 'elsewhere');
   return NextResponse.next({ request: { headers } });
 }

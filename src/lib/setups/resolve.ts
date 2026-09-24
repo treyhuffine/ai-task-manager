@@ -201,19 +201,10 @@ export function resolveSetups(input: ResolveInput): SetupReport[] {
         status: problem.status,
         problem: problem.problem,
       });
-    } else if (!input.registered.includes(dir)) {
-      continue;
-    } else {
-      // Registered and readable, but this agent is no longer in the file.
-      reports.push({
-        agentId,
-        sourcePath: dir,
-        configRevision: null,
-        references: [],
-        status: 'missing_file',
-        problem: `${path.join(dir, SETUP_FILE)} no longer includes this agent. Restore it from the last known setup.`,
-      });
     }
+    // Otherwise the folder's file is readable and this agent was taken out
+    // of it: the file is the authority, so the agent isn't set up here any
+    // more. It isn't reported, and the home drops it.
   }
 
   return reports.sort((a, b) => a.agentId.localeCompare(b.agentId));

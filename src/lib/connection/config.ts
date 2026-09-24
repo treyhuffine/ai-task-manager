@@ -78,6 +78,39 @@ export function writeConnection(config: Omit<ConnectionConfig, 'version'>): Conn
   return record;
 }
 
+/**
+ * The computer id each home gave this computer, kept apart from the
+ * connection so it outlives `ri disconnect` and a new pairing key: the same
+ * machine stays the same computer of that home.
+ */
+function knownHomesPath(): string {
+  return path.join(path.dirname(getConnectionPath()), 'known-homes.json');
+}
+
+export function rememberedComputerId(homeId: string): string | null {
+  try {
+    const known = JSON.parse(fs.readFileSync(knownHomesPath(), 'utf8')) as Record<string, { computerId?: string }>;
+    return known[homeId]?.computerId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberComputerId(homeId: string, computerId: string): void {
+  const file = knownHomesPath();
+  let known: Record<string, { computerId: string }> = {};
+  try {
+    known = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    /* first home */
+  }
+  known[homeId] = { computerId };
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(known, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
 export function removeConnection(): boolean {
   const file = getConnectionPath();
   if (!fs.existsSync(file)) return false;

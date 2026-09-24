@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalPath,
   checkResolvedPaths,
   checkRootConfig,
   isolatedEnv,
@@ -117,6 +121,46 @@ describe('checkResolvedPaths', () => {
   it('refuses a root that contains a shared root', () => {
     const problems = checkResolvedPaths(resolvedUnder('/Users/me'), '/Users/me', SHARED);
     expect(problems.join('\n')).toMatch(/contains the shared root/);
+  });
+});
+
+describe('following symlinks', () => {
+  it('catches a work dir that links into a protected root', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-link-'));
+    try {
+      const protectedRoot = path.join(base, 'ri');
+      const isolated = path.join(base, 'ri-homes');
+      fs.mkdirSync(path.join(protectedRoot, '.work'), { recursive: true });
+      fs.mkdirSync(isolated);
+      fs.symlinkSync(path.join(protectedRoot, '.work'), path.join(isolated, '.work'));
+      const problems = checkResolvedPaths(resolvedUnder(isolated), isolated, [protectedRoot]);
+      expect(problems.join('\n')).toMatch(/workDir resolves outside the isolated root/);
+      expect(problems.join('\n')).toMatch(/workDir resolves inside the shared root/);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('catches an isolated root that is itself a link to a protected root', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-link-'));
+    try {
+      const protectedRoot = path.join(base, 'ri');
+      fs.mkdirSync(protectedRoot);
+      const alias = path.join(base, 'ri-homes');
+      fs.symlinkSync(protectedRoot, alias);
+      expect(checkResolvedPaths(resolvedUnder(alias), alias, [protectedRoot]).length).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves a path that does not exist yet through its nearest existing parent', () => {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-canon-')));
+    try {
+      expect(canonicalPath(path.join(base, 'not', 'yet'))).toBe(path.join(base, 'not', 'yet'));
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

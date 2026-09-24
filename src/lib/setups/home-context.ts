@@ -25,7 +25,7 @@ import {
 } from './adopt';
 import { readSetupFile, writeSetupFile, type ReferenceValue } from './local-file';
 import type { SetupReport } from './resolve';
-import { attach, detach, syncSetups, type SetupContext, type SetupHomeLink } from './service';
+import { assertFolderCanHoldSetup, attach, syncSetups, type SetupContext, type SetupHomeLink } from './service';
 
 export function buildSetupContext(computer: ComputerRecord): SetupContext {
   const home = getHome();
@@ -89,28 +89,24 @@ export async function adoptHomeSetups(plan: AdoptionPlan): Promise<{ result: Ado
 /**
  * Set up an agent's folder on the home's own computer, as the person chose
  * it in the app: write the setup file with the agent's stored reference
- * paths, register it, and report. Replaces a different folder the agent had
- * here, which is how changing an agent's folder works. A failure is
- * reported, not thrown: the agent still exists, and its setup shows what
- * went wrong.
+ * paths, register it, and report. When the agent had a different folder
+ * here, the new one is set up first and the old one cleared only after that
+ * succeeds (docs/homes-spec.md §4.2). Throws the reason on failure, leaving
+ * the previous setup as it was.
  */
-export async function setHomeFolder(agentId: string, folder: string): Promise<SetupReport | null> {
+export async function setHomeFolder(agentId: string, folder: string): Promise<SetupReport> {
   const link = inProcessSetupLink();
-  const dir = path.resolve(folder);
-  try {
-    const ctx = await link.context();
-    const current = ctx.observed.find((o) => o.agentId === agentId);
-    if (current && path.resolve(current.sourcePath) !== dir) await detach(link, { agent: agentId });
-    const references: Record<string, ReferenceValue> = {};
-    for (const ref of homeReferenceDefaults(agentId)) {
-      const value = referenceValue(ref);
-      if (value !== null) references[ref.alias] = value;
-    }
-    return await attach(link, { agent: agentId, folder: dir, references });
-  } catch (err) {
-    console.warn(`[setups] could not set up ${dir} for agent ${agentId}:`, err instanceof Error ? err.message : err);
-    return null;
+  const references: Record<string, ReferenceValue> = {};
+  for (const ref of homeReferenceDefaults(agentId)) {
+    const value = referenceValue(ref);
+    if (value !== null) references[ref.alias] = value;
   }
+  return attach(link, { agent: agentId, folder, references, replace: true });
+}
+
+/** Check a folder can hold this home's setup, before anything is created. */
+export function assertHomeFolderUsable(folder: string): string {
+  return assertFolderCanHoldSetup(folder, ensureHomeIdentity().home.id);
 }
 
 export interface ReferenceChange {
@@ -137,7 +133,10 @@ export async function applyReferenceToHomeSetups(
   const link = inProcessSetupLink();
   const ctx = await link.context();
   const next = referenceValue(ref);
-  const previous = before && before.alias === ref.alias ? referenceValue(before) : undefined;
+  const previousDefault = before ? referenceValue(before) : undefined;
+  const renamedFrom = before && before.alias !== ref.alias ? before.alias : null;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
   const byDir = new Map<string, string[]>();
   for (const seen of ctx.observed) {
     if (ref.workspaceId && seen.agentId !== ref.workspaceId) continue;
@@ -153,19 +152,30 @@ export async function applyReferenceToHomeSetups(
     try {
       const current = readSetupFile(dir);
       if (current.state !== 'ok') continue;
+      if (current.file.homeId !== ctx.homeId) {
+        failed.push({ dir, error: `${dir}'s setup belongs to a different Ri home, so it was left alone.` });
+        continue;
+      }
       let changed = false;
       const agents = { ...current.file.agents };
       for (const id of agentIds) {
         const entry = agents[id];
         if (!entry) continue;
-        const mapped = entry.references[ref.alias];
-        const follows = mapped === undefined || (previous !== undefined && JSON.stringify(mapped) === JSON.stringify(previous));
-        if (!follows || JSON.stringify(mapped) === JSON.stringify(next)) continue;
         const references = { ...entry.references };
-        if (next === null) delete references[ref.alias];
-        else references[ref.alias] = next;
-        agents[id] = { references };
-        changed = true;
+        // A rename carries this computer's own value to the new name.
+        const carried = renamedFrom !== null && renamedFrom in references ? references[renamedFrom] : undefined;
+        if (renamedFrom !== null && renamedFrom in references) delete references[renamedFrom];
+        const mapped = references[ref.alias] ?? carried;
+        // Follow the new value only where this computer never chose its own:
+        // unset, or still equal to the old default.
+        const follows = mapped === undefined || (previousDefault !== undefined && same(mapped, previousDefault));
+        const value = follows ? next : mapped;
+        if (value === null && follows) delete references[ref.alias];
+        else if (value !== undefined) references[ref.alias] = value;
+        if (!same(references, entry.references)) {
+          agents[id] = { references };
+          changed = true;
+        }
       }
       if (!changed) continue;
       writeSetupFile(dir, { ...current.file, agents }, current.revision);

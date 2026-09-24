@@ -4390,6 +4390,13 @@ export function registerComputerForApiKey(input: {
   name: string;
   platform?: string | null;
   hostname?: string | null;
+  /**
+   * The id this home gave the calling machine before, e.g. with an older key.
+   * A key not linked yet is linked to that computer instead of a new one, so
+   * re-pairing keeps the same computer. Never the home's own computer, and
+   * never a removed one.
+   */
+  computerId?: string | null;
 }): { computer: ComputerRecord; created: boolean } {
   const db = getDb();
   return db.transaction((tx) => {
@@ -4404,6 +4411,20 @@ export function registerComputerForApiKey(input: {
         .returning()
         .get();
       if (computer) return { computer, created: false };
+    }
+    const hostId = tx.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+    if (input.computerId && input.computerId !== hostId) {
+      const previous = tx.select().from(computers).where(eq(computers.id, input.computerId)).get();
+      if (previous && previous.status === 'active') {
+        tx.update(apiKeys).set({ computerId: previous.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+        const computer = tx
+          .update(computers)
+          .set({ platform: input.platform ?? null, hostname: input.hostname ?? null, lastSeenAt: now, updatedAt: now })
+          .where(eq(computers.id, previous.id))
+          .returning()
+          .get()!;
+        return { computer, created: false };
+      }
     }
     const computer = tx
       .insert(computers)

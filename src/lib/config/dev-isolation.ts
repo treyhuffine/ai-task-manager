@@ -13,11 +13,15 @@
  * - `checkRootConfig` refuses a root whose machine config would reach outside
  *   it: a copied production token or tunnel, or a machine-wide skill install.
  *
- * `scripts/isolated.ts` wires these together. Pure functions only, so the
- * rules are unit tested without touching a real home.
+ * `scripts/isolated.ts` wires these together. Paths are compared after
+ * following symlinks, so a dev root, or a folder inside it, that links into
+ * production is caught. Nothing here writes.
  */
 
 import path from 'node:path';
+import { canonicalPath } from '@/lib/config/canonical-path';
+
+export { canonicalPath };
 import {
   APP_ROOT_ENV,
   CONFIG_DIR_ENV,
@@ -111,9 +115,9 @@ export interface ResolvedPaths {
   attachmentsDir: string;
 }
 
-/** Whether `child` is `parent` or somewhere below it. */
+/** Whether `child` is `parent` or somewhere below it, after following symlinks. */
 export function isWithin(child: string, parent: string): boolean {
-  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  const rel = path.relative(canonicalPath(parent), canonicalPath(child));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 

@@ -49,8 +49,15 @@ export function getInstallationRole(): InstallationRole {
   return 'fresh';
 }
 
-/** Throw rather than create a database in a connected root. */
-export function assertMayCreateDatabase(dbPath: string): void {
-  if (fs.existsSync(dbPath)) return;
-  if (fs.existsSync(getConnectionPath())) throw new ConnectedInstallationError('Opening data');
+/**
+ * Before opening a database: refuse to create one on a connected computer,
+ * and refuse to open one in a folder that is also connected to a home
+ * elsewhere. Checked when a connection opens, not on every cached call: the
+ * only thing that writes a connection record, `ri connect`, refuses to run
+ * inside a home, so the conflict can't appear under a running server.
+ */
+export function assertMayOpenDatabase(dbPath: string): void {
+  if (!fs.existsSync(getConnectionPath())) return;
+  if (fs.existsSync(dbPath)) throw new RoleConflictError();
+  throw new ConnectedInstallationError('Opening data');
 }

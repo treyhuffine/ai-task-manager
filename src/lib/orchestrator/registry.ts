@@ -1381,6 +1381,14 @@ const create_workspace_action = defineAction({
   handler: async (ctx, input) => {
     assertCallerOnHome(ctx, 'Creating an agent from a folder path');
     const cwd = path.resolve(input.cwd);
+    const { assertHomeFolderUsable, setHomeFolder } = await import('@/lib/setups/home-context');
+    const { SetupError } = await import('@/lib/setups/service');
+    try {
+      assertHomeFolderUsable(cwd);
+    } catch (err) {
+      if (err instanceof SetupError) throw new ActionError('invalid_params', err.message);
+      throw err;
+    }
     const isGit = await detectIsGit(cwd);
     const baseBranch = isGit
       ? input.baseBranch ?? (await detectBaseBranch(cwd, input.remoteName ?? 'origin'))
@@ -1399,8 +1407,12 @@ const create_workspace_action = defineAction({
         instructions: input.instructions,
         status: 'active',
       });
-      const { setHomeFolder } = await import('@/lib/setups/home-context');
-      await setHomeFolder(row.id, cwd);
+      try {
+        await setHomeFolder(row.id, cwd);
+      } catch (err) {
+        archiveWorkspace(row.id);
+        throw new ActionError('conflict', `The agent's folder couldn't be set up: ${err instanceof Error ? err.message : String(err)}`);
+      }
       return row;
     } catch (err) {
       if (err instanceof WorkspaceFieldError) throw new ActionError(err.code, err.message);
@@ -1568,8 +1580,11 @@ const create_reference_folder_action = defineAction({
     }
     // Map it in the home computer's setup files, where agent paths live (§4.2).
     const { applyReferenceToHomeSetups } = await import('@/lib/setups/home-context');
-    await applyReferenceToHomeSetups(row).catch(() => {});
-    return row;
+    const setupFiles = await applyReferenceToHomeSetups(row).catch((err: unknown) => ({
+      updated: [] as string[],
+      failed: [{ dir: '', error: err instanceof Error ? err.message : String(err) }],
+    }));
+    return { ...row, setupFiles };
   },
 });
 
@@ -1603,8 +1618,11 @@ const update_reference_folder_action = defineAction({
     }
     // Carry a changed path into the home computer's setup files (§4.2).
     const { applyReferenceToHomeSetups } = await import('@/lib/setups/home-context');
-    await applyReferenceToHomeSetups(row, before).catch(() => {});
-    return row;
+    const setupFiles = await applyReferenceToHomeSetups(row, before).catch((err: unknown) => ({
+      updated: [] as string[],
+      failed: [{ dir: '', error: err instanceof Error ? err.message : String(err) }],
+    }));
+    return { ...row, setupFiles };
   },
 });
 
@@ -2698,11 +2716,16 @@ const setupReportSchema = z.object({
 const register_computer_action = defineAction({
   name: 'register_computer',
   description:
-    "Register the calling computer with this home, or refresh its details. A connected computer does this once, so its agent setups can be reported. It grants no authority to run work.",
+    "Register the calling computer with this home, or refresh its details. A connected computer does this once, so its agent setups can be reported. It doesn't let the home run work on that computer. Its key's own access is unchanged.",
   params: {
     name: z.string().min(1).max(120),
     platform: z.string().max(40).nullable().optional(),
     hostname: z.string().max(255).nullable().optional(),
+    computerId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('The id this home gave this computer before, so a new key keeps the same computer'),
   },
   mutating: true,
   handler: async (ctx, input) => {

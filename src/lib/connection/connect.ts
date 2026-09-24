@@ -67,10 +67,10 @@ export interface ConnectResult {
 }
 
 /**
- * Check the home answers with this key, then save the connection. Nothing is
- * saved when the check fails.
+ * Check the home answers as a Ri home and accepts this key. Saves nothing,
+ * so callers can check before changing anything on this computer.
  */
-export async function connectToHome(link: ParsedPairingLink, opts: { allowInsecureHttp?: boolean } = {}): Promise<ConnectResult> {
+export async function verifyPairingLink(link: ParsedPairingLink, opts: { allowInsecureHttp?: boolean } = {}): Promise<HomeSummary> {
   assertSecureAddress(link.homeUrl, opts);
   const probe = { homeUrl: link.homeUrl, credential: link.token, homeName: 'your Ri', homeHostName: null };
   let res: Response;
@@ -92,7 +92,12 @@ export async function connectToHome(link: ParsedPairingLink, opts: { allowInsecu
   if (!res.ok) throw new ConnectError(`${link.homeUrl} answered with HTTP ${res.status}.`);
   const home = (await res.json().catch(() => null)) as HomeSummary | null;
   if (!home?.id) throw new ConnectError(`${link.homeUrl} didn't answer like a Ri home.`);
-  const connection = writeConnection({
+  return home;
+}
+
+/** Save a connection to a home `verifyPairingLink` confirmed. */
+export function saveConnection(link: ParsedPairingLink, home: HomeSummary): ConnectionConfig {
+  return writeConnection({
     homeId: home.id,
     homeName: home.name,
     homeUrl: link.homeUrl,
@@ -101,5 +106,10 @@ export async function connectToHome(link: ParsedPairingLink, opts: { allowInsecu
     connectedAt: new Date().toISOString(),
     computerId: null,
   });
-  return { connection, home };
+}
+
+/** Check the home answers with this key, then save the connection. Nothing is saved when the check fails. */
+export async function connectToHome(link: ParsedPairingLink, opts: { allowInsecureHttp?: boolean } = {}): Promise<ConnectResult> {
+  const home = await verifyPairingLink(link, opts);
+  return { connection: saveConnection(link, home), home };
 }
