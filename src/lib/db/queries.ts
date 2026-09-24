@@ -14,6 +14,7 @@ import {
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
 } from '@/lib/db/schema';
+import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
@@ -6677,6 +6678,65 @@ export function listChatEventsAfter(sessionId: string, afterId: string, limit = 
     .limit(limit)
     .all();
   return rows.map((r) => hydrateRow(r));
+}
+
+/**
+ * Everything the background-task strip needs for specific tasks, however far
+ * back they started: each task's lifecycle events plus the tool call that
+ * launched it and that call's result (the command and its output).
+ *
+ * The transcript loads the newest page of events only, so a long-lived task
+ * (a dev server an agent left running) can start more than a page ago while
+ * the runtime still reports it live. This lets the strip show it anyway.
+ *
+ * The SQL filter is a cheap prefilter on both envelope shapes (Agentex's
+ * `taskId`, and the legacy Claude `raw.task_id`). `decodeBackgroundTaskEvent`
+ * is the authority, applied after, so this matches the decoder's own rules.
+ */
+export function listBackgroundTaskEvents(sessionId: string, taskIds: readonly string[]): ChatEventRecord[] {
+  if (taskIds.length === 0) return [];
+  const db = getDb();
+  const wanted = new Set(taskIds);
+  const idList = [...wanted];
+  const candidates = db
+    .select()
+    .from(chatEvents)
+    .where(
+      and(
+        eq(chatEvents.sessionId, sessionId),
+        or(
+          inArray(sql<string>`json_extract(${chatEvents.raw}, '$.taskId')`, idList),
+          inArray(sql<string>`json_extract(${chatEvents.raw}, '$.raw.task_id')`, idList),
+        ),
+      ),
+    )
+    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    .all()
+    .map((r) => hydrateRow(r));
+
+  const lifecycle: ChatEventRecord[] = [];
+  const toolUseIds = new Set<string>();
+  for (const row of candidates) {
+    const decoded = decodeBackgroundTaskEvent(row.raw);
+    if (!decoded?.taskId || !wanted.has(decoded.taskId)) continue;
+    lifecycle.push(row);
+    if (decoded.toolUseId) toolUseIds.add(decoded.toolUseId);
+  }
+  if (toolUseIds.size === 0) return lifecycle;
+
+  const launches = db
+    .select()
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, sessionId), inArray(chatEvents.externalToolCallId, [...toolUseIds])))
+    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    .all()
+    .map((r) => hydrateRow(r));
+
+  const byId = new Map<string, ChatEventRecord>();
+  for (const row of [...launches, ...lifecycle]) byId.set(row.id, row);
+  return [...byId.values()].sort((a, b) =>
+    a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
 }
 
 /**

@@ -448,6 +448,14 @@ export const sessionsApi = {
     });
   },
 
+  /**
+   * The events behind specific background tasks (lifecycle, launching call,
+   * output), for tasks that started before the loaded transcript page.
+   */
+  backgroundTaskEvents(id: string, taskIds: readonly string[]): Promise<ChatEventDTO[]> {
+    return api.get<ChatEventDTO[]>(`/sessions/${id}/background-tasks`, { query: { ids: taskIds.join(',') } });
+  },
+
   status(id: string): Promise<WorktreeStatus | null> {
     return api.get<WorktreeStatus | null>(`/sessions/${id}/status`);
   },

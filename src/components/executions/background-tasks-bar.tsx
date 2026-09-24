@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Terminal,
   Bot,
@@ -30,7 +31,13 @@ import {
   type BackgroundTask,
   type BackgroundTaskStatus,
 } from '@/hooks/use-background-tasks';
-import { selectVisibleBackgroundTasks } from './background-task-visibility';
+import { sessionsApi } from '@/lib/api/sessions';
+import {
+  mergeEventLists,
+  missingLiveTaskIds,
+  selectVisibleBackgroundTasks,
+  withLivePlaceholders,
+} from './background-task-visibility';
 
 /**
  * Thin background-task strip above the composer. Renders only while something
@@ -48,10 +55,30 @@ export function BackgroundTasksBar({
   runtimeHasBackgroundTasks?: boolean;
   runtimeBackgroundTaskIds?: string[];
 }) {
-  const { data: events } = useSessionEvents(sessionId);
+  const { data: pageEvents } = useSessionEvents(sessionId);
+  const pageTasks = useBackgroundTasks(pageEvents);
+
+  // The transcript loads its newest page only, so a long-lived task (a dev
+  // server an agent left running) can start further back than that page
+  // while the runtime still reports it live. Fetch just those tasks' events
+  // (lifecycle, launching command, output) and merge them in, so the strip,
+  // the sheet's detail and its Stop button all cover them.
+  const missing = missingLiveTaskIds(pageTasks, runtimeHasBackgroundTasks, runtimeBackgroundTaskIds);
+  const { data: olderTaskEvents } = useQuery({
+    queryKey: ['session', sessionId, 'background-task-events', missing.join(',')],
+    queryFn: () => sessionsApi.backgroundTaskEvents(sessionId, missing),
+    enabled: missing.length > 0,
+    staleTime: 30_000,
+  });
+  const events = useMemo(
+    () => mergeEventLists(pageEvents ?? [], missing.length > 0 ? olderTaskEvents ?? [] : []),
+    [pageEvents, olderTaskEvents, missing.length],
+  );
   const transcriptTasks = useBackgroundTasks(events);
-  const tasks = selectVisibleBackgroundTasks(
-    transcriptTasks,
+  // The runtime is the authority on what's live: anything it reports that
+  // no event describes still shows, unnamed, rather than hiding.
+  const tasks = withLivePlaceholders(
+    selectVisibleBackgroundTasks(transcriptTasks, runtimeHasBackgroundTasks, runtimeBackgroundTaskIds),
     runtimeHasBackgroundTasks,
     runtimeBackgroundTaskIds,
   );
@@ -91,7 +118,7 @@ export function BackgroundTasksBar({
         open={open}
         onOpenChange={setOpen}
         sessionId={sessionId}
-        events={events ?? []}
+        events={events}
         tasks={tasks}
       />
     </>
