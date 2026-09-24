@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { AppWindow, ExternalLink, ListTodo, Loader2, Pin, Play } from 'lucide-react';
+import { AppWindow, ExternalLink, ListTodo, Loader2, Pin, Plus } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useAgentExecutions, useAgentPreviews, useAgentTasks } from '@/hooks/use-agent';
 import { useDiffStats } from '@/hooks/use-workspaces';
@@ -56,8 +56,8 @@ export function AgentOverview({
               onClick={() => openLauncher(workspace.id)}
               className="mt-3 inline-flex items-center gap-1.5 h-7 px-3 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90"
             >
-              <Play size={11} className="fill-current" />
-              Start work
+              <Plus size={12} strokeWidth={2.5} />
+              New execution
             </button>
           )}
         </div>

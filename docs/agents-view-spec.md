@@ -373,8 +373,9 @@ One registry generates both surfaces, so every item lands on both.
   - agent icon and name
   - folder path, muted
   - working and needs-you counts
-  - a "Start work" button that opens the launcher seeded with this agent
-  - Plus a button that collapses the tools panel. The Start work label drops to its icon in a narrow header (`@container`).
+  - a "New execution" button that opens the launcher seeded with this agent
+  - Plus a button that collapses the tools panel. The New execution label drops to its icon in a narrow header (`@container`).
+  - Renamed 2026-09-24 from a play icon and "Start work", which read as starting something on the spot. The button opens a composer, and the launcher's own Start button is what commits. It now matches the rail row's plus for the same action.
 
 **Chat panel**
 
@@ -391,7 +392,7 @@ One registry generates both surfaces, so every item lands on both.
   - **Pinned:** this agent's pinned executions.
   - **Tasks:** tasks linked to this agent's executions.
   - **Preview:** running or stopped, port, open link.
-  - Empty state: "No work yet" plus Start work.
+  - Empty state: "No work yet" plus New execution.
   - Grouping reuses `classifySession` on the rail feed (`use-agent.ts`), so the view and the rail never disagree. Tasks come from a new `GET /api/workspaces/:id/tasks` (open tasks of active executions, `listWorkspaceExecutionTasks`).
 - [x] **Files:** tree and read-only viewer on the agent's folder (Phase 5 routes). Reuse the file tree and viewer components by giving them a target (a session or a workspace).
   - The target is `FolderSource` (`src/lib/folders/source.ts`) with hooks in `use-folder.ts`. `FileTree`, `FileViewer`, `FileView`, `DiffView`, `MarkdownView`, the terminal panel and instance, and the terminal hooks and API all take it now. A session source keeps its old cache keys. A workspace source is read-only: no create, rename, delete or edit, and the empty viewer's copy says so. Status flags and Diff compare against HEAD.

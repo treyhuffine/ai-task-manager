@@ -214,8 +214,8 @@ export function WorkspaceRow({
               else onOpenLauncher(workspace.id);
             }}
             className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-            aria-label="Start work"
-            title="Start work (shift-click to skip the setup)"
+            aria-label="New execution"
+            title="New execution (shift-click to start one right away on the last settings)"
           >
             <Plus size={13} />
           </button>

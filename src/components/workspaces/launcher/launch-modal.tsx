@@ -586,7 +586,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
           }}
         >
           <VisuallyHidden.Root>
-            <DialogPrimitive.Title>Start work</DialogPrimitive.Title>
+            <DialogPrimitive.Title>New execution</DialogPrimitive.Title>
             <DialogPrimitive.Description>
               Describe what you want, optionally attaching a pull request, issue, branch, task, or
               existing chat.

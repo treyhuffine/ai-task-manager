@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronLeft, GitBranch, PanelRightClose, PanelRightOpen, Play } from 'lucide-react';
+import { ChevronLeft, GitBranch, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
 import { useAgentExecutions } from '@/hooks/use-agent';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import type { WorkspaceRecord } from '@/db/types';
@@ -74,11 +74,12 @@ export function AgentHeader({
       {!archived && (
         <button
           onClick={() => openLauncher(workspace.id)}
-          className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity"
-          title={`Start new work in ${workspace.name}`}
+          className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg border border-border text-foreground text-[11px] font-semibold hover:bg-muted/60 transition-colors"
+          title={`New execution in ${workspace.name}`}
+          aria-label="New execution"
         >
-          <Play size={11} className="fill-current" />
-          <span className="hidden @[520px]:inline">Start work</span>
+          <Plus size={12} strokeWidth={2.5} />
+          <span className="hidden @[520px]:inline">New execution</span>
         </button>
       )}
       {!pane && (

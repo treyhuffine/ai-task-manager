@@ -62,7 +62,7 @@ export function AgentPreview({
         <div className="max-w-xs">
           <p className="text-[13px] font-semibold text-foreground">No previews yet</p>
           <p className="text-[11px] text-muted-foreground/80 mt-1">
-            A preview runs the agent&apos;s start command for one execution. Start work, then preview it here.
+            A preview runs the agent&apos;s start command for one execution. Start an execution, then preview it here.
           </p>
         </div>
       </div>
