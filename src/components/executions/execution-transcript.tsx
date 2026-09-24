@@ -34,6 +34,12 @@ interface ExecutionTranscriptProps {
   isRunning: boolean;
   /** Event ids that this client sent via voice — drives the badge under user messages. */
   voiceSentIds?: ReadonlySet<string>;
+  /**
+   * Classes for the element that scrolls. Padding here keeps content clear
+   * of something floating over the transcript (the tools box) while the
+   * scrollbar stays at the column's far right edge.
+   */
+  scrollClassName?: string;
 }
 
 /**
@@ -60,7 +66,7 @@ interface ExecutionTranscriptProps {
  * "trailing non-terminal event" heuristic produced all false positives
  * on normal completed turns.
  */
-export function ExecutionTranscript({ session, workspace, isRunning, voiceSentIds }: ExecutionTranscriptProps) {
+export function ExecutionTranscript({ session, workspace, isRunning, voiceSentIds, scrollClassName }: ExecutionTranscriptProps) {
   hot('render ExecutionTranscript');
   const { data: rawEvents, isLoading } = useSessionEvents(session.id);
   const clientStatus = useClientEventStatus(session.id);
@@ -162,7 +168,7 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
 
   return (
     <Conversation className="flex-1 min-h-0" initial="instant">
-      <ConversationContent className="gap-3 px-5 pt-4 pb-8 max-w-3xl mx-auto">
+      <ConversationContent className="gap-3 px-5 pt-4 pb-8 max-w-3xl mx-auto" scrollClassName={scrollClassName}>
         <InitialScrollSnap sessionId={session.id} ready={!isLoading} />
         <ScrollUpPager
           ready={!isLoading}

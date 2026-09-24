@@ -199,13 +199,13 @@ export function HarnessChatSession({
         isRunning={isRunning}
         voiceSentIds={voiceSentIds}
       />
-      <div className="flex-shrink-0 border-t border-border bg-background">
+      <div className="flex-shrink-0 bg-background">
+        <PendingInputArea sessionId={session.id} />
         <BackgroundTasksBar
           sessionId={session.id}
           runtimeHasBackgroundTasks={runtime?.backgroundTasks}
           runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
         />
-        <PendingInputArea sessionId={session.id} />
         <ExecutionComposer
           ref={composerHandleRef}
           sessionId={session.id}

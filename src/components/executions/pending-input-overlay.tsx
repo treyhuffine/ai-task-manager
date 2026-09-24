@@ -42,7 +42,7 @@ export function PendingInputArea({ sessionId }: PendingInputAreaProps) {
 
   return (
     <div className="flex-shrink-0">
-      <div className="px-5 pt-3 pb-1 max-w-3xl mx-auto">
+      <div className="px-5 pt-3 pb-3 max-w-3xl mx-auto">
         {top.kind === 'question' ? (
           <QuestionCard key={top.requestId} pending={top} sessionId={sessionId} />
         ) : (

@@ -68,10 +68,9 @@ export function BackgroundTasksBar({
   return (
     <>
       {/* A strip attached to the top of the composer card: same column
-          width, inset like a tab, no borders. The negative margin tucks it
-          into the composer's top padding so the two touch. `relative z-10`
-          keeps its bottom edge clickable over that padding. */}
-      <div className="relative z-10 mx-auto -mb-3 max-w-3xl px-5">
+          width, inset like a tab, no borders. Render it directly before
+          the composer so the two touch. */}
+      <div className="mx-auto max-w-3xl px-5">
         <button
           type="button"
           onClick={() => setOpen(true)}

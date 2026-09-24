@@ -637,7 +637,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     return (
       <div className="flex-shrink-0" onKeyDown={handleKeyDown}>
-        <div className="px-5 py-3 max-w-3xl mx-auto">
+        {/* No top padding: a band of solid background above the card would
+            cut scrolling transcript text off short of the card's edge. */}
+        <div className="px-5 pb-3 max-w-3xl mx-auto">
           <div
             className={cn(
               'rounded-xl border border-border bg-card transition-colors flex flex-col gap-1',

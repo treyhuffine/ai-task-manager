@@ -558,10 +558,14 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // submits on Enter. Binding it to the subtree rather than a runtime
   // viewport check keeps each instance matched to the layout it's in.
   //
-  // `withBox` floats the tools box over the chat's right side. The chat
-  // pads for it where it would otherwise cover the transcript, and below
-  // ~1060px of chat width the box folds into an icon strip.
-  const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => (
+  // `withBox` floats the tools box over the chat's right side. Below
+  // ~1390px of chat width the parts it would cover pad themselves clear of
+  // it, and below ~1060px the box folds into an icon strip. The transcript
+  // pads its scrolling element rather than its frame, so the scrollbar
+  // stays at the column's far right edge instead of floating mid-page.
+  const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => {
+    const clearBox = withBox ? '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]' : undefined;
+    return (
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"
       onFiles={(files) => {
@@ -579,31 +583,37 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           newChatPending={newExecutionChat.isPending}
         />
       )}
-      <div
-        className={cn(
-          'relative flex min-h-0 flex-1 flex-col',
-          withBox && '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]',
-        )}
-      >
+      <div className="relative flex min-h-0 flex-1 flex-col">
         {workspace?.isGit &&
           !!session.worktreePath &&
           session.worktreePath !== workspace.cwd && (
             // Skip for Live / in-place sessions: their "worktree" IS the source
             // checkout, so no WIP ever "stayed behind".
-            <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
+            <div className={clearBox}>
+              <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
+            </div>
           )}
-        {reconciling && <SyncingPill />}
+        {reconciling && (
+          <div className={clearBox}>
+            <SyncingPill />
+          </div>
+        )}
         <ExecutionTranscript
           session={session}
           workspace={workspace}
           isRunning={isRunning}
           voiceSentIds={voiceSentIds}
+          scrollClassName={clearBox}
         />
-        {session.executionId && !isRunning && <ExecutionReviewBar executionId={session.executionId} />}
+        {session.executionId && !isRunning && (
+          <div className={clearBox}>
+            <ExecutionReviewBar executionId={session.executionId} />
+          </div>
+        )}
         {/* The input region: pending questions, then running background
             work as a strip attached to the top of the composer. No rule
             above it, so it reads as one piece with the conversation. */}
-        <div className="flex-shrink-0 bg-background">
+        <div className={cn('flex-shrink-0 bg-background', clearBox)}>
           <PendingInputArea sessionId={session.id} />
           {isMirroredImport && (
             <ImportedTakeoverBar
@@ -663,7 +673,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         )}
       </div>
     </ChatDropZone>
-  );
+    );
+  };
 
   const panelOpen = !!wb.view;
   const maximized = panelOpen && wb.maximized;
