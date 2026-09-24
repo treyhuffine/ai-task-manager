@@ -49,7 +49,7 @@ export function AgentHeader({
         </button>
       )}
       <AgentIcon workspace={workspace} size="md" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           <h1 className="truncate text-[13px] font-semibold text-foreground">{workspace.name}</h1>
           {archived && (
@@ -66,11 +66,8 @@ export function AgentHeader({
         </div>
       </div>
 
-      <div className="hidden @[420px]:flex items-center gap-1.5 flex-shrink-0">
-        <CountPill count={working.length} label="working" tone="working" />
-        <CountPill count={needsYou.length} label="need you" singular="needs you" tone="attention" />
-      </div>
-
+      {/* Beside the name, so it reads as this agent's action. The app-wide
+          CREATE owns the top-right corner. */}
       {!archived && (
         <button
           onClick={() => openLauncher(workspace.id)}
@@ -82,6 +79,14 @@ export function AgentHeader({
           <span className="hidden @[520px]:inline">New execution</span>
         </button>
       )}
+
+      <div className="flex-1" />
+
+      <div className="hidden @[420px]:flex items-center gap-1.5 flex-shrink-0">
+        <CountPill count={working.length} label="working" tone="working" />
+        <CountPill count={needsYou.length} label="need you" singular="needs you" tone="attention" />
+      </div>
+
       {!pane && (
         <button
           onClick={onToggleTools}

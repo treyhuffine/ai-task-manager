@@ -373,7 +373,7 @@ One registry generates both surfaces, so every item lands on both.
   - agent icon and name
   - folder path, muted
   - working and needs-you counts
-  - a "New execution" button that opens the launcher seeded with this agent
+  - a "New execution" button beside the agent's name that opens the launcher seeded with this agent. Beside the name, it reads as this agent's action, and the app-wide CREATE keeps the top-right corner. The right side holds status and the tools toggle.
   - Plus a button that collapses the tools panel. The New execution label drops to its icon in a narrow header (`@container`).
   - Renamed 2026-09-24 from a play icon and "Start work", which read as starting something on the spot. The button opens a composer, and the launcher's own Start button is what commits. It now matches the rail row's plus for the same action.
 
