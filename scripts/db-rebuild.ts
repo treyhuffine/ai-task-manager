@@ -10,15 +10,21 @@
  * longer matches. Booting new code against an old database stops with
  * `MigrationHistoryError` (src/lib/db/migrate.ts), which names this script.
  *
- * It reads exactly one old history, SOURCE_BASELINE below, and checks that
- * before doing anything: a database already on the current baseline, or on
- * an older history, is refused with what to do instead.
+ * It reads any history from before the current baseline: the 2026-09-10
+ * baseline, or the migration chain that came before it (a database that
+ * skipped the 09-10 rebuild). What they need is the same copy plus the 09-10
+ * permission-mode rename, and the structural checks below decide the rest,
+ * not the journal: re-tagged migrations mean an old journal's hashes can't be
+ * trusted to match git. A database already on the current baseline is
+ * refused before anything is written.
  *
  * --in-place is the cutover: with the app stopped, it refuses to run while
  * anything still holds the file open, snapshots it to
  * <app-root>/snapshots/pre-rebuild-<stamp>/data.db, rebuilds from the
  * snapshot, and swaps the rebuilt file in only if every check passes. The
- * original moves next to the snapshot as live-original.db, untouched.
+ * original moves next to the snapshot as live-original.db, untouched. If the
+ * rebuild stops on a check before verifying, its partial file and snapshot
+ * are removed, so a retry starts clean.
  *
  * --from/--to is the rehearsal: rebuild a copy, verify, swap nothing. It never
  * writes to --from and refuses to overwrite --to.
@@ -40,8 +46,8 @@
  *    after the baseline, reinstalls triggers and backfills chat_events_fts.
  *    Then rebuild the external-content FTS indexes.
  * 6. Verify: row counts and a row-by-row digest (rowid included) of every
- *    copied table, derived-column distributions, embeddings, FTS integrity,
- *    foreign keys, integrity_check, and the migration journal.
+ *    copied table, derived and remapped column distributions, embeddings,
+ *    FTS integrity, foreign keys, integrity_check, and the migration journal.
  *
  * The CHANGES block is specific to one rebuild: old history to the current
  * baseline. Rewrite it for the next collapse, never for a later migration.
@@ -56,15 +62,35 @@ import path from 'node:path';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getDb, getRawDb, initDatabase, resetDb } from '../src/lib/db';
 
-// ─── CHANGES (2026-09-22, docs/agents-view-spec.md Phase 1) ───────────────
-// The `agents` table goes away. Chats, triggers and runs store their engine
-// directly in `harness`. The unused `tasks.heartbeat_days` goes too.
+// ─── CHANGES (old history → the 2026-09-22 baseline) ─────────────────────
+// 2026-09-22 (docs/agents-view-spec.md Phase 1): the `agents` table goes
+// away. Chats, triggers and runs store their engine directly in `harness`.
+// The unused `tasks.heartbeat_days` goes too.
+// 2026-09-10 (1fb95b9), for a database that skipped that rebuild: permission
+// modes got app-native names. Its other changes were defaults and
+// nullability, which a column-by-column copy doesn't read.
 
-// The history this rebuild reads: the one-migration baseline from the
-// 2026-09-10 collapse (1fb95b9), as recorded in `__drizzle_migrations`.
+// The 2026-09-10 baseline, as recorded in `__drizzle_migrations`. Only used
+// to describe the source in the report.
 const SOURCE_BASELINE = {
   tag: '0000_stale_expediter',
   hash: '599a14d13a42c0372f79f2cbc0d9c61467c75663e0c6e4b99c805d24a787adad',
+};
+
+// Old name → new name. New names pass through, since a database that kept
+// running after 09-10 without the rebuild holds both.
+const PERMISSION_MODE_RENAMES: Record<string, string> = {
+  bypass: 'auto_all',
+  accept_edits: 'auto_edits',
+  default: 'ask',
+  plan: 'plan',
+  auto_all: 'auto_all',
+  auto_edits: 'auto_edits',
+  ask: 'ask',
+};
+// A value outside a map aborts the rebuild before any row is copied.
+const REMAPPED: Record<string, Record<string, Record<string, string>>> = {
+  chat_sessions: { permission_mode: PERMISSION_MODE_RENAMES, pre_plan_mode: PERMISSION_MODE_RENAMES },
 };
 
 const DROPPED_TABLES = ['agents'];
@@ -86,8 +112,15 @@ const HARNESS_FROM_AGENT = `(
   END
   FROM old.agents AS a WHERE a.id = o.agent_id
 )`;
+const q0 = (id: string) => `"${id.replace(/"/g, '""')}"`;
+const lit = (v: string) => `'${v.replace(/'/g, "''")}'`;
+const remapSql = (column: string, map: Record<string, string>) =>
+  `CASE o.${q0(column)} ${Object.entries(map).map(([from, to]) => `WHEN ${lit(from)} THEN ${lit(to)}`).join(' ')} END`;
 const DERIVED: Record<string, Record<string, string>> = {
-  chat_sessions: { harness: HARNESS_FROM_AGENT },
+  chat_sessions: {
+    harness: HARNESS_FROM_AGENT,
+    ...Object.fromEntries(Object.entries(REMAPPED.chat_sessions).map(([c, m]) => [c, remapSql(c, m)])),
+  },
   triggers: { harness: HARNESS_FROM_AGENT },
   runs: { harness: HARNESS_FROM_AGENT },
 };
@@ -150,31 +183,28 @@ function digest(db: Database.Database, sql: string): string {
 const MIGRATIONS_FOLDER = path.resolve(process.cwd(), 'drizzle');
 
 /**
- * Refuse a source that isn't on SOURCE_BASELINE, before anything is written.
- * Only reads the journal.
+ * Describe the source's migration history, and refuse one that is already on
+ * the current baseline or isn't an app database at all. Only reads.
  */
-function checkSourceHistory(file: string): void {
+function checkSourceHistory(file: string): string {
   const db = new Database(file, { fileMustExist: true });
   try {
-    const hasJournal = db.prepare(`SELECT count(*) FROM sqlite_master WHERE name = '__drizzle_migrations'`).pluck().get() as number;
-    const rows = hasJournal
-      ? (db.prepare(`SELECT hash, created_at FROM "__drizzle_migrations" ORDER BY created_at`).all() as Array<{ hash: string; created_at: number }>)
-      : [];
+    const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).pluck().all() as string[];
+    if (!tables.includes('__drizzle_migrations') || !tables.includes('tasks')) {
+      throw new Error(`${file} doesn't look like an app database (no migration journal or tasks table). Nothing was changed.`);
+    }
+    const rows = db.prepare(`SELECT hash, created_at FROM "__drizzle_migrations" ORDER BY created_at`).all() as Array<{ hash: string; created_at: number }>;
     const current = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER });
-    if (rows.length > 0 && rows[0].hash === current[0]?.hash) {
+    if (rows.some((r) => r.hash === current[0]?.hash)) {
       throw new Error(`${file} is already on the current baseline. There is nothing to rebuild: start the app as usual.`);
     }
-    if (rows.length === 1 && rows[0].hash === SOURCE_BASELINE.hash) return;
     const last = rows.at(-1);
-    throw new Error(
-      [
-        `${file} is not on the history this rebuild reads (the ${SOURCE_BASELINE.tag} baseline from 2026-09-10).`,
-        `  recorded: ${rows.length} migration(s)${last ? `, the last from ${new Date(Number(last.created_at)).toISOString().slice(0, 10)}` : ''}`,
-        rows.length > 1
-          ? `It predates the 2026-09-10 collapse, so it needs that move first. Nothing was changed.`
-          : `Nothing was changed.`,
-      ].join('\n'),
-    );
+    const lastDate = last ? new Date(Number(last.created_at)).toISOString().slice(0, 10) : 'none';
+    if (rows.length === 1 && last?.hash === SOURCE_BASELINE.hash) return `the ${SOURCE_BASELINE.tag} baseline from 2026-09-10`;
+    if (last?.hash === SOURCE_BASELINE.hash) {
+      return `the chain before 2026-09-10 with the ${SOURCE_BASELINE.tag} baseline marked applied on top (${rows.length} migrations)`;
+    }
+    return `the chain before 2026-09-10 (${rows.length} migrations, the last from ${lastDate})`;
   } finally {
     db.close();
   }
@@ -215,9 +245,9 @@ function rebuild(from: string, to: string): { report: Record<string, unknown>; f
   if (!fs.existsSync(from)) throw new Error(`--from does not exist: ${from}`);
   if (fs.existsSync(to)) throw new Error(`--to already exists, refusing to overwrite: ${to}`);
   if (from === to) throw new Error('--from and --to must differ');
-  checkSourceHistory(from);
+  const sourceHistory = checkSourceHistory(from);
   const started = Date.now();
-  const report: Record<string, unknown> = { from, to };
+  const report: Record<string, unknown> = { from, to, sourceHistory };
   const fromStat = fs.statSync(from);
   const failures: string[] = [];
 
@@ -251,6 +281,18 @@ function rebuild(from: string, to: string): { report: Record<string, unknown>; f
     for (const col of cols) {
       const n = db.prepare(`SELECT count(*) FROM old.${q(table)} WHERE ${q(col)} IS NOT NULL`).pluck().get() as number;
       if (n > 0) throw new Error(`old.${table}.${col} holds ${n} values but is being dropped`);
+    }
+  }
+
+  // Every value a remapped column holds must be in its map. Otherwise the
+  // CASE turns it into NULL, silently for a nullable column.
+  for (const [table, cols] of Object.entries(REMAPPED)) {
+    for (const [col, map] of Object.entries(cols)) {
+      const unknown = db
+        .prepare(`SELECT DISTINCT ${q(col)} FROM old.${q(table)} WHERE ${q(col)} IS NOT NULL AND ${q(col)} NOT IN (${Object.keys(map).map(lit).join(', ')})`)
+        .pluck()
+        .all();
+      if (unknown.length) throw new Error(`old.${table}.${col} holds values this rebuild doesn't know how to rename: ${unknown.join(', ')}`);
     }
   }
 
@@ -326,6 +368,24 @@ function rebuild(from: string, to: string): { report: Record<string, unknown>; f
     harness[table] = { before, after, ok };
   }
   report.harness = harness;
+
+  const remapped: Record<string, unknown> = {};
+  for (const [table, cols] of Object.entries(REMAPPED)) {
+    for (const [col, map] of Object.entries(cols)) {
+      type Count = { v: string | null; n: number };
+      const before = db.prepare(`SELECT ${q(col)} AS v, count(*) AS n FROM old.${q(table)} GROUP BY 1 ORDER BY 1`).all() as Count[];
+      const after = db.prepare(`SELECT ${q(col)} AS v, count(*) AS n FROM main.${q(table)} GROUP BY 1 ORDER BY 1`).all() as Count[];
+      const expected = new Map<string | null, number>();
+      for (const { v, n } of before) {
+        const mapped = v === null ? null : map[v];
+        expected.set(mapped, (expected.get(mapped) ?? 0) + n);
+      }
+      const ok = after.length === expected.size && after.every(({ v, n }) => expected.get(v) === n);
+      if (!ok) failures.push(`${table}.${col} after renaming ${JSON.stringify(after)} ≠ expected from ${JSON.stringify(before)}`);
+      remapped[`${table}.${col}`] = { before, after, ok };
+    }
+  }
+  report.remapped = remapped;
 
   const vecOld = digest(db, `SELECT rowid, embedding FROM old.embeddings_vec ORDER BY rowid`);
   const vecNew = digest(db, `SELECT rowid, embedding FROM main.embeddings_vec ORDER BY rowid`);
@@ -443,7 +503,18 @@ async function inPlace(db: string): Promise<void> {
   if (check !== 'ok') throw new Error(`snapshot quick_check failed: ${check}. Live database untouched.`);
 
   console.error(`Rebuilding from the snapshot → ${rebuilt}`);
-  const { report, failures } = rebuild(snapshot, rebuilt);
+  let result: ReturnType<typeof rebuild>;
+  try {
+    result = rebuild(snapshot, rebuilt);
+  } catch (err) {
+    // Stopped on a check before verification. Nothing to inspect, and a
+    // leftover .rebuilt would block the retry, so start the next run clean.
+    resetDb();
+    for (const s of SIDECARS) fs.rmSync(rebuilt + s, { force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw new Error(`${err instanceof Error ? err.message : String(err)}\nThe rebuild stopped before copying was verified. Live database untouched. Removed the partial rebuild and its snapshot.`);
+  }
+  const { report, failures } = result;
   console.log(JSON.stringify(report, null, 2));
   if (failures.length) {
     console.error(`\nREBUILD FAILED VERIFICATION (${failures.length}). Live database untouched. ${rebuilt} is left for inspection.`);
