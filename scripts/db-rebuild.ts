@@ -7,8 +7,12 @@
  *
  * Used when the migration history is collapsed into a fresh baseline. Every
  * existing database then has to be rebuilt, because its migration journal no
- * longer matches (booting new code against an old database fails loudly, on
- * purpose).
+ * longer matches. Booting new code against an old database stops with
+ * `MigrationHistoryError` (src/lib/db/migrate.ts), which names this script.
+ *
+ * It reads exactly one old history, SOURCE_BASELINE below, and checks that
+ * before doing anything: a database already on the current baseline, or on
+ * an older history, is refused with what to do instead.
  *
  * --in-place is the cutover: with the app stopped, it refuses to run while
  * anything still holds the file open, snapshots it to
@@ -19,8 +23,10 @@
  * --from/--to is the rehearsal: rebuild a copy, verify, swap nothing. It never
  * writes to --from and refuses to overwrite --to.
  *
- * 1. Build --to from scratch through `getDb`: the exact schema, triggers, FTS
- *    and vector tables a fresh install gets.
+ * 1. Build --to at the baseline: the first migration in drizzle/ alone, then
+ *    the boot-time SQL (triggers, FTS, vector tables), through the app's own
+ *    `initDatabase`. Later migrations wait for step 5, so this never has to
+ *    know what they change.
  * 2. Drop the app's SQL triggers, so the bulk copy doesn't fire FTS or
  *    link-projection side effects.
  * 3. Attach --from (read only in practice: nothing but SELECTs touch it, and
@@ -30,25 +36,36 @@
  *    or have a default. A column or table only the old schema has must be
  *    listed in DROPPED_*. Anything unexpected aborts the rebuild.
  * 4. Copy the sqlite-vec embedding rows.
- * 5. Reopen through `getDb` (reinstalls triggers, backfills chat_events_fts)
- *    and rebuild the external-content FTS indexes.
+ * 5. Reopen through `getDb`, exactly like a boot: it applies every migration
+ *    after the baseline, reinstalls triggers and backfills chat_events_fts.
+ *    Then rebuild the external-content FTS indexes.
  * 6. Verify: row counts and a row-by-row digest (rowid included) of every
  *    copied table, derived-column distributions, embeddings, FTS integrity,
  *    foreign keys, integrity_check, and the migration journal.
  *
- * The CHANGES block is specific to one rebuild. Rewrite it for the next one.
+ * The CHANGES block is specific to one rebuild: old history to the current
+ * baseline. Rewrite it for the next collapse, never for a later migration.
  */
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { getDb, getRawDb, resetDb } from '../src/lib/db';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
+import { getDb, getRawDb, initDatabase, resetDb } from '../src/lib/db';
 
 // ─── CHANGES (2026-09-22, docs/agents-view-spec.md Phase 1) ───────────────
 // The `agents` table goes away. Chats, triggers and runs store their engine
 // directly in `harness`. The unused `tasks.heartbeat_days` goes too.
+
+// The history this rebuild reads: the one-migration baseline from the
+// 2026-09-10 collapse (1fb95b9), as recorded in `__drizzle_migrations`.
+const SOURCE_BASELINE = {
+  tag: '0000_stale_expediter',
+  hash: '599a14d13a42c0372f79f2cbc0d9c61467c75663e0c6e4b99c805d24a787adad',
+};
 
 const DROPPED_TABLES = ['agents'];
 const DROPPED_COLUMNS: Record<string, string[]> = {
@@ -130,6 +147,67 @@ function digest(db: Database.Database, sql: string): string {
   return hash.digest('hex').slice(0, 16);
 }
 
+const MIGRATIONS_FOLDER = path.resolve(process.cwd(), 'drizzle');
+
+/**
+ * Refuse a source that isn't on SOURCE_BASELINE, before anything is written.
+ * Only reads the journal.
+ */
+function checkSourceHistory(file: string): void {
+  const db = new Database(file, { fileMustExist: true });
+  try {
+    const hasJournal = db.prepare(`SELECT count(*) FROM sqlite_master WHERE name = '__drizzle_migrations'`).pluck().get() as number;
+    const rows = hasJournal
+      ? (db.prepare(`SELECT hash, created_at FROM "__drizzle_migrations" ORDER BY created_at`).all() as Array<{ hash: string; created_at: number }>)
+      : [];
+    const current = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER });
+    if (rows.length > 0 && rows[0].hash === current[0]?.hash) {
+      throw new Error(`${file} is already on the current baseline. There is nothing to rebuild: start the app as usual.`);
+    }
+    if (rows.length === 1 && rows[0].hash === SOURCE_BASELINE.hash) return;
+    const last = rows.at(-1);
+    throw new Error(
+      [
+        `${file} is not on the history this rebuild reads (the ${SOURCE_BASELINE.tag} baseline from 2026-09-10).`,
+        `  recorded: ${rows.length} migration(s)${last ? `, the last from ${new Date(Number(last.created_at)).toISOString().slice(0, 10)}` : ''}`,
+        rows.length > 1
+          ? `It predates the 2026-09-10 collapse, so it needs that move first. Nothing was changed.`
+          : `Nothing was changed.`,
+      ].join('\n'),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Create `to` at the baseline: the first migration in drizzle/ and nothing
+ * after it, then the boot-time SQL, the way a fresh install looked before any
+ * later migration existed.
+ */
+function buildAtBaseline(to: string): { tag: string } {
+  const journal = JSON.parse(fs.readFileSync(path.join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as {
+    entries: Array<{ tag: string }>;
+  };
+  const baseline = journal.entries[0];
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-baseline-'));
+  try {
+    fs.mkdirSync(path.join(folder, 'meta'));
+    fs.writeFileSync(path.join(folder, 'meta', '_journal.json'), JSON.stringify({ ...journal, entries: [baseline] }));
+    fs.copyFileSync(path.join(MIGRATIONS_FOLDER, `${baseline.tag}.sql`), path.join(folder, `${baseline.tag}.sql`));
+    const db = new Database(to);
+    sqliteVec.load(db);
+    try {
+      initDatabase(db, folder);
+    } finally {
+      db.close();
+    }
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+  return { tag: baseline.tag };
+}
+
 // ─── Rebuild ──────────────────────────────────────────────────────────────
 
 /** Rebuild `to` from `from` and verify it. Returns the report; `failures` empty means safe to use. */
@@ -137,14 +215,14 @@ function rebuild(from: string, to: string): { report: Record<string, unknown>; f
   if (!fs.existsSync(from)) throw new Error(`--from does not exist: ${from}`);
   if (fs.existsSync(to)) throw new Error(`--to already exists, refusing to overwrite: ${to}`);
   if (from === to) throw new Error('--from and --to must differ');
+  checkSourceHistory(from);
   const started = Date.now();
   const report: Record<string, unknown> = { from, to };
   const fromStat = fs.statSync(from);
   const failures: string[] = [];
 
-  // 1. Fresh schema, exactly as a new install builds it.
-  getDb(to);
-  resetDb();
+  // 1. Fresh schema at the baseline. Later migrations apply in step 5.
+  report.builtAt = buildAtBaseline(to).tag;
 
   const db = new Database(to);
   sqliteVec.load(db);
@@ -270,9 +348,10 @@ function rebuild(from: string, to: string): { report: Record<string, unknown>; f
   db.exec('DETACH DATABASE old');
   db.close();
 
-  // 5. Reopen the way the app does: reinstalls triggers, backfills
-  //    chat_events_fts, re-runs the idempotent bootstrap. Then rebuild the
-  //    external-content FTS indexes from their (rowid-preserved) tables.
+  // 5. Reopen the way the app does: applies every migration after the
+  //    baseline, reinstalls triggers, backfills chat_events_fts, re-runs the
+  //    idempotent bootstrap. Then rebuild the external-content FTS indexes
+  //    from their (rowid-preserved) tables.
   getDb(to);
   const app = getRawDb(to);
   for (const fts of ['tasks_fts', 'notes_fts', 'stream_fts']) app.exec(`INSERT INTO ${fts}(${fts}) VALUES('rebuild')`);
@@ -305,7 +384,8 @@ function rebuild(from: string, to: string): { report: Record<string, unknown>; f
   const integrity = app.pragma('integrity_check', { simple: true });
   if (integrity !== 'ok') failures.push(`integrity_check: ${integrity}`);
   const journal = app.prepare(`SELECT hash, created_at FROM "__drizzle_migrations"`).all();
-  if (journal.length !== 1) failures.push(`expected exactly one migration recorded, found ${journal.length}`);
+  const expectedMigrations = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER }).length;
+  if (journal.length !== expectedMigrations) failures.push(`expected ${expectedMigrations} migrations recorded, found ${journal.length}`);
   report.foreignKeys = { violations: fk.length };
   report.integrity = integrity;
   report.migrations = journal;
@@ -345,6 +425,7 @@ async function inPlace(db: string): Promise<void> {
   if (pids.length) {
     throw new Error(`${db} is still open (pid ${pids.join(', ')}). Stop the app first (Ctrl-C the terminal running it, or \`ri stop\`).`);
   }
+  checkSourceHistory(db); // before a multi-gigabyte snapshot, not after
 
   // Snapshot through SQLite's backup API: a consistent page copy that folds in
   // the WAL and keeps every rowid (VACUUM INTO can renumber rowids).

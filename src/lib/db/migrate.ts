@@ -46,6 +46,15 @@ export function runMigrations(
     return { applied: 0 };
   }
 
+  // Tables, but no record of the baseline: this database was built on a
+  // migration history that has since been collapsed into a new baseline.
+  // Applying the baseline over it could only fail on its first CREATE TABLE,
+  // so stop before touching anything and say how to move it over.
+  if (pending[0] === migrations[0] && hasAppTables(sqlite)) {
+    sqlite.pragma('foreign_keys = ON');
+    throw new MigrationHistoryError(sqlite.name);
+  }
+
   // Must run outside a transaction, or SQLite ignores it.
   sqlite.pragma('foreign_keys = OFF');
   try {
@@ -73,6 +82,35 @@ export function runMigrations(
     sqlite.pragma('foreign_keys = ON');
   }
   return { applied: pending.length };
+}
+
+function hasAppTables(sqlite: Database.Database): boolean {
+  const n = sqlite
+    .prepare(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '__drizzle_migrations'`)
+    .pluck()
+    .get() as number;
+  return n > 0;
+}
+
+/**
+ * The database predates the current migration baseline. Nothing was changed.
+ * `scripts/db-rebuild.ts` moves it over: a fresh schema, every row copied
+ * with its rowid, verified before it is swapped in.
+ */
+export class MigrationHistoryError extends Error {
+  constructor(public dbPath: string) {
+    super(
+      [
+        `This database was built on an older migration history, one that has since been collapsed into a new baseline, so the current schema can't be applied to it. Nothing was changed.`,
+        `  database: ${dbPath}`,
+        `Rebuild it once, with the app stopped:`,
+        `  pnpm tsx scripts/db-rebuild.ts --in-place ${dbPath}`,
+        `To rehearse first without touching it:`,
+        `  pnpm tsx scripts/db-rebuild.ts --from ${dbPath} --to /tmp/ri-rebuild-check.db`,
+      ].join('\n'),
+    );
+    this.name = 'MigrationHistoryError';
+  }
 }
 
 export interface ForeignKeyViolation {

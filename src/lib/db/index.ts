@@ -292,6 +292,23 @@ function ensureEntityLinksBackfill(sqlite: Database.Database): void {
   `);
 }
 
+/**
+ * Bring an open connection up to the app's schema. First the Drizzle
+ * migrations in `migrationsFolder` (foreign keys off, verified before commit,
+ * left ON after; see runMigrations for why this isn't Drizzle's migrate()),
+ * then what migrations can't express: FTS, triggers, sqlite-vec and seed rows.
+ *
+ * getDb passes the full `drizzle/` folder. scripts/db-rebuild.ts passes the
+ * baseline alone, so an old database is refilled at the baseline and every
+ * later migration applies the way it does on any boot.
+ */
+export function initDatabase(sqlite: Database.Database, migrationsFolder: string): void {
+  runMigrations(sqlite, migrationsFolder);
+  sqlite.exec(EXTRA_SQL);
+  ensureCosineEmbeddingIndex(sqlite);
+  ensureEntityLinksBackfill(sqlite);
+}
+
 export function getDb(dbPath?: string): DB {
   const resolvedPath = dbPath ?? getDefaultDbPath();
 
@@ -326,16 +343,7 @@ export function getDb(dbPath?: string): DB {
   rawInstance = sqlite;
   dbInstance = drizzle(sqlite, { schema, casing: 'snake_case' });
 
-  // Drizzle migrations: creates/alters tables defined in schema.ts. Runs with
-  // foreign keys off and verifies them before commit, then leaves them ON for
-  // the connection. See runMigrations for why this isn't Drizzle's migrate().
-  const migrationsFolder = path.resolve(process.cwd(), 'drizzle');
-  runMigrations(sqlite, migrationsFolder);
-
-  // FTS, triggers, sqlite-vec, and seed data
-  sqlite.exec(EXTRA_SQL);
-  ensureCosineEmbeddingIndex(sqlite);
-  ensureEntityLinksBackfill(sqlite);
+  initDatabase(sqlite, path.resolve(process.cwd(), 'drizzle'));
 
   currentPath = resolvedPath;
   return dbInstance;

@@ -5,7 +5,7 @@ import { migrate as drizzleMigrate } from 'drizzle-orm/better-sqlite3/migrator';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { MigrationForeignKeyError, runMigrations } from './migrate';
+import { MigrationForeignKeyError, MigrationHistoryError, runMigrations } from './migrate';
 
 /**
  * runMigrations exists because Drizzle's migrator applies migrations inside a
@@ -83,6 +83,16 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+/** A migrations folder whose history starts over at `when`: a collapsed baseline. */
+function writeBaselineFolder(when: number, statements: string[]): string {
+  const folder = fs.mkdtempSync(path.join(dir, 'baseline-'));
+  fs.mkdirSync(path.join(folder, 'meta'));
+  const journal = { version: '7', dialect: 'sqlite', entries: [{ idx: 0, version: '6', when, tag: '0000_new_baseline', breakpoints: true }] };
+  fs.writeFileSync(path.join(folder, 'meta', '_journal.json'), JSON.stringify(journal));
+  fs.writeFileSync(path.join(folder, '0000_new_baseline.sql'), statements.join('\n--> statement-breakpoint\n'));
+  return folder;
+}
+
 describe('runMigrations', () => {
   it('rebuilds a parent table without cascading into its children', () => {
     runMigrations(sqlite, dir);
@@ -153,5 +163,50 @@ describe('runMigrations', () => {
     addMigration('0002_add_another', [`ALTER TABLE child ADD other text`]);
     drizzleMigrate(drizzle(sqlite), { migrationsFolder: dir });
     expect(runMigrations(sqlite, dir)).toEqual({ applied: 0 });
+  });
+  describe('a database built on a collapsed history', () => {
+    // The collapsed baseline recreates the same tables with a later timestamp,
+    // which is what a real squash produces.
+    const NEW_BASELINE = [...BASE.slice(0, 2), `CREATE TABLE added_later (id text PRIMARY KEY NOT NULL)`];
+
+    it('is refused with the rebuild command, and left exactly as it was', () => {
+      runMigrations(sqlite, dir);
+      const baseline = writeBaselineFolder(9_000_000, NEW_BASELINE);
+      const schemaBefore = sqlite.prepare(`SELECT name, sql FROM sqlite_master ORDER BY name`).all();
+
+      let error: unknown;
+      try {
+        runMigrations(sqlite, baseline);
+      } catch (e) {
+        error = e;
+      }
+
+      expect(error).toBeInstanceOf(MigrationHistoryError);
+      const message = (error as Error).message;
+      expect(message).toContain(`scripts/db-rebuild.ts --in-place ${sqlite.name}`);
+      expect(message).toContain('Nothing was changed.');
+      expect(sqlite.prepare(`SELECT name, sql FROM sqlite_master ORDER BY name`).all()).toEqual(schemaBefore);
+      expect(appliedCount()).toBe(1);
+      expect(sqlite.prepare('SELECT count(*) FROM child').pluck().get()).toBe(3);
+      expect(foreignKeysOn()).toBe(true);
+    });
+
+    it('covers tables made outside migrations too (db:push), with an empty journal', () => {
+      sqlite.exec(BASE[0]);
+      expect(() => runMigrations(sqlite, dir)).toThrow(MigrationHistoryError);
+      expect(appliedCount()).toBe(0);
+    });
+
+    it('still builds a fresh database from the baseline', () => {
+      const baseline = writeBaselineFolder(9_000_000, NEW_BASELINE);
+      expect(runMigrations(sqlite, baseline)).toEqual({ applied: 1 });
+      expect(sqlite.prepare(`SELECT name FROM sqlite_master WHERE name = 'added_later'`).pluck().get()).toBe('added_later');
+    });
+
+    it('does not mistake an up-to-date database for an old one', () => {
+      const baseline = writeBaselineFolder(9_000_000, NEW_BASELINE);
+      runMigrations(sqlite, baseline);
+      expect(runMigrations(sqlite, baseline)).toEqual({ applied: 0 });
+    });
   });
 });
