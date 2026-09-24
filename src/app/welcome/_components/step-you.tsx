@@ -2,7 +2,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { User } from 'lucide-react';
-import { APP_NAME } from '@/constants/app';
+import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import type { WizardState, WizardUpdate } from './types';
 
 export function StepYou({
@@ -50,6 +50,12 @@ export function StepYou({
           A starting point. Refine it anytime as your focus evolves.
         </p>
       </div>
+
+      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+        Already use {APP_NAME} on another computer? Stop this one and run{' '}
+        <code className="font-mono text-foreground/80">{APP_SHORT_ID} connect</code> in a terminal to use that{' '}
+        {APP_NAME} here instead. A new home with nothing in it yet is set aside, not deleted.
+      </p>
     </div>
   );
 }

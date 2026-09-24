@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { QueryProvider } from "@/providers/query-provider";
 import { PairingBootstrap } from "@/components/auth/pairing-bootstrap";
+import { HomeReachabilityBanner } from "@/components/app/home-reachability-banner";
 import { LifecycleGuardProvider } from "@/components/tasks/lifecycle-guard";
 import "./globals.css";
 import { APP_NAME } from "@/constants/app";
@@ -26,6 +27,7 @@ export default function RootLayout({
       <body className="antialiased">
         <QueryProvider>
           <PairingBootstrap />
+          <HomeReachabilityBanner />
           <TooltipProvider>
             <ConfirmProvider>
               <LifecycleGuardProvider>{children}</LifecycleGuardProvider>

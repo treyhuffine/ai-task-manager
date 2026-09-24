@@ -24,6 +24,7 @@
  */
 
 import { APP_SHORT_ID } from '@/constants/app';
+import { isNetworkFailure, reportNetworkFailure, reportReachable } from './connectivity';
 
 export const AUTH_TOKEN_STORAGE_KEY = `${APP_SHORT_ID}.token`;
 const DEFAULT_BASE_URL = '/api';
@@ -193,12 +194,25 @@ export class ApiClient {
   async raw(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = this.buildHeaders(init.headers);
     const url = this.buildUrl(path);
-    const res = await fetch(url, { ...init, headers });
+    const res = await this.fetchTracked(url, { ...init, headers });
     if (res.status === 401) this.onUnauthorized();
     return res;
   }
 
   // ─── Internals ────────────────────────────────────────────────
+
+  /** `fetch`, telling the connectivity store whether the home answered (§3.5). */
+  private async fetchTracked(url: string, init: RequestInit): Promise<Response> {
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      if (isNetworkFailure(err)) void reportNetworkFailure();
+      throw err;
+    }
+    reportReachable();
+    return res;
+  }
 
   private async request<T>(
     method: string,
@@ -223,7 +237,7 @@ export class ApiClient {
 
     let res: Response;
     try {
-      res = await fetch(url, init);
+      res = await this.fetchTracked(url, init);
     } finally {
       clear();
     }

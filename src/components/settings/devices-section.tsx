@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, KeyRound, Pencil, Plus, Trash2, Check, Loader2, X } from 'lucide-react';
 import { devicesApi, type CreateDeviceResponse, type UpdateDeviceBody } from '@/lib/api/devices';
 import { settingsApi } from '@/lib/api/settings';
-import { PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
+import { PAIRING_TOKEN_FRAGMENT_KEY, APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import type { ApiKeyRecord, DeviceType } from '@/db/types';
 import { tokenDisplay } from '@/lib/auth/token-display';
 import { Button } from '@/components/ui/button';
@@ -226,6 +226,11 @@ export function DevicesSection() {
             </p>
             <p className="text-[11px] text-muted-foreground/70">
               Shown once. Scan or copy on the target device.
+            </p>
+            <p className="text-[11px] text-muted-foreground/70">
+              A phone or another computer reaches {APP_NAME} through this computer, at the address in the link. It
+              works while this computer is awake and that address is reachable. On a computer, paste the link into{' '}
+              <code className="font-mono text-foreground/80">{APP_SHORT_ID} connect</code> to use this {APP_NAME} there.
             </p>
           </div>
           <Tabs defaultValue={pairingTabs.defaultValue}>

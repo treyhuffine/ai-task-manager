@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import nodeTls from 'node:tls';
-import { intro, outro, log, spinner } from '@clack/prompts';
+import { intro, outro, log, spinner, select, isCancel } from '@clack/prompts';
 import pc from 'picocolors';
 import getPort from 'get-port';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
@@ -15,6 +15,7 @@ import {
 import { ensureHomeIdentity, HomeIdentityError } from '@/lib/home/identity';
 import { getInstallationRole, type InstallationRole } from '@/lib/config/role';
 import { runConnected } from './connected';
+import { runConnect } from './connect';
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { resolveHttp2Enabled, isChainTrustFailure, certCoversHost } from '@/lib/config/http2';
 import {
@@ -130,6 +131,31 @@ export async function startCommand(opts: StartOptions) {
   if (role === 'connected') {
     await runConnected({ open: opts.open });
     return;
+  }
+  // First run: start a home here, or connect to the Ri this person already
+  // has. Asked in terms of use, not topology (§3.1). Without a terminal, keep
+  // starting a home, and say how to connect instead.
+  if (role === 'fresh') {
+    if (process.stdin.isTTY) {
+      const choice = await select({
+        message: `Set up ${APP_NAME} on this computer`,
+        options: [
+          { value: 'start', label: `Start using ${APP_NAME} here`, hint: 'your tasks, notes and agents live on this computer' },
+          { value: 'connect', label: `Connect to your existing ${APP_NAME}`, hint: 'use the one you already have, from this computer' },
+        ],
+      });
+      if (isCancel(choice)) {
+        outro('Nothing set up');
+        return;
+      }
+      if (choice === 'connect') {
+        if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
+        return;
+      }
+      log.info(pc.dim('You can move your home to an always-on computer later.'));
+    } else {
+      log.info(`Starting a new home here. If you already use ${APP_NAME} on another computer, run \`${APP_SHORT_ID} connect\` instead.`);
+    }
   }
 
   // Resolve --portless before anything that reads the static URL (auth bootstrap
