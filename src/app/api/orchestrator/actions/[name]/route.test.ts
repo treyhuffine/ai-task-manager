@@ -35,7 +35,14 @@ const fromHome = { [API_KEY_ID_HEADER]: 'key-host', [API_KEY_TYPE_HEADER]: 'host
 async function call(name: string, body: unknown, headers: Record<string, string>) {
   const { POST } = await import('./route');
   const res = await POST(post(name, body, headers), { params: Promise.resolve({ name }) });
-  return { status: res.status, body: (await res.json()) as { ok: boolean; result?: any; error?: any } };
+  return {
+    status: res.status,
+    body: (await res.json()) as {
+      ok: boolean;
+      result?: { id: string; title: string };
+      error?: { code: string; message: string };
+    },
+  };
 }
 
 describe('POST /api/orchestrator/actions/:name', () => {
@@ -43,14 +50,14 @@ describe('POST /api/orchestrator/actions/:name', () => {
     const { status, body } = await call('create_task', { title: 'Buy milk' }, fromLaptop);
     expect(status).toBe(200);
     expect(body.ok).toBe(true);
-    expect(body.result.title).toBe('Buy milk');
+    expect(body.result?.title).toBe('Buy milk');
     const { listTasks } = await import('@/lib/db/queries');
     expect(listTasks({}).map((t) => t.title)).toContain('Buy milk');
   });
 
   it('returns validation and unknown-action failures in the same envelope', async () => {
-    expect((await call('create_task', {}, fromLaptop)).body.error.code).toBe('invalid_params');
-    expect((await call('no_such_action', {}, fromLaptop)).body.error.code).toBe('unknown_action');
+    expect((await call('create_task', {}, fromLaptop)).body.error?.code).toBe('invalid_params');
+    expect((await call('no_such_action', {}, fromLaptop)).body.error?.code).toBe('unknown_action');
     const bad = await call('create_task', '{not json', fromLaptop);
     expect(bad.status).toBe(400);
   });
@@ -82,8 +89,8 @@ describe('POST /api/orchestrator/actions/:name', () => {
     try {
       const fromElsewhere = await call('create_workspace', { name: 'app', cwd: folder }, fromLaptop);
       expect(fromElsewhere.body.ok).toBe(false);
-      expect(fromElsewhere.body.error.code).toBe('unsupported');
-      expect(fromElsewhere.body.error.message).toMatch(/another computer/);
+      expect(fromElsewhere.body.error?.code).toBe('unsupported');
+      expect(fromElsewhere.body.error?.message).toMatch(/another computer/);
 
       const onHome = await call('create_workspace', { name: 'app', cwd: folder }, fromHome);
       expect(onHome.body.ok).toBe(true);
