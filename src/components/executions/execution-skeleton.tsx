@@ -7,8 +7,11 @@ import { SkeletonBar as Bar } from './skeletons';
 /**
  * Loading skeleton that mirrors the ExecutionView's shape so the transition
  * from "loading…" to "loaded" is a content swap rather than a reshuffle:
- * the header, then the chat with the floating tools box on its right.
- * Phones (< lg) get the chat alone, like the real view.
+ * the header, the chat tab strip, then the conversation as the same
+ * centered column the transcript and composer use, with the floating tools
+ * box on the right. The column pads clear of the box and the box folds to
+ * an icon strip at the same chat widths as the real view. Phones (< lg)
+ * get the chat alone, like the real view.
  *
  * The internal skeletons use Tailwind `animate-pulse` and are intentionally
  * low-detail: the goal is structural shape recognition, not photo-realism.
@@ -17,19 +20,21 @@ export function ExecutionSkeleton() {
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">
       <div className="lg:hidden flex flex-1 min-w-0 min-h-0">
-        <ChatColumn />
+        <ChatColumn withBox={false} />
       </div>
 
       <div className="hidden lg:flex flex-col flex-1 min-w-0 min-h-0">
         <HeaderBar />
-        <div className="relative flex flex-1 min-w-0 min-h-0">
-          <ChatColumn />
-          <ToolsBoxSkeleton />
+        <div className="@container/chat relative flex flex-1 min-w-0 min-h-0">
+          <ChatColumn withBox />
         </div>
       </div>
     </div>
   );
 }
+
+// Same clearance the real chat body applies while the tools box shows.
+const CLEAR_BOX = '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]';
 
 // ─── header ────────────────────────────────────────────────────
 
@@ -51,43 +56,67 @@ function HeaderBar() {
 
 function ToolsBoxSkeleton() {
   return (
-    <div className="absolute right-4 top-12 w-[288px] rounded-2xl bg-card p-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] space-y-3">
-      <Bar w="45%" h="h-2" />
-      <div className="h-10 rounded-lg bg-muted/40 animate-pulse" />
-      {[70, 60, 40, 50, 64, 52].map((w, i) => (
-        <div key={i} className="flex items-center gap-2.5 px-1">
-          <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
-          <Bar w={`${w}%`} h="h-2" delayMs={i * 60} />
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="absolute right-4 top-3 w-[288px] space-y-3 rounded-2xl bg-card p-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] @max-[1060px]/chat:hidden">
+        <Bar w="45%" h="h-2" />
+        <div className="h-10 rounded-lg bg-muted/40 animate-pulse" />
+        {[70, 60, 40, 50, 64, 52].map((w, i) => (
+          <div key={i} className="flex items-center gap-2.5 px-1">
+            <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
+            <Bar w={`${w}%`} h="h-2" delayMs={i * 60} />
+          </div>
+        ))}
+      </div>
+      <div className="absolute right-3 top-3 hidden flex-col gap-0.5 rounded-xl bg-card p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] @max-[1060px]/chat:flex">
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="grid size-9 place-items-center">
+            <div className="size-5 rounded-md bg-muted/50 animate-pulse" />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
 // ─── chat column ───────────────────────────────────────────────
 
-function ChatColumn() {
+function ChatColumn({ withBox }: { withBox: boolean }) {
+  const clear = withBox ? CLEAR_BOX : '';
   return (
     <div className="flex h-full w-full flex-col bg-background min-w-0">
-      {/* Transcript — assistant messages render as flowing text lines
-          (no bubble; matches the real transcript), user messages are
-          right-aligned rounded bubbles that hug their content. */}
-      <div className="flex-1 min-h-0 overflow-hidden px-4 py-4 space-y-5">
-        <AssistantText lines={['94%', '88%', '76%']} />
-        <UserBubble lines={['180px', '120px']} />
-        <AssistantText lines={['96%', '85%', '92%', '78%', '64%']} />
-        <UserBubble lines={['100px']} />
-        <AssistantText lines={['88%', '92%', '70%']} />
+      {/* Chat tab strip: all chats, one tab, new chat. */}
+      <div className="flex h-9 flex-shrink-0 items-center gap-2 border-b border-border px-2.5">
+        <Bar w="24px" h="h-2.5" />
+        <span className="h-4 w-px bg-border" />
+        <div className="h-6 w-28 rounded bg-muted/50 animate-pulse" />
+        <Bar w="12px" h="h-2.5" />
       </div>
-      {/* Composer — text input + send button shape. */}
-      <div className="flex-shrink-0 border-t border-border p-3">
-        <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-          <Bar w="35%" h="h-2" />
-          <div className="flex items-center justify-between pt-1">
-            <Bar w="80px" h="h-2" />
-            <div className="h-6 w-6 rounded-md bg-muted animate-pulse" />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Transcript: the same centered column the real one uses.
+            Assistant messages render as flowing text lines (no bubble),
+            user messages as right-aligned bubbles that hug their content. */}
+        <div className={`flex-1 min-h-0 overflow-hidden ${clear}`}>
+          <div className="mx-auto max-w-3xl space-y-5 px-5 pt-4">
+            <AssistantText lines={['94%', '88%', '76%']} />
+            <UserBubble lines={['180px', '120px']} />
+            <AssistantText lines={['96%', '85%', '92%', '78%', '64%']} />
+            <UserBubble lines={['100px']} />
+            <AssistantText lines={['88%', '92%', '70%']} />
           </div>
         </div>
+        {/* Composer: the card in the same column, no rule above it. */}
+        <div className={`flex-shrink-0 ${clear}`}>
+          <div className="mx-auto max-w-3xl px-5 pb-3">
+            <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+              <Bar w="35%" h="h-2" />
+              <div className="flex items-center justify-between pt-1">
+                <Bar w="80px" h="h-2" />
+                <div className="h-6 w-6 rounded-full bg-muted animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
+        {withBox && <ToolsBoxSkeleton />}
       </div>
     </div>
   );
