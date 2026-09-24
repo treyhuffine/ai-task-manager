@@ -94,6 +94,15 @@ The worker connection fixtures (a fake worker and a home served over HTTP for re
 - A report about a folder or file that can't be read keeps the last observed references in the index. That's what restore rebuilds from. An agent removed from a computer's files disappears from the index on the next complete report.
 - Deliberately not in P1.4: creating an agent from a computer with no folder on the home (it needs `workspaces.cwd` to become optional, which is P1.5), editing setups from the web UI, and suggesting folders from harness history.
 
+## P1.5 Adoption as built
+
+- `src/lib/setups/adopt.ts` plans and applies. `planHomeAdoption` / `adoptHomeSetups` in `home-context.ts` run it for the live home, and `ri setup adopt` is the command.
+- Adoption is explicit, not automatic at boot, because it writes into the person's folders. The production cutover runbook runs it once. `ri setup` on the home says when agents still need it.
+- Stored reference paths are written as absolute paths. The spec allows it (§4.3: absolute paths stay local to that computer), and it changes nothing about where they point.
+- Home hooks: `POST /api/workspaces` and `create_workspace` call `setHomeFolder` after creating the agent, and `PATCH /api/workspaces/:id` with `cwd` moves the setup. The reference routes and actions call `applyReferenceToHomeSetups`. The dev-only scratch agent is left as it was.
+- `workspaces.cwd` is the home computer's observed folder, updated from its reports and never the other way round. It stays until P2 moves the executor to setups. An agent with no folder on the home (created from another computer) needs `cwd` to become optional, and comes with P3.1's "use the first setup the person enables".
+- Production preview (`scripts/plan-adoption.ts ~/ri`, read-only): 9 setup files, one in each active agent's folder (`/Users/agent/ai-task-manager` and eight under `/Users/agent/code`), with no references.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

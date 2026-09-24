@@ -40,6 +40,13 @@ export async function PATCH(
     const { connectorScopes: _ignored, ...body } = (await request.json()) as UpdateWorkspaceInput;
     const row = updateWorkspace(id, body);
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+    // A new folder for the agent on this computer is a new setup: it moves
+    // the agent's `.ri.local.json` from the old folder to the new one
+    // (docs/homes-spec.md §4.2).
+    if (typeof body.cwd === 'string') {
+      const { setHomeFolder } = await import('@/lib/setups/home-context');
+      await setHomeFolder(id, row.cwd);
+    }
     // Session config is fixed at spawn (the browser changes the tool set, the
     // instructions and folder are read at spawn), so recycle live sessions to
     // apply a change now rather than only on the next session. The next

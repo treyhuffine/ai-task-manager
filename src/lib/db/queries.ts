@@ -4453,6 +4453,7 @@ export function recordAgentSetupReports(
   return db.transaction((tx) => {
     const now = new Date().toISOString();
     const known = new Set(tx.select({ id: workspaces.id }).from(workspaces).all().map((w) => w.id));
+    const isHost = tx.select({ host: home.hostComputerId }).from(home).get()?.host === computerId;
     const ignored: string[] = [];
     let stored = 0;
     for (const r of reports) {
@@ -4484,6 +4485,16 @@ export function recordAgentSetupReports(
         .onConflictDoUpdate({ target: [agentSetups.workspaceId, agentSetups.computerId], set: values })
         .run();
       stored++;
+      // The home computer's folder is also `workspaces.cwd`, which existing
+      // code still reads while it moves to setups (docs/homes-spec.md §10.1).
+      // Keep it the observed value: the setup file decides, never the other
+      // way round.
+      if (isHost && !SETUP_LOCATION_PROBLEMS.has(r.status)) {
+        tx.update(workspaces)
+          .set({ cwd: r.sourcePath, updatedAt: now })
+          .where(and(eq(workspaces.id, r.agentId), sql`${workspaces.cwd} IS NOT ${r.sourcePath}`))
+          .run();
+      }
     }
     let removed = 0;
     if (opts.complete) {

@@ -47,6 +47,11 @@ export async function PATCH(
     const before = getReferenceFolder(id);
     const row = updateReferenceFolder(id, body);
     if (!row) return Response.json({ error: 'Reference folder not found' }, { status: 404 });
+    // Carry a changed path into this computer's setup files (§4.2).
+    const { applyReferenceToHomeSetups } = await import('@/lib/setups/home-context');
+    await applyReferenceToHomeSetups(row, before).catch((err) =>
+      console.warn('[reference-folders] setup files not updated:', err),
+    );
     // Recycle both scopes when the row moved between them (workspace ↔ global),
     // so neither the old nor the new audience keeps a stale list.
     await recycleForReferenceFolderChange(row.workspaceId);

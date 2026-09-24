@@ -7,6 +7,7 @@
  *   ri setup relink <agent> <folder>          after renaming or moving the folder
  *   ri setup restore <agent> [--yes]          rebuild a deleted setup file
  *   ri setup detach <agent>
+ *   ri setup adopt [--yes]                    on the home: move existing agent folders into setup files
  *
  * The folder gets a `.ri.local.json` that only this computer uses, kept out
  * of Git. The same commands work on the home and on a connected computer.
@@ -17,6 +18,7 @@ import pc from 'picocolors';
 import { Command } from 'commander';
 import type { ReferenceValue } from '@/lib/setups/local-file';
 import type { SetupReport } from '@/lib/setups/resolve';
+import type { AdoptionPlan } from '@/lib/setups/adopt';
 import {
   attach,
   detach,
@@ -72,6 +74,24 @@ function collect(value: string, previous: string[] = []): string[] {
   return [...previous, value];
 }
 
+export function printAdoptionPlan(plan: AdoptionPlan, names: Map<string, string> = new Map()): void {
+  for (const step of plan.steps) {
+    const label = { create: 'write', add: 'add to', register: 'register', skip: 'skip' }[step.kind];
+    const color = step.kind === 'skip' ? pc.yellow : pc.cyan;
+    console.log(`${color(label.padEnd(9))} ${step.dir}`);
+    if (step.kind === 'skip') {
+      console.log(`          ${pc.yellow(step.reason)}`);
+      continue;
+    }
+    if (step.kind === 'register') continue;
+    for (const id of step.agents) {
+      const refs = Object.entries(step.file.agents[id]!.references);
+      console.log(`          ${names.get(id) ?? id}${refs.length ? '' : pc.dim(' (no references)')}`);
+      for (const [alias, value] of refs) console.log(`            @${alias}  ${describeValue(value)}`);
+    }
+  }
+}
+
 export function registerSetupCommand(program: Command) {
   const setup = program
     .command('setup')
@@ -81,6 +101,14 @@ export function registerSetupCommand(program: Command) {
         const ctx = await link.context();
         const reports = await syncSetups(link, ctx);
         const names = new Map(ctx.agents.map((a) => [a.id, a.name]));
+        const { getInstallationRole } = await import('@/lib/config/role');
+        if (getInstallationRole() === 'home') {
+          const { planHomeAdoption } = await import('@/lib/setups/home-context');
+          const pending = planHomeAdoption().steps.filter((s) => s.kind !== 'skip');
+          if (pending.length) {
+            console.log(pc.yellow(`${pending.length} folder(s) here still keep their agent's setup only in the database. Run \`ri setup adopt\` to move them into setup files.\n`));
+          }
+        }
         if (reports.length === 0) {
           console.log(`No agent folders are set up on ${ctx.computerName} yet. Use \`ri setup attach <agent> <folder>\`.`);
           return;
@@ -167,6 +195,37 @@ export function registerSetupCommand(program: Command) {
         }
         for (const report of await restore(link, plan)) printReport(report, names.get(report.agentId) ?? report.agentId);
       });
+    });
+
+  setup
+    .command('adopt')
+    .description("On the home: write setup files for agents that only have a folder in the database. Shows the plan unless --yes.")
+    .option('-y, --yes', 'write the plan')
+    .action(async (opts: { yes?: boolean }) => {
+      const { getInstallationRole } = await import('@/lib/config/role');
+      if (getInstallationRole() !== 'home') {
+        console.error(pc.red('Adopt runs on the home, for the folders on its own computer.'));
+        process.exitCode = 1;
+        return;
+      }
+      const { planHomeAdoption, adoptHomeSetups } = await import('@/lib/setups/home-context');
+      const { listWorkspaces } = await import('@/lib/db/queries');
+      const names = new Map(listWorkspaces({ status: 'active' }).map((w) => [w.id, w.name]));
+      const plan = planHomeAdoption();
+      if (plan.steps.length === 0) {
+        console.log('Every agent with a folder on this computer is already set up.');
+        return;
+      }
+      printAdoptionPlan(plan, names);
+      if (!opts.yes) {
+        console.log(pc.dim('\nNothing written. Run again with --yes to write these setup files.'));
+        return;
+      }
+      const { result, reports } = await adoptHomeSetups(plan);
+      console.log(pc.green(`\nWrote ${result.written.length} setup file(s), registered ${result.registered.length} folder(s).`));
+      for (const s of result.skipped) console.log(pc.yellow(`  skipped ${s.dir}: ${s.reason}`));
+      const blocked = reports.filter((r) => r.status !== 'ready');
+      for (const r of blocked) console.log(pc.yellow(`  ${names.get(r.agentId) ?? r.agentId}: ${r.problem}`));
     });
 
   setup

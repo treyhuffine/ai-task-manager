@@ -5,6 +5,7 @@ import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/worksp
 import { parseConnectorScopes, validateConnectorScopes } from '@/lib/connectors/scopes';
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
+import { setHomeFolder } from '@/lib/setups/home-context';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -66,6 +67,9 @@ export async function POST(request: NextRequest) {
       browserEnabled: body.browserEnabled ?? true,
       ...(connectorScopes !== undefined ? { connectorScopes } : {}),
     });
+    // The folder is this computer's setup for the agent, kept in the folder's
+    // own `.ri.local.json` (docs/homes-spec.md §4).
+    await setHomeFolder(row.id, cwd);
     return Response.json(row, { status: 201 });
   } catch (err) {
     if (err instanceof WorkspaceFieldError) {

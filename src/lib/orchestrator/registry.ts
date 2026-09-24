@@ -1386,7 +1386,7 @@ const create_workspace_action = defineAction({
       ? input.baseBranch ?? (await detectBaseBranch(cwd, input.remoteName ?? 'origin'))
       : null;
     try {
-      return createWorkspace({
+      const row = createWorkspace({
         name: input.name,
         emoji: input.emoji ?? null,
         cwd,
@@ -1399,6 +1399,9 @@ const create_workspace_action = defineAction({
         instructions: input.instructions,
         status: 'active',
       });
+      const { setHomeFolder } = await import('@/lib/setups/home-context');
+      await setHomeFolder(row.id, cwd);
+      return row;
     } catch (err) {
       if (err instanceof WorkspaceFieldError) throw new ActionError(err.code, err.message);
       throw err;
@@ -1547,12 +1550,13 @@ const create_reference_folder_action = defineAction({
     description: z.string().nullable().optional(),
   },
   mutating: true,
-  handler: (ctx, input) => {
+  handler: async (ctx, input) => {
     assertPathAllowed(ctx, input.path);
+    let row;
     try {
       // `~` / relative expansion happens in the query layer so every caller
       // stores the same absolute form.
-      return createReferenceFolder({
+      row = createReferenceFolder({
         alias: input.alias,
         workspaceId: input.workspaceId ?? null,
         path: input.path ?? null,
@@ -1562,6 +1566,10 @@ const create_reference_folder_action = defineAction({
     } catch (err) {
       rethrowReferenceFolderError(err);
     }
+    // Map it in the home computer's setup files, where agent paths live (§4.2).
+    const { applyReferenceToHomeSetups } = await import('@/lib/setups/home-context');
+    await applyReferenceToHomeSetups(row).catch(() => {});
+    return row;
   },
 });
 
@@ -1579,19 +1587,24 @@ const update_reference_folder_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (ctx, { id, ...rest }) => {
+  handler: async (ctx, { id, ...rest }) => {
     assertPathAllowed(ctx, rest.path);
     const patch: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(rest)) {
       if (v !== undefined) patch[k] = v;
     }
+    const before = getReferenceFolder(id);
+    let row;
     try {
-      const row = updateReferenceFolder(id, patch);
+      row = updateReferenceFolder(id, patch);
       if (!row) throw new ActionError('not_found', `Reference folder not found: ${id}`);
-      return row;
     } catch (err) {
       rethrowReferenceFolderError(err);
     }
+    // Carry a changed path into the home computer's setup files (§4.2).
+    const { applyReferenceToHomeSetups } = await import('@/lib/setups/home-context');
+    await applyReferenceToHomeSetups(row, before).catch(() => {});
+    return row;
   },
 });
 

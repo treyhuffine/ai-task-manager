@@ -5,6 +5,7 @@ import { recycleForReferenceFolderChange } from '@/lib/executor/adapter';
 import { getWorkspace } from '@/lib/db/queries';
 import type { CreateReferenceFolderInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
+import { applyReferenceToHomeSetups } from '@/lib/setups/home-context';
 
 /** Map the query layer's typed failures onto HTTP without leaking stack traces. */
 function statusForReferenceError(code: ReferenceFolderError['code']): number {
@@ -40,6 +41,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as CreateReferenceFolderInput;
     const row = createReferenceFolder(body);
+    // Map it in this computer's setup files, where agent paths live (§4.2).
+    await applyReferenceToHomeSetups(row).catch((err) => console.warn('[reference-folders] setup files not updated:', err));
     // Live sessions cache their config at spawn, so a new folder is invisible
     // to them until they recycle.
     await recycleForReferenceFolderChange(row.workspaceId);
