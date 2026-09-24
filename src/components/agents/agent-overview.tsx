@@ -15,6 +15,7 @@ import type { AgentPreview } from '@/lib/api/agents';
 import type { WorkspaceRecord } from '@/db/types';
 import type { AgentTab } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
+import { BACKGROUND_DOT, BACKGROUND_LABEL, UNREAD_WITH_BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 
 type RowState = 'approve' | 'unread' | 'working' | 'idle';
 
@@ -155,8 +156,10 @@ function Section({
 
 /** One execution: label, diff, harness and last activity. Opens the execution view. */
 function ExecutionRow({ session, state }: { session: RailSession; state: RowState }) {
-  const { openExecution, activeSessionId } = useDashboard();
+  const { openExecution, activeSessionId, backgroundSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(session.id, session.executionId ?? null);
+  // The turn is over but something it started is still running. Not working.
+  const background = state !== 'working' && backgroundSessionIds.has(session.id);
   const label = session.execution?.label ?? session.label ?? 'Untitled';
   const untitled = !(session.execution?.label ?? session.label);
   const timestamp = session.lastActivityAt ?? session.lastOutcomeEventAt ?? session.startedAt;
@@ -178,7 +181,7 @@ function ExecutionRow({ session, state }: { session: RailSession; state: RowStat
         activeSessionId === session.id ? 'bg-secondary' : 'hover:bg-muted/50',
       )}
     >
-      <StateDot state={state} />
+      <StateDot state={state} background={background} />
       <div className="min-w-0 flex-1">
         <div
           className={cn(
@@ -217,16 +220,17 @@ function ExecutionRow({ session, state }: { session: RailSession; state: RowStat
   );
 }
 
-function StateDot({ state }: { state: RowState }) {
+function StateDot({ state, background = false }: { state: RowState; background?: boolean }) {
   return (
     <span
       aria-hidden
+      title={background ? BACKGROUND_LABEL : undefined}
       className={cn(
         'w-1.5 h-1.5 rounded-full flex-shrink-0',
         state === 'approve' && 'bg-amber-500',
-        state === 'unread' && 'bg-amber-500',
+        state === 'unread' && (background ? UNREAD_WITH_BACKGROUND_DOT : 'bg-amber-500'),
         state === 'working' && 'bg-emerald-500 animate-pulse',
-        state === 'idle' && 'bg-muted-foreground/25',
+        state === 'idle' && (background ? BACKGROUND_DOT : 'bg-muted-foreground/25'),
       )}
     />
   );

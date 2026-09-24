@@ -397,6 +397,8 @@ export interface ExecutionChatHistoryEntry {
   isCurrent: boolean;
   /** Executor in-memory turn state — an agent is actively working this chat. */
   running: boolean;
+  /** Background work (a dev server, a long test) still running after the turn ended. */
+  background: boolean;
   /** Manual chat-tab order (fractional index); null = fall back to creation order. */
   tabSortKey: string | null;
 }

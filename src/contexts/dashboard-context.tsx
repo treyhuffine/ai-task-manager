@@ -76,11 +76,12 @@ interface DashboardState {
   mobileCreateOpen: boolean;
   // Quick capture modal
   quickCaptureOpen: boolean;
-  // Sessions with live root work or active background work. This composite
-  // set drives every generic "working" surface.
+  // Sessions where an agent is running a turn right now. Drives every
+  // "working" surface (green pulse, the Working bucket and counts).
   streamingSessionIds: ReadonlySet<string>;
-  // Background source set. It keeps the composite working state active when
-  // a root turn ends before its detached child work.
+  // Sessions with background work still running after the turn ended (a dev
+  // server, a long test). Not working: drawn with its own marker, and sorted
+  // by the chat's real state. A session can be in both sets while a turn runs.
   backgroundSessionIds: ReadonlySet<string>;
   // Sessions with at least one pending input (permission prompt /
   // AskUserQuestion blocking the agent). Drives the rail's "Needs
@@ -253,16 +254,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     () => new Set(),
   );
   const [backgroundSessionIds, setBackgroundSessionIds] = useState<Set<string>>(() => new Set());
+  // "Working" means an agent is running a turn right now, and nothing else.
+  // A chat whose turn is over but that left something running (a dev server,
+  // a long test) is in `backgroundSessionIds` and is NOT working: those mean
+  // very different things to the person reading the rail, so they are drawn
+  // differently (see components/workspaces/activity-style.ts) and sorted by
+  // their real state (unread, or waiting on you).
   const streamingSessionIds = useMemo(() => {
-    if (directStreamingSessionIds.size === 0 && backgroundSessionIds.size === 0) {
-      return railStreamingSessionIds;
-    }
-    return new Set([
-      ...railStreamingSessionIds,
-      ...directStreamingSessionIds,
-      ...backgroundSessionIds,
-    ]);
-  }, [directStreamingSessionIds, railStreamingSessionIds, backgroundSessionIds]);
+    if (directStreamingSessionIds.size === 0) return railStreamingSessionIds;
+    return new Set([...railStreamingSessionIds, ...directStreamingSessionIds]);
+  }, [directStreamingSessionIds, railStreamingSessionIds]);
   const setSessionStreaming = useCallback((sessionId: string, isStreaming: boolean) => {
     setDirectStreamingSessionIds((prev) => {
       const has = prev.has(sessionId);

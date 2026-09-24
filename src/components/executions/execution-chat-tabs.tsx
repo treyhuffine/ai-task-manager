@@ -35,6 +35,7 @@ import { backfillSortKeys } from '@/lib/utils/bucket-placement';
 import { timestampEpoch } from '@/lib/utils/timestamps';
 import { cn } from '@/lib/utils';
 import { executionView } from '@/lib/client/active-view';
+import { BACKGROUND_DOT, BACKGROUND_LABEL } from '@/components/workspaces/activity-style';
 
 type ChatHistoryData = { sessions: ExecutionChatHistoryEntry[] };
 
@@ -366,12 +367,14 @@ export function ExecutionChatTabs({
                       >
                         {s.label ?? 'Untitled chat'}
                       </span>
-                      {s.running && (
+                      {s.running ? (
                         <span
                           aria-hidden
                           className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
                         />
-                      )}
+                      ) : s.background ? (
+                        <span aria-label={BACKGROUND_LABEL} title={BACKGROUND_LABEL} className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
+                      ) : null}
                     </span>
                     <span className="text-[10.5px] text-muted-foreground/75">
                       {s.isCurrent ? (
@@ -510,7 +513,7 @@ function ChatTab({
   const label = entry.label ?? 'Untitled chat';
   const tooltip = [
     label,
-    entry.running ? 'Working' : null,
+    entry.running ? 'Working' : entry.background ? BACKGROUND_LABEL : null,
     formatWhen(latestActivityAt(entry) ?? entry.startedAt),
   ]
     .filter(Boolean)
@@ -583,12 +586,14 @@ function ChatTab({
             <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
           )}
           <span className={cn('max-w-[9rem] truncate', unread && 'font-semibold')}>{label}</span>
-          {entry.running && (
+          {entry.running ? (
             <span
               aria-hidden
               className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
             />
-          )}
+          ) : entry.background ? (
+            <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
+          ) : null}
         </button>
       )}
       {canClose && !editing && (

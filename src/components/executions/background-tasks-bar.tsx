@@ -32,6 +32,7 @@ import {
   type BackgroundTaskStatus,
 } from '@/hooks/use-background-tasks';
 import { sessionsApi } from '@/lib/api/sessions';
+import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import {
   mergeEventLists,
   missingLiveTaskIds,
@@ -103,10 +104,8 @@ export function BackgroundTasksBar({
           onClick={() => setOpen(true)}
           className="mx-3 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-t-lg bg-muted/60 px-3 py-1.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/85"
         >
-          <span className="relative flex size-1.5 shrink-0">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
-            <span className="relative inline-flex size-1.5 rounded-full bg-amber-500" />
-          </span>
+          {/* Sky and still: background work, not the agent working. */}
+          <span aria-hidden className={cn('size-1.5 shrink-0', BACKGROUND_DOT)} />
           <span className="truncate">{label}</span>
           <span className="ml-auto flex shrink-0 items-center gap-0.5 text-muted-foreground/60">
             running <ChevronRight className="size-3" />

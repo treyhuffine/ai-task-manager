@@ -13,6 +13,7 @@ import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 import { useWorkspaceSelection } from './workspace-selection-context';
 import { executionView } from '@/lib/client/active-view';
+import { BACKGROUND_DOT, BACKGROUND_LABEL, UNREAD_WITH_BACKGROUND_DOT } from './activity-style';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -67,7 +68,7 @@ export function SessionRow({
   onOpenLauncher,
   hidePinMarker,
 }: SessionRowProps) {
-  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
     session.worktreePath ? session.id : null,
     session.executionId,
@@ -84,6 +85,8 @@ export function SessionRow({
 
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
+  // The turn is over but something it started is still running.
+  const isBackground = !isStreaming && backgroundSessionIds.has(session.id);
 
   // Shared unread rule (isSessionUnread) so every surface agrees: the
   // user's "Mark as unread" override (unreadMarkerAt) or a fresh outcome
@@ -196,6 +199,7 @@ export function SessionRow({
             isStreaming={isStreaming}
             isPending={isPending}
             isUnread={isUnread}
+            isBackground={isBackground}
           />
         )}
       </span>
@@ -262,10 +266,13 @@ function StatusPip({
   isStreaming,
   isPending,
   isUnread,
+  isBackground,
 }: {
   isStreaming: boolean;
   isPending: boolean;
   isUnread: boolean;
+  /** Background work still running after the turn ended. Never "working". */
+  isBackground: boolean;
 }) {
   // Pending wins over streaming: the agent process is still alive but
   // blocked on a user response, so the green "working" pip would lie
@@ -291,9 +298,18 @@ function StatusPip({
   if (isUnread) {
     return (
       <span
-        aria-label="unread"
-        title="Unread"
-        className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"
+        aria-label={isBackground ? `unread, ${BACKGROUND_LABEL.toLowerCase()}` : 'unread'}
+        title={isBackground ? `Unread · ${BACKGROUND_LABEL}` : 'Unread'}
+        className={cn('w-2 h-2 flex-shrink-0', isBackground ? UNREAD_WITH_BACKGROUND_DOT : 'rounded-full bg-amber-500')}
+      />
+    );
+  }
+  if (isBackground) {
+    return (
+      <span
+        aria-label={BACKGROUND_LABEL.toLowerCase()}
+        title={BACKGROUND_LABEL}
+        className={cn('w-2 h-2 flex-shrink-0', BACKGROUND_DOT)}
       />
     );
   }

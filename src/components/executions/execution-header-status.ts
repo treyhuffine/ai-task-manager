@@ -56,7 +56,8 @@ export function deriveExecutionHeaderStatus({
                   : 'ready';
 }
 
-export type ChatStatusTone = 'green' | 'amber' | 'rose' | 'blue' | 'muted';
+/** `sky` is background work: the turn is over but something it started still runs. */
+export type ChatStatusTone = 'green' | 'amber' | 'rose' | 'blue' | 'sky' | 'muted';
 
 export interface ChatStatusDescription {
   /** The status in words, e.g. "Working" or "Finished 5m ago". */
@@ -103,8 +104,9 @@ export function describeChatStatus(
       return {
         label: lastOutcomeEventAt ? finished : 'Turn finished',
         detail: 'background task running',
-        tone: 'amber',
-        pulse: true,
+        // Not working: sky and still, never the green pulse of a live turn.
+        tone: 'sky',
+        pulse: false,
         title: 'This chat finished its turn, but work it started is still running.',
       };
     case 'respond':
