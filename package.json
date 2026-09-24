@@ -61,7 +61,7 @@
   "dependencies": {
     "@agentex/agent": "^0.0.37",
     "@agentex/github": "^0.0.1",
-    "@agentex/workspace": "^0.0.4",
+    "@agentex/workspace": "^0.0.5",
     "@ai-sdk/anthropic": "^3.0.63",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/react": "^3.0.136",
@@ -200,9 +200,6 @@
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "node-pty"
-    ],
-    "patchedDependencies": {
-      "@agentex/workspace@0.0.4": "patches/@agentex__workspace@0.0.4.patch"
-    }
+    ]
   }
 }

@@ -4,11 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-patchedDependencies:
-  '@agentex/workspace@0.0.4':
-    hash: 35360a3a0cd55d87cda50244d3f52fb159ecde68c4e2151df04628ae7ee8c053
-    path: patches/@agentex__workspace@0.0.4.patch
-
 importers:
 
   .:
@@ -20,8 +15,8 @@ importers:
         specifier: ^0.0.1
         version: 0.0.1
       '@agentex/workspace':
-        specifier: ^0.0.4
-        version: 0.0.4(patch_hash=35360a3a0cd55d87cda50244d3f52fb159ecde68c4e2151df04628ae7ee8c053)
+        specifier: ^0.0.5
+        version: 0.0.5
       '@ai-sdk/anthropic':
         specifier: ^3.0.63
         version: 3.0.63(zod@3.25.76)
@@ -459,8 +454,8 @@ packages:
     engines: {node: '>=18.0.0'}
     os: [darwin, linux]
 
-  '@agentex/workspace@0.0.4':
-    resolution: {integrity: sha512-T7uP3GwZfyWqhuTDkSmImydnKCVYnG3GSjQZhyxp6XIJHx78y460DXeiTtkNOkhhcCH7hP7gU6MulCd5zg8tyQ==}
+  '@agentex/workspace@0.0.5':
+    resolution: {integrity: sha512-qKugZ6lSRMFfThK2rIMsi06AKigLErfarKNGp+yZwQZ+kMQ5IUmripD48Blr6zsyWow2qhu3Vv49k6JZ/uKN/w==}
     engines: {node: '>=20.19.0'}
     os: [darwin, linux]
 
@@ -8898,10 +8893,10 @@ snapshots:
 
   '@agentex/github@0.0.1': {}
 
-  '@agentex/workspace@0.0.4(patch_hash=35360a3a0cd55d87cda50244d3f52fb159ecde68c4e2151df04628ae7ee8c053)':
+  '@agentex/workspace@0.0.5':
     dependencies:
       chokidar: 5.0.0
-      picomatch: 4.0.4
+      picomatch: 4.0.5
 
   '@ai-sdk/anthropic@3.0.63(zod@3.25.76)':
     dependencies:
@@ -9506,10 +9501,10 @@ snapshots:
       dotenv: 17.4.2
       eciesjs: 0.4.18
       execa: 5.1.1
-      fdir: 6.5.0(picomatch@4.0.4)
+      fdir: 6.5.0(picomatch@4.0.5)
       ignore: 5.3.2
       object-treeify: 1.1.33
-      picomatch: 4.0.4
+      picomatch: 4.0.5
       which: 4.0.0
 
   '@drizzle-team/brocli@0.10.2': {}
