@@ -67,20 +67,26 @@ export function BackgroundTasksBar({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 border-b border-border/60 px-5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground/80"
-      >
-        <span className="relative flex size-1.5 shrink-0">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
-          <span className="relative inline-flex size-1.5 rounded-full bg-amber-500" />
-        </span>
-        <span className="truncate">{label}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-0.5 text-muted-foreground/50">
-          running <ChevronRight className="size-3" />
-        </span>
-      </button>
+      {/* A strip attached to the top of the composer card: same column
+          width, inset like a tab, no borders. The negative margin tucks it
+          into the composer's top padding so the two touch. `relative z-10`
+          keeps its bottom edge clickable over that padding. */}
+      <div className="relative z-10 mx-auto -mb-3 max-w-3xl px-5">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="mx-3 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-t-lg bg-muted/60 px-3 py-1.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/85"
+        >
+          <span className="relative flex size-1.5 shrink-0">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
+            <span className="relative inline-flex size-1.5 rounded-full bg-amber-500" />
+          </span>
+          <span className="truncate">{label}</span>
+          <span className="ml-auto flex shrink-0 items-center gap-0.5 text-muted-foreground/60">
+            running <ChevronRight className="size-3" />
+          </span>
+        </button>
+      </div>
 
       <BackgroundTasksSheet
         open={open}

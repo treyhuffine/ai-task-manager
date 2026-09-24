@@ -10,10 +10,12 @@ interface TreeSearchBarProps {
   /** Optional "n of m" caption when filtering. Hidden when empty. */
   matchCount?: number;
   totalCount?: number;
+  /** A shortcut hint shown while the field is empty, e.g. "⌘P". */
+  shortcut?: string;
 }
 
 /**
- * Thin search input that sits between the tree header and the rows.
+ * Search field at the top of the tree, above the All / Changes switch.
  * Substring match on the full path — fuzzy ranking would be nicer for
  * a flat command-palette but adds little here, where the tree itself
  * already groups by directory and the user is mostly trying to jump to
@@ -28,6 +30,7 @@ export function TreeSearchBar({
   onChange,
   matchCount,
   totalCount,
+  shortcut,
 }: TreeSearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,7 +61,7 @@ export function TreeSearchBar({
     !!query && typeof matchCount === 'number' && typeof totalCount === 'number';
 
   return (
-    <div className="flex items-center gap-1.5 border-b border-border px-2 py-1 min-w-0">
+    <div className="flex h-7 items-center gap-1.5 rounded-md bg-muted/50 px-2 min-w-0 focus-within:bg-muted/70 focus-within:ring-1 focus-within:ring-ring/40">
       <button
         type="button"
         onClick={() => inputRef.current?.focus()}
@@ -66,7 +69,7 @@ export function TreeSearchBar({
         aria-label="Focus search"
         tabIndex={-1}
       >
-        <Search size={11} />
+        <Search size={12} />
       </button>
       <input
         ref={inputRef}
@@ -78,13 +81,18 @@ export function TreeSearchBar({
         onKeyDown={handleKeyDown}
         spellCheck={false}
         autoComplete="off"
-        placeholder="Search files…"
+        placeholder="Search files"
         aria-label="Search files"
         className={cn(
-          'flex-1 min-w-0 bg-transparent text-[11px] text-foreground/90',
+          'flex-1 min-w-0 bg-transparent text-[12px] text-foreground/90',
           'placeholder:text-muted-foreground/60 outline-none border-none p-0',
         )}
       />
+      {shortcut && !query && (
+        <kbd className="shrink-0 rounded bg-background/70 px-1 py-0.5 font-mono text-[9.5px] leading-none text-muted-foreground/80">
+          {shortcut}
+        </kbd>
+      )}
       {showingCount && (
         <span
           className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70"

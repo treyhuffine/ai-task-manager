@@ -600,14 +600,10 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           voiceSentIds={voiceSentIds}
         />
         {session.executionId && !isRunning && <ExecutionReviewBar executionId={session.executionId} />}
-        {/* Pending input + composer share a single top border so they
-            read as one connected input region. */}
-        <div className="flex-shrink-0 border-t border-border bg-background">
-          <BackgroundTasksBar
-            sessionId={session.id}
-            runtimeHasBackgroundTasks={runtime?.backgroundTasks}
-            runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
-          />
+        {/* The input region: pending questions, then running background
+            work as a strip attached to the top of the composer. No rule
+            above it, so it reads as one piece with the conversation. */}
+        <div className="flex-shrink-0 bg-background">
           <PendingInputArea sessionId={session.id} />
           {isMirroredImport && (
             <ImportedTakeoverBar
@@ -616,6 +612,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
               cwd={workspace?.cwd ?? null}
             />
           )}
+          <BackgroundTasksBar
+            sessionId={session.id}
+            runtimeHasBackgroundTasks={runtime?.backgroundTasks}
+            runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
+          />
           <ExecutionComposer
             ref={composerHandleRef}
             sessionId={session.id}

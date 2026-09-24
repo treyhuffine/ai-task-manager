@@ -100,9 +100,12 @@ switching keeps the preview loaded, the open file, and scroll positions.
 - **Changes** (`workbench/changes-view.tsx`): every file that differs
   from the base, sorted by path, each expandable to its diff inline, with
   "open in Files".
-- **Files** (`workbench/files-view.tsx`): tree and file side by side, the
-  tree can hide. With nothing open: files changed in this worktree and
-  recently opened files.
+- **Files** (`workbench/files-view.tsx`): tree and file side by side. A
+  thin bar across the whole view holds its controls (show or hide the
+  tree, New file or folder, recent files, open the worktree in an app), so
+  the tree column keeps only search (⌘P) and the full-width All / Changes
+  switch, whose count caps at 99+. With nothing open: files changed in
+  this worktree and recently opened files.
 - **Notes & tasks**, **Scratchpad**: the former slide-overs, now panel
   views. The scratchpad is stored per chat, so its view names the chat.
 
@@ -122,6 +125,10 @@ kills a shell: PTYs live on the server and reattach with their output.
    terminal height are global.
 6. Chat tabs hold conversations only, never files. Switching chats keeps
    the workbench, the preview, the files and the terminal.
+
+**Input region.** No rule above the composer. Pending questions sit above
+it, and running background work is a borderless strip attached to the top
+of the composer card, inset like a tab, so it reads as part of the input.
 
 **Chat tabs.** "≡ N" (all chats) leads the strip and never scrolls, then
 the open tabs, then +. Only the tabs scroll. + follows the last tab and

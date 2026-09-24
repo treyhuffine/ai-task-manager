@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useMutationState } from '@tanstack/react-query';
-import { Plus, FilePlus, FolderPlus, PanelLeftClose } from 'lucide-react';
+import { Plus, FilePlus, FolderPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
 import { copyText } from '@/lib/clipboard';
@@ -82,10 +82,22 @@ interface FileTreeProps {
    * entry doesn't render.
    */
   onReferenceInChat?: (relativePath: string) => void;
-  /** Extra controls for the title row, e.g. the recent-files menu. */
-  headerExtra?: React.ReactNode;
-  /** When set, the title row offers a button to hide the tree. */
-  onCollapse?: () => void;
+  /**
+   * Render the tree's own title row (FILES, New, open-in-app). The
+   * execution workbench turns it off and puts those controls in the Files
+   * view's full-width top bar instead, where they have room.
+   */
+  titleRow?: boolean;
+  /** Lets a host's own toolbar start "New file" / "New folder" in the tree. */
+  controlRef?: React.Ref<FileTreeHandle>;
+  /** A shortcut hint shown in the empty search field, e.g. "⌘P". */
+  searchShortcut?: string;
+}
+
+/** What a host toolbar can ask the tree to do. */
+export interface FileTreeHandle {
+  /** Start creating a file or folder at the root, as the tree's own New menu does. */
+  beginCreate: (kind: 'file' | 'dir') => void;
 }
 
 const VIEW_MODE_KEY = (id: string) => `ri.execution.tree-view.${id}`;
@@ -146,8 +158,9 @@ export function FileTree({
   onSelect,
   worktreePath,
   onReferenceInChat,
-  headerExtra,
-  onCollapse,
+  titleRow = true,
+  controlRef,
+  searchShortcut,
 }: FileTreeProps) {
   const writable = folderIsWritable(source);
   // Mutations address a session. A read-only folder never calls them.
@@ -313,6 +326,8 @@ export function FileTree({
     [ensureExpanded, mode, setMode],
   );
 
+  useImperativeHandle(controlRef, () => ({ beginCreate: (kind) => beginCreate('', kind) }), [beginCreate]);
+
   const cancelCreate = useCallback(() => {
     setPendingCreate(null);
     setPendingCreateError(null);
@@ -450,67 +465,68 @@ export function FileTree({
   return (
     <div className="flex h-full w-full flex-col border-r border-border bg-background min-w-0">
       {/* Title row — "Files" + create-new sit together on the left,
-          "Open in editor" anchors the right. The Diff/All toggle lives
-          on its own row below this so it can take the full column
-          width even on narrow tree columns. */}
-      <div className="flex items-center justify-between gap-2 border-b border-border px-2 py-1.5 min-w-0">
-        <div className="flex items-center gap-1 min-w-0">
-          <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70 px-1">
-            Files
-          </span>
-          {writable && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className="inline-flex items-center justify-center p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-              aria-label="Create new"
-              title="Create new file or folder"
-            >
-              <Plus size={13} />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={4} className="min-w-40">
-              <DropdownMenuItem onClick={() => beginCreate('', 'file')}>
-                <FilePlus size={14} />
-                New file
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => beginCreate('', 'dir')}>
-                <FolderPlus size={14} />
-                New folder
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          "Open in editor" anchors the right. Hosts with their own toolbar
+          (the execution workbench's Files view) turn it off. */}
+      {titleRow && (
+        <div className="flex items-center justify-between gap-2 border-b border-border px-2 py-1.5 min-w-0">
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70 px-1">
+              Files
+            </span>
+            {writable && (
+            // Non-modal so the new-name field can take focus as it closes.
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger
+                className="inline-flex items-center justify-center p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                aria-label="Create new"
+                title="Create new file or folder"
+              >
+                <Plus size={13} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                sideOffset={4}
+                className="min-w-40"
+                // The inline name field focuses itself. Don't hand focus back
+                // to this trigger on close, or it steals it from the field.
+                onCloseAutoFocus={(e) => e.preventDefault()}
+              >
+                <DropdownMenuItem onClick={() => beginCreate('', 'file')}>
+                  <FilePlus size={14} />
+                  New file
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => beginCreate('', 'dir')}>
+                  <FolderPlus size={14} />
+                  New folder
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            )}
+          </div>
+          {worktreePath && (
+            <div className="min-w-0 flex-shrink-0">
+              <OpenWorktreeButton path={worktreePath} />
+            </div>
           )}
         </div>
-        <div className="flex min-w-0 flex-shrink-0 items-center gap-0.5">
-          {headerExtra}
-          {worktreePath && <OpenWorktreeButton path={worktreePath} />}
-          {onCollapse && (
-            <button
-              type="button"
-              onClick={onCollapse}
-              title="Hide the file tree"
-              aria-label="Hide the file tree"
-              className="inline-flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            >
-              <PanelLeftClose size={13} />
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
-      <div className="border-b border-border px-2 py-1 min-w-0">
+      {/* Find first, then narrow: search on top, the full-width All /
+          Changes switch under it. */}
+      <div className="flex flex-col gap-1.5 border-b border-border p-2 min-w-0">
+        <TreeSearchBar
+          query={query}
+          onChange={setQuery}
+          matchCount={matchCount}
+          totalCount={searchTotal}
+          shortcut={searchShortcut}
+        />
         <TreeViewToggle
           mode={effectiveMode}
           onChange={setMode}
           changedCount={changedCount}
         />
       </div>
-
-      <TreeSearchBar
-        query={query}
-        onChange={setQuery}
-        matchCount={matchCount}
-        totalCount={searchTotal}
-      />
 
       {/* Body */}
       <div className="flex-1 min-h-0">

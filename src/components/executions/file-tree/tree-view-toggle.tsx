@@ -4,6 +4,11 @@ import { cn } from '@/lib/utils';
 
 export type TreeViewMode = 'changed' | 'all';
 
+/** Counts past 99 read as "99+": the exact number stops mattering, and thousands crowd the switch. */
+export function formatChangedCount(count: number): string {
+  return count > 99 ? '99+' : String(count);
+}
+
 interface TreeViewToggleProps {
   mode: TreeViewMode;
   onChange: (next: TreeViewMode) => void;
@@ -41,6 +46,7 @@ export function TreeViewToggle({
       <button
         type="button"
         onClick={() => onChange('changed')}
+        title={changedCount > 99 ? `${changedCount.toLocaleString()} changed files` : undefined}
         className={cn(
           'px-2 py-0.5 rounded transition-colors text-center',
           mode === 'changed'
@@ -50,7 +56,7 @@ export function TreeViewToggle({
       >
         Changes{' '}
         <span className="tabular-nums text-muted-foreground/70">
-          ({changedCount})
+          ({formatChangedCount(changedCount)})
         </span>
       </button>
     </div>

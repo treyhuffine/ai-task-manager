@@ -1,15 +1,24 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useDefaultLayout, type Layout, type LayoutStorage } from 'react-resizable-panels';
-import { FileText, PanelLeftOpen } from 'lucide-react';
+import { ChevronDown, FilePlus, FileText, FolderPlus, PanelLeft, Plus } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { FileIcon } from '@/components/file-icon';
+import { HOTKEYS } from '@/constants/commands';
 import { useSessionDiff } from '@/hooks/use-execution';
 import type { FileHistoryEntry } from '@/hooks/use-file-history';
-import { sessionFolder } from '@/lib/folders/source';
+import { folderIsWritable, sessionFolder } from '@/lib/folders/source';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
-import { FileTree } from '../file-tree/file-tree';
+import { cn } from '@/lib/utils';
+import { FileTree, type FileTreeHandle } from '../file-tree/file-tree';
+import { OpenWorktreeButton } from '../open-worktree-button';
 import { FileViewer } from '../viewer/file-viewer';
 import { FileHistoryMenu } from '../viewer/file-history-menu';
 import { summarizeChanges } from './changes-summary';
@@ -42,9 +51,11 @@ function readTreeHidden(): boolean {
 
 /**
  * The Files view: the worktree's tree and the open file, side by side, like
- * the workbench always had. The tree can hide when the file needs the room.
- * With nothing open, the viewer side offers what the agent changed and what
- * was opened recently instead of a bare "No file open".
+ * the workbench always had. A thin bar across the top holds the view's
+ * controls (show or hide the tree, New, recent files, open the worktree in
+ * an app), so the tree column keeps only search and the All / Changes
+ * switch, and never crowds at narrow widths. With nothing open, the viewer
+ * side offers what the agent changed and what was opened recently.
  */
 export function FilesView({
   sessionId,
@@ -69,57 +80,127 @@ export function FilesView({
     }
   };
 
-  const historyMenu = <FileHistoryMenu sessionId={sessionId} history={fileHistory} selectedPath={selectedPath} />;
+  const treeRef = useRef<FileTreeHandle | null>(null);
+  const writable = folderIsWritable(source);
+
   const viewer = selectedPath ? (
     <FileViewer source={source} selectedPath={selectedPath} onClose={() => onSelect(null)} onReferenceInChat={onReferenceInChat} />
   ) : (
     <PickAFile sessionId={sessionId} fileHistory={fileHistory} onSelect={onSelect} />
   );
 
+  const bar = (
+    <div className="flex h-9 flex-shrink-0 items-center gap-1 border-b border-border px-1.5">
+      <BarButton
+        onClick={() => setHidden(!treeHidden)}
+        pressed={!treeHidden}
+        title={treeHidden ? 'Show the file tree' : 'Hide the file tree'}
+      >
+        <PanelLeft size={14} />
+      </BarButton>
+      {writable && !treeHidden && (
+        // Non-modal: a modal menu traps focus while it closes, so the tree's
+        // new-name field couldn't take the cursor.
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
+            title="Create a file or folder"
+          >
+            <Plus size={13} />
+            New
+            <ChevronDown size={11} className="opacity-60" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={4}
+            className="min-w-40"
+            // The item opens an inline name field in the tree that focuses
+            // itself. Restoring focus to this trigger on close would steal
+            // it, so the next keystroke (or Escape) would miss the field.
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <DropdownMenuItem onClick={() => treeRef.current?.beginCreate('file')}>
+              <FilePlus size={14} />
+              New file
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => treeRef.current?.beginCreate('dir')}>
+              <FolderPlus size={14} />
+              New folder
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <FileHistoryMenu sessionId={sessionId} history={fileHistory} selectedPath={selectedPath} />
+      <span className="flex-1" />
+      {worktreePath && <OpenWorktreeButton path={worktreePath} />}
+    </div>
+  );
+
   if (treeHidden) {
     return (
-      <div className="flex h-full min-h-0">
-        <div className="flex w-9 flex-shrink-0 flex-col items-center gap-1 border-r border-border py-1.5">
-          <button
-            type="button"
-            onClick={() => setHidden(false)}
-            title="Show the file tree"
-            aria-label="Show the file tree"
-            className="inline-flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-          >
-            <PanelLeftOpen size={14} />
-          </button>
-          {historyMenu}
-        </div>
-        <div className="min-w-0 flex-1">{viewer}</div>
+      <div className="flex h-full min-h-0 flex-col">
+        {bar}
+        <div className="min-h-0 flex-1">{viewer}</div>
       </div>
     );
   }
 
   return (
-    <ResizablePanelGroup
-      orientation="horizontal"
-      defaultLayout={defaultLayout ?? DEFAULT_LAYOUT}
-      onLayoutChanged={onLayoutChanged}
-      className="h-full min-h-0"
+    <div className="flex h-full min-h-0 flex-col">
+      {bar}
+      <ResizablePanelGroup
+        orientation="horizontal"
+        defaultLayout={defaultLayout ?? DEFAULT_LAYOUT}
+        onLayoutChanged={onLayoutChanged}
+        className="min-h-0 flex-1"
+      >
+        <ResizablePanel id={TREE_PANEL} minSize={180} className="flex min-h-0 min-w-0 flex-col">
+          <FileTree
+            source={source}
+            worktreeId={worktreeId}
+            selectedPath={selectedPath}
+            onSelect={onSelect}
+            worktreePath={worktreePath}
+            onReferenceInChat={onReferenceInChat}
+            titleRow={false}
+            controlRef={treeRef}
+            searchShortcut={HOTKEYS.goToFile.label}
+          />
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel id={VIEWER_PANEL} minSize={240} className="flex min-h-0 min-w-0 flex-col">
+          {viewer}
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </div>
+  );
+}
+
+function BarButton({
+  children,
+  onClick,
+  pressed,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  pressed?: boolean;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={pressed}
+      className={cn(
+        'inline-flex size-7 items-center justify-center rounded-md transition-colors',
+        pressed ? 'text-foreground hover:bg-muted/60' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+      )}
     >
-      <ResizablePanel id={TREE_PANEL} minSize={180} className="flex min-h-0 min-w-0 flex-col">
-        <FileTree
-          source={source}
-          worktreeId={worktreeId}
-          selectedPath={selectedPath}
-          onSelect={onSelect}
-          worktreePath={worktreePath}
-          onReferenceInChat={onReferenceInChat}
-          headerExtra={historyMenu}
-          onCollapse={() => setHidden(true)}
-        />
-      </ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel id={VIEWER_PANEL} minSize={240} className="flex min-h-0 min-w-0 flex-col">
-        {viewer}
-      </ResizablePanel>
-    </ResizablePanelGroup>
+      {children}
+    </button>
   );
 }
 
