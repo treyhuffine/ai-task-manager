@@ -163,25 +163,38 @@ export function describeNeedsClaim(reason: NeedsClaimReason): string {
   return `${why} If this computer should now be the home, run \`ri home claim\`. Until then it will not act as the home, so two copies never run as one.`;
 }
 
-let cached: { dbPath: string; status: HomeIdentityStatus } | null = null;
+/**
+ * What was verified for this database: the ids, which never change while the
+ * process runs. The rows are read fresh on every call, so a rename shows at
+ * once, and the check against `machine.json` isn't repeated per request.
+ */
+let verified: { dbPath: string; homeId: string; computerId: string } | null = null;
 
 /**
- * The identity for boot paths: memoized per database, made on first use.
- * Throws `HomeIdentityError` when the root needs claiming.
+ * The identity for boot paths and handlers, made on first use. Throws
+ * `HomeIdentityError` when the root needs claiming.
  */
 export function ensureHomeIdentity(opts: ResolveOptions = {}): Extract<HomeIdentityStatus, { state: 'active' }> {
   const dbPath = getDbPath();
-  if (!cached || cached.dbPath !== dbPath) cached = { dbPath, status: resolveHomeIdentity(opts) };
-  const status = cached.status;
+  if (verified && verified.dbPath === dbPath) {
+    const current = getHome();
+    const computer = current ? getComputer(verified.computerId) : null;
+    if (current && computer && current.id === verified.homeId && current.hostComputerId === verified.computerId) {
+      return { state: 'active', home: current, computer, created: false };
+    }
+    verified = null;
+  }
+  const status = resolveHomeIdentity(opts);
   if (status.state === 'needs_claim') {
-    cached = null;
     throw new HomeIdentityError(describeNeedsClaim(status.reason), status.reason);
   }
+  verified = { dbPath, homeId: status.home.id, computerId: status.computer.id };
   return status;
 }
 
-/** Whether this root may act as the home. Never throws. */
+/** Whether this root may act as the home. Never throws, and cheap once verified. */
 export function isHomeActive(): boolean {
+  if (verified && verified.dbPath === getDbPath()) return true;
   try {
     ensureHomeIdentity();
     return true;
@@ -191,7 +204,7 @@ export function isHomeActive(): boolean {
 }
 
 export function resetHomeIdentityCache(): void {
-  cached = null;
+  verified = null;
 }
 
 /**

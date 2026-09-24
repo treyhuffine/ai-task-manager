@@ -103,6 +103,28 @@ The worker connection fixtures (a fake worker and a home served over HTTP for re
 - `workspaces.cwd` is the home computer's observed folder, updated from its reports and never the other way round. It stays until P2 moves the executor to setups. An agent with no folder on the home (created from another computer) needs `cwd` to become optional, and comes with P3.1's "use the first setup the person enables".
 - Production preview (`scripts/plan-adoption.ts ~/ri`, read-only): 9 setup files, one in each active agent's folder (`/Users/agent/ai-task-manager` and eight under `/Users/agent/code`), with no references.
 
+## Dogfood gate A: the real laptop and phone
+
+Automated coverage used a stand-in laptop on the Mac Mini (`~/ri-homes-laptop`). The gate itself needs the real devices. Status: **pending Trey's check**.
+
+The dev home runs on the Mac Mini at `https://ri-homes-trey.beamd.run` (Beamd name `ri-homes`, beside production's `ri`, which is untouched). It has a dev "Ri" agent set up on the Mini at `~/ri-homes-projects/ai-task-manager`, with agentex at `../code/agentex`. Pairing keys for a phone, the MacBook's CLI and the MacBook's browser were minted on the dev home. Revoke them in its Settings, Devices after testing.
+
+On the MacBook, with nothing of production's touched:
+
+```sh
+git clone git@github.com:treyhuffine/ai-task-manager.git ~/ri-homes-src
+cd ~/ri-homes-src && git checkout ai-task-manager/session-e4aa22 && pnpm install
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev connect           # paste the "MacBook CLI" link
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev agent rename_computer --name MacBook
+git clone git@github.com:treyhuffine/ai-task-manager.git ~/ri-homes-projects/dynamism/ri
+git clone git@github.com:dynamismlabs/agentex.git ~/ri-homes-projects/dynamism/agentex
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev setup attach Ri ~/ri-homes-projects/dynamism/ri --ref agentex=../agentex
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev agent create_task --title "Captured from the MacBook"
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev agent list_agent_setups   # Ri: Mac Mini and MacBook, both ready
+```
+
+Then open the "MacBook browser" link on the laptop and the "phone" link on the phone. Capture and edit tasks and notes on each and see them everywhere. Pass when: there is one home and one Ri agent with both layouts ready, `~/ri-homes-connected` holds no `data.db`, and no step asked for a path more than once.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles
