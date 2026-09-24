@@ -200,6 +200,9 @@
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "node-pty"
-    ]
+    ],
+    "patchedDependencies": {
+      "@agentex/workspace@0.0.4": "patches/@agentex__workspace@0.0.4.patch"
+    }
   }
 }

@@ -574,10 +574,10 @@ Build the phases in order. Each gate must demonstrate the stated behavior before
 
 ### P0. Recovery and implementation foundation
 
-- [ ] P0.1 Create the implementation worktree and isolated dev setup from section 10.4. Verify every resolved data path, credential, address, and port before starting it. Inventory existing roots and rehearse backup/restore without changing production data.
-- [ ] P0.2 Establish isolated home, worker, and Git fixtures for connection, retry, ownership, and migration tests.
-- [ ] P0.3 Define the records and runner boundary from section 5.1 using existing schema/query/action conventions.
-- [ ] P0.4 Map every current execution control path to that boundary so there is no alternate route that assumes the UI host owns the execution.
+- [x] P0.1 Create the implementation worktree and isolated dev setup from section 10.4. Verify every resolved data path, credential, address, and port before starting it. Inventory existing roots and rehearse backup/restore without changing production data. (7d46930) `pnpm iso` launcher with path, port, token, tunnel and global-skill checks. The dev home runs from this worktree on `~/ri-homes`, and `lsof` showed it holding only its own database. Mac Mini roots inventoried. Backup, verify, restore, development copy and app open rehearsed on production (16.6 s, 3.6 s, 11.5 s), production's root unchanged. The laptop's home is inventoried before P5.1. Details in [build notes](homes-build.md#p01-isolated-development-setup).
+- [x] P0.2 Establish isolated home, worker, and Git fixtures for connection, retry, ownership, and migration tests. Test homes, stand-in computer roots, Git remotes with the §4.1 layouts, a fake harness driven through the real executor (turn, crash and resume, prompt, interrupt: 10 tests pass), and databases built at an older migration. Worker connection fixtures come with the protocol in P2.2. [Build notes](homes-build.md#p02-test-fixtures).
+- [x] P0.3 Define the records and runner boundary from section 5.1 using existing schema/query/action conventions. [Build notes](homes-build.md#p03-records-and-the-runner-boundary): home and computer identity with a machine-local identity file, observed setups, execution placements and native session history, persisted commands, worker event positions, and a runner with no database that reports through one sink.
+- [x] P0.4 Map every current execution control path to that boundary so there is no alternate route that assumes the UI host owns the execution. [Build notes](homes-build.md#p04-execution-entry-points), including eight existing paths that already assume the UI host owns the execution, each assigned to the phase that fixes it.
 
 **Gate:** the isolated development instance runs from its own worktree without affecting production. A restorable baseline and an explicit inventory of execution entry points exist.
 

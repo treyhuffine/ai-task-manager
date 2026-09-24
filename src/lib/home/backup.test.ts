@@ -50,6 +50,7 @@ function seedHome() {
   write('.config/browser/profiles/agent/Cookies', 'cookies');
   write('.config/tls/leaf.pem', 'cert');
   write('.config/cli-config.json', '{"editor":"cursor"}');
+  write('.config/machine.json', '{"version":1,"homeId":"h","computerId":"c"}');
   write('.work/worktrees/x/file', 'scratch');
   write('tasks/t0.md', 'mirror');
   write('data.db.bak-old', 'old copy');
@@ -96,6 +97,7 @@ describe('createHomeBackup', () => {
     expect(skipped['.config/browser']).toMatch(/this machine/);
     expect(skipped['.config/tls']).toMatch(/this machine/);
     expect(skipped['.config/cli-config.json']).toMatch(/this machine/);
+    expect(skipped['.config/machine.json']).toMatch(/this machine/);
     expect(skipped['.work']).toMatch(/regenerable/);
     expect(skipped.tasks).toMatch(/mirror/);
     expect(skipped['data.db.bak-old']).toMatch(/older database/);

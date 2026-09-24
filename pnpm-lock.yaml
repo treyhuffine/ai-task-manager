@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@agentex/workspace@0.0.4':
+    hash: 35360a3a0cd55d87cda50244d3f52fb159ecde68c4e2151df04628ae7ee8c053
+    path: patches/@agentex__workspace@0.0.4.patch
+
 importers:
 
   .:
@@ -16,7 +21,7 @@ importers:
         version: 0.0.1
       '@agentex/workspace':
         specifier: ^0.0.4
-        version: 0.0.4
+        version: 0.0.4(patch_hash=35360a3a0cd55d87cda50244d3f52fb159ecde68c4e2151df04628ae7ee8c053)
       '@ai-sdk/anthropic':
         specifier: ^3.0.63
         version: 3.0.63(zod@3.25.76)
@@ -8893,7 +8898,7 @@ snapshots:
 
   '@agentex/github@0.0.1': {}
 
-  '@agentex/workspace@0.0.4':
+  '@agentex/workspace@0.0.4(patch_hash=35360a3a0cd55d87cda50244d3f52fb159ecde68c4e2151df04628ae7ee8c053)':
     dependencies:
       chokidar: 5.0.0
       picomatch: 4.0.4

@@ -1,0 +1,22 @@
+diff --git a/dist/git/commands.js b/dist/git/commands.js
+index 825c1aa71413ea13951ae807670f6a55c8709213..0dd20b8d05767504faacd9ec4a75ac14273cf17e 100644
+--- a/dist/git/commands.js
++++ b/dist/git/commands.js
+@@ -1,3 +1,4 @@
++import * as path from "node:path";
+ import { execFileResult, execFileSafe } from "../util/exec.js";
+ /**
+  * Thin wrappers over `git` for the operations the workspace package needs.
+@@ -24,7 +25,11 @@ export async function revParse(cwd, ref) {
+ }
+ export async function revParseGitPath(cwd, relative) {
+     const { stdout } = await execFileSafe("git", ["rev-parse", "--git-path", relative], { cwd });
+-    return stdout.trim();
++    // In a main checkout git prints this relative to `cwd` (".git/info/..."),
++    // so resolve it there. Reading it relative to the process's own cwd reads
++    // another repository's file, or fails when that cwd is a linked worktree
++    // whose `.git` is a file.
++    return path.resolve(cwd, stdout.trim());
+ }
+ export async function mergeBase(cwd, refA, refB) {
+     // The best common ancestor of two refs — i.e. where a branch diverged from
