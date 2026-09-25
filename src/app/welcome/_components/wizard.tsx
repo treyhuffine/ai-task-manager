@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
@@ -208,7 +209,17 @@ export function Wizard() {
   return (
     <div className="mx-auto flex h-dvh max-w-xl flex-col px-6 py-10">
       <header className="mb-8 space-y-4">
-        <div className="text-sm font-medium text-muted-foreground">Welcome to {APP_NAME}</div>
+        <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
+          <Image
+            src="/brand/ri-mark-black.svg"
+            alt=""
+            width={44}
+            height={40}
+            className="h-10 w-auto dark:invert"
+            unoptimized
+          />
+          <span>Welcome to {APP_NAME}</span>
+        </div>
         <nav className="flex items-center gap-2 text-sm">
           {STEPS.map((s, i) => {
             const done = i < index;
