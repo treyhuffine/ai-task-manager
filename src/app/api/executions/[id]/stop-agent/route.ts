@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { actorFromRequest } from '@/lib/auth/actor';
 import { stopExecutionAgent } from '@/lib/sessions/workstream-runtime';
 
 /**
@@ -9,10 +10,10 @@ import { stopExecutionAgent } from '@/lib/sessions/workstream-runtime';
  * control path, and reports failure honestly so the caller never claims the
  * agent stopped when it did not.
  */
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const result = await stopExecutionAgent(id);
+    const result = await stopExecutionAgent(id, actorFromRequest(request.headers));
     return Response.json(result, { status: result.ok ? 200 : 409 });
   } catch (err) {
     console.error('[POST /api/executions/:id/stop-agent]', err);

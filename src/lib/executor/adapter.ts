@@ -397,26 +397,37 @@ async function deliver(
   return { turn };
 }
 
-/** Interrupt the current turn for a chat, if any. */
-export async function abort(chatSessionId: string): Promise<void> {
-  await runnerFor(chatSessionId).interrupt(chatSessionId);
+/**
+ * Interrupt the current turn for a chat, if any. `actor` is who asked, from
+ * their credentials, and absent for the system itself. The same goes for the
+ * stops below.
+ */
+export async function abort(chatSessionId: string, actor?: WorkerCommandActor): Promise<void> {
+  await runnerFor(chatSessionId).interrupt(chatSessionId, actor);
 }
 
 /** Stop one background task without disturbing the session or its other tasks. */
-export async function stopTask(chatSessionId: string, taskId: string): Promise<{ stopped: boolean; queued?: boolean }> {
-  return runnerFor(chatSessionId).stopTask(chatSessionId, taskId);
+export async function stopTask(
+  chatSessionId: string,
+  taskId: string,
+  actor?: WorkerCommandActor,
+): Promise<{ stopped: boolean; queued?: boolean }> {
+  return runnerFor(chatSessionId).stopTask(chatSessionId, taskId, actor);
 }
 
 /**
  * Answer a pending prompt through the chat's runner. Only a prompt this chat
- * raised can be answered, so an answer can't reach another chat's harness.
+ * raised can be answered, so an answer can't reach another chat's harness,
+ * and only a person can approve a permission (`answerRefusal`), which
+ * `refused` explains.
  */
 export function answerPendingInput(
   chatSessionId: string,
   requestId: string,
   response: UserInputResponse,
-): { ok: true; pending: PendingInput } | { ok: false } {
-  return runnerFor(chatSessionId).answerPendingInput(chatSessionId, requestId, response);
+  actor: WorkerCommandActor,
+): { ok: true; pending: PendingInput } | { ok: false; refused?: string } {
+  return runnerFor(chatSessionId).answerPendingInput(chatSessionId, requestId, response, actor);
 }
 
 /**
@@ -424,8 +435,11 @@ export function answerPendingInput(
  * archived, or to force a resume on the next send. Says honestly whether the
  * process closed.
  */
-export async function close(chatSessionId: string): Promise<{ closed: boolean; error?: string; queued?: boolean }> {
-  return runnerFor(chatSessionId).stop(chatSessionId);
+export async function close(
+  chatSessionId: string,
+  actor?: WorkerCommandActor,
+): Promise<{ closed: boolean; error?: string; queued?: boolean }> {
+  return runnerFor(chatSessionId).stop(chatSessionId, actor);
 }
 
 /**

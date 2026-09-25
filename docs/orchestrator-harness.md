@@ -118,12 +118,13 @@ is frozen and doesn't get these):
   reach, so they need the trusted local CLI (`ctx.remote === false`). The
   folder, scripts and files-to-copy stay in the app.
 - `get_pending_input` / `answer_pending_input` — fetch and resolve the
-  permission/question prompts a session is blocked on, via the server's
-  pending-input endpoints (the resolvers are in-memory server state). This
-  matters because a blocked turn never sees queued messages — answering is
-  the only way to unblock. Doctrine in the brief: answer questions when the
-  user's intent is clear; permission prompts default to being surfaced to
-  the user.
+  permission/question prompts a session is blocked on, in the server (the
+  resolvers are in-memory server state, so a CLI call is passed to the
+  server's action route). This matters because a blocked turn never sees
+  queued messages — answering is the only way to unblock. An agent can
+  answer questions and deny permissions, but only a person approves a
+  permission: an agent's approval is refused at home and again by the runner
+  holding the prompt (`answerRefusal`, docs/homes-build.md P2.6).
 
 Process-ownership rule (`src/lib/orchestrator/server-client.ts`): the server
 process owns every harness subprocess, the running set, and pending-input

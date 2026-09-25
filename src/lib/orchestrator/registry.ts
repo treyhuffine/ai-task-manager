@@ -101,6 +101,7 @@ import {
   type TriageDecisionInput,
 } from '@/lib/db/queries';
 import { stripHighlight } from '@/lib/search/highlight';
+import { actorFromAction } from '@/lib/auth/actor';
 import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
 import { beginSweep, finishSweep } from '@/lib/stream-triage/sweep';
 import { triageProposalSchema } from '@/lib/stream-triage/schema';
@@ -1493,7 +1494,7 @@ const archive_workspace_action = defineAction({
     const served = await inServer<Awaited<ReturnType<typeof archiveWorkspace>>>(ctx, 'archive_workspace', { id });
     if (served) return served.result;
     const { archiveAgent } = await import('@/lib/workspaces/archive-agent');
-    const row = await archiveAgent(id);
+    const row = await archiveAgent(id, actorFromAction(ctx));
     if (!row) throw new ActionError('not_found', `Workspace not found: ${id}`);
     return row;
   },
@@ -1808,10 +1809,10 @@ const get_pending_input_action = defineAction({
 const answer_pending_input_action = defineAction({
   name: 'answer_pending_input',
   description:
-    'Resolve a pending permission or question prompt on a session. Permissions: allow=true/false ' +
-    '(message = deny reason). Questions: allow=true with answers keyed by the question text ' +
-    '(allow=false declines). Only answer on the user\'s clear intent. When in doubt, surface the ' +
-    'prompt to the user instead.',
+    'Resolve a pending permission or question prompt on a session. Questions: allow=true with answers ' +
+    'keyed by the question text (allow=false declines). Permissions: an agent can deny one with allow=false ' +
+    '(message = the reason), but only a person can approve one, in Ri. Only answer on the user\'s clear ' +
+    'intent. When in doubt, surface the prompt to the user instead.',
   params: {
     sessionId: z.string().min(1),
     requestId: z.string().min(1),
@@ -1823,13 +1824,20 @@ const answer_pending_input_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['sessionId', 'requestId'] },
-  handler: async (_ctx, { sessionId, requestId, allow, message, answers }) => {
+  handler: async (ctx, input) => {
+    const { sessionId, requestId, allow, message, answers } = input;
     const session = getChatSession(sessionId);
     if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
-    await serverFetch(`/sessions/${sessionId}/pending-input/${requestId}`, {
-      method: 'POST',
-      body: JSON.stringify({ allow, message, answers }),
-    });
+    // Prompts wait in the server, and the answer is the caller's own: from
+    // the CLI it's answered there, under the caller's credential (P2.6).
+    const served = await inServer<unknown>(ctx, 'answer_pending_input', input);
+    if (served) return served.result;
+    const { answerPrompt } = await import('@/lib/executor/answer-prompt');
+    const outcome = answerPrompt(sessionId, requestId, { allow, message, answers }, actorFromAction(ctx));
+    if (!outcome.ok) {
+      const code = outcome.error === 'human_only' ? 'unsupported' : outcome.error === 'mismatch' ? 'invalid_params' : 'not_found';
+      throw new ActionError(code, outcome.message);
+    }
     return {
       resolved: true,
       sessionId,
@@ -2606,6 +2614,8 @@ const start_execution_action = defineAction({
         ? { id: existing.id, executionId: existing.executionId ?? null }
         : await serverFetch<{ id: string; executionId: string | null }>(`/workspaces/${workspace.id}/sessions`, {
             method: 'POST',
+            // Started by the calling chat, when a chat is calling (P2.6).
+            headers: senderHeaders(ctx),
             body: JSON.stringify({
               sessionId,
               ...(input.label ? { label: input.label } : {}),

@@ -26,21 +26,14 @@ import type { WorkerCommandRecord } from '@/db/types';
 import { wakeComputer } from '@/lib/workers/hub';
 import type { PreparePayload, PrepareResult, SetupScriptPayload } from '@/lib/worker/handlers';
 import { inTransaction } from '@/lib/effects/after-commit';
-import { settleTurn } from '@/lib/executor/turns';
-import { finishRunInTransaction } from '@/lib/runs/finish';
 import { requireWorker } from '@/lib/workers/route-auth';
+import { settleUndelivered } from '@/lib/workers/undelivered';
 
 const body = z.object({
   state: z.enum(['delivered', 'failed', 'stale', 'uncertain']),
   result: z.unknown().optional(),
   error: z.string().max(4000).nullable().optional(),
 });
-
-const UNDELIVERED: Record<string, { code: string; message: string }> = {
-  failed: { code: 'delivery_failed', message: "The message couldn't be delivered." },
-  stale: { code: 'placement_moved', message: 'The execution had moved to another computer.' },
-  uncertain: { code: 'delivery_uncertain', message: 'Message delivery could not be confirmed.' },
-};
 
 function recordPrepared(command: WorkerCommandRecord, after: { tasks: Array<() => void> }): void {
   if (!command.executionId || command.generation === null) return;
@@ -95,13 +88,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const before = getWorkerCommand(id);
     const recorded = ackWorkerCommand(worker.computer.id, id, ack);
     if (!recorded || !before || before.state === recorded.state) return recorded;
-    const undelivered = UNDELIVERED[recorded.state];
-    if (recorded.kind === 'send' && undelivered) {
-      const payload = (recorded.payload ?? {}) as { runId?: string | null; turnId?: string };
-      const message = recorded.error ?? undelivered.message;
-      if (payload.runId) finishRunInTransaction(payload.runId, { ok: false, errorCode: undelivered.code, errorMessage: message }, after);
-      if (payload.turnId) after.tasks.push(() => settleTurn(payload.turnId!, message));
-    }
+    settleUndelivered(recorded, after);
     if (recorded.kind === 'prepare') recordPrepared(recorded, after);
     if (recorded.kind === 'run_script') recordSetupScript(recorded);
     return recorded;

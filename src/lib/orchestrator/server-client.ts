@@ -21,6 +21,7 @@
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { PUBLIC_BASE_URL_ENV, readLiveServerRuntime } from '@/lib/server-runtime/record';
+import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER } from './session-credential';
 import { ActionError } from './types';
 import type { WorkstreamRuntime, ScopeChange } from '@/lib/sessions/workstream';
 
@@ -165,8 +166,12 @@ export const serverWorkstreamRuntime: WorkstreamRuntime = {
     return signals ? signals.runningSessionIds : null;
   },
   stopExecution(executionId) {
+    // An agent's CLI call carries its chat's credential, so the stop is
+    // recorded as that agent's (P2.6).
+    const credential = process.env[SESSION_CREDENTIAL_ENV];
     return serverFetch<{ ok: boolean; failures: string[] }>(`/executions/${executionId}/stop-agent`, {
       method: 'POST',
+      ...(credential ? { headers: { [SESSION_CREDENTIAL_HEADER]: credential } } : {}),
     });
   },
   async notify(executionId, change: ScopeChange) {

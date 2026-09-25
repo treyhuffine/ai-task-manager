@@ -130,13 +130,24 @@ export interface StopReport {
   queued?: boolean;
 }
 
-export type AnswerResult = { ok: true; pending: PendingInput } | { ok: false };
+/** `refused` says why the answer wasn't given. Without it, the prompt is no longer waiting. */
+export type AnswerResult = { ok: true; pending: PendingInput } | { ok: false; refused?: string };
 
+/**
+ * Each call names who is acting, from their credentials (P2.6). A connected
+ * computer's command carries it. Absent means the system itself.
+ */
 export interface ExecutionRunner {
   send(req: SendRequest): Promise<SendResult>;
-  interrupt(chatSessionId: string): Promise<void>;
-  stopTask(chatSessionId: string, taskId: string): Promise<{ stopped: boolean; queued?: boolean }>;
+  interrupt(chatSessionId: string, actor?: WorkerCommandActor): Promise<void>;
+  stopTask(chatSessionId: string, taskId: string, actor?: WorkerCommandActor): Promise<{ stopped: boolean; queued?: boolean }>;
   /** Close the harness and clear its live state. */
-  stop(chatSessionId: string): Promise<StopReport>;
-  answerPendingInput(chatSessionId: string, requestId: string, response: UserInputResponse): AnswerResult;
+  stop(chatSessionId: string, actor?: WorkerCommandActor): Promise<StopReport>;
+  /** Refused for an agent approving a permission (`answerRefusal`). */
+  answerPendingInput(
+    chatSessionId: string,
+    requestId: string,
+    response: UserInputResponse,
+    actor: WorkerCommandActor,
+  ): AnswerResult;
 }

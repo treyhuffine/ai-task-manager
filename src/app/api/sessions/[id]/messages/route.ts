@@ -18,6 +18,7 @@ import * as executor from '@/lib/executor/adapter';
 import { healthCheckSession } from '@/lib/executor/health';
 import type { Attachment } from '@/db/types';
 import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
+import { actorFromRequest } from '@/lib/auth/actor';
 import { withSenderLabel } from '@/lib/sessions/sender';
 
 interface PostBody {
@@ -107,6 +108,8 @@ export async function POST(
     // bare id, so a client can't make a message look like it came from a
     // chat that didn't send it. See src/lib/orchestrator/session-credential.ts.
     const senderSessionId = verifySessionCredential(request.headers.get(SESSION_CREDENTIAL_HEADER));
+    // Who is sending, for the command a connected computer gets (P2.6).
+    const actor = actorFromRequest(request.headers);
     if (senderSessionId === id) {
       return Response.json({ error: 'A chat cannot send a message to itself.' }, { status: 400 });
     }
@@ -275,6 +278,7 @@ export async function POST(
           await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId), {
             sourceEventId: row.id,
             attachments,
+            actor,
           });
         } finally {
           executor.endDispatchPreparation(id, preparationRef);

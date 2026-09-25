@@ -118,8 +118,11 @@ describe('starting an execution on a connected computer', () => {
     const { dispatch } = await import('@/lib/executor/adapter');
     const q = await import('@/lib/db/queries');
 
-    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Fix the readme' });
+    const person = { source: 'human' as const, sessionId: null, apiKeyId: 'phone-key' };
+    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Fix the readme', actor: person });
     expect(q.getOpenPlacement(session.executionId!)).toMatchObject({ computerId, generation: 1, worktreePath: null });
+    // The prepare carries who started it (P2.6).
+    expect(q.listWorkerCommands(computerId).find((c) => c.kind === 'prepare')).toMatchObject({ actor: person });
 
     // What the messages route does, at once, with the worktree not made yet.
     expect(await ensureWorktreeReady(session.id, q.getExecution(session.executionId!)!)).toEqual({ ok: true });

@@ -1,90 +1,40 @@
 import type { NextRequest } from 'next/server';
-import { getPending } from '@/lib/executor/live-state';
-import { answerPendingInput } from '@/lib/executor/adapter';
-
-interface ResolveBody {
-  /** True for permission allow + AskUserQuestion answer; false for deny. */
-  allow?: boolean;
-  /** Optional reason shown back to the agent when denying. */
-  message?: string;
-  /** AskUserQuestion answers keyed by question text. Ignored for permission requests. */
-  answers?: Record<string, string>;
-}
+import { actorFromRequest } from '@/lib/auth/actor';
+import { answerPrompt, type PromptAnswer } from '@/lib/executor/answer-prompt';
 
 /**
  * Resolve a pending permission/question request.
  *
  * For permission requests, the body is `{ allow: boolean, message? }`.
- * For AskUserQuestion, the body is `{ answers }` — we wrap it as
- * `updatedInput.answers` per the agentex contract.
+ * For AskUserQuestion, the body is `{ allow, answers }`. `answerPrompt`
+ * shapes either for the harness.
  *
  * Idempotency: a duplicate POST with the same requestId returns 410. The
  * UI removes the pending entry on success so a retry would only fire if
  * two clients race to answer the same prompt — fine to surface as
  * "already resolved" rather than silently double-allow.
+ *
+ * Who answers comes from the request's credentials. An agent (a chat's
+ * session credential) can deny a permission or answer a question, but
+ * approving a permission is 403: only a person can (P2.6).
  */
+const STATUS = { gone: 410, mismatch: 400, human_only: 403 } as const;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; requestId: string }> },
 ) {
   try {
     const { id, requestId } = await params;
-    const body: ResolveBody = await request.json().catch(() => ({}));
-
-    const pending = getPending(requestId);
-    if (!pending) {
-      return Response.json(
-        { error: 'gone', message: 'Request is no longer pending.' },
-        { status: 410 },
-      );
-    }
-    if (pending.sessionId !== id) {
-      return Response.json(
-        { error: 'mismatch', message: 'Request does not belong to this session.' },
-        { status: 400 },
-      );
-    }
-
-    const allow = body.allow ?? false;
-
-    // Claude's PermissionAllowResultSchema requires `updatedInput`
-    // (`record`) on every allow, and PermissionDenyResultSchema requires
-    // a non-empty `message` on every deny. Defaulting both here is
-    // load-bearing: a missing field gets reported back to the agent as
-    // a Zod error, and the agent retries forever. See
-    // claude-code/src/utils/permissions/PermissionPromptToolResultSchema.ts.
-    const denyMessage = body.message?.trim() || 'Denied by user.';
-
-    if (pending.kind === 'question') {
-      const answers = body.answers ?? {};
-      const result = answerPendingInput(
-        id,
-        requestId,
-        allow
-          ? { allow: true, updatedInput: { ...pending.originalInput, answers } }
-          : { allow: false, message: denyMessage },
-      );
-      if (!result.ok) {
-        return Response.json({ error: 'gone' }, { status: 410 });
-      }
-      return Response.json({ ok: true });
-    }
-
-    // Permission allow: pass through the original input as updatedInput
-    // (no rewrite). Claude treats an empty record as "use original";
-    // we send the original explicitly so any future host that wants to
-    // log what was approved sees the actual call shape.
-    const result = answerPendingInput(
+    const body: Partial<PromptAnswer> = await request.json().catch(() => ({}));
+    const outcome = answerPrompt(
       id,
       requestId,
-      allow
-        ? { allow: true, updatedInput: pending.input }
-        : { allow: false, message: denyMessage },
+      { allow: body.allow ?? false, message: body.message, answers: body.answers },
+      actorFromRequest(request.headers),
     );
-    if (!result.ok) {
-      return Response.json({ error: 'gone' }, { status: 410 });
-    }
-    return Response.json({ ok: true });
+    if (outcome.ok) return Response.json({ ok: true });
+    return Response.json({ error: outcome.error, message: outcome.message }, { status: STATUS[outcome.error] });
   } catch (err) {
     console.error('[POST /api/sessions/:id/pending-input/:requestId]', err);
     return Response.json({ error: String(err) }, { status: 500 });

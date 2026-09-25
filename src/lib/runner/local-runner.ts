@@ -33,7 +33,7 @@
 
 import { getProvider, commandInventoryFromEvent } from '@agentex/agent';
 import type { AgentSession, ProviderConfig, StreamEvent, UserInputRequest, UserInputResponse } from '@agentex/agent';
-import type { CreateChatEventInput } from '@/db/types';
+import type { CreateChatEventInput, WorkerCommandActor } from '@/db/types';
 import { harnessPermissionConfig } from '@/lib/executor/permission-map';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import { clearSessionInstructions, writeSessionInstructions } from '@/lib/executor/session-instructions';
@@ -47,7 +47,14 @@ import { ExecutorError } from './errors';
 import { withFirstTurnPreamble } from './first-turn';
 import { runnerState, isRunning } from './live-state';
 import { parseStreamEvent } from './parse';
-import { getPending, listForSession, register as registerPending, rejectAllForSession, resolveRequest } from './pending';
+import {
+  answerRefusal,
+  getPending,
+  listForSession,
+  register as registerPending,
+  rejectAllForSession,
+  resolveRequest,
+} from './pending';
 import { classifyRequest } from './pending-classify';
 import { runnerSink } from './sink';
 import type {
@@ -610,9 +617,16 @@ async function handleUserInputRequest(chatSessionId: string, req: UserInputReque
  * Answer a pending prompt. Only a prompt this chat raised can be answered
  * through it, so an answer can't reach another chat's harness.
  */
-export function answerPendingInput(chatSessionId: string, requestId: string, response: UserInputResponse): AnswerResult {
+export function answerPendingInput(
+  chatSessionId: string,
+  requestId: string,
+  response: UserInputResponse,
+  actor: WorkerCommandActor,
+): AnswerResult {
   const pending = getPending(requestId);
   if (!pending || pending.sessionId !== chatSessionId) return { ok: false };
+  const refused = answerRefusal(pending, response, actor);
+  if (refused) return { ok: false, refused };
   return resolveRequest(requestId, response);
 }
 
@@ -814,6 +828,21 @@ export async function closeIdleSessions(now = Date.now(), idleMs = IDLE_CLOSE_MS
     if (result.closed) closed.push(chatSessionId);
   }
   return closed;
+}
+
+/**
+ * Close every harness session this runner holds, running or not: when the
+ * process running it stops, so nothing it started outlives it. A chat resumes
+ * from its native session on its next message. Returns the chats whose
+ * process wouldn't close.
+ */
+export async function closeAllSessions(): Promise<string[]> {
+  const failed: string[] = [];
+  for (const chatSessionId of [...state.harnessSessions.keys()]) {
+    const result = await close(chatSessionId);
+    if (!result.closed) failed.push(chatSessionId);
+  }
+  return failed;
 }
 
 // ─── The runner interface ─────────────────────────────────────

@@ -22,6 +22,8 @@ let computerId: string;
 let executionId: string;
 let chatId: string;
 let homeId: string;
+let laptopKey: { id: string; token: string };
+let workerKey: string;
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-remote-exec-' });
@@ -31,6 +33,7 @@ beforeEach(async () => {
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
   const laptop = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
+  laptopKey = { id: laptop.key.id, token: laptop.token.plaintext };
   computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
   server = await startHomeServer();
 
@@ -39,11 +42,11 @@ beforeEach(async () => {
     headers: { authorization: `Bearer ${laptop.token.plaintext}`, 'content-type': 'application/json' },
     body: '{}',
   }).then((r) => r.json() as Promise<{ code: string }>);
-  const { workerKey } = await fetch(`${server.url}/api/workers/enroll`, {
+  ({ workerKey } = await fetch(`${server.url}/api/workers/enroll`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: 1, version: 'test' }),
-  }).then((r) => r.json() as Promise<{ workerKey: string }>);
+  }).then((r) => r.json() as Promise<{ workerKey: string }>));
 
   // An agent with an execution placed on the laptop, its worktree there.
   const worktree = path.join(laptopRoot, 'worktrees', 'demo-1');
@@ -165,10 +168,99 @@ describe('an execution on a connected computer', () => {
     expect(prompt).toMatchObject({ kind: 'permission', toolName: 'Bash' });
     expect(q.listChatEvents(chatId).some((e) => e.source === 'permission_request')).toBe(true);
 
-    expect(answerPendingInput(chatId, prompt!.requestId, { allow: true, updatedInput: { command: 'ls' } }).ok).toBe(true);
+    expect(answerPendingInput(chatId, prompt!.requestId, { allow: true, updatedInput: { command: 'ls' } }, { source: 'human' }).ok).toBe(true);
     await turn;
     expect(q.listChatEvents(chatId).some((e) => e.content === 'allowed')).toBe(true);
     expect(q.listChatEvents(chatId).some((e) => e.source === 'permission_response')).toBe(true);
+  }, 60_000);
+
+  it('lets only a person approve a permission there, checked at home and again on the laptop', async () => {
+    const { dispatch, answerPendingInput } = await import('@/lib/executor/adapter');
+    const live = await import('@/lib/executor/live-state');
+    const { wakeComputer } = await import('@/lib/workers/hub');
+    const { HUMAN_ONLY_APPROVAL } = await import('@/lib/runner/pending');
+    const q = await import('@/lib/db/queries');
+    q.updateChatSession(chatId, { permissionMode: 'ask' });
+    const turn = dispatch(chatId, 'ASK before listing');
+    await until(() => live.listForSession(chatId).length === 1, 'the prompt to reach the home');
+    const { requestId } = live.listForSession(chatId)[0]!;
+    const allow = { allow: true, updatedInput: { command: 'ls' } };
+    const agent = { source: 'ai' as const, sessionId: 'orchestrator-chat', apiKeyId: null };
+    const answers = () => q.listWorkerCommands(computerId).filter((c) => c.kind === 'answer_pending_input');
+
+    // The home refuses it, and nothing goes to the laptop.
+    expect(answerPendingInput(chatId, requestId, allow, agent)).toEqual({ ok: false, refused: HUMAN_ONLY_APPROVAL });
+    expect(answers()).toHaveLength(0);
+
+    // One that got past the home anyway is refused on the laptop, and the prompt still waits.
+    const smuggled = q.queueWorkerCommand({
+      computerId,
+      kind: 'answer_pending_input',
+      payload: { requestId, response: allow },
+      actor: agent,
+      chatSessionId: chatId,
+      executionId,
+      generation: 1,
+    });
+    wakeComputer(computerId);
+    await until(() => q.getWorkerCommand(smuggled.id)?.state === 'failed', "the laptop's refusal");
+    expect(q.getWorkerCommand(smuggled.id)?.error).toBe(HUMAN_ONLY_APPROVAL);
+    expect(live.listForSession(chatId)).toHaveLength(1);
+
+    // The person's approval goes through, under their name.
+    const person = { source: 'human' as const, sessionId: null, apiKeyId: laptopKey.id };
+    expect(answerPendingInput(chatId, requestId, allow, person).ok).toBe(true);
+    await turn;
+    expect(q.listChatEvents(chatId).some((e) => e.content === 'allowed')).toBe(true);
+    expect(answers().find((c) => c.id !== smuggled.id)).toMatchObject({ actor: person });
+  }, 60_000);
+
+  it('carries who sent a message, and the label on one another chat sent, through the real route', async () => {
+    const q = await import('@/lib/db/queries');
+    const { sessionCredential, SESSION_CREDENTIAL_HEADER } = await import('@/lib/orchestrator/session-credential');
+    const orchestrator = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'ask' });
+    const post = (content: string, headers: Record<string, string> = {}) =>
+      fetch(`${server.url}/api/sessions/${chatId}/messages`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${laptopKey.token}`, 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ content }),
+      });
+    const sendOf = (content: string) =>
+      q.listWorkerCommands(computerId).find((c) => c.kind === 'send' && (c.payload as { message: string }).message.endsWith(content));
+
+    expect((await post('from the phone')).status).toBe(201);
+    await until(() => q.listChatEvents(chatId).some((e) => e.content === 'ok: from the phone'), 'the reply');
+    expect(sendOf('from the phone')).toMatchObject({ actor: { source: 'human', sessionId: null, apiKeyId: laptopKey.id } });
+
+    expect((await post('from the orchestrator', { [SESSION_CREDENTIAL_HEADER]: sessionCredential(orchestrator.id)! })).status).toBe(201);
+    await until(() => !!sendOf('from the orchestrator'), 'the send');
+    const sent = sendOf('from the orchestrator')!;
+    expect(sent.actor).toEqual({ source: 'ai', sessionId: orchestrator.id, apiKeyId: laptopKey.id });
+    expect((sent.payload as { message: string }).message).toBe(
+      "[Message from the orchestrator (the user's main chat), sent on the user's behalf]\n\nfrom the orchestrator",
+    );
+  }, 60_000);
+
+  it("never sends a command for a placement that changed while the laptop was away", async () => {
+    const { dispatch } = await import('@/lib/executor/adapter');
+    const q = await import('@/lib/db/queries');
+    await worker!.stop();
+    worker = null;
+    const message = await userMessage('sent while away');
+    const turn = dispatch(chatId, 'sent while away', { sourceEventId: message.id }).then(
+      () => null,
+      (err: Error) => err.message,
+    );
+    await until(() => q.listWorkerCommands(computerId).some((c) => c.kind === 'send'), 'the saved send');
+    // Placed again meanwhile, as a move does (P3).
+    q.createPlacement({ executionId, computerId, startReason: 'continued', worktreePath: path.join(laptopRoot, 'worktrees', 'demo-1') });
+
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    expect(await turn).toBe('The execution had moved to another computer before this reached it.');
+    const [send] = q.listWorkerCommands(computerId).filter((c) => c.kind === 'send');
+    expect(send).toMatchObject({ state: 'stale', seq: null });
+    expect(q.listRuns({}).find((r) => r.chatSessionId === chatId)).toMatchObject({ status: 'failed', errorCode: 'placement_moved' });
+    expect(q.listChatEvents(chatId).some((e) => e.content === 'ok: sent while away')).toBe(false);
   }, 60_000);
 
   it('interrupts a turn from the home', async () => {

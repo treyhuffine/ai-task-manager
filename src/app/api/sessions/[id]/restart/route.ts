@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import * as executor from '@/lib/executor/adapter';
 import { clearHarnessRuntimeCache } from '@/lib/harness/runtime';
+import { actorFromRequest } from '@/lib/auth/actor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,13 +27,13 @@ export const dynamic = 'force-dynamic';
  * rather than up to a minute later.
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
     try {
-      await executor.close(id);
+      await executor.close(id, actorFromRequest(request.headers));
     } catch (err) {
       console.warn(`[POST /api/sessions/:id/restart] close failed for ${id}:`, err);
     }

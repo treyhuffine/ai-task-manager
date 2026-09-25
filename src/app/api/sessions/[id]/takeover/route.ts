@@ -8,6 +8,7 @@ import {
 } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import * as executor from '@/lib/executor/adapter';
+import { actorFromRequest } from '@/lib/auth/actor';
 
 /**
  * Start a "Take over locally" session.
@@ -61,7 +62,7 @@ function buildFallbackCommand(branch: string): string {
 }
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -107,7 +108,7 @@ export async function POST(
     const settled = await waitForIdle(id, 5000);
     if (!settled) {
       try {
-        await executor.abort(id);
+        await executor.abort(id, actorFromRequest(request.headers));
       } catch (err) {
         console.error('[takeover] abort during in-flight turn failed:', err);
       }

@@ -5,16 +5,19 @@
  * queued commands as they're numbered, `request`s as it has them, and a
  * `ping` every 15 seconds. Each ping re-checks the key, so a revoked worker
  * gets `revoked` and is cut off within that interval, if the revoke itself
- * didn't already close the stream.
+ * didn't already close the stream. A queued command whose chat or execution
+ * no longer runs here at its generation is marked stale instead of sent.
  */
 
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
 import type { WorkerCommandRecord } from '@/db/types';
-import { getAckedEventSeq, getHome, getWorkerEnrollment, takeCommandsForStream } from '@/lib/db/queries';
+import { getAckedEventSeq, getHome, getWorkerEnrollment, staleQueuedCommands, takeCommandsForStream } from '@/lib/db/queries';
+import { inTransaction } from '@/lib/effects/after-commit';
 import { registerConnection } from '@/lib/workers/hub';
 import { WORKER_PROTOCOL, WORKER_STREAM_PING_MS, type WorkerCommand, type WorkerStreamEvent } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
+import { settleUndelivered } from '@/lib/workers/undelivered';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,6 +68,11 @@ export async function GET(request: NextRequest) {
       let cursor = after;
       const pump = () => {
         if (closed) return;
+        // Ownership first: a command for a placement this computer no longer
+        // holds is never sent, and a send among them finishes its run (P2.6).
+        inTransaction((after) => {
+          for (const command of staleQueuedCommands(worker.computer.id)) settleUndelivered(command, after);
+        });
         for (const command of takeCommandsForStream(worker.computer.id, cursor)) {
           send({ type: 'command', command: toWire(command) });
           cursor = Math.max(cursor, command.seq ?? cursor);

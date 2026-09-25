@@ -159,6 +159,9 @@ async function run(): Promise<void> {
   console.log(`${pc.bold(target.computerName)} worker for ${target.homeName}, at ${target.homeUrl}. Ctrl-C to stop.`);
   const { installRunnerSink } = await import('@/lib/runner/sink');
   const { executionHandlers, executionReads } = await import('@/lib/worker/handlers');
+  const { closeAllSessions, closeIdleSessions } = await import('@/lib/runner/local-runner');
+  // Sessions idle for 30 minutes close here as they do at home (P2.1).
+  const sweep = setInterval(() => void closeIdleSessions().catch(() => {}), 60_000);
   const exit = await runWorker({
     target,
     version: workerVersion(),
@@ -175,6 +178,11 @@ async function run(): Promise<void> {
       }
     },
   });
+  clearInterval(sweep);
+  // Stopping the worker stops what it runs here. Each chat resumes from its
+  // native session on its next message.
+  const unclosed = await closeAllSessions();
+  if (unclosed.length > 0) console.log(pc.yellow(`${unclosed.length} session(s) didn't close. Check for leftover harness processes.`));
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
 

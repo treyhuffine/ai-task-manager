@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentSession } from '@agentex/agent';
+import type { AgentSession, UserInputResponse } from '@agentex/agent';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
 
@@ -25,6 +25,8 @@ vi.mock('./session-spec', async (importOriginal) => {
 
 let home: TestHome | null = null;
 let fake: FakeHarness | null = null;
+
+const PERSON = { source: 'human' as const };
 
 afterEach(async () => {
   const { _resetExecutorState } = await import('./adapter');
@@ -239,9 +241,9 @@ describe('pending prompts', () => {
     await until(() => pending.listForSession(session.id).length === 1, 'the prompt');
     const { requestId } = pending.listForSession(session.id)[0]!;
 
-    expect(answerPendingInput(other.id, requestId, { allow: true, updatedInput: {} })).toEqual({ ok: false });
+    expect(answerPendingInput(other.id, requestId, { allow: true, updatedInput: {} }, PERSON)).toEqual({ ok: false });
     expect(pending.listForSession(session.id)).toHaveLength(1);
-    expect(answerPendingInput(session.id, requestId, { allow: true, updatedInput: { command: 'ls' } }).ok).toBe(true);
+    expect(answerPendingInput(session.id, requestId, { allow: true, updatedInput: { command: 'ls' } }, PERSON).ok).toBe(true);
     await turn;
   });
 
@@ -259,13 +261,115 @@ describe('pending prompts', () => {
     const turn = dispatch(session.id, 'plan then act');
     await until(() => pending.listForSession(session.id).length === 1, 'the plan prompt');
     const exit = pending.listForSession(session.id)[0]!;
-    answerPendingInput(session.id, exit.requestId, { allow: true, updatedInput: {} });
+    answerPendingInput(session.id, exit.requestId, { allow: true, updatedInput: {} }, PERSON);
     await turn;
 
     expect(bash).toBe(true);
     expect(q.getChatSession(session.id)).toMatchObject({ permissionMode: 'auto_all', prePlanMode: null });
     const requests = q.listChatEvents(session.id).filter((e) => e.source === 'permission_request');
     expect(requests.map((e) => e.toolName)).toEqual(['ExitPlanMode']);
+  });
+});
+
+describe('who may answer a prompt (P2.6)', () => {
+  async function orchestrator() {
+    const q = await import('@/lib/db/queries');
+    return q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'ask' });
+  }
+
+  async function answerRoute(chatId: string, requestId: string, body: object, credential?: string) {
+    const { POST } = await import('@/app/api/sessions/[id]/pending-input/[requestId]/route');
+    const { SESSION_CREDENTIAL_HEADER } = await import('@/lib/orchestrator/session-credential');
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest(`http://127.0.0.1/api/sessions/${chatId}/pending-input/${requestId}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {},
+    });
+    return POST(request, { params: Promise.resolve({ id: chatId, requestId }) });
+  }
+
+  it('only a person approves a permission, and an agent may deny one', async () => {
+    const session = await chat({ permissionMode: 'ask' });
+    const agent = await orchestrator();
+    const { dispatch } = await import('./adapter');
+    const pending = await import('./pending-input');
+    const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
+    const { HUMAN_ONLY_APPROVAL } = await import('@/lib/runner/pending');
+    const answers: UserInputResponse[] = [];
+    fake!.onTurn(async (turn) => {
+      answers.push(await turn.ask({ toolName: 'Bash', input: { command: 'rm -rf build' } }));
+      answers.push(await turn.ask({ toolName: 'Bash', input: { command: 'ls' } }));
+    });
+    const turn = dispatch(session.id, 'clean up');
+    await until(() => pending.listForSession(session.id).length === 1, 'the first prompt');
+    const first = pending.listForSession(session.id)[0]!.requestId;
+    const asAgent = sessionCredential(agent.id)!;
+
+    const refused = await answerRoute(session.id, first, { allow: true }, asAgent);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'human_only', message: HUMAN_ONLY_APPROVAL });
+    expect(pending.listForSession(session.id).map((p) => p.requestId)).toEqual([first]);
+
+    expect((await answerRoute(session.id, first, { allow: false }, asAgent)).status).toBe(200);
+    await until(() => pending.listForSession(session.id)[0]?.requestId !== undefined && pending.listForSession(session.id)[0]!.requestId !== first, 'the second prompt');
+    const second = pending.listForSession(session.id)[0]!.requestId;
+    expect((await answerRoute(session.id, second, { allow: true })).status).toBe(200);
+    await turn;
+    expect(answers).toEqual([
+      { allow: false, message: "Denied by the orchestrator (the user's main chat)." },
+      { allow: true, updatedInput: { command: 'ls' } },
+    ]);
+  });
+
+  it("an agent may answer a question, through the action", async () => {
+    const session = await chat({ permissionMode: 'ask' });
+    const agent = await orchestrator();
+    const { dispatch } = await import('./adapter');
+    const pending = await import('./pending-input');
+    const { actions } = await import('@/lib/orchestrator/registry');
+    const answer = actions.find((a) => a.name === 'answer_pending_input')!;
+    const answers: UserInputResponse[] = [];
+    const question = { question: 'Which database?', header: 'DB', options: [{ label: 'SQLite', description: '' }, { label: 'Postgres', description: '' }] };
+    fake!.onTurn(async (turn) => {
+      answers.push(await turn.ask({ toolName: 'AskUserQuestion', input: { questions: [question] } }));
+    });
+    const turn = dispatch(session.id, 'pick one');
+    await until(() => pending.listForSession(session.id).length === 1, 'the question');
+    const { requestId } = pending.listForSession(session.id)[0]!;
+    const ctx = { remote: true, actor: { source: 'ai' as const, sessionId: agent.id }, caller: { location: 'home' as const } };
+    await answer.handler(ctx, { sessionId: session.id, requestId, allow: true, answers: { 'Which database?': 'SQLite' } } as never);
+    await turn;
+    expect(answers[0]).toMatchObject({ allow: true, updatedInput: { answers: { 'Which database?': 'SQLite' } } });
+  });
+
+  it("the action refuses an agent's approval, and a caller elsewhere without a session is an agent", async () => {
+    const session = await chat({ permissionMode: 'ask' });
+    const agent = await orchestrator();
+    const { dispatch } = await import('./adapter');
+    const pending = await import('./pending-input');
+    const { actions } = await import('@/lib/orchestrator/registry');
+    const { HUMAN_ONLY_APPROVAL } = await import('@/lib/runner/pending');
+    const answer = actions.find((a) => a.name === 'answer_pending_input')!;
+    fake!.onTurn(async (turn) => {
+      await turn.say((await turn.ask({ toolName: 'Bash', input: { command: 'ls' } })).allow ? 'allowed' : 'denied');
+    });
+    const turn = dispatch(session.id, 'list');
+    await until(() => pending.listForSession(session.id).length === 1, 'the prompt');
+    const { requestId } = pending.listForSession(session.id)[0]!;
+    const approve = (ctx: object) => answer.handler(ctx as never, { sessionId: session.id, requestId, allow: true } as never);
+
+    await expect(approve({ remote: true, actor: { source: 'ai', sessionId: agent.id }, caller: { location: 'home' } })).rejects.toMatchObject({
+      code: 'unsupported',
+      message: HUMAN_ONLY_APPROVAL,
+    });
+    await expect(approve({ remote: true, caller: { location: 'elsewhere', apiKeyId: 'laptop-key' } })).rejects.toMatchObject({ code: 'unsupported' });
+    expect(pending.listForSession(session.id)).toHaveLength(1);
+    // The home's own CLI, run by hand, is the person.
+    await approve({ remote: true, caller: { location: 'home', apiKeyId: 'home-key' } });
+    await turn;
+    const q = await import('@/lib/db/queries');
+    expect(q.listChatEvents(session.id).some((e) => e.content === 'allowed')).toBe(true);
   });
 });
 
@@ -344,7 +448,7 @@ describe('closing sessions nobody is using', () => {
     const turn = dispatch(session.id, 'list files');
     await until(() => pending.listForSession(session.id).length === 1, 'the prompt');
     expect(await closeIdleSessions(Date.now() + 31 * 60_000, 30 * 60_000)).toEqual([]);
-    answerPendingInput(session.id, pending.listForSession(session.id)[0]!.requestId, { allow: false, message: 'no' });
+    answerPendingInput(session.id, pending.listForSession(session.id)[0]!.requestId, { allow: false, message: 'no' }, PERSON);
     await turn;
   });
 });

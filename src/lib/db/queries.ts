@@ -4780,6 +4780,49 @@ export function listWorkerCommands(computerId: string, options: { states?: Worke
  * command is never resent: its worker has it. In one transaction, so two
  * streams can't number the same command twice.
  */
+/**
+ * Mark stale, and return, the queued commands whose chat or execution no
+ * longer runs on this computer at their generation (P2.6). Ownership is
+ * checked before a command is sent, not only by the worker, which can't
+ * fence a command for a placement it never saw replaced. A stale command
+ * never gets a number.
+ */
+export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const stale: WorkerCommandRecord[] = [];
+  const queued = db
+    .select()
+    .from(workerCommands)
+    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+    .all();
+  for (const command of queued) {
+    let current: boolean;
+    if (command.executionId) {
+      const placement = placementOf(command.executionId);
+      current = placement?.computerId === computerId && placement.generation === command.generation;
+    } else if (command.chatSessionId) {
+      current = chatPlacement(command.chatSessionId)?.computerId === computerId;
+    } else {
+      continue;
+    }
+    if (current) continue;
+    const row = db
+      .update(workerCommands)
+      .set({
+        state: 'stale',
+        error: 'The execution had moved to another computer before this reached it.',
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(workerCommands.id, command.id), eq(workerCommands.state, 'queued')))
+      .returning()
+      .get();
+    if (row) stale.push(row);
+  }
+  return stale;
+}
+
 export function takeCommandsForStream(computerId: string, after: number): WorkerCommandRecord[] {
   const db = getDb();
   return db.transaction((tx) => {

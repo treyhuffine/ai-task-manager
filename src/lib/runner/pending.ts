@@ -24,6 +24,7 @@
  */
 
 import type { AskUserQuestion, UserInputResponse } from '@agentex/agent';
+import type { WorkerCommandActor } from '@/db/types';
 import { hasRunnerSink, runnerSink } from './sink';
 
 export type PendingInputKind = 'permission' | 'question';
@@ -164,6 +165,26 @@ export function listSessionsWithPending(): string[] {
 
 export function getPending(requestId: string): PendingInput | null {
   return state.byId.get(requestId)?.pending ?? null;
+}
+
+export const HUMAN_ONLY_APPROVAL =
+  'Only a person can approve a permission request. Deny it with a reason, or ask the user to approve it in Ri.';
+
+/**
+ * Why this actor may not give this answer, or null when it may
+ * (docs/homes-spec.md §6, P2.6). Approving a permission is a person's call:
+ * an agent can deny one, which never widens what the agent there may do, or
+ * answer a question, but it can't allow a tool or approve a plan. Checked by
+ * the home before an answer leaves it, and again by the runner that holds
+ * the prompt.
+ */
+export function answerRefusal(
+  pending: PendingInput,
+  response: UserInputResponse,
+  actor: Pick<WorkerCommandActor, 'source'>,
+): string | null {
+  if (actor.source === 'ai' && pending.kind === 'permission' && response.allow) return HUMAN_ONLY_APPROVAL;
+  return null;
 }
 
 /** Test helper. */

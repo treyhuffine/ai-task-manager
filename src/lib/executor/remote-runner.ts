@@ -11,6 +11,7 @@
 import type { UserInputResponse } from '@agentex/agent';
 import type { WorkerCommandActor, WorkerCommandKind } from '@/db/types';
 import { chatPlacement, queueWorkerCommand } from '@/lib/db/queries';
+import { answerRefusal } from '@/lib/runner/pending';
 import type { ExecutionRunner } from '@/lib/runner/types';
 import { wakeComputer } from '@/lib/workers/hub';
 import type { SendPayload } from '@/lib/workers/protocol';
@@ -58,22 +59,25 @@ export function remoteRunnerFor(computerId: string): ExecutionRunner {
       const command = queue(req.chatSessionId, 'send', payload, { actor: req.actor, sourceEventId: req.sourceEventId });
       return { status: 'queued', commandId: command.id };
     },
-    async interrupt(chatSessionId) {
-      queue(chatSessionId, 'interrupt', null);
+    async interrupt(chatSessionId, actor) {
+      queue(chatSessionId, 'interrupt', null, { actor });
     },
-    async stopTask(chatSessionId, taskId) {
-      queue(chatSessionId, 'stop_task', { taskId });
+    async stopTask(chatSessionId, taskId, actor) {
+      queue(chatSessionId, 'stop_task', { taskId }, { actor });
       return { stopped: false, queued: true };
     },
-    async stop(chatSessionId) {
-      queue(chatSessionId, 'stop', null);
+    async stop(chatSessionId, actor) {
+      queue(chatSessionId, 'stop', null, { actor });
       return { closed: false, queued: true };
     },
-    answerPendingInput(chatSessionId: string, requestId: string, response: UserInputResponse) {
-      // Only a prompt this chat raised, as its computer last reported.
+    answerPendingInput(chatSessionId: string, requestId: string, response: UserInputResponse, actor: WorkerCommandActor) {
+      // Only a prompt this chat raised, as its computer last reported, and
+      // only an answer this actor may give. The worker checks both again.
       const pending = listForSession(chatSessionId).find((p) => p.requestId === requestId);
       if (!pending) return { ok: false };
-      queue(chatSessionId, 'answer_pending_input', { requestId, response });
+      const refused = answerRefusal(pending, response, actor);
+      if (refused) return { ok: false, refused };
+      queue(chatSessionId, 'answer_pending_input', { requestId, response }, { actor });
       return { ok: true, pending };
     },
   };

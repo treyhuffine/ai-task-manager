@@ -265,8 +265,12 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       if (fenced(journal, command)) return stale(command);
       const { requestId, response } = command.payload as { requestId: string; response: UserInputResponse };
       ctx.markStarted();
-      const answered = runner.answerPendingInput(chatOf(command), requestId, response);
-      return answered.ok ? { state: 'delivered' } : { state: 'stale', error: 'That prompt is no longer waiting for an answer.' };
+      // The home refuses an agent approving a permission, and so does this
+      // computer, on the actor the command carries.
+      const answered = runner.answerPendingInput(chatOf(command), requestId, response, command.actor);
+      if (answered.ok) return { state: 'delivered' };
+      if (answered.refused) return { state: 'failed', error: answered.refused };
+      return { state: 'stale', error: 'That prompt is no longer waiting for an answer.' };
     },
     async recover(command, _stage, ctx) {
       // A restart ended the session that asked, and its prompts with it,

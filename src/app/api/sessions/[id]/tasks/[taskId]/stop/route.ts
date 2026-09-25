@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import * as executor from '@/lib/executor/adapter';
+import { actorFromRequest } from '@/lib/auth/actor';
 
 /**
  * POST /api/sessions/[id]/tasks/[taskId]/stop
@@ -16,12 +17,12 @@ import * as executor from '@/lib/executor/adapter';
  * UI updates itself without this response carrying it.
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string; taskId: string }> },
 ) {
   try {
     const { id, taskId } = await params;
-    const result = await executor.stopTask(id, taskId);
+    const result = await executor.stopTask(id, taskId, actorFromRequest(request.headers));
     return Response.json(result);
   } catch (err) {
     console.error('[POST /api/sessions/:id/tasks/:taskId/stop]', err);

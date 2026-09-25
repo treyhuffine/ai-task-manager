@@ -9,6 +9,7 @@ import {
 } from '@/lib/sessions/dispatch';
 import { withCompression } from '@/lib/api/compression';
 import { isKnownHarnessId } from '@/lib/harness/registry';
+import { actorFromRequest } from '@/lib/auth/actor';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -95,6 +96,7 @@ export async function POST(
       liveMode: !!body.liveMode,
       taskId: typeof body.taskId === 'string' ? body.taskId : null,
       computerId: typeof body.computerId === 'string' ? body.computerId : null,
+      actor: actorFromRequest(request.headers),
     });
     return Response.json(row, { status: 201 });
   } catch (err) {

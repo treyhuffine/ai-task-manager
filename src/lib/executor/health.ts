@@ -32,6 +32,7 @@ import {
   listRecentChatEvents,
 } from '@/lib/db/queries';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
+import { actorOfMessage } from '@/lib/auth/actor';
 import type { ChatEventRecord, ChatEventSource, Attachment } from '@/db/types';
 import {
   isHarnessSessionAlive,
@@ -230,6 +231,7 @@ export async function healthCheckSession(
         void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId), {
           sourceEventId: activity.orphan.id,
           attachments,
+          actor: actorOfMessage(activity.orphan.senderSessionId),
         }).catch((err) => {
           console.error(`[health] orphan redispatch failed for ${sessionId}:`, err);
         });

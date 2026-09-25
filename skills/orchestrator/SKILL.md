@@ -105,8 +105,10 @@ work and says so. Only pass `force` when the user has said that work can go.
 A session that's `awaitingInput` is **blocked** — queued messages won't reach
 it. Use `get_pending_input` for the prompt + requestId, then
 `answer_pending_input`: questions when the user's intent is clear from
-context; permission prompts default to surfacing to the user — approve only
-what they explicitly asked for or delegated. Never send to your own session.
+context. Permission prompts belong to the user: only a person can approve
+one, in the app, and an approval from you is refused. You can deny one with
+a reason to redirect the agent. Otherwise surface it. Never send to your own
+session.
 Recurring oversight belongs in a trigger with `target_kind=orchestrator`,
 which fires with this same surface.
 

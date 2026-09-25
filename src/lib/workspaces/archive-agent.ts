@@ -3,16 +3,17 @@
  * the app route and the `archive_workspace` action do the same thing. Each
  * of its chats has its harness closed (on a connected computer, a stop its
  * worker acts on when it receives it), and its terminals are killed.
- * Nothing on disk is touched, and its sessions stay readable.
+ * Nothing on disk is touched, and its sessions stay readable. `actor` is who
+ * archived it, for those stops.
  */
 
-import type { WorkspaceRecord } from '@/db/types';
+import type { WorkerCommandActor, WorkspaceRecord } from '@/db/types';
 import { archiveWorkspace, listChatSessions } from '@/lib/db/queries';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId, workspaceTerminalOwnerId } from '@/lib/terminal/owner';
 import { close as closeHarnessSession } from '@/lib/executor/adapter';
 
-export async function archiveAgent(id: string): Promise<WorkspaceRecord | null> {
+export async function archiveAgent(id: string, actor?: WorkerCommandActor): Promise<WorkspaceRecord | null> {
   const row = archiveWorkspace(id);
   if (!row) return null;
   // Reap every process tied to this workspace's sessions — archiving the
@@ -26,6 +27,6 @@ export async function archiveAgent(id: string): Promise<WorkspaceRecord | null> 
   const sessions = listChatSessions({ workspaceId: id });
   const owners = new Set(sessions.map(terminalOwnerId)).add(workspaceTerminalOwnerId(id));
   for (const ownerId of owners) killAllForOwner(ownerId);
-  await Promise.all(sessions.map((s) => closeHarnessSession(s.id)));
+  await Promise.all(sessions.map((s) => closeHarnessSession(s.id, actor)));
   return row;
 }

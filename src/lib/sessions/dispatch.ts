@@ -61,7 +61,7 @@ import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
-import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
 import { wakeComputer } from '@/lib/workers/hub';
 import { requireHarnessId } from '@/lib/harness/options';
@@ -98,6 +98,8 @@ export interface DispatchExecutionSessionArgs {
    * it is refused with the reason, never swapped for another.
    */
   computerId?: string | null;
+  /** Who is starting it, from the caller's credentials, for the command a connected computer gets (P2.6). */
+  actor?: WorkerCommandActor;
   /**
    * The task this execution is doing, when launched via "Start with agent".
    * Ownership is recorded and, if the task is Consider/Todo, it is atomically
@@ -330,7 +332,7 @@ export async function dispatchExecutionSession(
       computerId: elsewhere,
       kind: 'prepare',
       payload: prepare,
-      actor: { source: 'human' },
+      actor: args.actor ?? { source: 'system' },
       executionId: execution.id,
       chatSessionId: sessionId,
       generation: placement.generation,

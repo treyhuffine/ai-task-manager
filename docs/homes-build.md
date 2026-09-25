@@ -518,6 +518,49 @@ P2.5 gets the files a person attaches to a message to the computer that runs the
   - `markers.test.ts` (4).
 - Live on the dev home: an image and a text file uploaded there, sent through the messages route to a new execution on the stand-in laptop. Real Claude there read both from `~/ri-homes-laptop/.work/attachments/<home>/<chat>/` and answered "LAPTOP HERON 42" on green, with the passphrase from the text file. The send carried markers and checksums, no home path, and the laptop's copy matched the home's sha256.
 
+## P2.6 Who is acting
+
+P2.6 makes every command say who caused it, from their credentials, and keeps approving a permission a person's call.
+
+### The actor
+
+- `src/lib/auth/actor.ts` derives it, never from anything a caller says about itself:
+  - A request with a chat's signed session credential is that agent. Any other request the proxy let through is a person, on the key it accepted.
+  - An orchestrator action with a session credential is that agent. Without one, it's a person only from the home's own CLI, run there or passed to the server with the home's key. Over HTTP with any other key it's an agent, since a person elsewhere answers in the app and an agent there could hold a key it found on disk.
+  - A stored message's sender is its `sender_session_id`, else the person, for the health check's re-fire.
+- It goes on every command to a connected computer: sends (messages route, re-fire), answers, interrupts, task stops, restarts, resyncs, takeovers, the coordinated stop, agent archive, and `prepare` (the create route, and `start_execution`, which now forwards the calling chat's credential). Scheduled and internal work stays `system`.
+- The label on a message another chat sent is applied at home, so it reaches a connected computer in the send's text, as it reaches a home harness.
+
+### Only a person approves a permission
+
+- One rule, `answerRefusal` in the runner's pending module: an agent can't allow a permission request, which covers tools and leaving plan mode. It can deny one, which never widens what the agent there may do, and it can answer a question.
+- The home checks it before an answer leaves (the answer route answers 403 `human_only`, and the action throws `unsupported`, both saying to ask the person). The runner holding the prompt checks it again: the home's own, or a connected computer's worker, on the actor the command carries. So an agent approval that got past the home is refused on the laptop.
+- `answerPrompt` (`src/lib/executor/answer-prompt.ts`) is the one way to answer, for the route and the action. The action now answers in the server as its caller, instead of calling the route with the home's key, which would have made every agent look like a person there. An agent's deny tells the blocked agent who denied it.
+- The orchestrator's brief and the action's description say permission prompts belong to the user.
+- Permission modes: new sessions default to `auto_all`, `start_execution` may set the mode of the execution it starts, and no action changes an existing session's mode. So an agent can't widen a session's mode to get around a prompt.
+- The limit: an agent that reads the home's own key file can pass for a person on the home. Credentials can't separate processes on one machine (the isolation is paths, not keys). Sessions on connected computers get tokens of their own in P2.7, not a key.
+
+### Ownership before delivery
+
+- The home marks a queued command stale, instead of streaming it, when its chat or execution no longer runs on that computer at its generation, and finishes a send's run. The worker's fence can't catch this case: a laptop that was away never saw the newer placement. Checked each time the stream sends. Only a move replaces a placement (P3), but the check is in place first.
+- Answers are bound to the request id and the chat at home and on the worker, and to the generation by the fence. The worker takes commands only from its enrolled home's stream.
+
+### Also found and fixed
+
+- Stopping `ri worker run` left its harness sessions running, which kept the process alive after "Stopped.". It now closes them, and each chat resumes from its native session on its next message.
+- Sessions on a connected computer never closed when idle. The 30-minute idle close ran only at home. `ri worker run` now sweeps every minute too.
+
+### As built
+
+- `src/lib/auth/actor.ts`, `answerRefusal` and `HUMAN_ONLY_APPROVAL` in `src/lib/runner/pending.ts`, `answerPrompt`, `staleQueuedCommands` in queries, `settleUndelivered` (`src/lib/workers/undelivered.ts`, shared by the ack route and the stream), `closeAllSessions` in the local runner.
+- The runner interface takes the actor on interrupt, stop, task stop and answer. The adapter's `abort`, `stopTask`, `close` and `answerPendingInput` pass it on.
+- Tests:
+  - `runner-split.test.ts` (+3): a person approves and an agent is refused but may deny, through the real route with a real credential. An agent answers a question through the action. The action refuses an agent, and a caller elsewhere without a session, and accepts the home's own CLI.
+  - `remote-execution.test.ts` (+3), with the worker in its own process: the home refuses an agent approval and queues nothing, an approval smuggled past the home is refused on the laptop while the prompt keeps waiting, and the person's goes through under their key. Sends through the real proxy and messages route carry the person, or the sending chat with its label. A message saved while the laptop was away, for a placement replaced meanwhile, is never sent, and its run fails with `placement_moved`.
+  - `handlers.test.ts` (+1) and `remote-start.test.ts` (the prepare's actor).
+  - Each new guard was checked by removing it and watching its test fail.
+- Live on the dev home: real Claude on the stand-in laptop, in ask mode, asked to run a command. An approval carrying the orchestrator chat's credential was refused with 403 and queued nothing, and the prompt kept waiting. The person's approval went through, Claude wrote the file in the laptop's worktree, and the send and the answer carry the person's key. Stopping the stand-in's worker then closed its Claude session and exited, with no process left.
+
 ## Dogfood gate A: the real laptop and phone
 
 Automated coverage used a stand-in laptop on the Mac Mini (`~/ri-homes-laptop`). The gate itself needs the real devices. Status: **passed on 2026-09-25**, on the real MacBook and iPhone.

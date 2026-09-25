@@ -15,7 +15,7 @@ const runner = vi.hoisted(() => ({
   abort: vi.fn(async () => {}),
   stopTask: vi.fn(async () => ({ stopped: true })),
   close: vi.fn(async () => ({ closed: true })),
-  answerPendingInput: vi.fn(() => ({ ok: false as const })),
+  answerPendingInput: vi.fn((): { ok: false; refused?: string } => ({ ok: false })),
 }));
 vi.mock('@/lib/runner/local-runner', () => runner);
 
@@ -200,6 +200,17 @@ describe('answering a prompt', () => {
     const { handlers, ctx } = await setup();
     const c = command('answer_pending_input', { requestId: 'r1', response: { allow: true } });
     expect(await handlers.answer_pending_input!.run(c, ctx(c))).toMatchObject({ state: 'stale' });
+  });
+
+  it("fails, saying why, when the runner refuses the command's actor", async () => {
+    const { handlers, ctx } = await setup();
+    runner.answerPendingInput.mockReturnValueOnce({ ok: false, refused: 'Only a person can approve a permission request.' });
+    const c = { ...command('answer_pending_input', { requestId: 'r1', response: { allow: true } }), actor: { source: 'ai' as const, sessionId: 's' } };
+    expect(await handlers.answer_pending_input!.run(c, ctx(c))).toEqual({
+      state: 'failed',
+      error: 'Only a person can approve a permission request.',
+    });
+    expect(runner.answerPendingInput).toHaveBeenCalledWith('chat-1', 'r1', { allow: true }, { source: 'ai', sessionId: 's' });
   });
 });
 

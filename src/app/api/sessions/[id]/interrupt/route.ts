@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import * as executor from '@/lib/executor/adapter';
+import { actorFromRequest } from '@/lib/auth/actor';
 
 /**
  * POST /api/sessions/[id]/interrupt
@@ -22,12 +23,12 @@ import * as executor from '@/lib/executor/adapter';
  * finished naturally between "show stop button" and "click stop."
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    await executor.abort(id);
+    await executor.abort(id, actorFromRequest(request.headers));
     return Response.json({ ok: true });
   } catch (err) {
     console.error('[POST /api/sessions/:id/interrupt]', err);
