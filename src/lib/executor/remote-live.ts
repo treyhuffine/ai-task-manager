@@ -93,6 +93,11 @@ export function replaceComputerMirror(computerId: string, snapshot: WorkerLiveSn
   }
 }
 
+/** Forget what a computer had live: it said it's stopping, or it no longer runs agents (P2.8). */
+export function clearComputerMirror(computerId: string): void {
+  replaceComputerMirror(computerId, { running: [], pending: [], backgroundTasks: {} });
+}
+
 export function remoteChat(chatSessionId: string): RemoteChatState | null {
   return mirror.get(chatSessionId) ?? null;
 }

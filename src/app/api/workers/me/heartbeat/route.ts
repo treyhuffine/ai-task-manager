@@ -18,7 +18,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat } from '@/lib/db/queries';
-import { replaceComputerMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
+import { clearComputerMirror, replaceComputerMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
 
@@ -83,6 +83,9 @@ export async function POST(request: NextRequest) {
   const computer = recordWorkerHeartbeat(worker.computer.id, report);
   if (!computer) return Response.json({ error: 'unauthorized' }, { status: 401 });
   if (live) replaceComputerMirror(computer.id, ownLive(computer.id, live));
+  // A worker that's stopping closes its sessions, and their prompts with
+  // them. One that just goes quiet keeps its mirror: unknown is not stopped.
+  else if (report.state === 'stopped') clearComputerMirror(computer.id);
   const release: WorkerHeartbeatReply['release'] = [];
   for (const held of placements ?? []) {
     const open = getOpenPlacement(held.executionId);

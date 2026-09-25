@@ -11,6 +11,8 @@
  * - one containing `SERVERS` replies with the MCP servers its session was
  *   given, as JSON;
  * - one containing `INSTRUCTIONS` replies with its session instructions;
+ * - one containing `SLOW` works for a second and a half, then replies
+ *   `slow done`;
  * - anything else replies `ok: <message>`.
  *
  * Usage: `tsx src/test/fixtures/worker-process.ts <homeUrl> <homeId> <workerKey> <root>`.
@@ -34,6 +36,11 @@ async function main(): Promise<void> {
     if (turn.message.includes('ASK')) {
       const answer = await turn.ask({ toolName: 'Bash', input: { command: 'ls' } });
       await turn.say(answer.allow ? 'allowed' : 'denied');
+      return;
+    }
+    if (turn.message.includes('SLOW')) {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await turn.say('slow done');
       return;
     }
     if (turn.message.includes('INSTRUCTIONS')) {
@@ -89,6 +96,9 @@ async function main(): Promise<void> {
     backoffMaxMs: 200,
     postRetryMs: 100,
   });
+  // As the real worker does as it stops.
+  const { finishWorker } = await import('@/lib/worker/run');
+  await finishWorker({ homeUrl, homeId, homeName: 'Test home', computerName: 'Laptop', workerKey }, 'test', exit);
   process.stdout.write(`WORKER_EXIT ${JSON.stringify(exit)}\n`);
   process.exit(0);
 }
@@ -96,7 +106,10 @@ async function main(): Promise<void> {
 export interface WorkerProcess {
   child: ChildProcess;
   output: () => string;
+  /** Stop it as Ctrl-C does: it closes its sessions and tells the home. */
   stop(): Promise<void>;
+  /** Kill it outright, as a crash does: nothing runs on the way out. */
+  kill(): Promise<void>;
 }
 
 /** Start a worker process and wait until it has connected to the home. */
@@ -107,8 +120,10 @@ export async function startWorkerProcess(args: {
   root: string;
 }): Promise<WorkerProcess> {
   const repo = path.resolve(__dirname, '../../..');
-  const tsx = path.join(repo, 'node_modules', '.bin', 'tsx');
-  const child = spawn(tsx, [path.join(repo, 'src/test/fixtures/worker-process.ts'), args.homeUrl, args.homeId, args.workerKey, args.root], {
+  // Node itself, with tsx's loader, rather than the tsx wrapper: the wrapper
+  // runs the script as a child of its own, so a SIGKILL meant as a crash
+  // would kill only the wrapper and leave the worker running.
+  const child = spawn(process.execPath, ['--import', 'tsx', path.join(repo, 'src/test/fixtures/worker-process.ts'), args.homeUrl, args.homeId, args.workerKey, args.root], {
     cwd: repo,
     env: { ...process.env, NODE_OPTIONS: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -139,6 +154,12 @@ export async function startWorkerProcess(args: {
         child.once('exit', () => resolve());
         child.kill('SIGTERM');
         setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
+      }),
+    kill: () =>
+      new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) return resolve();
+        child.once('exit', () => resolve());
+        child.kill('SIGKILL');
       }),
   };
 }

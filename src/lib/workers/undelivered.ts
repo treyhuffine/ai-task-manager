@@ -1,6 +1,7 @@
 /**
  * A command that won't be carried out: its worker acknowledged it failed,
- * stale or uncertain, or the home found it stale before sending it. A send
+ * stale or uncertain, the home found it stale before sending it, or it was
+ * withdrawn (cancelled) before it left. A send
  * among them never produces a turn result, so its run is finished and its
  * turn settled here, in the caller's transaction (P2.4, P2.6).
  */
@@ -14,6 +15,7 @@ const UNDELIVERED: Record<string, { code: string; message: string }> = {
   failed: { code: 'delivery_failed', message: "The message couldn't be delivered." },
   stale: { code: 'placement_moved', message: 'The execution had moved to another computer.' },
   uncertain: { code: 'delivery_uncertain', message: 'Message delivery could not be confirmed.' },
+  cancelled: { code: 'delivery_cancelled', message: 'The message was withdrawn before it was delivered.' },
 };
 
 export function settleUndelivered(command: WorkerCommandRecord, after: AfterCommit): void {

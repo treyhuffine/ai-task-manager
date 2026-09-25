@@ -22,7 +22,7 @@
 import { uuidv7 } from 'uuidv7';
 import type { WorkerHarnessReport } from '@/db/types';
 import { runnerState } from '@/lib/runner/live-state';
-import { close as closeSession, producingRun } from '@/lib/runner/local-runner';
+import { close as closeSession, closeAllSessions, producingRun } from '@/lib/runner/local-runner';
 import { listForSession, listSessionsWithPending } from '@/lib/runner/pending';
 import {
   WORKER_HEARTBEAT_MS,
@@ -43,6 +43,7 @@ import { CommandProcessor, type CommandHandlers } from './commands';
 import { EventJournal } from './event-journal';
 import { describeHarnesses } from './harnesses';
 import { EventPoster } from './poster';
+import { stopLeftoverHarnesses } from './leftovers';
 import { createWorkerSink } from './sink';
 import { readEventStream } from './sse';
 
@@ -124,6 +125,24 @@ export function liveSnapshot(): WorkerLive {
     pending: listSessionsWithPending().flatMap((id) => listForSession(id)),
     backgroundTasks: Object.fromEntries([...runnerState.backgroundTasks].map(([chat, ids]) => [chat, [...ids]])),
   };
+}
+
+/**
+ * What a worker does as it stops, however it stops: close this computer's
+ * harness sessions, so nothing it started outlives it (each chat resumes
+ * from its native session on its next message), and, when it's stopping of
+ * its own accord, tell the home, which clears what it showed as live there.
+ * Returns the chats whose process wouldn't close.
+ */
+export async function finishWorker(
+  target: WorkerTarget,
+  version: string,
+  exit: WorkerExit,
+  describe?: () => Promise<WorkerHarnessReport[]>,
+): Promise<string[]> {
+  const unclosed = await closeAllSessions();
+  if (exit.reason === 'stopped') await sendHeartbeat(target, version, 'stopped', describe).catch(() => {});
+  return unclosed;
 }
 
 export async function sendHeartbeat(
@@ -221,6 +240,12 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
   // Turns an earlier run of this worker delivered and never finished. The
   // process running them is gone. Taken before anything here can deliver.
   const cutOff = commandJournal.openTurns();
+  // And a harness it left running after a crash is stopped, so a turn
+  // reported cut off doesn't go on working (P2.8).
+  const leftovers = await stopLeftoverHarnesses();
+  if (leftovers.length > 0) {
+    console.warn(`[worker] stopped ${leftovers.length} harness process(es) left running by an earlier worker: ${leftovers.join(', ')}`);
+  }
   const postRetry = setInterval(() => {
     if (eventJournal.pending(1).length > 0) void poster.kick();
   }, postRetryMs);

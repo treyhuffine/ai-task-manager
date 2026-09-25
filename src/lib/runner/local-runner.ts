@@ -136,9 +136,12 @@ function trackTurnBoundary(chatSessionId: string, event: StreamEvent): void {
   if (type === 'turn_start') {
     state.openStreamTurns.add(chatSessionId);
     const { trigger, raw } = event as { trigger?: string; raw?: { command_uuid?: unknown } };
+    const commandUuid = typeof raw?.command_uuid === 'string' ? raw.command_uuid : null;
+    const sends = state.sendRuns.get(chatSessionId);
     state.openTurnOpeners.set(chatSessionId, {
-      commandUuid: typeof raw?.command_uuid === 'string' ? raw.command_uuid : null,
+      commandUuid,
       resume: trigger === 'resume',
+      ...(commandUuid && sends?.has(commandUuid) ? { runId: sends.get(commandUuid) ?? null } : {}),
     });
   } else if (type === 'turn_end') {
     state.openStreamTurns.delete(chatSessionId);
@@ -166,6 +169,7 @@ function trackTurnBoundary(chatSessionId: string, event: StreamEvent): void {
 export function producingRun(chatSessionId: string): string | null {
   const turn = state.openTurnOpeners.get(chatSessionId);
   if (turn?.resume) return null;
+  if (turn?.runId !== undefined) return turn.runId;
   const sends = state.sendRuns.get(chatSessionId);
   if (!sends) return null;
   if (turn?.commandUuid && sends.has(turn.commandUuid)) return sends.get(turn.commandUuid) ?? null;
@@ -177,6 +181,9 @@ function recordSend(chatSessionId: string, commandUuid: string, runId: string | 
   let sends = state.sendRuns.get(chatSessionId);
   if (!sends) state.sendRuns.set(chatSessionId, (sends = new Map()));
   sends.set(commandUuid, runId);
+  // The turn it opened may have started before the send returned.
+  const turn = state.openTurnOpeners.get(chatSessionId);
+  if (turn && turn.commandUuid === commandUuid) turn.runId = runId;
 }
 
 function forgetSend(chatSessionId: string, commandUuid: string): void {
@@ -477,7 +484,8 @@ export async function send(req: SendRequest): Promise<SendResult> {
     const handle = live ?? (await startSessionOnce(req.spec!));
     const sent = await handle.send(withFirstTurnPreamble(req.message, takeFirstTurnPreamble(handle)));
     result = sent.result;
-    commandUuid = sent.uuid;
+    // A harness that names no message still has its sends kept apart.
+    commandUuid = sent.uuid ?? `turn:${req.turnId}`;
     // Before the turn's output can be stamped: a turn it opens is its run's.
     recordSend(chatSessionId, commandUuid, req.runId);
   } catch (err) {

@@ -159,7 +159,7 @@ async function run(): Promise<void> {
   console.log(`${pc.bold(target.computerName)} worker for ${target.homeName}, at ${target.homeUrl}. Ctrl-C to stop.`);
   const { installRunnerSink } = await import('@/lib/runner/sink');
   const { executionHandlers, executionReads } = await import('@/lib/worker/handlers');
-  const { closeAllSessions, closeIdleSessions } = await import('@/lib/runner/local-runner');
+  const { closeIdleSessions } = await import('@/lib/runner/local-runner');
   // Sessions idle for 30 minutes close here as they do at home (P2.1).
   const sweep = setInterval(() => void closeIdleSessions().catch(() => {}), 60_000);
   const exit = await runWorker({
@@ -179,17 +179,14 @@ async function run(): Promise<void> {
     },
   });
   clearInterval(sweep);
-  // Stopping the worker stops what it runs here. Each chat resumes from its
-  // native session on its next message.
-  const unclosed = await closeAllSessions();
+  // Stopping the worker stops what it runs here, and tells the home.
+  const { finishWorker } = await import('@/lib/worker/run');
+  const unclosed = await finishWorker(target, workerVersion(), exit);
   if (unclosed.length > 0) console.log(pc.yellow(`${unclosed.length} session(s) didn't close. Check for leftover harness processes.`));
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
 
   if (exit.reason === 'stopped') {
-    // Say it's stopping rather than let the home wait out the liveness window.
-    const { sendHeartbeat } = await import('@/lib/worker/run');
-    await sendHeartbeat(target, workerVersion(), 'stopped').catch(() => {});
     console.log('Stopped.');
     return;
   }

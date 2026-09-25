@@ -4796,6 +4796,47 @@ export function sendForRun(computerId: string, chatSessionId: string, runId: str
   return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`);
 }
 
+/**
+ * A computer's commands that won't be carried out now that it no longer runs
+ * agents (P2.8): queued ones are cancelled, since they never left, and sent
+ * ones become uncertain, since they may have arrived. Returns them, for
+ * their runs.
+ */
+export function retireComputerCommands(computerId: string): WorkerCommandRecord[] {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const cancelled = db
+    .update(workerCommands)
+    .set({ state: 'cancelled', error: 'Local execution on this computer was turned off before this reached it.', finishedAt: now, updatedAt: now })
+    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+    .returning()
+    .all();
+  const uncertain = db
+    .update(workerCommands)
+    .set({ state: 'uncertain', error: 'Local execution on this computer was turned off before it acknowledged this.', updatedAt: now })
+    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'sent')))
+    .returning()
+    .all();
+  return [...cancelled, ...uncertain];
+}
+
+/** Sends a computer delivered whose runs are still open: turns under way there. */
+export function deliveredSendsWithOpenRuns(computerId: string): WorkerCommandRecord[] {
+  return getDb()
+    .select(getTableColumns(workerCommands))
+    .from(workerCommands)
+    .innerJoin(runs, sql`${runs.id} = json_extract(${workerCommands.payload}, '$.runId')`)
+    .where(
+      and(
+        eq(workerCommands.computerId, computerId),
+        eq(workerCommands.kind, 'send'),
+        eq(workerCommands.state, 'delivered'),
+        inArray(runs.status, ['queued', 'running']),
+      ),
+    )
+    .all();
+}
+
 /** Whether a send to any computer was saved for this run. */
 export function hasSendForRun(runId: string): boolean {
   return (

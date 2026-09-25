@@ -115,7 +115,8 @@ async function send(res: http.ServerResponse, response: Response): Promise<void>
   }
 }
 
-export async function startHomeServer(): Promise<HomeServer> {
+/** `port` restarts a home on the address it had, as after an outage. */
+export async function startHomeServer(opts: { port?: number } = {}): Promise<HomeServer> {
   const { proxy } = await import('@/proxy');
   const sockets = new Set<import('node:net').Socket>();
   const server = http.createServer(async (req, res) => {
@@ -157,7 +158,7 @@ export async function startHomeServer(): Promise<HomeServer> {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,

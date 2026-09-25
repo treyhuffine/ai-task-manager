@@ -91,9 +91,12 @@ export interface RunnerState {
   sendRuns: Map<string, Map<string, string | null>>;
   /**
    * Per chat, the harness turn open now: the message that opened it, when the
-   * harness names it, or that the harness started it on its own (`resume`).
+   * harness names it, or that the harness started it on its own (`resume`),
+   * and its run once known. The run is fixed for the turn, so a message
+   * whose result settles before the turn's last events are handled doesn't
+   * change it.
    */
-  openTurnOpeners: Map<string, { commandUuid: string | null; resume: boolean }>;
+  openTurnOpeners: Map<string, { commandUuid: string | null; resume: boolean; runId?: string | null }>;
 }
 
 const STATE_KEY = Symbol.for('@ri/executor-state');

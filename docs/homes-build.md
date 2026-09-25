@@ -609,6 +609,45 @@ An agent's main chat brief named other home paths besides the persona: its folde
   - `registry.memory.test.ts` (3): memory read from the home, a finding reaching the main chat labeled with its execution, and the main chat told to edit the file itself.
 - Live on the dev home, with real Claude on the stand-in laptop: it called `browser_status` on the home's browser server, and the home logged `POST /api/orchestrator/browser/mcp?profile=ws-<Demo>` answering 200, with the session's token. Asked about its environment, it named the laptop's worktree, the agent's folder on the laptop, its branch and base, and the `agentex` folder as the laptop maps it (`macbook/dynamism/agentex`), not the home's (`mini/code/agentex`). The worktree stayed clean.
 
+## P2.8 Faults
+
+P2.8 tests each fault the spec names, end to end where it matters, with the worker in a process of its own against a home over HTTP. Mapping them to what's already tested found three gaps, fixed here.
+
+### The gaps
+
+- **Turning off a computer's local execution left its work hanging.** Revoking a worker key (from the computer, or the owner revoking the device) closed its stream and nothing else. Its queued commands waited forever, its sent ones stayed sent, and runs on it stayed running with no one left to report them. Now one path (`retireWorker`) does it all in a transaction: queued commands are cancelled, sent ones become uncertain, and runs still open there fail with the reason, their waiting turns settled. Its live state leaves the home's mirror.
+- **A worker that said it was stopping left its prompts at home.** The stopped heartbeat now clears that computer's mirror, since a stopping worker closes its sessions and their prompts with them. A computer that just goes quiet keeps its mirror: unknown is not stopped.
+- **A hard crash left the harness running its tool call.** A restarted worker now stops what its predecessor left, before recovering anything. It finds them by what's certain rather than a recorded pid (agentex doesn't expose the Claude process): an orphan whose command line names this worker's own session instructions folder, which every harness it starts is given. So another worker's harnesses, anything the user runs, and a reused pid never match. Their turns are then reported cut off, as before.
+
+### The matrix
+
+| Fault | What must hold | Tested by |
+| --- | --- | --- |
+| Home outage | A turn already running finishes under its permissions, its output journaled, and everything reaches the home in order once it's back. No new turn or approval meanwhile | `faults.test.ts`: the home stops mid-turn and restarts on the same address |
+| Worker crash | A command interrupted mid-way recovers by its kind's rule. A turn cut off is reported failed, never re-sent. A leftover harness is stopped | `handlers.test.ts`, `homes-p2-review.test.ts`, `faults.test.ts` |
+| Reconnect | Unacknowledged commands are resent and applied once | `journals.test.ts` |
+| Revocation | The worker stops, recovers nothing, and the home settles its work | `homes-p2-review.test.ts`, `faults.test.ts` |
+| Replay | Events and commands resent are applied once | `journals.test.ts` |
+| Stale approval | An answer for a prompt that's gone, or from an earlier placement, changes nothing | `handlers.test.ts`, `faults.test.ts` |
+| Ambiguous acknowledgement | A lost acknowledgement is resent and recorded once. A send cut off between started and finished is checked against native history, else uncertain | `journals.test.ts`, `handlers.test.ts` |
+| Continued output | Output from a turn that kept running while the home was away is kept | `faults.test.ts` (the home outage) |
+
+### Also found and fixed
+
+- **The test worker's crash wasn't a crash.** The worker fixture ran through the `tsx` wrapper, which runs the script as a child of its own, so a SIGKILL meant as a crash killed only the wrapper and left the worker running, orphaned. Six were found still running after the first runs of these tests, and were stopped. The fixture now starts the worker as a direct child of Node with tsx's loader.
+- The real worker's steps on the way out (close its sessions, tell the home it's stopping) are one function, `finishWorker`, used by `ri worker run` and the test worker alike.
+- **A turn's run is fixed when the turn starts.** agentex runs event handlers one at a time, so a message's result can settle before the handler for its turn's last event runs. The run of the message that opened the turn is now held on the open turn, so that order can't move a turn's cost to another run.
+
+### As built
+
+- `src/lib/workers/retire.ts` (`retireWorker`), used by `DELETE /api/workers/me` and `DELETE /api/devices/:id` for a worker key, with `retireComputerCommands` and `deliveredSendsWithOpenRuns` in queries, and `cancelled` among the undelivered states. `clearComputerMirror` in the live mirror, used for retirement and for a stopped heartbeat.
+- `src/lib/worker/leftovers.ts` (`findLeftovers`, `stopLeftoverHarnesses`), run at the start of `runWorker`. `finishWorker` in `run.ts`.
+- Fixtures: `startHomeServer({ port })` restarts a home at its address, and the worker process has `kill()`, a `SLOW` turn, and runs as a direct child.
+- Tests: `faults.test.ts` (4): the home stops mid-turn and restarts on the same address, and the turn's output and completed run arrive. Turning off a crashed laptop's execution fails its turn under way and cancels its waiting message. A stopped worker's prompt leaves the home and can't be answered. A crashed worker's prompt is answered stale after it restarts, its turn reported cut off. `leftovers.test.ts` (1): real orphaned processes, only this worker's stopped.
+- Live on the dev home: the stand-in's worker was killed with SIGKILL while real Claude ran a 60-second command. The Claude process stayed running, orphaned. On restart the worker logged `stopped 1 harness process(es) left running by an earlier worker`, the process was gone, and the run failed within four seconds with the restart message.
+
+## P2 review fixes
+
 ## P2 review fixes
 
 The review of P2.1–P2.6 (`09d788b..694cf64`, 2026-09-25) found 11 reproducible failures. Its probes are kept as `src/test/regressions/homes-p2-review.test.ts`: all 12 failed before the fixes and pass now, along with the migration check. Three probes were adapted to the real path, each noted in the file: re-enrollment goes through the enroll service, the sink probe first journals the send that started the chat's session, and the home-restart probe's run has its send.
