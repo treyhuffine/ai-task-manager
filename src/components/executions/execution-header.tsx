@@ -24,6 +24,7 @@ import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
 import { ExecutionTaskChips } from './execution-task-chips';
+import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { HOME_VIEW } from '@/lib/client/active-view';
@@ -57,6 +58,7 @@ const TONE_DOT: Record<ChatStatusTone, string> = {
   amber: 'bg-amber-500',
   rose: 'bg-rose-500',
   blue: 'bg-blue-500',
+  sky: BACKGROUND_DOT,
   muted: 'bg-transparent ring-[1.5px] ring-inset ring-muted-foreground/60',
 };
 
@@ -65,6 +67,7 @@ const TONE_TEXT: Record<ChatStatusTone, string> = {
   amber: 'text-amber-700 dark:text-amber-400',
   rose: 'text-rose-700 dark:text-rose-400',
   blue: 'text-muted-foreground',
+  sky: 'text-muted-foreground',
   muted: 'text-muted-foreground',
 };
 

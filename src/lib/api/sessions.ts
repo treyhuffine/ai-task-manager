@@ -397,6 +397,8 @@ export interface ExecutionChatHistoryEntry {
   isCurrent: boolean;
   /** Executor in-memory turn state — an agent is actively working this chat. */
   running: boolean;
+  /** Background work (a dev server, a long test) still running after the turn ended. */
+  background: boolean;
   /** Manual chat-tab order (fractional index); null = fall back to creation order. */
   tabSortKey: string | null;
 }
@@ -446,6 +448,14 @@ export const sessionsApi = {
     return api.get<ChatEventDTO[]>(`/sessions/${id}/events`, {
       query: { limit: opts?.limit, before: opts?.before },
     });
+  },
+
+  /**
+   * The events behind specific background tasks (lifecycle, launching call,
+   * output), for tasks that started before the loaded transcript page.
+   */
+  backgroundTaskEvents(id: string, taskIds: readonly string[]): Promise<ChatEventDTO[]> {
+    return api.get<ChatEventDTO[]>(`/sessions/${id}/background-tasks`, { query: { ids: taskIds.join(',') } });
   },
 
   status(id: string): Promise<WorktreeStatus | null> {

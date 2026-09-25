@@ -24,6 +24,7 @@ import { startExecution } from '@/lib/executions/start-execution';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
+import { BACKGROUND_DOT, BACKGROUND_LABEL } from '@/components/workspaces/activity-style';
 import type { ChatSessionWithExecution, WorkspaceWithCounts } from '@/db/types';
 import { executionView } from '@/lib/client/active-view';
 import { useAgentViewMode } from '@/lib/client/agent-view-mode';
@@ -259,7 +260,7 @@ interface MobileSessionRowProps {
 }
 
 function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSessionRowProps) {
-  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds, setMobileTab } =
+  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds, setMobileTab } =
     useDashboard();
   const isPending = pendingInputSessionIds.has(session.id);
   // Pending wins over streaming: when the agent is blocked on user input
@@ -273,6 +274,8 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
     forceState === 'needs_review'
       ? true
       : !isStreaming && !isPending && isSessionUnread(session);
+  // The turn is over but something it started is still running. Not working.
+  const isBackground = !isPending && !isStreaming && backgroundSessionIds.has(session.id);
   const timestamp = session.lastActivityAt ?? session.lastOutcomeEventAt ?? session.startedAt;
   // One row per execution: active when the open view is its primary chat
   // or any sibling chat of the same execution.
@@ -331,6 +334,12 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
           <>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-emerald-500/90 font-medium">working</span>
+          </>
+        ) : isBackground ? (
+          <>
+            {needsReview && <span className="w-1.5 h-1.5 rounded-full border border-amber-500" />}
+            <span className={cn('w-1.5 h-1.5', BACKGROUND_DOT)} />
+            <span className="text-sky-500/90 font-medium" title={BACKGROUND_LABEL}>background</span>
           </>
         ) : needsReview ? (
           <>
