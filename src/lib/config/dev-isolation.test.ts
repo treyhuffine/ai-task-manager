@@ -187,6 +187,32 @@ describe('following symlinks', () => {
     }
   });
 
+  it('applies .. after a link from where the link leads, not where it sits', () => {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-dotdot-')));
+    try {
+      const protectedRoot = path.join(base, 'ri');
+      const isolated = path.join(base, 'ri-homes');
+      fs.mkdirSync(path.join(protectedRoot, 'child'), { recursive: true });
+      fs.mkdirSync(path.join(isolated, 'real'), { recursive: true });
+      fs.symlinkSync(path.join(protectedRoot, 'child'), path.join(isolated, 'bridge'));
+      // In the input, in a relative target, and in an absolute target.
+      expect(canonicalPath(`${isolated}/bridge/..`)).toBe(protectedRoot);
+      fs.symlinkSync('bridge/..', path.join(isolated, '.work'));
+      expect(canonicalPath(path.join(isolated, '.work'))).toBe(protectedRoot);
+      fs.symlinkSync(`${isolated}/bridge/../new.db`, path.join(isolated, 'data.db'));
+      expect(canonicalPath(path.join(isolated, 'data.db'))).toBe(path.join(protectedRoot, 'new.db'));
+      const problems = checkResolvedPaths(resolvedUnder(isolated), isolated, [protectedRoot]).join('\n');
+      expect(problems).toMatch(/workDir resolves inside the shared root/);
+      expect(problems).toMatch(/dbPath resolves inside the shared root/);
+      // A real folder's .. is its parent, and a folder that doesn't exist yet
+      // will be created as a real one, so its .. is too.
+      expect(canonicalPath(`${isolated}/real/../x`)).toBe(path.join(isolated, 'x'));
+      expect(canonicalPath(`${isolated}/not-yet/../x`)).toBe(path.join(isolated, 'x'));
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it('resolves a path that does not exist yet through its nearest existing parent', () => {
     const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-canon-')));
     try {

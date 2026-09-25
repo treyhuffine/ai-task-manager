@@ -3,12 +3,15 @@
  * links whose target doesn't exist yet. Two paths that reach the same place
  * compare equal, however they're spelled.
  *
- * Resolution walks the path one component at a time with `lstat`. A symlink
- * is replaced by its target (relative targets resolve from the link's own
- * folder) and resolution continues from there, so a dangling link to
- * `protected/not-yet-created.db` resolves to that protected location rather
- * than looking like a harmless new file. Components that don't exist are
- * kept as spelled, since nothing can redirect them.
+ * Resolution walks the path one component at a time with `lstat`, the way
+ * the kernel does. A symlink is replaced by its target (relative targets
+ * resolve from the link's own folder) and resolution continues from there,
+ * so a dangling link to `protected/not-yet-created.db` resolves to that
+ * protected location rather than looking like a harmless new file. Nothing
+ * is normalized ahead of the walk: `link/..` is the parent of wherever the
+ * link leads, not the folder holding the link, so `..` is applied only once
+ * everything before it is resolved. Components that don't exist are kept as
+ * spelled, since nothing can redirect them.
  *
  * Throws when the destination can't be established (a symlink loop, or a
  * link that can't be read), so callers that guard paths fail closed.
@@ -26,10 +29,16 @@ export class UnresolvablePathError extends Error {
   }
 }
 
+/** A path's components, as spelled: `.` and `..` are kept for the walk. */
+function components(p: string): string[] {
+  return p.split(path.sep).filter(Boolean);
+}
+
 export function canonicalPath(p: string): string {
-  const absolute = path.resolve(p);
+  // Absolute, but not normalized, which would collapse `link/..` too early.
+  const absolute = path.isAbsolute(p) ? p : `${process.cwd()}${path.sep}${p}`;
   let current = path.parse(absolute).root;
-  let pending = absolute.slice(current.length).split(path.sep).filter(Boolean);
+  let pending = components(absolute.slice(current.length));
   let hops = 0;
 
   while (pending.length > 0) {
@@ -56,9 +65,14 @@ export function canonicalPath(p: string): string {
       } catch (err) {
         throw new UnresolvablePathError(p, `${next} is a link that can't be read (${(err as NodeJS.ErrnoException).code})`);
       }
-      const resolved = path.resolve(current, target);
-      current = path.parse(resolved).root;
-      pending = [...resolved.slice(current.length).split(path.sep).filter(Boolean), ...pending];
+      // A relative target continues from the link's folder, which is
+      // `current`. An absolute one starts again from its root.
+      if (path.isAbsolute(target)) {
+        current = path.parse(target).root;
+        pending = [...components(target.slice(current.length)), ...pending];
+      } else {
+        pending = [...components(target), ...pending];
+      }
       continue;
     }
     current = next;

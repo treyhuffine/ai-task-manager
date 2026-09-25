@@ -116,13 +116,30 @@ export function renderSetupFile(file: SetupFile): string {
  * that revision and refuses anything else.
  */
 export function writeSetupFile(dir: string, file: SetupFile, expectedRevision: string | null): string {
+  return writeSetupBytes(dir, renderSetupFile(file), expectedRevision);
+}
+
+/** The exact bytes of a folder's setup file, or `null` when it has none. */
+export function readSetupBytes(dir: string): string | null {
+  try {
+    return fs.readFileSync(setupFilePath(dir), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+/**
+ * Write exact bytes, with the same revision check and atomicity as
+ * `writeSetupFile`. For putting a file back as it was, formatting included.
+ */
+export function writeSetupBytes(dir: string, content: string, expectedRevision: string | null): string {
   if (!fs.statSync(dir).isDirectory()) throw new Error(`${dir} is not a folder.`);
   const target = setupFilePath(dir);
   const current = readSetupFile(dir);
   if (expectedRevision === null ? current.state !== 'missing' : current.state === 'missing' || current.revision !== expectedRevision) {
     throw new SetupFileConflictError(dir);
   }
-  const content = renderSetupFile(file);
   const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, content, { mode: 0o600 });
   try {
@@ -145,6 +162,18 @@ export function writeSetupFile(dir: string, file: SetupFile, expectedRevision: s
   }
   ensureGitIgnored(dir);
   return revisionOf(content);
+}
+
+/**
+ * Remove a setup file, only if it is still at `expectedRevision`. The check
+ * and the removal are two steps, so a hand edit landing in between would be
+ * lost. That window is a few microseconds, and closing it would need a lock
+ * every other writer honors.
+ */
+export function removeSetupFile(dir: string, expectedRevision: string): void {
+  const current = readSetupFile(dir);
+  if (current.state === 'missing' || current.revision !== expectedRevision) throw new SetupFileConflictError(dir);
+  fs.rmSync(setupFilePath(dir));
 }
 
 function git(dir: string, args: string[]): { ok: boolean; out: string } {

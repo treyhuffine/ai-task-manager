@@ -30,8 +30,14 @@ vi.mock('@/lib/db/queries', async (importOriginal) => {
 
 // A folder change sets up the new folder first (src/lib/setups/home-context.ts,
 // covered on a real home in src/test/regressions/homes-review.test.ts).
-const setHomeFolder = vi.fn(async () => ({}));
-vi.mock('@/lib/setups/home-context', () => ({ setHomeFolder: (...args: unknown[]) => setHomeFolder(...(args as [])) }));
+// Like the real one, runs the caller's `finish` as the last step of the change.
+const setHomeFolder = vi.fn(async (_id: string, _folder: string, opts?: { finish?: () => unknown }) => {
+  await opts?.finish?.();
+  return {};
+});
+vi.mock('@/lib/setups/home-context', () => ({
+  setHomeFolder: (...args: Parameters<typeof setHomeFolder>) => setHomeFolder(...args),
+}));
 
 const { PATCH } = await import('./route');
 const { WorkspaceFieldError } = await import('@/lib/db/queries');

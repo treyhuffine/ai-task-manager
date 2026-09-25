@@ -29,6 +29,8 @@ async function handleGET(
   }
 }
 
+class WorkspaceMissingError extends Error {}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -45,38 +47,31 @@ export async function PATCH(
     const before = getWorkspace(id);
     if (!before) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
-    // A new folder for the agent on this computer is a new setup (§4.2). Set
-    // it up first: the new folder's `.ri.local.json` is written before the
-    // old one is cleared, and nothing changes if that fails.
-    let moved = false;
-    if (typeof body.cwd === 'string') {
-      body.cwd = path.resolve(body.cwd);
-      if (body.cwd !== before.cwd) {
-        const { setHomeFolder } = await import('@/lib/setups/home-context');
-        const { SetupError } = await import('@/lib/setups/service');
-        try {
-          await setHomeFolder(id, body.cwd);
-          moved = true;
-        } catch (err) {
-          if (err instanceof SetupError || (err instanceof Error && err.name === 'SetupFileConflictError')) {
-            return Response.json({ error: err.message }, { status: 400 });
-          }
-          throw err;
+    if (typeof body.cwd === 'string') body.cwd = path.resolve(body.cwd);
+    // Assigned inside `finish` too, so declared without narrowing to null.
+    let row = null as ReturnType<typeof updateWorkspace>;
+    if (typeof body.cwd === 'string' && body.cwd !== before.cwd) {
+      // A new folder for the agent on this computer is a new setup (§4.2).
+      // Saving the agent is the last step of the same change, so if the
+      // database refuses, the folder change is undone exactly.
+      const { setHomeFolder } = await import('@/lib/setups/home-context');
+      const { SetupError } = await import('@/lib/setups/service');
+      try {
+        await setHomeFolder(id, body.cwd, {
+          finish: () => {
+            row = updateWorkspace(id, body);
+            if (!row) throw new WorkspaceMissingError();
+          },
+        });
+      } catch (err) {
+        if (err instanceof WorkspaceMissingError) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+        if (err instanceof SetupError || (err instanceof Error && err.name === 'SetupFileConflictError')) {
+          return Response.json({ error: err.message }, { status: 400 });
         }
+        throw err;
       }
-    }
-    let row;
-    try {
+    } else {
       row = updateWorkspace(id, body);
-    } catch (err) {
-      // The database refused after the folder moved: move it back.
-      if (moved) {
-        const { setHomeFolder } = await import('@/lib/setups/home-context');
-        await setHomeFolder(id, before.cwd).catch((undoErr: unknown) =>
-          console.error('[PATCH /api/workspaces/:id] could not move the setup back:', undoErr),
-        );
-      }
-      throw err;
     }
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
     // Session config is fixed at spawn (the browser changes the tool set, the

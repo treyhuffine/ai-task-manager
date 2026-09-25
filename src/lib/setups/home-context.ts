@@ -90,18 +90,24 @@ export async function adoptHomeSetups(plan: AdoptionPlan): Promise<{ result: Ado
  * Set up an agent's folder on the home's own computer, as the person chose
  * it in the app: write the setup file with the agent's stored reference
  * paths, register it, and report. When the agent had a different folder
- * here, the new one is set up first and the old one cleared only after that
- * succeeds (docs/homes-spec.md §4.2). Throws the reason on failure, leaving
- * the previous setup as it was.
+ * here, the new one is set up first and the old one cleared after, as one
+ * change (docs/homes-spec.md §4.2). `finish` is the caller's last step of
+ * that change, such as saving the agent: if it throws, the folder change is
+ * undone exactly, local reference choices included. Throws the reason on
+ * failure, leaving the previous setup as it was.
  */
-export async function setHomeFolder(agentId: string, folder: string): Promise<SetupReport> {
+export async function setHomeFolder(
+  agentId: string,
+  folder: string,
+  opts: { finish?: () => unknown } = {},
+): Promise<SetupReport> {
   const link = inProcessSetupLink();
   const references: Record<string, ReferenceValue> = {};
   for (const ref of homeReferenceDefaults(agentId)) {
     const value = referenceValue(ref);
     if (value !== null) references[ref.alias] = value;
   }
-  return attach(link, { agent: agentId, folder, references, replace: true });
+  return attach(link, { agent: agentId, folder, references, replace: true, finish: opts.finish });
 }
 
 /** Check a folder can hold this home's setup, before anything is created. */

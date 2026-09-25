@@ -13,18 +13,17 @@
  * - `planRestore` / `restore`: rebuild a deleted setup file from the last
  *   report, after showing what will be written. Never over an existing file.
  * - `detach`: remove an agent's setup from this computer.
+ *
+ * Each operation is one `SetupChange`: its file writes, its registrations and
+ * its report to the home succeed together, or everything it did is put back
+ * and the home is told what's really here (`applyChange`).
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  readSetupFile,
-  writeSetupFile,
-  SETUP_FILE,
-  type ReferenceValue,
-  type SetupFile,
-} from './local-file';
-import { isRegistered, listRegisteredLocations, moveLocation, registerLocation, unregisterLocation } from './registry';
+import { SetupChange } from './change';
+import { readSetupFile, SETUP_FILE, SetupFileConflictError, type ReferenceValue, type SetupFile } from './local-file';
+import { listRegisteredLocations, sameFolder } from './registry';
 import { resolveSetups, type SetupReport } from './resolve';
 
 export interface SetupAgentSummary {
@@ -129,6 +128,61 @@ export async function syncSetups(
   return reports;
 }
 
+type ChangePhase = 'steps' | 'report' | 'finish';
+
+/**
+ * Make one change and report it. `steps` changes files and registrations
+ * through `change`. If they throw, or the report fails, or `finish` (the
+ * caller's own last step, such as saving the agent) throws, everything the
+ * change did is undone and the restored state is reported.
+ *
+ * Errors: when the undo is complete, the caller's own `finish` error and
+ * setup refusals come back as they were, and anything else as a
+ * `SetupError` saying nothing changed. When something couldn't be put back,
+ * a `SetupError` names it.
+ */
+async function applyChange(
+  link: SetupHomeLink,
+  ctx: SetupContext,
+  what: string,
+  steps: (change: SetupChange) => void,
+  opts: { forget?: Set<string>; finish?: () => unknown } = {},
+): Promise<SetupReport[]> {
+  const change = new SetupChange();
+  let phase: ChangePhase = 'steps';
+  try {
+    steps(change);
+    phase = 'report';
+    const reports = await syncSetups(link, ctx, { forget: opts.forget });
+    phase = 'finish';
+    await opts.finish?.();
+    return reports;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    const problems = change.undo();
+    // Tell the home what's here now. A home that just failed to take a
+    // report may fail again, and then it catches up on the next one.
+    const resynced = phase === 'steps' && problems.length === 0 ? true : await syncSetups(link, ctx).then(() => true, () => false);
+    if (problems.length > 0) {
+      throw new SetupError(`${what} failed (${reason}), and some of it couldn't be put back: ${problems.join('; ')}.`);
+    }
+    if (phase === 'finish') {
+      if (resynced) throw err;
+      throw new SetupError(
+        `${what} was undone after ${reason}, but ${ctx.homeName} couldn't be told. It may show the change until this computer reports again.`,
+      );
+    }
+    if (phase === 'report') {
+      throw new SetupError(
+        `${what} couldn't be reported to ${ctx.homeName} (${reason}), so it was undone. Nothing changed on this computer.` +
+          (resynced ? '' : ` ${ctx.homeName} may show it until this computer reports again.`),
+      );
+    }
+    if (err instanceof SetupError || err instanceof SetupFileConflictError) throw err;
+    throw new SetupError(`${what} failed (${reason}). Everything was put back as it was.`);
+  }
+}
+
 export interface AttachOptions {
   agent: string;
   folder: string;
@@ -136,10 +190,12 @@ export interface AttachOptions {
   references?: Record<string, ReferenceValue>;
   /**
    * Move the agent here from a different folder it has on this computer. The
-   * new folder is set up first, and the old one is only cleared after that
-   * succeeds, so a failed move leaves the old setup as it was.
+   * new folder is set up first and the old one cleared after, as one change:
+   * a failed move leaves both as they were.
    */
   replace?: boolean;
+  /** The caller's last step of the same change. If it throws, the setup change is undone. */
+  finish?: () => unknown;
 }
 
 export async function attach(link: SetupHomeLink, opts: AttachOptions): Promise<SetupReport> {
@@ -154,46 +210,44 @@ export async function attach(link: SetupHomeLink, opts: AttachOptions): Promise<
     throw new SetupError(`${agent.name} has no reference named ${unknown.map((a) => `"${a}"`).join(', ')}.`);
   }
 
-  const previous = ctx.observed.find((o) => o.agentId === agent.id && path.resolve(o.sourcePath) !== dir);
-  if (previous && fs.existsSync(previous.sourcePath) && !opts.replace) {
+  const seen = ctx.observed.find((o) => o.agentId === agent.id);
+  const seenDir = seen ? path.resolve(seen.sourcePath) : null;
+  // The folder it already has, under another name (through a symlink, say).
+  // Only the registration's spelling changes: the setup file is the same one.
+  const respelled = seenDir !== null && seenDir !== dir && sameFolder(seenDir, dir);
+  const oldDir = seenDir !== null && seenDir !== dir && !respelled ? seenDir : null;
+  if (oldDir && fs.existsSync(oldDir) && !opts.replace) {
     throw new SetupError(
-      `${agent.name} is already set up on ${ctx.computerName} at ${previous.sourcePath}. ` +
+      `${agent.name} is already set up on ${ctx.computerName} at ${oldDir}. ` +
         'An agent has one folder per computer: relink it, or detach it there first.',
     );
   }
 
-  // Before writing anything, make sure the old folder can be cleared too, so
-  // a move doesn't end half done with the agent set up in both.
-  const oldDir = previous ? path.resolve(previous.sourcePath) : null;
+  // Refuse before writing anything a move whose old folder can't be cleared.
   if (oldDir) assertCanClearAgent(oldDir, agent.id, ctx);
 
-  // The new folder first.
-  const wasRegistered = isRegistered(dir);
-  const current = readOwned(dir, ctx.homeId);
-  let written: string | null = null;
-  if (!current?.file.agents[agent.id]) {
-    const next: SetupFile = current
-      ? { ...current.file, agents: { ...current.file.agents, [agent.id]: { references: opts.references ?? {} } } }
-      : { version: 1, homeId: ctx.homeId, agents: { [agent.id]: { references: opts.references ?? {} } } };
-    written = writeSetupFile(dir, next, current?.revision ?? null);
-  }
-  registerLocation(dir);
-
-  // Then clear the old one. If that still fails, put the new folder back as
-  // it was, so the agent keeps exactly one setup here.
-  if (oldDir) {
-    try {
-      removeAgentFrom(oldDir, agent.id, ctx);
-    } catch (err) {
-      undoAttach(dir, { written, previousFile: current?.file ?? null, wasRegistered });
-      throw new SetupError(
-        `Couldn't clear ${agent.name}'s setup in ${oldDir} (${err instanceof Error ? err.message : String(err)}). ` +
-          'The new folder was put back as it was, so nothing changed.',
-      );
-    }
-  }
-
-  const reports = await syncSetups(link, ctx);
+  const reports = await applyChange(
+    link,
+    ctx,
+    `Setting up ${agent.name} in ${dir}`,
+    (change) => {
+      if (respelled) {
+        change.moveRegistration(seenDir!, dir);
+        return;
+      }
+      // The new folder first, then clear the old one.
+      const current = readOwned(dir, ctx.homeId);
+      if (!current?.file.agents[agent.id]) {
+        const next: SetupFile = current
+          ? { ...current.file, agents: { ...current.file.agents, [agent.id]: { references: opts.references ?? {} } } }
+          : { version: 1, homeId: ctx.homeId, agents: { [agent.id]: { references: opts.references ?? {} } } };
+        change.write(dir, next, current?.revision ?? null);
+      }
+      change.register(dir);
+      if (oldDir) removeAgentFrom(change, oldDir, agent.id, ctx);
+    },
+    { finish: opts.finish },
+  );
   return reports.find((r) => r.agentId === agent.id)!;
 }
 
@@ -217,38 +271,12 @@ function assertCanClearAgent(dir: string, agentId: string, ctx: SetupContext): v
 }
 
 /**
- * Put a destination back the way `attach` found it, but only if it still
- * holds exactly what `attach` wrote. A file someone has changed since is left
- * alone. Restoring an earlier file is revision-checked by `writeSetupFile`.
- * Removing a file `attach` created checks the revision first, which leaves a
- * moment between check and delete: a hand edit landing exactly then would be
- * lost. That window is milliseconds on a failure path, and closing it would
- * need a lock every other writer honors.
- */
-function undoAttach(
-  dir: string,
-  state: { written: string | null; previousFile: SetupFile | null; wasRegistered: boolean },
-): void {
-  try {
-    if (state.written) {
-      const now = readSetupFile(dir);
-      if (now.state === 'ok' && now.revision === state.written) {
-        if (state.previousFile) writeSetupFile(dir, state.previousFile, state.written);
-        else fs.rmSync(path.join(dir, SETUP_FILE));
-      }
-    }
-  } finally {
-    if (!state.wasRegistered) unregisterLocation(dir);
-  }
-}
-
-/**
  * Take an agent out of a folder's setup file. The file goes, and the folder
  * is unregistered, only when no other agent uses it. A folder whose file is
  * already gone or can't be read is left registered when other agents were
  * last seen there, so their setups can still be restored.
  */
-function removeAgentFrom(dir: string, agentId: string, ctx: SetupContext): void {
+function removeAgentFrom(change: SetupChange, dir: string, agentId: string, ctx: SetupContext): void {
   const read = readSetupFile(dir);
   if (read.state === 'ok') {
     if (read.file.homeId !== ctx.homeId) return;
@@ -256,15 +284,15 @@ function removeAgentFrom(dir: string, agentId: string, ctx: SetupContext): void 
     const agents = { ...read.file.agents };
     delete agents[agentId];
     if (Object.keys(agents).length === 0) {
-      fs.rmSync(path.join(dir, SETUP_FILE));
-      unregisterLocation(dir);
+      change.remove(dir, read.revision);
+      change.unregister(dir);
     } else {
-      writeSetupFile(dir, { ...read.file, agents }, read.revision);
+      change.write(dir, { ...read.file, agents }, read.revision);
     }
     return;
   }
   const others = ctx.observed.some((o) => o.agentId !== agentId && path.resolve(o.sourcePath) === dir);
-  if (!others) unregisterLocation(dir);
+  if (!others) change.unregister(dir);
 }
 
 /** Set one reference for an agent on this computer. `undefined` value removes the mapping. */
@@ -286,8 +314,9 @@ export async function setReference(
   if (opts.value === undefined) delete references[opts.alias];
   else references[opts.alias] = opts.value;
   const next = { ...current.file, agents: { ...current.file.agents, [agent.id]: { references } } };
-  writeSetupFile(dir, next, opts.expectedRevision ?? current.revision);
-  const reports = await syncSetups(link, ctx);
+  const reports = await applyChange(link, ctx, `Setting ${agent.name}'s reference "${opts.alias}"`, (change) => {
+    change.write(dir, next, opts.expectedRevision ?? current.revision);
+  });
   return reports.find((r) => r.agentId === agent.id)!;
 }
 
@@ -307,9 +336,10 @@ export async function relink(link: SetupHomeLink, opts: { agent: string; folder:
     );
   }
   const old = ctx.observed.find((o) => o.agentId === agent.id)?.sourcePath;
-  if (old && path.resolve(old) !== dir) moveLocation(old, dir);
-  else registerLocation(dir);
-  const reports = await syncSetups(link, ctx);
+  const reports = await applyChange(link, ctx, `Relinking ${agent.name} to ${dir}`, (change) => {
+    if (old && path.resolve(old) !== dir) change.moveRegistration(old, dir);
+    else change.register(dir);
+  });
   return reports.find((r) => r.agentId === agent.id)!;
 }
 
@@ -362,9 +392,11 @@ export async function planRestore(link: SetupHomeLink, opts: { agent: string }):
 
 /** Write a confirmed restore plan. Refuses if the file changed since the plan. */
 export async function restore(link: SetupHomeLink, plan: RestorePlan): Promise<SetupReport[]> {
-  writeSetupFile(plan.dir, plan.file, plan.baseRevision);
-  registerLocation(plan.dir);
-  const reports = await syncSetups(link);
+  const ctx = await link.context();
+  const reports = await applyChange(link, ctx, `Restoring ${path.join(plan.dir, SETUP_FILE)}`, (change) => {
+    change.write(plan.dir, plan.file, plan.baseRevision);
+    change.register(plan.dir);
+  });
   return reports.filter((r) => plan.agents.includes(r.agentId));
 }
 
@@ -377,8 +409,9 @@ export async function detach(link: SetupHomeLink, opts: { agent: string }): Prom
   if (read.state === 'ok' && read.file.homeId !== ctx.homeId) {
     throw new SetupError(`${path.join(dir, SETUP_FILE)} belongs to a different Ri home. Nothing was changed.`);
   }
-  removeAgentFrom(dir, agent.id, ctx);
-  await syncSetups(link, ctx, { forget: new Set([agent.id]) });
+  await applyChange(link, ctx, `Detaching ${agent.name}`, (change) => removeAgentFrom(change, dir, agent.id, ctx), {
+    forget: new Set([agent.id]),
+  });
 }
 
 function folderOf(ctx: SetupContext, agentId: string): string {

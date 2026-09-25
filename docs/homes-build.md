@@ -138,6 +138,20 @@ The review agreed with the P0.3 runner design, and asked for the exact home and 
   - notifications queued in the event's own transaction, with sending to outside services stated as at-least-once;
   - dedicated worker routes for attachments and artifacts, with the bytes stored before the event that refers to them is acknowledged.
 
+**Targeted review at 1d76d11.** It covered the path walker, folder moves, and the new P2 sections, and found five code cases and three protocol gaps. Notification queueing was confirmed complete. The reviewer's probes are kept in `src/test/regressions/homes-targeted-path-review.test.ts` and `homes-targeted-move-review.test.ts`. All are fixed:
+- `link/..` still escaped the launcher's check, because `..` was collapsed before the link in front of it was followed. The walker now keeps `..` until everything before it is resolved, in the input and in link targets.
+- Moving an agent had three more ways to lose or duplicate a setup:
+  - a failure while unregistering the old folder, after its file was gone, left no setup anywhere;
+  - a failed registration, or a failed report to the home, happened outside the undo;
+  - moving to another name for the same folder (a symlink) deleted the live file.
+
+  Every setup operation (attach, move, reference, relink, restore, detach) is now one `SetupChange` (`src/lib/setups/change.ts`). It records the exact bytes and registration it replaces, and undoes everything, newest first, if a step, the report, or the caller's last step fails. Folders compare by identity on disk, so a second name for a folder is a change of spelling only, and the registry holds a folder once.
+- A rejected agent edit moved the folder back through an ordinary move, which rebuilt the setup from defaults and lost local choices such as a left-out reference. Saving the agent is now the change's last step, so a refusal undoes the move exactly.
+- Three protocol gaps are now covered:
+  - Command numbers are assigned when a command is first streamed, so a cancelled command leaves no hole in the receipt cursor.
+  - The setup script in `prepare` is journaled like `run_script` and never re-run automatically.
+  - An artifact's bytes and its event are both kept on the worker before any upload, under a file name minted once, so an outage or crash loses neither and a retry repairs the same file.
+
 ## P2 protocol: home and worker messages
 
 Written before P2 code, as the review asked. It refines the P0.3 records below; where they differ, this section wins. It is the contract the worker, the home's routes, and the home's in-process runner all follow.
@@ -161,7 +175,7 @@ Written before P2 code, as the review asked. It refines the P0.3 records below; 
 ```ts
 interface WorkerCommand {
   id: string;            // UUIDv7, stable: the idempotency key
-  seq: number;           // per computer, strictly increasing: where a stream resumes
+  seq: number;           // per computer, assigned when first streamed: where a stream resumes
   kind: 'prepare' | 'send' | 'interrupt' | 'stop_task' | 'stop' | 'answer_pending_input'
       | 'run_script' | 'write_setup' | 'git';
   target: { executionId?: string; chatSessionId?: string; generation?: number };
@@ -172,6 +186,7 @@ interface WorkerCommand {
 ```
 
 - **Persisted first.** A command is written to `worker_commands` in the same transaction as what it acts on. For `send`, that's the user's `chat_events` row, whose id the payload carries. Only then is it streamed.
+- **Numbered when streamed, never when queued.** In one transaction the home gives a queued command the computer's next `seq` and marks it `sent`, then writes it to the stream. A command cancelled while queued, or found stale before streaming, never gets a number. So the numbers a worker sees have no holes, and its contiguous receipt cursor always advances. A command resent after a reconnect keeps its number.
 - **Delivery states:**
   - `queued`: saved at home.
   - `sent`: written to the stream.
@@ -202,7 +217,7 @@ Seeing a command on the stream is not receipt, and applying it is not acknowledg
 | `send` | Look for the message in the native history: found is `delivered`, missing is `uncertain`. Never re-sent automatically |
 | `interrupt`, `stop_task`, `stop` | Safe to repeat. Re-apply if the placement is still this computer's |
 | `answer_pending_input` | Re-apply if the prompt with that request id is still pending, otherwise `stale` |
-| `prepare` | Idempotent by design: inspect the worktree. On the branch at the recorded checkpoint with setup done means done. Otherwise continue from the step it stopped at |
+| `prepare` | Journaled step by step, because only some steps can safely be repeated. Creating the worktree, checking out the branch at the checkpoint and copying files are idempotent: inspect and continue from the step that stopped. The setup script is not. It records its own `started` and `finished`, and `started` without `finished` is `uncertain`, as for `run_script`. Preparation stops there, and the home shows "Setup may not have finished" with Run again and Continue without it. It is never re-run automatically |
 | `write_setup` | Revision-checked: the file at the target revision means done, at the base revision means apply, anything else means conflict |
 | `run_script` | Not idempotent. `started` without `finished` is `uncertain`, shown with Retry, never re-run automatically. The one exception is a preview start: if its supervised process is alive, it's running |
 | `git` | Push: done if the remote ref equals the local one, otherwise push again, which is safe. Base update: done if the base is already merged. Checkpoint commit: done if HEAD is the recorded commit |
@@ -236,7 +251,8 @@ interface WorkerEvent {
     | { type: 'native_session'; harness: string; nativeSessionId: string; nativePath: string | null }
     | { type: 'background_tasks'; active: string[] }
     | { type: 'inventory'; commands: unknown }
-    | { type: 'prepare_result'; commandId: string; ok: boolean; worktreePath?: string; checkpointSha?: string; error?: string }
+    | { type: 'prepare_result'; commandId: string; ok: boolean; worktreePath?: string; checkpointSha?: string;
+        setup?: 'done' | 'none' | 'failed' | 'uncertain'; error?: string }
     | { type: 'process_state'; running: boolean };
 }
 ```
@@ -258,8 +274,10 @@ interface WorkerEvent {
 A worker key reaches only worker routes, and a session token only the agent servers, so files move through two worker routes of their own. Neither falls back to a viewing key or the home's key.
 
 - **Files the person attached, from the home to the worker:** `GET /api/workers/me/attachments/:fileName?command=<commandId>`. It is allowed only when the worker key's computer is that command's target, the command isn't stale, and the file name is in that command's payload. The worker checks the sha256, stores the file under `<workDir>/attachments/<placement>/`, outside the repository, and gives the harness that path.
-- **Files the agent produced, from the worker to the home:** `POST /api/workers/me/artifacts`. It accepts multipart uploads with a sha256, the same 50 MiB cap and type allowlist as `POST /api/attachments`, and only for a chat on a placement this computer holds. The home writes the bytes durably (a temp file, fsync, rename) and returns the `Attachment` record.
-- **Bytes before the event that refers to them.** The worker uploads first, then journals the chat event that carries the returned record. When the home applies that event, it checks each referenced file is on disk at the recorded size. If one isn't, the batch stops at that event (409), and the worker uploads again from its own copy before resending. So by the time an event is acknowledged, its files are at home. An upload whose event never arrives is swept after 7 days.
+- **Files the agent produced are kept on the worker first.** When the harness produces a file, the worker mints its home file name there and then (`<UUIDv7>.<ext>`, the attachments naming). It copies the bytes to `<workDir>/artifacts/<homeId>/<fileName>` and flushes them to disk, and only then journals the chat event carrying the `Attachment` record with its sha256. Both are on the worker's disk before anything goes to the home. So an outage or a crash loses neither, and a turn that keeps running while the home is unreachable keeps its files.
+- **Uploaded under that name, idempotently:** `PUT /api/workers/me/artifacts/:fileName`, with the sha256 and the same 50 MiB cap and type allowlist as `POST /api/attachments`. The home accepts it only for a name in the attachments format, and only for a chat on a placement this computer held at the event's generation (`execution_placements`). It writes the bytes durably (a temp file, fsync, rename). The same name with the same sha256 again succeeds and changes nothing. The same name with different bytes is refused. A retry therefore repairs the file the journal already names, never makes another.
+- **Bytes before the event is posted.** Before posting a batch, the worker uploads every file its events refer to that the home hasn't confirmed. When the home applies an event, it checks each referenced file is on disk with that sha256. If one isn't (a home restored from a backup, say), the batch stops at that event with 409 naming the missing files, and the worker uploads them again from its spool and resends. So an event is acknowledged only once its files are at home.
+- **Acknowledgement clears the spool.** A spooled file is deleted once the event that refers to it is acknowledged. An upload whose event never arrives is swept at home after 7 days.
 
 ### Uncertain delivery
 
@@ -269,7 +287,7 @@ A worker key reaches only worker routes, and a session token only the agent serv
 
 ### While the home is unreachable
 
-- A turn already running finishes under the permissions it started with. Its output is journaled.
+- A turn already running finishes under the permissions it started with. Its output, files included, is journaled.
 - A permission prompt waits. The worker accepts no new turns and no approvals, apart from the person stopping work through the companion on that computer.
 - The home never reassigns an execution because contact was lost, and shows "MacBook disconnected. Last heard from …" rather than stopped.
 
@@ -399,6 +417,7 @@ A partial unique index allows one open placement per execution. The open placeme
 | --- | --- |
 | `id` | Stable command id, the deduplication key |
 | `computer_id` | Target |
+| `seq` | Per computer, set when the command is first streamed. Null while queued, and for a command cancelled or found stale before streaming |
 | `execution_id`, `chat_session_id` | Target, when execution-scoped |
 | `generation` | The target's ownership generation when queued. A command from an older generation is rejected |
 | `kind` | `send_message`, `interrupt`, `stop`, `stop_task`, `answer_pending_input`, `prepare`, `run_script`, `write_setup`, `git` |
@@ -428,7 +447,7 @@ Today `ensureHarnessSession` and `dispatch` mix two jobs. The split:
 interface ExecutionRunner {
   readonly computerId: string;
   describeHarnesses(): Promise<HarnessReport[]>;           // runtime, capabilities, models on this computer
-  prepare(req: PrepareRequest): Promise<PrepareResult>;    // worktree on the branch, files to copy, setup script
+  prepare(req: PrepareRequest): Promise<PrepareResult>;    // worktree on the branch, files to copy, setup script (journaled apart)
   send(req: SendRequest): Promise<DeliveryAck>;            // spawn or resume, then inject; acks delivery, not turn end
   interrupt(chatSessionId: string): Promise<void>;
   stopTask(chatSessionId: string, taskId: string): Promise<void>;
