@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
-import { getPending, resolveRequest } from '@/lib/executor/pending-input';
+import { getPending } from '@/lib/executor/pending-input';
+import { answerPendingInput } from '@/lib/executor/adapter';
 
 interface ResolveBody {
   /** True for permission allow + AskUserQuestion answer; false for deny. */
@@ -56,7 +57,8 @@ export async function POST(
 
     if (pending.kind === 'question') {
       const answers = body.answers ?? {};
-      const result = resolveRequest(
+      const result = answerPendingInput(
+        id,
         requestId,
         allow
           ? { allow: true, updatedInput: { ...pending.originalInput, answers } }
@@ -72,7 +74,8 @@ export async function POST(
     // (no rewrite). Claude treats an empty record as "use original";
     // we send the original explicitly so any future host that wants to
     // log what was approved sees the actual call shape.
-    const result = resolveRequest(
+    const result = answerPendingInput(
+      id,
       requestId,
       allow
         ? { allow: true, updatedInput: pending.input }

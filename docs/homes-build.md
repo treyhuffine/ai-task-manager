@@ -297,6 +297,56 @@ A worker key reaches only worker routes, and a session token only the agent serv
 - It sends its events through the same idempotent apply functions, straight into the database. There's no journal, because there's no network in between.
 - Run completion, cost and notifications are therefore driven by `turn_result` everywhere, rather than by `dispatch` awaiting a whole turn.
 
+## P2.1 The runner split
+
+`src/lib/executor/adapter.ts` does three jobs in one module: it resolves what a session needs from the database, it runs harness processes, and it keeps the live state (running flags, background tasks, pending prompts, command inventory). P2.1 separates them along the runner boundary in P0.3, with no change in behavior on the home's own computer.
+
+### The pieces
+
+- **`src/lib/runner/`**, the code that runs on the executing computer. It imports no database, notification or realtime module, directly or through anything it imports. `src/lib/runner/boundary.test.ts` walks the import graph and fails on one. It holds:
+  - `types.ts`: `SessionSpec`, `SendRequest`, `RunnerSink`, `RunnerSignal`, `ExecutionRunner`.
+  - `local-runner.ts`: the harness sessions and all live state, which move here from `adapter.ts` and `pending-input.ts`. It spawns from a spec, sends, interrupts, stops tasks, closes, recycles, and answers prompts. Everything it learns goes to its sink.
+  - `parse.ts`: `parseStreamEvent`, unchanged, so a worker mints event ids when it parses, as the protocol says.
+- **`SessionSpec`**, built by the home (`src/lib/executor/session-spec.ts`). It is plain JSON: the harness, the working folder, the native session id, the permission mode and the mode to return to after plan mode, the model, variant and effort, the provider config the home decided (MCP servers with their addresses and credentials, tool filters, extra arguments), the session instructions as text, any first-turn brief, the session credential, and whether user skills may be attached. What only the executing computer knows stays with the runner: the harness runtime's environment and binary paths, where session instructions are written, user skill folders, and legacy skill link cleanup.
+- **The home sink** (`src/lib/executor/home-sink.ts`) applies what a runner reports:
+  - chat events, inserted or, for a cumulative part, replaced, through `EventWriter`;
+  - run telemetry from result events;
+  - `native_session`, which saves the chat's native session id;
+  - `pending_input` and `pending_resolved`, which write the request and response rows, notify that input is needed, and mirror leaving plan mode;
+  - `running`, `background_tasks` and `pending_changed`, which publish to the realtime bus;
+  - `turn_result`, which finishes the run and wakes anything waiting on the turn.
+- **The live-state facade** (`src/lib/executor/live-state.ts`) answers "is it running, what's pending, which tasks, which commands" for routes, the rail and health. Today it reads the local runner. From P2.4 it merges the mirrors of each worker's reported state. `status-snapshot.ts` reads through it, instead of reaching into the adapter's global state by symbol.
+- **`adapter.ts`** stays the home's executor API, with the same exports, so its 30 callers and 25 test files are unchanged. `dispatch` validates the selection, checks the budget, creates the run, builds a spec when the runner has no live session, sends, and waits for the turn. Control functions look up the runner for the chat (`runnerFor`, the local runner until P2.4) and call it.
+
+### Sending and finishing a turn
+
+- `runner.send` resolves when the harness has accepted the message (the delivery acknowledgement), not when the turn ends. The runner then watches the turn and reports `turn_result` with the turn id and run id.
+- The home passes a spec only when the runner has no live session for the chat, so a follow-up to a live session does no spec work, exactly as today. If the session died in between, the runner answers `needs_spec`, and the home builds one and sends again.
+- **Runs finish from `turn_result`**, through one function (`finishRun` in `src/lib/runs/finish.ts`). It completes or fails the run only while it's still queued or running, records the trigger's last run, settles a quiet heartbeat, ends the run's telemetry window, touches the chat's outcome on failure, and notifies. Manual sends and scheduled runs both use it, so a run finishes even if whatever started it is gone, which is what a worker's turn needs.
+- `dispatch` still returns when the turn ends, by waiting on the turn's result at the home. Callers that hold a lease or a timeout keep working. A timeout fails the run first, and the later `turn_result` then changes nothing.
+- The concurrency gate (a harness without concurrent send takes one message at a time) stays before the run is created, reading the facade and the target computer's harness capabilities, so a refused send still creates no run. A send holds its place from the gate until the runner has it, since building a spec takes a moment, and keeps the chat marked running meanwhile. The runner enforces the gate again.
+
+### Pending prompts
+
+The prompt store moves into the runner, because the harness waits there. The runner decides auto-allow from the spec's permission mode, and on an allowed exit from plan mode it switches to the spec's pre-plan mode, as the adapter did by reading the database. Changing the mode is refused while a turn runs and recycles the session, so the spec's mode stays current. Answers go through `runner.answerPendingInput`, which checks the request belongs to that chat.
+
+### Closing the P0.4 gaps assigned to P2.1
+
+- The event seam: reconcile and Codex replay write through the sink's writer, and running flags, background tasks and pending prompts publish only from the home sink. User messages and run rows are the home's own records and stay home-side.
+- A quiet heartbeat check-in now closes its harness when it archives the chat. The runner closes a session idle for 30 minutes with no pending prompt and no background task. The next message resumes it by native session id.
+
+### As built
+
+- `src/lib/runner/`: `types.ts`, `local-runner.ts`, `live-state.ts` (the state and its readers, with no agent engine import), `pending.ts` and `pending-classify.ts` (the prompt store, and turning a request into a prompt), `parse.ts`, `sink.ts`, `errors.ts`, `first-turn.ts`. `boundary.test.ts` walks their import graph, and checks itself against the home sink, which must fail.
+- Home side: `session-spec.ts`, `home-sink.ts`, `live-state.ts` (the facade), `placement.ts` (`runnerFor`), `turns.ts`, and `src/lib/runs/finish.ts`. `adapter.ts` keeps its exports. `pending-input.ts` and `status-snapshot.ts` re-export the runner's store and state, and the two prompt-list routes read the light facade.
+- `EventWriter.write` resolves true when the event was new. The live writer takes run telemetry only from a result event it inserted. Reconcile replays through the plain writer, and all three replay paths (Claude, Codex, OpenCode) take a writer, so a worker can feed the same loops into its journal. The Codex path no longer inserts directly.
+- `dispatch(chat, message, options)` drops its unused writer argument. Scheduled runs pass their `runId`, so the turn's result finishes them. The scheduler's finalizers call `finishRun`.
+- The prompt answer route answers through `answerPendingInput`, the runner's check that a prompt belongs to the chat.
+- An agent main chat's brief is returned as text (`instructions`), and the runner writes the file.
+- The idle close runs in the server's 60-second sweep.
+- Tests: `runner-split.test.ts` (12, through the real executor with the fake harness: a spec only when a session must start, `needs_spec`, a second message refused without a run while the first starts on a one-at-a-time harness, runs finished from the turn result with or without a waiter, a late result after a timeout, prompts answered only by their own chat, plan mode followed after leaving it, the idle close and resume, a waiting session left alone, and the quiet heartbeat's close). Three of them were checked by breaking the behavior they cover. The boundary test adds 11.
+- Live on the dev home: a Demo execution resumed its Claude session from a spec, answered, and its run completed from the turn result, with cost and summary. A follow-up went into the same Claude process without building a spec.
+
 ## Dogfood gate A: the real laptop and phone
 
 Automated coverage used a stand-in laptop on the Mac Mini (`~/ri-homes-laptop`). The gate itself needs the real devices. Status: **passed on 2026-09-25**, on the real MacBook and iPhone.
@@ -491,10 +541,10 @@ Found while mapping. Each is fixed where its phase lands.
 1. `ri trigger run`, `ri agent run_trigger`, `ri run cancel` and `ri agent cancel_run` run `dispatchRun` or `abort` inside the short-lived CLI process (`src/cli/commands/trigger.ts:149,287`, `registry.ts:2275,2335`). The server can't see, stop or answer that harness, and cancel does nothing there. Route them through the server (P2.4).
 2. `archive_workspace` (`registry.ts:1468`) archives in the database only. The REST route also kills terminals and closes sessions (P2.4).
 3. The takeover block exists only in the messages route. Commit, PR, resolve-conflicts, help-with-error, the scheduler, coalesce and health redispatch still dispatch. Owner routing replaces it (P2.4, P4.5).
-4. The event seam is partial. Reconcile replays, Codex replay, user messages, run rows and every live-state publish bypass `EventWriter` (P2.1).
+4. The event seam is partial. Reconcile replays, Codex replay, user messages, run rows and every live-state publish bypass `EventWriter` (P2.1). Fixed in P2.1: every replay path writes through a writer, and live state publishes only from the home sink. User messages and run rows are the home's own records.
 5. Orchestrator, connector and browser server URLs for harness sessions are `http://localhost:<port>` with the local bearer token (`harness-surface.ts:623,646,670`), so a harness can only run beside the server today (P2.7).
 6. Preview uses `worktreePath ?? workspace.cwd` (`preview/service.ts:117`), so it can start in the source checkout while a worktree is still being prepared (P3.5).
-7. A quiet heartbeat archives its chat without closing the harness (`heartbeat/quiet.ts:40`), and handles have no idle timeout (P2.1).
+7. A quiet heartbeat archives its chat without closing the harness (`heartbeat/quiet.ts:40`), and handles have no idle timeout (P2.1). Fixed in P2.1.
 8. Interrupt leaves pending prompts registered. Only close rejects them (`adapter.ts:815,872`) (P2.4).
 
 Other facts that shape the work:

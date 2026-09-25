@@ -92,7 +92,7 @@ export async function register() {
   // the previous sweep is still running (slow reconcile on cold
   // disks, etc.).
   try {
-    const { listRunningSessions } = await import('@/lib/executor/adapter');
+    const { listRunningSessions, closeIdleSessions } = await import('@/lib/executor/adapter');
     const { healthCheckSession } = await import('@/lib/executor/health');
     const HEALTH_SWEEP_INTERVAL_MS = 60_000;
     let sweeping = false;
@@ -106,6 +106,14 @@ export async function register() {
           } catch (err) {
             console.warn(`[health] background sweep failed for ${id}:`, err);
           }
+        }
+        // A harness nobody has used for a while holds a process for nothing.
+        // Closing it is safe: the next message resumes its native session.
+        try {
+          const closed = await closeIdleSessions();
+          if (closed.length > 0) console.log(`[health] closed ${closed.length} idle session(s)`);
+        } catch (err) {
+          console.warn('[health] idle close failed:', err);
         }
       } finally {
         sweeping = false;

@@ -33,8 +33,6 @@ import {
   updateTrigger,
   createRun,
   markRunStarted,
-  markRunCompleted,
-  markRunFailed,
   setTriggerLastRun,
   findActiveRunForExecution,
   findActiveRunForTrigger,
@@ -43,7 +41,7 @@ import {
   insertChatEvent,
   resetExecutionForReprovision,
 } from '@/lib/db/queries';
-import { notifyRunTerminal } from '@/lib/notifications/emit';
+import { finishRun } from './finish';
 import { withApiLease } from '@/lib/runs/rate-lease';
 import { dispatch as executorDispatch, abort as executorAbort } from '@/lib/executor/adapter';
 import { provisionWorktreeForSession } from '@/lib/sessions/dispatch';
@@ -51,7 +49,6 @@ import { runArtifactBucket } from './artifact-bucket';
 import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
-import { settleHeartbeatRun } from '@/lib/heartbeat/quiet';
 
 export interface DispatchRunArgs {
   trigger: TriggerRecord;
@@ -387,7 +384,7 @@ function appendCoalescedMessage(args: {
   // Fire-and-forget — the blocker's run will surface the result when
   // its current turn completes. We catch the rejection ourselves so an
   // unhandled rejection doesn't trip the Node process.
-  void executorDispatch(args.blockerChatSessionId, content, undefined, { internalCall: true })
+  void executorDispatch(args.blockerChatSessionId, content, { internalCall: true })
     .catch((err) => {
       console.warn(`[dispatch] coalesce: executor send failed for ${args.blockerChatSessionId}:`, err);
     });
@@ -442,7 +439,7 @@ async function runUnderLease(
   try {
     const ready = await ensureWorktreeReady(chatSessionId, execution);
     if (!ready.ok) {
-      finalizeRunFailure(runId, trigger.id, new ProvisioningError(ready.error));
+      finalizeRunFailure(runId, new ProvisioningError(ready.error));
       // Auto-pause the trigger. Without this the tick re-fires every
       // minute, each fire failing the same way — the user's inbox fills
       // with identical failure rows until `consecutiveFailures >= 3`
@@ -477,13 +474,13 @@ async function runUnderLease(
       }
       await runArtifactBucket.runWith(runId, chatSessionId, () =>
         runWithTimeout(chatSessionId, trigger, () =>
-          executorDispatch(chatSessionId, prompt, undefined, { internalCall: true }),
+          executorDispatch(chatSessionId, prompt, { internalCall: true, runId }),
         ),
       );
     });
-    finalizeRunSuccessIfPending(runId, trigger.id, chatSessionId);
+    finalizeRunSuccessIfPending(runId);
   } catch (err) {
-    finalizeRunFailure(runId, trigger.id, err);
+    finalizeRunFailure(runId, err);
   }
   // The chat's lastOutcomeEventAt is bumped by the event-writer on
   // every assistant message — but a failure before any assistant turn
@@ -649,33 +646,20 @@ function composePromptWithPayload(
   return `${prompt}\n\n--- trigger payload (JSON) ---\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }
 
-function finalizeRunSuccessIfPending(runId: string, triggerId: string | null, chatSessionId: string): void {
-  const completed = markRunCompleted(runId);
-  if (completed && completed.status === 'completed' && triggerId) {
-    setTriggerLastRun(triggerId, runId, 'completed');
-    // A heartbeat check-in with nothing to report archives its own chat, so it
-    // never reaches Unread, and the notifier below skips delivering it.
-    if (triggerId === RESERVED_TRIGGER_IDS.heartbeat) {
-      try {
-        settleHeartbeatRun(runId, chatSessionId);
-      } catch (err) {
-        // The run already completed. Failing to archive a quiet check-in only
-        // leaves it visible in Unread; it must not flip the run to failed.
-        console.warn(`[dispatch] could not settle heartbeat run ${runId}:`, err);
-      }
-    }
-  }
-  // Notifier (best-effort): execution.finished / trigger.run_completed (§2.4).
-  void notifyRunTerminal(runId).catch(() => {});
+/**
+ * The turn's result normally finished the run already (the home sink calls
+ * `finishRun` on `turn_result`), so this is a no-op then. It still covers a
+ * turn that ended without one.
+ */
+function finalizeRunSuccessIfPending(runId: string): void {
+  finishRun(runId, { ok: true });
 }
 
-function finalizeRunFailure(runId: string, triggerId: string | null, err: unknown): void {
+function finalizeRunFailure(runId: string, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
   const errorCode =
     err instanceof ProvisioningError ? 'worktree_setup_failed' :
     err instanceof RunTimeoutError ? 'timeout' :
     'agent_error';
-  markRunFailed(runId, { errorCode, errorMessage: message });
-  if (triggerId) setTriggerLastRun(triggerId, runId, 'failed');
-  void notifyRunTerminal(runId).catch(() => {});
+  finishRun(runId, { ok: false, errorCode, errorMessage: message });
 }

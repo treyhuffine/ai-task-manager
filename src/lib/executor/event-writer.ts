@@ -1,25 +1,18 @@
 /**
  * EventWriter — the seam between the executor and chat_events persistence.
  *
- * The executor parser doesn't call `insertChatEvent` directly; it writes
- * through this interface. v1 has one implementation that stays in-process
- * and writes to the local DB. When cross-machine execution lands (see
- * `docs/workspaces-spec.md` §"Deferred: cross-machine execution"), a
- * `RemoteEventWriter` POSTs events to the canonical server's API
- * instead. Same parser, swap the writer.
- *
- * Cost today: ~10 lines. Cost of retrofitting later if we'd called
- * insertChatEvent inline: rewriting the executor's inner loop.
+ * Nothing that parses provider events calls `insertChatEvent` directly; it
+ * writes through this interface (defined with the runner, in
+ * `src/lib/runner/types.ts`). This is the plain database writer, used by
+ * transcript replay on the home. A live session writes through the home
+ * sink's writer, which adds run telemetry, and a connected computer's
+ * worker writes to its journal (docs/homes-build.md, P2).
  */
 
 import { insertChatEvent, replaceChatEventPart } from '@/lib/db/queries';
-import type { CreateChatEventInput } from '@/db/types';
+import type { EventWriter } from '@/lib/runner/types';
 
-export interface EventWriter {
-  write(event: CreateChatEventInput): Promise<void>;
-  /** Replace one cumulative provider part when the same stable part id advances. */
-  replacePart?(event: CreateChatEventInput): Promise<void>;
-}
+export type { EventWriter } from '@/lib/runner/types';
 
 /**
  * Default v1 writer. Calls into the queries layer's idempotent insert.
@@ -29,7 +22,7 @@ export interface EventWriter {
  */
 export const localEventWriter: EventWriter = {
   async write(event) {
-    insertChatEvent(event);
+    return insertChatEvent(event) !== null;
   },
   async replacePart(event) {
     replaceChatEventPart(event);

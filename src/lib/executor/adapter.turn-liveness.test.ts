@@ -34,7 +34,7 @@ const turnEnd = (): StreamEvent =>
   ({ type: 'turn_end', turnId: 't1', trigger: 'resume', reason: 'result', ...base }) as unknown as StreamEvent;
 
 /** Writer that records nothing — these assert runtime state, not rows. */
-const noopWriter: EventWriter = { write: async () => { /* rows are asserted elsewhere */ } };
+const noopWriter: EventWriter = { write: async () => true /* rows are asserted elsewhere */ };
 
 describe('turn liveness from the provider stream', () => {
   beforeEach(() => {

@@ -15,7 +15,7 @@
  * cross-cutting channels will namespace similarly. No globbing.
  */
 import type { ChatEventRecord } from '@/db/types';
-import type { PendingInput } from '@/lib/executor/pending-input';
+import type { PendingInput } from '@/lib/runner/pending';
 
 /**
  * Lightweight cross-session signal for rail-facing state. The detailed

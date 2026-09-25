@@ -1,50 +1,23 @@
 /**
- * Executor adapter — bridge between `@agentex/agent` and our `chat_events`
- * table. Owns the per-session `AgentSession` lifecycle, parses
- * `StreamEvent`s into chat_events rows, and writes them through an
- * `EventWriter` (defaults to the local DB).
+ * The home's executor API (docs/homes-build.md, "P2.1 The runner split").
  *
- * Module-scope state is intentional: in this single-process Node server,
- * `harnessSessions` is the in-memory cache of live AgentSession handles
- * keyed by our `chat_sessions.id`. `runningSessions` is the truth source
- * for "is this turn currently mid-stream"; the runtime-status endpoint
- * reads it. Process restart empties both maps; the next dispatch picks
- * up by passing the persisted `externalSessionId` as `sessionParams`
- * so Claude Code resumes its on-disk JSONL session.
+ * Harness sessions and their live state belong to a runner
+ * (`src/lib/runner/`), which never reads the database. This module is the
+ * home's side: it checks a send (selection, budget, concurrency), creates
+ * the run, builds the session spec when the runner needs one, sends through
+ * the runner that holds the chat (`runnerFor`), and waits for the turn. The
+ * runner reports everything back through the home sink (`home-sink.ts`),
+ * which writes the chat events, publishes live state and finishes runs.
  *
- * Lifecycle assumptions:
- *   - `provider.createSession({ cwd, onEvent, sessionParams })` returns a
- *     handle whose `send(message)` resolves when the agent's turn ends.
- *   - `onEvent` fires for every `StreamEvent` across all turns; we parse
- *     and persist each.
- *   - `onUserInputRequest` routes through `pending-input.ts`. In `auto_all`
- *     mode (the default for new sessions) we auto-allow without surfacing.
- *     `ask | auto_edits | plan` are translated per-harness in
- *     `permission-map.ts` (Claude gets the matching `--permission-mode` flag)
- *     and we surface every prompt that comes back. AskUserQuestion always
- *     surfaces.
- *
- * What this module does NOT do (yet):
- *   - SSE streaming back to the client (client polls).
- *   - Rollover handoff message generation when resume fails.
- *   - Cost / token tracking surfacing.
- *   - MCP elicitation.
+ * The exports are the ones this module always had, so routes, the scheduler
+ * and tests call the same functions. The live-state readers and test seams
+ * are the local runner's, re-exported.
  */
 
 import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
-import { getProvider, commandInventoryFromEvent } from '@agentex/agent';
-import type {
-  AgentSession,
-  ProviderConfig,
-  StreamEvent,
-  UserInputRequest,
-  UserInputResponse,
-  RuntimeCommandInventory,
-  McpServerConfig,
-} from '@agentex/agent';
+import type { StreamEvent, UserInputResponse } from '@agentex/agent';
 import {
-  getChatSession,
   getChatSessionWithExecution,
   getWorkspace,
   getUserState,
@@ -52,88 +25,84 @@ import {
   updateUserState,
   listChatSessions,
   listMainChats,
-} from '@/lib/db/queries';
-import { getAppRoot } from '@/lib/config/paths';
-import {
-  installOrchestratorSurface,
-  orchestratorSessionConfig,
-  connectorsMcpServer,
-  browserMcpServer,
-  renderContentFocusPrompt,
-  type OrchestratorMode,
-} from '@/lib/orchestrator/harness-surface';
-import { isBrowserEnabled } from '@/lib/browser/config';
-import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
-import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd, withFirstTurnPreamble } from './agent-main-chat';
-import {
-  buildReferenceFolderSessionConfig,
-  referenceFolderProviderWiring,
-} from '@/lib/reference-folders/session-config';
-import {
-  clearSessionInstructions,
-  planSessionInstructions,
-  writeSessionInstructions,
-} from '@/lib/executor/session-instructions';
-import { renderAgentInstructionsPrompt } from '@/lib/executor/prompts/agent-instructions';
-import { SESSION_CREDENTIAL_ENV, sessionCredential } from '@/lib/orchestrator/session-credential';
-import type {
-  ChatEventSource,
-  CreateChatEventInput,
-  PermissionMode,
-  EffortLevel,
-} from '@/db/types';
-import { localEventWriter, type EventWriter } from './event-writer';
-import { harnessPermissionConfig } from './permission-map';
-import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
-import {
-  classifyRequest,
-  register as registerPending,
-  rejectAllForSession,
-  type PendingInput,
-} from './pending-input';
-import { publishBackgroundTaskActivity, publishRuntime } from '@/lib/realtime/bus';
-import {
-  decodeBackgroundTaskEvent,
-  isActiveBackgroundTaskEvent,
-} from './background-task-event';
-import { handleRunStreamEvent } from '@/lib/runs/event-hooks';
-import { resolveSkillDirsForSession } from './skills';
-import { beginRun, endRun } from '@/lib/runs/artifact-bucket';
-import {
   createRun as createRunRow,
   markRunStarted as markRunStartedRow,
-  markRunCompleted as markRunCompletedRow,
-  markRunFailed as markRunFailedRow,
-  bumpSessionOutcome,
 } from '@/lib/db/queries';
-import { notifyNeedsInput, notifyRunTerminal } from '@/lib/notifications/emit';
+import { getAppRoot } from '@/lib/config/paths';
+import type { PermissionMode } from '@/db/types';
 import { budgetGate } from '@/lib/runs/budget';
-import {
-  explicitHarnessSelection,
-  type ProviderId,
-} from '@/lib/harness/options';
-import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
-import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/harness/runtime';
+import { beginRun } from '@/lib/runs/artifact-bucket';
+import { finishRun } from '@/lib/runs/finish';
+import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options';
+import { getHarnessRuntime } from '@/lib/harness/runtime';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
-import { redactHarnessRuntimeValue } from '@/lib/harness/redaction';
-import { harnessDefinition, isHarnessEnabled, type HarnessId } from '@/lib/harness/registry';
+import { isHarnessEnabled } from '@/lib/harness/registry';
+import { ExecutorError } from '@/lib/runner/errors';
+import {
+  beginDispatchPreparation,
+  endDispatchPreparation,
+  isHarnessSessionAlive,
+  persistStreamEvent as runnerPersistStreamEvent,
+  recycleHarnessSessions as runnerRecycleHarnessSessions,
+  recycleWhenIdle,
+} from '@/lib/runner/local-runner';
+import type { EventWriter, SendRequest } from '@/lib/runner/types';
+import type { PendingInput } from '@/lib/runner/pending';
+import { localEventWriter } from './event-writer';
+import { installHomeSink } from './home-sink';
+import { activeSendCount } from './live-state';
+import { runnerFor } from './placement';
+import { buildSessionSpec } from './session-spec';
+import { awaitTurn, forgetTurn } from './turns';
 
-// ─── Public errors ────────────────────────────────────────────
+installHomeSink();
 
-export class ExecutorError extends Error {
-  constructor(
-    public code:
-      | 'not_found'
-      | 'invalid_state'
-      | 'unsupported'
-      | 'already_running'
-      | 'budget_exceeded',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'ExecutorError';
-  }
+/**
+ * Sends past the concurrency gate that haven't reached the runner yet, per
+ * chat. Building a spec takes a moment, and a harness without concurrent send
+ * must refuse a second message during it, before a run is created, as it did
+ * when the gate and the send were one step. On globalThis so every route
+ * bundle sees the same counts.
+ */
+const STARTING_KEY = Symbol.for('@ri/executor-starting-sends');
+const startingRef = globalThis as unknown as { [STARTING_KEY]?: Map<string, number> };
+if (!startingRef[STARTING_KEY]) startingRef[STARTING_KEY] = new Map();
+const startingSends = startingRef[STARTING_KEY]!;
+
+function releaseStartingSend(chatSessionId: string): void {
+  const next = (startingSends.get(chatSessionId) ?? 1) - 1;
+  if (next <= 0) startingSends.delete(chatSessionId);
+  else startingSends.set(chatSessionId, next);
 }
+
+export { ExecutorError } from '@/lib/runner/errors';
+export { parseStreamEvent } from '@/lib/runner/parse';
+export {
+  isRunning,
+  listRunningSessions,
+  listBackgroundTaskSessions,
+  hasBackgroundTasks,
+  listBackgroundTaskIds,
+  getSessionInventory,
+  hasHarnessSession,
+} from './live-state';
+export {
+  isHarnessSessionAlive,
+  invalidateHarnessSession,
+  forceClearInflight,
+  beginDispatchPreparation,
+  endDispatchPreparation,
+  recycleWhenIdle,
+  recycleForModeChange,
+  closeIdleSessions,
+  _beginActiveDispatch,
+  _endActiveDispatch,
+  _recordBackgroundTaskEvent,
+  _recordSessionInventory,
+  _cacheHarnessSession,
+  _resetExecutorState,
+  type DispatchLifecycleRef,
+} from '@/lib/runner/local-runner';
 
 /**
  * Optional opt-in flags for dispatch.
@@ -147,475 +116,14 @@ export class ExecutorError extends Error {
  * execution-mutex gates. Skips both checks; the scheduler is the
  * source of truth for them in this code path. Untrusted callers
  * (chat composer, route handlers) must NOT set this.
+ *
+ * `runId` — the scheduled run this turn belongs to, so the turn's result
+ * finishes it. Manual sends create their own run.
  */
 export interface DispatchOptions {
   overBudget?: boolean;
   internalCall?: boolean;
-}
-
-// ─── Module state ─────────────────────────────────────────────
-//
-// Stashed on globalThis (with a Symbol key) so the maps survive Next.js
-// module re-evaluation across route handlers. Each App Router route is
-// bundled independently and may re-import this file with a fresh
-// module scope; without globalThis the messages route's `runningSessions`
-// would be a different Set than the runtime-status route's, and the UI
-// would never see the running flag flip.
-//
-// Standard pattern — same shape Prisma/Drizzle docs recommend for the
-// Next.js dev-mode HMR + bundling story.
-
-interface ExecutorState {
-  harnessSessions: Map<string, AgentSession>;
-  runningSessions: Set<string>;
-  /**
-   * Number of in-flight preparation and provider-send references per
-   * chat_session. With concurrent send (Claude / Codex), multiple sends can overlap:
-   * the user types a follow-up while a turn is still in flight, the
-   * second dispatch enters while the first is awaiting `result`. A
-   * plain `runningSessions: Set` flips off the moment any one
-   * dispatch's `finally` runs, even if other dispatches are still
-   * outstanding — that flickers the runtime status to false and the
-   * UI's Stop button reverts to Send mid-turn. Counting solves it:
-   * the flag transitions on 0→1 and N→0 only, so the SSE channel
-   * sees clean edges.
-   */
-  inflightCount: Map<string, number>;
-  /** Active provider sends only, excluding pre-dispatch preparation. */
-  activeDispatchCount: Map<string, number>;
-  /**
-   * Current accounting generation for each chat session. Recovery and close
-   * advance this value before clearing counts, so finalizers from the retired
-   * generation cannot consume replacement-dispatch references.
-   */
-  dispatchGenerations: Map<string, number>;
-  /** Monotonic source for dispatch generations, retained across HMR resets. */
-  nextDispatchGeneration: number;
-  /** Active provider-neutral background task ids, grouped by chat session. */
-  backgroundTasks: Map<string, Set<string>>;
-  /**
-   * Chat sessions whose provider reports a turn currently open.
-   *
-   * Distinct from `inflightCount`, which only counts turns *we* dispatched.
-   * Claude Code starts turns on its own after a background task finishes, and
-   * those are invisible to the counter — the session read finished while the
-   * agent was still working. Fed by `turn_start`/`turn_end` (agentex 0.0.37+);
-   * providers that emit neither never appear here and are unaffected.
-   */
-  openStreamTurns: Set<string>;
-  /**
-   * Skill command inventory reported by the provider's session at boot
-   * (via `system/init` for Claude — see `commandInventoryFromEvent`).
-   * Keyed by our chat session id. Populated once per session lifetime,
-   * cleared when the session is dropped. The slash-commands API route
-   * reads this to mark `available` on discovered descriptors.
-   */
-  sessionInventories: Map<string, RuntimeCommandInventory>;
-  /**
-   * Chat sessions owed a recycle once their current turn ends
-   * (`recycleWhenIdle`). Recycling closes the live handle, which would cut
-   * off a turn mid-flight, including the very turn that changed the setting
-   * (a main chat editing its own agent's instructions).
-   */
-  pendingRecycles: Set<string>;
-}
-
-const STATE_KEY = Symbol.for('@ri/executor-state');
-const globalRef = globalThis as unknown as { [STATE_KEY]?: ExecutorState };
-
-if (!globalRef[STATE_KEY]) {
-  globalRef[STATE_KEY] = {
-    harnessSessions: new Map(),
-    runningSessions: new Set(),
-    inflightCount: new Map(),
-    activeDispatchCount: new Map(),
-    dispatchGenerations: new Map(),
-    nextDispatchGeneration: 0,
-    backgroundTasks: new Map(),
-    openStreamTurns: new Set(),
-    sessionInventories: new Map(),
-    pendingRecycles: new Set(),
-  };
-} else {
-  // HMR migration: state survives from a build that predates these fields.
-  if (!globalRef[STATE_KEY].sessionInventories) {
-    globalRef[STATE_KEY].sessionInventories = new Map();
-  }
-  if (!globalRef[STATE_KEY].inflightCount) {
-    globalRef[STATE_KEY].inflightCount = new Map();
-  }
-  if (!globalRef[STATE_KEY].activeDispatchCount) {
-    globalRef[STATE_KEY].activeDispatchCount = new Map();
-  }
-  if (!globalRef[STATE_KEY].dispatchGenerations) {
-    globalRef[STATE_KEY].dispatchGenerations = new Map();
-  }
-  if (typeof globalRef[STATE_KEY].nextDispatchGeneration !== 'number') {
-    globalRef[STATE_KEY].nextDispatchGeneration = 0;
-  }
-  if (!globalRef[STATE_KEY].backgroundTasks) {
-    globalRef[STATE_KEY].backgroundTasks = new Map();
-  }
-  if (!globalRef[STATE_KEY].openStreamTurns) {
-    globalRef[STATE_KEY].openStreamTurns = new Set();
-  }
-  if (!globalRef[STATE_KEY].pendingRecycles) {
-    globalRef[STATE_KEY].pendingRecycles = new Set();
-  }
-}
-
-const {
-  harnessSessions,
-  runningSessions,
-  openStreamTurns,
-  inflightCount,
-  activeDispatchCount,
-  dispatchGenerations,
-  backgroundTasks,
-  sessionInventories,
-  pendingRecycles,
-} = globalRef[STATE_KEY]!;
-
-/**
- * Mutate the running flag and notify any SSE subscribers. Only publishes
- * when the value actually changes — `runningSessions` is a Set so naive
- * add/delete are idempotent, but we don't want a same-state publish to
- * burn cycles in subscribers.
- */
-function setRunning(chatSessionId: string, running: boolean): void {
-  const wasRunning = runningSessions.has(chatSessionId);
-  if (running) runningSessions.add(chatSessionId);
-  else runningSessions.delete(chatSessionId);
-  if (wasRunning !== running) {
-    publishRuntime(chatSessionId, running);
-  }
-  // The turn a deferred recycle was waiting on just ended.
-  if (!running && pendingRecycles.delete(chatSessionId)) {
-    void recycleForModeChange(chatSessionId).catch((err) => {
-      console.error(`[executor] deferred recycle failed for ${chatSessionId}:`, err);
-    });
-  }
-}
-
-/**
- * Recompute "is this session working" from both signals and publish the union.
- *
- * Our own dispatch count cannot see the whole picture: Claude Code ends the
- * root turn when it launches a background task, then opens a *new* turn by
- * itself once that task finishes. `send()` has long since resolved, so a
- * dispatch-counted session reads finished while the agent is visibly editing
- * files — measured at eleven minutes on a real session.
- *
- * agentex 0.0.37 reports those turns as `turn_start`/`turn_end`. Taking the
- * union rather than replacing the counter keeps providers that emit no turn
- * events (Codex, OpenCode) working exactly as before: they only ever
- * contribute the dispatch side.
- */
-function refreshRunning(chatSessionId: string): void {
-  const dispatching = (inflightCount.get(chatSessionId) ?? 0) > 0;
-  setRunning(chatSessionId, dispatching || openStreamTurns.has(chatSessionId));
-}
-
-/**
- * Sessions the provider says have a turn open right now.
- *
- * Every `turn_start` is closed by exactly one `turn_end` — including the
- * paths that produce no `result` (a message the CLI cancels, discards, or
- * refuses) and session teardown — so this cannot leak a permanently-working
- * session the way a `result`-only close would.
- */
-function trackTurnBoundary(chatSessionId: string, event: StreamEvent): void {
-  const type = (event as { type?: string }).type;
-  if (type === 'turn_start') openStreamTurns.add(chatSessionId);
-  else if (type === 'turn_end') openStreamTurns.delete(chatSessionId);
-  else return;
-  refreshRunning(chatSessionId);
-}
-
-/**
- * Fold one provider-neutral or legacy Claude lifecycle event into the active
- * background-task snapshot. Returns true when task-id membership changed.
- *
- * Exported as a test seam. The chat-event row remains the durable record while
- * this in-memory index keeps rail snapshots cheap.
- */
-export function _recordBackgroundTaskEvent(chatSessionId: string, event: unknown): boolean {
-  const task = decodeBackgroundTaskEvent(event);
-  if (!task) return false;
-
-  let ids = backgroundTasks.get(chatSessionId);
-  let membershipChanged = false;
-  if (isActiveBackgroundTaskEvent(task)) {
-    if (!ids) {
-      ids = new Set();
-      backgroundTasks.set(chatSessionId, ids);
-    }
-    if (!ids.has(task.taskId)) {
-      ids.add(task.taskId);
-      membershipChanged = true;
-    }
-  } else if (ids) {
-    membershipChanged = ids.delete(task.taskId);
-    if (ids.size === 0) backgroundTasks.delete(chatSessionId);
-  }
-
-  if (!membershipChanged) return false;
-  const isActive = backgroundTasks.has(chatSessionId);
-  publishBackgroundTaskActivity(chatSessionId, isActive, listBackgroundTaskIds(chatSessionId));
-  return true;
-}
-
-function clearBackgroundTasks(chatSessionId: string): void {
-  if (!backgroundTasks.delete(chatSessionId)) return;
-  publishBackgroundTaskActivity(chatSessionId, false, []);
-}
-
-/** Forget a torn-down session's turn state so it cannot read working forever. */
-function clearStreamTurn(chatSessionId: string): void {
-  if (!openStreamTurns.delete(chatSessionId)) return;
-  refreshRunning(chatSessionId);
-}
-
-/**
- * Snapshot of every session that's currently running. Used by the rail's
- * `Working` bucket to seed its set on first connect.
- */
-export function listRunningSessions(): string[] {
-  return Array.from(runningSessions);
-}
-
-/** Snapshot of sessions that still have one or more active background tasks. */
-export function listBackgroundTaskSessions(): string[] {
-  return Array.from(backgroundTasks.keys());
-}
-
-/** Whether this session currently has one or more active background tasks. */
-export function hasBackgroundTasks(chatSessionId: string): boolean {
-  return backgroundTasks.has(chatSessionId);
-}
-
-/** Active provider background task ids for one chat session. */
-export function listBackgroundTaskIds(chatSessionId: string): string[] {
-  return Array.from(backgroundTasks.get(chatSessionId) ?? []);
-}
-
-/**
- * The skill/slash command inventory reported by the provider session at
- * boot. Used by the slash-commands API route to gate `available` on
- * each discovered descriptor. Returns null if the session hasn't booted
- * yet or the provider didn't emit an inventory event.
- */
-export function getSessionInventory(chatSessionId: string): RuntimeCommandInventory | null {
-  return sessionInventories.get(chatSessionId) ?? null;
-}
-
-/**
- * Record the runtime command inventory from a provider `system/init`
- * event. First non-null wins — subsequent init events for the same
- * session don't overwrite, so a re-handshake mid-session doesn't
- * clobber the original inventory the UI is reconciling against.
- *
- * Exported with the underscore prefix as a test seam — production
- * code reaches this through the executor's `onEvent` callback.
- */
-export function _recordSessionInventory(chatSessionId: string, event: StreamEvent): void {
-  const inventory = commandInventoryFromEvent(event);
-  if (inventory && !sessionInventories.has(chatSessionId)) {
-    sessionInventories.set(chatSessionId, inventory);
-  }
-}
-
-/** Test seam: put a handle in the session cache as if it had spawned. */
-export function _cacheHarnessSession(chatSessionId: string, handle: AgentSession): void {
-  harnessSessions.set(chatSessionId, handle);
-}
-
-/** Whether a session has a cached handle (a live harness process). */
-export function hasHarnessSession(chatSessionId: string): boolean {
-  return harnessSessions.has(chatSessionId);
-}
-
-/** Test / dev escape hatch: drop everything. Not for production paths. */
-export function _resetExecutorState(): void {
-  // Retire every token handed out before the reset. The monotonic allocator is
-  // deliberately not reset, so a late finalizer can never match new work.
-  globalRef[STATE_KEY]!.nextDispatchGeneration++;
-  harnessSessions.clear();
-  runningSessions.clear();
-  inflightCount.clear();
-  activeDispatchCount.clear();
-  dispatchGenerations.clear();
-  backgroundTasks.clear();
-  openStreamTurns.clear();
-  sessionInventories.clear();
-  pendingRecycles.clear();
-}
-
-// ─── Public API ───────────────────────────────────────────────
-
-export function isRunning(chatSessionId: string): boolean {
-  return runningSessions.has(chatSessionId);
-}
-
-/**
- * True when a cached AgentSession exists AND its underlying subprocess
- * looks alive. False when there's no cache, the SDK self-reports
- * `state === 'closed'`, or the subprocess has exited/been killed.
- *
- * Health checks call this to distinguish "agent is processing" from
- * "handle is a corpse." The proc inspection is a defensive belt — the
- * SDK's exit handler should set state to 'closed', but the dns-tunnel
- * incident (May 2026) showed that signal can be missed.
- *
- * TODO(agentex): the `proc` peek reaches through `as unknown as` into
- * SDK internals. Push an `isAlive()` (or expose `proc` officially) on
- * `AgentSession` upstream so this layer doesn't have to. If the SDK
- * ever renames the field, we silently degrade to trusting `state`
- * alone — which is the failure mode we're working around in the
- * first place.
- */
-export function isHarnessSessionAlive(chatSessionId: string): boolean {
-  const handle = harnessSessions.get(chatSessionId);
-  if (!handle) return false;
-  if (handle.state === 'closed') return false;
-  const proc = (handle as unknown as {
-    proc?: { killed?: boolean; exitCode?: number | null };
-  }).proc;
-  if (!proc) return true;
-  if (proc.killed) return false;
-  if (proc.exitCode !== null && proc.exitCode !== undefined) return false;
-  return true;
-}
-
-/**
- * Drop a cached AgentSession without awaiting its close. Used by
- * health-check recovery when we've detected the handle is dead — the
- * subprocess is already gone, so there's nothing to gracefully shut
- * down. Next dispatch lazily spawns a fresh one.
- */
-export function invalidateHarnessSession(chatSessionId: string): void {
-  harnessSessions.delete(chatSessionId);
-  sessionInventories.delete(chatSessionId);
-  clearBackgroundTasks(chatSessionId);
-  clearStreamTurn(chatSessionId);
-}
-
-/**
- * Reset inflight count and runtime flag for a session. Health check
- * uses this after confirming a subprocess is dead — the in-memory
- * accounting drifted past whatever `dispatch`'s finally would have
- * cleared, so we force it back to zero.
- */
-export function forceClearInflight(chatSessionId: string): void {
-  advanceDispatchGeneration(chatSessionId);
-  inflightCount.delete(chatSessionId);
-  activeDispatchCount.delete(chatSessionId);
-  setRunning(chatSessionId, false);
-}
-
-// ─── Inflight reference counting ──────────────────────────────
-//
-// Concurrent send lets multiple `dispatch()` calls overlap: the user
-// types a follow-up while the previous turn is still in flight, the
-// second dispatch enters `try` while the first is awaiting `result`.
-// A plain `runningSessions.add/.delete` Set flips off the moment any
-// one dispatch's finally runs — even while peers are outstanding —
-// causing the runtime-status SSE to flicker false and the UI's Stop
-// button to revert to Send mid-turn. Counting solves it: the public
-// `runningSessions` Set only transitions on 0→1 (start) and N→0
-// (everyone's done), so SSE subscribers see clean edges.
-
-export interface DispatchLifecycleRef {
-  readonly generation: number;
-  readonly kind: 'preparation' | 'active';
-}
-
-function currentDispatchGeneration(chatSessionId: string): number {
-  const existing = dispatchGenerations.get(chatSessionId);
-  if (existing !== undefined) return existing;
-  const next = ++globalRef[STATE_KEY]!.nextDispatchGeneration;
-  dispatchGenerations.set(chatSessionId, next);
-  return next;
-}
-
-function advanceDispatchGeneration(chatSessionId: string): number {
-  const next = ++globalRef[STATE_KEY]!.nextDispatchGeneration;
-  dispatchGenerations.set(chatSessionId, next);
-  return next;
-}
-
-function startInflight(
-  chatSessionId: string,
-  kind: DispatchLifecycleRef['kind'],
-): DispatchLifecycleRef {
-  const next = (inflightCount.get(chatSessionId) ?? 0) + 1;
-  inflightCount.set(chatSessionId, next);
-  if (next === 1) refreshRunning(chatSessionId);
-  return { generation: currentDispatchGeneration(chatSessionId), kind };
-}
-
-function endInflight(chatSessionId: string, ref: DispatchLifecycleRef): void {
-  if (dispatchGenerations.get(chatSessionId) !== ref.generation) return;
-  const cur = inflightCount.get(chatSessionId) ?? 0;
-  const next = cur - 1;
-  if (next <= 0) {
-    inflightCount.delete(chatSessionId);
-    // Not necessarily idle: a provider-initiated turn may still be open.
-    refreshRunning(chatSessionId);
-  } else {
-    inflightCount.set(chatSessionId, next);
-  }
-}
-
-/**
- * Hold the public runtime flag across asynchronous preparation that happens
- * before `dispatch()` enters its own lifecycle. The messages route persists and
- * acknowledges a user event before worktree repair and provider checks finish.
- * Counting this preparation prevents a false idle gap and balances safely with
- * the nested dispatch count, including concurrent sends.
- */
-export function beginDispatchPreparation(chatSessionId: string): DispatchLifecycleRef {
-  return startInflight(chatSessionId, 'preparation');
-}
-
-export function endDispatchPreparation(
-  chatSessionId: string,
-  ref: DispatchLifecycleRef,
-): void {
-  if (ref.kind !== 'preparation') return;
-  endInflight(chatSessionId, ref);
-}
-
-/**
- * Enter the provider-send portion of a dispatch. Preparation references are
- * intentionally excluded from the concurrency check. The messages route owns
- * one before it calls `dispatch()`, so treating preparation as an active send
- * would reject every first request for providers without concurrent send.
- *
- * Exported as a narrow test seam for the accounting invariant.
- */
-export function _beginActiveDispatch(
-  chatSessionId: string,
-  concurrentSendSupported: boolean,
-): DispatchLifecycleRef {
-  if (!concurrentSendSupported && activeDispatchCount.has(chatSessionId)) {
-    throw new ExecutorError(
-      'already_running',
-      'This provider does not support concurrent send.',
-    );
-  }
-  activeDispatchCount.set(chatSessionId, (activeDispatchCount.get(chatSessionId) ?? 0) + 1);
-  return startInflight(chatSessionId, 'active');
-}
-
-/** Complete one provider send while preserving any preparation references. */
-export function _endActiveDispatch(chatSessionId: string, ref: DispatchLifecycleRef): void {
-  if (ref.kind !== 'active' || dispatchGenerations.get(chatSessionId) !== ref.generation) return;
-  const current = activeDispatchCount.get(chatSessionId) ?? 0;
-  if (current <= 0) return;
-  if (current === 1) activeDispatchCount.delete(chatSessionId);
-  else activeDispatchCount.set(chatSessionId, current - 1);
-  endInflight(chatSessionId, ref);
+  runId?: string;
 }
 
 /**
@@ -631,14 +139,14 @@ export function _endActiveDispatch(chatSessionId: string, ref: DispatchLifecycle
  * messages without us having to do anything special.
  *
  * Non-concurrent providers such as Cursor and OpenCode reject a second
- * overlapping provider send with
- * `already_running`. Listed in `ExecutorError`'s union so the route
- * can surface it as 409 if it ever fires.
+ * overlapping provider send with `already_running`, before a run exists.
+ *
+ * The run finishes from the turn's result (`finishRun`, through the home
+ * sink), whether or not anyone is still waiting here.
  */
 export async function dispatch(
   chatSessionId: string,
   userMessage: string,
-  writer: EventWriter = localEventWriter,
   options: DispatchOptions = {},
 ): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
@@ -712,19 +220,13 @@ export async function dispatch(
   }
 
   // No execution-level run mutex here. Concurrent sends are a
-  // first-class feature: a user's follow-up reuses this chat's cached
-  // AgentSession (same subprocess) and the provider's native queue
-  // absorbs it — Claude drains it as a `<system-reminder>` on the next
-  // tool result, Codex merges it into the active turn. The earlier
-  // `findActiveRunForExecution` mutex rejected a user's own in-flight
-  // `trigger='manual'` turn as if it were a scheduled run. Genuine
-  // trigger-vs-trigger worktree contention is governed separately by
-  // each trigger's `concurrencyPolicy` in `runs/dispatch.ts`; that
-  // path dispatches with `internalCall: true` and never reached this
-  // check anyway.
+  // first-class feature: a user's follow-up reuses this chat's live
+  // session (same subprocess) and the provider's native queue absorbs it.
+  // Genuine trigger-vs-trigger worktree contention is governed separately
+  // by each trigger's `concurrencyPolicy` in `runs/dispatch.ts`.
 
-  // Provider capability gate. Claude and Codex support overlapping sends,
-  // while providers such as Cursor and OpenCode allow only one active send.
+  // Provider capability gate, before a run exists, so a refused send leaves
+  // none behind. The runner checks the same things again.
   const runtime = await getHarnessRuntime(selection.providerId, { cwd });
   if (!runtime.capabilities.sessions.supported) {
     throw new ExecutorError(
@@ -732,35 +234,65 @@ export async function dispatch(
       runtime.capabilities.sessions.reason ?? `${selection.providerId} sessions are unavailable`,
     );
   }
+  const starting = startingSends.get(chatSessionId) ?? 0;
+  if (!runtime.capabilities.concurrentSend.supported && activeSendCount(chatSessionId) + starting > 0) {
+    throw new ExecutorError('already_running', 'This provider does not support concurrent send.');
+  }
+  // Same tick as the check: the next send sees this one. The preparation
+  // reference keeps the chat marked running while its session starts.
+  startingSends.set(chatSessionId, starting + 1);
+  const preparation = beginDispatchPreparation(chatSessionId);
+  let delivered: { turn: Promise<void> };
+  try {
+    delivered = await deliver(chatSessionId, userMessage, options, session, selection, cwd);
+  } finally {
+    // Delivered or refused, the send is no longer starting. Once delivered,
+    // the runner's own count holds the gate and the running flag.
+    releaseStartingSend(chatSessionId);
+    endDispatchPreparation(chatSessionId, preparation);
+  }
+  await delivered.turn;
+}
+
+/**
+ * Create the run and send through the chat's runner. Resolves once the
+ * harness accepted the message, with the turn to wait on.
+ */
+async function deliver(
+  chatSessionId: string,
+  userMessage: string,
+  options: DispatchOptions,
+  session: NonNullable<ReturnType<typeof getChatSessionWithExecution>>,
+  selection: ReturnType<typeof explicitHarnessSelection>,
+  cwd: string,
+): Promise<{ turn: Promise<void> }> {
   // Run-row instrumentation (task #12). Every dispatch creates a run row
   // — manual, scheduled, or webhook — so cost tracking and budget
   // guards are honest. The scheduled wrapper sets `internalCall: true`
   // because it has already created the row + registered the run; we
   // only spawn a `triggerKind='manual'` row for top-level callers.
-  let manualRun: { runId: string; ownsLifecycle: boolean } | null = null;
-  const activeDispatchRef = _beginActiveDispatch(
-    chatSessionId,
-    runtime.capabilities.concurrentSend.supported,
-  );
-  try {
-    if (!options.internalCall) {
-      const created = createRunRow({
-        triggerId: null,
-        workspaceId: session.workspaceId ?? null,
-        executionId: session.executionId ?? null,
-        chatSessionId,
-        harness: session.harness,
-        triggerKind: 'manual',
-        triggerPayload: null,
-        scheduledFor: null,
-        status: 'queued',
-      });
-      markRunStartedRow(created.id);
-      beginRun(created.id, chatSessionId);
-      manualRun = { runId: created.id, ownsLifecycle: true };
-    }
+  let runId = options.runId ?? null;
+  if (!options.internalCall) {
+    const created = createRunRow({
+      triggerId: null,
+      workspaceId: session.workspaceId ?? null,
+      executionId: session.executionId ?? null,
+      chatSessionId,
+      harness: session.harness,
+      triggerKind: 'manual',
+      triggerPayload: null,
+      scheduledFor: null,
+      status: 'queued',
+    });
+    markRunStartedRow(created.id);
+    beginRun(created.id, chatSessionId);
+    runId = created.id;
+  }
 
-    const agentSession = await ensureHarnessSession({
+  const turnId = uuidv7();
+  const turn = awaitTurn(turnId);
+  const buildSpec = () =>
+    buildSessionSpec({
       chatSessionId,
       harness: session.harness,
       cwd,
@@ -770,107 +302,74 @@ export async function dispatch(
       surfaceRef: session.surfaceRef,
       existingExternalSessionId: session.externalSessionId,
       permissionMode: session.permissionMode,
+      prePlanMode: (session.prePlanMode as PermissionMode | null) ?? null,
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
-      writer,
     });
-    const { result } = await agentSession.send(
-      withFirstTurnPreamble(userMessage, takeFirstTurnPreamble(agentSession)),
-    );
-    await result;
-    if (manualRun?.ownsLifecycle) {
-      markRunCompletedRow(manualRun.runId);
-      void notifyRunTerminal(manualRun.runId).catch(() => {});
+  try {
+    const runner = runnerFor(chatSessionId);
+    // A live session needs no spec, so a follow-up does no spec work.
+    const request: SendRequest = {
+      chatSessionId,
+      message: userMessage,
+      turnId,
+      runId,
+      spec: isHarnessSessionAlive(chatSessionId) ? null : await buildSpec(),
+    };
+    let sent = await runner.send(request);
+    if (sent.status === 'needs_spec') {
+      // The session ended between the check and the send.
+      sent = await runner.send({ ...request, spec: await buildSpec() });
+      if (sent.status === 'needs_spec') {
+        throw new ExecutorError('invalid_state', 'The session could not be started.');
+      }
     }
   } catch (err) {
-    if (manualRun?.ownsLifecycle) {
-      markRunFailedRow(manualRun.runId, {
+    forgetTurn(turnId);
+    // A manual send that never reached the harness fails its run here. A
+    // scheduled run is failed by its wrapper, which sees this throw.
+    if (!options.internalCall && runId) {
+      finishRun(runId, {
+        ok: false,
         errorCode: 'agent_error',
         errorMessage: err instanceof Error ? err.message : String(err),
       });
-      void notifyRunTerminal(manualRun.runId).catch(() => {});
-      // Touch the chat's outcome timestamp so a failure before any
-      // assistant turn still surfaces in the inbox. Without this, a
-      // turn that throws inside `ensureHarnessSession` / the first
-      // `send` would leave the chat invisibly stuck — the unread
-      // derivation only ticks on `agent` / `result` events written
-      // through the event writer.
-      try { bumpSessionOutcome(chatSessionId); } catch { /* best-effort */ }
     }
     throw err;
-  } finally {
-    _endActiveDispatch(chatSessionId, activeDispatchRef);
-    if (manualRun?.ownsLifecycle) {
-      endRun(manualRun.runId, chatSessionId);
-    }
   }
+  return { turn };
 }
 
-/**
- * Interrupt the current turn for a chat_session, if any. The agent
- * receives SIGTERM / equivalent and the in-flight `send()` promise
- * resolves (typically with a `result` event flagged as aborted).
- */
+/** Interrupt the current turn for a chat, if any. */
 export async function abort(chatSessionId: string): Promise<void> {
-  const handle = harnessSessions.get(chatSessionId);
-  if (!handle) return;
-  await handle.interrupt();
+  await runnerFor(chatSessionId).interrupt(chatSessionId);
+}
+
+/** Stop one background task without disturbing the session or its other tasks. */
+export async function stopTask(chatSessionId: string, taskId: string): Promise<{ stopped: boolean }> {
+  return runnerFor(chatSessionId).stopTask(chatSessionId, taskId);
 }
 
 /**
- * Stop a single background task (a backgrounded shell/server or async subagent)
- * without disturbing the session or its other tasks. Forwards to the live
- * `AgentSession.stopTask` (agentex 0.0.22+), which sends the CLI's `stop_task`
- * control request; the harness owns the process and performs the kill, so the
- * model isn't involved. Returns `{ stopped: false }` when there's no live
- * session, the provider lacks per-task stop (`capabilities.stopTask === false`),
- * or the task is unknown / already ended. The task's next lifecycle event
- * (`task_updated`/`task_notification`) reflects the kill.
+ * Answer a pending prompt through the chat's runner. Only a prompt this chat
+ * raised can be answered, so an answer can't reach another chat's harness.
  */
-export async function stopTask(
+export function answerPendingInput(
   chatSessionId: string,
-  taskId: string,
-): Promise<{ stopped: boolean }> {
-  const handle = harnessSessions.get(chatSessionId);
-  if (!handle) return { stopped: false };
-  return handle.stopTask(taskId);
+  requestId: string,
+  response: UserInputResponse,
+): { ok: true; pending: PendingInput } | { ok: false } {
+  return runnerFor(chatSessionId).answerPendingInput(chatSessionId, requestId, response);
 }
 
 /**
- * Tear down the cached AgentSession for a chat_session — used when we
- * archive the chat_session or want to force resume on next dispatch.
- *
- * Returns whether the underlying handle closed cleanly. Most callers ignore the
- * result (best-effort recycling), but a coordinated "stop the running agent"
- * needs to know honestly whether the process was actually torn down, so it can
- * refuse to claim the agent stopped when the close failed.
+ * Close a chat's harness and clear its live state: when the chat is
+ * archived, or to force a resume on the next send. Says honestly whether the
+ * process closed.
  */
 export async function close(chatSessionId: string): Promise<{ closed: boolean; error?: string }> {
-  const handle = harnessSessions.get(chatSessionId);
-  // Close the process FIRST, while the handle is still tracked. If close fails
-  // the process may still be alive, so we keep the handle cached (still
-  // trackable / retryable) and DO NOT clear running state or the caches — losing
-  // the handle here would leave an untrackable live process. Only after a clean
-  // close (or no handle at all) do we drop the cached state.
-  if (handle) {
-    try {
-      await handle.close();
-    } catch (err) {
-      return { closed: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-  harnessSessions.delete(chatSessionId);
-  sessionInventories.delete(chatSessionId);
-  advanceDispatchGeneration(chatSessionId);
-  inflightCount.delete(chatSessionId);
-  activeDispatchCount.delete(chatSessionId);
-  setRunning(chatSessionId, false);
-  clearBackgroundTasks(chatSessionId);
-  clearStreamTurn(chatSessionId);
-  clearSessionInstructions(chatSessionId);
-  rejectAllForSession(chatSessionId, 'Session closed');
-  return { closed: true };
+  return runnerFor(chatSessionId).stop(chatSessionId);
 }
 
 /**
@@ -899,19 +398,6 @@ export async function recycleAgentMainChats(workspaceId: string): Promise<void> 
 }
 
 /**
- * Recycle a session now if it is idle, or as soon as its current turn ends.
- * Settings changes use this rather than `recycleForModeChange`, because
- * closing a handle mid-turn cuts the turn off.
- */
-export async function recycleWhenIdle(chatSessionId: string): Promise<void> {
-  if (isRunning(chatSessionId)) {
-    pendingRecycles.add(chatSessionId);
-    return;
-  }
-  await recycleForModeChange(chatSessionId);
-}
-
-/**
  * Recycle live sessions after a reference folder changes, so an added or
  * removed folder takes effect now rather than whenever the session happens to
  * restart. Session config (`instructionsFile`, `--add-dir`, the deny rules) is
@@ -937,998 +423,28 @@ export async function recycleForReferenceFolderChange(
 }
 
 /**
- * Close every app-cached session for one harness after its credential store
+ * Close every live session for one harness after its credential store
  * changes. Agentex retires its runtime generation, while this clears handles
  * that captured the old environment or retired OpenCode server.
  */
 export async function recycleHarnessSessions(harness: ProviderId): Promise<void> {
-  const affected: string[] = [];
-  for (const sessionId of harnessSessions.keys()) {
-    const session = getChatSession(sessionId);
-    if (session?.harness === harness) affected.push(sessionId);
-  }
-  await Promise.all(affected.map((sessionId) => close(sessionId)));
+  installHomeSink();
+  await runnerRecycleHarnessSessions(harness);
 }
 
 /**
- * Drop the cached AgentSession without closing pending requests. Used when
- * selection changes require the next dispatch to spawn a fresh CLI process
- * and resume the conversation through `externalSessionId`.
- *
- * Best-effort close on the existing handle. Selection-changing routes reject
- * changes during an active turn before reaching this function. Other callers
- * use it for lifecycle invalidation where closing the old handle is expected.
+ * Report one provider stream event, as the live session does. Reconcile
+ * uses it to replay a native transcript, with the plain database writer by
+ * default so a replay never counts run telemetry twice.
  */
-export async function recycleForModeChange(chatSessionId: string): Promise<void> {
-  const handle = harnessSessions.get(chatSessionId);
-  if (!handle) return;
-  harnessSessions.delete(chatSessionId);
-  // Drop the inventory too — the recycled session will emit a fresh
-  // system/init with potentially different available skills (e.g. plan
-  // mode restricts the toolset).
-  sessionInventories.delete(chatSessionId);
-  clearBackgroundTasks(chatSessionId);
-  clearStreamTurn(chatSessionId);
-  // Don't reject pending requests — a mode change shouldn't blow up
-  // an in-flight permission prompt the user is about to answer.
-  try { await handle.close(); } catch { /* best-effort */ }
-}
-
-// ─── Internal: agent session lifecycle ────────────────────────
-
-interface EnsureArgs {
-  chatSessionId: string;
-  harness: HarnessId;
-  cwd: string;
-  /** chat_sessions.type — orchestration sessions get the data-root surface. */
-  sessionType: 'orchestration' | 'content' | 'execution';
-  /** The session's workspace (for execution connector scoping); null for workspace-less. */
-  workspaceId: string | null;
-  /**
-   * For `content` sessions: the entity the in-document chat is focused on
-   * (`surfaceKind` = 'task' | 'note', `surfaceRef` = its id). Null for other
-   * session types. Drives the per-session focus directive.
-   */
-  surfaceKind: string | null;
-  surfaceRef: string | null;
-  existingExternalSessionId: string | null;
-  permissionMode: PermissionMode;
-  model: string | null;
-  modelVariant: string | null;
-  effort: EffortLevel | null;
-  writer: EventWriter;
-}
-
-/**
- * Which orchestrator surface an orchestration-type session gets. The
- * dashboard toggle (`user_state.orchestratorMode`) wins when it names a
- * harness mode; `legacy` (the hand-rolled chat agent) still needs scheduled
- * orchestrator fires to work, and those are harness sessions by
- * construction — they default to the MCP surface, the most robust path.
- */
-function resolveOrchestratorMode(): Exclude<OrchestratorMode, 'legacy'> {
-  const mode = getUserState()?.orchestratorMode;
-  return mode === 'harness_skills' || mode === 'harness_mcp' ? mode : 'harness_mcp';
-}
-
-async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
-  const cached = harnessSessions.get(args.chatSessionId);
-  if (cached) {
-    if (isHarnessSessionAlive(args.chatSessionId)) return cached;
-    // Stale corpse: the SDK or our liveness probe knows the subprocess
-    // is gone. Drop it and fall through to a fresh spawn. The previous
-    // ensureHarnessSession returned dead handles unconditionally, which
-    // produced silent "Session is closed" throws on the very next send.
-    invalidateHarnessSession(args.chatSessionId);
-  }
-
-  const providerType = harnessDefinition(args.harness).agentexProviderId;
-  const provider = getProvider(providerType);
-  if (!provider.createSession) {
-    throw new ExecutorError(
-      'unsupported',
-      `Provider "${providerType}" does not implement multi-turn createSession`,
-    );
-  }
-
-  // Build the agentex ProviderConfig from session-level overrides. Each
-  // field falls back to the harness default when unset, so a fresh
-  // session with all-null overrides produces no extra CLI flags.
-  const harness = args.harness;
-  const [runtimeContext, runtime] = await Promise.all([
-    runtimeContextForHarness(harness, { cwd: args.cwd }),
-    getHarnessRuntime(harness, { cwd: args.cwd }),
-  ]);
-  if (!runtime.capabilities.sessions.supported) {
-    throw new ExecutorError(
-      'unsupported',
-      runtime.capabilities.sessions.reason ?? `${providerType} sessions are unavailable`,
-    );
-  }
-  // Translate the app-native permission mode into harness config at the one
-  // boundary that owns it (see permission-map.ts). auto_all/plan ride agentex's
-  // generic skipPermissions/planMode; ask/auto_edits become Claude flags.
-  const perm = harnessPermissionConfig(args.permissionMode, providerType, {
-    planMode: runtime.capabilities.planMode.supported,
-  });
-  const config: ProviderConfig = {
-    ...runtimeContext.config,
-    unattendedPermissionPolicy: 'deny',
-    ...(perm.skipPermissions ? { skipPermissions: true } : {}),
-    ...(perm.planMode ? { planMode: true } : {}),
-  };
-  const extraArgs: string[] = [...perm.extraArgs];
-  if (args.model) config.model = args.model;
-  if (args.modelVariant && runtime.capabilities.modelVariants.supported) {
-    config.modelVariant = args.modelVariant;
-  }
-  // Canonical id straight through. agentex owns the per-provider vocabulary
-  // (Claude spells the top rung `ultracode`, Codex spells it `ultra`) and
-  // translates at the flag boundary, so translating here too would be a second
-  // source of truth for the same fact.
-  if (args.effort && runtime.capabilities.reasoningEffort.supported) {
-    config.effort = args.effort;
-  }
-
-  // Orchestration sessions run in the app data root and act through the
-  // typed action surface. Install/refresh the on-disk brief (CLAUDE.md /
-  // AGENTS.md) before spawn — this also `ensureAppRoot()`s the cwd — and
-  // merge the mode's typed ProviderConfig slice (disallowedTools /
-  // strictMcpConfig / mcpServers, agentex ≥0.0.20). Providers without
-  // tool-filtering or MCP wiring ignore the fields (Codex today), so the
-  // config is safe to pass everywhere — but warn, because the write guard
-  // genuinely doesn't hold there yet.
-  // An agent's main chat: an orchestration chat with a workspace, running in
-  // the user's own folder. Nothing is installed there, whatever the
-  // orchestrator mode says: the brief rides the session instructions file and
-  // the actions come over the session's MCP config. See agent-main-chat.ts.
-  const agentMainChat = args.sessionType === 'orchestration' && args.workspaceId
-    ? getWorkspace(args.workspaceId) ?? null
-    : null;
-  let firstTurnPreamble: string | null = null;
-  if (agentMainChat) {
-    const spawn = await prepareAgentMainChatSpawn({
-      chatSessionId: args.chatSessionId,
-      workspace: agentMainChat,
-      providerType,
-      strictMcpIsolation: runtime.capabilities.strictMcpIsolation.supported,
-      appBrowserEnabled: isBrowserEnabled(),
-      freshSession: !args.existingExternalSessionId,
-    });
-    Object.assign(config, spawn.config);
-    extraArgs.push(...spawn.extraArgs);
-    firstTurnPreamble = spawn.firstTurnPreamble;
-    for (const warning of spawn.warnings) {
-      console.warn(`[executor] agent main chat on provider "${providerType}": ${warning}.`);
-    }
-  } else if (args.sessionType === 'orchestration' || args.sessionType === 'content') {
-    const orchestratorMode = resolveOrchestratorMode();
-    try {
-      await installOrchestratorSurface(orchestratorMode);
-      Object.assign(config, orchestratorSessionConfig(orchestratorMode, { sessionId: args.chatSessionId }));
-      // A `content` session is a *focused* orchestrator session: same
-      // installed surface + tool set, narrowed to the one task/note the user
-      // is viewing in the editor. The focus rides Claude's
-      // --append-system-prompt so it never shows in the transcript; other
-      // providers run the un-focused surface (the brief + the user's own
-      // messages still keep them on-task — no write guard either way there).
-      if (
-        args.sessionType === 'content' &&
-        providerType === 'claude' &&
-        (args.surfaceKind === 'task' || args.surfaceKind === 'note') &&
-        args.surfaceRef
-      ) {
-        extraArgs.push(
-          '--append-system-prompt',
-          renderContentFocusPrompt({ entityType: args.surfaceKind, entityId: args.surfaceRef }),
-        );
-      }
-      if (providerType !== 'claude') {
-        console.warn(
-          `[executor] ${args.sessionType} session on provider "${providerType}": surface installed, ` +
-            'but tool filtering / MCP attachment are ignored by this provider (no write guard).',
-        );
-      }
-    } catch (err) {
-      // A failed surface install shouldn't kill the turn — the session
-      // still runs against whatever brief is already on disk.
-      console.error('[executor] orchestrator surface install failed:', err);
-    }
-  }
-
-  // Execution (workspace coding/agent) sessions: fail closed on MCP, and attach the
-  // workspace-scoped connectors endpoint when the workspace opted in — but ONLY on a harness that
-  // actually enforces strict MCP (Claude Code today; Codex ignores these fields). See spec §3/§6c.
-  if (args.sessionType === 'execution') {
-    if (runtime.capabilities.strictMcpIsolation.supported) {
-      config.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
-      const servers: McpServerConfig[] = [];
-      // Workspace-scoped connectors (opt-in via the workspace's connector allowlist).
-      const workspace = args.workspaceId ? getWorkspace(args.workspaceId) : null;
-      const scopes = workspace?.connectorScopes ?? [];
-      if (scopes.length > 0 && args.workspaceId) {
-        const connectors = connectorsMcpServer(undefined, { workspaceId: args.workspaceId });
-        if (connectors) servers.push(connectors);
-      }
-      // Agent browser, when the app allows it AND the workspace opted in (default
-      // on). Executions browse an ISOLATED per-workspace profile so an autonomous
-      // run cannot reach the user's logged-in default identity. The profile is
-      // forced by the browser MCP route, the execution cannot switch it.
-      const browserOn = isBrowserEnabled() && (workspace ? workspace.browserEnabled : true);
-      if (browserOn) {
-        const profile = args.workspaceId ? `ws-${args.workspaceId}` : 'execution';
-        const browser = browserMcpServer(undefined, { profile });
-        if (browser) servers.push(browser);
-      }
-      if (servers.length > 0) config.mcpServers = servers;
-    } else {
-      const wantsConnectors = args.workspaceId
-        ? (getWorkspace(args.workspaceId)?.connectorScopes.length ?? 0) > 0
-        : false;
-      if (wantsConnectors) {
-        console.warn(
-          `[executor] execution on provider "${providerType}": connectors are unavailable ` +
-            '(this harness does not enforce strict MCP tool-filtering).',
-        );
-      }
-    }
-
-    // Session instructions: agentex takes one `instructionsFile`, so every
-    // block an execution is told at spawn goes into it, in this order. First
-    // the agent's standing instructions (docs/agents-view-spec.md Phase 3),
-    // then the reference-folder block below.
-    const instructionAgent = args.workspaceId ? getWorkspace(args.workspaceId) : null;
-    const instructionBlocks = [
-      {
-        name: 'agent instructions',
-        text: instructionAgent ? renderAgentInstructionsPrompt(instructionAgent) : '',
-      },
-    ];
-
-    // Reference folders (docs/reference-folders-spec.md §6/§7). The prompt
-    // block is the feature — the agent can already read any absolute path, it
-    // just never knows the folder is there. Delivered via `instructionsFile`
-    // because every provider resolves that, unlike the claude-only
-    // `--append-system-prompt` used by the content branch above.
-    //
-    // `--add-dir` and the Edit deny rules are claude-only argv, so they're
-    // gated. Broken references are dropped upstream by
-    // `listUsableReferenceFolders` — pointing an agent at a path that isn't
-    // there is worse than saying nothing.
-    try {
-      const workspaceCwd = args.workspaceId ? getWorkspace(args.workspaceId)?.cwd ?? null : null;
-      const refs = await listUsableReferenceFolders(args.workspaceId ?? null, {
-        consumerCwd: workspaceCwd,
-      });
-      const refConfig = buildReferenceFolderSessionConfig(refs);
-      if (refConfig.instructions) {
-        const wiring = referenceFolderProviderWiring(refConfig, providerType);
-        if (wiring.deliversInstructions) {
-          instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
-        }
-        extraArgs.push(...wiring.extraArgs);
-        if (wiring.disallowedTools.length > 0) {
-          config.disallowedTools = [...(config.disallowedTools ?? []), ...wiring.disallowedTools];
-        }
-        if (wiring.delivery === 'prompt-only') {
-          console.warn(
-            `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
-              'announced in the prompt, but the read scope and edit deny rules are claude-only argv ' +
-              '(this provider is told about them without being fenced off).',
-          );
-        } else if (wiring.delivery === 'unsupported') {
-          // Not a partial degradation — a total one. This provider's session
-          // path drops `instructionsFile`, so the agent is never told the
-          // folders exist, which is the whole feature.
-          console.warn(
-            `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
-              'configured but NOT delivered — this harness ignores session-scoped instructions, ' +
-              'so the agent will not be told these folders exist. Use claude or codex for reference folders.',
-          );
-        }
-      }
-    } catch (err) {
-      // A reference-folder failure must never cost the user their session.
-      console.error('[executor] reference folder resolution failed:', err);
-    }
-
-    const plan = planSessionInstructions(providerType, instructionBlocks);
-    if (plan.text) config.instructionsFile = writeSessionInstructions(args.chatSessionId, plan.text);
-    // Reference folders report their own delivery above. Agent instructions
-    // are reported here, and the same way: a total loss, not a degradation.
-    if (plan.undelivered.includes('agent instructions')) {
-      console.warn(
-        `[executor] execution on provider "${providerType}": agent instructions configured but NOT ` +
-          'delivered — this harness ignores session-scoped instructions, so the agent will not see ' +
-          'them. Use claude or codex for agent instructions.',
-      );
-    }
-  }
-
-  if (extraArgs.length > 0) config.extraArgs = extraArgs;
-
-  // Shipped skills are discovered from the app root or the user's explicit
-  // global install. Never pass them through skillDirs here. The Codex provider
-  // materializes configured skillDirs inside the project, which previously
-  // left an app-owned .agents/skills/orchestrator symlink in every workspace.
-  // Clean that legacy link only when it points to our shipped skill.
-  if (args.sessionType === 'execution') {
-    try {
-      const cleanup = await removeOwnedProjectSkillLinks(args.cwd);
-      if (cleanup.entries.some((entry) => entry.status === 'error')) {
-        console.warn('[executor] failed to clean one or more legacy project skill links');
-      }
-    } catch (err) {
-      console.warn('[executor] failed to clean legacy project skill links:', err);
-    }
-  }
-
-  // Layer in author-neutral user-skill paths:
-  //   - Global: <brain>/skills/<name>/SKILL.md
-  //   - Workspace: <workspace>/.ri/skills/<name>/SKILL.md (workspace wins
-  //     on name collision). See src/lib/executor/skills.ts.
-  const skillDirs = resolveSkillDirsForSession(args.cwd);
-  if (skillDirs.length > 0) {
-    if (agentMainChat && skillDirsWriteIntoCwd(providerType)) {
-      console.warn(
-        `[executor] agent main chat on provider "${providerType}": user skills are not attached, ` +
-          "because this harness would write them into the agent's folder.",
-      );
-    } else {
-      config.skillDirs = skillDirs;
-    }
-  }
-
-  // Every session carries its caller credential, so an orchestrator action it
-  // runs (MCP header or the CLI from its shell) knows which chat is calling.
-  // See src/lib/orchestrator/session-credential.ts.
-  const credential = sessionCredential(args.chatSessionId);
-  const handle = await provider.createSession({
-    cwd: args.cwd,
-    env: credential ? { ...runtimeContext.env, [SESSION_CREDENTIAL_ENV]: credential } : runtimeContext.env,
-    sessionParams: args.existingExternalSessionId
-      ? { sessionId: args.existingExternalSessionId }
-      : undefined,
-    config: Object.keys(config).length > 0 ? config : undefined,
-    onUserInputRequest: (req) => handleUserInputRequest(args.chatSessionId, args.writer, req),
-    onEvent: async (event) => {
-      try {
-        const safeEvent = redactHarnessRuntimeValue(event);
-        _recordSessionInventory(args.chatSessionId, safeEvent);
-        await persistStreamEvent(args.chatSessionId, safeEvent, args.writer, {
-          trackBackgroundTaskRuntime: true,
-        });
-        capturePromotedSessionId(args.chatSessionId, safeEvent);
-        // Run telemetry: cost capture (#13) and summary extraction (#15).
-        // No-op when there's no active run registered for this chat;
-        // scheduled dispatches register one via the dispatcher wrapper.
-        // What the run changed is recorded at the action layer instead.
-        await handleRunStreamEventSafe(args.chatSessionId, safeEvent);
-      } catch (err) {
-        // One bad event shouldn't crash the whole turn — log and keep going.
-        console.error(`[executor] failed to persist event for ${args.chatSessionId}:`, err);
-      }
-    },
-  });
-
-  // Service-backed providers can assign their session id before emitting any
-  // stream event. Persist it immediately so a host crash during the first turn
-  // still leaves enough identity for durable history recovery.
-  const record = handle.describeHistory?.() ?? handle.describe?.();
-  const promotedId = typeof record?.params.sessionId === 'string' ? record.params.sessionId : handle.sessionId;
-  if (promotedId) updateChatSession(args.chatSessionId, { externalSessionId: promotedId });
-
-  harnessSessions.set(args.chatSessionId, handle);
-  if (firstTurnPreamble) firstTurnPreambles.set(handle, firstTurnPreamble);
-  return handle;
-}
-
-/**
- * Briefs waiting to ride the first message of a freshly spawned session,
- * for harnesses that drop session instructions (agent-main-chat.ts). Keyed
- * by the handle, so a recycled session never inherits a stale one.
- */
-const firstTurnPreambles = new WeakMap<AgentSession, string>();
-
-function takeFirstTurnPreamble(handle: AgentSession): string | null {
-  const preamble = firstTurnPreambles.get(handle) ?? null;
-  if (preamble) firstTurnPreambles.delete(handle);
-  return preamble;
-}
-
-/**
- * Translate an agentex tool-permission request into pending-input state +
- * a transcript event, then await the user's answer. Called once per tool
- * call that needs approval (every mutating tool in `ask` mode, Bash in
- * `auto_edits` mode, etc.) and once per AskUserQuestion.
- *
- * In `auto_all` mode we short-circuit. The current chat_session row is
- * read fresh each time so a mid-conversation mode change takes effect on
- * the next prompt without restarting the CLI.
- */
-async function handleUserInputRequest(
-  chatSessionId: string,
-  writer: EventWriter,
-  req: UserInputRequest,
-): Promise<UserInputResponse> {
-  const session = getChatSession(chatSessionId);
-  const mode: PermissionMode = session?.permissionMode ?? DEFAULT_PERMISSION_MODE;
-
-  const pending = classifyRequest(chatSessionId, req);
-
-  // auto_all: only AskUserQuestion still needs UI. Auto-allowing a question
-  // returns empty answers to Claude and the agent stalls — surface it.
-  //
-  // updatedInput must be present on every allow response. Claude's
-  // PermissionAllowResultSchema requires it as a record; an empty object
-  // is treated as "use original input" but the field still has to exist.
-  // Without it Claude raises a Zod error and the tool call fails as if
-  // we'd denied — except the agent reads it as a tool failure and retries.
-  if (mode === 'auto_all' && pending.kind === 'permission') {
-    return { allow: true, updatedInput: req.input };
-  }
-
-  // Persist a transcript row so the request is visible in chat history
-  // (alongside the live overlay). Idempotent — if the same toolUseId
-  // shows up twice (retry), the unique index drops the duplicate.
-  try {
-    await writer.write(buildPendingRequestEvent(chatSessionId, pending));
-  } catch (err) {
-    console.error(`[executor] failed to persist pending event for ${chatSessionId}:`, err);
-  }
-
-  // Notifier (best-effort): the agent is blocked on the human — fire off the durable request (§2.4).
-  void notifyNeedsInput({
-    sessionId: chatSessionId,
-    requestId: pending.requestId,
-    title: pending.kind === 'permission' ? `Permission: ${pending.toolName}` : 'Agent has a question',
-    body:
-      pending.kind === 'permission'
-        ? pending.title ?? pending.description ?? 'The agent needs permission to continue.'
-        : 'The agent is waiting for your answer.',
-  }).catch(() => {});
-
-  const response = await registerPending(pending);
-
-  try {
-    await writer.write(buildPendingResponseEvent(chatSessionId, pending, response));
-  } catch (err) {
-    console.error(`[executor] failed to persist response event for ${chatSessionId}:`, err);
-  }
-
-  // Auto-revert plan mode on ExitPlanMode allow. Claude transitions
-  // its own internal mode when the tool call succeeds; we mirror that
-  // in our session row so the UI flips back to whatever the user had
-  // before plan (or `auto_all` if they came in fresh). No CLI recycle
-  // needed — the running process already exited plan internally; we
-  // just want subsequent renders + future recycles to show the new
-  // mode.
-  if (
-    pending.kind === 'permission' &&
-    pending.toolName === 'ExitPlanMode' &&
-    response.allow
-  ) {
-    revertFromPlanMode(chatSessionId);
-  }
-
-  return response;
-}
-
-function revertFromPlanMode(chatSessionId: string): void {
-  const session = getChatSession(chatSessionId);
-  if (!session || session.permissionMode !== 'plan') return;
-  const target: PermissionMode = (session.prePlanMode as PermissionMode | null) ?? DEFAULT_PERMISSION_MODE;
-  try {
-    updateChatSession(chatSessionId, {
-      permissionMode: target,
-      prePlanMode: null,
-    });
-  } catch (err) {
-    console.error(`[executor] failed to revert plan mode for ${chatSessionId}:`, err);
-  }
-}
-
-function buildPendingRequestEvent(
-  chatSessionId: string,
-  pending: PendingInput,
-): CreateChatEventInput {
-  const base = {
-    sessionId: chatSessionId,
-    externalEventId: uuidv7(),
-    externalToolCallId: pending.toolUseId,
-    role: 'system',
-    createdAt: pending.createdAt,
-  };
-  if (pending.kind === 'question') {
-    return {
-      ...base,
-      source: 'question_request' satisfies ChatEventSource,
-      content: null,
-      toolInput: { questions: pending.questions } as Record<string, unknown>,
-      raw: { kind: 'question', questions: pending.questions },
-    };
-  }
-  return {
-    ...base,
-    source: 'permission_request' satisfies ChatEventSource,
-    content: pending.title ?? pending.description ?? null,
-    toolName: pending.toolName,
-    toolInput: pending.input,
-    raw: {
-      kind: 'permission',
-      title: pending.title,
-      description: pending.description,
-    },
-  };
-}
-
-function buildPendingResponseEvent(
-  chatSessionId: string,
-  pending: PendingInput,
-  response: UserInputResponse,
-): CreateChatEventInput {
-  const base = {
-    sessionId: chatSessionId,
-    externalEventId: uuidv7(),
-    externalToolCallId: pending.toolUseId,
-    role: 'system',
-    createdAt: new Date().toISOString(),
-  };
-  if (pending.kind === 'question') {
-    const answers = (response.updatedInput?.answers ?? null) as Record<string, string> | null;
-    return {
-      ...base,
-      source: 'question_response' satisfies ChatEventSource,
-      content: answers ? formatAnswerSummary(answers) : 'declined',
-      toolInput: { answers, allow: response.allow } as Record<string, unknown>,
-      raw: { allow: response.allow, answers },
-    };
-  }
-  return {
-    ...base,
-    source: 'permission_response' satisfies ChatEventSource,
-    content: response.allow ? 'allowed' : (response.message ?? 'denied'),
-    toolName: pending.toolName,
-    toolIsError: !response.allow,
-    raw: {
-      allow: response.allow,
-      message: response.message ?? null,
-    },
-  };
-}
-
-function formatAnswerSummary(answers: Record<string, string>): string {
-  return Object.entries(answers).map(([q, a]) => `${q}: ${a}`).join('\n');
-}
-
-/** Render a rate_limit event's content as a human sentence. */
-function formatRateLimitContent(
-  status: string,
-  limitType: string | null,
-  resetAt: string | null,
-): string {
-  // limitType comes through as snake_case (e.g. `five_hour`,
-  // `monthly_overage`). Surface it humanized.
-  const window = limitType ? limitType.replace(/_/g, ' ') : null;
-  const resetTime = resetAt ? formatResetTime(resetAt) : null;
-  const lead = status === 'exceeded'
-    ? 'Rate limit hit'
-    : status === 'blocked'
-      ? 'Request blocked'
-      : `Rate limit (${status})`;
-  const parts = [lead, window ? `· ${window}` : null, resetTime ? `· resets ${resetTime}` : null];
-  return parts.filter(Boolean).join(' ');
-}
-
-function formatResetTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  // Local time, no seconds. e.g. "10:30 PM" or "Mon 10:30 PM" if not today.
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  if (sameDay) return time;
-  const day = date.toLocaleDateString(undefined, { weekday: 'short' });
-  return `${day} ${time}`;
-}
-
-/**
- * Claude Code (and most providers) emit a `system` event near the start
- * of a session whose `sessionId` is the CLI's own session id. Capture it
- * the first time we see it and write it back to the chat_session row so
- * future resumes work.
- */
-function capturePromotedSessionId(chatSessionId: string, event: StreamEvent): void {
-  if (!event.sessionId) return;
-  const session = getChatSession(chatSessionId);
-  if (!session || session.externalSessionId === event.sessionId) return;
-  updateChatSession(chatSessionId, { externalSessionId: event.sessionId });
-}
-
-// ─── Stream event → chat_events row ───────────────────────────
-
-/**
- * Defensive wrapper around the run-telemetry hook (cost + summary; what a run
- * changed is recorded at the action layer, see src/lib/runs/artifact-refs.ts).
- * Errors are swallowed: dropping a telemetry event is preferable to losing
- * the user's turn.
- */
-async function handleRunStreamEventSafe(
-  chatSessionId: string,
-  event: StreamEvent,
-): Promise<void> {
-  try {
-    await handleRunStreamEvent(chatSessionId, event);
-  } catch (err) {
-    console.warn(`[runs] telemetry hook failed for ${chatSessionId}:`, err);
-  }
-}
-
 export async function persistStreamEvent(
   chatSessionId: string,
   event: StreamEvent,
   writer: EventWriter = localEventWriter,
   options: { trackBackgroundTaskRuntime?: boolean } = {},
 ): Promise<void> {
-  const safeEvent = redactHarnessRuntimeValue(event);
-  // Runtime signal, not transcript content — and it has to be applied even
-  // though the event persists nothing, which is why it runs before the
-  // early return below.
-  trackTurnBoundary(chatSessionId, safeEvent);
-  const row = parseStreamEvent(chatSessionId, safeEvent);
-  if (!row) return;
-  const cumulativeOpenCodePart = safeEvent.providerType === 'opencode'
-    && Boolean(safeEvent.eventId)
-    && (safeEvent.type === 'assistant' || safeEvent.type === 'thinking');
-  try {
-    if (cumulativeOpenCodePart && writer.replacePart) await writer.replacePart(row);
-    else await writer.write(row);
-  } finally {
-    // Durable transcript replay shares this persistence path but must never
-    // mutate ephemeral runtime state. It can interleave with a live provider
-    // callback and otherwise replay an older start after a newer terminal edge.
-    if (options.trackBackgroundTaskRuntime) {
-      _recordBackgroundTaskEvent(chatSessionId, safeEvent);
-    }
-  }
-}
-
-/**
- * Map an agentex `StreamEvent` to a `chat_events` insert input. See the
- * mapping table in `docs/executor-wiring-spec.md` for the full
- * source-discriminator semantics.
- *
- * `externalEventId` is the provider's wire-level event id when present
- * (Claude exposes a stable uuid per event; Codex doesn't). Using the wire
- * id means a row written via the live stream and the same row re-derived
- * during a JSONL replay collide on the partial unique index — replay is
- * idempotent at the DB level without us having to track anything extra.
- * When the provider doesn't surface an id, we mint a uuidv7 so the row
- * still has a stable identifier; replay-dedup for those providers falls
- * back to byte-offset cursoring.
- */
-/**
- * Provider identity fields every row carries, regardless of which branch of
- * `parseStreamEvent` builds it.
- *
- * Factored out because three branches construct their own base object, and a
- * field added to only one of them means the column's real meaning becomes
- * "was written by a code path that happened to include it" — the adapter and
- * a `raw`-derived backfill would then permanently disagree on those rows.
- */
-function attributionFields(event: StreamEvent): {
-  externalMessageId: string | null;
-  externalTurnId: string | null;
-  externalParentToolCallId: string | null;
-} {
-  return {
-    // Provider-native message id. Claude emits `msg_01...` per assistant
-    // message; Codex reuses `item_N` per turn, so it is not a unique key —
-    // stored for correlation only, never as an identity.
-    externalMessageId: event.messageId ?? null,
-    // Provider-native turn id (Codex app-server only; null for Claude). Codex
-    // reconcile reads it back to learn which turns the live stream already
-    // wrote, so it can skip them when replaying the on-disk rollout.
-    externalTurnId: event.turnId ?? null,
-    // Nested-actor attribution: the tool_use id of the call that produced
-    // this event. See src/lib/executions/subagent.ts for what depends on it.
-    externalParentToolCallId: event.parentToolCallId ?? null,
-  };
-}
-
-/**
- * Whether this event comes from a stream that distinguishes a task's result
- * delivery from a bare state change.
- *
- * Presence of the field is the signal — a `null` report on a stream that has
- * the concept means "this record delivered nothing", while its absence means
- * the provider never says. Read off the event rather than tracked per session
- * so a single record is enough to decide.
- */
-function providerReportsDeliveries(event: StreamEvent): boolean {
-  return 'report' in (event as unknown as Record<string, unknown>);
-}
-
-export function parseStreamEvent(
-  chatSessionId: string,
-  event: StreamEvent,
-): CreateChatEventInput | null {
-  const externalEventId = event.eventId ?? uuidv7();
-  const createdAt = event.timestamp || new Date().toISOString();
-  const isOpenCodePart = event.providerType === 'opencode' && Boolean(event.eventId);
-  const cumulativeText = isOpenCodePart
-    && event.raw
-    && typeof event.raw === 'object'
-    && typeof (event.raw as Record<string, unknown>).text === 'string'
-    ? (event.raw as Record<string, unknown>).text as string
-    : null;
-  const base = {
-    sessionId: chatSessionId,
-    externalEventId: externalEventId,
-    raw: event as unknown as Record<string, unknown>,
-    createdAt,
-    ...attributionFields(event),
-    ...(isOpenCodePart ? { sourcePartIndex: event.type === 'tool_result' ? 1 : 0 } : {}),
-  };
-
-  // Agentex 0.0.33+ lifecycle metadata. Active updates stay as filtered system
-  // rows. Terminal updates become compact, visible outcomes so a detached
-  // child's summary remains discoverable and reaches Needs Review.
-  if ((event as { type: string }).type === 'background_task') {
-    const backgroundTask = decodeBackgroundTaskEvent(event);
-    // A completion arrives as two records: a state patch and a result
-    // delivery. Both are terminal, so keying visibility on terminality alone
-    // rendered every finished task twice — once with its summary and once
-    // empty. `report` marks the one that actually handed the result back.
-    //
-    // Falls back to terminality for providers and versions that do not report
-    // one (agentex <= 0.0.36, and any provider that emits a single terminal
-    // record), so nothing becomes invisible on an older stream.
-    const delivered = backgroundTask?.report != null;
-    const terminalRecord = backgroundTask !== null && !isActiveBackgroundTaskEvent(backgroundTask);
-    const terminal = delivered
-      || (terminalRecord && !providerReportsDeliveries(event));
-    return {
-      ...base,
-      role: 'system',
-      source: (terminal ? 'background_task' : 'system') satisfies ChatEventSource,
-      content: terminal
-        ? backgroundTask.summary
-          ?? backgroundTask.description
-          ?? 'Background task finished'
-        : 'background_task',
-      ...(terminal ? { toolIsError: backgroundTask.status === 'failed' } : {}),
-    };
-  }
-
-  switch (event.type) {
-    // Liveness signals. They drive the runtime running flag (see
-    // `trackTurnBoundary`) and carry nothing a reader would want in the
-    // transcript; persisting them would surface an `unknown` row per turn.
-    case 'turn_start':
-    case 'turn_end':
-      return null;
-    case 'system':
-      return {
-        ...base,
-        role: 'system',
-        source: 'system' satisfies ChatEventSource,
-        content: event.subtype ?? null,
-      };
-    case 'assistant':
-      return {
-        ...base,
-        role: 'assistant',
-        source: 'agent' satisfies ChatEventSource,
-        content: cumulativeText ?? event.text ?? null,
-      };
-    case 'thinking':
-      return {
-        ...base,
-        role: 'assistant',
-        source: 'thinking' satisfies ChatEventSource,
-        content: cumulativeText ?? event.text ?? null,
-      };
-    case 'tool_call':
-      return {
-        ...base,
-        role: 'assistant',
-        source: 'tool_call' satisfies ChatEventSource,
-        content: null,
-        toolName: event.name,
-        toolInput: (event.input ?? null) as Record<string, unknown> | null,
-        externalToolCallId: event.toolCallId ?? null,
-      };
-    case 'tool_result':
-      return {
-        ...base,
-        role: 'tool',
-        source: 'tool_result' satisfies ChatEventSource,
-        content: event.content ?? null,
-        toolIsError: event.isError ?? false,
-        externalToolCallId: event.toolCallId ?? null,
-      };
-    case 'result':
-      // Claude packs the final agent message text into `event.result`,
-      // which would duplicate the trailing `assistant` row's content if
-      // we surfaced it. Keep the row for turn-boundary tracking + the
-      // rich metadata (cost, usage, stopReason, terminalReason) in
-      // `raw`, but don't render text. The UI filters this source out
-      // of the transcript entirely — the composer re-enabling is the
-      // visible "turn complete" signal.
-      return {
-        ...base,
-        role: 'system',
-        source: 'result' satisfies ChatEventSource,
-        content: null,
-        toolIsError: event.isError ?? false,
-      };
-    case 'auth_required': {
-      // Provider can't reach its API because the user isn't authenticated
-      // (OAuth expired, revoked, missing, scope, or disabled org). Surface
-      // as its own chat_event source so the renderer can show an inline
-      // "Log in" button rather than a generic red error pill. Recovery is
-      // out-of-band via `claude auth login` — see /api/claude-auth/login.
-      return {
-        ...base,
-        role: 'system',
-        source: 'auth_required' satisfies ChatEventSource,
-        content: event.message ?? 'Claude needs to log in again',
-        toolInput: {
-          httpStatus: event.httpStatus,
-          reason: event.reason,
-          loginCommand: event.loginCommand,
-          providerType: event.providerType,
-        } as Record<string, unknown>,
-      };
-    }
-    case 'rate_limit': {
-      // Claude emits rate_limit events on every turn with the current
-      // window status. Only surface actual throttling — the user
-      // doesn't want a transcript pill for "you have quota" or "you're
-      // approaching the limit." The whitelist below is intentionally
-      // narrow: anything we haven't seen before drops too, on the
-      // theory that an unfamiliar status is more likely to be benign
-      // than a missed real-throttle event.
-      const ev = event as { status?: string; limitType?: string | null; resetAt?: string | null };
-      const status = (ev.status ?? '').toLowerCase();
-      const isThrottle =
-        status === 'exceeded' ||
-        status === 'blocked' ||
-        status === 'limited' ||
-        status === 'throttled';
-      if (!isThrottle) return null;
-      const friendly = formatRateLimitContent(status, ev.limitType ?? null, ev.resetAt ?? null);
-      return {
-        ...base,
-        role: 'system',
-        source: 'rate_limit' satisfies ChatEventSource,
-        content: friendly,
-      };
-    }
-    case 'unknown':
-      return mapUnknownEvent(chatSessionId, event, externalEventId, createdAt);
-    default: {
-      // True forward-compat: a type we don't know about at all (not even
-      // agentex's `unknown`). Persist with the type as content so the
-      // user sees something readable.
-      const fallback = event as { type?: string; timestamp?: string };
-      return {
-        sessionId: chatSessionId,
-        externalEventId: externalEventId,
-        role: 'system',
-        source: 'unknown' satisfies ChatEventSource,
-        content: fallback.type ?? null,
-        raw: event as unknown as Record<string, unknown>,
-        createdAt: fallback.timestamp ?? new Date().toISOString(),
-        ...attributionFields(event),
-      };
-    }
-  }
-}
-
-/**
- * Map an agentex `unknown` StreamEvent to the right chat_events source.
- *
- * The agentex `unknown` type is its forward-compat fallback for provider
- * events it doesn't model first-class. The provider's outer event name
- * is in `event.subtype`; for Claude, the meaningful Claude-specific
- * subtype is in `raw.subtype`.
- *
- * Most Claude unknowns we care about:
- *   - `compact_boundary`  → conversation context was compacted; show as
- *                            recap so the existing recap divider renders.
- *   - `api_error`         → API-level error; show as error.
- *   - `turn_duration`     → timing telemetry; drop entirely.
- *   - `away_summary`      → resume summary; show as system divider with content.
- *   - `bridge_status`     → MCP / connection status; show as system divider.
- *
- * Claude JSONL-only bookkeeping types (`ai-title`, `last-prompt`,
- * `attachment`, `progress`) never appear on stdout — only on disk.
- * They reach us exclusively through the transcript reconciler and
- * carry no transcript-worthy content (titles are UI metadata, the
- * last-prompt mirror is already covered by the `user` event, etc.).
- * Drop them outright.
- *
- * Anything we don't recognize keeps the `unknown` source but gains a
- * descriptive content string so the transcript no longer shows a bare
- * "[unknown]" line.
- */
-const CLAUDE_DISK_ONLY_NOISE: ReadonlySet<string> = new Set([
-  'ai-title',
-  'last-prompt',
-  'attachment',
-  'progress',
-]);
-
-
-function mapUnknownEvent(
-  chatSessionId: string,
-  event: StreamEvent,
-  externalEventId: string,
-  createdAt: string,
-): CreateChatEventInput | null {
-  const ev = event as { subtype?: string; raw?: Record<string, unknown> };
-  const claudeSubtype = typeof ev.raw?.['subtype'] === 'string' ? (ev.raw['subtype'] as string) : null;
-  const codexMethod = typeof ev.raw?.['method'] === 'string' ? (ev.raw['method'] as string) : null;
-  // Prefer Claude's inner subtype, then Codex's JSON-RPC method, then
-  // agentex's outer subtype as a last resort.
-  const subtype = claudeSubtype ?? codexMethod ?? ev.subtype ?? null;
-  const rawContent = typeof ev.raw?.['content'] === 'string' ? (ev.raw['content'] as string) : null;
-
-  const base = {
-    sessionId: chatSessionId,
-    externalEventId: externalEventId,
-    raw: event as unknown as Record<string, unknown>,
-    createdAt,
-    ...attributionFields(event),
-  };
-
-  // Drop Claude's JSONL-only bookkeeping types up front. These never
-  // appear in the live stream; they only reach us via the transcript
-  // reconciler and carry no transcript-worthy content.
-  if (subtype !== null && CLAUDE_DISK_ONLY_NOISE.has(subtype)) {
-    return null;
-  }
-
-  switch (subtype) {
-    case 'compact_boundary':
-      return {
-        ...base,
-        role: 'system',
-        source: 'recap' satisfies ChatEventSource,
-        content: 'Context compacted',
-      };
-    case 'api_error':
-      return {
-        ...base,
-        role: 'system',
-        source: 'error' satisfies ChatEventSource,
-        content: rawContent ?? 'API error',
-      };
-    case 'turn_duration':
-      // Pure telemetry — never useful in the transcript.
-      return null;
-    case 'away_summary':
-    case 'bridge_status':
-    case null:
-      return {
-        ...base,
-        role: 'system',
-        source: 'system' satisfies ChatEventSource,
-        content: rawContent ?? subtype ?? null,
-      };
-    default:
-      // Unknown subtype: still surface as system rather than the
-      // misleading "[unknown]" pill. Content carries the subtype so a
-      // human can spot what's coming through.
-      return {
-        ...base,
-        role: 'system',
-        source: 'system' satisfies ChatEventSource,
-        content: subtype,
-      };
-  }
+  installHomeSink();
+  await runnerPersistStreamEvent(chatSessionId, event, writer, options);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────

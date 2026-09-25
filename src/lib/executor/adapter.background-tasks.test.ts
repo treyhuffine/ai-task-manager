@@ -123,7 +123,9 @@ describe('executor adapter background-task lifecycle', () => {
 
   it('updates ephemeral membership only for explicitly live persistence', async () => {
     const writer: EventWriter = {
-      async write() {},
+      async write() {
+        return true;
+      },
     };
 
     await persistStreamEvent('chat-1', taskEvent('started', 'running'), writer);

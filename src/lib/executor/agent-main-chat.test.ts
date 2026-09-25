@@ -142,7 +142,10 @@ describe('prepareAgentMainChatSpawn', () => {
     const before = listTree(FOLDER);
     const spawn = await prepare(seeded);
     expect(listTree(FOLDER)).toEqual(before);
-    const file = spawn.config.instructionsFile!;
+    // The runner writes the brief where the harness reads it: the work dir.
+    const { writeSessionInstructions } = await import('./session-instructions');
+    const file = writeSessionInstructions(seeded.chat.id, spawn.instructions!);
+    expect(listTree(FOLDER)).toEqual(before);
     expect(file.startsWith(path.join(ROOT, '.work'))).toBe(true);
     expect(file.startsWith(FOLDER)).toBe(false);
     expect(fs.readFileSync(file, 'utf8')).toContain('# The "ri" agent\'s main chat');
@@ -169,7 +172,7 @@ describe('prepareAgentMainChatSpawn', () => {
   it('says the git guard is prompt-only where the harness ignores tool filtering', async () => {
     const spawn = await prepare(await seed({ isGit: true }), { providerType: 'codex' });
     expect(spawn.warnings.join('\n')).toContain('write guard is prompt-only');
-    expect(fs.readFileSync(spawn.config.instructionsFile!, 'utf8')).toContain('Never edit files in this folder');
+    expect(spawn.instructions).toContain('Never edit files in this folder');
   });
 
   it("gets the agent's connector scopes, only where the harness isolates MCP, like its executions", async () => {
@@ -179,7 +182,7 @@ describe('prepareAgentMainChatSpawn', () => {
     const connectors = strict.config.mcpServers!.find((s) => s.name === 'connectors');
     expect(connectors).toBeTruthy();
     expect(JSON.stringify(connectors)).toContain(seeded.ws.id);
-    expect(fs.readFileSync(strict.config.instructionsFile!, 'utf8')).toContain('`connectors` MCP server is attached');
+    expect(strict.instructions).toContain('`connectors` MCP server is attached');
 
     const loose = await prepare(seeded, { strictMcpIsolation: false, providerType: 'codex' });
     expect(loose.config.mcpServers!.some((s) => s.name === 'connectors')).toBe(false);
@@ -205,7 +208,7 @@ describe('prepareAgentMainChatSpawn', () => {
     const seeded = await seed();
     seeded.q.createReferenceFolder({ workspaceId: seeded.ws.id, alias: 'api', path: REFERENCE });
     const spawn = await prepare(seeded);
-    expect(fs.readFileSync(spawn.config.instructionsFile!, 'utf8')).toContain(REFERENCE);
+    expect(spawn.instructions).toContain(REFERENCE);
     expect(spawn.extraArgs).toEqual(expect.arrayContaining(['--add-dir', REFERENCE]));
     expect(spawn.config.disallowedTools!.some((rule) => rule.includes(REFERENCE))).toBe(true);
   });
@@ -213,7 +216,7 @@ describe('prepareAgentMainChatSpawn', () => {
   it('sends the brief with the first message where the harness drops session instructions', async () => {
     const seeded = await seed();
     const fresh = await prepare(seeded, { providerType: 'opencode', strictMcpIsolation: false });
-    expect(fresh.config.instructionsFile).toBeUndefined();
+    expect(fresh.instructions).toBeNull();
     expect(fresh.firstTurnPreamble).toContain('# The "ri" agent\'s main chat');
     const { withFirstTurnPreamble } = await import('./agent-main-chat');
     const sent = withFirstTurnPreamble('What is running?', fresh.firstTurnPreamble);

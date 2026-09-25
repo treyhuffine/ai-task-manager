@@ -22,7 +22,7 @@ function base(type: StreamEvent['type'], patch: Record<string, unknown>): Stream
 describe('OpenCode event persistence', () => {
   it('uses the cumulative part text and replaces repeated text observations', async () => {
     const replacePart = vi.fn(async (event: CreateChatEventInput) => { void event; });
-    const write = vi.fn(async (event: CreateChatEventInput) => { void event; });
+    const write = vi.fn(async (event: CreateChatEventInput) => { void event; return true; });
     await persistStreamEvent('chat-1', base('assistant', {
       text: ' world',
       raw: { id: 'part-1', type: 'text', text: 'Hello world' },
@@ -56,7 +56,7 @@ describe('OpenCode event persistence', () => {
   it('redacts a registered Cursor key from normalized content and raw event data', async () => {
     const secret = 'cursor-key-do-not-persist';
     registerHarnessRuntimeSecret(secret, 'cursor-api-key');
-    const write = vi.fn(async (event: CreateChatEventInput) => { void event; });
+    const write = vi.fn(async (event: CreateChatEventInput) => { void event; return true; });
     await persistStreamEvent('chat-1', {
       type: 'tool_result',
       providerType: 'cursor',

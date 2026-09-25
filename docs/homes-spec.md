@@ -599,7 +599,7 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 
 ### P2. Local execution with shared conversation
 
-- [ ] P2.1 Split machine execution from home persistence, scheduling, and notifications while keeping the in-process home runner working.
+- [x] P2.1 Split machine execution from home persistence, scheduling, and notifications while keeping the in-process home runner working. `src/lib/runner/` runs harness sessions from a `SessionSpec` the home builds and reports through a sink, with no database, notification or realtime import (a test walks its import graph). The home sink writes events, publishes live state and finishes runs from each turn's result (`finishRun`), for manual and scheduled runs alike. `adapter.ts` keeps its API, so callers didn't change. The event seam covers every replay path, a quiet heartbeat closes its harness, and idle sessions close after 30 minutes. Tests: 12 through the real executor with the fake harness, plus the boundary. Live on the dev home: a real Claude turn resumed from a spec and finished its run, and a follow-up reused the same process. See the [build notes](homes-build.md#p21-the-runner-split).
 - [ ] P2.2 Extend pairing with worker enrollment grants, scoped credentials, and authenticated browser-companion association. Implement outbound SSE/HTTP delivery, version checks, and reconnect using the existing remote-address setup.
 - [ ] P2.3 Add the durable command/event journals, deduplication, cumulative event updates, and uncertain-delivery reconciliation.
 - [ ] P2.4 Route start, send, stop, pending-input answers, and execution-scoped reads to the current placement.

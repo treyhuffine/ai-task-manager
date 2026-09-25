@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { listSessionsWithPending } from '@/lib/executor/pending-input';
+import { listSessionsWithPending } from '@/lib/executor/live-state';
 import { withCompression } from '@/lib/api/compression';
 
 /**
