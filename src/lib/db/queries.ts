@@ -4813,6 +4813,22 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
   return row;
 }
 
+/**
+ * Check a workspace update the way `updateWorkspace` will, without writing,
+ * so a caller can refuse a bad patch before changing anything else (the
+ * folder move in PATCH /api/workspaces/:id). Throws `WorkspaceFieldError`.
+ */
+export function validateWorkspaceUpdate(input: UpdateWorkspaceInput): UpdateWorkspaceInput {
+  const normalized = normalizeScopeFields(input);
+  if (input.name !== undefined && (typeof input.name !== 'string' || !input.name.trim())) {
+    throw new WorkspaceFieldError('Name must be text.');
+  }
+  if (input.cwd !== undefined && (typeof input.cwd !== 'string' || !input.cwd.trim())) {
+    throw new WorkspaceFieldError('Folder must be a path.');
+  }
+  return normalized;
+}
+
 export function updateWorkspace(id: string, input: UpdateWorkspaceInput): WorkspaceRecord | null {
   const db = getDb();
   const { attachments: inputAttachments, ...rest } = normalizeScopeFields(input);

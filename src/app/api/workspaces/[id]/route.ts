@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { NextRequest } from 'next/server';
-import { getWorkspace, updateWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
+import { getWorkspace, updateWorkspace, validateWorkspaceUpdate, WorkspaceFieldError } from '@/lib/db/queries';
 import type { UpdateWorkspaceInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
 import { recycleAgentMainChats, recycleWorkspaceSessions } from '@/lib/executor/adapter';
@@ -38,25 +38,46 @@ export async function PATCH(
     // `connectorScopes` is security-relevant (it governs what a workspace's executions may touch) and
     // must go through PUT /connector-scopes, which validates pins and recycles live sessions. Strip it
     // here so the generic PATCH can't write scopes unvalidated and without a session recycle.
-    const { connectorScopes: _ignored, ...body } = (await request.json()) as UpdateWorkspaceInput;
+    const { connectorScopes: _ignored, ...raw } = (await request.json()) as UpdateWorkspaceInput;
+    // Check the whole patch before changing anything, so a bad field can't
+    // leave the folder already moved.
+    const body = validateWorkspaceUpdate(raw);
+    const before = getWorkspace(id);
+    if (!before) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+
     // A new folder for the agent on this computer is a new setup (§4.2). Set
     // it up first: the new folder's `.ri.local.json` is written before the
-    // old one is cleared, and nothing in the database changes if it fails.
+    // old one is cleared, and nothing changes if that fails.
+    let moved = false;
     if (typeof body.cwd === 'string') {
-      if (!getWorkspace(id)) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-      const { setHomeFolder } = await import('@/lib/setups/home-context');
-      const { SetupError } = await import('@/lib/setups/service');
-      try {
-        await setHomeFolder(id, path.resolve(body.cwd));
-      } catch (err) {
-        if (err instanceof SetupError || (err instanceof Error && err.name === 'SetupFileConflictError')) {
-          return Response.json({ error: err.message }, { status: 400 });
-        }
-        throw err;
-      }
       body.cwd = path.resolve(body.cwd);
+      if (body.cwd !== before.cwd) {
+        const { setHomeFolder } = await import('@/lib/setups/home-context');
+        const { SetupError } = await import('@/lib/setups/service');
+        try {
+          await setHomeFolder(id, body.cwd);
+          moved = true;
+        } catch (err) {
+          if (err instanceof SetupError || (err instanceof Error && err.name === 'SetupFileConflictError')) {
+            return Response.json({ error: err.message }, { status: 400 });
+          }
+          throw err;
+        }
+      }
     }
-    const row = updateWorkspace(id, body);
+    let row;
+    try {
+      row = updateWorkspace(id, body);
+    } catch (err) {
+      // The database refused after the folder moved: move it back.
+      if (moved) {
+        const { setHomeFolder } = await import('@/lib/setups/home-context');
+        await setHomeFolder(id, before.cwd).catch((undoErr: unknown) =>
+          console.error('[PATCH /api/workspaces/:id] could not move the setup back:', undoErr),
+        );
+      }
+      throw err;
+    }
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
     // Session config is fixed at spawn (the browser changes the tool set, the
     // instructions and folder are read at spawn), so recycle live sessions to

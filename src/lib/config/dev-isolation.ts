@@ -132,20 +132,29 @@ export function checkResolvedPaths(
   shared: readonly string[],
 ): string[] {
   const problems: string[] = [];
+  // A path whose destination can't be established is refused, not guessed at.
+  const within = (child: string, parent: string, label: string): boolean | null => {
+    try {
+      return isWithin(child, parent);
+    } catch (err) {
+      problems.push(`${label}: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  };
   for (const [label, p] of Object.entries(resolved)) {
-    if (!isWithin(p, expectedRoot)) {
+    if (within(p, expectedRoot, label) === false) {
       problems.push(`${label} resolves outside the isolated root: ${p}`);
     }
     for (const s of shared) {
-      if (isWithin(p, s)) problems.push(`${label} resolves inside the shared root ${s}: ${p}`);
+      if (within(p, s, label)) problems.push(`${label} resolves inside the shared root ${s}: ${p}`);
     }
   }
   for (const s of shared) {
-    if (isWithin(s, expectedRoot)) {
+    if (within(s, expectedRoot, 'root')) {
       problems.push(`The isolated root ${expectedRoot} contains the shared root ${s}`);
     }
   }
-  return problems;
+  return [...new Set(problems)];
 }
 
 /** The fields of `config.json` these checks read. */

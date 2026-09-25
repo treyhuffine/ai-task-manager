@@ -154,6 +154,39 @@ describe('following symlinks', () => {
     }
   });
 
+  it('follows a dangling link to where it would create a file', () => {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-dangling-')));
+    try {
+      const protectedRoot = path.join(base, 'ri');
+      const isolated = path.join(base, 'ri-homes');
+      fs.mkdirSync(protectedRoot);
+      fs.mkdirSync(isolated);
+      fs.symlinkSync(path.join(protectedRoot, 'not-yet-created.db'), path.join(isolated, 'data.db'));
+      expect(canonicalPath(path.join(isolated, 'data.db'))).toBe(path.join(protectedRoot, 'not-yet-created.db'));
+      const problems = checkResolvedPaths(resolvedUnder(isolated), isolated, [protectedRoot]);
+      expect(problems.join('\n')).toMatch(/dbPath resolves inside the shared root/);
+      // A relative dangling link resolves from the link's own folder.
+      fs.symlinkSync('../ri/also-new', path.join(isolated, 'attachments'));
+      expect(canonicalPath(path.join(isolated, 'attachments', 'x.png'))).toBe(path.join(protectedRoot, 'also-new', 'x.png'));
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a symlink loop instead of guessing', () => {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-loop-')));
+    try {
+      const isolated = path.join(base, 'ri-homes');
+      fs.mkdirSync(isolated);
+      fs.symlinkSync(path.join(isolated, 'b'), path.join(isolated, 'a'));
+      fs.symlinkSync(path.join(isolated, 'a'), path.join(isolated, 'b'));
+      const problems = checkResolvedPaths({ ...resolvedUnder(isolated), workDir: path.join(isolated, 'a') }, isolated, []);
+      expect(problems.join('\n')).toMatch(/workDir: Can't tell where/);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it('resolves a path that does not exist yet through its nearest existing parent', () => {
     const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-iso-canon-')));
     try {

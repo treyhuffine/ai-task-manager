@@ -136,7 +136,11 @@ export async function applyReferenceToHomeSetups(
   const previousDefault = before ? referenceValue(before) : undefined;
   const renamedFrom = before && before.alias !== ref.alias ? before.alias : null;
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const has = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 
+  // Agents this reference applies to: those whose effective reference under
+  // its (new) name is this one. An agent's own reference of the same name
+  // shadows a global one, exactly as sessions see it.
   const byDir = new Map<string, string[]>();
   for (const seen of ctx.observed) {
     if (ref.workspaceId && seen.agentId !== ref.workspaceId) continue;
@@ -151,7 +155,14 @@ export async function applyReferenceToHomeSetups(
   for (const [dir, agentIds] of byDir) {
     try {
       const current = readSetupFile(dir);
-      if (current.state !== 'ok') continue;
+      if (current.state === 'missing') {
+        failed.push({ dir, error: `${dir} has no setup file. Restore it, then map "${ref.alias}".` });
+        continue;
+      }
+      if (current.state === 'invalid') {
+        failed.push({ dir, error: current.problem });
+        continue;
+      }
       if (current.file.homeId !== ctx.homeId) {
         failed.push({ dir, error: `${dir}'s setup belongs to a different Ri home, so it was left alone.` });
         continue;
@@ -160,18 +171,33 @@ export async function applyReferenceToHomeSetups(
       const agents = { ...current.file.agents };
       for (const id of agentIds) {
         const entry = agents[id];
-        if (!entry) continue;
+        if (!entry) continue; // taken out of this folder on purpose: nothing to update
         const references = { ...entry.references };
-        // A rename carries this computer's own value to the new name.
-        const carried = renamedFrom !== null && renamedFrom in references ? references[renamedFrom] : undefined;
-        if (renamedFrom !== null && renamedFrom in references) delete references[renamedFrom];
-        const mapped = references[ref.alias] ?? carried;
+
+        // The mapping this computer already has for this reference. After a
+        // rename it is under the old name, but only if the old name belonged
+        // to this reference for this agent: an agent's own reference of that
+        // name keeps its mapping.
+        let present = false;
+        let mapped: ReferenceValue | undefined;
+        if (renamedFrom !== null && has(references, renamedFrom)) {
+          const oldOwner = listReferenceFoldersForWorkspace(id).find((r) => r.alias === renamedFrom);
+          if (!oldOwner) {
+            present = true;
+            mapped = references[renamedFrom];
+            delete references[renamedFrom];
+          }
+        }
+        if (has(references, ref.alias)) {
+          present = true;
+          mapped = references[ref.alias];
+        }
+
         // Follow the new value only where this computer never chose its own:
-        // unset, or still equal to the old default.
-        const follows = mapped === undefined || (previousDefault !== undefined && same(mapped, previousDefault));
-        const value = follows ? next : mapped;
-        if (value === null && follows) delete references[ref.alias];
-        else if (value !== undefined) references[ref.alias] = value;
+        // no mapping, or one still equal to the old default. An explicit
+        // omission (null) is a choice and stays.
+        const follows = !present || (previousDefault !== undefined && same(mapped, previousDefault));
+        references[ref.alias] = follows ? next : (mapped as ReferenceValue);
         if (!same(references, entry.references)) {
           agents[id] = { references };
           changed = true;

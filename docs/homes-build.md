@@ -124,6 +124,20 @@ An independent review ran the branch through `pnpm iso` in `/private/tmp`, and f
 
 The review agreed with the P0.3 runner design, and asked for the exact home and worker messages (command ids, placement generations, event positions, replay that can't double-count) to be written down before P2 code. They are in [P2 protocol](#p2-protocol-home-and-worker-messages).
 
+**Re-check at 8ad4a01.** Eight fixes were confirmed closed. Three were partial, with six new code cases now kept in `src/test/regressions/homes-recheck.test.ts`, and three protocol gaps. All are fixed:
+- A dangling symlink (one pointing at a file not yet created) still passed the launcher. Paths are now resolved one component at a time, following dangling and relative links, and a path that can't be resolved, such as a symlink loop, is refused.
+- Two reference bugs:
+  - A deliberate omission (`null`) was treated as unmapped and reset.
+  - Renaming a global reference took over an agent's own reference of the old name.
+
+  Both are fixed. A setup file that can't be updated is now reported as a failure, not skipped.
+- A rejected edit could already have moved the folder. The whole patch is validated first, and the move is undone if the database still refuses.
+- A failed cleanup of the old folder left the agent set up twice. The old folder is checked before anything is written, and the new one is put back if the cleanup still fails (`src/lib/setups/move-undo.test.ts`).
+- Three protocol gaps are now covered:
+  - durable command receipt, with recovery for every command kind;
+  - notifications queued in the event's own transaction, with sending to outside services stated as at-least-once;
+  - dedicated worker routes for attachments and artifacts, with the bytes stored before the event that refers to them is acknowledged.
+
 ## P2 protocol: home and worker messages
 
 Written before P2 code, as the review asked. It refines the P0.3 records below; where they differ, this section wins. It is the contract the worker, the home's routes, and the home's in-process runner all follow.
@@ -135,7 +149,7 @@ Written before P2 code, as the review asked. It refines the P0.3 records below; 
 
 ### Connection
 
-- `GET /api/workers/me/commands?after=<seq>` is a server-sent event stream. It sends `command`, `request` (an ephemeral read), `revoked`, and a keepalive `ping`. It resumes after the last command sequence the worker saw.
+- `GET /api/workers/me/commands?after=<seq>` is a server-sent event stream. It sends `command`, `request` (an ephemeral read), `revoked`, and a keepalive `ping`. `after` is the worker's durable receipt cursor (see Command receipt and recovery), never merely the last command it saw.
 - `POST /api/workers/me/commands/:id/ack` reports a command's delivery state.
 - `POST /api/workers/me/requests/:id/result` answers a read.
 - `POST /api/workers/me/events` delivers a batch of journaled events, and returns the highest contiguous position stored.
@@ -169,9 +183,31 @@ interface WorkerCommand {
 - **`send` carries everything to start or resume the session:**
   - the session spec (harness, model, permission mode and its provider config, instructions, reference aliases and descriptions, the orchestrator and connector servers with the session's token, first-turn brief), plus the chat's current native session id;
   - the text as the harness should receive it, with markers and sender label already applied;
-  - attachments as downloadable references, which the worker fetches onto its own disk. A home disk path is never sent;
+  - attachments as `{ fileName, originalName, mimeType, size, sha256 }`, which the worker downloads through the worker attachment route (see Attachments and artifacts). A home disk path is never sent;
   - the `runId` the home created for the turn.
 - **Reads are not commands.** Tree, file, diff, status, diff stats, folder discovery and history listing go as `request` with a timeout and are never persisted.
+
+### Command receipt and recovery
+
+Seeing a command on the stream is not receipt, and applying it is not acknowledgement: either can be cut off by a crash or a dropped connection. So both sides keep durable state.
+
+- **The worker journals every command before acting on it.** It is appended to `<workDir>/commands/<homeId>.jsonl` as `received` and flushed to disk. The worker's receipt cursor is the highest `seq` with a contiguous run of durable `received` records, and that cursor is what it asks the stream to resume after. A command id already in the journal is never applied twice: a replayed one gets its recorded outcome back.
+- **Each command then records what happened.** `started` goes in before a command with effects outside the journal (injecting a message, running a script, a Git operation). `finished`, with its result or error, goes in afterwards. The acknowledgement is sent only after `finished` is on disk.
+- **Acknowledgements are resent until the home confirms them.** The ack route is idempotent by command id and returns the state the home recorded. The worker keeps resending on reconnect until the recorded state matches.
+- **The home resends what wasn't acknowledged.** After a reconnect, `sent` commands with no ack go out again, and the worker's journal keeps them from being applied twice.
+- **After a worker restart,** each command left `received` or `started` without `finished` is recovered by kind:
+
+| Kind | Recovery |
+| --- | --- |
+| `send` | Look for the message in the native history: found is `delivered`, missing is `uncertain`. Never re-sent automatically |
+| `interrupt`, `stop_task`, `stop` | Safe to repeat. Re-apply if the placement is still this computer's |
+| `answer_pending_input` | Re-apply if the prompt with that request id is still pending, otherwise `stale` |
+| `prepare` | Idempotent by design: inspect the worktree. On the branch at the recorded checkpoint with setup done means done. Otherwise continue from the step it stopped at |
+| `write_setup` | Revision-checked: the file at the target revision means done, at the base revision means apply, anything else means conflict |
+| `run_script` | Not idempotent. `started` without `finished` is `uncertain`, shown with Retry, never re-run automatically. The one exception is a preview start: if its supervised process is alive, it's running |
+| `git` | Push: done if the remote ref equals the local one, otherwise push again, which is safe. Base update: done if the base is already merged. Checkpoint commit: done if HEAD is the recorded commit |
+
+- **The home's own runner keeps the same states** in `worker_commands`, writing `started` before and `finished` after each effect outside the database. After a home restart the same recovery table applies, using the home's own native history and worktrees.
 
 ### Fencing
 
@@ -212,13 +248,23 @@ interface WorkerEvent {
   - A cumulative part replaces only with a higher `partRevision`.
   - `turn_result` completes the run by `runId` only if it is still running, and records cost only on that transition.
   - `native_session` upserts the binding.
-- **Side effects run only after commit.** The realtime publish and notifications happen after the transaction. Notifications carry a dedupe key built from the run and the event (`notification_deliveries` is already unique on dedupe key and channel), so a replay after a crash between commit and notify sends nothing twice.
+- **Notifications are recorded in the same transaction as the event that causes them.** When an event completes a run, the pending `notification_deliveries` rows for its channels are inserted in that same transaction, with a key that names the thing itself: `run:<runId>:finished`, never a replay's event id. `notification_deliveries` is already unique on dedupe key and channel. The notifier is split in two: queueing inside the transaction, and sending pending rows after commit, at startup, and periodically. A crash between commit and send therefore loses nothing: the rows are waiting.
+- **Sending to outside services is at-least-once, not exactly-once.** The local rows guarantee each notification is queued exactly once and attempted until it's sent. But if the process dies after a provider (web push, Telegram) accepted a message and before the row is marked sent, it will be sent again. Where a provider accepts an idempotency key, the dedupe key is passed as that key.
+- **The realtime publish runs after commit.** It only refreshes screens, so a lost publish is corrected by the next read.
 - **Old generations stay history, not state.** An event from an older generation is still stored as history, because it happened. Its signals don't change running flags, pending prompts, or run state for the new placement.
+
+### Attachments and artifacts
+
+A worker key reaches only worker routes, and a session token only the agent servers, so files move through two worker routes of their own. Neither falls back to a viewing key or the home's key.
+
+- **Files the person attached, from the home to the worker:** `GET /api/workers/me/attachments/:fileName?command=<commandId>`. It is allowed only when the worker key's computer is that command's target, the command isn't stale, and the file name is in that command's payload. The worker checks the sha256, stores the file under `<workDir>/attachments/<placement>/`, outside the repository, and gives the harness that path.
+- **Files the agent produced, from the worker to the home:** `POST /api/workers/me/artifacts`. It accepts multipart uploads with a sha256, the same 50 MiB cap and type allowlist as `POST /api/attachments`, and only for a chat on a placement this computer holds. The home writes the bytes durably (a temp file, fsync, rename) and returns the `Attachment` record.
+- **Bytes before the event that refers to them.** The worker uploads first, then journals the chat event that carries the returned record. When the home applies that event, it checks each referenced file is on disk at the recorded size. If one isn't, the batch stops at that event (409), and the worker uploads again from its own copy before resending. So by the time an event is acknowledged, its files are at home. An upload whose event never arrives is swept after 7 days.
 
 ### Uncertain delivery
 
-- The worker writes `received` to its journal before injecting a `send`, and `injected` after the harness accepts it.
-- If it restarts between the two, it looks for the message in the native history. Found means `delivered`. Not found, or no history to check, means `uncertain`.
+- For a `send`, `started` is written before the message is injected and `finished` once the harness accepts it (Command receipt and recovery).
+- If the worker restarts between the two, it looks for the message in the native history. Found means `delivered`. Not found, or no history to check, means `uncertain`.
 - An uncertain send is shown as such, and is retried only when the person asks (P3.2). It is never retried automatically, which could run a turn twice.
 
 ### While the home is unreachable

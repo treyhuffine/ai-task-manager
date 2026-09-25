@@ -24,7 +24,7 @@ import {
   type ReferenceValue,
   type SetupFile,
 } from './local-file';
-import { listRegisteredLocations, moveLocation, registerLocation, unregisterLocation } from './registry';
+import { isRegistered, listRegisteredLocations, moveLocation, registerLocation, unregisterLocation } from './registry';
 import { resolveSetups, type SetupReport } from './resolve';
 
 export interface SetupAgentSummary {
@@ -162,21 +162,84 @@ export async function attach(link: SetupHomeLink, opts: AttachOptions): Promise<
     );
   }
 
+  // Before writing anything, make sure the old folder can be cleared too, so
+  // a move doesn't end half done with the agent set up in both.
+  const oldDir = previous ? path.resolve(previous.sourcePath) : null;
+  if (oldDir) assertCanClearAgent(oldDir, agent.id, ctx);
+
   // The new folder first.
+  const wasRegistered = isRegistered(dir);
   const current = readOwned(dir, ctx.homeId);
+  let written: string | null = null;
   if (!current?.file.agents[agent.id]) {
     const next: SetupFile = current
       ? { ...current.file, agents: { ...current.file.agents, [agent.id]: { references: opts.references ?? {} } } }
       : { version: 1, homeId: ctx.homeId, agents: { [agent.id]: { references: opts.references ?? {} } } };
-    writeSetupFile(dir, next, current?.revision ?? null);
+    written = writeSetupFile(dir, next, current?.revision ?? null);
   }
   registerLocation(dir);
 
-  // Then clear the old one, only now that the new one exists.
-  if (previous) removeAgentFrom(path.resolve(previous.sourcePath), agent.id, ctx);
+  // Then clear the old one. If that still fails, put the new folder back as
+  // it was, so the agent keeps exactly one setup here.
+  if (oldDir) {
+    try {
+      removeAgentFrom(oldDir, agent.id, ctx);
+    } catch (err) {
+      undoAttach(dir, { written, previousFile: current?.file ?? null, wasRegistered });
+      throw new SetupError(
+        `Couldn't clear ${agent.name}'s setup in ${oldDir} (${err instanceof Error ? err.message : String(err)}). ` +
+          'The new folder was put back as it was, so nothing changed.',
+      );
+    }
+  }
 
   const reports = await syncSetups(link, ctx);
   return reports.find((r) => r.agentId === agent.id)!;
+}
+
+/**
+ * Refuse, before anything is written, a move whose old folder can't be
+ * cleared: its setup file can't be read, belongs to another home, or sits in
+ * a folder this process can't write to.
+ */
+function assertCanClearAgent(dir: string, agentId: string, ctx: SetupContext): void {
+  const read = readSetupFile(dir);
+  if (read.state === 'missing') return;
+  if (read.state === 'invalid') {
+    throw new SetupError(`${read.problem} Fix or restore it before moving this agent. Nothing was changed.`);
+  }
+  if (read.file.homeId !== ctx.homeId || !read.file.agents[agentId]) return;
+  try {
+    fs.accessSync(dir, fs.constants.W_OK);
+  } catch {
+    throw new SetupError(`${dir} can't be written to, so this agent's setup there can't be cleared. Nothing was changed.`);
+  }
+}
+
+/**
+ * Put a destination back the way `attach` found it, but only if it still
+ * holds exactly what `attach` wrote. A file someone has changed since is left
+ * alone. Restoring an earlier file is revision-checked by `writeSetupFile`.
+ * Removing a file `attach` created checks the revision first, which leaves a
+ * moment between check and delete: a hand edit landing exactly then would be
+ * lost. That window is milliseconds on a failure path, and closing it would
+ * need a lock every other writer honors.
+ */
+function undoAttach(
+  dir: string,
+  state: { written: string | null; previousFile: SetupFile | null; wasRegistered: boolean },
+): void {
+  try {
+    if (state.written) {
+      const now = readSetupFile(dir);
+      if (now.state === 'ok' && now.revision === state.written) {
+        if (state.previousFile) writeSetupFile(dir, state.previousFile, state.written);
+        else fs.rmSync(path.join(dir, SETUP_FILE));
+      }
+    }
+  } finally {
+    if (!state.wasRegistered) unregisterLocation(dir);
+  }
 }
 
 /**
