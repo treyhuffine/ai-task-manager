@@ -107,6 +107,8 @@ export async function GET(request: NextRequest) {
         ackedEventSeq: getAckedEventSeq(worker.computer.id),
       });
       pump();
+      // Terminal history imported from this computer catches up (P2.9).
+      void import('@/lib/import/remote').then(({ syncRemoteImportsOn }) => syncRemoteImportsOn(worker.computer.id)).catch(() => {});
     },
     cancel() {
       cleanup?.();

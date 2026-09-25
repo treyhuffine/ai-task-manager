@@ -91,10 +91,15 @@ export class UnsupportedRequestError extends Error {
 export function defaultRequestHandler(
   describe: () => Promise<WorkerHarnessReport[]> = () => describeHarnesses({ refresh: true }),
 ): RequestHandler {
-  return async (kind) => {
+  return async (kind, payload) => {
     switch (kind) {
       case 'describe_harnesses':
         return describe();
+      // Terminal history on this computer, for the home to import (P2.9).
+      case 'list_history':
+        return (await import('./history')).listHistory();
+      case 'read_history':
+        return (await import('./history')).readHistory(payload as import('./history').ReadHistoryRequest);
       default:
         throw new UnsupportedRequestError(kind);
     }

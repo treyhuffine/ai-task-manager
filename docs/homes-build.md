@@ -646,7 +646,42 @@ P2.8 tests each fault the spec names, end to end where it matters, with the work
 - Tests: `faults.test.ts` (4): the home stops mid-turn and restarts on the same address, and the turn's output and completed run arrive. Turning off a crashed laptop's execution fails its turn under way and cancels its waiting message. A stopped worker's prompt leaves the home and can't be answered. A crashed worker's prompt is answered stale after it restarts, its turn reported cut off. `leftovers.test.ts` (1): real orphaned processes, only this worker's stopped.
 - Live on the dev home: the stand-in's worker was killed with SIGKILL while real Claude ran a 60-second command. The Claude process stayed running, orphaned. On restart the worker logged `stopped 1 harness process(es) left running by an earlier worker`, the process was gone, and the run failed within four seconds with the restart message.
 
-## P2 review fixes
+## P2.9 Terminal history from connected computers
+
+P2.9 imports terminal sessions a person picks from a connected computer, read-only, reusing the home's own history import (`src/lib/import/external-agents.ts`) on the computer that has the native files.
+
+### What moves to the computer, and what stays
+
+- **Discovery and reading are split out, with no database** (`src/lib/import/history-source.ts`): listing a harness's sessions through agentex, and reading one transcript from a byte offset. The home runs them for its own files, and a worker runs them for its own. The rest of the importer (the ledger, the chat, the windowed commits) stays at home.
+- **Two requests, never commands.** `list_history` returns each session's key, harness, id, title, folder, times and branch: what a person needs to choose, and never a transcript or its path. `read_history` returns one window of a selected session's events, from an offset the home names, with the size and a hash of the transcript up to where it stopped. Only what's selected is read, and only by the home's asking. Nothing else leaves the computer.
+- **The same checks as at home.** The home sends the size and hash of what it already has. If the computer's transcript no longer starts with those bytes (rewritten, truncated, replaced), the read starts over from zero and the home replaces what it had, as the home's own sync does.
+
+### At home
+
+- **Identity is qualified by computer.** The import ledger gets `computer_id` (null for the home's own), and its uniqueness becomes (computer, harness, native id), so the same native id on two computers is two sessions. Migration: a nullable column and a replaced index, no table rebuild.
+- **Into an agent set up on that computer.** A session imports into the agent whose folder on that computer is the session's folder (its setup report). A session from any other folder is listed with the fix (set the folder up as an agent there first), since an agent with no folder at home comes with P3.1.
+- **Known sessions aren't imported twice.** A session Ri already runs on that computer (an execution there whose native session is that id) is shown as Ri's own. One already imported is synced instead.
+- **Placed where it lives.** The imported execution has a placement on that computer, so its folder views go to that worker and nothing at home reconciles it as local. It's read-only here: no "Continue here", which would move a session between computers (P4).
+- **Freshness.** Opening the chat, and the background sweep, read what's new from the computer when it's connected. When it isn't, the chat keeps what was imported and when it was last synced.
+- **Harnesses.** Claude and Codex keep their history in files, which the worker reads. OpenCode serves its history from a running OpenCode process, so its sessions on a connected computer are listed but not imported yet.
+
+### What a listing shows
+
+Each session's title is what a person chooses by. agentex takes it from the harness's own title, or else the first prompt, as it does for the home's own imports. The listing also carries each transcript's size, so an import is judged current when the home holds all of it, as at home. It never carries a transcript's path or any of the conversation beyond the title.
+
+### Also found and fixed
+
+- `external-agents.ts` had a raw NUL byte in a template string, the one byte its own comments say it avoids, which made `grep` treat the file as binary. It's an escape now, the same string.
+
+### As built
+
+- `src/lib/import/history-source.ts`: discovery, candidates, key parsing, the prefix digest and event mapping moved from `external-agents.ts` unchanged, plus `listedSession` and `readHistoryWindow`. `src/lib/worker/history.ts` answers `list_history` and `read_history`, among the requests every worker answers.
+- `src/lib/import/remote.ts`: `discoverRemoteSessions`, `importRemoteSessions`, `syncRemoteImport`, `syncRemoteImportsOn`. The home's own importer ignores imports from other computers and sends their syncs here. `GET` and `POST /api/imports/agents` take a computer, and "Continue here" is refused for a session that lives elsewhere, saying where.
+- Migration 0007: `external_session_imports.computer_id` and the two partial unique indexes. No table rebuild.
+- The import panel has a picker for whose history (this computer, or a connected one). It says which agent each folder imports into, and why a row can't be imported.
+- Not yet: the chat view doesn't say which computer an execution is on. Pressing "Continue here" on an import from elsewhere shows the refusal. Showing it up front belongs to P3.5's owner-computer views.
+- Tests: `remote-history.test.ts` (4), with the worker in its own process and its own Claude history. The listing has nothing of a transcript's content or place. A chosen session imports read-only into the agent there, placed on that computer, and only that one: one Ri runs there is recognized, and one from another folder is refused with the fix. It syncs what's new, starts over when the transcript was rewritten, keeps what it has while the computer is away, and its status tracks how much of the transcript the home holds. The same native id on two computers is two imports. The home's own importer tests pass unchanged.
+- Live on the dev home, after its restart applied 0007 (snapshot first, all 201 chat events kept): the stand-in's real Claude history listed 516 sessions in 76 folders, 9 of them recognized as Ri's own, with no transcript path. A terminal session run in the Demo agent's folder imported into Demo with both messages. Continuing it in the terminal and opening the chat at home brought the new exchange. "Continue here" was refused with where it lives. The panel, screenshotted, showed the picker, "Imports into the Demo agent", the reason on other folders, and "Imported" once synced.
 
 ## P2 review fixes
 

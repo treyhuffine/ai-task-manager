@@ -32,7 +32,7 @@ export const WORKER_STREAM_PING_MS = 15_000;
 export const WORKER_REQUEST_TIMEOUT_MS = 15_000;
 
 /** Reads the home can ask a worker. Never persisted. */
-export type WorkerRequestKind = 'describe_harnesses' | 'read_execution';
+export type WorkerRequestKind = 'describe_harnesses' | 'read_execution' | 'list_history' | 'read_history';
 
 /**
  * Read an execution placed on the worker's computer. It names the execution,

@@ -6698,9 +6698,11 @@ export function updateChatSession(id: string, input: UpdateChatSessionInput): Ch
   return row ?? null;
 }
 
+/** An import by its native session: on the home's own computer, or on a connected one (P2.9). */
 export function getExternalSessionImportBySource(
   providerType: string,
   externalSessionId: string,
+  computerId: string | null = null,
 ): ExternalSessionImportRecord | undefined {
   const db = getDb();
   return db
@@ -6709,6 +6711,7 @@ export function getExternalSessionImportBySource(
     .where(and(
       eq(externalSessionImports.providerType, providerType),
       eq(externalSessionImports.externalSessionId, externalSessionId),
+      computerId === null ? isNull(externalSessionImports.computerId) : eq(externalSessionImports.computerId, computerId),
     ))
     .get();
 }

@@ -1530,6 +1530,9 @@ export const externalSessionImports = sqliteTable(
       .references(() => chatSessions.id, { onDelete: 'cascade' }),
     providerType: text().notNull(),
     externalSessionId: text().notNull(),
+    // The computer whose native files these are (docs/homes-build.md, P2.9).
+    // Null: the home's own. A session's identity is (computer, provider, id).
+    computerId: text().references((): AnySQLiteColumn => computers.id),
     sourceKind: text({ enum: ['file', 'service'] }).notNull(),
     sourcePath: text(),
     sourceSize: integer(),
@@ -1547,10 +1550,15 @@ export const externalSessionImports = sqliteTable(
     lastError: text(),
   },
   (table) => [
-    uniqueIndex('external_session_imports_source_uq').on(
-      table.providerType,
-      table.externalSessionId,
-    ),
+    // One import per native session: per provider on the home's own
+    // computer, and per computer and provider on a connected one. Two partial
+    // indexes, since SQLite treats every NULL as distinct.
+    uniqueIndex('external_session_imports_source_uq')
+      .on(table.providerType, table.externalSessionId)
+      .where(sql`${table.computerId} IS NULL`),
+    uniqueIndex('external_session_imports_remote_source_uq')
+      .on(table.computerId, table.providerType, table.externalSessionId)
+      .where(sql`${table.computerId} IS NOT NULL`),
     index('external_session_imports_status_idx').on(table.status),
   ],
 );

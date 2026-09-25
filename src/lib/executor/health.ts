@@ -32,6 +32,7 @@ import {
   listRecentChatEvents,
 } from '@/lib/db/queries';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
+import { getExternalSessionImportForChat } from '@/lib/db/queries';
 import { actorOfMessage } from '@/lib/auth/actor';
 import type { ChatEventRecord, ChatEventSource, Attachment } from '@/db/types';
 import {
@@ -143,8 +144,10 @@ export async function healthCheckSession(
   const remote = !!placement && !placement.isHome;
 
   // 1. DB ↔ transcript. reconcileSession is itself idempotent and
-  //    deduped — calling it from multiple triggers is safe.
-  if (!remote) {
+  //    deduped — calling it from multiple triggers is safe. A session
+  //    imported from a connected computer is synced from there, through the
+  //    importer (P2.9).
+  if (!remote || getExternalSessionImportForChat(sessionId)?.computerId) {
     try {
       const recon = await reconcileSession(sessionId);
       replayed = recon.replayed;

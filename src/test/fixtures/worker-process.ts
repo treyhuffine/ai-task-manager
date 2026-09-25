@@ -118,6 +118,8 @@ export async function startWorkerProcess(args: {
   homeId: string;
   workerKey: string;
   root: string;
+  /** Environment for that computer, such as where its harnesses keep their history. */
+  env?: Record<string, string>;
 }): Promise<WorkerProcess> {
   const repo = path.resolve(__dirname, '../../..');
   // Node itself, with tsx's loader, rather than the tsx wrapper: the wrapper
@@ -125,7 +127,7 @@ export async function startWorkerProcess(args: {
   // would kill only the wrapper and leave the worker running.
   const child = spawn(process.execPath, ['--import', 'tsx', path.join(repo, 'src/test/fixtures/worker-process.ts'), args.homeUrl, args.homeId, args.workerKey, args.root], {
     cwd: repo,
-    env: { ...process.env, NODE_OPTIONS: '' },
+    env: { ...process.env, NODE_OPTIONS: '', ...args.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
