@@ -595,6 +595,8 @@ An independent review of P0 and P1 at 46a2b02 found 11 issues (4 high, 7 medium)
 
 **Dogfood gate A:** capture and edit real tasks/notes from laptop and phone against one home. Attach both folder layouts to one Ri agent. No duplicate home or agent is created, and no recurring path selection is required.
 
+Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. There's one home, and the Ri agent is ready in both layouts. The MacBook is connected with no database of its own, and its folder and reference were each chosen once. See the [build notes](homes-build.md#dogfood-gate-a-the-real-laptop-and-phone).
+
 ### P2. Local execution with shared conversation
 
 - [ ] P2.1 Split machine execution from home persistence, scheduling, and notifications while keeping the in-process home runner working.

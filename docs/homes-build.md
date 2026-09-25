@@ -281,7 +281,20 @@ A worker key reaches only worker routes, and a session token only the agent serv
 
 ## Dogfood gate A: the real laptop and phone
 
-Automated coverage used a stand-in laptop on the Mac Mini (`~/ri-homes-laptop`). The gate itself needs the real devices. Status: **pending Trey's check**.
+Automated coverage used a stand-in laptop on the Mac Mini (`~/ri-homes-laptop`). The gate itself needs the real devices. Status: **passed on 2026-09-25**, on the real MacBook and iPhone.
+
+Checked afterwards in the dev home's database and log:
+
+- One `home` row. No second home was created.
+- The MacBook registered as its own computer under the MacBook CLI key, and was renamed "MacBook". The key is bound to that computer.
+- The Ri agent has two setups, both ready: the Mini's `~/ri-homes-projects/ai-task-manager` with agentex at `../code/agentex`, and the MacBook's `~/ri-homes-projects/dynamism/ri` with agentex at `../agentex`. The folder and the reference were each given once, in one `setup attach`.
+- The task created in the MacBook's terminal is in the home. Every terminal step reached the home's action route, and none ran locally.
+- The browser and the phone each signed in with their own key, both used today. A note was created and edited, and a task was created and started, in the app. The log can't say which device made each write.
+- `~/ri-homes-connected` holds no database. It isn't inspected directly: after `connect` wrote the connection record, any database open there would have been refused, and every later command succeeded.
+
+Found while testing: the dev server blocked its live-reload socket for the Beamd address, because `*.beamd.run` was missing from `allowedDevOrigins`. It's added now. Production builds ignore the option.
+
+Still to do: revoke the three dev pairing keys in the dev home's Settings, Devices, once they're no longer needed. The stand-in computers from the automated checks ("MacBook (stand-in)" and "AI Mac Mini") are fixture records on the dev home only.
 
 The dev home runs on the Mac Mini at `https://ri-homes-trey.beamd.run` (Beamd name `ri-homes`, beside production's `ri`, which is untouched). It has a dev "Ri" agent set up on the Mini at `~/ri-homes-projects/ai-task-manager`, with agentex at `../code/agentex`. Pairing keys for a phone, the MacBook's CLI and the MacBook's browser were minted on the dev home. Revoke them in its Settings, Devices after testing.
 
