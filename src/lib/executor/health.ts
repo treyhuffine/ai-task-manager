@@ -219,10 +219,8 @@ export async function healthCheckSession(
       }
       redispatchThrottle.lastAttempt.set(sessionId, now);
       try {
-        const expanded = await expandMarkers(
-          activity.orphan.content ?? '',
-          (activity.orphan.attachments ?? []) as Attachment[],
-        );
+        const attachments = (activity.orphan.attachments ?? []) as Attachment[];
+        const expanded = await expandMarkers(activity.orphan.content ?? '', attachments);
         // Fire-and-forget: awaiting the full turn would block the
         // sweep for minutes. Errors are logged and the throttle
         // prevents thrash if dispatch keeps failing.
@@ -231,6 +229,7 @@ export async function healthCheckSession(
         // computer's queue, this finds that command instead of sending twice.
         void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId), {
           sourceEventId: activity.orphan.id,
+          attachments,
         }).catch((err) => {
           console.error(`[health] orphan redispatch failed for ${sessionId}:`, err);
         });

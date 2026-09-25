@@ -32,7 +32,7 @@ import {
   markRunStarted as markRunStartedRow,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
-import type { PermissionMode, WorkerCommandActor } from '@/db/types';
+import type { Attachment, PermissionMode, WorkerCommandActor } from '@/db/types';
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
@@ -56,6 +56,7 @@ import { activeSendCount } from './live-state';
 import { runnerFor } from './placement';
 import { buildSessionSpec } from './session-spec';
 import { harnessCapabilitiesOn, workingFolderOn } from './computers';
+import { describeInputFiles, placeFilesAtHome } from './input-files';
 import { awaitTurn, forgetTurn } from './turns';
 
 installHomeSink();
@@ -131,6 +132,11 @@ export interface DispatchOptions {
   sourceEventId?: string | null;
   /** Who is sending, from the caller's credentials. */
   actor?: WorkerCommandActor;
+  /**
+   * The message's files. Their `[[file:]]` markers become paths on the
+   * computer the chat runs on, which is known only here (P2.5).
+   */
+  attachments?: Attachment[];
 }
 
 /**
@@ -353,14 +359,19 @@ async function deliver(
     const runner = runnerFor(chatSessionId);
     // A live session here needs no spec, so a follow-up does no spec work. A
     // connected computer always gets one.
+    // Attached files: paths here for a chat at home. A connected computer
+    // gets the markers as they are and the files beside them, and places
+    // its own copies.
+    const attachments = options.attachments ?? [];
     const request: SendRequest = {
       chatSessionId,
-      message: userMessage,
+      message: remote ? userMessage : placeFilesAtHome(userMessage, attachments),
       turnId,
       runId,
       spec: !remote && isHarnessSessionAlive(chatSessionId) ? null : await buildSpec(),
       sourceEventId: options.sourceEventId ?? null,
       actor: options.actor,
+      files: remote ? await describeInputFiles(userMessage, attachments) : undefined,
     };
     let sent = await runner.send(request);
     if (sent.status === 'needs_spec') {

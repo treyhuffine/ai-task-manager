@@ -23,10 +23,11 @@ import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import * as runner from '@/lib/runner/local-runner';
 import type { SessionSpec } from '@/lib/runner/types';
-import type { ReadExecutionRequest, WorkerCommand, WorkerCommandAckBody } from '@/lib/workers/protocol';
+import type { ReadExecutionRequest, SendPayload, WorkerCommand, WorkerCommandAckBody } from '@/lib/workers/protocol';
 import { readExecution } from '@/lib/workspaces/execution-reads';
 import type { CommandJournal } from './command-journal';
-import type { CommandHandlers, CommandKindHandler } from './commands';
+import type { CommandContext, CommandHandlers, CommandKindHandler } from './commands';
+import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
 
 const run = promisify(execFile);
@@ -76,13 +77,6 @@ async function gitOut(cwd: string, args: string[]): Promise<string | null> {
 
 function tail(text: string, lines = 40): string {
   return text.split('\n').slice(-lines).join('\n');
-}
-
-interface SendPayload {
-  spec: SessionSpec;
-  message: string;
-  turnId: string;
-  runId: string | null;
 }
 
 export interface ExecutionHandlerOptions {
@@ -203,6 +197,13 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
     return handler;
   };
 
+  const filesDir = (command: WorkerCommand, ctx: CommandContext) => inputFilesDir(ctx.target.homeId, chatOf(command));
+  /** The text as this computer's harness gets it: this computer's path where each sent file's marker was. */
+  const placedMessage = (command: WorkerCommand, ctx: CommandContext) => {
+    const payload = command.payload as SendPayload;
+    return placeInputFiles(payload.message, filesDir(command, ctx), payload.attachments ?? []);
+  };
+
   const send: CommandKindHandler = {
     async run(command, ctx) {
       if (fenced(journal, command)) return stale(command);
@@ -214,13 +215,23 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
         if (!prepared) return { state: 'failed', error: "This execution wasn't prepared on this computer." };
         payload.spec = { ...payload.spec, cwd: prepared };
       }
+      // Its files first, so the message never names one that isn't here.
+      // Fetching is safe to repeat, so it happens before `started`.
+      const files = payload.attachments ?? [];
+      if (files.length > 0) {
+        try {
+          await fetchInputFiles({ target: ctx.target, commandId: command.id, dir: filesDir(command, ctx), files });
+        } catch (err) {
+          return failure(err);
+        }
+      }
       // `started` before the message goes in: from here, a crash leaves the
       // outcome to be checked against the native history, never re-sent.
       ctx.markStarted();
       try {
         const sent = await runner.send({
           chatSessionId: chatOf(command),
-          message: payload.message,
+          message: placedMessage(command, ctx),
           turnId: payload.turnId,
           runId: payload.runId,
           spec: payload.spec,
@@ -237,7 +248,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       if (stage === 'received') return send.run(command, ctx);
       if (fenced(journal, command)) return stale(command);
       const payload = command.payload as SendPayload;
-      const found = await findInHistory(payload.spec, payload.message);
+      const found = await findInHistory(payload.spec, placedMessage(command, ctx));
       if (found === 'found') return { state: 'delivered', result: { reconciled: true } };
       return {
         state: 'uncertain',

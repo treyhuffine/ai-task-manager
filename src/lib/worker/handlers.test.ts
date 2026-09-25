@@ -28,16 +28,30 @@ vi.mock('@/lib/workspaces/index', async (importOriginal) => ({
   }),
 }));
 
+const inputFiles = vi.hoisted(() => ({ fetched: [] as unknown[], fail: null as string | null }));
+vi.mock('./input-files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./input-files')>()),
+  fetchInputFiles: vi.fn(async (args: { commandId: string; dir: string; files: unknown[] }) => {
+    if (inputFiles.fail) throw new Error(inputFiles.fail);
+    inputFiles.fetched.push({ commandId: args.commandId, dir: args.dir, files: args.files });
+  }),
+}));
+
 let dir: string;
 const savedConfigDir = process.env.RI_CONFIG_DIR;
+const savedWorkDir = process.env.RI_WORK_DIR;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-handlers-'));
   scripts.runs = 0;
+  inputFiles.fetched = [];
+  inputFiles.fail = null;
   for (const fn of Object.values(runner)) fn.mockClear();
 });
 afterEach(() => {
   if (savedConfigDir === undefined) delete process.env.RI_CONFIG_DIR;
   else process.env.RI_CONFIG_DIR = savedConfigDir;
+  if (savedWorkDir === undefined) delete process.env.RI_WORK_DIR;
+  else process.env.RI_WORK_DIR = savedWorkDir;
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -98,6 +112,44 @@ describe('send', () => {
     const old = command('send', { spec, message: 'late', turnId: 't', runId: null }, 1, 2);
     expect(await handlers.send!.run(old, ctx(old))).toMatchObject({ state: 'stale' });
     expect(runner.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('a send with attached files', () => {
+  const file = { fileName: '01a0d926-176a-7692-b128-cd01e081f348.png', originalName: 'photo.png', mimeType: 'image/png', size: 3, sha256: 'x' };
+  const withFile = () => command('send', { spec, message: `look at [[file:${file.fileName}]]`, turnId: 't', runId: null, attachments: [file] });
+
+  it("fetches them before anything goes in, and the harness gets this computer's path", async () => {
+    process.env.RI_WORK_DIR = path.join(dir, 'work');
+    const { handlers, ctx } = await setup();
+    const c = withFile();
+    expect(await handlers.send!.run(c, ctx(c))).toMatchObject({ state: 'delivered' });
+    expect(inputFiles.fetched).toEqual([{ commandId: c.id, dir: path.join(dir, 'work', 'attachments', 'home-1', 'chat-1'), files: [file] }]);
+    const placed = `look at ${path.join(dir, 'work', 'attachments', 'home-1', 'chat-1', file.fileName)}`;
+    expect(runner.send).toHaveBeenCalledWith(expect.objectContaining({ message: placed }));
+  });
+
+  it("fails without starting when a file can't be brought here", async () => {
+    inputFiles.fail = "Couldn't fetch photo.png from Home: photo.png is no longer at home.";
+    const { journal, handlers, ctx } = await setup();
+    const c = withFile();
+    journal.received(c);
+    expect(await handlers.send!.run(c, ctx(c))).toEqual({ state: 'failed', error: inputFiles.fail });
+    expect(journal.get(c.id)?.stage).toBe('received');
+    expect(runner.send).not.toHaveBeenCalled();
+  });
+
+  it('after a restart, looks for the message as the harness got it', async () => {
+    process.env.RI_WORK_DIR = path.join(dir, 'work');
+    const looked: string[] = [];
+    const { handlers, ctx } = await setup(async (_spec, message) => {
+      looked.push(message);
+      return 'found';
+    });
+    const c = withFile();
+    expect(await handlers.send!.recover(c, 'started', ctx(c))).toMatchObject({ state: 'delivered' });
+    expect(looked).toEqual([`look at ${path.join(dir, 'work', 'attachments', 'home-1', 'chat-1', file.fileName)}`]);
+    expect(inputFiles.fetched).toEqual([]);
   });
 });
 

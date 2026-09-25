@@ -13,6 +13,7 @@ import type { WorkerCommandActor, WorkerCommandKind } from '@/db/types';
 import { chatPlacement, queueWorkerCommand } from '@/lib/db/queries';
 import type { ExecutionRunner } from '@/lib/runner/types';
 import { wakeComputer } from '@/lib/workers/hub';
+import type { SendPayload } from '@/lib/workers/protocol';
 import { listForSession } from './live-state';
 
 const SYSTEM: WorkerCommandActor = { source: 'system' };
@@ -47,12 +48,14 @@ export function remoteRunnerFor(computerId: string): ExecutionRunner {
       // A computer elsewhere may have no session for the chat yet, or a
       // stale one: it always gets the spec.
       if (!req.spec) return { status: 'needs_spec' };
-      const command = queue(
-        req.chatSessionId,
-        'send',
-        { spec: req.spec, message: req.message, turnId: req.turnId, runId: req.runId },
-        { actor: req.actor, sourceEventId: req.sourceEventId },
-      );
+      const payload: SendPayload = {
+        spec: req.spec,
+        message: req.message,
+        turnId: req.turnId,
+        runId: req.runId,
+        attachments: req.files ?? [],
+      };
+      const command = queue(req.chatSessionId, 'send', payload, { actor: req.actor, sourceEventId: req.sourceEventId });
       return { status: 'queued', commandId: command.id };
     },
     async interrupt(chatSessionId) {

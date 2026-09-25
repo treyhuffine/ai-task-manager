@@ -69,6 +69,22 @@ export interface SendRequest {
   sourceEventId?: string | null;
   /** Who is sending, from the caller's credentials. */
   actor?: WorkerCommandActor;
+  /**
+   * For a chat on a connected computer: the files the message's markers
+   * name, which its worker fetches and places (P2.5). The home's own runner
+   * gets their paths in the message instead.
+   */
+  files?: InputFile[];
+}
+
+/** A file sent with a message to a computer elsewhere, as the home has it. */
+export interface InputFile {
+  fileName: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  /** Hex sha256 of the bytes, which the receiving computer checks. */
+  sha256: string;
 }
 
 export type SendResult =

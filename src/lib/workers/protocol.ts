@@ -13,7 +13,7 @@ import type {
   WorkerReportedState,
 } from '@/db/types';
 import type { PendingInput } from '@/lib/runner/pending';
-import type { RunnerSignal } from '@/lib/runner/types';
+import type { InputFile, RunnerSignal, SessionSpec } from '@/lib/runner/types';
 
 /** The protocol this build speaks. A home refuses a worker on another one with 426. */
 export const WORKER_PROTOCOL = 1;
@@ -52,6 +52,21 @@ export interface WorkerCommand {
   payload: unknown;
 }
 
+/**
+ * What a `send` carries (P2 protocol, Commands): everything to start or
+ * resume the session, and the text with its file markers still in, beside
+ * the files they name. The worker fetches each file through the worker
+ * attachment route, checks it, and puts its own path where its marker was.
+ * A home disk path is never sent.
+ */
+export interface SendPayload {
+  spec: SessionSpec;
+  message: string;
+  turnId: string;
+  runId: string | null;
+  attachments: InputFile[];
+}
+
 export type WorkerCommandAckState = 'delivered' | 'failed' | 'stale' | 'uncertain';
 
 export interface WorkerCommandAckBody {
@@ -60,8 +75,13 @@ export interface WorkerCommandAckBody {
   error?: string | null;
 }
 
-/** A chat event as a worker journals it. The envelope names the chat; the row never does. */
-export type WorkerChatEvent = Omit<CreateChatEventInput, 'sessionId' | 'id'>;
+/**
+ * A chat event as a worker journals it. The envelope names the chat; the row
+ * never does. It names no files: a computer's files reach home only through
+ * the artifact upload, which comes with the first output Ri keeps
+ * (docs/homes-build.md, P2.5).
+ */
+export type WorkerChatEvent = Omit<CreateChatEventInput, 'sessionId' | 'id' | 'attachments'>;
 
 /** One entry of a worker's event journal (P2 protocol, Events). */
 export type WorkerEvent = {

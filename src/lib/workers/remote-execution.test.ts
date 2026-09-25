@@ -21,13 +21,14 @@ let laptopRoot: string;
 let computerId: string;
 let executionId: string;
 let chatId: string;
+let homeId: string;
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-remote-exec-' });
   laptopRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-remote-laptop-'));
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  const homeId = identity.ensureHomeIdentity().home.id;
+  homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
   const laptop = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
   computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
@@ -109,6 +110,36 @@ describe('an execution on a connected computer', () => {
     const [command] = q.listWorkerCommands(computerId);
     expect(command).toMatchObject({ kind: 'send', state: 'delivered', sourceEventId: message.id, generation: 1 });
     expect(q.getChatSession(chatId)?.externalSessionId).toMatch(/^fake-/);
+  }, 60_000);
+
+  it('gives the agent there its own copy of each attached file, and never a path at home', async () => {
+    const { dispatch } = await import('@/lib/executor/adapter');
+    const { saveAttachment } = await import('@/lib/attachments/save');
+    const { expandMarkers } = await import('@/lib/attachments/expand-markers');
+    const { getAttachmentsDir } = await import('@/lib/config/paths');
+    const q = await import('@/lib/db/queries');
+    const notes = await saveAttachment({ data: Buffer.from('shopping list'), originalName: 'notes.txt', mimeType: 'text/plain' });
+    const content = `read [[file:${notes.fileName}]]`;
+    const message = q.insertChatEvent({
+      sessionId: chatId,
+      role: 'user',
+      source: 'user',
+      content,
+      attachments: [notes],
+      createdAt: new Date().toISOString(),
+    })!;
+    // What the messages route does.
+    await dispatch(chatId, await expandMarkers(content, [notes]), { sourceEventId: message.id, attachments: [notes] });
+
+    const copy = path.join(laptopRoot, '.work', 'attachments', homeId, chatId, notes.fileName);
+    expect(q.listChatEvents(chatId).some((e) => e.content === `ok: read ${copy}`)).toBe(true);
+    expect(fs.readFileSync(copy, 'utf8')).toBe('shopping list');
+    const [command] = q.listWorkerCommands(computerId);
+    expect(command!.payload).toMatchObject({
+      message: content,
+      attachments: [{ fileName: notes.fileName, originalName: 'notes.txt', size: 13, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) }],
+    });
+    expect(JSON.stringify(command!.payload)).not.toContain(getAttachmentsDir());
   }, 60_000);
 
   it('sends a message once, however many paths try', async () => {

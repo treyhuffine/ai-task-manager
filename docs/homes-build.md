@@ -273,7 +273,8 @@ interface WorkerEvent {
 
 A worker key reaches only worker routes, and a session token only the agent servers, so files move through two worker routes of their own. Neither falls back to a viewing key or the home's key.
 
-- **Files the person attached, from the home to the worker:** `GET /api/workers/me/attachments/:fileName?command=<commandId>`. It is allowed only when the worker key's computer is that command's target, the command isn't stale, and the file name is in that command's payload. The worker checks the sha256, stores the file under `<workDir>/attachments/<placement>/`, outside the repository, and gives the harness that path.
+- **Files the person attached, from the home to the worker:** `GET /api/workers/me/attachments/:fileName?command=<commandId>`. It is allowed only when the worker key's computer is that command's target, the command isn't stale, and the file name is in that command's payload. The worker checks the sha256, stores the file under `<workDir>/attachments/<homeId>/<chat>/`, outside the repository, and gives the harness that path. Built in P2.5.
+- **Files an agent produced** follow the rules below once Ri keeps any. Today it keeps none (P2.5), so they aren't built yet, and the home drops any file a computer's chat event names.
 - **Files the agent produced are kept on the worker first.** When the harness produces a file, the worker mints its home file name there and then (`<UUIDv7>.<ext>`, the attachments naming). It copies the bytes to `<workDir>/artifacts/<homeId>/<fileName>` and flushes them to disk, and only then journals the chat event carrying the `Attachment` record with its sha256. Both are on the worker's disk before anything goes to the home. So an outage or a crash loses neither, and a turn that keeps running while the home is unreachable keeps its files.
 - **Uploaded under that name, idempotently:** `PUT /api/workers/me/artifacts/:fileName`, with the sha256 and the same 50 MiB cap and type allowlist as `POST /api/attachments`. The home accepts it only for a name in the attachments format, and only for a chat on a placement this computer held at the event's generation (`execution_placements`). It writes the bytes durably (a temp file, fsync, rename). The same name with the same sha256 again succeeds and changes nothing. The same name with different bytes is refused. A retry therefore repairs the file the journal already names, never makes another.
 - **Bytes before the event is posted.** Before posting a batch, the worker uploads every file its events refer to that the home hasn't confirmed. When the home applies an event, it checks each referenced file is on disk with that sha256. If one isn't (a home restored from a backup, say), the batch stops at that event with 409 naming the missing files, and the worker uploads them again from its spool and resends. So an event is acknowledged only once its files are at home.
@@ -484,6 +485,38 @@ A test could reach production. The home's self-calls fall back to port 4224 when
   - `handlers.test.ts` (8) covers each recovery rule and the fence.
   - `runner-split.test.ts` adds the three gaps, and `journals.test.ts` the heartbeat's release.
 - Live on the dev home, after its restart applied 0006 (snapshot first): `start_execution` with the stand-in laptop's computer made a worktree in the stand-in's own Demo clone, and real Claude answered there, "pong from the laptop". The run completed with its cost and summary. The worktree's tree, status and diff stats came back through the home's own API.
+
+## P2.5 Attached files
+
+P2.5 gets the files a person attaches to a message to the computer that runs the chat, and settles what "retained output" means today.
+
+### Files the person attached
+
+- **Where the path is decided.** Expanding a message used to turn each file the agent reads itself (text, code, images, PDF, JSON, XML) into its path at home, before anything knew where the chat runs. Now expansion extracts only what the agent can't read (docx, xlsx, audio, as before) and leaves the rest as `[[file:]]` markers. `dispatch` takes the message's attachments and places them where it routes the send: home paths for a chat at home (`placeFilesAtHome`), and for a chat elsewhere the markers stay and the send carries the files as `{ fileName, originalName, mimeType, size, sha256 }` (`describeInputFiles`). A home disk path is never sent. The messages route and the health check's re-fire are the two callers that carry attachments, and both pass them.
+- **The worker attachment route**, `GET /api/workers/me/attachments/:fileName?command=<id>`, serves a file only for a send that names it, to the computer it went to, while that send is out and unacknowledged, and while the chat's placement is still at the send's generation. Anything else is 404 (not this computer's, or not in the send), 409 (acknowledged, or stale) or 400 (not a stored file name).
+- **On the worker**, the send handler fetches each file before journaling `started`, since fetching is safe to repeat. Each is written to a temporary name, checked against its size and sha256, flushed, and renamed. A copy already there that checks out is used as it is, and a partial one a crash left is replaced. The home and chat ids name the folder, so only plain ids are accepted. A dropped connection or short or damaged bytes are tried three times. A file that can't be brought (gone from home, refused, or damaged every time) fails the send with the reason, which finishes its run. The harness gets this computer's path where each marker was.
+- **Recovery** looks for the message in the native history as the harness got it. The placed path depends only on the home, the chat and the file name, so recovery computes the same text without fetching again.
+- The files stay with the chat on that computer for later turns to read. They go when the execution's folder there does, which comes with archiving on connected computers (P3 and P4).
+
+### Output an agent produced
+
+- Ri keeps no file a harness produces. The runner persists messages, tool calls and results as chat events, never a file as an attachment. The browser does save downloads and page captures as attachments, but the browser runs at home, so those are home files already.
+- So there is nothing on a connected computer to upload yet, and the upload protocol above (spool, `PUT /api/workers/me/artifacts/:fileName`, the apply-time check, clearing on acknowledgement, the 7-day sweep) stays specified and unbuilt. Building it with no producer would be transport nobody exercises.
+- What P2.5 does enforce is the rule that matters now: a computer never presents a file only it has as a download. `WorkerChatEvent` has no `attachments`, and the home drops any a computer's chat event names.
+- The first producer brings the upload with it: say, harness image output kept in the transcript, or an action that attaches a file from an agent's disk to a note (with P2.7, a remote session's `describe_paths` would otherwise point at the home's attachments directory).
+
+### As built
+
+- `src/lib/attachments/markers.ts`: the marker rules, with no database, shared by home and worker. `expand-markers.ts` leaves files the agent reads itself as markers.
+- Home: `src/lib/executor/input-files.ts`, `DispatchOptions.attachments`, `SendRequest.files`, `SendPayload` in `protocol.ts` (shared by the remote runner and the worker), and the worker attachment route.
+- Worker: `src/lib/worker/input-files.ts` (`fetchInputFiles`, `placeInputFiles`, `inputFilesDir`), used by the send handler and its recovery.
+- Tests:
+  - `attachments.test.ts` (8) runs the route and the worker's fetch over real HTTP: who may fetch what and when, reuse of a good copy, replacing a partial one a crash left, damaged bytes, a file gone from home, folder names only from plain ids, and a computer's chat event naming a file.
+  - `handlers.test.ts` (+3): fetched before `started`, a failed fetch leaves the send unstarted, and recovery looks for the placed text.
+  - `remote-execution.test.ts` (+1): with the worker in its own process, the fake harness there gets the laptop's own copy, and the command carries markers and checksums, never a home path.
+  - `runner-split.test.ts` (+1): a chat at home gets home paths, and a marker for a file not attached stays.
+  - `markers.test.ts` (4).
+- Live on the dev home: an image and a text file uploaded there, sent through the messages route to a new execution on the stand-in laptop. Real Claude there read both from `~/ri-homes-laptop/.work/attachments/<home>/<chat>/` and answered "LAPTOP HERON 42" on green, with the passphrase from the text file. The send carried markers and checksums, no home path, and the laptop's copy matched the home's sha256.
 
 ## Dogfood gate A: the real laptop and phone
 

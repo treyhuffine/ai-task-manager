@@ -172,8 +172,10 @@ function eventStanding(computerId: string, event: WorkerEvent): 'current' | 'his
 function applyWorkerEvent(computerId: string, event: WorkerEvent, after: AfterCommit, historyOnly: boolean): void {
   if (historyOnly && event.kind === 'signal') return;
   if (event.kind === 'chat_event') {
+    // Files a computer names never become chips here: their bytes would be
+    // on that computer only (P2.5, "Attachments and artifacts").
     applyChatEvent(
-      { ...event.chatEvent, id: event.eventId, sessionId: event.chatSessionId },
+      { ...event.chatEvent, attachments: undefined, id: event.eventId, sessionId: event.chatSessionId },
       { cumulative: event.cumulative },
     );
     return;

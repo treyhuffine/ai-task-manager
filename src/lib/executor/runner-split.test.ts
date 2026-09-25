@@ -86,6 +86,22 @@ describe('sending', () => {
   });
 });
 
+describe('attached files, for a chat at home', () => {
+  it("become their paths in the home's attachments directory, and a marker for no attached file stays", async () => {
+    const session = await chat();
+    const { saveAttachment, attachmentPath } = await import('@/lib/attachments/save');
+    const { expandMarkers } = await import('@/lib/attachments/expand-markers');
+    const notes = await saveAttachment({ data: Buffer.from('shopping list'), originalName: 'notes.txt', mimeType: 'text/plain' });
+    const content = `read [[file:${notes.fileName}]] and [[file:not-attached.txt]]`;
+    const expanded = await expandMarkers(content, [notes]);
+    // Expansion leaves a file the agent reads itself for dispatch to place.
+    expect(expanded).toBe(content);
+    const { dispatch } = await import('./adapter');
+    await dispatch(session.id, expanded, { attachments: [notes] });
+    expect(fake!.latest().messages).toEqual([`read ${attachmentPath(notes.fileName)} and [[file:not-attached.txt]]`]);
+  });
+});
+
 describe('a harness that takes one message at a time', () => {
   it('refuses a second message while the first is starting, without creating a run', async () => {
     home = await createTestHome({ prefix: 'ri-runner-split-' });

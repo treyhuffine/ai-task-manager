@@ -207,7 +207,9 @@ export async function POST(
     // and the agent dispatch use the same expanded prompt. Two passes:
     // entity markers (task / note / scratchpad) first — they expand to
     // inline `<task>` / `<note>` / `<scratchpad>` tags. File markers
-    // second — they expand to absolute paths or `<attachment>` text.
+    // second — the ones the agent can't read itself expand to `<attachment>`
+    // text. The rest stay markers, which dispatch turns into paths on the
+    // computer the chat runs on.
     const entityExpanded = expandEntityMarkers(content, id);
     const expanded = await expandMarkers(entityExpanded, attachments);
     // First-message titling is for task-shaped threads (executions, content):
@@ -270,7 +272,10 @@ export async function POST(
           // Labeled with the sending chat when another chat sent it. The
           // stored event keeps the message as sent, and the first-message
           // title above is derived from it without the label.
-          await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId), { sourceEventId: row.id });
+          await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId), {
+            sourceEventId: row.id,
+            attachments,
+          });
         } finally {
           executor.endDispatchPreparation(id, preparationRef);
         }

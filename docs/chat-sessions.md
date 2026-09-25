@@ -304,12 +304,12 @@ interface Attachment {
 
 **Sending to the model.**
 
-For execution chat (Claude Code subprocess via agentex), `expandMarkers` substitutes each `[[file:<file_name>]]` with:
+For execution chat (Claude Code subprocess via agentex), each `[[file:<file_name>]]` reaches the agent as:
 
-- The absolute disk path if Claude Code's Read tool handles the mime natively (text, code, images, PDF).
-- An inline `<attachment filename="...">…</attachment>` block carrying extracted text otherwise (docx, xlsx, pptx via mammoth/`xlsx`/officeparser; audio via STT through `pickProvider`).
+- The file's path on the computer the chat runs on, if the harness reads the mime natively (text, code, images, PDF, JSON, XML). `expandMarkers` leaves these markers, and `executor.dispatch` places them with the message's attachments: the home's attachments directory for a chat at home, or the worker's own checked copy for a chat on a connected computer (see `docs/homes-build.md`, P2.5).
+- An inline `<attachment filename="...">…</attachment>` block carrying extracted text otherwise, done by `expandMarkers` at home wherever the chat runs (docx, xlsx, pptx via mammoth/`xlsx`/officeparser; audio via STT through `pickProvider`).
 
-Orchestrator and content chats are harness sessions too, so the same `expandMarkers` substitution covers them — there is no separate ai-sdk inlining path anymore. (The old `inlineTextAttachments` rewrite for direct-API Anthropic/OpenAI chat, including `sharp` image normalization and `unpdf` PDF extraction, was deleted along with the legacy `/api/chat` route.)
+Orchestrator and content chats are harness sessions too, so the same substitution covers them — there is no separate ai-sdk inlining path anymore. (The old `inlineTextAttachments` rewrite for direct-API Anthropic/OpenAI chat, including `sharp` image normalization and `unpdf` PDF extraction, was deleted along with the legacy `/api/chat` route.)
 
 A 200k-char cap applies to every extraction so a single large document can't blow the context window.
 
