@@ -4784,6 +4784,17 @@ export function sendForRun(computerId: string, chatSessionId: string, runId: str
   return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`);
 }
 
+/** Whether a send to any computer was saved for this run. */
+export function hasSendForRun(runId: string): boolean {
+  return (
+    getDb()
+      .select({ id: workerCommands.id })
+      .from(workerCommands)
+      .where(and(eq(workerCommands.kind, 'send'), sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`))
+      .get() !== undefined
+  );
+}
+
 function sendWhere(computerId: string, chatSessionId: string, match: SQL): WorkerCommandRecord | null {
   return (
     getDb()
@@ -8377,10 +8388,11 @@ export function markRunCancelled(id: string, reason: string | null = null): RunR
  * at running). Reap both so the execution-level mutex clears cleanly
  * and the inbox doesn't show a fake spinning run forever.
  *
- * Only runs of chats this home runs itself. A turn on a connected computer
- * didn't die with this process, and one still waiting to be delivered there
- * is still saved: its worker reports how each ends (docs/homes-build.md,
- * P2 review fixes).
+ * A run on a connected computer is kept when a send was saved for it: its
+ * turn didn't die with this process, or it's still waiting to be delivered,
+ * and the worker reports how it ends. One with no send is a dispatch this
+ * process was still preparing when it stopped. No worker ever heard of it,
+ * so it's reaped like any other (docs/homes-build.md, P2 review fixes).
  */
 export function reapStaleRunningRuns(): number {
   const db = getDb();
@@ -8390,7 +8402,9 @@ export function reapStaleRunningRuns(): number {
     .from(runs)
     .where(inArray(runs.status, ['queued', 'running']))
     .all();
-  const ghosts = active.filter((r) => !r.chatSessionId || getChatComputerId(r.chatSessionId) === null).map((r) => r.id);
+  const ghosts = active
+    .filter((r) => !r.chatSessionId || getChatComputerId(r.chatSessionId) === null || !hasSendForRun(r.id))
+    .map((r) => r.id);
   if (ghosts.length === 0) return 0;
   const result = db
     .update(runs)

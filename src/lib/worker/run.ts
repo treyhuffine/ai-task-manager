@@ -22,7 +22,7 @@
 import { uuidv7 } from 'uuidv7';
 import type { WorkerHarnessReport } from '@/db/types';
 import { runnerState } from '@/lib/runner/live-state';
-import { close as closeSession } from '@/lib/runner/local-runner';
+import { close as closeSession, producingRun } from '@/lib/runner/local-runner';
 import { listForSession, listSessionsWithPending } from '@/lib/runner/pending';
 import {
   WORKER_HEARTBEAT_MS,
@@ -210,8 +210,10 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
   options.onSink?.(
     createWorkerSink({
       journal: eventJournal,
-      generationOf: (chat) => commandJournal.chatGeneration(chat),
-      runOf: (chat) => commandJournal.openTurnOf(chat)?.runId ?? null,
+      generationOf: (chat, runId) =>
+        (runId ? commandJournal.sendGeneration({ runId }) : undefined) ?? commandJournal.chatGeneration(chat),
+      runOf: (chat) => producingRun(chat),
+      turnGeneration: (turnId) => commandJournal.sendGeneration({ turnId }),
       onTurnEnded: (turnId) => commandJournal.turnEnded(turnId),
       onAppend: () => void poster.kick(),
     }),

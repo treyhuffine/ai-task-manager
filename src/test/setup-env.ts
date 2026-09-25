@@ -22,6 +22,15 @@ process.env[APP_ROOT_ENV] = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-vitest-roo
 for (const name of [DB_PATH_ENV, CONFIG_DIR_ENV, WORK_DIR_ENV, BRAIN_PATH_ENV]) delete process.env[name];
 
 /**
+ * No test reaches a paid model API with the key of whoever runs the tests.
+ * With `OPENAI_API_KEY` in the shell, every task or note a test saved sent
+ * its text to OpenAI for an embedding, and the answer landed after the test
+ * had closed its database (the review's "closed database" rejections). Tests
+ * that need a key set their own.
+ */
+for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'CURSOR_API_KEY']) delete process.env[name];
+
+/**
  * No test reaches a real server on this machine. A call to the app's own
  * server (`serverFetch`, the CLI's self-calls) falls back to port 4224 when
  * nothing says otherwise, and on a machine that runs Ri, production answers

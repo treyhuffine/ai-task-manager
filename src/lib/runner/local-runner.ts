@@ -127,10 +127,57 @@ function refreshRunning(chatSessionId: string): void {
  */
 function trackTurnBoundary(chatSessionId: string, event: StreamEvent): void {
   const type = (event as { type?: string }).type;
-  if (type === 'turn_start') state.openStreamTurns.add(chatSessionId);
-  else if (type === 'turn_end') state.openStreamTurns.delete(chatSessionId);
-  else return;
+  if (type === 'turn_start') {
+    state.openStreamTurns.add(chatSessionId);
+    const { trigger, raw } = event as { trigger?: string; raw?: { command_uuid?: unknown } };
+    state.openTurnOpeners.set(chatSessionId, {
+      commandUuid: typeof raw?.command_uuid === 'string' ? raw.command_uuid : null,
+      resume: trigger === 'resume',
+    });
+  } else if (type === 'turn_end') {
+    state.openStreamTurns.delete(chatSessionId);
+    state.openTurnOpeners.delete(chatSessionId);
+  } else return;
   refreshRunning(chatSessionId);
+}
+
+/**
+ * The run a chat's output belongs to right now: that of the message that
+ * opened the harness turn in progress (P2 review fixes). Overlapping
+ * messages each have their own run, and a turn's result is charged to the
+ * run of the message it answers, not to the newest one sent.
+ *
+ * - A turn the harness names the opener of (Claude, through agentex) is that
+ *   message's.
+ * - A message folded into a turn already running is answered by that turn,
+ *   which is charged once, to the message that opened it. The folded one's
+ *   run finishes with the turn and is charged nothing.
+ * - A turn the harness started on its own (a background task finishing) is
+ *   no message's, and no run's.
+ * - A harness that doesn't say: the oldest message still out, since each
+ *   turn answers the messages in the order they were sent.
+ */
+export function producingRun(chatSessionId: string): string | null {
+  const turn = state.openTurnOpeners.get(chatSessionId);
+  if (turn?.resume) return null;
+  const sends = state.sendRuns.get(chatSessionId);
+  if (!sends) return null;
+  if (turn?.commandUuid && sends.has(turn.commandUuid)) return sends.get(turn.commandUuid) ?? null;
+  for (const runId of sends.values()) return runId;
+  return null;
+}
+
+function recordSend(chatSessionId: string, commandUuid: string, runId: string | null): void {
+  let sends = state.sendRuns.get(chatSessionId);
+  if (!sends) state.sendRuns.set(chatSessionId, (sends = new Map()));
+  sends.set(commandUuid, runId);
+}
+
+function forgetSend(chatSessionId: string, commandUuid: string): void {
+  const sends = state.sendRuns.get(chatSessionId);
+  if (!sends) return;
+  sends.delete(commandUuid);
+  if (sends.size === 0) state.sendRuns.delete(chatSessionId);
 }
 
 /**
@@ -176,6 +223,7 @@ function clearBackgroundTasks(chatSessionId: string): void {
 
 /** Forget a torn-down session's turn state so it cannot read working forever. */
 function clearStreamTurn(chatSessionId: string): void {
+  state.openTurnOpeners.delete(chatSessionId);
   if (!state.openStreamTurns.delete(chatSessionId)) return;
   refreshRunning(chatSessionId);
 }
@@ -218,6 +266,9 @@ export function _resetExecutorState(): void {
   state.sessionInventories.clear();
   state.pendingRecycles.clear();
   state.lastActivityAt.clear();
+  state.sendRuns.clear();
+  state.openTurnOpeners.clear();
+  startingSessions.clear();
 }
 
 // ─── Liveness ─────────────────────────────────────────────────
@@ -415,22 +466,27 @@ export async function send(req: SendRequest): Promise<SendResult> {
   }
   const ref = _beginActiveDispatch(chatSessionId, runtime.capabilities.concurrentSend.supported);
   let result: Promise<unknown>;
+  let commandUuid: string;
   try {
-    const handle = live ?? (await startSession(req.spec!));
+    const handle = live ?? (await startSessionOnce(req.spec!));
     const sent = await handle.send(withFirstTurnPreamble(req.message, takeFirstTurnPreamble(handle)));
     result = sent.result;
+    commandUuid = sent.uuid;
+    // Before the turn's output can be stamped: a turn it opens is its run's.
+    recordSend(chatSessionId, commandUuid, req.runId);
   } catch (err) {
     _endActiveDispatch(chatSessionId, ref);
     throw err;
   }
   void result.then(
-    () => finishTurn(req, ref, null),
-    (err: unknown) => finishTurn(req, ref, err instanceof Error ? err.message : String(err)),
+    () => finishTurn(req, ref, null, commandUuid),
+    (err: unknown) => finishTurn(req, ref, err instanceof Error ? err.message : String(err), commandUuid),
   );
   return { status: 'delivered' };
 }
 
-function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string | null): void {
+function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string | null, commandUuid: string): void {
+  forgetSend(req.chatSessionId, commandUuid);
   _endActiveDispatch(req.chatSessionId, ref);
   report(req.chatSessionId, { type: 'turn_result', turnId: req.turnId, runId: req.runId, ok: error === null, error });
 }
@@ -446,6 +502,28 @@ function takeFirstTurnPreamble(handle: AgentSession): string | null {
   const preamble = firstTurnPreambles.get(handle) ?? null;
   if (preamble) firstTurnPreambles.delete(handle);
   return preamble;
+}
+
+/**
+ * Sessions being started, per chat. Two messages sent to a chat with no live
+ * session would otherwise each start a harness: the second replaced the
+ * first, whose process was then never tracked or closed, and the two
+ * messages went to different native sessions. The second waits for the
+ * first's start instead.
+ */
+const STARTING_KEY = Symbol.for('@ri/runner-starting-sessions');
+const startingRef = globalThis as unknown as { [STARTING_KEY]?: Map<string, Promise<AgentSession>> };
+if (!startingRef[STARTING_KEY]) startingRef[STARTING_KEY] = new Map();
+const startingSessions = startingRef[STARTING_KEY]!;
+
+function startSessionOnce(spec: SessionSpec): Promise<AgentSession> {
+  const inFlight = startingSessions.get(spec.chatSessionId);
+  if (inFlight) return inFlight;
+  const starting = startSession(spec).finally(() => {
+    if (startingSessions.get(spec.chatSessionId) === starting) startingSessions.delete(spec.chatSessionId);
+  });
+  startingSessions.set(spec.chatSessionId, starting);
+  return starting;
 }
 
 /** Spawn the harness for a spec. The home decided what it needs; this adds what only this computer knows. */

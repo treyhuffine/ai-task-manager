@@ -259,7 +259,7 @@ interface WorkerEvent {
 }
 ```
 
-- **The worker stamps what it knows.** Each event carries the generation of the placement that ran it, which the home requires for an execution's events, and a chat event carries the run of its turn. A turn result counts only for a send this computer was given for that chat and turn, and a result's cost only for such a send's run (P2 review fixes).
+- **The worker stamps what it knows.** Each event carries the generation of the placement that ran it (for a turn's output, that of the send that opened the turn), which the home requires for an execution's events, and a chat event carries the run of the message that opened its turn. A turn result counts only for a send this computer was given for that chat and turn, and a result's cost only for such a send's run (P2 review fixes).
 - **The worker journals before it sends.** Each event is appended to `<workDir>/journal/<homeId>.jsonl` with its position and flushed to disk before being posted. The last acknowledged position is kept beside it, and the acknowledged prefix is compacted. After a restart or reconnect the worker resends from the last acknowledged position plus one.
 - **The home applies one event per transaction, in order.** A position at or below the stored one is a replay and is skipped. A gap stops the batch and returns the stored position, so the worker resends from there. Otherwise, in one transaction: apply the event, then advance `computers.acked_event_seq`.
 - **Applying is idempotent by key:**
@@ -607,6 +607,32 @@ The review of P2.1–P2.6 (`09d788b..694cf64`, 2026-09-25) found 11 reproducible
   - The home restarted while a turn was running there. The run stayed running, then completed with its cost when the laptop finished.
   - The worker was killed with SIGKILL mid-turn. After it restarted, the run failed within two seconds with the restart message.
 - Seen in that crash: the orphaned Claude process finished the tool call it was running, then exited on its own at its next write, since its output pipe was gone. So a hard crash leaves at most one tool call running. Cleaning such leftovers up on restart belongs with P2.8's crash tests.
+
+## P2 re-review fixes
+
+The re-review of `183391a` (2026-09-25) confirmed the eleven fixes and found two more. Its probes are kept as `src/test/regressions/homes-p2-recheck-extra.test.ts`.
+
+1. **A dispatch the home stopped before saving its send is reaped.** A run is created before its send is prepared and saved, so a home that stops in between leaves a run no worker ever heard of. The boot reaper now keeps a connected computer's run only when a send was saved for it (`hasSendForRun`), and reaps the rest like any other.
+2. **A turn's cost goes to the message that opened it.** The runner records each message's harness id (agentex's command uuid) with its run, and each `turn_start` names the message that opened the turn. What a turn produces, its result and cost included, belongs to that message's run (`producingRun`), at home and on a connected computer. Before, output was charged to the newest message sent, so two overlapping turns costing $3 and $5 were recorded as $0 and $8.
+   - A message the harness folds into a turn already running (Claude drains one sent mid-turn) is answered by that turn: its run finishes with it, and the turn is charged once, to the message that opened it.
+   - A turn the harness starts on its own (a background task finishing) belongs to no message and no run.
+   - A harness that doesn't name the opener: the oldest message still out.
+   - The worker stamps a turn's output and result with the generation of the send that opened it, not of the newest command for the chat. This also closes the re-review's third probe, in which a newer command relabeled an old turn's result.
+
+### P4 acceptance, recorded
+
+- A command the home streamed before a disconnect, for a placement that changed since, must not run when resent. Only P4's transfer changes a placement under a running worker today, and whether such a command becomes stale or uncertain (the worker may have received it) belongs to P4, with the transfer lock. The probe stays in the file, skipped, for P4 to turn on.
+
+### Also found and fixed
+
+- **Two messages to a chat with no live session started two harnesses.** The second replaced the first, whose process was never tracked or closed, and the messages went to different native sessions. Session starts are shared per chat now. Found while making the overlapping-cost test deterministic.
+- **The test suite called OpenAI.** With `OPENAI_API_KEY` in the shell, every task or note a test saved was sent for an embedding, and the answer arrived after the test had closed its database: the "closed database" rejections from both reviews. The test setup now clears provider keys, and tests that need one set their own.
+- **The markdown mirror could keep stale content.** Two overlapping syncs of one entity shared a temp file name and ran in parallel: one failed its rename, and an older one could finish last. Syncs of an entity now run in order, and each write has its own temp file. This was the late log behind the re-review's teardown error.
+- The suite now runs clean: 2,543 passed, exit 0, three runs in a row and once under `pnpm iso`, with no unhandled errors.
+
+### Live check
+
+With real Claude on the stand-in laptop, a second message sent while the first message's turn was running a 20-second command was folded into that turn ("The command printed 111, and 6 × 7 = 42"). The turn's $0.080 went to the first message's run, and the second message's run completed at $0.
 
 ## Dogfood gate A: the real laptop and phone
 

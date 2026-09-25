@@ -73,6 +73,31 @@ describe('sending', () => {
     expect(fake!.latest().messages).toHaveLength(2);
   });
 
+  it('starts one session for two messages sent before it exists', async () => {
+    const session = await chat();
+    const { buildSessionSpec } = await import('./session-spec');
+    const { send } = await import('@/lib/runner/local-runner');
+    const spec = await buildSessionSpec({
+      chatSessionId: session.id,
+      harness: 'claude',
+      cwd: home!.root,
+      sessionType: 'orchestration',
+      workspaceId: null,
+      surfaceKind: null,
+      surfaceRef: null,
+      existingExternalSessionId: null,
+      permissionMode: 'auto_all',
+      prePlanMode: null,
+      model: 'fake-model',
+      modelVariant: null,
+      effort: null,
+    });
+    const request = (message: string) => ({ chatSessionId: session.id, message, turnId: message, runId: null, spec });
+    await Promise.all([send(request('one')), send(request('two'))]);
+    expect(fake!.sessions).toHaveLength(1);
+    expect([...fake!.latest().messages].sort()).toEqual(['one', 'two']);
+  });
+
   it('asks for a spec when there is no live session to send into', async () => {
     const session = await chat();
     const { runnerFor } = await import('./placement');
@@ -101,6 +126,52 @@ describe('attached files, for a chat at home', () => {
     const { dispatch } = await import('./adapter');
     await dispatch(session.id, expanded, { attachments: [notes] });
     expect(fake!.latest().messages).toEqual([`read ${attachmentPath(notes.fileName)} and [[file:not-attached.txt]]`]);
+  });
+});
+
+describe("a turn's cost (P2 re-review)", () => {
+  async function overlap(coalesce: boolean) {
+    const session = await chat();
+    fake!.coalesce = coalesce;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let firstRunning = false;
+    fake!.onTurn(async (turn) => {
+      if (turn.message === 'first') {
+        firstRunning = true;
+        await gate;
+      }
+      await turn.say(turn.message);
+      return { costUsd: turn.message === 'first' ? 3 : 5 };
+    });
+    const { dispatch } = await import('./adapter');
+    const q = await import('@/lib/db/queries');
+    const first = dispatch(session.id, 'first');
+    // The second is sent while the first's turn is running in the harness.
+    await until(() => firstRunning, "the first message's turn");
+    const second = dispatch(session.id, 'second');
+    await until(() => q.listRuns({}).filter((r) => r.chatSessionId === session.id).length === 2, 'the second run');
+    release();
+    await Promise.all([first, second]);
+    return q
+      .listRuns({})
+      .filter((r) => r.chatSessionId === session.id)
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((r) => ({ status: r.status, cost: r.costUsd ?? 0 }));
+  }
+
+  it('goes to the run of the message whose turn it was, when messages overlap', async () => {
+    expect(await overlap(false)).toEqual([
+      { status: 'completed', cost: 3 },
+      { status: 'completed', cost: 5 },
+    ]);
+  });
+
+  it('goes once to the opening message, when the harness folds a second one into its turn', async () => {
+    expect(await overlap(true)).toEqual([
+      { status: 'completed', cost: 3 },
+      { status: 'completed', cost: 0 },
+    ]);
   });
 });
 

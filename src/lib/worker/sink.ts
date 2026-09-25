@@ -15,12 +15,14 @@ export interface WorkerSinkOptions {
   /**
    * The placement generation a chat's events belong to, stamped when they're
    * journaled, so the home judges them by the placement that ran them rather
-   * than the one it has when they arrive. Null for a chat without an
-   * execution.
+   * than the one it has when they arrive: the generation of the send whose
+   * run produced them, when known. Null for a chat without an execution.
    */
-  generationOf?: (chatSessionId: string) => number | null;
-  /** The run a chat's output belongs to: its open turn's. Its cost goes there. */
+  generationOf?: (chatSessionId: string, runId: string | null) => number | null;
+  /** The run producing a chat's output: that of the message whose turn it is. Its cost goes there. */
   runOf?: (chatSessionId: string) => string | null;
+  /** The generation of the send that started a turn, for its result. */
+  turnGeneration?: (turnId: string) => number | null | undefined;
   /** A turn's result was journaled. */
   onTurnEnded?: (turnId: string) => void;
   /** Called after each append, to post soon. */
@@ -31,19 +33,21 @@ export function createWorkerSink({
   journal,
   generationOf = () => null,
   runOf = () => null,
+  turnGeneration = () => undefined,
   onTurnEnded,
   onAppend,
 }: WorkerSinkOptions): RunnerSink {
   const journalChatEvent = (row: CreateChatEventInput, cumulative: boolean) => {
     const { id, sessionId, ...chatEvent } = row;
+    const runId = runOf(sessionId);
     journal.append({
       kind: 'chat_event',
       // The id is minted here, when the worker parsed it, so a replay of this
       // journal entry inserts nothing new at home.
       eventId: id ?? uuidv7(),
       chatSessionId: sessionId,
-      generation: generationOf(sessionId),
-      runId: runOf(sessionId),
+      generation: generationOf(sessionId, runId),
+      runId,
       occurredAt: row.createdAt ?? new Date().toISOString(),
       chatEvent,
       cumulative,
@@ -65,7 +69,11 @@ export function createWorkerSink({
         kind: 'signal',
         eventId: uuidv7(),
         chatSessionId,
-        generation: generationOf(chatSessionId),
+        // A turn's result carries its own send's generation, whatever has
+        // arrived for the chat since.
+        generation:
+          (signal.type === 'turn_result' ? turnGeneration(signal.turnId) : undefined)
+          ?? generationOf(chatSessionId, runOf(chatSessionId)),
         occurredAt: new Date().toISOString(),
         signal,
       });

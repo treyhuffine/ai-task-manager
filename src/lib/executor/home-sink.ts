@@ -8,15 +8,21 @@
  * here, because there's no network in between.
  */
 
+import { producingRun } from '@/lib/runner/local-runner';
 import { installRunnerSink } from '@/lib/runner/sink';
 import type { EventWriter, RunnerSink } from '@/lib/runner/types';
 import { inTransaction } from '@/lib/effects/after-commit';
 import { applyChatEvent, applyRunnerSignal } from './apply';
 
-/** Chat events from a live session: inserted by id, or a cumulative part replacing an older revision. */
+/**
+ * Chat events from a live session: inserted by id, or a cumulative part
+ * replacing an older revision. A result is charged to the run of the message
+ * whose turn produced it, and otherwise to the chat's active run here.
+ */
 const liveWriter: EventWriter = {
   async write(event) {
-    return inTransaction(() => applyChatEvent(event, { cumulative: false }));
+    const runId = producingRun(event.sessionId) ?? undefined;
+    return inTransaction(() => applyChatEvent(event, { cumulative: false, runId }));
   },
   async replacePart(event) {
     inTransaction(() => applyChatEvent(event, { cumulative: true }));

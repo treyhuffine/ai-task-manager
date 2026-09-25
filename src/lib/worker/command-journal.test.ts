@@ -66,7 +66,10 @@ describe('the command journal', () => {
     deliver(journal, send('chat-1', 1, 'a'));
     deliver(journal, send('chat-1', 1, 'b'), true);
     journal.received(send('chat-1', 1, 'never-delivered'));
-    expect(journal.openTurnOf('chat-1')).toMatchObject({ turnId: 'b', runId: 'run-b', reconciled: true });
+    expect(journal.openTurns().at(-1)).toMatchObject({ turnId: 'b', runId: 'run-b', reconciled: true });
+    expect(journal.sendGeneration({ turnId: 'b' })).toBe(1);
+    expect(journal.sendGeneration({ runId: 'run-a' })).toBe(1);
+    expect(journal.sendGeneration({ turnId: 'unknown' })).toBeUndefined();
     journal.turnEnded('b');
     const reopened = new CommandJournal('home', file);
     expect(reopened.openTurns()).toEqual([

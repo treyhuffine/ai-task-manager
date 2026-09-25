@@ -256,10 +256,14 @@ export class CommandJournal {
     return open.sort((a, b) => a[0] - b[0]).map(([, turn]) => turn);
   }
 
-  /** The newest open turn of a chat: the run its output belongs to. */
-  openTurnOf(chatSessionId: string): DeliveredTurn | null {
-    const open = this.openTurns().filter((t) => t.chatSessionId === chatSessionId);
-    return open[open.length - 1] ?? null;
+  /** The placement generation of the send that started this turn, or carried this run. Undefined when there's no such send. */
+  sendGeneration(match: { turnId: string } | { runId: string }): number | null | undefined {
+    for (const { command } of this.entries.values()) {
+      const turn = sendTurn(command);
+      if (!turn) continue;
+      if ('turnId' in match ? turn.turnId === match.turnId : turn.runId === match.runId) return command.target.generation;
+    }
+    return undefined;
   }
 
   /** The newest placement generation of an execution this computer has received a command for. */

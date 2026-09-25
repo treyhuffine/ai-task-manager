@@ -83,6 +83,17 @@ export interface RunnerState {
   pendingRecycles: Set<string>;
   /** When each live session last started or finished work, for the idle close. */
   lastActivityAt: Map<string, number>;
+  /**
+   * Per chat, the messages out in its harness, oldest first: the harness's id
+   * for each (agentex's command uuid) and the run it belongs to. What a turn
+   * produces is charged to the run of the message that opened it.
+   */
+  sendRuns: Map<string, Map<string, string | null>>;
+  /**
+   * Per chat, the harness turn open now: the message that opened it, when the
+   * harness names it, or that the harness started it on its own (`resume`).
+   */
+  openTurnOpeners: Map<string, { commandUuid: string | null; resume: boolean }>;
 }
 
 const STATE_KEY = Symbol.for('@ri/executor-state');
@@ -104,6 +115,8 @@ function initState(): RunnerState {
     sessionInventories: existing.sessionInventories ?? new Map(),
     pendingRecycles: existing.pendingRecycles ?? new Set(),
     lastActivityAt: existing.lastActivityAt ?? new Map(),
+    sendRuns: existing.sendRuns ?? new Map(),
+    openTurnOpeners: existing.openTurnOpeners ?? new Map(),
   };
   globalRef[STATE_KEY] = state;
   return state;

@@ -59,6 +59,8 @@ export class FakeSession implements AgentSession {
   readonly messages: string[] = [];
   readonly resumed: boolean;
   private turnChain: Promise<unknown> = Promise.resolve();
+  /** The turn running now, for a message folded into it. */
+  private running: Promise<TurnResult> | null = null;
   private currentAbort: AbortController | null = null;
   private initialized = false;
   private turnCount = 0;
@@ -93,11 +95,16 @@ export class FakeSession implements AgentSession {
     if (this.state === 'closed') throw new Error('Session is closed');
     this.messages.push(message);
     const uuid = uuidv7();
-    const result = (this.turnChain = this.turnChain.then(() => this.runTurn(message)));
-    return { uuid, result: result as Promise<TurnResult> };
+    if (this.harness.coalesce && this.running) return { uuid, result: this.running };
+    const result = (this.turnChain = this.turnChain.then(() => this.runTurn(message, uuid))) as Promise<TurnResult>;
+    this.running = result;
+    void result.finally(() => {
+      if (this.running === result) this.running = null;
+    }).catch(() => {});
+    return { uuid, result };
   }
 
-  private async runTurn(message: string): Promise<TurnResult> {
+  private async runTurn(message: string, commandUuid: string): Promise<TurnResult> {
     if (this.state === 'closed') return this.finish('failed', 'session_closed', 'Session is closed');
     const abort = new AbortController();
     this.currentAbort = abort;
@@ -114,7 +121,8 @@ export class FakeSession implements AgentSession {
       });
     }
     this.state = 'thinking';
-    await this.emit({ type: 'turn_start', turnId, trigger: 'send' });
+    // As agentex does: the turn names the message that opened it.
+    await this.emit({ type: 'turn_start', turnId, trigger: 'send', raw: { command_uuid: commandUuid } });
     const turn: FakeTurn = {
       session: this,
       message,
@@ -235,6 +243,13 @@ export class FakeSession implements AgentSession {
 export class FakeHarness {
   readonly sessions: FakeSession[] = [];
   script: FakeTurnScript = defaultScript;
+  /**
+   * Fold a message sent while a turn runs into that turn, as Claude does
+   * with a message it drains mid-turn: no turn of its own, and it resolves
+   * with the running turn's result. Off by default: each message is its own
+   * turn, in order.
+   */
+  coalesce = false;
   readonly providerType: string;
   private readonly original: ProviderModule;
 
