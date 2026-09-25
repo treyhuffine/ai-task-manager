@@ -25,6 +25,7 @@ import { api } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
+import { openConnectorAuthorization } from '@/lib/client/desktop';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta, CATEGORY_ORDER, type ConnectorCategory } from '@/components/connectors/connector-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
@@ -96,6 +97,7 @@ export function ConnectorsSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [pendingOAuth, setPendingOAuth] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
   const [view, setView] = useState<View>(CATALOG);
@@ -174,7 +176,7 @@ export function ConnectorsSection() {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get('connected');
     const err = params.get('error');
-    if (connected) setBanner(`Connected ${connected}`);
+    if (connected) setBanner(connected === 'Connected' ? 'Connected' : `Connected ${connected}`);
     else if (err) setError(`Connect failed: ${err}`);
     if (connected || err) {
       params.delete('connected');
@@ -251,12 +253,12 @@ export function ConnectorsSection() {
               ? { kind: 'header' as const, header: f.header.trim() }
               : { kind: 'none' as const };
       const usesSecret = f.authKind === 'bearer' || f.authKind === 'header';
-      const r = await api.post<{ toolCount?: number; requiresAuth?: boolean; authUrl?: string }>(
+      const r = await api.post<{ toolCount?: number; requiresAuth?: boolean; authUrl?: string; desktopFlowId?: string }>(
         '/connectors/mcp-servers',
         { name: f.name.trim(), url: f.url.trim(), auth, ...(usesSecret ? { secret: f.secret } : {}) },
       );
       if (r.requiresAuth && r.authUrl) {
-        window.location.href = r.authUrl; // redirect to sign in; we return via the OAuth callback
+        await authorize(r.authUrl, r.desktopFlowId);
         return;
       }
       setMcpForm(EMPTY_MCP_FORM);
@@ -267,8 +269,8 @@ export function ConnectorsSection() {
     });
   const authorizeMcp = (id: string) =>
     run(async () => {
-      const r = await api.post<{ requiresAuth?: boolean; authUrl?: string }>(`/connectors/mcp-servers/${id}`, {});
-      if (r.requiresAuth && r.authUrl) window.location.href = r.authUrl;
+      const r = await api.post<{ requiresAuth?: boolean; authUrl?: string; desktopFlowId?: string }>(`/connectors/mcp-servers/${id}`, {});
+      if (r.requiresAuth && r.authUrl) await authorize(r.authUrl, r.desktopFlowId);
     });
 
   // Once the refresh drops the server, the stale-view guard below returns to the catalog.
@@ -333,7 +335,7 @@ export function ConnectorsSection() {
       await api.post('/connectors/auth-configs', {
         providerId: p.id,
         label: form.label,
-        oauth: { clientId: form.clientId, redirectUri },
+        oauth: { clientId: form.clientId, redirectUri: p.desktopCallback ? p.desktopCallback.redirectUri || 'http://127.0.0.1/oauth/callback' : redirectUri },
         clientSecret: form.clientSecret || undefined,
       });
       setByoForm((f) => ({ ...f, [p.id]: EMPTY_BYO_FORM }));
@@ -354,13 +356,23 @@ export function ConnectorsSection() {
     });
 
   const copyRedirect = () => {
-    void navigator.clipboard?.writeText(redirectUri).then(() => {
+    void navigator.clipboard?.writeText((view.kind === 'provider' && providers.find((p) => p.id === view.id)?.desktopCallback?.redirectUri) || redirectUri).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
   };
 
   // --- Connect flows -------------------------------------------------------
+
+  const authorize = useCallback(async (url: string, flowId?: string) => {
+    if (flowId) setPendingOAuth(flowId);
+    try { await openConnectorAuthorization(url); }
+    catch (error) {
+      if (flowId) await api.post('/desktop/oauth/cancel', { id: flowId }).catch(() => {});
+      setPendingOAuth(null);
+      throw error;
+    }
+  }, []);
 
   const openProvider = (p: ProviderStatus) => {
     navigate({ kind: 'provider', id: p.id });
@@ -373,13 +385,14 @@ export function ConnectorsSection() {
       setBusy(true);
       setError(null);
       try {
-        const { authorizationUrl } = await api.post<{ authorizationUrl: string }>('/connectors/connect', {
+        const { authorizationUrl, desktopFlowId } = await api.post<{ authorizationUrl: string; desktopFlowId?: string }>('/connectors/connect', {
           providerId: p.id,
           scopes: connectScopes(p),
           label: p.displayName,
           ...(authConfigId ? { authConfigId } : {}),
         });
-        window.location.href = authorizationUrl; // leaves the app; callback returns us here
+        await authorize(authorizationUrl, desktopFlowId);
+        if (desktopFlowId) setBusy(false);
       } catch (e) {
         // Multi-client provider with no default → open Advanced so the user picks one.
         if ((e as { body?: { error?: string } }).body?.error === 'auth_config_required') {
@@ -392,7 +405,7 @@ export function ConnectorsSection() {
         setBusy(false);
       }
     },
-    [connectScopes, loadByo],
+    [connectScopes, loadByo, authorize],
   );
 
   const connectDirect = (p: ProviderStatus) =>
@@ -486,6 +499,15 @@ export function ConnectorsSection() {
 
   return (
     <div ref={rootRef} className="@container space-y-6">
+      {pendingOAuth && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <span>Finish connecting in your browser.</span>
+          <Button variant="outline" size="sm" onClick={() => void run(async () => {
+            await api.post('/desktop/oauth/cancel', { id: pendingOAuth });
+            setPendingOAuth(null);
+          })}>Cancel</Button>
+        </div>
+      )}
       {banner && (
         <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 size={16} className="mt-0.5 shrink-0" />

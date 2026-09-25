@@ -94,13 +94,14 @@ export function HarnessSettingsPanel() {
 function GlobalSkillSetting() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
+  const [appOnly, setAppOnly] = useState(false);
 
   useEffect(() => {
     let active = true;
     api
-      .get<{ enabled: boolean; configured: boolean }>('/harness/skills/global')
+      .get<{ enabled: boolean; configured: boolean; appOnly?: boolean }>('/harness/skills/global')
       .then((res) => {
-        if (active) setEnabled(res.enabled);
+        if (active) { setEnabled(res.enabled); setAppOnly(res.appOnly === true); }
       })
       .catch(() => {
         if (active) setEnabled(false);
@@ -138,13 +139,12 @@ function GlobalSkillSetting() {
         <h4 className="text-[12px] font-semibold">Task and note access</h4>
       </div>
       <p className="text-[11px] text-muted-foreground/85">
-        Installs one user-level skill so agents can manage your tasks and notes from any project.
-        Individual repositories stay untouched either way.
+        {appOnly ? 'Desktop agent access stays inside this app. Your existing CLI and global agent skills are left unchanged.' : 'Installs one user-level skill so agents can manage your tasks and notes from any project. Individual repositories stay untouched either way.'}
       </p>
       <label className="flex cursor-pointer items-center gap-2 pt-1 text-[11px] text-foreground">
         <Checkbox
           checked={enabled === true}
-          disabled={enabled === null || saving}
+          disabled={appOnly || enabled === null || saving}
           onCheckedChange={(value) => void toggle(value === true)}
         />
         Available in every project

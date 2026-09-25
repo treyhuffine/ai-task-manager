@@ -36,6 +36,11 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Build output of `pnpm smoke:*` (NEXT_DIST_DIR), gitignored like .next.
     ".next-smoke/**",
+    // Desktop builds, disposable homes and packaged apps are generated artifacts.
+    ".next-desktop/**",
+    ".next-desktop-dev/**",
+    ".electron-demo/**",
+    "release/**",
     // Gitignored local material that is not this app's source: reference
     // clones, contributor scratch, and the CLI bundle.
     "examples/**",

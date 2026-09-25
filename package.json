@@ -10,6 +10,11 @@
     "dev:web": "RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",
     "build": "next build",
+    "desktop:build": "pnpm cli:build && tsup --config desktop/tsup.config.ts",
+    "desktop:demo": "pnpm desktop:build && node desktop/launch.mjs",
+    "desktop:dev": "pnpm desktop:build && node desktop/launch.mjs --dev",
+    "desktop:test": "vitest run --config desktop/vitest.config.ts",
+    "desktop:smoke": "pnpm desktop:build && tsx desktop/smoke.ts",
     "start": "next start",
     "ts": "tsc --noEmit",
     "lint": "eslint",
@@ -48,7 +53,9 @@
     "dev:reseed": "tsx scripts/seed-dev/reseed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:browser": "RI_BROWSER_E2E=1 vitest run src/lib/browser/browser.integration.test.ts"
+    "test:browser": "RI_BROWSER_E2E=1 vitest run src/lib/browser/browser.integration.test.ts",
+    "desktop:package": "node desktop/package.mjs",
+    "desktop:relay": "node desktop/relay/server.mjs"
   },
   "bin": {
     "ri": "./dist/cli/index.mjs"
@@ -60,7 +67,7 @@
   "dependencies": {
     "@agentex/agent": "^0.0.37",
     "@agentex/github": "^0.0.1",
-    "@agentex/workspace": "^0.0.4",
+    "@agentex/workspace": "^0.0.5",
     "@ai-sdk/anthropic": "^3.0.63",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/react": "^3.0.136",
@@ -176,6 +183,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
@@ -186,6 +194,7 @@
     "@types/web-push": "^3.6.4",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
+    "electron": "44.4.5",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "simple-icons": "^16.24.0",
@@ -198,6 +207,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3",
+      "electron",
       "node-pty"
     ]
   }

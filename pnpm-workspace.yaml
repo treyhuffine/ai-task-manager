@@ -6,3 +6,4 @@ packages:
   - "packages/connectors"
 allowBuilds:
   better-sqlite3: true
+  electron: true

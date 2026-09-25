@@ -155,7 +155,8 @@ export async function startCommand(opts: StartOptions) {
   s.start('Bootstrapping auth');
   const info = ensureLocalToken();
   try {
-    const projectSkillCleanup = await cleanupKnownProjectSkillLinks();
+    const projectSkillCleanup = process.env.RI_DESKTOP === '1'
+      ? { removed: 0, errors: 0 } : await cleanupKnownProjectSkillLinks();
     if (projectSkillCleanup.removed > 0) {
       log.success(`Removed ${projectSkillCleanup.removed} legacy project skill symlink(s)`);
     }
@@ -178,7 +179,7 @@ export async function startCommand(opts: StartOptions) {
     if (appRootResult.installed > 0) {
       log.success(`Installed ${appRootResult.installed} skill symlink(s) in the app data dir`);
     }
-    if (getGlobalSkillPreference() === true) {
+    if (process.env.RI_DESKTOP !== '1' && getGlobalSkillPreference() === true) {
       const globalResult = await installGlobalSkills();
       if (globalResult.installed > 0) {
         log.success(`Installed ${globalResult.installed} user-level skill symlink(s)`);

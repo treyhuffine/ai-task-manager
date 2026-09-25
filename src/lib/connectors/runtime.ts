@@ -6,6 +6,7 @@
  * per provider; API-key / custom providers are connected by pasting a credential (connectDirect).
  * The engine core never imports any of this.
  */
+import { desktopEnabled, desktopRelayFor } from './desktop-oauth';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -81,11 +82,11 @@ export function getConnectorRedirectUri(): string {
  * Read a provider's OAuth client from env: `CONNECTORS_<PROVIDER>_CLIENT_ID` / `_CLIENT_SECRET`
  * (+ optional `_REDIRECT_URI`). Google also accepts the legacy `GOOGLE_CLIENT_ID/SECRET`.
  */
-function oauthClientFromEnv(providerId: string): { clientId: string; clientSecret: string; redirectUri: string } | null {
+function oauthClientFromEnv(providerId: string): { clientId: string; clientSecret?: string; redirectUri: string } | null {
   const up = providerId.toUpperCase();
   const clientId = process.env[`CONNECTORS_${up}_CLIENT_ID`] ?? (providerId === 'google' ? process.env.GOOGLE_CLIENT_ID : undefined);
   const clientSecret = process.env[`CONNECTORS_${up}_CLIENT_SECRET`] ?? (providerId === 'google' ? process.env.GOOGLE_CLIENT_SECRET : undefined);
-  if (!clientId || !clientSecret) return null;
+  if (!clientId) return null;
   const redirectUri =
     process.env[`CONNECTORS_${up}_REDIRECT_URI`] ??
     (providerId === 'google' ? process.env.CONNECTORS_GOOGLE_REDIRECT_URI : undefined) ??
@@ -117,6 +118,7 @@ function buildAuthConfigs(): AuthConfigInput[] {
 export interface ProviderStatus extends ProviderCatalogEntry {
   /** OAuth providers: client configured in env. API-key/custom: always true (paste at connect). */
   configured: boolean;
+  desktopCallback?: { kind: 'loopback' | 'relay'; redirectUri?: string };
 }
 
 /**
@@ -127,6 +129,7 @@ export interface ProviderStatus extends ProviderCatalogEntry {
  */
 export async function getProviderStatuses(): Promise<ProviderStatus[]> {
   const admin = await getConnectorAdmin();
+  const providers = desktopEnabled() ? (await getConnectorRuntime()).getProviders() : [];
   return Promise.all(
     PROVIDER_CATALOG.map(async (entry) => {
       let configured = entry.method !== 'oauth2';
@@ -134,7 +137,15 @@ export async function getProviderStatuses(): Promise<ProviderStatus[]> {
         const hasEnvOrBundled = oauthClientFromEnv(entry.id) !== null || DEFAULT_AUTH_CONFIGS.some((c) => c.providerId === entry.id);
         configured = hasEnvOrBundled || (await admin.list(entry.id)).length > 0;
       }
-      return { ...entry, configured };
+      const provider = providers.find((p) => p.id === entry.id);
+      let desktopCallback: ProviderStatus['desktopCallback'];
+      if (provider?.auth.oauth) {
+        try {
+          const relay = desktopRelayFor(entry.id, provider.auth.oauth.usePkce ?? false);
+          desktopCallback = relay ? { kind: 'relay', redirectUri: relay } : { kind: 'loopback' };
+        } catch { desktopCallback = { kind: 'relay' }; }
+      }
+      return { ...entry, configured, ...(desktopCallback ? { desktopCallback } : {}) };
     }),
   );
 }
@@ -245,14 +256,15 @@ export function getMcpOAuthRedirectUrl(serverId: string): string {
  * `onRedirect` during an interactive add to capture the authorization URL; omit it at build time
  * (the SDK only redirects when interactive, and build can't).
  */
-export function mcpOAuthProviderFor(entry: { id: string }, onRedirect?: (url: URL) => void) {
+export function mcpOAuthProviderFor(entry: { id: string }, onRedirect?: (url: URL) => void, options?: { redirectUri?: string; interactive?: boolean }) {
   const store = getMcpServerStore();
   return makeMcpOAuthProvider({
-    redirectUrl: getMcpOAuthRedirectUrl(entry.id),
+    redirectUrl: options?.redirectUri ?? getMcpOAuthRedirectUrl(entry.id),
     clientName: APP_NAME,
     load: async () => ((await store.getOAuthState(entry.id)) ?? {}) as McpOAuthState,
     save: async (state) => store.setOAuthState(entry.id, state as unknown as Record<string, unknown>),
     ...(onRedirect ? { onRedirect } : {}),
+    interactive: options?.interactive,
   });
 }
 

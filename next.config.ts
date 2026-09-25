@@ -30,6 +30,8 @@ const nextConfig: NextConfig = {
   // Honor NEXT_DIST_DIR so the smoke-test server can boot alongside a
   // running `pnpm dev` without fighting for `.next/dev/lock`.
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Local desktop homes and distribution artifacts are never server assets.
+  outputFileTracingExcludes: { '*': ['./.electron-demo/**', './release/**'] },
   // StrictMode's dev-only double-fire of effects was causing real
   // user-facing bugs (rail mark-read triggered on the synthetic fake
   // unmount, before the user had seen the row). Effect cleanups here

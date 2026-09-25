@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { AGENT_SKILL_NAME } from '@/constants/app';
 import {
   configureGlobalSkill,
+  installAppRootSkills,
   getGlobalSkillPreference,
 } from '@/lib/agent-skills/shipped';
 import { cleanupKnownProjectSkillLinks } from '@/lib/agent-skills/project-cleanup';
@@ -9,6 +10,7 @@ import { cleanupKnownProjectSkillLinks } from '@/lib/agent-skills/project-cleanu
 export const runtime = 'nodejs';
 
 export function GET() {
+  if (process.env.RI_DESKTOP === '1') return Response.json({ enabled: false, configured: true, appOnly: true });
   const preference = getGlobalSkillPreference();
   return Response.json({
     enabled: preference === true,
@@ -23,6 +25,10 @@ export async function PUT(request: NextRequest) {
       return Response.json({ error: 'enabled must be a boolean' }, { status: 400 });
     }
 
+    if (process.env.RI_DESKTOP === '1') {
+      const install = await installAppRootSkills();
+      return Response.json({ enabled: false, appOnly: true, install }, { status: install.errors ? 500 : 200 });
+    }
     const result = await configureGlobalSkill(body.enabled);
     const projectCleanup = await cleanupKnownProjectSkillLinks();
 

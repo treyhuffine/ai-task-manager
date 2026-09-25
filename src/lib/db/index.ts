@@ -343,7 +343,10 @@ export function getDb(dbPath?: string): DB {
   rawInstance = sqlite;
   dbInstance = drizzle(sqlite, { schema, casing: 'snake_case' });
 
-  initDatabase(sqlite, path.resolve(process.cwd(), 'drizzle'));
+  // Desktop harness commands run in the agent's folder, outside the shipped app.
+  const assetsRoot = process.env.RI_DESKTOP === '1' && process.env.RI_DESKTOP_REPO
+    ? process.env.RI_DESKTOP_REPO : process.cwd();
+  initDatabase(sqlite, path.resolve(assetsRoot, 'drizzle'));
 
   currentPath = resolvedPath;
   return dbInstance;

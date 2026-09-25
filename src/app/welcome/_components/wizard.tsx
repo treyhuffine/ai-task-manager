@@ -58,6 +58,7 @@ export function Wizard() {
     } catch {
       // corrupt or unavailable storage — start fresh
     }
+    if (window.riDesktop) setState((previous) => ({ ...previous, globalSkillEnabled: false }));
     setHydrated(true);
   }, []);
 
@@ -154,7 +155,7 @@ export function Wizard() {
       // unrelated skill entries.
       try {
         await api.put('/harness/skills/global', {
-          enabled: state.globalSkillEnabled ?? true,
+          enabled: window.riDesktop ? false : state.globalSkillEnabled ?? true,
         });
       } catch {
         throw new Error('Failed to configure agent skill access');

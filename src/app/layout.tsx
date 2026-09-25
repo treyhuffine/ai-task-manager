@@ -8,6 +8,7 @@ import { PairingBootstrap } from "@/components/auth/pairing-bootstrap";
 import { LifecycleGuardProvider } from "@/components/tasks/lifecycle-guard";
 import "./globals.css";
 import { APP_NAME } from "@/constants/app";
+import { DesktopChrome } from '@/components/desktop/desktop-chrome';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -24,6 +25,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} dark`}>
       <body className="antialiased">
+        <DesktopChrome />
         <QueryProvider>
           <PairingBootstrap />
           <TooltipProvider>

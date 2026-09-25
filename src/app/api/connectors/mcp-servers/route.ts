@@ -4,12 +4,12 @@ import {
   getMcpServerStore,
   invalidateConnectorRuntime,
   mcpAuthHeaders,
-  mcpOAuthProviderFor,
   withTimeout,
   MCP_TIMEOUT_MS,
 } from '@/lib/connectors/runtime';
 import { toSlug, type McpServerAuth } from '@/lib/connectors/mcp-servers';
 import { validateMcpUrl, validateHeaderName, MCP_LIMITS } from '@/lib/connectors/mcp-validate';
+import { beginMcpAuthorization } from '@/lib/connectors/mcp-authorization';
 
 /**
  * Manage user-added remote MCP servers (docs/connectors-mcp-ingest-spec.md §9).
@@ -68,29 +68,13 @@ export async function POST(request: NextRequest) {
   // browser to follow; tools are ingested after the callback completes.
   if (auth.kind === 'oauth') {
     const entry = await store.create({ slug, displayName: name, url: urlCheck.url, auth, enabled: body.enabled ?? true });
-    let authUrl: string | undefined;
-    const provider = mcpOAuthProviderFor(entry, (u) => {
-      authUrl = u.toString();
-    });
     try {
-      const client = await withTimeout(
-        connectMcpClient({ url: urlCheck.url, name: slug, authProvider: provider }),
-        MCP_TIMEOUT_MS,
-        'authorize',
-      );
-      await client.close().catch(() => {}); // connected without auth (not actually OAuth-protected)
+      const result = await beginMcpAuthorization(entry);
+      return NextResponse.json({ entry, ...result }, { status: 201 });
     } catch (e) {
-      if (!authUrl) {
-        await store.remove(entry.id); // genuine failure → don't leave a dangling entry
-        return NextResponse.json(
-          { error: e instanceof Error ? e.message : 'Could not start authorization.' },
-          { status: 400 },
-        );
-      }
+      await store.remove(entry.id);
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not start authorization.' }, { status: 400 });
     }
-    if (authUrl) return NextResponse.json({ entry, requiresAuth: true, authUrl }, { status: 201 });
-    invalidateConnectorRuntime(); // no auth needed after all → ingest on next access
-    return NextResponse.json({ entry, requiresAuth: false }, { status: 201 });
   }
 
   // Validate by connecting + listing tools. Don't persist a server we can't reach.

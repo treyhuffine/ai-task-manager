@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { uuidv7 } from 'uuidv7';
+import { timingSafeEqual } from 'node:crypto';
 
 export type McpServerAuth =
   | { kind: 'none' }
@@ -127,6 +128,8 @@ export interface McpServerStore {
   getOAuthState(id: string): Promise<Record<string, unknown> | null>;
   /** Replace the sealed OAuth state for a server (no-op if the server is gone). */
   setOAuthState(id: string, state: Record<string, unknown>): Promise<void>;
+  /** Atomically consume one unexpired browser authorization state. */
+  consumeOAuthState(id: string, state: string, now?: number): Promise<boolean>;
 }
 
 /** Sanitize a free-text name into a valid, stable slug. */
@@ -266,6 +269,24 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
       } catch {
         return null;
       }
+    },
+
+    async consumeOAuthState(id, state, now = Date.now()) {
+      return deps.lock.withLock('mcp-servers', async () => {
+        const rows = readAll();
+        const row = rows.find((r) => r.entry.id === id);
+        if (!row?.sealedOAuth || !state || state.length > 4096) return false;
+        const saved = await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth);
+        if (typeof saved.authorizationState !== 'string' || typeof saved.authorizationExpiresAt !== 'number' || saved.authorizationExpiresAt <= now) return false;
+        const expected = Buffer.from(saved.authorizationState);
+        const actual = Buffer.from(state);
+        if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false;
+        delete saved.authorizationState;
+        delete saved.authorizationExpiresAt;
+        row.sealedOAuth = await deps.secretBox.seal(saved);
+        writeAll(rows);
+        return true;
+      });
     },
 
     async setOAuthState(id, state) {

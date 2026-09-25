@@ -126,3 +126,14 @@ describe('validateHeaderName', () => {
     expect(validateHeaderName('')).toBe(false);
   });
 });
+
+it('consumes matching unexpired OAuth state once and preserves the PKCE verifier', async () => {
+  const store = freshStore();
+  const entry = await store.create({ slug: 'oauth', displayName: 'OAuth', url: 'https://mcp.example', auth: { kind: 'oauth' } });
+  await store.setOAuthState(entry.id, { authorizationState: 'nonce', authorizationExpiresAt: 2000, codeVerifier: 'verifier' });
+  expect(await store.consumeOAuthState(entry.id, 'wrong', 1000)).toBe(false);
+  expect(await store.consumeOAuthState(entry.id, 'nonce', 2000)).toBe(false);
+  expect(await store.consumeOAuthState(entry.id, 'nonce', 1000)).toBe(true);
+  expect(await store.consumeOAuthState(entry.id, 'nonce', 1000)).toBe(false);
+  expect(await store.getOAuthState(entry.id)).toEqual({ codeVerifier: 'verifier' });
+});

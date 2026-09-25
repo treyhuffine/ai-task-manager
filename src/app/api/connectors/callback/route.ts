@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isConnectorError } from '@connectors/engine';
 import { getConnectorRuntime } from '@/lib/connectors/runtime';
 import { withCompression } from '@/lib/api/compression';
+import { desktopEnabled } from '@/lib/connectors/desktop-oauth';
 
 /**
  * OAuth redirect target (public — see proxy PUBLIC_PATHS). The provider sends the
@@ -15,6 +16,9 @@ import { withCompression } from '@/lib/api/compression';
 export const GET = withCompression(handleGET);
 
 async function handleGET(request: NextRequest) {
+  // Desktop attempts complete only through their temporary listener or the
+  // authenticated deep-link endpoint, including cancellation/replay checks.
+  if (desktopEnabled()) return new Response('Use the desktop sign-in callback', { status: 404 });
   const url = new URL(request.url);
 
   // A connect started with `returnTo` (e.g. onboarding) parks the destination

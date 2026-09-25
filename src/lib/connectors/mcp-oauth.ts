@@ -13,6 +13,7 @@
  * runtime dependency on the SDK here (no ESM/boot coupling).
  */
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { randomBytes } from 'node:crypto';
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -23,6 +24,9 @@ export interface McpOAuthState {
   clientInformation?: OAuthClientInformationMixed;
   tokens?: OAuthTokens;
   codeVerifier?: string;
+  authorizationState?: string;
+  authorizationExpiresAt?: number;
+  redirectUri?: string;
 }
 
 export interface McpOAuthProviderDeps {
@@ -34,6 +38,7 @@ export interface McpOAuthProviderDeps {
   save: (state: McpOAuthState) => Promise<void>;
   /** Invoked with the authorization URL when the user must be redirected to consent. */
   onRedirect?: (url: URL) => void;
+  interactive?: boolean;
 }
 
 export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientProvider {
@@ -46,7 +51,12 @@ export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientPro
 
   return {
     get redirectUrl() {
-      return deps.redirectUrl;
+      return deps.interactive ? deps.redirectUrl : cache?.redirectUri ?? deps.redirectUrl;
+    },
+    async state() {
+      const state = randomBytes(32).toString('base64url');
+      await put({ ...(await get()), authorizationState: state, authorizationExpiresAt: Date.now() + 10 * 60_000, redirectUri: deps.redirectUrl });
+      return state;
     },
     get clientMetadata(): OAuthClientMetadata {
       return {
@@ -58,16 +68,24 @@ export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientPro
       };
     },
     async clientInformation() {
-      return (await get()).clientInformation;
+      const saved = await get();
+      // A fresh listener can have a new port. Re-register a dynamic client when
+      // its registered callback changes, including web-to-desktop migration.
+      if (deps.interactive && saved.redirectUri && saved.redirectUri !== deps.redirectUrl) return undefined;
+      return saved.clientInformation;
     },
     async saveClientInformation(info: OAuthClientInformationMixed) {
       await put({ ...(await get()), clientInformation: info });
     },
     async tokens() {
-      return (await get()).tokens;
+      return deps.interactive ? undefined : (await get()).tokens;
     },
     async saveTokens(tokens: OAuthTokens) {
-      await put({ ...(await get()), tokens });
+      const next = { ...(await get()), tokens };
+      delete next.authorizationState;
+      delete next.authorizationExpiresAt;
+      delete next.codeVerifier;
+      await put(next);
     },
     async redirectToAuthorization(url: URL) {
       deps.onRedirect?.(url);
