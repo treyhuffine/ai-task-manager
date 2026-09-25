@@ -17,7 +17,7 @@
  */
 
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
-import type { WorkspaceRecord } from '@/db/types';
+import type { ResolvedReferenceFolder, WorkspaceRecord } from '@/db/types';
 import {
   browserMcpServer,
   connectorsMcpServer,
@@ -46,6 +46,12 @@ export interface AgentMainChatSpawnArgs {
   appBrowserEnabled: boolean;
   /** No provider session to resume yet, so this spawn starts the conversation. */
   freshSession: boolean;
+  /**
+   * It runs on a connected computer, where none of the home's files are
+   * (P2.7): its folder there, and its reference folders as that computer
+   * resolved them.
+   */
+  elsewhere?: { folder: string; references: ResolvedReferenceFolder[] };
   port?: number;
 }
 
@@ -99,7 +105,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
 
   let referenceBlock = '';
   try {
-    const refs = await listUsableReferenceFolders(ws.id, { consumerCwd: ws.cwd });
+    const refs = args.elsewhere?.references ?? (await listUsableReferenceFolders(ws.id, { consumerCwd: ws.cwd }));
     const refConfig = buildReferenceFolderSessionConfig(refs);
     const wiring = referenceFolderProviderWiring(refConfig, providerType);
     referenceBlock = refConfig.instructions;
@@ -114,7 +120,14 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   }
 
   const blocks = [
-    { name: 'agent brief', text: renderAgentMainChatBrief(ws, { connectors: !!connectors, browser: !!browser }) },
+    {
+      name: 'agent brief',
+      text: renderAgentMainChatBrief(ws, {
+        connectors: !!connectors,
+        browser: !!browser,
+        ...(args.elsewhere ? { elsewhere: { folder: args.elsewhere.folder } } : {}),
+      }),
+    },
     { name: 'reference folders', text: referenceBlock },
   ];
   const plan = planSessionInstructions(providerType, blocks);

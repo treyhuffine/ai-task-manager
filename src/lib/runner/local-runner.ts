@@ -36,7 +36,13 @@ import type { AgentSession, ProviderConfig, StreamEvent, UserInputRequest, UserI
 import type { CreateChatEventInput, WorkerCommandActor } from '@/db/types';
 import { harnessPermissionConfig } from '@/lib/executor/permission-map';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
-import { clearSessionInstructions, writeSessionInstructions } from '@/lib/executor/session-instructions';
+import {
+  clearSessionInstructions,
+  providerDeliversSessionInstructions,
+  writeSessionEnvironment,
+  writeSessionInstructions,
+} from '@/lib/executor/session-instructions';
+import { renderEnvironment, resolveEnvironment } from './environment';
 import { resolveSkillDirsForSession } from '@/lib/executor/skills';
 import { decodeBackgroundTaskEvent, isActiveBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
@@ -561,7 +567,22 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   if (spec.strictMcpConfig) config.strictMcpConfig = true;
   if (spec.mcpServers.length > 0) config.mcpServers = spec.mcpServers;
   if (spec.disallowedTools.length > 0) config.disallowedTools = [...spec.disallowedTools];
-  if (spec.instructions) config.instructionsFile = writeSessionInstructions(spec.chatSessionId, spec.instructions);
+  // An execution's environment, resolved here and now: written beside the
+  // instructions, and added to them where the harness reads instructions.
+  let instructions = spec.instructions;
+  if (spec.environment) {
+    try {
+      const environment = await resolveEnvironment({ ...spec.environment, cwd: spec.cwd });
+      const file = writeSessionEnvironment(spec.chatSessionId, environment);
+      if (providerDeliversSessionInstructions(providerType)) {
+        instructions = [instructions, renderEnvironment(environment, file)].filter(Boolean).join('\n\n');
+      }
+    } catch (err) {
+      // Never worth losing the session over.
+      console.warn('[runner] failed to resolve the execution environment:', err);
+    }
+  }
+  if (instructions) config.instructionsFile = writeSessionInstructions(spec.chatSessionId, instructions);
   const extraArgs = [...perm.extraArgs, ...spec.extraArgs];
   if (extraArgs.length > 0) config.extraArgs = extraArgs;
 

@@ -229,6 +229,55 @@ describe('prepareAgentMainChatSpawn', () => {
   });
 });
 
+describe('on a connected computer (P2.7)', () => {
+  it("carries the persona as text and memory as actions, and names none of the home's files", async () => {
+    fs.writeFileSync(path.join(ROOT, 'USER.md'), 'Trey. Prefers terse answers.\n');
+    fs.writeFileSync(path.join(ROOT, 'SOUL.md'), 'Dry, direct.\n');
+    const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
+    const ws = { id: 'ws-1', name: 'ri', cwd: FOLDER, isGit: true, purpose: null, instructions: null };
+    const elsewhere = renderAgentMainChatBrief(ws, { connectors: false, browser: false, elsewhere: { folder: '/Users/trey/code/ri' } });
+    expect(elsewhere).toContain('### USER.md\n\nTrey. Prefers terse answers.');
+    expect(elsewhere).toContain('### SOUL.md\n\nDry, direct.');
+    expect(elsewhere).toContain('`read_memory`');
+    expect(elsewhere).toContain('`submit_memory_finding`');
+    expect(elsewhere).toContain('- Folder: `/Users/trey/code/ri`');
+    expect(elsewhere).not.toContain(ROOT);
+    const atHome = renderAgentMainChatBrief(ws, { connectors: false, browser: false });
+    expect(atHome).toContain(path.join(ROOT, 'USER.md'));
+    expect(atHome).not.toContain('Trey. Prefers terse answers.');
+  });
+
+  it("reaches the home's servers with its own token, at the address its worker gives", async () => {
+    fs.writeFileSync(path.join(ROOT, 'USER.md'), 'Trey.\n');
+    const seeded = await seed();
+    const { buildSessionSpec } = await import('./session-spec');
+    const spec = await buildSessionSpec(
+      {
+        chatSessionId: seeded.chat.id,
+        harness: 'claude',
+        cwd: '/Users/trey/code/ri',
+        sessionType: 'orchestration',
+        workspaceId: seeded.ws.id,
+        surfaceKind: null,
+        surfaceRef: null,
+        existingExternalSessionId: null,
+        permissionMode: 'ask',
+        prePlanMode: null,
+        model: null,
+        modelVariant: null,
+        effort: null,
+      },
+      { computerId: 'laptop-1', isHome: false, generation: null },
+    );
+    const orchestrator = spec.mcpServers.find((s) => s.name === 'orchestrator') as { url: string; headers: Record<string, string> };
+    expect(orchestrator.url).toBe('ri-home:/api/orchestrator/mcp');
+    expect(orchestrator.headers.Authorization).toMatch(new RegExp(`^Bearer ri_session_${seeded.chat.id}\\.laptop-1\\.n\\.`));
+    expect(orchestrator.headers['x-ri-session']).toBeUndefined();
+    expect(spec.instructions).toContain('### USER.md\n\nTrey.');
+    expect(spec.instructions).not.toContain(ROOT);
+  });
+});
+
 describe('skillDirsWriteIntoCwd', () => {
   it('flags the harness that would write skills into the folder', async () => {
     const { skillDirsWriteIntoCwd } = await import('./agent-main-chat');

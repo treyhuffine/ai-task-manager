@@ -12,9 +12,20 @@
  */
 
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
-import type { EffortLevel, PermissionMode } from '@/db/types';
+import type { EffortLevel, PermissionMode, WorkspaceRecord } from '@/db/types';
 import type { ResolvedReferenceFolder } from '@/db/types';
-import { getAgentSetup, getUserState, getWorkspace, listReferenceFoldersForWorkspace, type ChatPlacement } from '@/lib/db/queries';
+import {
+  getAgentSetup,
+  getComputer,
+  getExecution,
+  getHome,
+  getUserState,
+  getWorkspace,
+  listReferenceFoldersForWorkspace,
+  type ChatPlacement,
+} from '@/lib/db/queries';
+import { APP_NAME } from '@/constants/app';
+import type { ExecutionEnvironment } from '@/lib/runner/environment';
 import {
   browserMcpServer,
   connectorsMcpServer,
@@ -26,7 +37,9 @@ import {
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
-import { SESSION_CREDENTIAL_ENV, sessionCredential } from '@/lib/orchestrator/session-credential';
+import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
+import { mintSessionToken } from '@/lib/auth/session-token';
+import { HOME_ADDRESS_SCHEME } from '@/lib/workers/protocol';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import type { SessionSpec } from '@/lib/runner/types';
 import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-chat';
@@ -35,9 +48,27 @@ import { renderAgentInstructionsPrompt } from './prompts/agent-instructions';
 import { harnessCapabilitiesOn } from './computers';
 
 /** Where the session will run. The home's own computer unless a placement says otherwise. */
-export type SpecTarget = Pick<ChatPlacement, 'computerId' | 'isHome'>;
+export type SpecTarget = Pick<ChatPlacement, 'computerId' | 'isHome'> & { generation?: number | null };
 
 const HOME: SpecTarget = { computerId: '', isHome: true };
+
+/**
+ * The home's servers as a session elsewhere reaches them (P2.7): addressed
+ * at the home through the worker, with the session's own token instead of
+ * the home's key. Its identity rides the token, so the signed-credential
+ * header goes too. A server stays in its scope (`?ws=`, `?profile=`), which
+ * the proxy checks the token against.
+ */
+function reachedFromElsewhere(servers: McpServerConfig[], token: string): McpServerConfig[] {
+  return servers.flatMap((server) => {
+    if (server.type !== 'http' || !server.url) return [];
+    const url = new URL(server.url);
+    const headers = { ...(server.headers ?? {}) };
+    delete headers[SESSION_CREDENTIAL_HEADER];
+    headers.Authorization = `Bearer ${token}`;
+    return [{ ...server, url: `${HOME_ADDRESS_SCHEME}${url.pathname}${url.search}`, headers }];
+  });
+}
 
 /**
  * An agent's reference folders as a connected computer resolved them from
@@ -53,6 +84,55 @@ function referencesOn(workspaceId: string | null, computerId: string): ResolvedR
     if (!here?.path || !here.exists) return [];
     return [{ ...folder, absolutePath: here.path, exists: true, git: null, global: folder.workspaceId === null }];
   });
+}
+
+/**
+ * An execution's environment as the home expects it (P2.7, spec §4.3): the
+ * agent, where it runs, its branch and base, its connected folders with
+ * their descriptions, and its tools. Paths are the home's best knowledge
+ * (its own, or the computer's last report). The runner replaces them with
+ * what its computer's setup files say when the session starts.
+ */
+function expectedEnvironment(input: {
+  workspace: WorkspaceRecord;
+  executionId: string;
+  args: SessionSpecInput;
+  target: SpecTarget;
+  usable: ResolvedReferenceFolder[];
+  servers: McpServerConfig[];
+}): ExecutionEnvironment {
+  const { workspace, args, target } = input;
+  const homeRow = getHome();
+  const computer = getComputer(target.isHome ? homeRow?.hostComputerId ?? '' : target.computerId);
+  const execution = getExecution(input.executionId);
+  const usable = new Map(input.usable.map((r) => [r.alias, r]));
+  const urls = input.servers.map((s) => (s.type === 'http' ? s.url ?? '' : ''));
+  return {
+    homeId: homeRow?.id ?? '',
+    homeName: homeRow?.name ?? APP_NAME,
+    computerName: computer?.name ?? 'this computer',
+    agent: { id: workspace.id, name: workspace.name },
+    executionId: input.executionId,
+    isGit: workspace.isGit,
+    cwd: args.cwd,
+    sourceFolder: target.isHome ? workspace.cwd : getAgentSetup(workspace.id, target.computerId)?.sourcePath ?? null,
+    branch: execution?.branchName ?? null,
+    baseBranch: workspace.baseBranch ?? null,
+    baseSha: execution?.baseSha ?? null,
+    references: listReferenceFoldersForWorkspace(workspace.id).map((ref) => {
+      const here = usable.get(ref.alias);
+      return {
+        alias: ref.alias,
+        description: ref.description ?? null,
+        path: here?.absolutePath ?? null,
+        state: here ? ('ready' as const) : ('missing' as const),
+      };
+    }),
+    tools: { connectors: urls.some((u) => u.includes('/api/connectors/')), browser: urls.some((u) => u.includes('/browser/')) },
+    harness: args.harness,
+    model: args.model,
+    permissionMode: args.permissionMode,
+  };
 }
 
 export interface SessionSpecInput {
@@ -71,6 +151,8 @@ export interface SessionSpecInput {
   surfaceKind: string | null;
   surfaceRef: string | null;
   existingExternalSessionId: string | null;
+  /** The execution this session works on, for its environment (P2.7). */
+  executionId?: string | null;
   permissionMode: PermissionMode;
   prePlanMode: PermissionMode | null;
   model: string | null;
@@ -102,13 +184,17 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   // The capabilities of the harness on the computer that will run it: probed
   // here for the home's own, from its worker's report for a connected one.
   const caps = await harnessCapabilitiesOn(target, args.harness, target.isHome ? args.cwd : undefined);
-  // The orchestrator, connector and browser servers are addressed at this
-  // home's localhost with its own token, so a session elsewhere can't reach
-  // them. P2.7 gives those sessions the home's address and their own token.
-  const dropHomeServers = (why: string) => {
+  // The orchestrator, connector and browser servers are built for this home's
+  // own sessions, at its localhost with its key. A session elsewhere reaches
+  // them at the home's address with its own token (P2.7).
+  const reachFromElsewhere = () => {
     if (spec.mcpServers.length === 0) return;
-    console.warn(`[executor] ${why} on a connected computer: ${spec.mcpServers.length} MCP server(s) not attached until they can reach the home.`);
-    spec.mcpServers = [];
+    const token = mintSessionToken({
+      chatSessionId: args.chatSessionId,
+      computerId: target.computerId,
+      generation: target.generation ?? null,
+    });
+    spec.mcpServers = token ? reachedFromElsewhere(spec.mcpServers, token) : [];
   };
 
   const spec: SessionSpec = {
@@ -148,9 +234,12 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       strictMcpIsolation: caps.strictMcpIsolation,
       appBrowserEnabled: isBrowserEnabled(),
       freshSession: !args.existingExternalSessionId,
+      ...(target.isHome
+        ? {}
+        : { elsewhere: { folder: args.cwd, references: referencesOn(args.workspaceId ?? null, target.computerId) } }),
     });
     applyProviderConfig(spec, spawn.config);
-    if (!target.isHome) dropHomeServers('agent main chat');
+    if (!target.isHome) reachFromElsewhere();
     spec.extraArgs.push(...spawn.extraArgs);
     spec.instructions = spawn.instructions;
     spec.firstTurnPreamble = spawn.firstTurnPreamble;
@@ -223,7 +312,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
         if (browser) servers.push(browser);
       }
       if (servers.length > 0) spec.mcpServers = servers;
-      if (!target.isHome) dropHomeServers('execution');
+      if (!target.isHome) reachFromElsewhere();
     } else if ((workspace?.connectorScopes.length ?? 0) > 0) {
       console.warn(
         `[executor] execution on provider "${providerType}": connectors are unavailable ` +
@@ -249,8 +338,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // gated. Broken references are dropped upstream by
     // `listUsableReferenceFolders` — pointing an agent at a path that isn't
     // there is worse than saying nothing.
+    let refs: ResolvedReferenceFolder[] = [];
     try {
-      const refs = target.isHome
+      refs = target.isHome
         ? await listUsableReferenceFolders(args.workspaceId ?? null, { consumerCwd: workspace?.cwd ?? null })
         : referencesOn(args.workspaceId ?? null, target.computerId);
       const refConfig = buildReferenceFolderSessionConfig(refs);
@@ -285,6 +375,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
 
     const plan = planSessionInstructions(providerType, instructionBlocks);
     if (plan.text) spec.instructions = plan.text;
+    if (workspace && args.executionId) {
+      spec.environment = expectedEnvironment({ workspace, executionId: args.executionId, args, target, usable: refs, servers: spec.mcpServers });
+    }
     // Reference folders report their own delivery above. Agent instructions
     // are reported here, and the same way: a total loss, not a degradation.
     if (plan.undelivered.includes('agent instructions')) {

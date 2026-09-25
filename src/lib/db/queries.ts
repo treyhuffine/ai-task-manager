@@ -4680,6 +4680,18 @@ export function getWorkerEnrollment(apiKeyId: string): { enrollment: WorkerEnrol
   return { enrollment: row.enrollment, computer: row.computer };
 }
 
+/** A computer's active worker enrollment: an unrevoked worker key on an active computer. */
+export function getWorkerEnrollmentForComputer(computerId: string): WorkerEnrollmentRecord | null {
+  const row = getDb()
+    .select({ enrollment: workerEnrollments })
+    .from(workerEnrollments)
+    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
+    .innerJoin(computers, eq(computers.id, workerEnrollments.computerId))
+    .where(and(eq(workerEnrollments.computerId, computerId), isNull(apiKeys.revokedAt), eq(computers.status, 'active')))
+    .get();
+  return row?.enrollment ?? null;
+}
+
 /** Computers with an active worker key, by computer id. */
 export function listEnrolledComputerIds(): Set<string> {
   const db = getDb();

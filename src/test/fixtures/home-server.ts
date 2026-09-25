@@ -47,6 +47,16 @@ const ROUTES: RouteEntry[] = [
   },
   { pattern: /^\/api\/workers\/me\/events$/, load: () => import('@/app/api/workers/me/events/route') as Promise<RouteModule> },
   {
+    pattern: /^\/api\/connectors\/(mcp)$/,
+    params: ['transport'],
+    load: () => import('@/app/api/connectors/[transport]/route') as Promise<RouteModule>,
+  },
+  {
+    pattern: /^\/api\/orchestrator\/browser\/(mcp)$/,
+    params: ['transport'],
+    load: () => import('@/app/api/orchestrator/browser/[transport]/route') as Promise<RouteModule>,
+  },
+  {
     pattern: /^\/api\/sessions\/([^/]+)\/messages$/,
     params: ['id'],
     load: () => import('@/app/api/sessions/[id]/messages/route') as Promise<RouteModule>,

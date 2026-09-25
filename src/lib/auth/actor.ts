@@ -26,7 +26,10 @@ import type { ActionContext } from '@/lib/orchestrator/types';
 import { getRequestKey } from './request-key';
 
 export function actorFromRequest(headers: Headers): WorkerCommandActor {
-  const apiKeyId = getRequestKey(headers)?.apiKeyId ?? null;
+  const key = getRequestKey(headers);
+  const apiKeyId = key?.apiKeyId ?? null;
+  // A session token is that session, as the proxy verified it (P2.7).
+  if (key?.scope === 'session' && key.sessionChatId) return { source: 'ai', sessionId: key.sessionChatId, apiKeyId };
   const sessionId = verifySessionCredential(headers.get(SESSION_CREDENTIAL_HEADER));
   return sessionId ? { source: 'ai', sessionId, apiKeyId } : { source: 'human', sessionId: null, apiKeyId };
 }

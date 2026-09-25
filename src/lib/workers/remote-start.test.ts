@@ -61,8 +61,12 @@ beforeEach(async () => {
   git(repo, 'add', '.');
   git(repo, 'commit', '-q', '-m', 'first');
   fs.writeFileSync(path.join(repo, '.env.local'), 'SECRET=laptop\n');
+  // A connected folder the home knows, mapped on the laptop, and one left out there.
+  q.createReferenceFolder({ workspaceId: ws.id, alias: 'docs', path: path.join(home.root, 'docs-on-the-mini'), description: 'The design docs' });
+  q.createReferenceFolder({ workspaceId: ws.id, alias: 'secrets', path: path.join(home.root, 'secrets-on-the-mini') });
+  fs.mkdirSync(path.join(laptopRoot, 'projects', 'docs'), { recursive: true });
   const { writeSetupFile } = await import('@/lib/setups/local-file');
-  writeSetupFile(repo, { version: 1, homeId, agents: { [ws.id]: { references: {} } } }, null);
+  writeSetupFile(repo, { version: 1, homeId, agents: { [ws.id]: { references: { docs: '../docs', secrets: null } } } }, null);
   fs.mkdirSync(path.join(laptopRoot, '.config'), { recursive: true });
   fs.writeFileSync(
     path.join(laptopRoot, '.config', 'setups.json'),
@@ -184,6 +188,42 @@ describe('starting an execution on a connected computer', () => {
     worker = null;
     const gone = await call('tree');
     expect(gone).toMatchObject({ status: 409, body: { error: 'unavailable', message: 'Laptop is not connected right now.' } });
+  }, 90_000);
+
+  it('tells the agent there its environment, as the laptop resolved it, beside the instructions and in them', async () => {
+    const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
+    const { dispatch } = await import('@/lib/executor/adapter');
+    const q = await import('@/lib/db/queries');
+    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Where am I' });
+    const message = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'INSTRUCTIONS', createdAt: new Date().toISOString() })!;
+    await dispatch(session.id, 'INSTRUCTIONS', { sourceEventId: message.id });
+    const instructions = q.listChatEvents(session.id).find((e) => e.source === 'agent')!.content!;
+    const worktree = q.getOpenPlacement(session.executionId!)!.worktreePath!;
+
+    const file = path.join(laptopRoot, '.work', 'session-instructions', `${session.id}.environment.json`);
+    const environment = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(environment).toMatchObject({
+      computerName: 'Laptop',
+      agent: { id: workspaceId, name: 'Demo' },
+      cwd: worktree,
+      sourceFolder: repo,
+      mode: 'worktree',
+      branch: git(worktree, 'branch', '--show-current'),
+      head: git(worktree, 'rev-parse', 'HEAD'),
+      references: [
+        { alias: 'docs', description: 'The design docs', path: path.join(laptopRoot, 'projects', 'docs'), state: 'ready' },
+        { alias: 'secrets', description: null, path: null, state: 'omitted' },
+      ],
+    });
+    expect(instructions).toContain('## Your environment');
+    expect(instructions).toContain(`\`${file}\``);
+    expect(instructions).toContain('- secrets: left out on this computer');
+    // Nothing of the home's paths, and nothing of Ri's written into the
+    // repository: only what the agent's own setup put there (its copied
+    // file, and its setup script's output).
+    expect(instructions).not.toContain(home.root);
+    await until(() => q.getExecution(session.executionId!)?.setupScriptStatus === 'done', 'the setup script');
+    expect(git(worktree, 'status', '--porcelain').split('\n').sort()).toEqual(['?? .env.local', '?? SETUP_RAN']);
   }, 90_000);
 
   it("refuses a computer the agent isn't set up on, saying so", async () => {

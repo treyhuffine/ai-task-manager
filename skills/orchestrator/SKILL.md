@@ -28,6 +28,7 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 - Deck: `get_deck`, `update_deck`, `regenerate_deck`
 - Search: `search`
 - User state: `get_user_state`, `update_user_state`
+- Memory, from a session that can't read the home's files (on a connected computer): `read_memory`, `submit_memory_finding` (sends it to the home's main chat, which keeps MEMORY.md)
 - Execution oversight: `list_executions`, `get_session_messages`, `send_session_message`, `get_pending_input`, `answer_pending_input`, `start_execution`, `archive_execution`
 - Workspaces (the user calls a workspace an "agent"): `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `archive_workspace`, `list_workspace_sessions`
 - Triggers / runs: `list_triggers`, `get_trigger`, `create_trigger`, `update_trigger`, `delete_trigger`, `run_trigger`, `list_runs`, `get_run`, `cancel_run`, `reset_trigger_failures`

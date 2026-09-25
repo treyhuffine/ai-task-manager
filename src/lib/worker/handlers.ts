@@ -23,7 +23,7 @@ import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import * as runner from '@/lib/runner/local-runner';
 import type { SessionSpec } from '@/lib/runner/types';
-import type { ReadExecutionRequest, SendPayload, WorkerCommand, WorkerCommandAckBody } from '@/lib/workers/protocol';
+import { HOME_ADDRESS_SCHEME, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody } from '@/lib/workers/protocol';
 import { readExecution } from '@/lib/workspaces/execution-reads';
 import type { CommandJournal } from './command-journal';
 import type { CommandContext, CommandHandlers, CommandKindHandler } from './commands';
@@ -63,6 +63,22 @@ export interface SetupScriptPayload {
   command: string;
   worktreePath: string;
   branchName: string | null;
+}
+
+/**
+ * The home's servers in a spec, at the address this worker reaches its home
+ * by: the home sends them as `ri-home:` and a path (P2.7).
+ */
+export function atHome(spec: SessionSpec, homeUrl: string): SessionSpec {
+  const base = homeUrl.replace(/\/+$/, '');
+  return {
+    ...spec,
+    mcpServers: (spec.mcpServers ?? []).map((server) =>
+      server.type === 'http' && server.url?.startsWith(HOME_ADDRESS_SCHEME)
+        ? { ...server, url: `${base}${server.url.slice(HOME_ADDRESS_SCHEME.length)}` }
+        : server,
+    ),
+  };
 }
 
 /** The folder this computer set up for an agent, from its own setup files. */
@@ -246,7 +262,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
           message: placedMessage(command, ctx),
           turnId: payload.turnId,
           runId: payload.runId,
-          spec: payload.spec,
+          spec: atHome(payload.spec, ctx.target.homeUrl),
         });
         return sent.status === 'delivered'
           ? { state: 'delivered' }

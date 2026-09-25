@@ -9,8 +9,10 @@ import {
   API_KEY_TYPE_HEADER,
   CALLER_LOCATION_HEADER,
   FORWARDED_KEY_HEADERS,
+  SESSION_CHAT_HEADER,
   WORKER_COMPUTER_HEADER,
 } from '@/lib/auth/request-key';
+import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 
 export const config = {
@@ -137,6 +139,26 @@ export function proxy(request: NextRequest) {
 
   const token = extractToken(request);
   if (!token) return unauthorized();
+
+  // A session on a connected computer speaks with a token of its own, which
+  // reaches only that session's servers, in its own scope, as that session
+  // (docs/homes-build.md, P2.7). It's never looked up as a key.
+  if (isSessionToken(token)) {
+    const session = verifySessionToken(token);
+    if (!session) return unauthorized();
+    if (!sessionMayReach(session.chat, request.nextUrl.pathname, request.nextUrl.searchParams)) {
+      return forbidden('session_token', "A session's token reaches only that session's own servers.");
+    }
+    const headers = new Headers(request.headers);
+    for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+    headers.set(API_KEY_ID_HEADER, session.workerApiKeyId);
+    headers.set(API_KEY_TYPE_HEADER, 'computer');
+    headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
+    headers.set(API_KEY_SCOPE_HEADER, 'session');
+    headers.set(WORKER_COMPUTER_HEADER, session.computerId);
+    headers.set(SESSION_CHAT_HEADER, session.chat.id);
+    return NextResponse.next({ request: { headers } });
+  }
 
 
   const tokenHash = hashToken(token);

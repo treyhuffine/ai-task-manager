@@ -8,6 +8,9 @@
  * - a message containing `ASK` asks for permission to run a command, and
  *   says whether it was allowed;
  * - one containing `LONG` works until interrupted;
+ * - one containing `SERVERS` replies with the MCP servers its session was
+ *   given, as JSON;
+ * - one containing `INSTRUCTIONS` replies with its session instructions;
  * - anything else replies `ok: <message>`.
  *
  * Usage: `tsx src/test/fixtures/worker-process.ts <homeUrl> <homeId> <workerKey> <root>`.
@@ -31,6 +34,15 @@ async function main(): Promise<void> {
     if (turn.message.includes('ASK')) {
       const answer = await turn.ask({ toolName: 'Bash', input: { command: 'ls' } });
       await turn.say(answer.allow ? 'allowed' : 'denied');
+      return;
+    }
+    if (turn.message.includes('INSTRUCTIONS')) {
+      const file = turn.session.ctx.config?.instructionsFile;
+      await turn.say(file ? (await import('node:fs')).readFileSync(file, 'utf8') : '(none)');
+      return;
+    }
+    if (turn.message.includes('SERVERS')) {
+      await turn.say(JSON.stringify(turn.session.ctx.config?.mcpServers ?? []));
       return;
     }
     if (turn.message.includes('LONG')) {

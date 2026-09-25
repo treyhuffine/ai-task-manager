@@ -14,6 +14,7 @@
 import type { McpServerConfig, RuntimeCommandInventory, UserInputResponse } from '@agentex/agent';
 import type { CreateChatEventInput, EffortLevel, PermissionMode, WorkerCommandActor } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
+import type { ExecutionEnvironment } from './environment';
 import type { PendingInput } from './pending';
 
 /** Everything a runner needs to start or resume one chat's harness session. Plain JSON. */
@@ -50,6 +51,12 @@ export interface SessionSpec {
   firstTurnPreamble: string | null;
   /** Extra environment for the harness, such as the session's caller credential. */
   env: Record<string, string>;
+  /**
+   * For an execution: its environment as the home expects it. The runner
+   * resolves it on its computer when the session starts, writes it beside the
+   * session instructions and adds it to them (P2.7).
+   */
+  environment?: ExecutionEnvironment | null;
   /** Whether the user's skill folders are attached. */
   attachUserSkills: boolean;
   /** Remove skill links a past build left in the working folder. */

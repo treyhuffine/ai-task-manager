@@ -375,6 +375,7 @@ async function deliver(
       surfaceKind: session.surfaceKind,
       surfaceRef: session.surfaceRef,
       existingExternalSessionId: session.externalSessionId,
+      executionId: session.executionId ?? null,
       permissionMode: session.permissionMode,
       prePlanMode: (session.prePlanMode as PermissionMode | null) ?? null,
       model: selection.model,

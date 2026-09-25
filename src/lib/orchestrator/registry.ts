@@ -1924,6 +1924,57 @@ const send_session_message_action = defineAction({
   },
 });
 
+// ── Memory (docs/homes-build.md, P2.7) ──────────────────────
+// MEMORY.md stays at the home, with no copy anywhere else. A session that
+// can't read the home's files, on a connected computer, reads it here and
+// sends findings to the home's main chat, which keeps the file.
+
+const read_memory_action = defineAction({
+  name: 'read_memory',
+  description:
+    'Read MEMORY.md, the durable memory this home keeps across conversations. It lives at the home ' +
+    "only. A session that can't read the home's files reads it here, and sends anything worth " +
+    'remembering with submit_memory_finding.',
+  params: {},
+  handler: () => {
+    const file = path.join(getAppRoot(), 'MEMORY.md');
+    return { text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' };
+  },
+});
+
+const submit_memory_finding_action = defineAction({
+  name: 'submit_memory_finding',
+  description:
+    "Send something worth remembering to this home's main chat, which keeps MEMORY.md and decides " +
+    'whether to record it. Labeled with the chat that found it. For a session that cannot edit ' +
+    "the home's files, on a connected computer, say. The main chat edits MEMORY.md itself.",
+  params: { finding: z.string().min(1).max(4000) },
+  mutating: true,
+  cli: { positional: ['finding'] },
+  handler: async (ctx, { finding }) => {
+    const { ensureMainChat } = await import('@/lib/sessions/main-chat');
+    const main = await ensureMainChat(null);
+    if (ctx.actor?.sessionId === main.id) {
+      throw new ActionError('invalid_params', 'You keep MEMORY.md yourself. Edit it directly.');
+    }
+    // Through the messages route, like send_session_message: it labels the
+    // message with the sending chat and dispatches the main chat's turn.
+    const event = await serverFetch<{ id: string }>(`/sessions/${main.id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: `Memory finding: ${finding.trim()}\n\nIf this is worth keeping, record it in MEMORY.md. If not, leave the file as it is.`,
+      }),
+      headers: senderHeaders(ctx),
+    });
+    return {
+      submitted: true,
+      mainChatId: main.id,
+      eventId: event?.id ?? null,
+      note: "The home's main chat decides whether to record it.",
+    };
+  },
+});
+
 // ── Triggers + Runs ─────────────────────────────────────────
 
 const triggerKind = z.enum(['manual', 'at', 'every', 'cron', 'webhook']);
@@ -2957,6 +3008,8 @@ export const actions = [
   get_pending_input_action,
   answer_pending_input_action,
   send_session_message_action,
+  read_memory_action,
+  submit_memory_finding_action,
   start_execution_action,
   archive_execution_action,
   list_triggers_action,

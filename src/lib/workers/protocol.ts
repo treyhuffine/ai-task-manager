@@ -15,6 +15,13 @@ import type {
 import type { PendingInput } from '@/lib/runner/pending';
 import type { InputFile, RunnerSignal, SessionSpec } from '@/lib/runner/types';
 
+/**
+ * An address at the home, as a session elsewhere is given it: `ri-home:` and
+ * a path. The home doesn't know the address a computer reaches it by, so the
+ * worker puts its own in front (P2.7).
+ */
+export const HOME_ADDRESS_SCHEME = 'ri-home:';
+
 /** The protocol this build speaks. A home refuses a worker on another one with 426. */
 export const WORKER_PROTOCOL = 1;
 export const WORKER_PROTOCOL_HEADER = `x-${APP_SHORT_ID}-worker-protocol`;

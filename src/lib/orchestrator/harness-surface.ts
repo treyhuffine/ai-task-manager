@@ -50,6 +50,7 @@ import {
   getBrainDir,
 } from '@/lib/config/paths';
 import { readAuthConfig } from '@/lib/auth/config-file';
+import { SOUL_MD_FILENAME, USER_MD_FILENAME } from '@/lib/config/personalization-templates';
 import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
 import type { WorkspaceRecord } from '@/db/types';
 
@@ -458,6 +459,61 @@ export interface AgentMainChatReach {
   connectors: boolean;
   /** The agent browser MCP is attached. */
   browser: boolean;
+  /**
+   * The chat runs on a connected computer, where none of the home's files
+   * are (P2.7): its folder is the one there, the persona comes as text,
+   * memory through actions, and an attached file as the path its message
+   * gives.
+   */
+  elsewhere?: { folder: string };
+}
+
+/**
+ * The persona and memory section of an agent's main chat brief. At home it
+ * names the files. Elsewhere it carries USER.md and SOUL.md as they are now,
+ * since nothing of the home's is copied to another computer as a file, and
+ * MEMORY.md stays at the home behind two actions (P2.7, spec §7).
+ */
+function personaSection(appRoot: string, elsewhere: boolean): string {
+  if (!elsewhere) {
+    return `## Personalization & memory
+
+Two user-owned files shape who you're working with and how you show up.
+Read them at the start of the conversation and treat them as authoritative.
+**Never edit them**, they belong to the user:
+
+- \`${path.join(appRoot, 'USER.md')}\`
+- \`${path.join(appRoot, 'SOUL.md')}\`
+
+Your durable cross-session memory is \`${path.join(appRoot, 'MEMORY.md')}\`. Consult
+it for past context and keep it current through your tools. It can grow
+large, so read it when relevant rather than assuming it's already in context.`;
+  }
+  const read = (name: string) => {
+    try {
+      return fs.readFileSync(path.join(appRoot, name), 'utf8').trim() || '(empty)';
+    } catch {
+      return '(not written yet)';
+    }
+  };
+  return `## Personalization & memory
+
+Two user-owned files at the home shape who you're working with and how you
+show up. Treat them as authoritative. They're here as they were when this
+session started, and they belong to the user:
+
+### USER.md
+
+${read(USER_MD_FILENAME)}
+
+### SOUL.md
+
+${read(SOUL_MD_FILENAME)}
+
+Your durable cross-session memory is MEMORY.md, which stays at the home.
+Read it with \`read_memory\` when past context would help. When you learn
+something worth remembering, send it with \`submit_memory_finding\`: the
+home's main chat keeps the file.`;
 }
 
 /**
@@ -528,7 +584,7 @@ start new ones, and close them out.`,
 
 - Name: ${ws.name}
 - Workspace id: \`${id}\` (pass it as \`workspaceId\`)
-- Folder: \`${ws.cwd}\`, ${ws.isGit ? 'a git repository' : 'not a git repository'}. It is your working directory.
+- Folder: \`${reach.elsewhere?.folder ?? ws.cwd}\`, ${ws.isGit ? 'a git repository' : 'not a git repository'}. It is your working directory.
 - Purpose: ${purpose}
 
 ### Standing instructions
@@ -572,24 +628,15 @@ You can reach all of ${APP_NAME} (tasks, notes, the deck, the stream, other
 agents). Use it when the user asks. Otherwise keep your attention on this
 agent's work.`,
     tools,
-    `## Personalization & memory
-
-Two user-owned files shape who you're working with and how you show up.
-Read them at the start of the conversation and treat them as authoritative.
-**Never edit them**, they belong to the user:
-
-- \`${path.join(appRoot, 'USER.md')}\`
-- \`${path.join(appRoot, 'SOUL.md')}\`
-
-Your durable cross-session memory is \`${path.join(appRoot, 'MEMORY.md')}\`. Consult
-it for past context and keep it current through your tools. It can grow
-large, so read it when relevant rather than assuming it's already in context.`,
+    personaSection(appRoot, reach.elsewhere !== undefined),
     domainModelSection({ stream: null, executions: 'Seeing the work, and Steering and closing out' }),
     TASK_LIFECYCLE_SECTION,
     reach.browser ? BROWSER_SECTION : '',
     LONG_RUNNING_SECTION,
     RULES_SECTION,
-    entityReferencesSection(`\`${path.join(getAttachmentsDir(), '<name>')}\``),
+    entityReferencesSection(
+      reach.elsewhere ? 'the path on this computer that the message gives in its place' : `\`${path.join(getAttachmentsDir(), '<name>')}\``,
+    ),
     OUTPUT_STYLE_SECTION,
   ];
   return sections.filter(Boolean).join('\n\n');

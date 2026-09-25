@@ -6,6 +6,8 @@
  * sessions close, and a quiet heartbeat check-in closes its harness.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentSession, UserInputResponse } from '@agentex/agent';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
@@ -110,6 +112,34 @@ describe('sending', () => {
     });
     expect(sent).toEqual({ status: 'needs_spec' });
     expect(fake!.sessions).toHaveLength(0);
+  });
+});
+
+describe("an execution's environment, at home (P2.7)", () => {
+  it('is resolved when the session starts, written beside the instructions, and added to them', async () => {
+    home = await createTestHome({ prefix: 'ri-runner-split-' });
+    fake = installFakeHarness('claude');
+    const q = await import('@/lib/db/queries');
+    const identity = await import('@/lib/home/identity');
+    identity.resetHomeIdentityCache();
+    identity.ensureHomeIdentity();
+    const folder = path.join(home.root, 'notes-agent');
+    fs.mkdirSync(folder);
+    const ws = q.createWorkspace({ name: 'Notes', cwd: folder, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Tidy notes' });
+    const { dispatch } = await import('./adapter');
+    await dispatch(created.session.id, 'hello');
+
+    const instructionsFile = fake!.latest().ctx.config?.instructionsFile;
+    expect(instructionsFile).toBeTruthy();
+    const instructions = fs.readFileSync(instructionsFile!, 'utf8');
+    expect(instructions).toContain('## Your environment');
+    expect(instructions).toContain('as the "Notes" agent');
+    expect(instructions).toContain(`- Working folder: \`${folder}\`, the agent's folder, which isn't a Git repository.`);
+    const { sessionEnvironmentPath } = await import('./session-instructions');
+    const environment = JSON.parse(fs.readFileSync(sessionEnvironmentPath(created.session.id), 'utf8'));
+    expect(environment).toMatchObject({ agent: { id: ws.id }, executionId: created.execution.id, cwd: folder, mode: 'folder' });
+    identity.resetHomeIdentityCache();
   });
 });
 

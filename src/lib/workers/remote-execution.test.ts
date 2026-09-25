@@ -24,6 +24,7 @@ let chatId: string;
 let homeId: string;
 let laptopKey: { id: string; token: string };
 let workerKey: string;
+let workspaceId: string;
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-remote-exec-' });
@@ -60,6 +61,7 @@ beforeEach(async () => {
     skipLiveConfirm: false,
     browserEnabled: false,
   });
+  workspaceId = ws.id;
   const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Remote work' });
   executionId = created.execution.id;
   chatId = created.session.id;
@@ -143,6 +145,39 @@ describe('an execution on a connected computer', () => {
       attachments: [{ fileName: notes.fileName, originalName: 'notes.txt', size: 13, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) }],
     });
     expect(JSON.stringify(command!.payload)).not.toContain(getAttachmentsDir());
+  }, 60_000);
+
+  it("reaches the home's servers from there, with its session's own token and never the home's key", async () => {
+    const { dispatch } = await import('@/lib/executor/adapter');
+    const q = await import('@/lib/db/queries');
+    q.updateWorkspace(workspaceId, { browserEnabled: true });
+    const message = await userMessage('SERVERS');
+    await dispatch(chatId, 'SERVERS', { sourceEventId: message.id });
+    const reply = q.listChatEvents(chatId).find((e) => e.source === 'agent')!.content!;
+    const servers = JSON.parse(reply) as Array<{ url: string; headers: Record<string, string> }>;
+    const browser = servers.find((s) => s.url.includes('/browser/mcp'))!;
+    // At the address the laptop reaches the home by, in its agent's own profile.
+    expect(browser.url).toBe(`${server.url}/api/orchestrator/browser/mcp?profile=ws-${workspaceId}`);
+    expect(browser.headers.Authorization).toMatch(/^Bearer ri_session_/);
+    expect(reply).not.toContain(home.token);
+
+    // The token gets through the home's real proxy to that server, and nowhere else.
+    const initialize = await fetch(browser.url, {
+      method: 'POST',
+      headers: { ...browser.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
+      }),
+    });
+    expect(initialize.status).toBe(200);
+    expect(await initialize.text()).toContain('"serverInfo"');
+    const elsewhere = await fetch(`${server.url}/api/orchestrator/browser/mcp?profile=default`, { method: 'POST', headers: browser.headers });
+    expect(elsewhere.status).toBe(403);
+    const tasks = await fetch(`${server.url}/api/workers/me`, { headers: browser.headers });
+    expect(tasks.status).toBe(403);
   }, 60_000);
 
   it('sends a message once, however many paths try', async () => {

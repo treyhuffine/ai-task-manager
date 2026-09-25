@@ -447,7 +447,7 @@ P2.4 puts the protocol to work: an execution can be started on a connected compu
 - `dispatchExecutionSession`, the create route and `start_execution` take a `computerId`. A computer that isn't enrolled, or doesn't have the agent set up and ready, is refused with the reason, never swapped for another (spec §3.3). The home creates the execution and its placement, and queues a `prepare`.
 - The worker finds the agent's folder in its own setup files, makes the worktree there (or uses the folder itself for live mode or a folder that isn't a repository), notes it in its journal before anything else so recovery reuses it, and copies the agent's files. The home records the worktree on the placement and the branch on the execution. `executions.worktree_path` stays the home's own path, so nothing on the home looks for the other computer's folder. A setup script follows as its own `run_script`, never repeated after a restart that caught it running.
 - A message sent before the worktree exists isn't held back. It's queued at once, with a note that its folder is the worktree this computer prepares for the execution. The worker carries out an execution's commands in order, so the prepare finishes first. The message is saved from the start.
-- `dispatch` builds the spec for the computer that runs it: capabilities from its worker's report, reference paths from its setup report, and no MCP servers yet (they're addressed at the home's localhost; P2.7 gives them the home's address and a session token). The home's own model catalog stands in for the computer's. A second dispatch of a message already queued (the health check's orphan re-fire) returns before creating a run.
+- `dispatch` builds the spec for the computer that runs it: capabilities from its worker's report, reference paths from its setup report, and, since P2.7, the home's servers at the worker's address for the home with a session token. The home's own model catalog stands in for the computer's. A second dispatch of a message already queued (the health check's orphan re-fire) returns before creating a run.
 - A send acknowledged failed, stale or uncertain finishes its run in the same transaction, since no turn result will come.
 
 ### On the worker
@@ -565,6 +565,49 @@ P2.6 makes every command say who caused it, from their credentials, and keeps ap
   - `handlers.test.ts` (+1) and `remote-start.test.ts` (the prepare's actor).
   - Each new guard was checked by removing it and watching its test fail.
 - Live on the dev home: real Claude on the stand-in laptop, in ask mode, asked to run a command. An approval carrying the orchestrator chat's credential was refused with 403 and queued nothing, and the prompt kept waiting. The person's approval went through, Claude wrote the file in the laptop's worktree, and the send and the answer carry the person's key. Stopping the stand-in's worker then closed its Claude session and exited, with no process left.
+
+## P2.7 Sessions elsewhere: the home's servers, the environment, persona and memory
+
+P2.7 gives a session on a connected computer what a session at home has, without a home path, a home key, or a managed file in a repository. Today only executions run elsewhere (an agent's main chat can live elsewhere once P3.1 lets an agent have no folder at home), so executions are where each piece is exercised, and the main chat's piece is built on the same path.
+
+### The home's servers, reached with a session token
+
+- **Session token.** For a session elsewhere, the home mints `ri_session_<chat>.<computer>.<generation>.<signature>`, signed with the home's key (HMAC, as the session credential is). It carries no authority of its own: the proxy accepts it only while that chat is placed on that computer at that generation and the computer's worker is enrolled. A move, a new generation, or turning off the computer's local execution ends every token for it, with nothing to revoke.
+- **Where it reaches.** Only the three servers a harness uses: the orchestrator MCP, the connectors MCP and the browser MCP, and on each only the session's own scope. An execution reaches connectors for its own agent's allowlist (`?ws=` its agent) and the browser in its own agent's profile (`?profile=ws-<agent>`). An agent's main chat also reaches the orchestrator MCP. Anything else is 403. The actor is the session, from the token, with location `elsewhere`, so path-taking actions refuse it as they refuse any caller elsewhere.
+- **Addressed through the worker.** The home doesn't know the address a computer reaches it by, and shouldn't guess. It sends each server as `ri-home:/api/...` with the token, and the worker puts its own home address in front before starting the harness. The token never touches argv: agentex stages MCP configs as a 0600 file.
+
+### The environment manifest
+
+The spec (§4.3) asks for a resolved environment manifest per execution: source folder, working folder, connected folders, Git checkpoint and capabilities, in the session instructions and in a readable local file outside the repository.
+
+- **The home decides what's expected**: the agent, the home and computer names, the working folder, the mode (a worktree, live in the agent's folder, or a plain folder), the branch and base, the reference aliases with their descriptions, and what the session can use (harness, model, permission mode, connectors, browser).
+- **The computer running it resolves what only it knows**, when the session starts: the agent's folder from its own setup files, each reference from the agent's local setup (`resolveSetups`, as the setup reports do), and the checked-out branch and commit. A reference that's omitted, unset or missing is listed as such, never replaced. A worker never starts against the home's cached copy of its own paths.
+- **Delivered twice.** Written to `<workDir>/session-instructions/<chat>.environment.json`, beside the session instructions and outside every repository, and rendered as a short "Your environment" block at the end of the session instructions, which names the file. Written when the session starts, so a change to the agent applies to the next session, never mid-turn.
+- Every execution gets it, at home too.
+
+### Persona and memory
+
+- **Persona as text, never as a file.** A session at home that uses the persona reads USER.md and SOUL.md at the home. A session elsewhere gets their text in its session instructions instead, and nothing is copied to that computer as a file. Today that's an agent's main chat, which runs elsewhere from P3.1. Executions don't use the persona, at home or elsewhere.
+- **Memory stays at home.** MEMORY.md has no copy anywhere else. Two actions, for any session: `read_memory` returns it, and `submit_memory_finding` sends a finding to the home's main chat, labeled with the session that found it, for the orchestrator to record in MEMORY.md with its own file tools if it's worth keeping. A session elsewhere reaches them through the orchestrator MCP or the CLI there, which calls the home.
+
+### Also for a main chat elsewhere
+
+An agent's main chat brief named other home paths besides the persona: its folder (the home's copy of the agent's folder) and where attached files are. Elsewhere, the folder is the one on that computer, its connected folders are the ones that computer reported, and an attached file is the path its message gives (P2.5).
+
+### As built
+
+- Token: `src/lib/auth/session-token.ts` (`mintSessionToken`, `verifySessionToken`, `sessionMayReach`), accepted in `src/proxy.ts` before any key lookup, with scope `session` and the chat in a proxy-owned header (`SESSION_CHAT_HEADER`, stripped from anything a caller sends). The orchestrator MCP route and `actorFromRequest` take the session from it. `getWorkerEnrollmentForComputer` in queries.
+- Spec: `buildSessionSpec` turns a session elsewhere's servers into `ri-home:` addresses with its token (`reachedFromElsewhere`), and the worker's send handler puts its home address in front (`atHome`). `HOME_ADDRESS_SCHEME` in the protocol.
+- Environment: `src/lib/runner/environment.ts` (`resolveEnvironment`, `renderEnvironment`), `SessionSpec.environment` built by the home (`expectedEnvironment`), resolved and written by the local runner when a session starts (`writeSessionEnvironment`, removed with the instructions).
+- Persona and memory: `personaSection` and `elsewhere` in the main chat brief, `AgentMainChatSpawnArgs.elsewhere` with the folder and references there, `read_memory` and `submit_memory_finding` in the registry, and the orchestrator skill's action list.
+- Tests:
+  - `session-token.test.ts` (5): the token holds while placed, ends on a new generation or a revoked worker, reaches only its servers in scope, and passes the real proxy as its session from elsewhere.
+  - `remote-execution.test.ts` (+1), with the worker in its own process: the harness there gets the browser server at the laptop's address for the home with a session token, never the home's key. The token initializes that MCP server through the real proxy, and is refused in another profile and on a worker route.
+  - `environment.test.ts` (3): resolved from this computer's setup (a worktree, live, a plain folder, each reference state), the home's view kept when there's no setup here, and the rendered block.
+  - `remote-start.test.ts` (+1): a laptop execution's environment file and block, with a reference mapped on the laptop and one left out, and nothing of Ri's in the repository. `runner-split.test.ts` (+1): the same for an execution at home.
+  - `agent-main-chat.test.ts` (+2): the brief elsewhere carries the persona as text, its folder there, and memory as actions, with no home path. Its spec reaches the orchestrator with a session token at `ri-home:`.
+  - `registry.memory.test.ts` (3): memory read from the home, a finding reaching the main chat labeled with its execution, and the main chat told to edit the file itself.
+- Live on the dev home, with real Claude on the stand-in laptop: it called `browser_status` on the home's browser server, and the home logged `POST /api/orchestrator/browser/mcp?profile=ws-<Demo>` answering 200, with the session's token. Asked about its environment, it named the laptop's worktree, the agent's folder on the laptop, its branch and base, and the `agentex` folder as the laptop maps it (`macbook/dynamism/agentex`), not the home's (`mini/code/agentex`). The worktree stayed clean.
 
 ## P2 review fixes
 
@@ -829,7 +872,7 @@ Found while mapping. Each is fixed where its phase lands.
 2. `archive_workspace` (`registry.ts:1468`) archives in the database only. The REST route also kills terminals and closes sessions (P2.4). Fixed in P2.4.
 3. The takeover block exists only in the messages route. Commit, PR, resolve-conflicts, help-with-error, the scheduler, coalesce and health redispatch still dispatch. Owner routing replaces it (P2.4, P4.5). Fixed in P2.4.
 4. The event seam is partial. Reconcile replays, Codex replay, user messages, run rows and every live-state publish bypass `EventWriter` (P2.1). Fixed in P2.1: every replay path writes through a writer, and live state publishes only from the home sink. User messages and run rows are the home's own records.
-5. Orchestrator, connector and browser server URLs for harness sessions are `http://localhost:<port>` with the local bearer token (`harness-surface.ts:623,646,670`), so a harness can only run beside the server today (P2.7).
+5. Orchestrator, connector and browser server URLs for harness sessions are `http://localhost:<port>` with the local bearer token (`harness-surface.ts:623,646,670`), so a harness can only run beside the server today (P2.7). Fixed in P2.7: a session elsewhere gets them at its worker's address for the home, with a session token.
 6. Preview uses `worktreePath ?? workspace.cwd` (`preview/service.ts:117`), so it can start in the source checkout while a worktree is still being prepared (P3.5).
 7. A quiet heartbeat archives its chat without closing the harness (`heartbeat/quiet.ts:40`), and handles have no idle timeout (P2.1). Fixed in P2.1.
 8. Interrupt leaves pending prompts registered. Only close rejects them (`adapter.ts:815,872`) (P2.4). Fixed in P2.4.
