@@ -323,7 +323,8 @@ describe('events', () => {
     expect(q.listChatEvents(chat.id).map((e) => e.content)).toContain('Hello from the laptop');
     expect(q.getChatSession(chat.id)?.externalSessionId).toBe('native-1');
     expect(q.getRun(run.id)?.status).toBe('completed');
-    expect(j.events.ackedPosition()).toBe(3);
+    // The worker hears the home's answer a moment after the home stores it.
+    await until(() => j.events.ackedPosition() === 3, 'the worker to record the acknowledgement');
   });
 
   it('wait in the journal while the home is unreachable, and survive a restart', async () => {
@@ -410,6 +411,35 @@ describe('events', () => {
     await new EventPoster(target, j.events).kick();
     expect(q.getAckedEventSeq(computerId)).toBe(4);
     expect(q.listChatEvents(chat.id).some((e) => e.content === 'new')).toBe(true);
+  });
+});
+
+describe('placements in the heartbeat', () => {
+  it('are answered with the ones this computer no longer holds, to stop', async () => {
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const kept = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'kept' });
+    const moved = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'moved' });
+    q.createPlacement({ executionId: kept.execution.id, computerId, startReason: 'created' });
+    q.createPlacement({ executionId: moved.execution.id, computerId, startReason: 'created' });
+    // The second moves on: continued on the home's own computer.
+    const identity = await import('@/lib/home/identity');
+    q.createPlacement({ executionId: moved.execution.id, computerId: identity.ensureHomeIdentity().computer.id, startReason: 'continued' });
+
+    const { sendHeartbeat } = await import('@/lib/worker/run');
+    const reply = await sendHeartbeat(target, 'test', 'awake', async () => [], {
+      live: { running: [kept.session.id], pending: [], backgroundTasks: {} },
+      placements: [
+        { executionId: kept.execution.id, generation: 1, chatSessionIds: [kept.session.id] },
+        { executionId: moved.execution.id, generation: 1, chatSessionIds: [moved.session.id] },
+      ],
+    });
+    expect(reply?.release).toEqual([{ executionId: moved.execution.id, chatSessionIds: [moved.session.id] }]);
+    // And what's live there is mirrored at home.
+    const live = await import('@/lib/executor/live-state');
+    expect(live.isRunning(kept.session.id)).toBe(true);
+    const { _resetRemoteLive } = await import('@/lib/executor/remote-live');
+    _resetRemoteLive();
   });
 });
 

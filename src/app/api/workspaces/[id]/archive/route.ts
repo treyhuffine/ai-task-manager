@@ -1,8 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { archiveWorkspace, listChatSessions } from '@/lib/db/queries';
-import { killAllForOwner } from '@/lib/terminal/pty-manager';
-import { terminalOwnerId, workspaceTerminalOwnerId } from '@/lib/terminal/owner';
-import { close as closeHarnessSession } from '@/lib/executor/adapter';
+import { archiveAgent } from '@/lib/workspaces/archive-agent';
 
 export const runtime = 'nodejs';
 
@@ -12,20 +9,8 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const row = archiveWorkspace(id);
+    const row = await archiveAgent(id);
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-    // Reap every process tied to this workspace's sessions — archiving the
-    // workspace orphans them otherwise (they outlive it until the server
-    // restarts). Both are safe no-ops when nothing's live:
-    //   - node-pty terminals, owned per execution (deduped — many chats
-    //     share one execution, and killing an owner twice is wasted work),
-    //     plus the agent's own terminals on its folder
-    //   - the cached harness subprocess, one per chat (the agent's main
-    //     chat included)
-    const sessions = listChatSessions({ workspaceId: id });
-    const owners = new Set(sessions.map(terminalOwnerId)).add(workspaceTerminalOwnerId(id));
-    for (const ownerId of owners) killAllForOwner(ownerId);
-    await Promise.all(sessions.map((s) => closeHarnessSession(s.id)));
     return Response.json(row);
   } catch (err) {
     console.error('[POST /api/workspaces/:id/archive]', err);

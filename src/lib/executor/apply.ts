@@ -20,9 +20,10 @@
 import type { StreamEvent, UserInputResponse } from '@agentex/agent';
 import type { ChatEventSource, CreateChatEventInput, PermissionMode } from '@/db/types';
 import {
+  chatPlacement,
   getAckedEventSeq,
-  getChatComputerId,
   getChatSession,
+  heldPlacement,
   insertChatEvent,
   replaceChatEventPart,
   setAckedEventSeq,
@@ -37,6 +38,7 @@ import { inTransaction, type AfterCommit } from '@/lib/effects/after-commit';
 import type { PendingInput } from '@/lib/runner/pending';
 import type { RunnerSignal } from '@/lib/runner/types';
 import type { WorkerEvent } from '@/lib/workers/protocol';
+import { mirrorSignal } from './remote-live';
 import { settleTurn } from './turns';
 
 /**
@@ -57,7 +59,18 @@ export function applyChatEvent(row: CreateChatEventInput, opts: { cumulative: bo
   return stored !== null;
 }
 
-export function applyRunnerSignal(chatSessionId: string, signal: RunnerSignal, after: AfterCommit): void {
+/**
+ * Apply one signal. `from` names the connected computer that reported it,
+ * whose live state the home mirrors; absent for the home's own runner, whose
+ * state the facade reads directly.
+ */
+export function applyRunnerSignal(
+  chatSessionId: string,
+  signal: RunnerSignal,
+  after: AfterCommit,
+  from: { computerId: string } | null = null,
+): void {
+  if (from) after.tasks.push(() => mirrorSignal(from.computerId, chatSessionId, signal));
   switch (signal.type) {
     case 'running':
       after.tasks.push(() => publishRuntime(chatSessionId, signal.running));
@@ -124,8 +137,9 @@ export function applyWorkerEvents(
       const current = getAckedEventSeq(computerId);
       if (event.position <= current) return { position: current, refused: false };
       if (event.position !== current + 1) return { position: current, refused: false };
-      const allowed = getChatSession(event.chatSessionId) !== undefined && getChatComputerId(event.chatSessionId) === computerId;
-      if (allowed) applyWorkerEvent(event, after);
+      const standing = eventStanding(computerId, event);
+      const allowed = standing !== 'refused';
+      if (allowed) applyWorkerEvent(computerId, event, after, standing === 'history');
       setAckedEventSeq(computerId, event.position);
       return { position: event.position, refused: !allowed };
     });
@@ -139,7 +153,24 @@ export function applyWorkerEvents(
   return { acked, refused };
 }
 
-function applyWorkerEvent(event: WorkerEvent, after: AfterCommit): void {
+/**
+ * Whether a computer may report this event, and how it counts (P2 protocol,
+ * Fencing and Events): `current` from the chat's placement now, `history`
+ * from a placement this computer held before, which is stored because it
+ * happened but changes no live state, or `refused`.
+ */
+function eventStanding(computerId: string, event: WorkerEvent): 'current' | 'history' | 'refused' {
+  if (!getChatSession(event.chatSessionId)) return 'refused';
+  const placement = chatPlacement(event.chatSessionId);
+  if (!placement) return 'refused';
+  if (placement.executionId === null) return placement.computerId === computerId && !placement.isHome ? 'current' : 'refused';
+  const generation = event.generation ?? placement.generation;
+  if (placement.computerId === computerId && placement.generation === generation) return 'current';
+  return generation !== null && heldPlacement(placement.executionId, computerId, generation) ? 'history' : 'refused';
+}
+
+function applyWorkerEvent(computerId: string, event: WorkerEvent, after: AfterCommit, historyOnly: boolean): void {
+  if (historyOnly && event.kind === 'signal') return;
   if (event.kind === 'chat_event') {
     applyChatEvent(
       { ...event.chatEvent, id: event.eventId, sessionId: event.chatSessionId },
@@ -147,7 +178,7 @@ function applyWorkerEvent(event: WorkerEvent, after: AfterCommit): void {
     );
     return;
   }
-  applyRunnerSignal(event.chatSessionId, event.signal, after);
+  applyRunnerSignal(event.chatSessionId, event.signal, after, { computerId });
 }
 
 // ─── Pending prompts ──────────────────────────────────────────

@@ -18,7 +18,10 @@ import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import type { StreamEvent, UserInputResponse } from '@agentex/agent';
 import {
+  chatPlacement,
+  type ChatPlacement,
   getChatSessionWithExecution,
+  getSendForEvent,
   getWorkspace,
   getUserState,
   updateChatSession,
@@ -29,12 +32,11 @@ import {
   markRunStarted as markRunStartedRow,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
-import type { PermissionMode } from '@/db/types';
+import type { PermissionMode, WorkerCommandActor } from '@/db/types';
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
 import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options';
-import { getHarnessRuntime } from '@/lib/harness/runtime';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { isHarnessEnabled } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
@@ -53,6 +55,7 @@ import { installHomeSink } from './home-sink';
 import { activeSendCount } from './live-state';
 import { runnerFor } from './placement';
 import { buildSessionSpec } from './session-spec';
+import { harnessCapabilitiesOn, workingFolderOn } from './computers';
 import { awaitTurn, forgetTurn } from './turns';
 
 installHomeSink();
@@ -124,6 +127,10 @@ export interface DispatchOptions {
   overBudget?: boolean;
   internalCall?: boolean;
   runId?: string;
+  /** The user's chat event this sends, so a message reaches its harness once however many paths try. */
+  sourceEventId?: string | null;
+  /** Who is sending, from the caller's credentials. */
+  actor?: WorkerCommandActor;
 }
 
 /**
@@ -151,9 +158,36 @@ export async function dispatch(
 ): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
+  // Someone took this over to work on it locally. Nothing sends into it
+  // until they hand it back, whichever path is sending: the composer, a
+  // commit or PR helper, the scheduler, a coalesced trigger, or a health
+  // re-fire (docs/homes-build.md, P0.4 gap 3).
+  if (session.takeoverStartedAt) {
+    throw new ExecutorError(
+      'invalid_state',
+      'Session is being worked on locally. Run `ri resume` or click Done in the takeover banner before sending more messages.',
+    );
+  }
 
-  const cwd = resolveCwd(session);
-  if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
+  // Where the chat runs. A chat on a connected computer runs in its folder
+  // there, which the home never looks for on its own disk (P2.4).
+  const placement = chatPlacement(chatSessionId);
+  const remote = placement && !placement.isHome ? placement : null;
+  // This message already went to its computer's queue, by another path (the
+  // original send, or an earlier retry): its run and its turn are that
+  // send's. A second one would only wait on a turn that never comes.
+  if (remote && options.sourceEventId && getSendForEvent(options.sourceEventId)) return;
+  let cwd: string | null;
+  let preparing: string | null = null;
+  if (remote) {
+    const folder = workingFolderOn(remote, session);
+    if ('problem' in folder) throw new ExecutorError('invalid_state', folder.problem);
+    if ('preparing' in folder) preparing = folder.preparing;
+    cwd = 'cwd' in folder ? folder.cwd : '';
+  } else {
+    cwd = resolveCwd(session);
+  }
+  if (cwd === null || (!cwd && !preparing)) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');
 
   // Final provider-boundary guard. Live discovery is authoritative for new
   // sends. Historical unavailable selections remain readable, but a missing
@@ -162,7 +196,9 @@ export async function dispatch(
   if (!isHarnessEnabled(providerId)) {
     throw new ExecutorError('unsupported', `${providerId} is disabled by the rollout configuration`);
   }
-  const catalog = await getHarnessModelCatalog(providerId, { cwd });
+  // The home's own catalog stands in for a connected computer's: same
+  // accounts, and the harness there refuses a model it doesn't have.
+  const catalog = await getHarnessModelCatalog(providerId, { cwd: remote ? undefined : cwd });
   if (session.model && !catalog.some((model) => model.id === session.model)) {
     throw new ExecutorError(
       'invalid_state',
@@ -226,16 +262,15 @@ export async function dispatch(
   // by each trigger's `concurrencyPolicy` in `runs/dispatch.ts`.
 
   // Provider capability gate, before a run exists, so a refused send leaves
-  // none behind. The runner checks the same things again.
-  const runtime = await getHarnessRuntime(selection.providerId, { cwd });
-  if (!runtime.capabilities.sessions.supported) {
-    throw new ExecutorError(
-      'unsupported',
-      runtime.capabilities.sessions.reason ?? `${selection.providerId} sessions are unavailable`,
-    );
+  // none behind. The runner checks the same things again. On a connected
+  // computer the capabilities are what its worker reported, and its runner
+  // holds the one-at-a-time gate.
+  const caps = await harnessCapabilitiesOn(remote ?? { computerId: '', isHome: true }, selection.providerId, remote ? undefined : cwd);
+  if (!caps.sessions) {
+    throw new ExecutorError('unsupported', caps.sessionsReason ?? `${selection.providerId} sessions are unavailable`);
   }
   const starting = startingSends.get(chatSessionId) ?? 0;
-  if (!runtime.capabilities.concurrentSend.supported && activeSendCount(chatSessionId) + starting > 0) {
+  if (!remote && !caps.concurrentSend && activeSendCount(chatSessionId) + starting > 0) {
     throw new ExecutorError('already_running', 'This provider does not support concurrent send.');
   }
   // Same tick as the check: the next send sees this one. The preparation
@@ -244,7 +279,7 @@ export async function dispatch(
   const preparation = beginDispatchPreparation(chatSessionId);
   let delivered: { turn: Promise<void> };
   try {
-    delivered = await deliver(chatSessionId, userMessage, options, session, selection, cwd);
+    delivered = await deliver(chatSessionId, userMessage, options, session, selection, cwd, remote, preparing);
   } finally {
     // Delivered or refused, the send is no longer starting. Once delivered,
     // the runner's own count holds the gate and the running flag.
@@ -265,6 +300,8 @@ async function deliver(
   session: NonNullable<ReturnType<typeof getChatSessionWithExecution>>,
   selection: ReturnType<typeof explicitHarnessSelection>,
   cwd: string,
+  remote: ChatPlacement | null,
+  preparing: string | null,
 ): Promise<{ turn: Promise<void> }> {
   // Run-row instrumentation (task #12). Every dispatch creates a run row
   // — manual, scheduled, or webhook — so cost tracking and budget
@@ -291,8 +328,9 @@ async function deliver(
 
   const turnId = uuidv7();
   const turn = awaitTurn(turnId);
-  const buildSpec = () =>
-    buildSessionSpec({
+  const buildSpec = async () => ({
+    ...(await buildSessionSpec(
+      {
       chatSessionId,
       harness: session.harness,
       cwd,
@@ -306,16 +344,23 @@ async function deliver(
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
-    });
+      },
+      remote ?? undefined,
+    )),
+    preparedWorktreeOf: preparing,
+  });
   try {
     const runner = runnerFor(chatSessionId);
-    // A live session needs no spec, so a follow-up does no spec work.
+    // A live session here needs no spec, so a follow-up does no spec work. A
+    // connected computer always gets one.
     const request: SendRequest = {
       chatSessionId,
       message: userMessage,
       turnId,
       runId,
-      spec: isHarnessSessionAlive(chatSessionId) ? null : await buildSpec(),
+      spec: !remote && isHarnessSessionAlive(chatSessionId) ? null : await buildSpec(),
+      sourceEventId: options.sourceEventId ?? null,
+      actor: options.actor,
     };
     let sent = await runner.send(request);
     if (sent.status === 'needs_spec') {
@@ -347,7 +392,7 @@ export async function abort(chatSessionId: string): Promise<void> {
 }
 
 /** Stop one background task without disturbing the session or its other tasks. */
-export async function stopTask(chatSessionId: string, taskId: string): Promise<{ stopped: boolean }> {
+export async function stopTask(chatSessionId: string, taskId: string): Promise<{ stopped: boolean; queued?: boolean }> {
   return runnerFor(chatSessionId).stopTask(chatSessionId, taskId);
 }
 
@@ -368,7 +413,7 @@ export function answerPendingInput(
  * archived, or to force a resume on the next send. Says honestly whether the
  * process closed.
  */
-export async function close(chatSessionId: string): Promise<{ closed: boolean; error?: string }> {
+export async function close(chatSessionId: string): Promise<{ closed: boolean; error?: string; queued?: boolean }> {
   return runnerFor(chatSessionId).stop(chatSessionId);
 }
 

@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, agentSetups,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, agentSetups,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -175,6 +175,7 @@ export type WorkerReportedState = NonNullable<ComputerRecord['reportedState']>;
 export type WorkerCommandRecord = InferSelectModel<typeof workerCommands>;
 export type WorkerCommandKind = WorkerCommandRecord['kind'];
 export type WorkerCommandState = WorkerCommandRecord['state'];
+export type ExecutionPlacementRecord = InferSelectModel<typeof executionPlacements>;
 export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
 export type AgentSetupStatus = AgentSetupRecord['status'];
 

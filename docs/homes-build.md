@@ -428,6 +428,63 @@ P2.3 makes the P2 protocol's delivery rules real: durable commands with a receip
 - Tests: `src/lib/workers/journals.test.ts` (16, over real HTTP with journals on disk): once-only application whatever is resent, recovery after a restart without running again, an acknowledgement outliving an outage, the receipt cursor, cancellation leaving no gap, re-enrollment, an unhandled kind, events in order, offline and across a restart, replays and gaps, refusal for another computer's chat, a cleared journal, compacted positions, part revisions, and the notification drain. Four were checked by breaking the behavior they cover.
 - Live on the dev home, after its restart applied 0005 (snapshot first): a queued command was numbered, streamed to the stand-in laptop as it connected, journaled received, finished and confirmed, and recorded at home as failed with that message. A restarted worker didn't receive it again. Stopping the worker with Ctrl-C now sends its last heartbeat as `stopped`. It didn't at first: tsx exits on a signal when no listener remains, and the worker's `once` listener was removed before it ran.
 
+## P2.4 Routing work to the computer that runs it
+
+P2.4 puts the protocol to work: an execution can be started on a connected computer, and everything about it (sends, interrupts, stops, prompt answers, file views) reaches that computer.
+
+### Placement
+
+- **`execution_placements`** (migration 0006, additive), as in P0.3: one open placement per execution, whose generation every execution command carries. An execution with no row runs on the home's own computer at generation 1, which covers every execution from before this build with no backfill. `worker_commands.source_event_id` is unique, so one message queues one send.
+- **`chatPlacement`** says where a chat runs: its execution's placement, or for a chat without one, its `computer_id` (null is the home). `runnerFor` returns the home's own runner or a **remote runner**, which turns each call into a durable command stamped with the placement generation. A send is `queued`, not `delivered`, and a stop is `queued`, not yet closed. Callers that report stops (the coordinated stop, the task stop) report a queued one as pending, not as a failure.
+- **Fencing.** Events are checked against placements: from the current one they apply fully, from one this computer held before they're kept as history without changing live state, and anything else is refused. On the worker, a command from a generation older than the newest it has seen for that execution is `stale`.
+
+### Starting and sending
+
+- `dispatchExecutionSession`, the create route and `start_execution` take a `computerId`. A computer that isn't enrolled, or doesn't have the agent set up and ready, is refused with the reason, never swapped for another (spec §3.3). The home creates the execution and its placement, and queues a `prepare`.
+- The worker finds the agent's folder in its own setup files, makes the worktree there (or uses the folder itself for live mode or a folder that isn't a repository), notes it in its journal before anything else so recovery reuses it, and copies the agent's files. The home records the worktree on the placement and the branch on the execution. `executions.worktree_path` stays the home's own path, so nothing on the home looks for the other computer's folder. A setup script follows as its own `run_script`, never repeated after a restart that caught it running.
+- A message sent before the worktree exists isn't held back. It's queued at once, with a note that its folder is the worktree this computer prepares for the execution. The worker carries out an execution's commands in order, so the prepare finishes first. The message is saved from the start.
+- `dispatch` builds the spec for the computer that runs it: capabilities from its worker's report, reference paths from its setup report, and no MCP servers yet (they're addressed at the home's localhost; P2.7 gives them the home's address and a session token). The home's own model catalog stands in for the computer's. A second dispatch of a message already queued (the health check's orphan re-fire) returns before creating a run.
+- A send acknowledged failed, stale or uncertain finishes its run in the same transaction, since no turn result will come.
+
+### On the worker
+
+`executionHandlers` carries out `send`, `interrupt`, `stop_task`, `stop`, `answer_pending_input`, `prepare` and `run_script` through the local runner. Each kind has its own recovery rule after a restart:
+
+- **send:** received but never started is sent. Started is looked up in Claude's transcript for the session: found is `delivered`, and missing or not checkable is `uncertain`.
+- **interrupt, stops:** repeated.
+- **answer_pending_input:** stale once the prompt is gone.
+- **prepare:** resumes from its note.
+- **run_script:** uncertain.
+
+Heartbeats carry the worker's live state, which replaces the home's mirror for that computer, and the placements it holds. The home answers with any it no longer holds, and the worker stops their sessions.
+
+### Reads and live state
+
+- **Execution reads** (tree, file, diff, status, diff stats, bulk diff stats, work in progress) for an execution elsewhere are answered by its worker. `src/lib/workspaces/execution-reads.ts` is the same library code the routes use, with no database. The request names the execution, never a path: the worker reads only an execution it prepared, in the worktree it prepared, and the agent's folder from its own setup files. A computer that isn't connected answers 409 with "Laptop is not connected right now".
+- **Live state** for chats elsewhere is the home's mirror (`remote-live.ts`): running, prompts, background tasks and inventory from each worker's signals, replaced by each heartbeat's snapshot. The live-state facade merges it with the home's own runner, and prompt answers check the prompt belongs to the chat as its computer last reported.
+- **The health check** leaves a chat elsewhere alone: no reconcile of a transcript the home doesn't have, and no clearing of mirrored state. It only makes sure a message that never reached the queue gets there.
+
+### The P0.4 gaps closed here
+
+1. `run_trigger` and `cancel_run` from the home's CLI now run in the server, where the harness can be watched and stopped.
+2. `archive_workspace` stops the agent's chats and terminals like the app route, through one `archiveAgent`.
+3. `dispatch` refuses a chat someone took over, whichever path sends: commit, PR, conflicts, help, scheduler, coalesce, or health.
+8. Interrupting a turn denies the prompt it was waiting on.
+
+### Also found and fixed
+
+A test could reach production. The home's self-calls fall back to port 4224 when nothing says otherwise, and production answers there on this machine. The test setup now points them at a closed port, and the whole suite still passes, so no test relied on a real server.
+
+### As built
+
+- Home: `execution_placements` queries (`placementOf`, `createPlacement`, `markPlacementPrepared`, `chatPlacement`, `heldPlacement`), `remote-runner.ts`, `remote-live.ts`, `computers.ts` (capabilities and working folder per computer), `remote-reads.ts`, and the create route's and the ack route's new paths.
+- Worker: `handlers.ts` (the kinds above, `executionReads`, `agentFolderHere`, `findInClaudeHistory`), and the journal's notes, generations, placements and prepared worktrees. `ri worker run` gives the worker its handlers and reads.
+- Tests:
+  - `remote-execution.test.ts` (5) and `remote-start.test.ts` (3) run the worker in a process of its own (`src/test/fixtures/worker-process.ts`) against the home over real HTTP. They cover a turn run there, sending once, a prompt answered from home, an interrupt, a stale placement, preparing from its own repository with a message sent first and the setup script after, reads, a disconnected computer, and refusing a computer without the agent.
+  - `handlers.test.ts` (8) covers each recovery rule and the fence.
+  - `runner-split.test.ts` adds the three gaps, and `journals.test.ts` the heartbeat's release.
+- Live on the dev home, after its restart applied 0006 (snapshot first): `start_execution` with the stand-in laptop's computer made a worktree in the stand-in's own Demo clone, and real Claude answered there, "pong from the laptop". The run completed with its cost and summary. The worktree's tree, status and diff stats came back through the home's own API.
+
 ## Dogfood gate A: the real laptop and phone
 
 Automated coverage used a stand-in laptop on the Mac Mini (`~/ri-homes-laptop`). The gate itself needs the real devices. Status: **passed on 2026-09-25**, on the real MacBook and iPhone.
@@ -619,14 +676,14 @@ Every current path that starts, messages, controls or reads an execution, and th
 
 Found while mapping. Each is fixed where its phase lands.
 
-1. `ri trigger run`, `ri agent run_trigger`, `ri run cancel` and `ri agent cancel_run` run `dispatchRun` or `abort` inside the short-lived CLI process (`src/cli/commands/trigger.ts:149,287`, `registry.ts:2275,2335`). The server can't see, stop or answer that harness, and cancel does nothing there. Route them through the server (P2.4).
-2. `archive_workspace` (`registry.ts:1468`) archives in the database only. The REST route also kills terminals and closes sessions (P2.4).
-3. The takeover block exists only in the messages route. Commit, PR, resolve-conflicts, help-with-error, the scheduler, coalesce and health redispatch still dispatch. Owner routing replaces it (P2.4, P4.5).
+1. `ri trigger run`, `ri agent run_trigger`, `ri run cancel` and `ri agent cancel_run` run `dispatchRun` or `abort` inside the short-lived CLI process (`src/cli/commands/trigger.ts:149,287`, `registry.ts:2275,2335`). The server can't see, stop or answer that harness, and cancel does nothing there. Route them through the server (P2.4). Fixed in P2.4.
+2. `archive_workspace` (`registry.ts:1468`) archives in the database only. The REST route also kills terminals and closes sessions (P2.4). Fixed in P2.4.
+3. The takeover block exists only in the messages route. Commit, PR, resolve-conflicts, help-with-error, the scheduler, coalesce and health redispatch still dispatch. Owner routing replaces it (P2.4, P4.5). Fixed in P2.4.
 4. The event seam is partial. Reconcile replays, Codex replay, user messages, run rows and every live-state publish bypass `EventWriter` (P2.1). Fixed in P2.1: every replay path writes through a writer, and live state publishes only from the home sink. User messages and run rows are the home's own records.
 5. Orchestrator, connector and browser server URLs for harness sessions are `http://localhost:<port>` with the local bearer token (`harness-surface.ts:623,646,670`), so a harness can only run beside the server today (P2.7).
 6. Preview uses `worktreePath ?? workspace.cwd` (`preview/service.ts:117`), so it can start in the source checkout while a worktree is still being prepared (P3.5).
 7. A quiet heartbeat archives its chat without closing the harness (`heartbeat/quiet.ts:40`), and handles have no idle timeout (P2.1). Fixed in P2.1.
-8. Interrupt leaves pending prompts registered. Only close rejects them (`adapter.ts:815,872`) (P2.4).
+8. Interrupt leaves pending prompts registered. Only close rejects them (`adapter.ts:815,872`) (P2.4). Fixed in P2.4.
 
 Other facts that shape the work:
 

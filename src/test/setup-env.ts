@@ -17,3 +17,15 @@ import { APP_ROOT_ENV } from '@/lib/config/paths';
 if (!process.env[APP_ROOT_ENV]) {
   process.env[APP_ROOT_ENV] = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-vitest-root-'));
 }
+
+/**
+ * No test reaches a real server on this machine. A call to the app's own
+ * server (`serverFetch`, the CLI's self-calls) falls back to port 4224 when
+ * nothing says otherwise, and on a machine that runs Ri, production answers
+ * there. Point those calls at the discard port, where nothing listens, so an
+ * unmocked self-call fails at once instead of reaching production. Tests
+ * that start their own server pass its address explicitly.
+ */
+if (!process.env.PORT) {
+  process.env.PORT = '9';
+}

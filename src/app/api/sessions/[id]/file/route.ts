@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { readOnOwner } from '@/lib/executor/remote-reads';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { fileReadResponse } from '@/lib/workspaces/file-http';
@@ -40,6 +41,9 @@ async function handleGET(
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
+    // An execution on a connected computer: its worker answers.
+    const remote = await readOnOwner(id, { kind: 'file', path: relPath, base: wantBase });
+    if (remote) return remote;
     if (!session.workspaceId || !session.worktreePath) {
       return Response.json({ error: 'Workspace has no worktree' }, { status: 404 });
     }

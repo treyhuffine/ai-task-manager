@@ -811,13 +811,54 @@ export const workerCommands = sqliteTable(
     finishedAt: text(),
     result: text({ mode: 'json' }).$type<unknown>(),
     error: text(),
+    // For a send: the user's chat event it delivers. Unique, so one message
+    // queues one send however many paths try (P2.4).
+    sourceEventId: text(),
   },
   (table) => [
+    uniqueIndex('uniq_worker_commands_source_event')
+      .on(table.sourceEventId)
+      .where(sql`${table.sourceEventId} IS NOT NULL`),
     uniqueIndex('uniq_worker_commands_computer_seq')
       .on(table.computerId, table.seq)
       .where(sql`${table.seq} IS NOT NULL`),
     index('idx_worker_commands_computer_state').on(table.computerId, table.state),
     index('idx_worker_commands_chat').on(table.chatSessionId),
+  ],
+);
+
+// ─── Execution placements ─────────────────────────────────────
+// Where an execution runs (docs/homes-build.md, P0.3 Placement, and P2.4).
+// One open placement per execution: the owner, whose generation every
+// execution-scoped command carries. An execution with no row runs on the
+// home's own computer at generation 1, which is every execution made before
+// this build. A continuation ends one placement and opens the next (P4).
+export const executionPlacements = sqliteTable(
+  'execution_placements',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+    computerId: text()
+      .notNull()
+      .references(() => computers.id),
+    generation: integer().notNull(),
+    // On that computer. Set when its worktree is prepared.
+    worktreePath: text(),
+    // The commit the placement started from, for a continuation.
+    checkpointSha: text(),
+    startReason: text({ enum: ['created', 'adopted', 'continued'] }).notNull(),
+    endedAt: text(),
+    endReason: text({ enum: ['transferred', 'archived'] }),
+  },
+  (table) => [
+    uniqueIndex('uniq_execution_placements_generation').on(table.executionId, table.generation),
+    uniqueIndex('uniq_execution_placements_open')
+      .on(table.executionId)
+      .where(sql`${table.endedAt} IS NULL`),
+    index('idx_execution_placements_computer').on(table.computerId),
   ],
 );
 

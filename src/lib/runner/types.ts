@@ -12,7 +12,7 @@
  */
 
 import type { McpServerConfig, RuntimeCommandInventory, UserInputResponse } from '@agentex/agent';
-import type { CreateChatEventInput, EffortLevel, PermissionMode } from '@/db/types';
+import type { CreateChatEventInput, EffortLevel, PermissionMode, WorkerCommandActor } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { PendingInput } from './pending';
 
@@ -22,6 +22,13 @@ export interface SessionSpec {
   harness: HarnessId;
   /** The folder the harness runs in, on the runner's computer. */
   cwd: string;
+  /**
+   * Set instead of `cwd` when the execution is still being prepared on the
+   * runner's computer: run in the worktree it prepares for this execution.
+   * The worker carries out an execution's commands in order, so the prepare
+   * finishes before this send starts.
+   */
+  preparedWorktreeOf?: string | null;
   sessionType: 'orchestration' | 'content' | 'execution';
   /** The harness's own session id to resume, when the chat has one. */
   nativeSessionId: string | null;
@@ -56,13 +63,23 @@ export interface SendRequest {
   /** Names this turn in `turn_result`. */
   turnId: string;
   runId: string | null;
-  /** Required when the runner has no live session for the chat. */
+  /** Required when the runner has no live session for the chat. A remote runner always gets one. */
   spec: SessionSpec | null;
+  /** The user's chat event this sends, so one message is sent once however many paths try. */
+  sourceEventId?: string | null;
+  /** Who is sending, from the caller's credentials. */
+  actor?: WorkerCommandActor;
 }
 
 export type SendResult =
   /** The harness accepted the message. The turn's end arrives as `turn_result`. */
   | { status: 'delivered' }
+  /**
+   * Saved at home as a command for the computer that runs the chat. Its
+   * worker delivers it when it has it, and the turn's end arrives as
+   * `turn_result` like any other.
+   */
+  | { status: 'queued'; commandId: string }
   /** No live session, and no spec to start one: send again with a spec. */
   | { status: 'needs_spec' };
 
@@ -93,6 +110,8 @@ export interface RunnerSink {
 export interface StopReport {
   closed: boolean;
   error?: string;
+  /** Sent as a command to the computer that runs the chat, which stops it when it receives it. */
+  queued?: boolean;
 }
 
 export type AnswerResult = { ok: true; pending: PendingInput } | { ok: false };
@@ -100,7 +119,7 @@ export type AnswerResult = { ok: true; pending: PendingInput } | { ok: false };
 export interface ExecutionRunner {
   send(req: SendRequest): Promise<SendResult>;
   interrupt(chatSessionId: string): Promise<void>;
-  stopTask(chatSessionId: string, taskId: string): Promise<{ stopped: boolean }>;
+  stopTask(chatSessionId: string, taskId: string): Promise<{ stopped: boolean; queued?: boolean }>;
   /** Close the harness and clear its live state. */
   stop(chatSessionId: string): Promise<StopReport>;
   answerPendingInput(chatSessionId: string, requestId: string, response: UserInputResponse): AnswerResult;

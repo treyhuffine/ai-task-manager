@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getPending } from '@/lib/executor/pending-input';
+import { getPending } from '@/lib/executor/live-state';
 import { answerPendingInput } from '@/lib/executor/adapter';
 
 interface ResolveBody {

@@ -41,6 +41,12 @@ import {
   archiveExecution,
   unarchiveExecution,
   ensureHarnessSettings,
+  getHome,
+  getComputer,
+  listEnrolledComputerIds,
+  getAgentSetup,
+  createPlacement,
+  queueWorkerCommand,
 } from '@/lib/db/queries';
 import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
 import {
@@ -56,6 +62,8 @@ import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord } from '@/db/types';
+import type { PreparePayload } from '@/lib/worker/handlers';
+import { wakeComputer } from '@/lib/workers/hub';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 
@@ -83,6 +91,13 @@ async function snapshotLiveBranchAndSha(cwd: string): Promise<{ branch: string |
 
 export interface DispatchExecutionSessionArgs {
   workspaceId: string;
+  /**
+   * The computer to run on (docs/homes-spec.md §3.3, "Run on"). Omitted or
+   * the home's own computer: here, as always. A connected computer prepares
+   * the execution in its own copy of the agent's folder. One that can't take
+   * it is refused with the reason, never swapped for another.
+   */
+  computerId?: string | null;
   /**
    * The task this execution is doing, when launched via "Start with agent".
    * Ownership is recorded and, if the task is Consider/Todo, it is atomically
@@ -134,6 +149,14 @@ export class WorkspaceNotFoundForDispatch extends Error {
   constructor(public workspaceId: string) {
     super(`Workspace not found: ${workspaceId}`);
     this.name = 'WorkspaceNotFoundForDispatch';
+  }
+}
+
+/** The chosen computer can't take this execution now. Never silently replaced (spec §3.3). */
+export class ComputerUnavailableForDispatch extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ComputerUnavailableForDispatch';
   }
 }
 
@@ -209,12 +232,32 @@ export async function dispatchExecutionSession(
   const prNumber = normalizePrNumber(args.prNumber);
   const liveMode = !!args.liveMode && ws.isGit;
 
+  // Where it runs. A connected computer must be enrolled and have this agent
+  // set up, or the person hears why, rather than getting another computer.
+  const host = getHome()?.hostComputerId ?? null;
+  const elsewhere = args.computerId && args.computerId !== host ? args.computerId : null;
+  if (elsewhere) {
+    const computer = getComputer(elsewhere);
+    if (!computer || computer.status !== 'active') throw new ComputerUnavailableForDispatch('That computer is no longer connected to this home.');
+    if (!listEnrolledComputerIds().has(elsewhere)) {
+      throw new ComputerUnavailableForDispatch(`${computer.name} isn't set up to run agents. Run \`ri worker enroll\` there first.`);
+    }
+    const setup = getAgentSetup(ws.id, elsewhere);
+    if (setup?.status !== 'ready') {
+      throw new ComputerUnavailableForDispatch(
+        setup
+          ? `${ws.name}'s folder on ${computer.name} isn't ready: ${setup.problem ?? setup.status}.`
+          : `${ws.name} isn't set up on ${computer.name}. Attach its folder there first.`,
+      );
+    }
+  }
+
   // Live mode: snapshot the current branch + HEAD of the workspace's
   // actual folder, set worktreePath = ws.cwd, skip provisioning. The
   // session lands fully populated; no SetupCard, no async wait.
   let liveBranch: string | null = null;
   let liveBaseSha: string | null = null;
-  if (liveMode) {
+  if (liveMode && !elsewhere) {
     const snap = await snapshotLiveBranchAndSha(ws.cwd);
     liveBranch = snap.branch;
     liveBaseSha = snap.sha;
@@ -255,11 +298,12 @@ export async function dispatchExecutionSession(
       modelVariant: selection.variant,
       effort: selection.effort,
       label,
-      worktreePath: liveMode ? ws.cwd : null,
+      worktreePath: liveMode && !elsewhere ? ws.cwd : null,
       branchName: liveBranch,
       baseSha: liveBaseSha,
       prNumber: prNumber,
-      setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
+      // Elsewhere, even a folder that isn't a repository is prepared there.
+      setupStartedAt: (ws.isGit && !liveMode) || elsewhere ? new Date().toISOString() : null,
       startTask: args.taskId ? { taskId: args.taskId, idempotencyKey: `start-with-agent:${sessionId}` } : undefined,
     }));
   } catch (err) {
@@ -270,7 +314,29 @@ export async function dispatchExecutionSession(
     throw err;
   }
 
-  if (ws.isGit && !liveMode) {
+  if (elsewhere) {
+    // The execution is placed on that computer from the start, and its worker
+    // prepares it there. The first message waits for that (ensureWorktreeReady).
+    const placement = createPlacement({ executionId: execution.id, computerId: elsewhere, startReason: 'created' });
+    const prepare: PreparePayload = {
+      workspace: ws,
+      chatSessionId: sessionId,
+      label,
+      baseBranch: args.baseBranch ?? null,
+      prNumber,
+      live: liveMode,
+    };
+    queueWorkerCommand({
+      computerId: elsewhere,
+      kind: 'prepare',
+      payload: prepare,
+      actor: { source: 'human' },
+      executionId: execution.id,
+      chatSessionId: sessionId,
+      generation: placement.generation,
+    });
+    wakeComputer(elsewhere);
+  } else if (ws.isGit && !liveMode) {
     // Fire-and-forget. The promise resolves into the void; we record
     // setupError on the execution when it fails so the UI can surface a
     // retry affordance instead of spinning forever.

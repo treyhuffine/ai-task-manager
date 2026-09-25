@@ -3,7 +3,7 @@ import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import { subscribe, sessionChannel, type SessionStreamMessage } from '@/lib/realtime/bus';
 import { listChatEventsAfter } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
-import { listForSession as listPendingForSession } from '@/lib/executor/pending-input';
+import { listForSession as listPendingForSession } from '@/lib/executor/live-state';
 import type { ChatEventRecord } from '@/db/types';
 
 export const runtime = 'nodejs';

@@ -270,7 +270,7 @@ export async function POST(
           // Labeled with the sending chat when another chat sent it. The
           // stored event keeps the message as sent, and the first-message
           // title above is derived from it without the label.
-          await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId));
+          await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId), { sourceEventId: row.id });
         } finally {
           executor.endDispatchPreparation(id, preparationRef);
         }

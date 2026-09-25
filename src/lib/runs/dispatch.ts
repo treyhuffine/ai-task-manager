@@ -40,6 +40,8 @@ import {
   getWorkspace,
   insertChatEvent,
   resetExecutionForReprovision,
+  placementOf,
+  getHome,
 } from '@/lib/db/queries';
 import { finishRun } from './finish';
 import { withApiLease } from '@/lib/runs/rate-lease';
@@ -501,6 +503,15 @@ export async function ensureWorktreeReady(
   execution: ExecutionRecord | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!execution) return { ok: true };
+  // An execution placed on a connected computer has its worktree there. Its
+  // worker prepares it; the home can't see it, and must never provision one
+  // here instead (P2.4). Nothing to wait for either: a send queued now runs
+  // there after the prepare, since that computer carries out an execution's
+  // commands in order. A preparation that failed is the one thing to say.
+  const placement = placementOf(execution.id);
+  if (placement && placement.placementId && placement.computerId !== getHome()?.hostComputerId) {
+    return execution.setupError ? { ok: false, error: execution.setupError } : { ok: true };
+  }
   const ws = getWorkspace(execution.workspaceId);
   if (!ws) return { ok: false, error: `Workspace ${execution.workspaceId} not found` };
   if (!ws.isGit) return { ok: true };

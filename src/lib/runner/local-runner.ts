@@ -673,6 +673,10 @@ export async function abort(chatSessionId: string): Promise<void> {
   const handle = state.harnessSessions.get(chatSessionId);
   if (!handle) return;
   await handle.interrupt();
+  // A prompt the interrupted turn was waiting on can't be answered now:
+  // deny it, so its tool call ends and the prompt leaves the screen
+  // (docs/homes-build.md, P0.4 gap 8).
+  rejectAllForSession(chatSessionId, 'Interrupted');
 }
 
 /**

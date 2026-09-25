@@ -253,6 +253,53 @@ describe('pending prompts', () => {
   });
 });
 
+describe('the P0.4 gaps closed with P2.4', () => {
+  it('refuses to send into a chat someone took over, from any path', async () => {
+    home = await createTestHome({ prefix: 'ri-runner-split-' });
+    fake = installFakeHarness('claude');
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Taken', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const { execution, session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'work' });
+    q.updateExecution(execution.id, { takeoverStartedAt: new Date().toISOString() });
+    const { dispatch } = await import('./adapter');
+    await expect(dispatch(session.id, 'from a commit helper')).rejects.toThrow(/worked on locally/);
+    expect(fake!.sessions).toHaveLength(0);
+    expect(q.listRuns({}).filter((r) => r.chatSessionId === session.id)).toHaveLength(0);
+  });
+
+  it('clears the prompt a turn was waiting on when it is interrupted', async () => {
+    const session = await chat({ permissionMode: 'ask' });
+    const { dispatch, abort } = await import('./adapter');
+    const pending = await import('./pending-input');
+    let answer: boolean | null = null;
+    fake!.onTurn(async (turn) => {
+      answer = (await turn.ask({ toolName: 'Bash', input: { command: 'rm -rf build' } })).allow;
+    });
+    const turn = dispatch(session.id, 'clean up');
+    await until(() => pending.listForSession(session.id).length === 1, 'the prompt');
+    await abort(session.id);
+    await turn;
+    expect(pending.listForSession(session.id)).toHaveLength(0);
+    expect(answer).toBe(false);
+  });
+
+  it('archiving an agent stops its chats, from the app or an action', async () => {
+    home = await createTestHome({ prefix: 'ri-runner-split-' });
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Doomed', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const { session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'work' });
+    const close = vi.fn(async () => {});
+    const { _cacheHarnessSession, hasHarnessSession } = await import('./adapter');
+    _cacheHarnessSession(session.id, { state: 'idle', close } as unknown as AgentSession);
+    const { actions } = await import('@/lib/orchestrator/registry');
+    // As the server runs it; from the home's CLI it's handed to the server.
+    await actions.find((a) => a.name === 'archive_workspace')!.handler({ remote: true }, { id: ws.id } as never);
+    expect(close).toHaveBeenCalledOnce();
+    expect(hasHarnessSession(session.id)).toBe(false);
+    expect(q.getWorkspace(ws.id)?.status).toBe('archived');
+  });
+});
+
 describe('closing sessions nobody is using', () => {
   it('closes an idle session, and the next message resumes it', async () => {
     const session = await chat();

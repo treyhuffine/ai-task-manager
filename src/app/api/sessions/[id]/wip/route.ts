@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { readOnOwner } from '@/lib/executor/remote-reads';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { withCompression } from '@/lib/api/compression';
 import {
@@ -32,6 +33,9 @@ async function handleGET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
+    // An execution on a connected computer: its worker answers.
+    const remote = await readOnOwner(id, { kind: 'wip' });
+    if (remote) return remote;
     if (!session.worktreePath || !session.workspaceId) {
       return Response.json(null);
     }

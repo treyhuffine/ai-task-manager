@@ -20,6 +20,7 @@ import { appendLine, readJsonLines, writeFileAtomic } from './durable-file';
 type JournalRecord =
   | { stage: 'received'; commandId: string; at: string; command: WorkerCommand }
   | { stage: 'started'; commandId: string; at: string }
+  | { stage: 'note'; commandId: string; at: string; data: Record<string, unknown> }
   | { stage: 'finished'; commandId: string; at: string; ack: WorkerCommandAckBody }
   | { stage: 'confirmed'; commandId: string; at: string };
 
@@ -29,6 +30,8 @@ export interface JournaledCommand {
   command: WorkerCommand;
   stage: CommandStage;
   ack: WorkerCommandAckBody | null;
+  /** What a command recorded about its own progress, for its recovery. */
+  notes: Record<string, unknown>;
 }
 
 export function commandJournalPath(homeId: string): string {
@@ -53,16 +56,27 @@ export class CommandJournal {
   compact(threshold = 500): void {
     const confirmed = [...this.entries.values()].filter((e) => e.stage === 'confirmed');
     if (confirmed.length <= threshold) return;
-    const keep = confirmed.reduce((a, b) => (b.command.seq > a.command.seq ? b : a));
+    // Keep the highest-numbered command, for the cursor, and each
+    // execution's newest-generation command, for the placement fence.
+    const keep = new Set<JournaledCommand>([confirmed.reduce((a, b) => (b.command.seq > a.command.seq ? b : a))]);
+    const newestByExecution = new Map<string, JournaledCommand>();
+    for (const entry of this.entries.values()) {
+      const { executionId, generation } = entry.command.target;
+      if (!executionId || generation === null) continue;
+      const current = newestByExecution.get(executionId);
+      if (!current || generation > (current.command.target.generation ?? -1)) newestByExecution.set(executionId, entry);
+    }
+    for (const entry of newestByExecution.values()) keep.add(entry);
     const lines: string[] = [];
     for (const entry of this.entries.values()) {
-      if (entry.stage === 'confirmed' && entry !== keep) {
+      if (entry.stage === 'confirmed' && !keep.has(entry)) {
         this.entries.delete(entry.command.id);
         continue;
       }
       const at = new Date().toISOString();
       lines.push(JSON.stringify({ stage: 'received', commandId: entry.command.id, at, command: entry.command }));
       if (entry.stage !== 'received') lines.push(JSON.stringify({ stage: 'started', commandId: entry.command.id, at }));
+      if (Object.keys(entry.notes).length) lines.push(JSON.stringify({ stage: 'note', commandId: entry.command.id, at, data: entry.notes }));
       if (entry.ack) lines.push(JSON.stringify({ stage: 'finished', commandId: entry.command.id, at, ack: entry.ack }));
       if (entry.stage === 'confirmed') lines.push(JSON.stringify({ stage: 'confirmed', commandId: entry.command.id, at }));
     }
@@ -72,12 +86,16 @@ export class CommandJournal {
   private apply(record: JournalRecord): void {
     if (record.stage === 'received') {
       if (!this.entries.has(record.commandId)) {
-        this.entries.set(record.commandId, { command: record.command, stage: 'received', ack: null });
+        this.entries.set(record.commandId, { command: record.command, stage: 'received', ack: null, notes: {} });
       }
       return;
     }
     const entry = this.entries.get(record.commandId);
     if (!entry) return;
+    if (record.stage === 'note') {
+      entry.notes = { ...entry.notes, ...record.data };
+      return;
+    }
     entry.stage = record.stage;
     if (record.stage === 'finished') entry.ack = record.ack;
   }
@@ -100,6 +118,11 @@ export class CommandJournal {
 
   started(commandId: string): void {
     this.write({ stage: 'started', commandId, at: new Date().toISOString() });
+  }
+
+  /** Record progress a command's recovery needs, such as the worktree it made. Flushed before it returns. */
+  note(commandId: string, data: Record<string, unknown>): void {
+    this.write({ stage: 'note', commandId, at: new Date().toISOString(), data });
   }
 
   finished(commandId: string, ack: WorkerCommandAckBody): void {
@@ -125,6 +148,48 @@ export class CommandJournal {
       else if (seq > cursor + 1) break;
     }
     return cursor;
+  }
+
+  /** The newest placement generation of an execution this computer has received a command for. */
+  highestGeneration(executionId: string): number | null {
+    let newest: number | null = null;
+    for (const { command } of this.entries.values()) {
+      if (command.target.executionId !== executionId || command.target.generation === null) continue;
+      newest = newest === null ? command.target.generation : Math.max(newest, command.target.generation);
+    }
+    return newest;
+  }
+
+  /**
+   * The placements this computer holds, as its commands show them: each
+   * execution at the newest generation seen, with the chats it ran. The
+   * heartbeat reports them, and the home answers with any that moved.
+   */
+  placements(): Array<{ executionId: string; generation: number; chatSessionIds: string[] }> {
+    const byExecution = new Map<string, { generation: number; chats: Set<string> }>();
+    for (const { command } of this.entries.values()) {
+      const { executionId, generation, chatSessionId } = command.target;
+      if (!executionId || generation === null) continue;
+      const current = byExecution.get(executionId);
+      if (!current || generation > current.generation) {
+        byExecution.set(executionId, { generation, chats: new Set(chatSessionId ? [chatSessionId] : []) });
+      } else if (generation === current.generation && chatSessionId) {
+        current.chats.add(chatSessionId);
+      }
+    }
+    return [...byExecution].map(([executionId, p]) => ({ executionId, generation: p.generation, chatSessionIds: [...p.chats] }));
+  }
+
+  /** The worktree this computer prepared for an execution, from its newest prepare that made one. */
+  preparedWorktree(executionId: string): string | null {
+    let found: { seq: number; path: string } | null = null;
+    for (const entry of this.entries.values()) {
+      const { command } = entry;
+      if (command.kind !== 'prepare' || command.target.executionId !== executionId) continue;
+      const path = (entry.notes.worktreePath ?? (entry.ack?.result as { worktreePath?: unknown } | undefined)?.worktreePath) as string | undefined;
+      if (typeof path === 'string' && (!found || command.seq > found.seq)) found = { seq: command.seq, path };
+    }
+    return found?.path ?? null;
   }
 
   /** Commands a restart interrupted: received or started, never finished. */

@@ -27,6 +27,7 @@
  */
 
 import {
+  chatPlacement,
   getChatSession,
   listRecentChatEvents,
 } from '@/lib/db/queries';
@@ -132,25 +133,36 @@ export async function healthCheckSession(
     return { classification: 'healthy', fixes, redispatched, replayed, error };
   }
 
+  // A chat on a connected computer (P2.4): its harness, its native history
+  // and its live state are that computer's. The home neither reconciles a
+  // transcript it doesn't have nor clears state it only mirrors. What's left
+  // is making sure a message that never reached the queue gets there, which
+  // the message's own id makes safe to repeat.
+  const placement = chatPlacement(sessionId);
+  const remote = !!placement && !placement.isHome;
+
   // 1. DB ↔ transcript. reconcileSession is itself idempotent and
   //    deduped — calling it from multiple triggers is safe.
-  try {
-    const recon = await reconcileSession(sessionId);
-    replayed = recon.replayed;
-    error = recon.error;
-    if (recon.drift && recon.replayed > 0) {
-      fixes.push(`reconciled ${recon.replayed} transcript events`);
+  if (!remote) {
+    try {
+      const recon = await reconcileSession(sessionId);
+      replayed = recon.replayed;
+      error = recon.error;
+      if (recon.drift && recon.replayed > 0) {
+        fixes.push(`reconciled ${recon.replayed} transcript events`);
+      }
+    } catch (err) {
+      console.error(`[health] reconcile failed for ${sessionId}:`, err);
+      error = err instanceof Error ? err.message : String(err);
     }
-  } catch (err) {
-    console.error(`[health] reconcile failed for ${sessionId}:`, err);
-    error = err instanceof Error ? err.message : String(err);
   }
 
-  // 2. In-memory ↔ reality.
-  const alive = isHarnessSessionAlive(sessionId);
+  // 2. In-memory ↔ reality. For a chat elsewhere, "alive" is what its
+  //    computer last reported: working, or not.
+  const alive = remote ? isRunning(sessionId) : isHarnessSessionAlive(sessionId);
   const wasRunning = isRunning(sessionId);
 
-  if (!alive) {
+  if (!alive && !remote) {
     // invalidateHarnessSession is a no-op when no cached handle exists,
     // so this covers both "handle present but dead" and "no handle but
     // still flagged running" cases.
@@ -215,7 +227,11 @@ export async function healthCheckSession(
         // sweep for minutes. Errors are logged and the throttle
         // prevents thrash if dispatch keeps failing.
         // Same label the messages route adds when another chat sent it.
-        void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId)).catch((err) => {
+        // The orphan's own id: if the original send did reach a connected
+        // computer's queue, this finds that command instead of sending twice.
+        void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId), {
+          sourceEventId: activity.orphan.id,
+        }).catch((err) => {
           console.error(`[health] orphan redispatch failed for ${sessionId}:`, err);
         });
         redispatched = true;

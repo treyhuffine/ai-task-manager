@@ -13,7 +13,8 @@
 
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import type { EffortLevel, PermissionMode } from '@/db/types';
-import { getUserState, getWorkspace } from '@/lib/db/queries';
+import type { ResolvedReferenceFolder } from '@/db/types';
+import { getAgentSetup, getUserState, getWorkspace, listReferenceFoldersForWorkspace, type ChatPlacement } from '@/lib/db/queries';
 import {
   browserMcpServer,
   connectorsMcpServer,
@@ -26,12 +27,33 @@ import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
 import { SESSION_CREDENTIAL_ENV, sessionCredential } from '@/lib/orchestrator/session-credential';
-import { getHarnessRuntime } from '@/lib/harness/runtime';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import type { SessionSpec } from '@/lib/runner/types';
 import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-chat';
 import { planSessionInstructions } from './session-instructions';
 import { renderAgentInstructionsPrompt } from './prompts/agent-instructions';
+import { harnessCapabilitiesOn } from './computers';
+
+/** Where the session will run. The home's own computer unless a placement says otherwise. */
+export type SpecTarget = Pick<ChatPlacement, 'computerId' | 'isHome'>;
+
+const HOME: SpecTarget = { computerId: '', isHome: true };
+
+/**
+ * An agent's reference folders as a connected computer resolved them from
+ * its own setup file: the alias and description from the home, the path
+ * from that computer's last report. Only the ones that exist there.
+ */
+function referencesOn(workspaceId: string | null, computerId: string): ResolvedReferenceFolder[] {
+  if (!workspaceId) return [];
+  const reported = getAgentSetup(workspaceId, computerId)?.references ?? [];
+  const byAlias = new Map(reported.map((r) => [r.alias, r]));
+  return listReferenceFoldersForWorkspace(workspaceId).flatMap((folder) => {
+    const here = byAlias.get(folder.alias);
+    if (!here?.path || !here.exists) return [];
+    return [{ ...folder, absolutePath: here.path, exists: true, git: null, global: folder.workspaceId === null }];
+  });
+}
 
 export interface SessionSpecInput {
   chatSessionId: string;
@@ -75,11 +97,19 @@ function applyProviderConfig(spec: SessionSpec, config: Partial<ProviderConfig>)
   if (config.disallowedTools) spec.disallowedTools = [...config.disallowedTools];
 }
 
-export async function buildSessionSpec(args: SessionSpecInput): Promise<SessionSpec> {
+export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarget = HOME): Promise<SessionSpec> {
   const providerType = harnessDefinition(args.harness).agentexProviderId;
-  // The capabilities of the harness on the computer that will run it. That's
-  // this one until sessions run on connected computers (P2.4).
-  const runtime = await getHarnessRuntime(args.harness, { cwd: args.cwd });
+  // The capabilities of the harness on the computer that will run it: probed
+  // here for the home's own, from its worker's report for a connected one.
+  const caps = await harnessCapabilitiesOn(target, args.harness, target.isHome ? args.cwd : undefined);
+  // The orchestrator, connector and browser servers are addressed at this
+  // home's localhost with its own token, so a session elsewhere can't reach
+  // them. P2.7 gives those sessions the home's address and their own token.
+  const dropHomeServers = (why: string) => {
+    if (spec.mcpServers.length === 0) return;
+    console.warn(`[executor] ${why} on a connected computer: ${spec.mcpServers.length} MCP server(s) not attached until they can reach the home.`);
+    spec.mcpServers = [];
+  };
 
   const spec: SessionSpec = {
     chatSessionId: args.chatSessionId,
@@ -115,18 +145,19 @@ export async function buildSessionSpec(args: SessionSpecInput): Promise<SessionS
       chatSessionId: args.chatSessionId,
       workspace: agentMainChat,
       providerType,
-      strictMcpIsolation: runtime.capabilities.strictMcpIsolation.supported,
+      strictMcpIsolation: caps.strictMcpIsolation,
       appBrowserEnabled: isBrowserEnabled(),
       freshSession: !args.existingExternalSessionId,
     });
     applyProviderConfig(spec, spawn.config);
+    if (!target.isHome) dropHomeServers('agent main chat');
     spec.extraArgs.push(...spawn.extraArgs);
     spec.instructions = spawn.instructions;
     spec.firstTurnPreamble = spawn.firstTurnPreamble;
     for (const warning of spawn.warnings) {
       console.warn(`[executor] agent main chat on provider "${providerType}": ${warning}.`);
     }
-  } else if (args.sessionType === 'orchestration' || args.sessionType === 'content') {
+  } else if ((args.sessionType === 'orchestration' || args.sessionType === 'content') && target.isHome) {
     // Install/refresh the on-disk brief (CLAUDE.md / AGENTS.md) before spawn —
     // this also `ensureAppRoot()`s the cwd — and take the mode's typed
     // ProviderConfig slice (disallowedTools / strictMcpConfig / mcpServers).
@@ -172,7 +203,7 @@ export async function buildSessionSpec(args: SessionSpecInput): Promise<SessionS
   // actually enforces strict MCP (Claude Code today; Codex ignores these fields). See spec §3/§6c.
   if (args.sessionType === 'execution') {
     const workspace = args.workspaceId ? getWorkspace(args.workspaceId) ?? null : null;
-    if (runtime.capabilities.strictMcpIsolation.supported) {
+    if (caps.strictMcpIsolation) {
       spec.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
       const servers: McpServerConfig[] = [];
       // Workspace-scoped connectors (opt-in via the workspace's connector allowlist).
@@ -192,6 +223,7 @@ export async function buildSessionSpec(args: SessionSpecInput): Promise<SessionS
         if (browser) servers.push(browser);
       }
       if (servers.length > 0) spec.mcpServers = servers;
+      if (!target.isHome) dropHomeServers('execution');
     } else if ((workspace?.connectorScopes.length ?? 0) > 0) {
       console.warn(
         `[executor] execution on provider "${providerType}": connectors are unavailable ` +
@@ -218,9 +250,9 @@ export async function buildSessionSpec(args: SessionSpecInput): Promise<SessionS
     // `listUsableReferenceFolders` — pointing an agent at a path that isn't
     // there is worse than saying nothing.
     try {
-      const refs = await listUsableReferenceFolders(args.workspaceId ?? null, {
-        consumerCwd: workspace?.cwd ?? null,
-      });
+      const refs = target.isHome
+        ? await listUsableReferenceFolders(args.workspaceId ?? null, { consumerCwd: workspace?.cwd ?? null })
+        : referencesOn(args.workspaceId ?? null, target.computerId);
       const refConfig = buildReferenceFolderSessionConfig(refs);
       if (refConfig.instructions) {
         const wiring = referenceFolderProviderWiring(refConfig, providerType);

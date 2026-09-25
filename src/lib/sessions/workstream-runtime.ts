@@ -33,7 +33,9 @@ export function runningSessionsForExecution(executionId: string): string[] {
  * stopped turn is never recorded as a successful completion. Reports failure
  * honestly: if a handle refuses to close, the caller must not claim it stopped.
  */
-export async function stopExecutionAgent(executionId: string): Promise<{ ok: boolean; failures: string[] }> {
+export async function stopExecutionAgent(
+  executionId: string,
+): Promise<{ ok: boolean; failures: string[]; pending: string[] }> {
   const sessionIds = runningSessionsForExecution(executionId);
 
   // Cancel EVERY queued/running run of the execution FIRST (an execution can
@@ -48,6 +50,7 @@ export async function stopExecutionAgent(executionId: string): Promise<{ ok: boo
   }
 
   const failures: string[] = [];
+  const pending: string[] = [];
   for (const sid of sessionIds) {
     try {
       await executor.abort(sid); // interrupt the in-flight turn
@@ -57,9 +60,13 @@ export async function stopExecutionAgent(executionId: string): Promise<{ ok: boo
     // close tears down the process FIRST and only drops the cached handle on a
     // clean close, so a failed close is reported (not a lost, untrackable proc).
     const res = await executor.close(sid);
-    if (!res.closed) failures.push(`${sid} close: ${res.error ?? 'unknown'}`);
+    // A chat on a connected computer is stopped by a command its worker acts
+    // on when it receives it: requested durably, not yet confirmed. Not a
+    // failure, and not claimed as done either.
+    if (res.queued) pending.push(sid);
+    else if (!res.closed) failures.push(`${sid} close: ${res.error ?? 'unknown'}`);
   }
-  return { ok: failures.length === 0, failures };
+  return { ok: failures.length === 0, failures, pending };
 }
 
 /**

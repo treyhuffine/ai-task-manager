@@ -10,7 +10,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, computers, computerGrants, workerEnrollments, workerCommands, agentSetups,
+  home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, agentSetups,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -34,7 +34,7 @@ import type {
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
   ComputerGrantRecord, ComputerGrantKind, WorkerEnrollmentRecord, WorkerReportedState, WorkerHarnessReport,
-  WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor,
+  WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord,
   AgentSetupRecord, SetupReferenceReport,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
@@ -4729,25 +4729,37 @@ export function queueWorkerCommand(input: {
   executionId?: string | null;
   chatSessionId?: string | null;
   generation?: number | null;
+  /** For a send: the user's chat event. A second send for it returns the first. */
+  sourceEventId?: string | null;
 }): WorkerCommandRecord {
   const now = new Date().toISOString();
+  if (input.sourceEventId) {
+    const existing = getDb().select().from(workerCommands).where(eq(workerCommands.sourceEventId, input.sourceEventId)).get();
+    if (existing) return existing;
+  }
   return getDb()
     .insert(workerCommands)
     .values({
       id: input.id ?? uuidv7(),
       computerId: input.computerId,
       kind: input.kind,
-      payload: input.payload ?? null,
+      payload: input.payload ?? {},
       actor: input.actor,
       executionId: input.executionId ?? null,
       chatSessionId: input.chatSessionId ?? null,
       generation: input.generation ?? null,
+      sourceEventId: input.sourceEventId ?? null,
       state: 'queued',
       createdAt: now,
       updatedAt: now,
     })
     .returning()
     .get();
+}
+
+/** The send already queued for a user's chat event, if any. */
+export function getSendForEvent(sourceEventId: string): WorkerCommandRecord | null {
+  return getDb().select().from(workerCommands).where(eq(workerCommands.sourceEventId, sourceEventId)).get() ?? null;
 }
 
 export function getWorkerCommand(id: string): WorkerCommandRecord | null {
@@ -4870,13 +4882,194 @@ export function setAckedEventSeq(computerId: string, position: number): void {
     .run();
 }
 
+// ─── Execution placements (docs/homes-build.md, P0.3 and P2.4) ───
+
+/** Where an execution runs, and the generation its commands carry. */
+export interface Placement {
+  computerId: string;
+  generation: number;
+  worktreePath: string | null;
+  /** Null for an execution with no placement row: the home's own computer at generation 1. */
+  placementId: string | null;
+}
+
+export function getOpenPlacement(executionId: string): ExecutionPlacementRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(executionPlacements)
+      .where(and(eq(executionPlacements.executionId, executionId), isNull(executionPlacements.endedAt)))
+      .get() ?? null
+  );
+}
+
 /**
- * The computer a chat runs on: its own `computer_id` when it has no
- * execution, and null for the home's own computer. Execution chats follow
- * their placement, which lands with P2.4.
+ * Where an execution runs: its open placement, or the home's own computer
+ * at generation 1 when it has none. Null only before the home has an
+ * identity.
+ */
+export function placementOf(executionId: string): Placement | null {
+  const open = getOpenPlacement(executionId);
+  if (open) {
+    return { computerId: open.computerId, generation: open.generation, worktreePath: open.worktreePath, placementId: open.id };
+  }
+  const host = getHome()?.hostComputerId;
+  if (!host) return null;
+  const execution = getDb().select({ worktreePath: executions.worktreePath }).from(executions).where(eq(executions.id, executionId)).get();
+  return { computerId: host, generation: 1, worktreePath: execution?.worktreePath ?? null, placementId: null };
+}
+
+/**
+ * Place an execution on a computer. A new execution starts at generation 1.
+ * A continuation ends the open placement and opens the next generation; an
+ * execution with no row counts as generation 1 on the home's own computer.
+ */
+export function createPlacement(input: {
+  executionId: string;
+  computerId: string;
+  startReason: ExecutionPlacementRecord['startReason'];
+  worktreePath?: string | null;
+  checkpointSha?: string | null;
+}): ExecutionPlacementRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const latest = tx
+      .select({ max: sql<number | null>`max(${executionPlacements.generation})` })
+      .from(executionPlacements)
+      .where(eq(executionPlacements.executionId, input.executionId))
+      .get()?.max;
+    const base = latest ?? (input.startReason === 'created' ? 0 : 1);
+    tx.update(executionPlacements)
+      .set({ endedAt: now, endReason: 'transferred', updatedAt: now })
+      .where(and(eq(executionPlacements.executionId, input.executionId), isNull(executionPlacements.endedAt)))
+      .run();
+    return tx
+      .insert(executionPlacements)
+      .values({
+        id: uuidv7(),
+        executionId: input.executionId,
+        computerId: input.computerId,
+        generation: base + 1,
+        worktreePath: input.worktreePath ?? null,
+        checkpointSha: input.checkpointSha ?? null,
+        startReason: input.startReason,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+export function setPlacementWorktree(placementId: string, worktreePath: string, checkpointSha: string | null = null): void {
+  getDb()
+    .update(executionPlacements)
+    .set({ worktreePath, checkpointSha, updatedAt: new Date().toISOString() })
+    .where(eq(executionPlacements.id, placementId))
+    .run();
+}
+
+/**
+ * A connected computer prepared its placement of an execution: record the
+ * worktree there on the placement, and the branch and base on the
+ * execution. `executions.worktree_path` stays the home computer's own path,
+ * so nothing on the home ever looks for the other computer's folder here.
+ */
+export function markPlacementPrepared(
+  executionId: string,
+  generation: number,
+  prepared: { worktreePath: string; branchName: string | null; baseSha: string | null; warning: string | null },
+): ExecutionPlacementRecord | null {
+  const now = new Date().toISOString();
+  const placement = getDb()
+    .update(executionPlacements)
+    .set({ worktreePath: prepared.worktreePath, checkpointSha: prepared.baseSha, updatedAt: now })
+    .where(and(eq(executionPlacements.executionId, executionId), eq(executionPlacements.generation, generation)))
+    .returning()
+    .get();
+  if (!placement) return null;
+  updateExecution(executionId, {
+    branchName: prepared.branchName,
+    baseSha: prepared.baseSha,
+    setupError: null,
+    setupWarning: prepared.warning,
+  });
+  return placement;
+}
+
+export function listOpenPlacementsForComputer(computerId: string): ExecutionPlacementRecord[] {
+  return getDb()
+    .select()
+    .from(executionPlacements)
+    .where(and(eq(executionPlacements.computerId, computerId), isNull(executionPlacements.endedAt)))
+    .all();
+}
+
+/** Whether a computer held an execution at a generation, now or before. */
+export function heldPlacement(executionId: string, computerId: string, generation: number): boolean {
+  return (
+    getDb()
+      .select({ id: executionPlacements.id })
+      .from(executionPlacements)
+      .where(
+        and(
+          eq(executionPlacements.executionId, executionId),
+          eq(executionPlacements.computerId, computerId),
+          eq(executionPlacements.generation, generation),
+        ),
+      )
+      .get() !== undefined
+  );
+}
+
+/** Where a chat runs, for routing its work (P2.4). */
+export interface ChatPlacement {
+  computerId: string;
+  /** The home's own computer. */
+  isHome: boolean;
+  executionId: string | null;
+  /** The execution's placement generation. Null for a chat without an execution. */
+  generation: number | null;
+  worktreePath: string | null;
+}
+
+/**
+ * Where a chat runs: its execution's placement, or for a chat without one,
+ * its own `computer_id`, where null is the home's own computer. Null only
+ * for an unknown chat or a home with no identity yet.
+ */
+export function chatPlacement(chatSessionId: string): ChatPlacement | null {
+  const chat = getDb()
+    .select({ executionId: chatSessions.executionId, computerId: chatSessions.computerId })
+    .from(chatSessions)
+    .where(eq(chatSessions.id, chatSessionId))
+    .get();
+  if (!chat) return null;
+  const host = getHome()?.hostComputerId ?? null;
+  if (chat.executionId) {
+    const placement = placementOf(chat.executionId);
+    if (!placement) return null;
+    return {
+      computerId: placement.computerId,
+      isHome: placement.computerId === host,
+      executionId: chat.executionId,
+      generation: placement.generation,
+      worktreePath: placement.worktreePath,
+    };
+  }
+  const computerId = chat.computerId ?? host;
+  if (!computerId) return null;
+  return { computerId, isHome: computerId === host, executionId: null, generation: null, worktreePath: null };
+}
+
+/**
+ * The connected computer a chat runs on, or null when it runs on the home's
+ * own computer. What a worker's events are checked against.
  */
 export function getChatComputerId(chatSessionId: string): string | null {
-  return getDb().select({ computerId: chatSessions.computerId }).from(chatSessions).where(eq(chatSessions.id, chatSessionId)).get()?.computerId ?? null;
+  const placement = chatPlacement(chatSessionId);
+  return placement && !placement.isHome ? placement.computerId : null;
 }
 
 // ─── Agent setups (docs/homes-spec.md §4.2) ───────────────────

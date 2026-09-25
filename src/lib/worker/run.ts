@@ -13,11 +13,17 @@
  */
 
 import type { WorkerHarnessReport } from '@/db/types';
+import { runnerState } from '@/lib/runner/live-state';
+import { close as closeSession } from '@/lib/runner/local-runner';
+import { listForSession, listSessionsWithPending } from '@/lib/runner/pending';
 import {
   WORKER_HEARTBEAT_MS,
   WORKER_PROTOCOL,
   WORKER_STREAM_PING_MS,
   type WorkerHeartbeat,
+  type WorkerHeartbeatReply,
+  type WorkerLive,
+  type WorkerPlacementReport,
   type WorkerRequestKind,
   type WorkerRequestResult,
   type WorkerStreamEvent,
@@ -46,11 +52,12 @@ export interface WorkerRunOptions {
   version: string;
   signal?: AbortSignal;
   onStatus?: (status: WorkerStatus) => void;
-  handleRequest?: RequestHandler;
+  /** Makes the handler for the home's reads, given this worker's command journal. Tried before the built-in ones. */
+  requests?: (journal: CommandJournal) => RequestHandler;
   /** What this computer can run. Defaults to probing its harness runtimes. */
   describe?: () => Promise<WorkerHarnessReport[]>;
-  /** How each kind of command runs and recovers here. */
-  handlers?: CommandHandlers;
+  /** How each kind of command runs and recovers here, given this worker's command journal. */
+  handlers?: CommandHandlers | ((journal: CommandJournal) => CommandHandlers);
   /** The journals, when a test supplies its own. Otherwise this computer's, under its work folder. */
   journals?: { commands: CommandJournal; events: EventJournal };
   /** Receives the sink this worker's runner reports to. The CLI installs it for the local runner. */
@@ -102,15 +109,27 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** What this computer's runner has live, for the home's mirror. */
+export function liveSnapshot(): WorkerLive {
+  return {
+    running: [...runnerState.runningSessions],
+    pending: listSessionsWithPending().flatMap((id) => listForSession(id)),
+    backgroundTasks: Object.fromEntries([...runnerState.backgroundTasks].map(([chat, ids]) => [chat, [...ids]])),
+  };
+}
+
 export async function sendHeartbeat(
   target: WorkerTarget,
   version: string,
   state: WorkerHeartbeat['state'] = 'awake',
   describe: () => Promise<WorkerHarnessReport[]> = describeHarnesses,
-): Promise<void> {
-  const heartbeat: WorkerHeartbeat = { protocol: WORKER_PROTOCOL, version, harnesses: await describe(), state };
+  extras: { live?: WorkerLive; placements?: WorkerPlacementReport[] } = {},
+): Promise<WorkerHeartbeatReply | null> {
+  const heartbeat: WorkerHeartbeat = { protocol: WORKER_PROTOCOL, version, harnesses: await describe(), state, ...extras };
   const res = await workerFetch(target, '/api/workers/me/heartbeat', { method: 'POST', body: JSON.stringify(heartbeat) });
   if (!res.ok) throw new WorkerNetworkError(`${target.homeName} refused the heartbeat (HTTP ${res.status}).`);
+  const reply = (await res.json().catch(() => null)) as WorkerHeartbeatReply | null;
+  return reply?.ok ? reply : null;
 }
 
 async function answerRequest(
@@ -141,12 +160,10 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
     signal,
     onStatus,
     describe = describeHarnesses,
-    handleRequest = defaultRequestHandler(options.describe),
     heartbeatMs = WORKER_HEARTBEAT_MS,
     backoffMinMs = 1_000,
     backoffMaxMs = 30_000,
     staleAfterMs = WORKER_STREAM_PING_MS * 3,
-    handlers = {},
     postRetryMs = 10_000,
   } = options;
 
@@ -161,6 +178,20 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
   // computer's runner reports, both on disk before the home hears of them.
   const commandJournal = options.journals?.commands ?? new CommandJournal(target.homeId);
   const eventJournal = options.journals?.events ?? new EventJournal(target.homeId);
+  const handlers = typeof options.handlers === 'function' ? options.handlers(commandJournal) : options.handlers ?? {};
+  const builtIn = defaultRequestHandler(options.describe);
+  const extra = options.requests?.(commandJournal);
+  // Each read goes to the one that knows it: the supplied handler first, then the built-in ones.
+  const handleRequest: RequestHandler = async (kind, payload) => {
+    if (extra) {
+      try {
+        return await extra(kind, payload);
+      } catch (err) {
+        if (!(err instanceof UnsupportedRequestError)) throw err;
+      }
+    }
+    return builtIn(kind, payload);
+  };
   const poster = new EventPoster(target, eventJournal);
   const processor = new CommandProcessor({
     journal: commandJournal,
@@ -176,11 +207,22 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
   postRetry.unref?.();
 
   // Heartbeats run on their own clock, connected or not: a missed one while
-  // reconnecting is just a gap in last contact.
+  // reconnecting is just a gap in last contact. Each carries what's live and
+  // the placements held, and a placement the home says moved has its
+  // sessions stopped.
   const beat = () => {
-    void sendHeartbeat(target, version, 'awake', describe).catch((err: unknown) => {
-      if (err instanceof WorkerStoppedError) stop({ reason: err.reason, message: err.message });
-    });
+    void sendHeartbeat(target, version, 'awake', describe, {
+      live: liveSnapshot(),
+      placements: commandJournal.placements(),
+    })
+      .then(async (reply) => {
+        for (const released of reply?.release ?? []) {
+          for (const chat of released.chatSessionIds) await closeSession(chat).catch(() => {});
+        }
+      })
+      .catch((err: unknown) => {
+        if (err instanceof WorkerStoppedError) stop({ reason: err.reason, message: err.message });
+      });
   };
   const heartbeat = setInterval(beat, heartbeatMs);
   heartbeat.unref?.();

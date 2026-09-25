@@ -158,12 +158,15 @@ async function run(): Promise<void> {
 
   console.log(`${pc.bold(target.computerName)} worker for ${target.homeName}, at ${target.homeUrl}. Ctrl-C to stop.`);
   const { installRunnerSink } = await import('@/lib/runner/sink');
+  const { executionHandlers, executionReads } = await import('@/lib/worker/handlers');
   const exit = await runWorker({
     target,
     version: workerVersion(),
     signal: controller.signal,
     // This computer's runner reports to the worker's journal.
     onSink: installRunnerSink,
+    handlers: (journal) => executionHandlers({ journal }),
+    requests: (journal) => executionReads({ journal, homeId: target.homeId }),
     onStatus: (status) => {
       const at = new Date().toLocaleTimeString();
       if (status.state === 'connected') console.log(`${pc.dim(at)} ${pc.green('connected')}`);

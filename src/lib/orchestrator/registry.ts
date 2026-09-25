@@ -133,7 +133,7 @@ import {
 // and `cancel_run` are the only paths that touch the executor.
 import { inventorySkills } from '@/lib/executor/skills';
 import { fetchLiveSignals, serverFetch, ServerResponseError } from './server-client';
-import { SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
+import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { APP_SHORT_ID } from '@/constants/app';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
@@ -1483,12 +1483,17 @@ const update_workspace_action = defineAction({
 
 const archive_workspace_action = defineAction({
   name: 'archive_workspace',
-  description: 'Archive a workspace. Sessions stay queryable. Nothing on disk is touched.',
+  description:
+    "Archive a workspace and stop what it runs: each of its chats' harnesses and its terminals. Sessions stay queryable. Nothing on disk is touched.",
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, { id }) => {
-    const row = archiveWorkspace(id);
+  handler: async (ctx, { id }) => {
+    // Its harnesses and terminals live in the server.
+    const served = await inServer<Awaited<ReturnType<typeof archiveWorkspace>>>(ctx, 'archive_workspace', { id });
+    if (served) return served.result;
+    const { archiveAgent } = await import('@/lib/workspaces/archive-agent');
+    const row = await archiveAgent(id);
     if (!row) throw new ActionError('not_found', `Workspace not found: ${id}`);
     return row;
   },
@@ -2306,6 +2311,35 @@ const delete_trigger_action = defineAction({
   },
 });
 
+/**
+ * Run an action in the home's server rather than the calling process. The
+ * home's own CLI runs actions in its short-lived process, where a harness it
+ * starts, or one it tries to stop, is out of the server's reach: nothing
+ * could watch, answer or cancel it (docs/homes-build.md, P0.4 gap 1). The
+ * caller's session credential goes along, so attribution is unchanged.
+ * Returns undefined when already in the server.
+ */
+async function inServer<T>(ctx: ActionContext, name: string, input: unknown): Promise<{ result: T } | undefined> {
+  if (ctx.remote !== false) return undefined;
+  const credential = process.env[SESSION_CREDENTIAL_ENV];
+  const envelope = await serverFetch<{
+    ok: boolean;
+    result?: T;
+    error?: { code: string; message: string; suggestion?: string };
+  }>(`/orchestrator/actions/${name}`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+    ...(credential ? { headers: { [SESSION_CREDENTIAL_HEADER]: credential } } : {}),
+  });
+  if (envelope.ok) return { result: envelope.result as T };
+  const code = envelope.error?.code;
+  throw new ActionError(
+    code === 'not_found' || code === 'invalid_params' || code === 'unsupported' ? code : 'conflict',
+    envelope.error?.message ?? `${name} failed in the server.`,
+    envelope.error?.suggestion,
+  );
+}
+
 const run_trigger_action = defineAction({
   name: 'run_trigger',
   description:
@@ -2316,7 +2350,10 @@ const run_trigger_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: async (_ctx, { id, triggerPayload }) => {
+  handler: async (ctx, { id, triggerPayload }) => {
+    // The run's harness belongs in the server, where it can be watched and cancelled.
+    const served = await inServer<{ run: unknown; chatSessionId: string | null }>(ctx, 'run_trigger', { id, triggerPayload });
+    if (served) return served.result;
     const trigger = getTrigger(id);
     if (!trigger) throw new ActionError('not_found', `Trigger not found: ${id}`);
     // Lazy: see the import-section comment. Pulls in the executor adapter
@@ -2371,7 +2408,10 @@ const cancel_run_action = defineAction({
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: async (_ctx, { id }) => {
+  handler: async (ctx, { id }) => {
+    // Only the server holds the run's harness, so only it can stop it.
+    const served = await inServer<ReturnType<typeof getRun>>(ctx, 'cancel_run', { id });
+    if (served) return served.result;
     const run = getRun(id);
     if (!run) throw new ActionError('not_found', `Run not found: ${id}`);
     if (run.status !== 'running' && run.status !== 'queued') {
@@ -2540,6 +2580,11 @@ const start_execution_action = defineAction({
     permissionMode: z.enum(PERMISSION_MODES).optional(),
     taskId: z.string().min(1).optional(),
     label: z.string().min(1).optional(),
+    computerId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("The computer to run on (see list_computers). Omitted: the home's own. One that can't take it is refused with the reason, never replaced."),
   },
   mutating: true,
   cli: { positional: ['workspaceId'] },
@@ -2568,6 +2613,7 @@ const start_execution_action = defineAction({
               ...(input.model ? { model: input.model } : {}),
               ...(input.effort ? { effort: input.effort } : {}),
               ...(input.taskId ? { taskId: input.taskId } : {}),
+              ...(input.computerId ? { computerId: input.computerId } : {}),
             }),
           });
     } catch (err) {

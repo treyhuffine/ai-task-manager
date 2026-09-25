@@ -1,7 +1,12 @@
 import type { NextRequest } from 'next/server';
 import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
 import type { EffortLevel } from '@/db/types';
-import { dispatchExecutionSession, WorkspaceNotFoundForDispatch, TaskNotStartableForDispatch } from '@/lib/sessions/dispatch';
+import {
+  ComputerUnavailableForDispatch,
+  dispatchExecutionSession,
+  WorkspaceNotFoundForDispatch,
+  TaskNotStartableForDispatch,
+} from '@/lib/sessions/dispatch';
 import { withCompression } from '@/lib/api/compression';
 import { isKnownHarnessId } from '@/lib/harness/registry';
 
@@ -47,6 +52,8 @@ export async function POST(
       prNumber?: number | null;
       liveMode?: boolean;
       taskId?: string | null;
+      /** Run on this computer. Omitted: the home's own. */
+      computerId?: string | null;
     } = await request.json().catch(() => ({}));
     if (!getWorkspace(id)) {
       return Response.json({ error: 'Workspace not found' }, { status: 404 });
@@ -87,11 +94,15 @@ export async function POST(
       prNumber: typeof body.prNumber === 'number' ? body.prNumber : null,
       liveMode: !!body.liveMode,
       taskId: typeof body.taskId === 'string' ? body.taskId : null,
+      computerId: typeof body.computerId === 'string' ? body.computerId : null,
     });
     return Response.json(row, { status: 201 });
   } catch (err) {
     if (err instanceof WorkspaceNotFoundForDispatch) {
       return Response.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+    if (err instanceof ComputerUnavailableForDispatch) {
+      return Response.json({ error: err.name, message: err.message }, { status: 409 });
     }
     if (err instanceof TaskNotStartableForDispatch) {
       return Response.json(

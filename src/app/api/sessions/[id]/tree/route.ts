@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { readOnOwner } from '@/lib/executor/remote-reads';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { listTree, type TreeEntry } from '@/lib/workspaces/list-tree';
@@ -28,6 +29,9 @@ async function handleGET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
+    // An execution on a connected computer: its worker reads its worktree.
+    const remote = await readOnOwner(id, { kind: 'tree' });
+    if (remote) return remote;
     if (!session.workspaceId) return Response.json({ entries: [] satisfies TreeEntry[] });
 
     const ws = getWorkspace(session.workspaceId);

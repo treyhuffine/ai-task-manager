@@ -12,6 +12,7 @@ import type {
   WorkerHarnessReport,
   WorkerReportedState,
 } from '@/db/types';
+import type { PendingInput } from '@/lib/runner/pending';
 import type { RunnerSignal } from '@/lib/runner/types';
 
 /** The protocol this build speaks. A home refuses a worker on another one with 426. */
@@ -24,7 +25,19 @@ export const WORKER_STREAM_PING_MS = 15_000;
 export const WORKER_REQUEST_TIMEOUT_MS = 15_000;
 
 /** Reads the home can ask a worker. Never persisted. */
-export type WorkerRequestKind = 'describe_harnesses';
+export type WorkerRequestKind = 'describe_harnesses' | 'read_execution';
+
+/**
+ * Read an execution placed on the worker's computer. It names the execution,
+ * never a path: the worker finds the worktree it prepared for it, and the
+ * agent's folder from its own setup files.
+ */
+export interface ReadExecutionRequest {
+  executionId: string;
+  workspace: { id: string; isGit: boolean; baseBranch: string | null; filesToCopy: string[] };
+  baseSha: string | null;
+  read: import('@/lib/workspaces/execution-reads').ExecutionRead;
+}
 
 /** A command as the stream carries it (P2 protocol, Commands). */
 export interface WorkerCommand {
@@ -71,11 +84,33 @@ export type WorkerStreamEvent =
   | { type: 'revoked'; message: string }
   | { type: 'ping' };
 
+/** What's live on the worker's computer, for the home's mirror. */
+export interface WorkerLive {
+  running: string[];
+  pending: PendingInput[];
+  backgroundTasks: Record<string, string[]>;
+}
+
+export interface WorkerPlacementReport {
+  executionId: string;
+  generation: number;
+  chatSessionIds: string[];
+}
+
 export interface WorkerHeartbeat {
   protocol: number;
   version: string;
   harnesses: WorkerHarnessReport[];
   state: WorkerReportedState;
+  /** Live state and held placements. Absent from a worker that runs nothing yet. */
+  live?: WorkerLive;
+  placements?: WorkerPlacementReport[];
+}
+
+/** The home's answer to a heartbeat: placements this computer no longer holds, whose sessions it stops. */
+export interface WorkerHeartbeatReply {
+  ok: true;
+  release: Array<{ executionId: string; chatSessionIds: string[] }>;
 }
 
 export type WorkerRequestResult =
