@@ -745,6 +745,7 @@ export function useSendMessage(id: string) {
         externalToolCallId: null,
         externalParentToolCallId: null,
         sourcePartIndex: 0,
+        partRevision: null,
         // A user's own optimistic row has no provider payload to lift
         // anything out of; the server's version arrives under the same id.
         raw: null,

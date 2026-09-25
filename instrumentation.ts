@@ -73,6 +73,24 @@ export async function register() {
     console.warn('[reconcile] init failed', err);
   }
 
+  // Send notifications a crash left pending: queued in a transaction that
+  // committed, never sent (docs/homes-build.md, P2.3). At startup, then every
+  // 5 minutes.
+  try {
+    const { drainPendingNotifications } = await import('@/lib/notifications/notify');
+    const drain = () =>
+      drainPendingNotifications()
+        .then((n) => {
+          if (n > 0) console.log(`[notifier] sent ${n} notification(s) left pending`);
+        })
+        .catch((err) => console.warn('[notifier] drain failed', err));
+    void drain();
+    const interval = setInterval(drain, 5 * 60_000);
+    interval.unref?.();
+  } catch (err) {
+    console.warn('[notifier] drain init failed', err);
+  }
+
   // Periodic background health check over the small set of sessions
   // currently marked running. Catches missed-`result`-event stalls
   // even if the user never opens the session — without it, a wedged

@@ -150,14 +150,20 @@ async function run(): Promise<void> {
   const { runWorker } = await import('@/lib/worker/run');
   const controller = new AbortController();
   const onSignal = () => controller.abort();
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
+  // `on`, not `once`: tsx exits the process on a signal when no other
+  // listener remains, and a `once` listener is removed before it runs, which
+  // would cut off the stopped heartbeat below.
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
 
   console.log(`${pc.bold(target.computerName)} worker for ${target.homeName}, at ${target.homeUrl}. Ctrl-C to stop.`);
+  const { installRunnerSink } = await import('@/lib/runner/sink');
   const exit = await runWorker({
     target,
     version: workerVersion(),
     signal: controller.signal,
+    // This computer's runner reports to the worker's journal.
+    onSink: installRunnerSink,
     onStatus: (status) => {
       const at = new Date().toLocaleTimeString();
       if (status.state === 'connected') console.log(`${pc.dim(at)} ${pc.green('connected')}`);

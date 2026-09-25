@@ -42,8 +42,14 @@ vi.mock('@/lib/executor/adapter', () => ({
   abort: vi.fn(async () => {}),
   ExecutorError: class extends Error {},
 }));
-const notifySpy = vi.hoisted(() => vi.fn(async () => {}));
-vi.mock('@/lib/notifications/notify', () => ({ notify: notifySpy }));
+// A run's notification is queued with the run's own change and sent after
+// commit (docs/homes-build.md, P2.3), so the queue is where it's decided.
+const notifySpy = vi.hoisted(() => vi.fn(() => ({ dedupeKey: 'test', channelIds: [] })));
+vi.mock('@/lib/notifications/notify', () => ({
+  notify: vi.fn(async () => {}),
+  queueNotification: notifySpy,
+  deliverNotification: vi.fn(async () => {}),
+}));
 
 vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
 

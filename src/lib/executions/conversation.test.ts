@@ -36,6 +36,7 @@ function ev(source: string, content: string | null): ChatEventRecord {
     externalToolCallId: null,
     externalParentToolCallId: null,
     sourcePartIndex: 0,
+    partRevision: null,
     attachments: [],
   };
 }

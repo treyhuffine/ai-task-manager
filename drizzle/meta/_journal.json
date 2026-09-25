@@ -36,6 +36,13 @@
       "when": 1790354899756,
       "tag": "0004_low_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790356475696,
+      "tag": "0005_clumsy_clint_barton",
+      "breakpoints": true
     }
   ]
 }

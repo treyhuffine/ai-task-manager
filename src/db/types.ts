@@ -4,14 +4,14 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, agentSetups,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, agentSetups,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
-export type { SetupReferenceReport, WorkerHarnessReport } from '@/lib/db/schema';
+export type { SetupReferenceReport, WorkerHarnessReport, WorkerCommandActor } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition, LifecycleCommandResult } from '@/lib/db/schema';
 
 /**
@@ -172,6 +172,9 @@ export type ComputerGrantRecord = InferSelectModel<typeof computerGrants>;
 export type ComputerGrantKind = ComputerGrantRecord['kind'];
 export type WorkerEnrollmentRecord = InferSelectModel<typeof workerEnrollments>;
 export type WorkerReportedState = NonNullable<ComputerRecord['reportedState']>;
+export type WorkerCommandRecord = InferSelectModel<typeof workerCommands>;
+export type WorkerCommandKind = WorkerCommandRecord['kind'];
+export type WorkerCommandState = WorkerCommandRecord['state'];
 export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
 export type AgentSetupStatus = AgentSetupRecord['status'];
 

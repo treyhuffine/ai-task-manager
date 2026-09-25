@@ -1,16 +1,19 @@
 /**
- * A worker's event stream (docs/homes-build.md, P2.2). The worker opens it
- * and keeps it open; the home sends `hello`, then `request`s as it has them,
- * and a `ping` every 15 seconds. Each ping re-checks the key, so a revoked
- * worker gets `revoked` and is cut off within that interval, if the revoke
- * itself didn't already close the stream.
+ * A worker's event stream (docs/homes-build.md, P2.2 and P2.3). The worker
+ * opens it with `after`, its durable receipt cursor, and keeps it open. The
+ * home sends `hello`, then every command numbered after the cursor, then
+ * queued commands as they're numbered, `request`s as it has them, and a
+ * `ping` every 15 seconds. Each ping re-checks the key, so a revoked worker
+ * gets `revoked` and is cut off within that interval, if the revoke itself
+ * didn't already close the stream.
  */
 
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
-import { getHome, getWorkerEnrollment } from '@/lib/db/queries';
+import type { WorkerCommandRecord } from '@/db/types';
+import { getAckedEventSeq, getHome, getWorkerEnrollment, takeCommandsForStream } from '@/lib/db/queries';
 import { registerConnection } from '@/lib/workers/hub';
-import { WORKER_PROTOCOL, WORKER_STREAM_PING_MS, type WorkerStreamEvent } from '@/lib/workers/protocol';
+import { WORKER_PROTOCOL, WORKER_STREAM_PING_MS, type WorkerCommand, type WorkerStreamEvent } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
 
 export const runtime = 'nodejs';
@@ -22,10 +25,23 @@ function frame(event: WorkerStreamEvent): Uint8Array {
   return encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
+function toWire(command: WorkerCommandRecord): WorkerCommand {
+  return {
+    id: command.id,
+    seq: command.seq!,
+    kind: command.kind,
+    target: { executionId: command.executionId, chatSessionId: command.chatSessionId, generation: command.generation },
+    actor: command.actor,
+    issuedAt: command.createdAt,
+    payload: command.payload,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const worker = requireWorker(request.headers);
   if (worker instanceof Response) return worker;
   const homeId = getHome()?.id ?? '';
+  const after = Math.max(0, Number.parseInt(request.nextUrl.searchParams.get('after') ?? '0', 10) || 0);
 
   let cleanup: (() => void) | null = null;
   const stream = new ReadableStream<Uint8Array>({
@@ -45,11 +61,21 @@ export async function GET(request: NextRequest) {
         if (closed) return;
         controller.enqueue(frame(event));
       };
+      // What this stream has sent, starting from what the worker has received.
+      let cursor = after;
+      const pump = () => {
+        if (closed) return;
+        for (const command of takeCommandsForStream(worker.computer.id, cursor)) {
+          send({ type: 'command', command: toWire(command) });
+          cursor = Math.max(cursor, command.seq ?? cursor);
+        }
+      };
       const unregister = registerConnection({
         id: uuidv7(),
         computerId: worker.computer.id,
         openedAt: Date.now(),
         send,
+        wake: pump,
         close,
       });
       const ping = setInterval(() => {
@@ -65,7 +91,14 @@ export async function GET(request: NextRequest) {
         unregister();
       };
       request.signal.addEventListener('abort', close);
-      send({ type: 'hello', homeId, computerId: worker.computer.id, protocol: WORKER_PROTOCOL });
+      send({
+        type: 'hello',
+        homeId,
+        computerId: worker.computer.id,
+        protocol: WORKER_PROTOCOL,
+        ackedEventSeq: getAckedEventSeq(worker.computer.id),
+      });
+      pump();
     },
     cancel() {
       cleanup?.();

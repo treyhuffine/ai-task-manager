@@ -730,6 +730,9 @@ export const computers = sqliteTable(
     workerVersion: text(),
     harnesses: text({ mode: 'json' }).$type<WorkerHarnessReport[]>(),
     reportedState: text({ enum: ['awake', 'asleep', 'stopped'] }),
+    // The highest contiguous position of this computer's worker journal the
+    // home has stored (P2.3). Events at or below it are replays.
+    ackedEventSeq: integer().notNull().default(0),
   },
   (table) => [index('idx_computers_status').on(table.status)],
 );
@@ -758,6 +761,64 @@ export const computerGrants = sqliteTable(
     redeemedByApiKeyId: text().references(() => apiKeys.id, { onDelete: 'set null' }),
   },
   (table) => [index('idx_computer_grants_computer').on(table.computerId)],
+);
+
+// ─── Worker commands ──────────────────────────────────────────
+// What the home asked a computer to do (docs/homes-build.md, P2 protocol and
+// P2.3). Written in the same transaction as what it acts on, before it's
+// streamed. `seq` is the computer's stream order, set when the command is
+// first streamed, so a command cancelled while queued leaves no gap.
+export const WORKER_COMMAND_KINDS = [
+  'prepare',
+  'send',
+  'interrupt',
+  'stop_task',
+  'stop',
+  'answer_pending_input',
+  'run_script',
+  'write_setup',
+  'git',
+] as const;
+
+export const WORKER_COMMAND_STATES = ['queued', 'sent', 'delivered', 'failed', 'cancelled', 'uncertain', 'stale'] as const;
+
+export interface WorkerCommandActor {
+  source: 'human' | 'ai' | 'system';
+  sessionId?: string | null;
+  apiKeyId?: string | null;
+}
+
+export const workerCommands = sqliteTable(
+  'worker_commands',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    seq: integer(),
+    executionId: text(),
+    chatSessionId: text(),
+    // The placement generation the home had when it queued the command.
+    generation: integer(),
+    kind: text({ enum: WORKER_COMMAND_KINDS }).notNull(),
+    payload: text({ mode: 'json' }).$type<unknown>().notNull(),
+    actor: text({ mode: 'json' }).$type<WorkerCommandActor>().notNull(),
+    state: text({ enum: WORKER_COMMAND_STATES }).notNull(),
+    attempts: integer().notNull().default(0),
+    sentAt: text(),
+    deliveredAt: text(),
+    finishedAt: text(),
+    result: text({ mode: 'json' }).$type<unknown>(),
+    error: text(),
+  },
+  (table) => [
+    uniqueIndex('uniq_worker_commands_computer_seq')
+      .on(table.computerId, table.seq)
+      .where(sql`${table.seq} IS NOT NULL`),
+    index('idx_worker_commands_computer_state').on(table.computerId, table.state),
+    index('idx_worker_commands_chat').on(table.chatSessionId),
+  ],
 );
 
 // One row per worker key. Its existence is what makes a key a worker key: a
@@ -1281,6 +1342,12 @@ export const chatSessions = sqliteTable(
     // execution is ever hard-deleted (workspace deletion cascade), the chat
     // survives as an orphaned-but-readable transcript.
     executionId: text().references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
+    // The computer a chat without an execution runs on (docs/homes-build.md,
+    // P0.3 Placement). Null is the home's own computer, which is right for the
+    // app's main chat, content chats and scheduled orchestrator fires. An
+    // agent main chat fixed to a connected computer has it set. Execution
+    // chats run where their execution's placement says.
+    computerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
 
     // Provenance: the run that created this chat. NULL for chats the user
     // opened directly without a run kicking them off (manual chat send from
@@ -1481,6 +1548,10 @@ export const chatEvents = sqliteTable(
     externalToolCallId: text(),
     externalParentToolCallId: text(),
     sourcePartIndex: integer().notNull().default(0),
+    // A cumulative provider part's revision (docs/homes-build.md, P2.3): a
+    // replacement applies only with a higher one, so a late replay can't
+    // overwrite newer text. Null for everything else.
+    partRevision: integer(),
     // Files dropped/pasted/uploaded with this message. Same shape as
     // entity attachments (tasks/notes/areas) — references files in
     // <brain>/attachments/<file_name>. Marker tokens in `content`

@@ -22,8 +22,14 @@ import {
   type WorkerRequestResult,
   type WorkerStreamEvent,
 } from '@/lib/workers/protocol';
+import type { RunnerSink } from '@/lib/runner/types';
 import { WorkerNetworkError, WorkerStoppedError, workerFetch, type WorkerStopReason, type WorkerTarget } from './client';
+import { CommandJournal } from './command-journal';
+import { CommandProcessor, type CommandHandlers } from './commands';
+import { EventJournal } from './event-journal';
 import { describeHarnesses } from './harnesses';
+import { EventPoster } from './poster';
+import { createWorkerSink } from './sink';
 import { readEventStream } from './sse';
 
 export type WorkerExit = { reason: 'stopped' } | { reason: WorkerStopReason; message: string };
@@ -43,6 +49,14 @@ export interface WorkerRunOptions {
   handleRequest?: RequestHandler;
   /** What this computer can run. Defaults to probing its harness runtimes. */
   describe?: () => Promise<WorkerHarnessReport[]>;
+  /** How each kind of command runs and recovers here. */
+  handlers?: CommandHandlers;
+  /** The journals, when a test supplies its own. Otherwise this computer's, under its work folder. */
+  journals?: { commands: CommandJournal; events: EventJournal };
+  /** Receives the sink this worker's runner reports to. The CLI installs it for the local runner. */
+  onSink?: (sink: RunnerSink) => void;
+  /** How often to retry posting events the home hasn't taken. */
+  postRetryMs?: number;
   heartbeatMs?: number;
   backoffMinMs?: number;
   backoffMaxMs?: number;
@@ -132,6 +146,8 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
     backoffMinMs = 1_000,
     backoffMaxMs = 30_000,
     staleAfterMs = WORKER_STREAM_PING_MS * 3,
+    handlers = {},
+    postRetryMs = 10_000,
   } = options;
 
   let exit: WorkerExit | null = null;
@@ -140,6 +156,24 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
     current?.abort();
   };
   let current: AbortController | null = null;
+
+  // The journals: commands received and their outcomes, and everything this
+  // computer's runner reports, both on disk before the home hears of them.
+  const commandJournal = options.journals?.commands ?? new CommandJournal(target.homeId);
+  const eventJournal = options.journals?.events ?? new EventJournal(target.homeId);
+  const poster = new EventPoster(target, eventJournal);
+  const processor = new CommandProcessor({
+    journal: commandJournal,
+    handlers,
+    target,
+    onStopped: (err) => stop({ reason: err.reason, message: err.message }),
+  });
+  options.onSink?.(createWorkerSink({ journal: eventJournal, onAppend: () => void poster.kick() }));
+  void processor.recoverAll();
+  const postRetry = setInterval(() => {
+    if (eventJournal.pending(1).length > 0) void poster.kick();
+  }, postRetryMs);
+  postRetry.unref?.();
 
   // Heartbeats run on their own clock, connected or not: a missed one while
   // reconnecting is just a gap in last contact.
@@ -164,7 +198,7 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
       watchdog.unref?.();
       let error = 'The connection closed.';
       try {
-        const res = await workerFetch(target, '/api/workers/me/stream', {
+        const res = await workerFetch(target, `/api/workers/me/stream?after=${commandJournal.cursor()}`, {
           signal: connection,
           timeoutMs: null,
           headers: { accept: 'text/event-stream' },
@@ -182,8 +216,14 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
               break;
             }
             attempt = 0;
+            // A journal that was cleared numbers on after what the home holds.
+            eventJournal.rebase(event.ackedEventSeq);
             onStatus?.({ state: 'connected' });
             beat();
+            void poster.kick();
+            void processor.resendAcks();
+          } else if (event.type === 'command') {
+            processor.receive(event.command);
           } else if (event.type === 'request') {
             void answerRequest(target, event, handleRequest).catch(() => {
               // The home stopped waiting, or the connection dropped. Nothing to undo.
@@ -206,6 +246,7 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
     }
   } finally {
     clearInterval(heartbeat);
+    clearInterval(postRetry);
   }
   return exit ?? { reason: 'stopped' };
 }

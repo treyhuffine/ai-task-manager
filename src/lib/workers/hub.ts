@@ -22,6 +22,8 @@ export interface WorkerConnection {
   readonly computerId: string;
   readonly openedAt: number;
   send(event: WorkerStreamEvent): void;
+  /** Send whatever commands are waiting for this computer. */
+  wake(): void;
   close(): void;
 }
 
@@ -68,6 +70,16 @@ export function registerConnection(connection: WorkerConnection): () => void {
     if (remaining.length > 0) hub.connections.set(connection.computerId, remaining);
     else hub.connections.delete(connection.computerId);
   };
+}
+
+/** A command was queued for this computer: its stream sends it now, if it's connected. */
+export function wakeComputer(computerId: string): void {
+  const connection = newest(computerId);
+  try {
+    connection?.wake();
+  } catch (err) {
+    console.warn(`[workers] could not wake the stream of ${computerId}:`, err);
+  }
 }
 
 export function isComputerConnected(computerId: string): boolean {

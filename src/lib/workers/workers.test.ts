@@ -241,6 +241,7 @@ describe('the connection', () => {
       send: (e) => {
         if (e.type === 'request') sent.push({ id: e.id });
       },
+      wake: () => {},
       close: () => {},
     });
     const pending = hub.requestWorker(laptopComputerId, 'describe_harnesses', null, 2_000);

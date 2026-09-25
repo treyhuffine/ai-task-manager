@@ -35,6 +35,12 @@ const ROUTES: RouteEntry[] = [
     load: () => import('@/app/api/workers/me/requests/[id]/result/route') as Promise<RouteModule>,
   },
   { pattern: /^\/api\/workers\/me\/associations$/, load: () => import('@/app/api/workers/me/associations/route') as Promise<RouteModule> },
+  {
+    pattern: /^\/api\/workers\/me\/commands\/([^/]+)\/ack$/,
+    params: ['id'],
+    load: () => import('@/app/api/workers/me/commands/[id]/ack/route') as Promise<RouteModule>,
+  },
+  { pattern: /^\/api\/workers\/me\/events$/, load: () => import('@/app/api/workers/me/events/route') as Promise<RouteModule> },
   { pattern: /^\/api\/devices\/associate$/, load: () => import('@/app/api/devices/associate/route') as Promise<RouteModule> },
   { pattern: /^\/api\/devices\/([^/]+)$/, params: ['id'], load: () => import('@/app/api/devices/[id]/route') as Promise<RouteModule> },
   { pattern: /^\/api\/computers$/, load: () => import('@/app/api/computers/route') as Promise<RouteModule> },

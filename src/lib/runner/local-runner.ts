@@ -618,6 +618,21 @@ export function answerPendingInput(chatSessionId: string, requestId: string, res
 
 // ─── Stream events ────────────────────────────────────────────
 
+const REVISION_KEY = Symbol.for('@ri/runner-part-revision');
+const revisionRef = globalThis as unknown as { [REVISION_KEY]?: number };
+
+/**
+ * A revision for a cumulative provider part (docs/homes-build.md, P2.3):
+ * the home replaces a part only with a higher one. From the clock, in
+ * microseconds, and never below the last one issued, so it keeps rising
+ * across a restart of the runner, which a counter wouldn't.
+ */
+export function nextPartRevision(): number {
+  const next = Math.max(Date.now() * 1000, (revisionRef[REVISION_KEY] ?? 0) + 1);
+  revisionRef[REVISION_KEY] = next;
+  return next;
+}
+
 export async function persistStreamEvent(
   chatSessionId: string,
   event: StreamEvent,
@@ -635,7 +650,7 @@ export async function persistStreamEvent(
     && Boolean(safeEvent.eventId)
     && (safeEvent.type === 'assistant' || safeEvent.type === 'thinking');
   try {
-    if (cumulativeOpenCodePart && writer.replacePart) await writer.replacePart(row);
+    if (cumulativeOpenCodePart && writer.replacePart) await writer.replacePart({ ...row, partRevision: nextPartRevision() });
     else await writer.write(row);
   } finally {
     // Durable transcript replay shares this persistence path but must never

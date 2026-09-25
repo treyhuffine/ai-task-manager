@@ -10,7 +10,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, computers, computerGrants, workerEnrollments, agentSetups,
+  home, computers, computerGrants, workerEnrollments, workerCommands, agentSetups,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -34,6 +34,7 @@ import type {
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
   ComputerGrantRecord, ComputerGrantKind, WorkerEnrollmentRecord, WorkerReportedState, WorkerHarnessReport,
+  WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor,
   AgentSetupRecord, SetupReferenceReport,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
@@ -4580,6 +4581,14 @@ export function redeemEnrollGrant(input: {
         .get();
     }
 
+    // Commands streamed to an earlier worker and never acknowledged may have
+    // been acted on. A new worker starts with no record of them, so they're
+    // uncertain rather than sent again (docs/homes-build.md, P2.3).
+    tx.update(workerCommands)
+      .set({ state: 'uncertain', error: 'The computer was enrolled again before acknowledging this.', updatedAt: now })
+      .where(and(eq(workerCommands.computerId, computer.id), eq(workerCommands.state, 'sent')))
+      .run();
+
     // One worker per computer: an earlier worker key for it stops working.
     const earlier = tx
       .select({ apiKeyId: workerEnrollments.apiKeyId })
@@ -4701,6 +4710,173 @@ export function recordWorkerHeartbeat(
       .returning()
       .get() ?? null
   );
+}
+
+// ─── Worker commands (docs/homes-build.md, P2 protocol and P2.3) ───
+
+/**
+ * Queue a command for a computer. Call it inside the transaction that writes
+ * what the command acts on (for a send, the user's chat event), so neither
+ * exists without the other. The caller wakes the computer's stream after
+ * commit.
+ */
+export function queueWorkerCommand(input: {
+  id?: string;
+  computerId: string;
+  kind: WorkerCommandKind;
+  payload: unknown;
+  actor: WorkerCommandActor;
+  executionId?: string | null;
+  chatSessionId?: string | null;
+  generation?: number | null;
+}): WorkerCommandRecord {
+  const now = new Date().toISOString();
+  return getDb()
+    .insert(workerCommands)
+    .values({
+      id: input.id ?? uuidv7(),
+      computerId: input.computerId,
+      kind: input.kind,
+      payload: input.payload ?? null,
+      actor: input.actor,
+      executionId: input.executionId ?? null,
+      chatSessionId: input.chatSessionId ?? null,
+      generation: input.generation ?? null,
+      state: 'queued',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+}
+
+export function getWorkerCommand(id: string): WorkerCommandRecord | null {
+  return getDb().select().from(workerCommands).where(eq(workerCommands.id, id)).get() ?? null;
+}
+
+export function listWorkerCommands(computerId: string, options: { states?: WorkerCommandState[] } = {}): WorkerCommandRecord[] {
+  const conditions = [eq(workerCommands.computerId, computerId)];
+  if (options.states?.length) conditions.push(inArray(workerCommands.state, options.states));
+  return getDb().select().from(workerCommands).where(and(...conditions)).orderBy(asc(workerCommands.id)).all();
+}
+
+/**
+ * What a computer's stream sends next, after the worker's receipt cursor
+ * `after`: queued commands are numbered now, in the order they were queued,
+ * and marked sent. Then every command numbered after the cursor and still
+ * waiting for an acknowledgement goes out, resends included. An acknowledged
+ * command is never resent: its worker has it. In one transaction, so two
+ * streams can't number the same command twice.
+ */
+export function takeCommandsForStream(computerId: string, after: number): WorkerCommandRecord[] {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const queued = tx
+      .select()
+      .from(workerCommands)
+      .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+      .orderBy(asc(workerCommands.id))
+      .all();
+    if (queued.length > 0) {
+      let next =
+        (tx
+          .select({ max: sql<number | null>`max(${workerCommands.seq})` })
+          .from(workerCommands)
+          .where(eq(workerCommands.computerId, computerId))
+          .get()?.max ?? 0) + 1;
+      for (const command of queued) {
+        tx.update(workerCommands)
+          .set({ seq: next++, state: 'sent', sentAt: now, attempts: command.attempts + 1, updatedAt: now })
+          .where(eq(workerCommands.id, command.id))
+          .run();
+      }
+    }
+    return tx
+      .select()
+      .from(workerCommands)
+      .where(and(eq(workerCommands.computerId, computerId), gt(workerCommands.seq, after), eq(workerCommands.state, 'sent')))
+      .orderBy(asc(workerCommands.seq))
+      .all();
+  }, { behavior: 'immediate' });
+}
+
+export type WorkerCommandAck = {
+  state: Extract<WorkerCommandState, 'delivered' | 'failed' | 'stale' | 'uncertain'>;
+  result?: unknown;
+  error?: string | null;
+};
+
+/** States a command can't leave, except an uncertain one resolved by reconciliation. */
+const FINAL_COMMAND_STATES = new Set<WorkerCommandState>(['delivered', 'failed', 'stale', 'cancelled']);
+
+/**
+ * Record a worker's acknowledgement, idempotently: the same report again
+ * changes nothing, and a final state stays final. An uncertain command can
+ * still become delivered or failed once reconciled. Returns the command as
+ * the home holds it, or null when this computer has no such command.
+ */
+export function ackWorkerCommand(computerId: string, commandId: string, ack: WorkerCommandAck): WorkerCommandRecord | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const command = tx
+      .select()
+      .from(workerCommands)
+      .where(and(eq(workerCommands.id, commandId), eq(workerCommands.computerId, computerId)))
+      .get();
+    if (!command) return null;
+    if (FINAL_COMMAND_STATES.has(command.state) || command.state === ack.state) return command;
+    if (command.state === 'queued') return command; // never streamed: nothing to acknowledge
+    const now = new Date().toISOString();
+    return tx
+      .update(workerCommands)
+      .set({
+        state: ack.state,
+        ...(ack.state === 'delivered' ? { deliveredAt: now } : {}),
+        finishedAt: now,
+        result: ack.result ?? null,
+        error: ack.error ?? null,
+        updatedAt: now,
+      })
+      .where(eq(workerCommands.id, commandId))
+      .returning()
+      .get()!;
+  }, { behavior: 'immediate' });
+}
+
+/** Withdraw a command that hasn't been streamed. A streamed one can't be: stop the execution instead. */
+export function cancelWorkerCommand(commandId: string): WorkerCommandRecord | null {
+  const now = new Date().toISOString();
+  return (
+    getDb()
+      .update(workerCommands)
+      .set({ state: 'cancelled', finishedAt: now, updatedAt: now })
+      .where(and(eq(workerCommands.id, commandId), eq(workerCommands.state, 'queued')))
+      .returning()
+      .get() ?? null
+  );
+}
+
+/** The highest contiguous position of a computer's worker journal the home has stored. */
+export function getAckedEventSeq(computerId: string): number {
+  return getDb().select({ seq: computers.ackedEventSeq }).from(computers).where(eq(computers.id, computerId)).get()?.seq ?? 0;
+}
+
+export function setAckedEventSeq(computerId: string, position: number): void {
+  getDb()
+    .update(computers)
+    .set({ ackedEventSeq: position, updatedAt: new Date().toISOString() })
+    .where(eq(computers.id, computerId))
+    .run();
+}
+
+/**
+ * The computer a chat runs on: its own `computer_id` when it has no
+ * execution, and null for the home's own computer. Execution chats follow
+ * their placement, which lands with P2.4.
+ */
+export function getChatComputerId(chatSessionId: string): string | null {
+  return getDb().select({ computerId: chatSessions.computerId }).from(chatSessions).where(eq(chatSessions.id, chatSessionId)).get()?.computerId ?? null;
 }
 
 // ─── Agent setups (docs/homes-spec.md §4.2) ───────────────────
@@ -7097,6 +7273,9 @@ export function replaceChatEventPart(input: CreateChatEventInput): ChatEventReco
   if (inserted || !input.externalEventId) return inserted;
 
   const sourcePartIndex = input.sourcePartIndex ?? 0;
+  // A part with a revision replaces only an older one, so a late replay
+  // can't overwrite newer text (docs/homes-build.md, P2.3).
+  const revision = input.partRevision ?? null;
   const row = getDb().update(chatEvents).set({
     role: input.role,
     source: input.source,
@@ -7110,10 +7289,12 @@ export function replaceChatEventPart(input: CreateChatEventInput): ChatEventReco
     externalTurnId: input.externalTurnId,
     externalToolCallId: input.externalToolCallId,
     externalParentToolCallId: input.externalParentToolCallId,
+    ...(revision !== null ? { partRevision: revision } : {}),
   }).where(and(
     eq(chatEvents.sessionId, input.sessionId),
     eq(chatEvents.externalEventId, input.externalEventId),
     eq(chatEvents.sourcePartIndex, sourcePartIndex),
+    revision !== null ? or(isNull(chatEvents.partRevision), lt(chatEvents.partRevision, revision)) : undefined,
   )).returning().get();
   if (!row) return null;
 
@@ -8132,6 +8313,15 @@ export function upsertDelivery(input: CreateNotificationDeliveryInput): boolean 
     .onConflictDoNothing({ target: [notificationDeliveries.dedupeKey, notificationDeliveries.channelId] })
     .run();
   return result.changes > 0;
+}
+
+/** Deliveries still pending since before `before`: queued, committed, and never sent. */
+export function listStrandedDeliveries(before: string): NotificationDeliveryRecord[] {
+  return getDb()
+    .select()
+    .from(notificationDeliveries)
+    .where(and(eq(notificationDeliveries.status, 'pending'), lt(notificationDeliveries.createdAt, before)))
+    .all();
 }
 
 /** All still-processable deliveries for an event across the given channels (pending OR failed → self-heals on re-fire). */
