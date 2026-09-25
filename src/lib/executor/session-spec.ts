@@ -32,8 +32,8 @@ import {
   installOrchestratorSurface,
   orchestratorSessionConfig,
   renderContentFocusPrompt,
-  type OrchestratorMode,
 } from '@/lib/orchestrator/harness-surface';
+import { resolveOrchestratorMode } from '@/lib/orchestrator/mode';
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
@@ -160,18 +160,6 @@ export interface SessionSpecInput {
   effort: EffortLevel | null;
 }
 
-/**
- * Which orchestrator surface an orchestration-type session gets. The
- * dashboard toggle (`user_state.orchestratorMode`) wins when it names a
- * harness mode; `legacy` (the hand-rolled chat agent) still needs scheduled
- * orchestrator fires to work, and those are harness sessions by
- * construction — they default to the MCP surface, the most robust path.
- */
-function resolveOrchestratorMode(): Exclude<OrchestratorMode, 'legacy'> {
-  const mode = getUserState()?.orchestratorMode;
-  return mode === 'harness_skills' || mode === 'harness_mcp' ? mode : 'harness_mcp';
-}
-
 /** Take the provider config fields a spec carries. These are the only ones the surfaces set. */
 function applyProviderConfig(spec: SessionSpec, config: Partial<ProviderConfig>): void {
   if (config.mcpServers) spec.mcpServers = [...(config.mcpServers as McpServerConfig[])];
@@ -252,8 +240,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // ProviderConfig slice (disallowedTools / strictMcpConfig / mcpServers).
     // Providers without tool-filtering or MCP wiring ignore the fields
     // (Codex today), so the config is safe to pass everywhere — but warn,
-    // because the write guard genuinely doesn't hold there yet.
-    const orchestratorMode = resolveOrchestratorMode();
+    // because the write guard genuinely doesn't hold there yet. The mode
+    // resolves by the same rule the UI uses (lib/orchestrator/mode.ts).
+    const orchestratorMode = resolveOrchestratorMode(getUserState()?.orchestratorMode);
     try {
       await installOrchestratorSurface(orchestratorMode);
       applyProviderConfig(spec, orchestratorSessionConfig(orchestratorMode, { sessionId: args.chatSessionId }));

@@ -1,18 +1,21 @@
 # Orchestrator on the harness
 
-The dashboard chat can run on three different brains, selected by
-`user_state.orchestratorMode` (the Classic / Skills / MCP switch in the
-Chat tab):
+The dashboard chat runs on one of two surfaces, selected by
+`user_state.orchestratorMode` (the Skills / MCP switch in the Chat tab and
+in Settings):
 
 | Mode | Value | What runs |
 |---|---|---|
-| Classic | `legacy` | The hand-rolled streamText agent (`src/lib/ai/chat-tools.ts` + `agent-prompt.ts`). Ephemeral, in-process, direct API keys. |
 | Skills | `harness_skills` | A real harness session (Claude Code) with cwd = the app data root. Actions via the CLI (`<cli> agent <action>`), taught by the data-root brief + the bundled `orchestrator` skill. No MCP servers attached. |
 | MCP | `harness_mcp` | Same harness session, with the orchestrator HTTP MCP attached — one typed tool per registry action (`mcp__orchestrator__create_task`, …). |
 
-`legacy` stays fully intact as the fallback path — nothing about it changed.
-The point of the three-way switch is to A/B the harness approaches without
-clobbering what works.
+The old Classic chat (`legacy`, a hand-rolled streamText agent behind
+`/api/chat`) is retired: its server stack went in 3dd6586 and its UI after.
+The enum keeps `legacy` so old rows still parse. Unset and `legacy` both
+resolve to `harness_mcp`, in the UI and at dispatch alike, through one
+function (`resolveOrchestratorMode`, `src/lib/orchestrator/mode.ts`). Before
+that, the UI fell back to Classic on its own, so a home where nobody had
+picked a mode sent its main chat to the missing route and nothing happened.
 
 ## How a harness orchestrator session works
 
@@ -244,7 +247,8 @@ actions.
   `attachments/<name>` (in the home dir) when a message carries `[[file:…]]` markers —
   works for text/images the harness can read natively; no extract-text
   pipeline (docx etc.) on this path yet.
-- **Quick actions** ("What's next?" etc.) render in Classic mode only.
+- **Quick actions** ("What's next?" etc.) went with the Classic chat. The
+  harness chat has none yet.
 - ~~`agentex@0.0.19`: `ProviderConfig.mcpServers` generates a `--mcp-server`
   flag that doesn't exist in Claude Code ≥2.1.x~~ — fixed upstream in
   0.0.20 (we wrote the spec: `docs/agentex-mcp-and-controls-spec.md`).

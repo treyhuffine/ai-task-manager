@@ -786,6 +786,14 @@ pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev agent list_agent_setups   # Ri:
 
 Then open the "MacBook browser" link on the laptop and the "phone" link on the phone. Capture and edit tasks and notes on each and see them everywhere. Pass when: there is one home and one Ri agent with both layouts ready, `~/ri-homes-connected` holds no `data.db`, and no step asked for a path more than once.
 
+## Dogfood gate B: real work across the laptop, Mini and phone
+
+Status: **started on 2026-09-25**, on the dev home with the real MacBook's worker awake.
+
+Found while testing:
+
+- The phone's main chat did nothing. A home where nobody had picked an orchestrator mode stores none, and the server runs that on the MCP surface, but the chat panel and Settings fell back to the retired Classic chat on their own. Classic posts to `/api/chat`, which main deleted in 3dd6586, so each send was a 404 (two in the dev home's log). Production never showed it because its stored mode is `harness_mcp`. The server and the UI now resolve the mode through one function (`resolveOrchestratorMode`, `src/lib/orchestrator/mode.ts`): unset and `legacy` both mean MCP. The Classic option, its chat component and a helper only it used are gone. The same bug is on main, and any fresh install hits it.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

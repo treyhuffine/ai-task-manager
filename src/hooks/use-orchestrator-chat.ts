@@ -14,9 +14,6 @@ import {
  * main chat shares with its workspace id.
  */
 
-/** Mirrors `user_state.orchestratorMode` (see schema.ts). */
-export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
-
 export const ORCHESTRATOR_CHAT_KEY = mainChatKey(null);
 export const ORCHESTRATOR_CHAT_HISTORY_KEY = mainChatHistoryKey(null);
 
