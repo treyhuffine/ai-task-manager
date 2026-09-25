@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
-import { listApiKeys, revokeApiKey, updateApiKey } from '@/lib/db/queries';
+import { isWorkerApiKey, listApiKeys, revokeApiKey, updateApiKey } from '@/lib/db/queries';
+import { disconnectComputer } from '@/lib/workers/hub';
 import type { DeviceType, UpdateApiKeyInput } from '@/db/types';
 
 // `host` is reserved for the home's own key, which `ensureLocalToken` mints.
@@ -74,6 +75,10 @@ export async function DELETE(
     const row = revokeApiKey(id, reason);
     if (!row) {
       return Response.json({ error: 'Device not found' }, { status: 404 });
+    }
+    // A worker key's stream closes now, rather than at its next ping.
+    if (row.computerId && isWorkerApiKey(row.id)) {
+      disconnectComputer(row.computerId, `Local execution on this computer was turned off.`);
     }
     return new Response(null, { status: 204 });
   } catch (err) {

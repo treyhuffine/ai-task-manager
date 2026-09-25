@@ -8,7 +8,9 @@
  *
  * Location comes from the credential, never from the key's editable
  * `deviceType` label: only the home's own key (src/lib/auth/host-key.ts)
- * counts as the home machine.
+ * counts as the home machine. Scope comes from the key's enrollment: only a
+ * key issued by redeeming an enroll grant is a worker key
+ * (docs/homes-build.md, P2.2), and it carries its computer.
  */
 
 import { APP_SHORT_ID } from '@/constants/app';
@@ -16,10 +18,21 @@ import { APP_SHORT_ID } from '@/constants/app';
 export const API_KEY_ID_HEADER = `x-${APP_SHORT_ID}-api-key-id`;
 export const API_KEY_TYPE_HEADER = `x-${APP_SHORT_ID}-api-key-type`;
 export const CALLER_LOCATION_HEADER = `x-${APP_SHORT_ID}-caller-location`;
+export const API_KEY_SCOPE_HEADER = `x-${APP_SHORT_ID}-api-key-scope`;
+export const WORKER_COMPUTER_HEADER = `x-${APP_SHORT_ID}-worker-computer-id`;
 
-export const FORWARDED_KEY_HEADERS = [API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, CALLER_LOCATION_HEADER] as const;
+export const FORWARDED_KEY_HEADERS = [
+  API_KEY_ID_HEADER,
+  API_KEY_TYPE_HEADER,
+  CALLER_LOCATION_HEADER,
+  API_KEY_SCOPE_HEADER,
+  WORKER_COMPUTER_HEADER,
+] as const;
 
 export type CallerLocation = 'home' | 'elsewhere';
+
+/** A viewing key reads and acts as the owner. A worker key only reaches the worker routes. */
+export type KeyScope = 'viewer' | 'worker';
 
 export interface RequestKey {
   apiKeyId: string;
@@ -27,13 +40,23 @@ export interface RequestKey {
   deviceType: string;
   /** `home` only for the home's own key. */
   location: CallerLocation;
+  scope: KeyScope;
+  /** The worker's computer, for a worker key. */
+  workerComputerId: string | null;
 }
 
 export function getRequestKey(headers: Headers): RequestKey | null {
   const apiKeyId = headers.get(API_KEY_ID_HEADER);
   const deviceType = headers.get(API_KEY_TYPE_HEADER);
   if (!apiKeyId || !deviceType) return null;
-  return { apiKeyId, deviceType, location: headers.get(CALLER_LOCATION_HEADER) === 'home' ? 'home' : 'elsewhere' };
+  const scope: KeyScope = headers.get(API_KEY_SCOPE_HEADER) === 'worker' ? 'worker' : 'viewer';
+  return {
+    apiKeyId,
+    deviceType,
+    location: headers.get(CALLER_LOCATION_HEADER) === 'home' ? 'home' : 'elsewhere',
+    scope,
+    workerComputerId: scope === 'worker' ? headers.get(WORKER_COMPUTER_HEADER) : null,
+  };
 }
 
 /**

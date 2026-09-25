@@ -99,13 +99,20 @@ describe('a harness that takes one message at a time', () => {
       await turn.say('done');
     });
     const { dispatch, isRunning } = await import('./adapter');
-    // Both in the same tick: the first is still building its spec when the second arrives.
-    const first = dispatch(session.id, 'first');
-    const second = dispatch(session.id, 'second');
-    await expect(second).rejects.toMatchObject({ code: 'already_running' });
+    // Both in the same tick. Either can reach the gate first (their lookups
+    // before it finish in any order), and exactly one must be refused.
+    const outcomes = [dispatch(session.id, 'first'), dispatch(session.id, 'second')].map((p) =>
+      p.then(
+        () => 'delivered' as const,
+        (err: unknown) => err,
+      ),
+    );
+    // The refused one settles at once; the other is held in its turn.
+    await expect(Promise.race(outcomes)).resolves.toMatchObject({ code: 'already_running' });
     expect(isRunning(session.id)).toBe(true);
     release();
-    await first;
+    const results = await Promise.all(outcomes);
+    expect(results.filter((r) => r === 'delivered')).toHaveLength(1);
     expect(q.listRuns({}).filter((r) => r.chatSessionId === session.id)).toHaveLength(1);
     expect(isRunning(session.id)).toBe(false);
   });

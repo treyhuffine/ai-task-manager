@@ -163,7 +163,7 @@ Written before P2 code, as the review asked. It refines the P0.3 records below; 
 
 ### Connection
 
-- `GET /api/workers/me/commands?after=<seq>` is a server-sent event stream. It sends `command`, `request` (an ephemeral read), `revoked`, and a keepalive `ping`. `after` is the worker's durable receipt cursor (see Command receipt and recovery), never merely the last command it saw.
+- `GET /api/workers/me/stream?after=<seq>` is a server-sent event stream. It sends `hello`, `command`, `request` (an ephemeral read), `revoked`, and a keepalive `ping`. `after` is the worker's durable receipt cursor (see Command receipt and recovery), never merely the last command it saw.
 - `POST /api/workers/me/commands/:id/ack` reports a command's delivery state.
 - `POST /api/workers/me/requests/:id/result` answers a read.
 - `POST /api/workers/me/events` delivers a batch of journaled events, and returns the highest contiguous position stored.
@@ -346,6 +346,57 @@ The prompt store moves into the runner, because the harness waits there. The run
 - The idle close runs in the server's 60-second sweep.
 - Tests: `runner-split.test.ts` (12, through the real executor with the fake harness: a spec only when a session must start, `needs_spec`, a second message refused without a run while the first starts on a one-at-a-time harness, runs finished from the turn result with or without a waiter, a late result after a timeout, prompts answered only by their own chat, plan mode followed after leaving it, the idle close and resume, a waiting session left alone, and the quiet heartbeat's close). Three of them were checked by breaking the behavior they cover. The boundary test adds 11.
 - Live on the dev home: a Demo execution resumed its Claude session from a spec, answered, and its run completed from the turn result, with cost and summary. A follow-up went into the same Claude process without building a spec.
+
+## P2.2 Enrollment and the worker connection
+
+P2.2 is the transport: how a computer becomes a worker, how it stays connected, and how the home asks it things. Durable commands and events, with their journals, are P2.3. Routing real work to a worker is P2.4.
+
+### Records (migration 0004, additive)
+
+- **`computer_grants`**: short-lived, single-use grants. `kind` is `enroll` (become a worker) or `associate` (link this computer's browser). Each has the sha256 of its secret, the computer it names (an enroll grant may name none, making a new computer when redeemed), the key that created it, `expires_at`, and when and by which key it was redeemed. Enroll grants last 10 minutes, and association grants 2 minutes.
+- **`worker_enrollments`**: one row per worker key (`api_key_id`, primary key) with its `computer_id` and the grant it came from. This row is what makes a key a worker key. A viewing key never gets one: only redeeming an enroll grant creates a worker key, and it's a new key. Revoking the key ends the enrollment.
+- **`computers`** gains what a worker reports: `worker_protocol`, `worker_version`, `harnesses` (JSON) and `reported_state` (`awake | asleep | stopped`). All are null until a worker reports, and stay null for the home's own computer.
+
+### Enrolling
+
+1. On the computer to enroll, `ri worker enroll` explains what enrolling allows and asks to continue. That confirmation on the computer itself is the local approval.
+2. It asks the home for an enroll grant for this computer, with the computer's existing viewing key. That request is the owner's authorization, and it names the computer the key belongs to.
+3. It redeems the grant at `POST /api/workers/enroll`. The grant is the only credential this route takes. The home creates the worker key and its enrollment in one transaction, and marks the grant used.
+4. The worker key goes in `<configDir>/worker.json` (0600), which is machine-local and never backed up.
+
+An owner can also create a grant elsewhere (`ri worker grant` on the home, and in the UI later) and type its code on the computer (`ri worker enroll --code`).
+
+### The boundary
+
+The proxy resolves each key's scope, forwards it as `x-ri-api-key-scope` with the worker's `x-ri-computer-id`, and strips inbound copies of both. A worker key reaches only `/api/workers/me/*`, and only a worker key reaches them. Everything else answers 403, so a worker key can't read tasks, and a viewing key can't pose as a worker. Handlers check the enrollment again.
+
+### The connection
+
+- The worker opens `GET /api/workers/me/stream`, a server-sent event stream. It carries `hello` (the home's id and the protocol it speaks), `request`, `revoked`, and a `ping` every 15 seconds. Commands join it in P2.3, with the `after` cursor.
+- Every worker request carries `x-ri-worker-protocol`. A home that doesn't speak that protocol answers 426 with "Update Ri on MacBook", and the worker stops rather than retrying.
+- The worker posts `POST /api/workers/me/heartbeat` every 20 seconds: protocol, version, harnesses, and `awake`. The home stores it and updates `last_seen_at`.
+- On a dropped connection the worker reconnects with backoff from 1 to 30 seconds, with jitter. A 401 or a `revoked` event stops it: the key was revoked, and it says so.
+- The stream checks the key on every ping, so a revoked worker is cut off within 15 seconds.
+
+### Requests
+
+A request is a read with a timeout, never persisted (P2 protocol, Commands). The home sends `request` with an id and kind on the stream, and the worker answers at `POST /api/workers/me/requests/:id/result`. The first kind is `describe_harnesses`, which the worker answers from its own harness runtime. An unanswered request fails after its timeout, and an unknown kind is answered as unsupported.
+
+### This Mac
+
+The worker links its computer's browser through the home, with no loopback server. `ri worker open` asks the home for an association grant (`POST /api/workers/me/associations`), then opens `<home>/#associate=<grant>` in this computer's default browser. The web app redeems the grant with its own viewing key (`POST /api/devices/associate`), which records that the browser's key is on that computer. The grant only proves the page was opened by that computer's worker, and it links identity only: the browser key gains no worker authority.
+
+### As built
+
+- Migration `0004_low_roulette`, additive: `computer_grants`, `worker_enrollments`, and the four reported columns on `computers`.
+- Queries: `createComputerGrant`, `redeemEnrollGrant` (one transaction: the computer, the new key, its enrollment, retiring an earlier worker key for the computer, and the used grant), `redeemAssociateGrant`, `getWorkerEnrollment`, `isWorkerApiKey`, `listEnrolledComputerIds`, `recordWorkerHeartbeat`.
+- The proxy forwards `x-ri-api-key-scope` and `x-ri-worker-computer-id`, stripping inbound copies, and holds the boundary for `/api/workers/me` and everything under it. `/api/workers/enroll` takes only its grant. Handlers check again through `requireWorker` (`src/lib/workers/route-auth.ts`), which also answers 426 to another protocol.
+- Home side: `src/lib/workers/protocol.ts` (shared with the worker), `hub.ts` (live streams and waiting requests), the routes under `/api/workers`, `/api/devices/associate`, `/api/computers` and `/api/computers/:id/harnesses` (`?fresh=1` asks the worker). Revoking a worker key closes its stream at once. A worker error answers 424, not a 5xx, because clients read gateway statuses as the home being unreachable.
+- Worker side: `src/lib/worker/` (`config.ts`, `client.ts`, `sse.ts`, `harnesses.ts`, `run.ts`), inside the import boundary with the runner. `ri worker enroll | run | status | open | disable | grant`.
+- Orchestrator actions `list_computers` and `describe_computer_harnesses`, which reach the server's hub over HTTP, since the home's CLI runs actions in its own process.
+- The web app redeems `#associate=` on load and on a hash change, remembers the computer in `ri.thisComputer`, and says "This browser is on MacBook".
+- Tests: `src/lib/workers/workers.test.ts` (17), over real HTTP through the real proxy and routes (`src/test/fixtures/home-server.ts`), with the real worker loop. They cover enrolling, single-use and expired codes, the home's own computer refused, another protocol refused with what to do, one worker per computer, both sides of the key boundary with forged headers, a request answered and one answered by the wrong computer, reconnecting after a drop, a stale stream replaced, revocation, a different home, turning itself off, This Mac, and the stream reader. The boundary test covers the worker. Writing them found that `/api/workers/me` itself was outside the boundary, which is fixed, and two tests that raced under full-suite load, which now wait on the right side.
+- Live on the dev home, after its restart applied 0004 (snapshot first, in `~/ri-homes-snapshots`): the stand-in laptop enrolled, connected, and its heartbeat reported protocol 1 and version 0.1.0. A fresh harness request went down the stream, and the worker answered with this Mac's real harnesses (Claude 2.1.281 and Codex 0.153.4 installed, Cursor and OpenCode missing). Revoking its key stopped the worker at once with the reason, and it removed its enrollment. In a real browser, an association link linked a throwaway key to the stand-in and showed "This browser is on MacBook (stand-in)", both in a new tab and by a hash change in an open page. That second case failed first and is now handled.
 
 ## Dogfood gate A: the real laptop and phone
 

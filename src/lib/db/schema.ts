@@ -723,8 +723,59 @@ export const computers = sqliteTable(
     status: text({ enum: ['active', 'revoked'] }).notNull(),
     revokedAt: text(),
     lastSeenAt: text(),
+    // What its worker last reported (docs/homes-build.md, P2.2). Null until a
+    // worker reports, and for the home's own computer, whose runner is in
+    // process.
+    workerProtocol: integer(),
+    workerVersion: text(),
+    harnesses: text({ mode: 'json' }).$type<WorkerHarnessReport[]>(),
+    reportedState: text({ enum: ['awake', 'asleep', 'stopped'] }),
   },
   (table) => [index('idx_computers_status').on(table.status)],
+);
+
+// ─── Computer grants and worker enrollments ─────────────────────
+// A grant is a short-lived, single-use secret the home issues to an owner
+// (docs/homes-build.md, P2.2). Redeeming an `enroll` grant makes a computer
+// a worker: the home issues a new worker key and records its enrollment.
+// Redeeming an `associate` grant links a browser's viewing key to the
+// computer whose worker asked for it. Only the secret's hash is stored.
+export const computerGrants = sqliteTable(
+  'computer_grants',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    kind: text({ enum: ['enroll', 'associate'] }).notNull(),
+    hash: text().notNull().unique(),
+    // The computer the grant is for. An enroll grant may name none, and then
+    // redeeming it makes a new computer.
+    computerId: text().references(() => computers.id, { onDelete: 'cascade' }),
+    // A name for the computer an enroll grant will make.
+    computerName: text(),
+    createdByApiKeyId: text().references(() => apiKeys.id, { onDelete: 'set null' }),
+    expiresAt: text().notNull(),
+    redeemedAt: text(),
+    redeemedByApiKeyId: text().references(() => apiKeys.id, { onDelete: 'set null' }),
+  },
+  (table) => [index('idx_computer_grants_computer').on(table.computerId)],
+);
+
+// One row per worker key. Its existence is what makes a key a worker key: a
+// viewing key never gets one, since only redeeming an enroll grant creates a
+// worker key, and it creates a new one.
+export const workerEnrollments = sqliteTable(
+  'worker_enrollments',
+  {
+    apiKeyId: text()
+      .primaryKey()
+      .references(() => apiKeys.id, { onDelete: 'cascade' }),
+    ...timestamps,
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    grantId: text().references(() => computerGrants.id, { onDelete: 'set null' }),
+  },
+  (table) => [index('idx_worker_enrollments_computer').on(table.computerId)],
 );
 
 export const home = sqliteTable('home', {
@@ -775,6 +826,16 @@ export const agentSetups = sqliteTable(
     index('idx_agent_setups_computer').on(table.computerId),
   ],
 );
+
+/**
+ * One harness as a worker found it on its computer: the view the harness
+ * runtime gives (src/lib/harness/runtime.ts `HarnessRuntimeView`), as JSON.
+ */
+export interface WorkerHarnessReport {
+  harness: string;
+  binary: { status: string; command?: string | null; version?: string | null; error?: string };
+  capabilities: Record<string, { supported: boolean; status?: string; reason?: string | null }>;
+}
 
 /** One reference as a computer resolved it (src/lib/setups/resolve.ts). */
 export interface SetupReferenceReport {

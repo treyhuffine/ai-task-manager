@@ -21,6 +21,7 @@ import { registerHomeCommand } from './commands/home';
 import { registerStatusCommand } from './commands/status';
 import { registerSetupCommand } from './commands/setup';
 import { registerConnectCommands } from './commands/connect';
+import { registerWorkerCommand } from './commands/worker';
 import { installRoleGuard } from './lib/role-guard';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
@@ -104,6 +105,7 @@ registerHomeCommand(program);
 registerStatusCommand(program);
 registerSetupCommand(program);
 registerConnectCommands(program);
+registerWorkerCommand(program);
 installRoleGuard(program);
 
 program.parseAsync(process.argv).catch((err) => {

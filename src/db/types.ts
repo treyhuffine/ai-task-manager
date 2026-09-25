@@ -4,14 +4,14 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, agentSetups,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, agentSetups,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
-export type { SetupReferenceReport } from '@/lib/db/schema';
+export type { SetupReferenceReport, WorkerHarnessReport } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition, LifecycleCommandResult } from '@/lib/db/schema';
 
 /**
@@ -168,6 +168,10 @@ export type HomeKind = HomeRecord['kind'];
 export type ComputerRecord = InferSelectModel<typeof computers>;
 export type CreateComputerInput = PolicyOptional<Omit<InferInsertModel<typeof computers>, 'id'>, 'status'> & { id?: string };
 export type UpdateComputerInput = Partial<Pick<ComputerRecord, 'name' | 'platform' | 'hostname' | 'lastSeenAt'>>;
+export type ComputerGrantRecord = InferSelectModel<typeof computerGrants>;
+export type ComputerGrantKind = ComputerGrantRecord['kind'];
+export type WorkerEnrollmentRecord = InferSelectModel<typeof workerEnrollments>;
+export type WorkerReportedState = NonNullable<ComputerRecord['reportedState']>;
 export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
 export type AgentSetupStatus = AgentSetupRecord['status'];
 

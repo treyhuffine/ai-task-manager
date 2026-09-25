@@ -147,6 +147,15 @@ export function getConnectionPath(): string {
 }
 
 /**
+ * On a computer enrolled as a worker: its worker key for the home, and the
+ * home and computer it was issued for (src/lib/worker/config.ts). A
+ * credential for this machine alone, so backups never carry it.
+ */
+export function getWorkerConfigPath(): string {
+  return path.join(getConfigDir(), 'worker.json');
+}
+
+/**
  * Where this computer's registered setup files are: a list of source folders
  * holding a `.ri.local.json` (src/lib/setups/registry.ts). It locates the
  * files and holds no paths of its own beyond that.

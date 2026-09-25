@@ -3,13 +3,14 @@
  * Used by both API route handlers and AI chat tools.
  */
 
+import { createHash, randomBytes } from 'node:crypto';
 import nodePath from 'node:path';
 import os from 'node:os';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, computers, agentSetups,
+  home, computers, computerGrants, workerEnrollments, agentSetups,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -32,6 +33,7 @@ import type {
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
+  ComputerGrantRecord, ComputerGrantKind, WorkerEnrollmentRecord, WorkerReportedState, WorkerHarnessReport,
   AgentSetupRecord, SetupReferenceReport,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
@@ -4443,6 +4445,262 @@ export function registerComputerForApiKey(input: {
     tx.update(apiKeys).set({ computerId: computer.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
     return { computer, created: true };
   }, { behavior: 'immediate' });
+}
+
+// ─── Computer grants and worker enrollment (docs/homes-build.md, P2.2) ───
+
+export const ENROLL_GRANT_TTL_MS = 10 * 60 * 1000;
+export const ASSOCIATE_GRANT_TTL_MS = 2 * 60 * 1000;
+
+export class GrantError extends Error {
+  constructor(
+    readonly code: 'invalid' | 'expired' | 'used' | 'not_allowed',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'GrantError';
+  }
+}
+
+function hostComputerIdIn(tx: Pick<ReturnType<typeof getDb>, 'select'>): string | null {
+  return tx.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+}
+
+/**
+ * Issue a single-use grant. An `enroll` grant names the computer that will
+ * become a worker, or none to make a new one. It can't name the home's own
+ * computer, whose runner is in process. An `associate` grant names the
+ * computer whose browser it links. Returns the secret once: only its hash
+ * is kept.
+ */
+export function createComputerGrant(input: {
+  kind: ComputerGrantKind;
+  computerId: string | null;
+  computerName?: string | null;
+  createdByApiKeyId: string | null;
+}): { grant: ComputerGrantRecord; secret: string } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    if (input.computerId) {
+      const computer = tx.select().from(computers).where(eq(computers.id, input.computerId)).get();
+      if (!computer || computer.status !== 'active') throw new GrantError('invalid', 'That computer is not active.');
+      if (input.kind === 'enroll' && computer.id === hostComputerIdIn(tx)) {
+        throw new GrantError('not_allowed', `${computer.name} is this home's own computer. It already runs work.`);
+      }
+    } else if (input.kind === 'associate') {
+      throw new GrantError('invalid', 'An association grant needs a computer.');
+    }
+    const secret = `rg_${randomBytes(24).toString('base64url')}`;
+    const now = new Date();
+    const ttl = input.kind === 'enroll' ? ENROLL_GRANT_TTL_MS : ASSOCIATE_GRANT_TTL_MS;
+    const grant = tx
+      .insert(computerGrants)
+      .values({
+        id: uuidv7(),
+        kind: input.kind,
+        hash: hashGrantSecret(secret),
+        computerId: input.computerId,
+        computerName: input.computerName ?? null,
+        createdByApiKeyId: input.createdByApiKeyId,
+        expiresAt: new Date(now.getTime() + ttl).toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      })
+      .returning()
+      .get();
+    return { grant, secret };
+  }, { behavior: 'immediate' });
+}
+
+export function hashGrantSecret(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex');
+}
+
+/** Find a grant by its secret and check it can still be used. Throws `GrantError` otherwise. */
+function usableGrant(
+  tx: Pick<ReturnType<typeof getDb>, 'select'>,
+  secret: string,
+  kind: ComputerGrantKind,
+): ComputerGrantRecord {
+  const grant = tx.select().from(computerGrants).where(eq(computerGrants.hash, hashGrantSecret(secret.trim()))).get();
+  if (!grant || grant.kind !== kind) throw new GrantError('invalid', 'That code is not valid. Make a new one and try again.');
+  if (grant.redeemedAt) throw new GrantError('used', 'That code was already used. Make a new one.');
+  if (new Date(grant.expiresAt).getTime() <= Date.now()) {
+    throw new GrantError('expired', 'That code has expired. Make a new one.');
+  }
+  return grant;
+}
+
+/**
+ * Redeem an enroll grant: the computer becomes a worker. In one transaction
+ * the home makes the computer if the grant named none, issues a new worker
+ * key bound to it, records the enrollment, revokes any earlier worker key
+ * for that computer (one worker per computer), and marks the grant used.
+ * The key's token is returned once.
+ */
+export function redeemEnrollGrant(input: {
+  secret: string;
+  name: string;
+  platform?: string | null;
+  hostname?: string | null;
+}): { homeId: string; computer: ComputerRecord; key: ApiKeyRecord; token: GeneratedToken } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const grant = usableGrant(tx, input.secret, 'enroll');
+    const now = new Date().toISOString();
+    const homeRow = tx.select().from(home).get();
+    if (!homeRow) throw new GrantError('invalid', 'This home has no identity yet.');
+    let computer: ComputerRecord;
+    if (grant.computerId) {
+      const existing = tx.select().from(computers).where(eq(computers.id, grant.computerId)).get();
+      if (!existing || existing.status !== 'active') throw new GrantError('invalid', 'That computer was removed.');
+      if (existing.id === homeRow.hostComputerId) {
+        throw new GrantError('not_allowed', `${existing.name} is this home's own computer.`);
+      }
+      computer = tx
+        .update(computers)
+        .set({ platform: input.platform ?? existing.platform, hostname: input.hostname ?? existing.hostname, lastSeenAt: now, updatedAt: now })
+        .where(eq(computers.id, existing.id))
+        .returning()
+        .get()!;
+    } else {
+      computer = tx
+        .insert(computers)
+        .values({
+          id: uuidv7(),
+          name: grant.computerName?.trim() || input.name,
+          platform: input.platform ?? null,
+          hostname: input.hostname ?? null,
+          status: 'active',
+          lastSeenAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+    }
+
+    // One worker per computer: an earlier worker key for it stops working.
+    const earlier = tx
+      .select({ apiKeyId: workerEnrollments.apiKeyId })
+      .from(workerEnrollments)
+      .where(eq(workerEnrollments.computerId, computer.id))
+      .all()
+      .map((r) => r.apiKeyId);
+    if (earlier.length > 0) {
+      tx.update(apiKeys)
+        .set({ revokedAt: now, revokedReason: 'Replaced by a new enrollment', updatedAt: now })
+        .where(and(inArray(apiKeys.id, earlier), isNull(apiKeys.revokedAt)))
+        .run();
+    }
+
+    const token = generateToken();
+    const key = tx
+      .insert(apiKeys)
+      .values({
+        id: uuidv7(),
+        name: `${computer.name} worker`,
+        description: 'Runs agents on this computer for the home. Issued by enrollment.',
+        deviceType: 'computer',
+        prefix: token.prefix,
+        suffix: token.suffix,
+        hash: token.hash,
+        env: token.env,
+        computerId: computer.id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    tx.insert(workerEnrollments)
+      .values({ apiKeyId: key.id, computerId: computer.id, grantId: grant.id, createdAt: now, updatedAt: now })
+      .run();
+    tx.update(computerGrants)
+      .set({ redeemedAt: now, redeemedByApiKeyId: key.id, updatedAt: now })
+      .where(eq(computerGrants.id, grant.id))
+      .run();
+    return { homeId: homeRow.id, computer, key, token };
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Redeem an associate grant with a browser's viewing key: that key is now
+ * known to be on the grant's computer. Identity only, never authority, and
+ * never for a worker key.
+ */
+export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }): ComputerRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const grant = usableGrant(tx, input.secret, 'associate');
+    const key = tx.select().from(apiKeys).where(eq(apiKeys.id, input.apiKeyId)).get();
+    if (!key || key.revokedAt) throw new GrantError('invalid', 'This browser is not signed in.');
+    const worker = tx.select().from(workerEnrollments).where(eq(workerEnrollments.apiKeyId, key.id)).get();
+    if (worker) throw new GrantError('not_allowed', 'A worker key is not a browser.');
+    const computer = tx.select().from(computers).where(eq(computers.id, grant.computerId!)).get();
+    if (!computer || computer.status !== 'active') throw new GrantError('invalid', 'That computer was removed.');
+    const now = new Date().toISOString();
+    tx.update(apiKeys).set({ computerId: computer.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+    tx.update(computerGrants)
+      .set({ redeemedAt: now, redeemedByApiKeyId: key.id, updatedAt: now })
+      .where(eq(computerGrants.id, grant.id))
+      .run();
+    return computer;
+  }, { behavior: 'immediate' });
+}
+
+/** The enrollment behind an active worker key, with its active computer. Null for any other key. */
+export function getWorkerEnrollment(apiKeyId: string): { enrollment: WorkerEnrollmentRecord; computer: ComputerRecord } | null {
+  const db = getDb();
+  const row = db
+    .select({ enrollment: workerEnrollments, computer: computers, revokedAt: apiKeys.revokedAt })
+    .from(workerEnrollments)
+    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
+    .innerJoin(computers, eq(computers.id, workerEnrollments.computerId))
+    .where(eq(workerEnrollments.apiKeyId, apiKeyId))
+    .get();
+  if (!row || row.revokedAt || row.computer.status !== 'active') return null;
+  return { enrollment: row.enrollment, computer: row.computer };
+}
+
+/** Computers with an active worker key, by computer id. */
+export function listEnrolledComputerIds(): Set<string> {
+  const db = getDb();
+  const rows = db
+    .select({ computerId: workerEnrollments.computerId })
+    .from(workerEnrollments)
+    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
+    .where(isNull(apiKeys.revokedAt))
+    .all();
+  return new Set(rows.map((r) => r.computerId));
+}
+
+/** Whether a key was issued as a worker key, active or not. The proxy's scope. */
+export function isWorkerApiKey(apiKeyId: string): boolean {
+  const db = getDb();
+  return db.select({ id: workerEnrollments.apiKeyId }).from(workerEnrollments).where(eq(workerEnrollments.apiKeyId, apiKeyId)).get() !== undefined;
+}
+
+/** Store what a worker reported about its computer, and when. */
+export function recordWorkerHeartbeat(
+  computerId: string,
+  report: { protocol: number; version: string; harnesses: WorkerHarnessReport[]; state: WorkerReportedState },
+): ComputerRecord | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return (
+    db.update(computers)
+      .set({
+        workerProtocol: report.protocol,
+        workerVersion: report.version,
+        harnesses: report.harnesses,
+        reportedState: report.state,
+        lastSeenAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(computers.id, computerId), eq(computers.status, 'active')))
+      .returning()
+      .get() ?? null
+  );
 }
 
 // ─── Agent setups (docs/homes-spec.md §4.2) ───────────────────

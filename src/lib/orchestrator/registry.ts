@@ -2756,6 +2756,27 @@ const rename_computer_action = defineAction({
   },
 });
 
+const list_computers_action = defineAction({
+  name: 'list_computers',
+  description:
+    "This home's computers: the home's own, and each connected computer with whether it's enrolled to run agents, connected right now, and what its worker last reported.",
+  params: {},
+  handler: async () => serverFetch<unknown[]>('/computers'),
+});
+
+const describe_computer_harnesses_action = defineAction({
+  name: 'describe_computer_harnesses',
+  description:
+    "The harnesses a computer can run: installed, version, and capabilities. By default its worker's last report; with fresh=true the home asks the worker now, which needs it connected.",
+  params: {
+    computerId: z.string().min(1),
+    fresh: z.boolean().optional(),
+  },
+  cli: { positional: ['computerId'] },
+  handler: async (_ctx, { computerId, fresh }) =>
+    serverFetch<unknown>(`/computers/${encodeURIComponent(computerId)}/harnesses${fresh ? '?fresh=1' : ''}`),
+});
+
 const get_setup_context_action = defineAction({
   name: 'get_setup_context',
   description:
@@ -2812,6 +2833,8 @@ const list_skills_action = defineAction({
 export const actions = [
   register_computer_action,
   rename_computer_action,
+  list_computers_action,
+  describe_computer_harnesses_action,
   get_setup_context_action,
   report_agent_setups_action,
   list_agent_setups_action,

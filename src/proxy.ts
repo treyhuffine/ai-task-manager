@@ -1,9 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { hashToken } from '@/lib/auth/tokens';
-import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
+import { findApiKeyByHash, getWorkerEnrollment, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isHomeActive } from '@/lib/home/identity';
-import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, CALLER_LOCATION_HEADER, FORWARDED_KEY_HEADERS } from '@/lib/auth/request-key';
+import {
+  API_KEY_ID_HEADER,
+  API_KEY_SCOPE_HEADER,
+  API_KEY_TYPE_HEADER,
+  CALLER_LOCATION_HEADER,
+  FORWARDED_KEY_HEADERS,
+  WORKER_COMPUTER_HEADER,
+} from '@/lib/auth/request-key';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 
 export const config = {
@@ -12,6 +19,17 @@ export const config = {
 
 function unauthorized() {
   return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+}
+
+/** Where a worker key may go, and only a worker key (docs/homes-build.md, P2.2). */
+const WORKER_ROUTES = '/api/workers/me';
+
+function isWorkerRoute(pathname: string): boolean {
+  return pathname === WORKER_ROUTES || pathname.startsWith(`${WORKER_ROUTES}/`);
+}
+
+function forbidden(error: string, message: string) {
+  return NextResponse.json({ error, message }, { status: 403 });
 }
 
 // Paths that bypass auth. `/api/health` is our cross-origin reachability
@@ -110,6 +128,13 @@ export function proxy(request: NextRequest) {
     return nextWithoutKeyHeaders(request);
   }
 
+  // Redeeming an enroll grant is how a computer gets its first worker key, so
+  // the grant in the body is the credential: short-lived, single-use, and
+  // issued by an owner (docs/homes-build.md, P2.2).
+  if (request.nextUrl.pathname === '/api/workers/enroll') {
+    return nextWithoutKeyHeaders(request);
+  }
+
   const token = extractToken(request);
   if (!token) return unauthorized();
 
@@ -131,6 +156,20 @@ export function proxy(request: NextRequest) {
     console.error('[auth] touchApiKey failed:', err);
   }
 
+  // A worker key reaches only the worker routes, and only a worker key
+  // reaches them: a worker can't read the owner's data, and a viewing key
+  // can't pose as a worker.
+  const workerRoute = isWorkerRoute(request.nextUrl.pathname);
+  const workerKey = isWorkerApiKey(key.id);
+  if (workerKey && !workerRoute) {
+    return forbidden('worker_key', 'A worker key can only reach the worker routes.');
+  }
+  if (!workerKey && workerRoute) {
+    return forbidden('not_a_worker', 'Only an enrolled worker can reach this route.');
+  }
+  const worker = workerKey ? getWorkerEnrollment(key.id) : null;
+  if (workerKey && !worker) return unauthorized();
+
   // Tell handlers which key this is. Set after removing any the caller sent,
   // so they can be trusted (src/lib/auth/request-key.ts).
   const headers = new Headers(request.headers);
@@ -138,5 +177,7 @@ export function proxy(request: NextRequest) {
   headers.set(API_KEY_ID_HEADER, key.id);
   headers.set(API_KEY_TYPE_HEADER, key.deviceType);
   headers.set(CALLER_LOCATION_HEADER, isHostKeyHash(tokenHash) ? 'home' : 'elsewhere');
+  headers.set(API_KEY_SCOPE_HEADER, workerKey ? 'worker' : 'viewer');
+  if (worker) headers.set(WORKER_COMPUTER_HEADER, worker.computer.id);
   return NextResponse.next({ request: { headers } });
 }

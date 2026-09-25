@@ -1,9 +1,9 @@
 /**
- * The runner never reads the database, notifies, or publishes to the
- * realtime bus (docs/homes-build.md, "P2.1 The runner split"): the same code
- * has to run on a connected computer, which has none of those. This walks
- * the runner's real import graph, through every module it reaches, and
- * fails with the chain that crosses the line.
+ * The runner and the worker never read the database, notify, or publish to
+ * the realtime bus (docs/homes-build.md, P2.1 and P2.2): they run on a
+ * connected computer, which has none of those. This walks their real import
+ * graph, through every module they reach, and fails with the chain that
+ * crosses the line.
  *
  * Type-only imports are erased at runtime, so they don't count.
  */
@@ -75,10 +75,16 @@ function violations(entry: string): string[] {
   return found;
 }
 
-const runnerFiles = fs
-  .readdirSync(RUNNER)
-  .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
-  .map((f) => path.join(RUNNER, f));
+function modulesIn(dir: string): string[] {
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    .map((f) => path.join(dir, f));
+}
+
+const runnerFiles = modulesIn(RUNNER);
+/** The worker's side of the connection, and the protocol both sides share. */
+const workerFiles = [...modulesIn(path.join(SRC, 'lib', 'worker')), path.join(SRC, 'lib', 'workers', 'protocol.ts')];
 
 describe('the runner boundary', () => {
   it('covers every runner module', () => {
@@ -88,6 +94,10 @@ describe('the runner boundary', () => {
   });
 
   it.each(runnerFiles.map((f) => [path.basename(f), f]))('%s reaches no database, notification or realtime module', (_name, file) => {
+    expect(violations(file)).toEqual([]);
+  });
+
+  it.each(workerFiles.map((f) => [path.relative(path.join(SRC, 'lib'), f), f]))('worker module %s reaches none either', (_name, file) => {
     expect(violations(file)).toEqual([]);
   });
 

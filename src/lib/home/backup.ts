@@ -49,10 +49,11 @@ const CONTENT_FILES = [
  * Entries under `.config` that belong to this machine and are rebuilt or
  * re-established on the next one: this machine's identity (`machine.json`,
  * which must never travel, or a restored copy would take itself for the
- * original host), the agent browser's profiles (logins), local TLS material,
- * CLI editor preference, and connector lock files.
+ * original host), a worker's key for its home (`worker.json`), the agent
+ * browser's profiles (logins), local TLS material, CLI editor preference,
+ * and connector lock files.
  */
-const CONFIG_MACHINE_LOCAL = new Set(['browser', 'tls', 'cli-config.json', 'machine.json']);
+const CONFIG_MACHINE_LOCAL = new Set(['browser', 'tls', 'cli-config.json', 'machine.json', 'worker.json']);
 const CONFIG_SKIPPED_NAMES = new Set(['locks']);
 
 /** Why a known top-level entry is not in the backup. */
