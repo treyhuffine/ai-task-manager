@@ -106,6 +106,15 @@ describe('send', () => {
     expect(runner.send).toHaveBeenCalledOnce();
   });
 
+  it('for a placement the home released is stale, and does nothing', async () => {
+    const { journal, handlers, ctx } = await setup();
+    journal.release('exec-1', 1);
+    const c = command('send', { spec, message: 'released', turnId: 't', runId: null });
+    journal.received(c);
+    expect(await handlers.send!.recover(c, 'received', ctx(c))).toMatchObject({ state: 'stale' });
+    expect(runner.send).not.toHaveBeenCalled();
+  });
+
   it('from an earlier placement is stale, and does nothing', async () => {
     const { journal, handlers, ctx } = await setup();
     journal.received(command('interrupt', {}, 2, 1));

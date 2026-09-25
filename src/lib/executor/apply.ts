@@ -26,6 +26,8 @@ import {
   heldPlacement,
   insertChatEvent,
   replaceChatEventPart,
+  sendForRun,
+  sendForTurn,
   setAckedEventSeq,
   updateChatSession,
 } from '@/lib/db/queries';
@@ -43,14 +45,16 @@ import { settleTurn } from './turns';
 
 /**
  * A chat event: inserted, or for a cumulative provider part replacing an
- * older revision. A result event it inserted also feeds run telemetry. Returns
- * whether anything changed.
+ * older revision. A result event it inserted also feeds run telemetry: to
+ * `runId` when given (null charges nothing), otherwise to the chat's active
+ * run here, which is right only for the home's own runner. Returns whether
+ * anything changed.
  */
-export function applyChatEvent(row: CreateChatEventInput, opts: { cumulative: boolean }): boolean {
+export function applyChatEvent(row: CreateChatEventInput, opts: { cumulative: boolean; runId?: string | null }): boolean {
   const stored = opts.cumulative ? replaceChatEventPart(row) : insertChatEvent(row);
-  if (stored && !opts.cumulative && row.source === 'result' && row.raw) {
+  if (stored && !opts.cumulative && row.source === 'result' && row.raw && opts.runId !== null) {
     try {
-      recordRunTelemetry(row.sessionId, row.raw as unknown as StreamEvent);
+      recordRunTelemetry(row.sessionId, row.raw as unknown as StreamEvent, opts.runId);
     } catch (err) {
       // Dropping a telemetry event is preferable to losing the event itself.
       console.warn(`[runs] telemetry hook failed for ${row.sessionId}:`, err);
@@ -98,13 +102,7 @@ export function applyRunnerSignal(
       after.tasks.push(() => publishPendingInput(chatSessionId, signal.pending));
       return;
     case 'turn_result':
-      if (signal.runId) {
-        finishRunInTransaction(
-          signal.runId,
-          signal.ok ? { ok: true } : { ok: false, errorCode: 'agent_error', errorMessage: signal.error ?? 'The turn failed' },
-          after,
-        );
-      }
+      if (signal.runId) finishRunInTransaction(signal.runId, turnOutcome(signal), after);
       after.tasks.push(() => settleTurn(signal.turnId, signal.ok ? null : signal.error ?? 'The turn failed'));
       return;
   }
@@ -164,23 +162,67 @@ function eventStanding(computerId: string, event: WorkerEvent): 'current' | 'his
   const placement = chatPlacement(event.chatSessionId);
   if (!placement) return 'refused';
   if (placement.executionId === null) return placement.computerId === computerId && !placement.isHome ? 'current' : 'refused';
-  const generation = event.generation ?? placement.generation;
+  // The worker stamps the generation that ran it. Without one, there's no
+  // telling which placement it belongs to, and the one here now isn't a
+  // guess worth making (P2 review fixes).
+  const generation = event.generation;
+  if (generation === null) return 'refused';
   if (placement.computerId === computerId && placement.generation === generation) return 'current';
-  return generation !== null && heldPlacement(placement.executionId, computerId, generation) ? 'history' : 'refused';
+  return heldPlacement(placement.executionId, computerId, generation) ? 'history' : 'refused';
+}
+
+/**
+ * The run a worker's event belongs to, when it's the run of one of this
+ * computer's sends for that chat. Anything else a worker names about runs or
+ * turns is ignored: its chat being its own doesn't make another chat's run
+ * or turn its to finish.
+ */
+function ownRun(computerId: string, chatSessionId: string, runId: string | null | undefined): string | null {
+  if (!runId) return null;
+  return sendForRun(computerId, chatSessionId, runId) ? runId : null;
 }
 
 function applyWorkerEvent(computerId: string, event: WorkerEvent, after: AfterCommit, historyOnly: boolean): void {
-  if (historyOnly && event.kind === 'signal') return;
   if (event.kind === 'chat_event') {
     // Files a computer names never become chips here: their bytes would be
-    // on that computer only (P2.5, "Attachments and artifacts").
+    // on that computer only (P2.5, "Attachments and artifacts"). A result's
+    // cost goes to the run the worker says it came from, when that run is
+    // one of its sends, and never to whatever run is active here now: an
+    // old placement's result must not charge the new one's run.
     applyChatEvent(
       { ...event.chatEvent, attachments: undefined, id: event.eventId, sessionId: event.chatSessionId },
-      { cumulative: event.cumulative },
+      { cumulative: event.cumulative, runId: ownRun(computerId, event.chatSessionId, event.runId) },
     );
     return;
   }
-  applyRunnerSignal(event.chatSessionId, event.signal, after, { computerId });
+  const { signal } = event;
+  if (signal.type === 'turn_result') {
+    // Bound to the send that started the turn: this computer's, for this
+    // chat, from the placement that ran it. Its run is the send's.
+    const send = sendForTurn(computerId, event.chatSessionId, signal.turnId);
+    if (!send || (send.executionId !== null && send.generation !== event.generation)) {
+      console.warn(`[workers] ${computerId} reported a turn it wasn't sent, for ${event.chatSessionId}. Ignored.`);
+      return;
+    }
+    const runId = (send.payload as { runId?: string | null } | null)?.runId ?? null;
+    // An old placement's turn still ends its own run. Nothing else it
+    // reports touches the placement here now.
+    if (historyOnly) {
+      if (runId) finishRunInTransaction(runId, turnOutcome(signal), after);
+      after.tasks.push(() => settleTurn(signal.turnId, signal.ok ? null : signal.error ?? 'The turn failed'));
+      return;
+    }
+    applyRunnerSignal(event.chatSessionId, { ...signal, runId }, after, { computerId });
+    return;
+  }
+  if (historyOnly) return;
+  applyRunnerSignal(event.chatSessionId, signal, after, { computerId });
+}
+
+function turnOutcome(signal: Extract<RunnerSignal, { type: 'turn_result' }>) {
+  return signal.ok
+    ? { ok: true as const }
+    : { ok: false as const, errorCode: 'agent_error', errorMessage: signal.error ?? 'The turn failed' };
 }
 
 // ─── Pending prompts ──────────────────────────────────────────

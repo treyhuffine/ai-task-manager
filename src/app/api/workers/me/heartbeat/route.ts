@@ -7,12 +7,17 @@
  * It also carries what's live there, which replaces the home's mirror for
  * that computer, and the placements it holds. The home answers with any it
  * no longer holds (the execution moved, or the placement ended), and the
- * worker stops their sessions before anything else.
+ * worker fences them and stops their sessions before anything else.
+ *
+ * Only chats this computer runs, at the generation it runs them, reach the
+ * mirror: a worker can't show another computer's chat as running or give it
+ * prompts, and a late heartbeat from before a move can't bring back the old
+ * placement's state (P2 review fixes).
  */
 
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { getOpenPlacement, recordWorkerHeartbeat } from '@/lib/db/queries';
+import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat } from '@/lib/db/queries';
 import { replaceComputerMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
@@ -35,6 +40,7 @@ const body = z.object({
       running: z.array(z.string()).max(1000),
       pending: z.array(z.object({ requestId: z.string(), sessionId: z.string() }).passthrough()).max(1000),
       backgroundTasks: z.record(z.string(), z.array(z.string())),
+      generations: z.record(z.string(), z.number().int().nullable()).optional(),
     })
     .optional(),
   placements: z
@@ -42,6 +48,29 @@ const body = z.object({
     .max(1000)
     .optional(),
 });
+
+/** The part of a snapshot about chats this computer runs, at the generation it runs them. */
+function ownLive(computerId: string, live: z.infer<typeof body>['live'] & object): WorkerLiveSnapshot {
+  const owned = new Map<string, boolean>();
+  const ours = (chatSessionId: string) => {
+    let known = owned.get(chatSessionId);
+    if (known === undefined) {
+      const placement = chatPlacement(chatSessionId);
+      known =
+        !!placement &&
+        !placement.isHome &&
+        placement.computerId === computerId &&
+        (placement.executionId === null || live.generations?.[chatSessionId] === placement.generation);
+      owned.set(chatSessionId, known);
+    }
+    return known;
+  };
+  return {
+    running: live.running.filter(ours),
+    pending: (live.pending as unknown as WorkerLiveSnapshot['pending']).filter((p) => ours(p.sessionId)),
+    backgroundTasks: Object.fromEntries(Object.entries(live.backgroundTasks).filter(([chat]) => ours(chat))),
+  };
+}
 
 export async function POST(request: NextRequest) {
   const worker = requireWorker(request.headers);
@@ -53,12 +82,12 @@ export async function POST(request: NextRequest) {
   const { live, placements, ...report } = parsed.data;
   const computer = recordWorkerHeartbeat(worker.computer.id, report);
   if (!computer) return Response.json({ error: 'unauthorized' }, { status: 401 });
-  if (live) replaceComputerMirror(computer.id, live as unknown as WorkerLiveSnapshot);
+  if (live) replaceComputerMirror(computer.id, ownLive(computer.id, live));
   const release: WorkerHeartbeatReply['release'] = [];
   for (const held of placements ?? []) {
     const open = getOpenPlacement(held.executionId);
     if (!open || open.computerId !== computer.id || open.generation !== held.generation) {
-      release.push({ executionId: held.executionId, chatSessionIds: held.chatSessionIds });
+      release.push({ executionId: held.executionId, generation: held.generation, chatSessionIds: held.chatSessionIds });
     }
   }
   const reply: WorkerHeartbeatReply & { computer: { id: string; name: string } } = {

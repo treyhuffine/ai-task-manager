@@ -7,7 +7,8 @@
  */
 
 import { z } from 'zod';
-import { getHome, GrantError, redeemEnrollGrant } from '@/lib/db/queries';
+import { getHome, GrantError } from '@/lib/db/queries';
+import { enrollWorker } from '@/lib/workers/enroll';
 import { protocolMismatchMessage, WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 const body = z.object({
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     );
   }
   try {
-    const enrolled = redeemEnrollGrant({
+    const enrolled = enrollWorker({
       secret: input.code,
       name: input.name,
       platform: input.platform ?? null,

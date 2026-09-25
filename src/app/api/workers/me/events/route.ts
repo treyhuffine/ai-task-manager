@@ -19,6 +19,7 @@ const envelope = z
     generation: z.number().int().nullable(),
     chatSessionId: z.string().min(1).max(100),
     occurredAt: z.string(),
+    runId: z.string().max(100).nullable().optional(),
     kind: z.enum(['chat_event', 'signal']),
     chatEvent: z.object({ role: z.string(), source: z.string() }).passthrough().optional(),
     cumulative: z.boolean().optional(),

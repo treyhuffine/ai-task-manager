@@ -36,8 +36,12 @@ export async function handleRunStreamEvent(
  * The same, synchronously, so it can run inside the transaction that stores
  * the result event (docs/homes-build.md, P2.3).
  */
-export function recordRunTelemetry(chatSessionId: string, event: StreamEvent): void {
-  const runId = getActiveRunForSession(chatSessionId);
+export function recordRunTelemetry(
+  chatSessionId: string,
+  event: StreamEvent,
+  /** The run to charge, when the caller knows it from the event's own record. Otherwise the chat's active run here. */
+  runId: string | null = getActiveRunForSession(chatSessionId),
+): void {
   if (!runId) return;
   if (event.type === 'result') handleResultEvent(runId, chatSessionId, event);
 }

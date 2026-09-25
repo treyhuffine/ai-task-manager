@@ -1,7 +1,8 @@
 /**
  * Writing the worker's journals so they survive a crash (docs/homes-build.md,
  * P2.3): an appended line is flushed to disk before the call returns, a
- * rewrite is atomic, and reading ignores a last line a crash cut short.
+ * rewrite is atomic, and a last line a crash cut short is repaired away
+ * before anything is appended after it.
  */
 
 import fs from 'node:fs';
@@ -31,6 +32,38 @@ export function writeFileAtomic(file: string, content: string): void {
     fs.closeSync(fd);
   }
   fs.renameSync(tmp, file);
+}
+
+/**
+ * Make a journal safe to append to after a crash: a last record cut short is
+ * removed, and a whole last record missing its newline gets one. Without
+ * this, the next append would run on from the fragment, and a tail a crash
+ * left harmless would become damage in the middle of the file. Every whole
+ * record is kept. Call before reading a journal that will be appended to.
+ */
+export function repairTornTail(file: string): void {
+  if (!fs.existsSync(file)) return;
+  const bytes = fs.readFileSync(file);
+  if (bytes.length === 0 || bytes[bytes.length - 1] === 0x0a) return;
+  const lastNewline = bytes.lastIndexOf(0x0a);
+  const tail = bytes.subarray(lastNewline + 1).toString('utf8').trim();
+  let whole = false;
+  if (tail) {
+    try {
+      JSON.parse(tail);
+      whole = true;
+    } catch {
+      whole = false;
+    }
+  }
+  const fd = fs.openSync(file, 'r+');
+  try {
+    if (whole) fs.writeSync(fd, '\n', bytes.length);
+    else fs.ftruncateSync(fd, lastNewline + 1);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**

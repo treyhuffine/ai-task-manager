@@ -43,8 +43,12 @@ function recordPrepared(command: WorkerCommandRecord, after: { tasks: Array<() =
   }
   const prepared = command.result as PrepareResult;
   const placement = markPlacementPrepared(command.executionId, command.generation, prepared);
-  const { workspace } = command.payload as PreparePayload;
-  if (!placement || !workspace.setupCommand?.trim() || prepared.worktreePath === workspace.cwd) return;
+  const { workspace, live } = command.payload as PreparePayload;
+  // The setup script is for a fresh worktree. Decided by how the execution
+  // was prepared, never by comparing this home's paths with the computer's:
+  // live mode and a plain folder work in the agent's own folder there.
+  const isolated = prepared.isolated === true && !live && workspace.isGit;
+  if (!placement || !workspace.setupCommand?.trim() || !isolated) return;
   const script: SetupScriptPayload = {
     script: 'setup',
     workspaceId: workspace.id,

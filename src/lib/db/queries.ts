@@ -4544,7 +4544,14 @@ export function redeemEnrollGrant(input: {
   name: string;
   platform?: string | null;
   hostname?: string | null;
-}): { homeId: string; computer: ComputerRecord; key: ApiKeyRecord; token: GeneratedToken } {
+}): {
+  homeId: string;
+  computer: ComputerRecord;
+  key: ApiKeyRecord;
+  token: GeneratedToken;
+  /** Commands the earlier worker never acknowledged, now uncertain. `enrollWorker` finishes their runs. */
+  uncertain: WorkerCommandRecord[];
+} {
   const db = getDb();
   return db.transaction((tx) => {
     const grant = usableGrant(tx, input.secret, 'enroll');
@@ -4584,10 +4591,12 @@ export function redeemEnrollGrant(input: {
     // Commands streamed to an earlier worker and never acknowledged may have
     // been acted on. A new worker starts with no record of them, so they're
     // uncertain rather than sent again (docs/homes-build.md, P2.3).
-    tx.update(workerCommands)
+    const uncertain = tx
+      .update(workerCommands)
       .set({ state: 'uncertain', error: 'The computer was enrolled again before acknowledging this.', updatedAt: now })
       .where(and(eq(workerCommands.computerId, computer.id), eq(workerCommands.state, 'sent')))
-      .run();
+      .returning()
+      .all();
 
     // One worker per computer: an earlier worker key for it stops working.
     const earlier = tx
@@ -4628,7 +4637,7 @@ export function redeemEnrollGrant(input: {
       .set({ redeemedAt: now, redeemedByApiKeyId: key.id, updatedAt: now })
       .where(eq(computerGrants.id, grant.id))
       .run();
-    return { homeId: homeRow.id, computer, key, token };
+    return { homeId: homeRow.id, computer, key, token, uncertain };
   }, { behavior: 'immediate' });
 }
 
@@ -4760,6 +4769,36 @@ export function queueWorkerCommand(input: {
 /** The send already queued for a user's chat event, if any. */
 export function getSendForEvent(sourceEventId: string): WorkerCommandRecord | null {
   return getDb().select().from(workerCommands).where(eq(workerCommands.sourceEventId, sourceEventId)).get() ?? null;
+}
+
+/**
+ * The send this computer was given for a chat that started this turn, or
+ * that carried this run. A worker's report about a turn or a run counts only
+ * when it's about one of its own sends (P2 review fixes).
+ */
+export function sendForTurn(computerId: string, chatSessionId: string, turnId: string): WorkerCommandRecord | null {
+  return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.turnId') = ${turnId}`);
+}
+
+export function sendForRun(computerId: string, chatSessionId: string, runId: string): WorkerCommandRecord | null {
+  return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`);
+}
+
+function sendWhere(computerId: string, chatSessionId: string, match: SQL): WorkerCommandRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(workerCommands)
+      .where(
+        and(
+          eq(workerCommands.computerId, computerId),
+          eq(workerCommands.chatSessionId, chatSessionId),
+          eq(workerCommands.kind, 'send'),
+          match,
+        ),
+      )
+      .get() ?? null
+  );
 }
 
 export function getWorkerCommand(id: string): WorkerCommandRecord | null {
@@ -8337,10 +8376,22 @@ export function markRunCancelled(id: string, reason: string | null = null): RunR
  * leaves an orphan that the mutex check wouldn't catch (it only looks
  * at running). Reap both so the execution-level mutex clears cleanly
  * and the inbox doesn't show a fake spinning run forever.
+ *
+ * Only runs of chats this home runs itself. A turn on a connected computer
+ * didn't die with this process, and one still waiting to be delivered there
+ * is still saved: its worker reports how each ends (docs/homes-build.md,
+ * P2 review fixes).
  */
 export function reapStaleRunningRuns(): number {
   const db = getDb();
   const now = new Date().toISOString();
+  const active = db
+    .select({ id: runs.id, chatSessionId: runs.chatSessionId })
+    .from(runs)
+    .where(inArray(runs.status, ['queued', 'running']))
+    .all();
+  const ghosts = active.filter((r) => !r.chatSessionId || getChatComputerId(r.chatSessionId) === null).map((r) => r.id);
+  if (ghosts.length === 0) return 0;
   const result = db
     .update(runs)
     .set({
@@ -8349,7 +8400,7 @@ export function reapStaleRunningRuns(): number {
       errorMessage: 'Process restarted while this run was active.',
       completedAt: now,
     })
-    .where(inArray(runs.status, ['queued', 'running']))
+    .where(and(inArray(runs.id, ghosts), inArray(runs.status, ['queued', 'running'])))
     .returning()
     .all();
   return result.length;

@@ -222,7 +222,9 @@ Seeing a command on the stream is not receipt, and applying it is not acknowledg
 | `run_script` | Not idempotent. `started` without `finished` is `uncertain`, shown with Retry, never re-run automatically. The one exception is a preview start: if its supervised process is alive, it's running |
 | `git` | Push: done if the remote ref equals the local one, otherwise push again, which is safe. Base update: done if the base is already merged. Checkpoint commit: done if HEAD is the recorded commit |
 
-- **The home's own runner keeps the same states** in `worker_commands`, writing `started` before and `finished` after each effect outside the database. After a home restart the same recovery table applies, using the home's own native history and worktrees.
+- **Recovery waits for the home.** A restarted worker recovers nothing until the home has opened its stream and a heartbeat has confirmed which placements are still its own. A placement the home releases is journaled and fences every older command for it (P2 review fixes).
+- **A delivered send's turn is tracked until it ends.** The journal records when a turn's result is journaled. A turn still open when the worker restarts was cut off with the process, and is reported to the home as failed, never sent again.
+- **The home's own runner keeps the same states** in `worker_commands`, writing `started` before and `finished` after each effect outside the database. After a home restart the same recovery table applies, using the home's own native history and worktrees. The home's restart reaps only runs it ran itself: a connected computer's runs end when its worker reports them.
 
 ### Fencing
 
@@ -257,6 +259,7 @@ interface WorkerEvent {
 }
 ```
 
+- **The worker stamps what it knows.** Each event carries the generation of the placement that ran it, which the home requires for an execution's events, and a chat event carries the run of its turn. A turn result counts only for a send this computer was given for that chat and turn, and a result's cost only for such a send's run (P2 review fixes).
 - **The worker journals before it sends.** Each event is appended to `<workDir>/journal/<homeId>.jsonl` with its position and flushed to disk before being posted. The last acknowledged position is kept beside it, and the acknowledged prefix is compacted. After a restart or reconnect the worker resends from the last acknowledged position plus one.
 - **The home applies one event per transaction, in order.** A position at or below the stored one is a replay and is skipped. A gap stops the batch and returns the stored position, so the worker resends from there. Otherwise, in one transaction: apply the event, then advance `computers.acked_event_seq`.
 - **Applying is idempotent by key:**
@@ -562,6 +565,48 @@ P2.6 makes every command say who caused it, from their credentials, and keeps ap
   - `handlers.test.ts` (+1) and `remote-start.test.ts` (the prepare's actor).
   - Each new guard was checked by removing it and watching its test fail.
 - Live on the dev home: real Claude on the stand-in laptop, in ask mode, asked to run a command. An approval carrying the orchestrator chat's credential was refused with 403 and queued nothing, and the prompt kept waiting. The person's approval went through, Claude wrote the file in the laptop's worktree, and the send and the answer carry the person's key. Stopping the stand-in's worker then closed its Claude session and exited, with no process left.
+
+## P2 review fixes
+
+The review of P2.1–P2.6 (`09d788b..694cf64`, 2026-09-25) found 11 reproducible failures. Its probes are kept as `src/test/regressions/homes-p2-review.test.ts`: all 12 failed before the fixes and pass now, along with the migration check. Three probes were adapted to the real path, each noted in the file: re-enrollment goes through the enroll service, the sink probe first journals the send that started the chat's session, and the home-restart probe's run has its send.
+
+### A worker's reports count only for its own work
+
+1. **A turn result finishes only its own send's run.** A worker's `turn_result` is bound to the send this computer was given for that chat and turn (`sendForTurn`), from the placement that ran it. The run finished is the send's, whatever the event names. A turn it wasn't sent is ignored. Before, a worker could finish any run on the home by naming it.
+8. **The heartbeat mirrors only this computer's chats, at the generation it runs them.** The snapshot carries each chat's generation, and the home drops every chat, prompt and background task that isn't placed on this computer at that generation. Before, a worker could show a home-only chat as running, with a made-up prompt, and a late heartbeat could restore an old placement's state.
+11. **A result's cost goes to its own run.** The worker stamps each chat event with the run of the chat's open turn. The home charges a result to that run when it's one of this computer's sends, and never to whatever run is active at home. Before, an old placement's result charged the new placement's run.
+
+### Generations and ownership on the worker
+
+5. **Events carry the generation that ran them.** The worker's sink stamps each event with the chat's generation from its command journal, the newest command for that chat. The home refuses an execution's event without one, instead of assuming the placement it has when the event arrives. Before, every real event had none, so buffered output from before a move was refused rather than kept as history.
+2. **No command's effect before the home accepts the worker.** Recovery waits for the first stream the home opens (key valid, protocol and home right) and a heartbeat confirming which placements are still this computer's. A placement the home releases is journaled (`released`) and fences every older command for it, across restarts. Before, a restarted worker whose key was revoked ran a setup script it had received before learning it was revoked.
+
+### Runs that never end
+
+6. **A turn a worker restart cut off is reported.** The command journal keeps which delivered sends' turns have ended (`turn_ended`, written when the result is journaled). On restart, after recovery, each one still open is reported to the home as failed ("The turn stopped when Ri's worker on MacBook restarted"), with the generation that ran it. It is never sent again. Before, its run stayed running forever.
+3. **The home's restart reaps only its own runs.** `reapStaleRunningRuns` leaves runs of chats on connected computers, including sends still waiting to be delivered: their worker reports how they end. Before, a home restart failed every laptop run in flight, and the laptop's success couldn't undo that.
+9. **One message, one run, however many dispatches overlap.** The check that a message was already sent and the reservation of it happen in the same tick, so overlapping dispatches of one chat event can't both create a run. Before, two overlapping retries made two runs for one send, and one never ended.
+10. **Re-enrolling settles the runs it makes uncertain.** `enrollWorker` (the enroll route's path) finishes the runs of sends an earlier worker never acknowledged, in the same transaction that marks them uncertain.
+
+### Durability and preparation
+
+4. **A torn journal tail is repaired before anything is appended.** Opening either journal cuts a last record a crash left incomplete, or adds the newline to a whole one, keeping every whole record. Before, the next append ran on from the fragment and turned it into damage mid-file, and the worker couldn't start.
+7. **The setup script runs only in a worktree the worker made.** The prepare result says whether it made one (`isolated`), and the home also requires a repository and not live mode. Before, the home compared its own path with the laptop's, so live mode or a plain folder on the laptop looked like a new worktree, and the setup script ran in the person's own folder.
+
+### Also found and fixed
+
+- Tests run under `pnpm iso` inherited that instance's database, config and work paths, so a test that set only the root read and wrote the instance's database. Seven tests failed there for it. The test setup now gives every run a fresh root and clears the other path overrides. The review's three unhandled closed-database rejections don't reproduce after this, in either kind of run.
+- The migration probe counted migrations after 0003 rather than expecting three, so the next migration doesn't break it.
+
+### Tests and live checks
+
+- Beyond the probes: an execution event without a generation is refused. A result is charged to its own run from an old placement, and to no run this computer wasn't sent. A late heartbeat from before a re-placement changes nothing. The command journal keeps releases, chat generations and open turns across restarts and compaction, and repairs a torn tail. A send for a released placement is stale.
+- Suite: 2,536 passed, both plainly and under `pnpm iso`.
+- Live on the dev home, with real Claude on the stand-in laptop:
+  - A turn completed and its cost landed on its own run.
+  - The home restarted while a turn was running there. The run stayed running, then completed with its cost when the laptop finished.
+  - The worker was killed with SIGKILL mid-turn. After it restarted, the run failed within two seconds with the restart message.
+- Seen in that crash: the orphaned Claude process finished the tool call it was running, then exited on its own at its next write, since its output pipe was gone. So a hard crash leaves at most one tool call running. Cleaning such leftovers up on restart belongs with P2.8's crash tests.
 
 ## Dogfood gate A: the real laptop and phone
 

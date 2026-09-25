@@ -9,20 +9,38 @@
  * once the home has recorded that acknowledgement. A command already in the
  * journal is never applied again.
  *
+ * It also keeps what outlives a single command: the placements the home said
+ * this computer no longer holds (`released`), which fence every older command
+ * for them, and which delivered sends' turns have ended (`turn_ended`), so a
+ * turn a restart cut off is reported rather than left running at home.
+ *
  * `<workDir>/commands/<homeId>.jsonl`, one record per line, flushed to disk.
  */
 
 import path from 'node:path';
 import { getWorkDir } from '@/lib/config/paths';
 import type { WorkerCommand, WorkerCommandAckBody } from '@/lib/workers/protocol';
-import { appendLine, readJsonLines, writeFileAtomic } from './durable-file';
+import { appendLine, readJsonLines, repairTornTail, writeFileAtomic } from './durable-file';
 
 type JournalRecord =
   | { stage: 'received'; commandId: string; at: string; command: WorkerCommand }
   | { stage: 'started'; commandId: string; at: string }
   | { stage: 'note'; commandId: string; at: string; data: Record<string, unknown> }
   | { stage: 'finished'; commandId: string; at: string; ack: WorkerCommandAckBody }
-  | { stage: 'confirmed'; commandId: string; at: string };
+  | { stage: 'confirmed'; commandId: string; at: string }
+  | { stage: 'released'; executionId: string; generation: number; at: string }
+  | { stage: 'turn_ended'; turnId: string; at: string };
+
+/** A send the harness accepted, and the turn it started. */
+export interface DeliveredTurn {
+  commandId: string;
+  chatSessionId: string;
+  turnId: string;
+  runId: string | null;
+  generation: number | null;
+  /** Found in the native history after a restart, rather than delivered by this process. */
+  reconciled: boolean;
+}
 
 export type CommandStage = 'received' | 'started' | 'finished' | 'confirmed';
 
@@ -41,9 +59,13 @@ export function commandJournalPath(homeId: string): string {
 export class CommandJournal {
   private readonly file: string;
   private readonly entries = new Map<string, JournaledCommand>();
+  /** Per execution, the newest generation the home said this computer no longer holds. */
+  private readonly releasedThrough = new Map<string, number>();
+  private readonly endedTurns = new Set<string>();
 
   constructor(homeId: string, file = commandJournalPath(homeId)) {
     this.file = file;
+    repairTornTail(this.file);
     for (const record of readJsonLines<JournalRecord>(this.file)) this.apply(record);
     this.compact();
   }
@@ -67,23 +89,50 @@ export class CommandJournal {
       if (!current || generation > (current.command.target.generation ?? -1)) newestByExecution.set(executionId, entry);
     }
     for (const entry of newestByExecution.values()) keep.add(entry);
+    // Each chat's newest command, for the generation its events carry, and
+    // every send whose turn hasn't ended, for recovery.
+    const newestByChat = new Map<string, JournaledCommand>();
+    for (const entry of this.entries.values()) {
+      const chat = entry.command.target.chatSessionId;
+      if (!chat || entry.command.target.generation === null) continue;
+      const current = newestByChat.get(chat);
+      if (!current || entry.command.seq > current.command.seq) newestByChat.set(chat, entry);
+    }
+    for (const entry of newestByChat.values()) keep.add(entry);
+    const open = new Set(this.openTurns().map((t) => t.commandId));
+    for (const entry of this.entries.values()) if (open.has(entry.command.id)) keep.add(entry);
     const lines: string[] = [];
+    const at = new Date().toISOString();
+    for (const [executionId, generation] of this.releasedThrough) {
+      lines.push(JSON.stringify({ stage: 'released', executionId, generation, at }));
+    }
     for (const entry of this.entries.values()) {
       if (entry.stage === 'confirmed' && !keep.has(entry)) {
         this.entries.delete(entry.command.id);
         continue;
       }
-      const at = new Date().toISOString();
       lines.push(JSON.stringify({ stage: 'received', commandId: entry.command.id, at, command: entry.command }));
       if (entry.stage !== 'received') lines.push(JSON.stringify({ stage: 'started', commandId: entry.command.id, at }));
       if (Object.keys(entry.notes).length) lines.push(JSON.stringify({ stage: 'note', commandId: entry.command.id, at, data: entry.notes }));
       if (entry.ack) lines.push(JSON.stringify({ stage: 'finished', commandId: entry.command.id, at, ack: entry.ack }));
       if (entry.stage === 'confirmed') lines.push(JSON.stringify({ stage: 'confirmed', commandId: entry.command.id, at }));
+      const turnId = sendTurn(entry.command)?.turnId;
+      if (turnId && this.endedTurns.has(turnId)) lines.push(JSON.stringify({ stage: 'turn_ended', turnId, at }));
     }
+    const kept = new Set([...this.entries.values()].map((e) => sendTurn(e.command)?.turnId).filter(Boolean));
+    for (const turnId of [...this.endedTurns]) if (!kept.has(turnId)) this.endedTurns.delete(turnId);
     writeFileAtomic(this.file, lines.length ? `${lines.join('\n')}\n` : '');
   }
 
   private apply(record: JournalRecord): void {
+    if (record.stage === 'released') {
+      this.releasedThrough.set(record.executionId, Math.max(record.generation, this.releasedThrough.get(record.executionId) ?? 0));
+      return;
+    }
+    if (record.stage === 'turn_ended') {
+      this.endedTurns.add(record.turnId);
+      return;
+    }
     if (record.stage === 'received') {
       if (!this.entries.has(record.commandId)) {
         this.entries.set(record.commandId, { command: record.command, stage: 'received', ack: null, notes: {} });
@@ -150,6 +199,69 @@ export class CommandJournal {
     return cursor;
   }
 
+  /**
+   * The home no longer places this execution here at this generation or any
+   * before it. Journaled, so every older command for it stays fenced across a
+   * restart, including ones received and not yet carried out.
+   */
+  release(executionId: string, generation: number): void {
+    if ((this.releasedThrough.get(executionId) ?? 0) >= generation) return;
+    this.write({ stage: 'released', executionId, generation, at: new Date().toISOString() });
+  }
+
+  /** Whether the home has released this execution's placement at this generation. */
+  released(executionId: string, generation: number): boolean {
+    return generation <= (this.releasedThrough.get(executionId) ?? 0);
+  }
+
+  /**
+   * The placement generation a chat's events belong to: that of the newest
+   * command for it, which is what started or last drove its session here.
+   * Null for a chat without an execution, or one this computer has no
+   * command for.
+   */
+  chatGeneration(chatSessionId: string): number | null {
+    let newest: WorkerCommand | null = null;
+    for (const { command } of this.entries.values()) {
+      if (command.target.chatSessionId !== chatSessionId || command.target.generation === null) continue;
+      if (!newest || command.seq > newest.seq) newest = command;
+    }
+    return newest?.target.generation ?? null;
+  }
+
+  /** A delivered send's turn has ended: its result is in the event journal. */
+  turnEnded(turnId: string): void {
+    if (this.endedTurns.has(turnId)) return;
+    this.write({ stage: 'turn_ended', turnId, at: new Date().toISOString() });
+  }
+
+  /** Sends the harness accepted whose turn hasn't ended, oldest first. */
+  openTurns(): DeliveredTurn[] {
+    const open: Array<[number, DeliveredTurn]> = [];
+    for (const entry of this.entries.values()) {
+      const turn = sendTurn(entry.command);
+      if (!turn || entry.ack?.state !== 'delivered' || this.endedTurns.has(turn.turnId)) continue;
+      open.push([
+        entry.command.seq,
+        {
+          commandId: entry.command.id,
+          chatSessionId: entry.command.target.chatSessionId!,
+          turnId: turn.turnId,
+          runId: turn.runId,
+          generation: entry.command.target.generation,
+          reconciled: (entry.ack.result as { reconciled?: boolean } | undefined)?.reconciled === true,
+        },
+      ]);
+    }
+    return open.sort((a, b) => a[0] - b[0]).map(([, turn]) => turn);
+  }
+
+  /** The newest open turn of a chat: the run its output belongs to. */
+  openTurnOf(chatSessionId: string): DeliveredTurn | null {
+    const open = this.openTurns().filter((t) => t.chatSessionId === chatSessionId);
+    return open[open.length - 1] ?? null;
+  }
+
   /** The newest placement generation of an execution this computer has received a command for. */
   highestGeneration(executionId: string): number | null {
     let newest: number | null = null;
@@ -201,4 +313,12 @@ export class CommandJournal {
   unconfirmed(): JournaledCommand[] {
     return [...this.entries.values()].filter((e) => e.stage === 'finished');
   }
+}
+
+/** The turn a send starts, from its payload. */
+function sendTurn(command: WorkerCommand): { turnId: string; runId: string | null } | null {
+  if (command.kind !== 'send' || !command.target.chatSessionId) return null;
+  const payload = command.payload as { turnId?: unknown; runId?: unknown } | null;
+  if (typeof payload?.turnId !== 'string') return null;
+  return { turnId: payload.turnId, runId: typeof payload.runId === 'string' ? payload.runId : null };
 }

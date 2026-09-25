@@ -6,17 +6,20 @@
  * `~/<APP_SHORT_ID>` when `<APP>_ROOT` is unset. That is exactly how test
  * fixtures ended up exported into the production mirror (2026-09-11).
  *
- * Tests that need a specific home still win: this only fills the var when
- * the runner didn't provide one, and per-test assignments happen after setup.
+ * Always a fresh one, whatever the shell running the tests has set. Under
+ * `pnpm iso`, the launcher sets the root, database, config and work paths to
+ * that instance's, and a test that sets only the root would otherwise read
+ * and write that instance's database and config (and seven tests failed
+ * there for it, P2 review). Tests that need a specific home set it
+ * themselves, after this runs.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { APP_ROOT_ENV } from '@/lib/config/paths';
+import { APP_ROOT_ENV, BRAIN_PATH_ENV, CONFIG_DIR_ENV, DB_PATH_ENV, WORK_DIR_ENV } from '@/lib/config/paths';
 
-if (!process.env[APP_ROOT_ENV]) {
-  process.env[APP_ROOT_ENV] = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-vitest-root-'));
-}
+process.env[APP_ROOT_ENV] = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-vitest-root-'));
+for (const name of [DB_PATH_ENV, CONFIG_DIR_ENV, WORK_DIR_ENV, BRAIN_PATH_ENV]) delete process.env[name];
 
 /**
  * No test reaches a real server on this machine. A call to the app's own

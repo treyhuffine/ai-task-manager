@@ -310,6 +310,18 @@ describe('events', () => {
   it('are journaled, posted, and applied at home in order', async () => {
     const chat = await chatOnWorker();
     const run = await manualRun(chat.id);
+    // The send that started the turn, already delivered: a worker's turn
+    // result counts only for one of its own sends.
+    const q0 = await import('@/lib/db/queries');
+    const send = q0.queueWorkerCommand({
+      computerId,
+      kind: 'send',
+      payload: { runId: run.id, turnId: 't1' },
+      actor: { source: 'human' },
+      chatSessionId: chat.id,
+    });
+    q0.takeCommandsForStream(computerId, 0);
+    q0.ackWorkerCommand(computerId, send.id, { state: 'delivered' });
     let sink: import('@/lib/runner/types').RunnerSink | null = null;
     const j = await journals();
     await start({ journals: j, onSink: (s) => (sink = s) });
@@ -383,6 +395,69 @@ describe('events', () => {
     expect(q.listChatEvents(elsewhere.id)).toHaveLength(0);
   });
 
+  it('for an execution, without the generation that ran them, are refused', async () => {
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'placed here' });
+    q.createPlacement({ executionId: created.execution.id, computerId, startReason: 'created' });
+    const { applyWorkerEvents } = await import('@/lib/executor/apply');
+    const event = (position: number, generation: number | null) => ({
+      position,
+      eventId: `gen-${position}`,
+      generation,
+      chatSessionId: created.session.id,
+      occurredAt: new Date().toISOString(),
+      kind: 'chat_event' as const,
+      chatEvent: { role: 'assistant' as const, source: 'agent' as const, content: `generation ${generation}` },
+      cumulative: false,
+    });
+    expect(applyWorkerEvents(computerId, [event(1, null), event(2, 1)])).toEqual({ acked: 2, refused: [1] });
+    expect(q.listChatEvents(created.session.id).map((e) => e.content)).toEqual(['generation 1']);
+  });
+
+  it("charge a result to its own run, from any placement, and never to a run this computer wasn't sent", async () => {
+    const q = await import('@/lib/db/queries');
+    const identity = await import('@/lib/home/identity');
+    const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'moves home' });
+    const chatId = created.session.id;
+    q.createPlacement({ executionId: created.execution.id, computerId, startReason: 'created' });
+    const laptopRun = await manualRun(chatId);
+    q.queueWorkerCommand({
+      computerId,
+      kind: 'send',
+      payload: { runId: laptopRun.id, turnId: 'laptop-turn' },
+      actor: { source: 'human' },
+      chatSessionId: chatId,
+      executionId: created.execution.id,
+      generation: 1,
+    });
+    // It moves home, and a run starts there.
+    q.createPlacement({ executionId: created.execution.id, computerId: identity.ensureHomeIdentity().computer.id, startReason: 'continued' });
+    const homeRun = await manualRun(chatId);
+    const { beginRun } = await import('@/lib/runs/artifact-bucket');
+    beginRun(homeRun.id, chatId);
+
+    const { applyWorkerEvents } = await import('@/lib/executor/apply');
+    const result = (position: number, runId: string, costUsd: number) => ({
+      position,
+      eventId: `result-${position}`,
+      generation: 1,
+      chatSessionId: chatId,
+      occurredAt: new Date().toISOString(),
+      runId,
+      kind: 'chat_event' as const,
+      chatEvent: { role: 'system' as const, source: 'result' as const, content: 'done', raw: { type: 'result', costUsd } as never },
+      cumulative: false,
+    });
+    applyWorkerEvents(computerId, [result(1, laptopRun.id, 3), result(2, homeRun.id, 5)]);
+    expect(q.getRun(laptopRun.id)?.costUsd).toBe(3);
+    expect(q.getRun(homeRun.id)?.costUsd ?? 0).toBe(0);
+    expect(q.listChatEvents(chatId).filter((e) => e.source === 'result')).toHaveLength(2);
+    const { _resetArtifactBucket } = await import('@/lib/runs/artifact-bucket');
+    _resetArtifactBucket();
+  });
+
   it('from a cleared journal number on after what the home holds', async () => {
     const chat = await chatOnWorker();
     const q = await import('@/lib/db/queries');
@@ -428,17 +503,46 @@ describe('placements in the heartbeat', () => {
 
     const { sendHeartbeat } = await import('@/lib/worker/run');
     const reply = await sendHeartbeat(target, 'test', 'awake', async () => [], {
-      live: { running: [kept.session.id], pending: [], backgroundTasks: {} },
+      live: { running: [kept.session.id], pending: [], backgroundTasks: {}, generations: { [kept.session.id]: 1 } },
       placements: [
         { executionId: kept.execution.id, generation: 1, chatSessionIds: [kept.session.id] },
         { executionId: moved.execution.id, generation: 1, chatSessionIds: [moved.session.id] },
       ],
     });
-    expect(reply?.release).toEqual([{ executionId: moved.execution.id, chatSessionIds: [moved.session.id] }]);
+    expect(reply?.release).toEqual([{ executionId: moved.execution.id, generation: 1, chatSessionIds: [moved.session.id] }]);
     // And what's live there is mirrored at home.
     const live = await import('@/lib/executor/live-state');
     expect(live.isRunning(kept.session.id)).toBe(true);
     const { _resetRemoteLive } = await import('@/lib/executor/remote-live');
+    _resetRemoteLive();
+  });
+
+  it("mirror only this computer's chats, at the generation it runs them", async () => {
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const here = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'here, placed again' });
+    q.createPlacement({ executionId: here.execution.id, computerId, startReason: 'created' });
+    q.createPlacement({ executionId: here.execution.id, computerId, startReason: 'continued' });
+    const homeOnly = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'home only' });
+    const { sendHeartbeat } = await import('@/lib/worker/run');
+    const live = await import('@/lib/executor/live-state');
+    const beat = (generation: number) =>
+      sendHeartbeat(target, 'test', 'awake', async () => [], {
+        live: {
+          running: [here.session.id, homeOnly.session.id],
+          pending: [],
+          backgroundTasks: { [homeOnly.session.id]: ['task-1'] },
+          generations: { [here.session.id]: generation, [homeOnly.session.id]: 1 },
+        },
+      });
+    // A heartbeat from before it was placed again changes nothing.
+    await beat(1);
+    expect(live.isRunning(here.session.id)).toBe(false);
+    await beat(2);
+    expect(live.isRunning(here.session.id)).toBe(true);
+    expect(live.isRunning(homeOnly.session.id)).toBe(false);
+    const { remoteChat, _resetRemoteLive } = await import('@/lib/executor/remote-live');
+    expect(remoteChat(homeOnly.session.id)).toBeNull();
     _resetRemoteLive();
   });
 });

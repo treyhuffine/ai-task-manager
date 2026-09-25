@@ -73,6 +73,16 @@ const startingRef = globalThis as unknown as { [STARTING_KEY]?: Map<string, numb
 if (!startingRef[STARTING_KEY]) startingRef[STARTING_KEY] = new Map();
 const startingSends = startingRef[STARTING_KEY]!;
 
+/**
+ * Messages being sent to a connected computer right now, by their chat
+ * event. A second dispatch of one returns rather than making a run of its
+ * own. On globalThis for the same reason.
+ */
+const SENDING_KEY = Symbol.for('@ri/executor-sending-events');
+const sendingRef = globalThis as unknown as { [SENDING_KEY]?: Set<string> };
+if (!sendingRef[SENDING_KEY]) sendingRef[SENDING_KEY] = new Set();
+const sendingEvents = sendingRef[SENDING_KEY]!;
+
 function releaseStartingSend(chatSessionId: string): void {
   const next = (startingSends.get(chatSessionId) ?? 1) - 1;
   if (next <= 0) startingSends.delete(chatSessionId);
@@ -179,10 +189,30 @@ export async function dispatch(
   // there, which the home never looks for on its own disk (P2.4).
   const placement = chatPlacement(chatSessionId);
   const remote = placement && !placement.isHome ? placement : null;
-  // This message already went to its computer's queue, by another path (the
-  // original send, or an earlier retry): its run and its turn are that
-  // send's. A second one would only wait on a turn that never comes.
-  if (remote && options.sourceEventId && getSendForEvent(options.sourceEventId)) return;
+  // This message already went to its computer's queue, or is on its way
+  // there, by another path (the original send, an earlier retry, or one
+  // overlapping this): its run and its turn are that send's. A second one
+  // would only make a run and wait on a turn that never come. The check and
+  // the reservation are in the same tick, so overlapping dispatches can't
+  // both pass (P2 review fixes).
+  const sourceEventId = remote ? options.sourceEventId ?? null : null;
+  if (sourceEventId && (sendingEvents.has(sourceEventId) || getSendForEvent(sourceEventId))) return;
+  if (sourceEventId) sendingEvents.add(sourceEventId);
+  try {
+    await dispatchTo(chatSessionId, userMessage, options, session, remote);
+  } finally {
+    // Once this dispatch ends, the queue itself answers for the message.
+    if (sourceEventId) sendingEvents.delete(sourceEventId);
+  }
+}
+
+async function dispatchTo(
+  chatSessionId: string,
+  userMessage: string,
+  options: DispatchOptions,
+  session: NonNullable<ReturnType<typeof getChatSessionWithExecution>>,
+  remote: ChatPlacement | null,
+): Promise<void> {
   let cwd: string | null;
   let preparing: string | null = null;
   if (remote) {

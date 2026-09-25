@@ -89,9 +89,12 @@ export type WorkerEvent = {
   position: number;
   /** UUIDv7 minted when the worker parsed it; a chat event's id. */
   eventId: string;
+  /** The placement generation that ran it, stamped on the worker. Required for a chat with an execution. */
   generation: number | null;
   chatSessionId: string;
   occurredAt: string;
+  /** For a chat event: the run of the turn it came from, which its cost is charged to. */
+  runId?: string | null;
 } & (
   | { kind: 'chat_event'; chatEvent: WorkerChatEvent; cumulative: boolean }
   | { kind: 'signal'; signal: RunnerSignal }
@@ -109,6 +112,8 @@ export interface WorkerLive {
   running: string[];
   pending: PendingInput[];
   backgroundTasks: Record<string, string[]>;
+  /** The placement generation of each chat named above, which the home checks is still this computer's. */
+  generations?: Record<string, number | null>;
 }
 
 export interface WorkerPlacementReport {
@@ -130,7 +135,8 @@ export interface WorkerHeartbeat {
 /** The home's answer to a heartbeat: placements this computer no longer holds, whose sessions it stops. */
 export interface WorkerHeartbeatReply {
   ok: true;
-  release: Array<{ executionId: string; chatSessionIds: string[] }>;
+  /** Placements this computer reported that the home no longer gives it, each through the generation reported. */
+  release: Array<{ executionId: string; generation: number; chatSessionIds: string[] }>;
 }
 
 export type WorkerRequestResult =

@@ -48,6 +48,13 @@ export interface PrepareResult {
   branchName: string | null;
   baseSha: string | null;
   warning: string | null;
+  /**
+   * A new worktree was made. False for live mode or a folder that isn't a
+   * repository, where the work happens in the agent's folder itself, and
+   * nothing meant for a fresh worktree (the setup script, copied files)
+   * belongs there.
+   */
+  isolated: boolean;
 }
 
 export interface SetupScriptPayload {
@@ -89,10 +96,15 @@ function stale(command: WorkerCommand): WorkerCommandAckBody {
   return { state: 'stale', error: `This command was for an earlier placement (generation ${command.target.generation}).` };
 }
 
-/** Whether a newer placement of this execution has already reached this computer. */
+/**
+ * Whether this command's placement is no longer this computer's: a newer
+ * one has reached it, or the home released this one (a heartbeat's reply,
+ * journaled).
+ */
 function fenced(journal: CommandJournal, command: WorkerCommand): boolean {
   const { executionId, generation } = command.target;
   if (!executionId || generation === null) return false;
+  if (journal.released(executionId, generation)) return true;
   const newest = journal.highestGeneration(executionId);
   return newest !== null && generation < newest;
 }
@@ -303,13 +315,20 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
         const noted = journal.get(command.id)?.notes as Partial<PrepareResult> | undefined;
         let result: PrepareResult;
         if (noted?.worktreePath && fs.existsSync(noted.worktreePath)) {
-          result = { worktreePath: noted.worktreePath, branchName: noted.branchName ?? null, baseSha: noted.baseSha ?? null, warning: noted.warning ?? null };
+          result = {
+            worktreePath: noted.worktreePath,
+            branchName: noted.branchName ?? null,
+            baseSha: noted.baseSha ?? null,
+            warning: noted.warning ?? null,
+            isolated: noted.isolated ?? noted.worktreePath !== source,
+          };
         } else if (!ws.isGit || payload.live) {
           result = {
             worktreePath: source,
             branchName: ws.isGit ? await gitOut(source, ['branch', '--show-current']) : null,
             baseSha: ws.isGit ? await gitOut(source, ['rev-parse', 'HEAD']) : null,
             warning: null,
+            isolated: false,
           };
         } else {
           let baseRef = payload.baseBranch;
@@ -320,10 +339,16 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
             sessionLabel: payload.label,
             baseBranchOverride: baseRef,
           });
-          result = { worktreePath: worktree.path, branchName: worktree.branch, baseSha: worktree.baseSha, warning: worktree.warning };
+          result = {
+            worktreePath: worktree.path,
+            branchName: worktree.branch,
+            baseSha: worktree.baseSha,
+            warning: worktree.warning,
+            isolated: true,
+          };
         }
         journal.note(command.id, { ...result });
-        if (result.worktreePath !== source) await copyFilesToWorktree(source, result.worktreePath, ws.filesToCopy);
+        if (result.isolated) await copyFilesToWorktree(source, result.worktreePath, ws.filesToCopy);
         return { state: 'delivered', result };
       } catch (err) {
         return { state: 'failed', error: `${err instanceof Error ? err.name : 'Error'}: ${err instanceof Error ? err.message : String(err)}` };

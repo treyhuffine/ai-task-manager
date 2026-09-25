@@ -9,9 +9,17 @@
  * intervals is treated as dropped, since a half-open connection never errors
  * on its own.
  *
+ * Nothing a command does happens before the home has accepted this worker:
+ * after a restart, the commands a crash interrupted are recovered only once
+ * the first stream is open (the key is good, the protocol and the home are
+ * right) and a heartbeat has confirmed which placements are still this
+ * computer's. A turn the restart cut off is reported as failed, never sent
+ * again (docs/homes-build.md, P2 review fixes).
+ *
  * Runs on the connected computer, so it never touches a database.
  */
 
+import { uuidv7 } from 'uuidv7';
 import type { WorkerHarnessReport } from '@/db/types';
 import { runnerState } from '@/lib/runner/live-state';
 import { close as closeSession } from '@/lib/runner/local-runner';
@@ -199,33 +207,76 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
     target,
     onStopped: (err) => stop({ reason: err.reason, message: err.message }),
   });
-  options.onSink?.(createWorkerSink({ journal: eventJournal, onAppend: () => void poster.kick() }));
-  void processor.recoverAll();
+  options.onSink?.(
+    createWorkerSink({
+      journal: eventJournal,
+      generationOf: (chat) => commandJournal.chatGeneration(chat),
+      runOf: (chat) => commandJournal.openTurnOf(chat)?.runId ?? null,
+      onTurnEnded: (turnId) => commandJournal.turnEnded(turnId),
+      onAppend: () => void poster.kick(),
+    }),
+  );
+  // Turns an earlier run of this worker delivered and never finished. The
+  // process running them is gone. Taken before anything here can deliver.
+  const cutOff = commandJournal.openTurns();
   const postRetry = setInterval(() => {
     if (eventJournal.pending(1).length > 0) void poster.kick();
   }, postRetryMs);
   postRetry.unref?.();
 
   // Heartbeats run on their own clock, connected or not: a missed one while
-  // reconnecting is just a gap in last contact. Each carries what's live and
-  // the placements held, and a placement the home says moved has its
-  // sessions stopped.
-  const beat = () => {
-    void sendHeartbeat(target, version, 'awake', describe, {
-      live: liveSnapshot(),
-      placements: commandJournal.placements(),
-    })
-      .then(async (reply) => {
-        for (const released of reply?.release ?? []) {
-          for (const chat of released.chatSessionIds) await closeSession(chat).catch(() => {});
-        }
-      })
-      .catch((err: unknown) => {
-        if (err instanceof WorkerStoppedError) stop({ reason: err.reason, message: err.message });
-      });
+  // reconnecting is just a gap in last contact. Each carries what's live, with
+  // each chat's generation, and the placements held. A placement the home no
+  // longer gives this computer is fenced in the journal, so nothing older for
+  // it runs even after a restart, and then its sessions stop.
+  const heartbeat = async () => {
+    const live = liveSnapshot();
+    const chats = new Set([...live.running, ...live.pending.map((p) => p.sessionId), ...Object.keys(live.backgroundTasks)]);
+    live.generations = Object.fromEntries([...chats].map((chat) => [chat, commandJournal.chatGeneration(chat)]));
+    const reply = await sendHeartbeat(target, version, 'awake', describe, { live, placements: commandJournal.placements() });
+    for (const released of reply?.release ?? []) {
+      commandJournal.release(released.executionId, released.generation);
+      for (const chat of released.chatSessionIds) await closeSession(chat).catch(() => {});
+    }
   };
-  const heartbeat = setInterval(beat, heartbeatMs);
-  heartbeat.unref?.();
+  const beat = () => {
+    void heartbeat().catch((err: unknown) => {
+      if (err instanceof WorkerStoppedError) stop({ reason: err.reason, message: err.message });
+    });
+  };
+
+  // Once, on the first stream the home accepts: ownership, then recovery,
+  // then turns cut off. A failure leaves it for the next connection.
+  let recovered = false;
+  const recover = async () => {
+    await heartbeat();
+    await processor.recoverAll();
+    // Recovery can find a send in the native history: delivered before the
+    // restart, and its turn cut off by it too.
+    const found = commandJournal.openTurns().filter((t) => t.reconciled && !cutOff.some((c) => c.turnId === t.turnId));
+    for (const turn of [...cutOff, ...found]) {
+      eventJournal.append({
+        kind: 'signal',
+        eventId: uuidv7(),
+        chatSessionId: turn.chatSessionId,
+        // The placement that ran the turn, which the home checks its run against.
+        generation: turn.generation,
+        occurredAt: new Date().toISOString(),
+        signal: {
+          type: 'turn_result',
+          turnId: turn.turnId,
+          runId: turn.runId,
+          ok: false,
+          error: `The turn stopped when Ri's worker on ${target.computerName} restarted.`,
+        },
+      });
+      commandJournal.turnEnded(turn.turnId);
+    }
+    void poster.kick();
+    recovered = true;
+  };
+  const heartbeatTimer = setInterval(beat, heartbeatMs);
+  heartbeatTimer.unref?.();
 
   let attempt = 0;
   try {
@@ -260,8 +311,14 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
             attempt = 0;
             // A journal that was cleared numbers on after what the home holds.
             eventJournal.rebase(event.ackedEventSeq);
+            // Commands wait on the stream until this is done.
+            if (!recovered) {
+              await recover();
+              lastEventAt = Date.now();
+            } else {
+              beat();
+            }
             onStatus?.({ state: 'connected' });
-            beat();
             void poster.kick();
             void processor.resendAcks();
           } else if (event.type === 'command') {
@@ -287,7 +344,7 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
       await sleep(retryInMs, signal);
     }
   } finally {
-    clearInterval(heartbeat);
+    clearInterval(heartbeatTimer);
     clearInterval(postRetry);
   }
   return exit ?? { reason: 'stopped' };
