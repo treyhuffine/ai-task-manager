@@ -500,7 +500,8 @@ P2.5 gets the files a person attaches to a message to the computer that runs the
 
 ### Output an agent produced
 
-- Ri keeps no file a harness produces. The runner persists messages, tool calls and results as chat events, never a file as an attachment. The browser does save downloads and page captures as attachments, but the browser runs at home, so those are home files already.
+- What an agent makes on a connected computer is its work in the worktree there. It stays on that computer. The home shows it through the worker's reads (tree, file, diff, P2.4), and it leaves through Git. Nothing about it needs uploading.
+- "Retained artifacts" in the spec are something else: files an agent produces that Ri keeps at home as attachments, the way it keeps uploads. Ri has none from a harness. The runner persists messages, tool calls and results as chat events, never a file as an attachment. What does save attachments (uploads, capture, the Pebble webhook, favicons, the browser's downloads and page captures) runs at home, the browser included. `runs.artifactRefs` is a different thing: which tasks and notes a run's actions changed.
 - So there is nothing on a connected computer to upload yet, and the upload protocol above (spool, `PUT /api/workers/me/artifacts/:fileName`, the apply-time check, clearing on acknowledgement, the 7-day sweep) stays specified and unbuilt. Building it with no producer would be transport nobody exercises.
 - What P2.5 does enforce is the rule that matters now: a computer never presents a file only it has as a download. `WorkerChatEvent` has no `attachments`, and the home drops any a computer's chat event names.
 - The first producer brings the upload with it: say, harness image output kept in the transcript, or an action that attaches a file from an agent's disk to a note (with P2.7, a remote session's `describe_paths` would otherwise point at the home's attachments directory).
@@ -538,6 +539,7 @@ P2.6 makes every command say who caused it, from their credentials, and keeps ap
 - `answerPrompt` (`src/lib/executor/answer-prompt.ts`) is the one way to answer, for the route and the action. The action now answers in the server as its caller, instead of calling the route with the home's key, which would have made every agent look like a person there. An agent's deny tells the blocked agent who denied it.
 - The orchestrator's brief and the action's description say permission prompts belong to the user.
 - Permission modes: new sessions default to `auto_all`, `start_execution` may set the mode of the execution it starts, and no action changes an existing session's mode. So an agent can't widen a session's mode to get around a prompt.
+- **Open decision (Trey, 2026-09-25: fine for now, keep noted).** The spec's §6 says an agent can't *approve* a permission request, and the P2.6 line says it can't *answer* one. This build follows §6: an agent can still deny one, so the orchestrator can redirect a stuck agent with a reason. Refusing agent denials too is a one-line change to `answerRefusal`.
 - The limit: an agent that reads the home's own key file can pass for a person on the home. Credentials can't separate processes on one machine (the isolation is paths, not keys). Sessions on connected computers get tokens of their own in P2.7, not a key.
 
 ### Ownership before delivery
