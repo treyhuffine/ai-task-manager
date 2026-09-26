@@ -13,6 +13,7 @@ import {
   sameView,
   viewFromSearchParams,
   viewKey,
+  mobileTabForView,
 } from '@/lib/client/active-view';
 import type { AgentTab } from '@/types/dashboard';
 
@@ -239,7 +240,18 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // ─── Deck navigation ──────────────────────────────────────
   const [activeDeckId, setActiveDeckId] = useState<string | null>(null);
   // ─── Mobile navigation ──────────────────────────────────────
-  const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
+  // On a phone an execution or an agent lives under the Agents tab, so the
+  // tab follows the view: a deep link, Back/Forward, or a chip in the main
+  // chat that opens one shows it, rather than leaving it behind another tab.
+  // Synced during render (React's pattern for state that follows a value).
+  const [mobileTab, setMobileTab] = useState<MobileTab>(() => mobileTabForView(urlView) ?? 'chat');
+  const activeViewKey = viewKey(activeView);
+  const [tabFollowsView, setTabFollowsView] = useState(activeViewKey);
+  if (tabFollowsView !== activeViewKey) {
+    setTabFollowsView(activeViewKey);
+    const tab = mobileTabForView(activeView);
+    if (tab) setMobileTab(tab);
+  }
   const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
   // ─── Quick capture ────────────────────────────────────────
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);

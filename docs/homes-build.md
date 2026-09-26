@@ -908,7 +908,7 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [x] 3.2b A message waiting for a computer doesn't read as working. The execution says "Waiting for MacBook", or "MacBook disconnected, last heard from…" when contact is lost mid-turn, and asleep only when reported.
 - [x] 3.2c Cancel before delivery, refused once it's on its way (stop the execution instead). Send again for a message not delivered or uncertain, as a new message.
 - [x] 3.2d Home unreachable keeps the draft (P1.6, verified). Setup failed on a computer says where, with its output and Retry. A missing folder or reference says which and where (P3.1's reasons).
-- [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner.
+- [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner. Navigation done (see [P3.3](#p33-each-screen-its-own)). Controls close with 4.5.
 - [x] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
 - [x] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
 - [x] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
@@ -950,6 +950,21 @@ Spec §3.5: saving a message at the home is not delivering it, and the states st
 
 - `delivery.test.ts` (4): waiting while the computer is away and not working meanwhile, withdrawn (not delivered, its run failed, its turn settled), refused once on its way, delivered and uncertain. `execution-header-status.test.ts` (+5): waiting, disconnected, asleep only when said, working while connected, and the words. Full suite: 2,634 passed, exit 0.
 - Live on the dev home, screenshotted, with the stand-in's worker off: a message to its execution showed "Waiting for MacBook (stand-in). Your message is saved. Cancel", and the header "Waiting for MacBook (stand-in), your message is saved". Cancel made it "Not delivered to MacBook (stand-in). It was withdrawn before it was delivered." with Send again, the command cancelled and its run failed as `delivery_cancelled`. With the worker started, Send again delivered a new message, which showed nothing under it, and real Claude answered.
+
+## P3.3 Each screen its own
+
+Spec §12.2: the same work opened on another screen keeps its identity and history, with no execution move and no forced navigation, and switching on one screen leaves the others where they are.
+
+### Navigation
+
+- **Per screen by design.** What a screen shows is its URL (`?session=`, `?agent=`) mirrored in that page's state, and the rest (rail, panels, last execution) is that browser's own storage. No server event navigates a client: the streams carry state (runtime, pending input, deliveries, computers), never a view. Opening an execution records that it was viewed (for Unread) and moves nothing.
+- **Found and fixed: the phone showed the main chat for an execution link.** The phone's tab started on Chat whatever the URL said, and only the Agents list switched it, so a link to an execution (a notification, a shared URL, Back or Forward) or an execution chip tapped in the main chat changed the URL and left the execution behind the Chat tab. The tab now follows the view (`mobileTabForView`): an execution or an agent shows under Agents however it was opened, and home leaves the tab alone.
+
+### Tests and live checks
+
+- `active-view.test.ts` (+1): an execution or an agent belongs under the phone's Agents tab, and home to none.
+- Live on the dev home with two screens at once, a desktop and a phone: the desktop opened an execution on the stand-in while the phone opened the Sweeps agent. The desktop moved to another agent and the phone stayed on Sweeps. The phone then opened the same execution by its link and showed the same history, the desktop stayed where it was, and the execution's placement was unchanged. On the phone, tapping an execution's chip in the main chat opened it.
+- Execution controls tied to the owner are audited with P4.5, which routes the remaining ones.
 
 ## P3.4 One scheduler, fixed main chats
 

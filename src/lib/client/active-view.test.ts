@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mobileTabForView,
   HOME_VIEW,
   activeAgentIdOf,
   activeSessionIdOf,
@@ -61,6 +62,12 @@ describe('comparing views', () => {
     expect(activeSessionIdOf(agentView('ws-1'))).toBeNull();
     expect(activeAgentIdOf(agentView('ws-1'))).toBe('ws-1');
     expect(activeAgentIdOf(HOME_VIEW)).toBeNull();
+  });
+
+  it('puts an execution or an agent under the phone’s Agents tab, however it was opened (P3.3)', () => {
+    expect(mobileTabForView(executionView('s-1'))).toBe('agents');
+    expect(mobileTabForView(agentView('ws-1', 'files'))).toBe('agents');
+    expect(mobileTabForView(HOME_VIEW)).toBeNull();
   });
 
   it('knows the agent tabs', () => {
