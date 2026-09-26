@@ -562,6 +562,46 @@ describe('external agent imports', () => {
     expect(contents.filter((c) => c.includes('next '))).toHaveLength(BULK_RECORDS);
   }, 60_000);
 
+  it('never imports a file through a project folder relinked after discovery', async () => {
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+
+    // Another folder holds a file under the same name that nobody chose.
+    const projectDir = path.join(claudeHome, 'projects', '-project-one');
+    const elsewhere = path.join(root, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    writeJsonl(path.join(elsewhere, `${CLAUDE_ID}.jsonl`), [{
+      type: 'user',
+      uuid: 'private-user-1',
+      sessionId: CLAUDE_ID,
+      cwd: projectOne,
+      timestamp: '2026-01-01T10:00:00.000Z',
+      isSidechain: false,
+      message: { role: 'user', content: 'private body never selected' },
+    }]);
+    // Discovery finds the real transcript, then the project folder is swapped
+    // for a link to that other folder before the import reads it.
+    const agentex = await import('@agentex/agent');
+    const history = agentex.getProvider('claude').localHistory!;
+    const discover = history.discover.bind(history);
+    vi.spyOn(history, 'discover').mockImplementation(async function* (...args) {
+      yield* discover(...args);
+      if (!fs.lstatSync(projectDir).isSymbolicLink()) {
+        fs.renameSync(projectDir, `${projectDir}-original`);
+        fs.symlinkSync(elsewhere, projectDir);
+      }
+    });
+
+    const result = await importer.importExternalAgentSessions([claude.key]);
+    expect(result.importedSessions).toBe(0);
+    const q = await import('@/lib/db/queries');
+    const contents = q.listChatSessions({ type: 'execution' })
+      .flatMap((session) => q.listChatEvents(session.id, { limit: 50 }).map((event) => event.content));
+    expect(contents).not.toContain('private body never selected');
+  });
+
   it('cleans up a new workspace and skeleton when the first read fails', async () => {
     const agentex = await import('@agentex/agent');
     const history = agentex.getProvider('claude').localHistory!;
