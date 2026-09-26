@@ -26,7 +26,7 @@ import { EFFORT_LEVELS, type ChatSessionRecord, type EffortLevel } from '@/db/ty
 import type { ProviderId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { isHarnessId } from '@/lib/harness/registry';
-import { mainChatComputerFor } from '@/lib/setups/run-on';
+import { agentComputerFor } from '@/lib/setups/run-on';
 
 /** `null` is the app's main chat. A workspace id is that agent's main chat. */
 export type MainChatScope = string | null;
@@ -84,7 +84,7 @@ async function createMainChat(scope: MainChatScope, override: ChatOverride): Pro
     workspaceId: scope,
     // An agent's main chat is pinned where the agent lives (P3.4). The app's
     // own main chat, and an agent set up at home, run at home.
-    computerId: scope ? mainChatComputerFor(scope) : null,
+    computerId: scope ? agentComputerFor(scope) : null,
     harness: selection.providerId,
     model: selection.model,
     modelVariant: selection.variant,

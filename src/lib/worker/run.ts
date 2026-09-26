@@ -47,6 +47,9 @@ import { processRecorder, stopLeftovers } from './leftovers';
 import { acquireWorkerLock, WorkerLockedError } from './lock';
 import { createWorkerSink } from './sink';
 import { readEventStream } from './sse';
+import { agentFolderHere } from './agent-folder';
+import { WorkerTerminals } from './terminals';
+import type { TerminalOutputBatch, TerminalRequest } from '@/lib/workers/protocol';
 
 /** `already_running`: another worker holds this root's lock, and this one never started. */
 export type WorkerExit = { reason: 'stopped' } | { reason: WorkerStopReason | 'already_running'; message: string };
@@ -238,8 +241,19 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   const handlers = typeof options.handlers === 'function' ? options.handlers(commandJournal) : options.handlers ?? {};
   const builtIn = defaultRequestHandler(options.describe);
   const extra = options.requests?.(commandJournal);
+  // In-app terminals here (P3.5): shells in the worktrees this computer
+  // prepared and the agent folders set up here, their output posted home.
+  const terminals = new WorkerTerminals({
+    journal: commandJournal,
+    agentFolder: (agentId) => agentFolderHere(target.homeId, agentId),
+    post: async (batch: TerminalOutputBatch) => {
+      const res = await workerFetch(target, '/api/workers/me/terminals/output', { method: 'POST', body: JSON.stringify(batch) });
+      if (!res.ok) throw new WorkerNetworkError(`${target.homeName} answered with HTTP ${res.status}.`);
+    },
+  });
   // Each read goes to the one that knows it: the supplied handler first, then the built-in ones.
   const handleRequest: RequestHandler = async (kind, payload) => {
+    if (kind === 'terminal') return terminals.handle(payload as TerminalRequest);
     if (extra) {
       try {
         return await extra(kind, payload);
@@ -301,6 +315,8 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
     for (const released of reply?.release ?? []) {
       commandJournal.release(released.executionId, released.generation);
       for (const chat of released.chatSessionIds) await closeSession(chat).catch(() => {});
+      // Its shells here stop too: they were the execution's, and it moved on.
+      await terminals.releaseExecution(released.executionId).catch(() => 0);
     }
   };
   const beat = () => {
@@ -410,6 +426,8 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   } finally {
     clearInterval(heartbeatTimer);
     clearInterval(postRetry);
+    // Stopping the worker stops the shells it started.
+    await terminals.closeAll().catch(() => {});
   }
   return exit ?? { reason: 'stopped' };
 }

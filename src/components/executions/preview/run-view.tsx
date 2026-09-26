@@ -52,7 +52,9 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
       {status !== 'not-configured' && (
         <div className="flex h-10 flex-shrink-0 items-center gap-2 border-b border-border px-3">
           <span aria-hidden className={cn('h-2 w-2 flex-shrink-0 rounded-full', runDotClass(status))} />
-          <span className="whitespace-nowrap text-[12.5px] font-medium text-foreground">{RUN_STATUS_LABEL[status]}</span>
+          <span className="whitespace-nowrap text-[12.5px] font-medium text-foreground">
+            {status === 'elsewhere' && c.elsewhere ? `Runs on ${c.elsewhere.computerName}` : RUN_STATUS_LABEL[status]}
+          </span>
           {c.command && (
             <code className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground" title={c.command}>
               {c.command}
@@ -84,7 +86,7 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
               <Loader2 size={12} className="animate-spin" />
               Start is available when setup finishes
             </span>
-          ) : (
+          ) : status === 'elsewhere' ? null : (
             <>
               {onStartAndPreview && (
                 <RunButton onClick={onStartAndPreview} disabled={c.isStarting} title={`Run ${c.command} and open Preview`}>
@@ -123,6 +125,8 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
       <div className="min-h-0 flex-1">
         {status === 'not-configured' ? (
           <RunSetup controller={c} />
+        ) : status === 'elsewhere' && c.elsewhere ? (
+          <RunsElsewhere where={c.elsewhere} command={c.command} />
         ) : status === 'installing' ? (
           <Centered>
             <Loader2 size={16} className="animate-spin text-muted-foreground" />
@@ -164,6 +168,43 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The execution runs on another computer, and its app with it (P3.5). Ri
+ * doesn't start it from here or bring its local address to this screen, so
+ * this says where it runs and how to run it there.
+ */
+export function RunsElsewhere({
+  where,
+  command,
+  children,
+}: {
+  where: { computerName: string; folder: string | null };
+  command: string | null;
+  children?: React.ReactNode;
+}) {
+  const run = command && where.folder ? `cd ${where.folder} && ${command}` : command;
+  return (
+    <Centered>
+      <div className="flex w-full max-w-md flex-col items-start gap-2.5">
+        <h3 className="text-[15px] font-semibold text-foreground">Runs on {where.computerName}</h3>
+        <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+          This execution runs on {where.computerName}, so its app does too. Ri doesn&apos;t start it from here, and
+          its local address isn&apos;t reachable from other devices.
+        </p>
+        {run ? (
+          <>
+            <p className="text-[12.5px] text-muted-foreground">To see it, run this on {where.computerName}:</p>
+            <code className="w-full break-all rounded-md bg-muted px-2.5 py-2 font-mono text-[11.5px] text-foreground">{run}</code>
+          </>
+        ) : (
+          <p className="text-[12.5px] text-muted-foreground">The agent has no start command yet.</p>
+        )}
+        {children}
+      </div>
+    </Centered>
   );
 }
 

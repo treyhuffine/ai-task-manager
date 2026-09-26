@@ -91,7 +91,7 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
             >
               <Icon size={13} />
               <span className="@max-[560px]/panel:hidden">{PANEL_VIEW_LABELS[v]}</span>
-              {v === 'run' && status !== 'stopped' && status !== 'not-configured' && (
+              {v === 'run' && status !== 'stopped' && status !== 'not-configured' && status !== 'elsewhere' && (
                 <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', runDotClass(status))} />
               )}
               {v === 'changes' && !!changedFiles && (

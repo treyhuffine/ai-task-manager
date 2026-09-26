@@ -14,8 +14,6 @@ import fs from 'node:fs';
 import { promisify } from 'node:util';
 import type { UserInputResponse } from '@agentex/agent';
 import type { WorkspaceRecord } from '@/db/types';
-import { readSetupFile } from '@/lib/setups/local-file';
-import { listRegisteredLocations } from '@/lib/setups/registry';
 import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { createWorktreeForSession, fetchPrHead, runWorktreeScript } from '@/lib/workspaces/index';
 import { getClaudeTranscriptPath } from '@agentex/agent';
@@ -23,11 +21,13 @@ import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import * as runner from '@/lib/runner/local-runner';
 import type { SessionSpec } from '@/lib/runner/types';
-import { HOME_ADDRESS_SCHEME, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
+import { HOME_ADDRESS_SCHEME, type ReadAgentFolderRequest, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
 import { readExecution, type ExecutionLocation } from '@/lib/workspaces/execution-reads';
 import { writeExecution } from '@/lib/workspaces/execution-writes';
+import { readAgentFolder } from '@/lib/workspaces/agent-folder-reads';
 import type { CommandJournal } from './command-journal';
 import type { CommandContext, CommandHandlers, CommandKindHandler } from './commands';
+import { agentFolderHere } from './agent-folder';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
 
@@ -80,15 +80,6 @@ export function atHome(spec: SessionSpec, homeUrl: string): SessionSpec {
         : server,
     ),
   };
-}
-
-/** The folder this computer set up for an agent, from its own setup files. */
-export function agentFolderHere(homeId: string, agentId: string): string | null {
-  for (const { dir } of listRegisteredLocations()) {
-    const read = readSetupFile(dir);
-    if (read.state === 'ok' && read.file.homeId === homeId && read.file.agents[agentId]) return dir;
-  }
-  return null;
 }
 
 async function gitOut(cwd: string, args: string[]): Promise<string | null> {
@@ -216,6 +207,12 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       }
       const location = locate(request);
       return location ? writeExecution(location, request.write) : notPrepared;
+    }
+    if (kind === 'read_agent_folder') {
+      const request = payload as ReadAgentFolderRequest;
+      const folder = agentFolderHere(homeId, request.agentId);
+      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
+      return readAgentFolder(folder, request.filesToCopy, request.read);
     }
     throw new UnsupportedRequestError(kind);
   };

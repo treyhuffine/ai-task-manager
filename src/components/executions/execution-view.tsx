@@ -690,7 +690,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const terminalOpen = wb.terminalOpen && !!session.workspaceId;
   const terminalMax = terminalOpen && wb.terminalMaximized;
   const runDot =
-    controller.runStatus === 'stopped' || controller.runStatus === 'not-configured' ? null : runDotClass(controller.runStatus);
+    controller.runStatus === 'stopped' || controller.runStatus === 'not-configured' || controller.runStatus === 'elsewhere'
+      ? null
+      : runDotClass(controller.runStatus);
 
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">

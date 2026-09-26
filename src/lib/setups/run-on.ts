@@ -44,6 +44,13 @@ export interface RunOn {
   savedDefaultId: string | null;
   /** Where a new execution runs when the start names no computer. Null only for a home with no identity yet. */
   defaultId: string | null;
+  /**
+   * The computer the agent lives on, and its folder there (spec §5.6, §7):
+   * the home when it's set up there, or has no setup anywhere yet, and
+   * otherwise its default. Its main chat is pinned there, and its own Files
+   * and Terminal open there. Null only for a home with no identity yet.
+   */
+  livesOn: { computerId: string; name: string; isHome: boolean; folder: string | null } | null;
 }
 
 export class RunOnError extends Error {
@@ -129,7 +136,19 @@ export function runOnFor(workspaceId: string): RunOn | null {
     ?? choices.find((c) => c.ready)?.computerId
     ?? choices[0]?.computerId
     ?? host;
-  return { choices, savedDefaultId: saved, defaultId };
+  const livesOnId = choices.some((c) => c.isHome) ? host : defaultId;
+  const livesOn = livesOnId
+    ? {
+        computerId: livesOnId,
+        name: choices.find((c) => c.computerId === livesOnId)?.name ?? getComputer(livesOnId)?.name ?? 'This home',
+        isHome: livesOnId === host,
+        folder:
+          livesOnId === host
+            ? (homeSetup?.sourcePath ?? ws.cwd)
+            : (setups.find((s) => s.computerId === livesOnId)?.sourcePath ?? null),
+      }
+    : null;
+  return { choices, savedDefaultId: saved, defaultId, livesOn };
 }
 
 /**
@@ -150,17 +169,15 @@ export function homeCantRun(workspaceId: string): string | null {
 }
 
 /**
- * The computer an agent's new main chat is pinned to (spec §7, P3.4): the
- * home when the agent is set up there, or has no setup anywhere yet, and
- * otherwise its default computer. Null means the home. The chat keeps it:
- * it's never cloned or moved, and its history stays readable while that
- * computer is away. A new chat applies the rule again.
+ * The computer an agent lives on (spec §5.6 and §7): the home when the agent
+ * is set up there, or has no setup anywhere yet, and otherwise its default
+ * computer. Null means the home. A new main chat is pinned to it (P3.4),
+ * and keeps it: it's never cloned or moved, and its history stays readable
+ * while that computer is away. The agent's own terminals open there (P3.5).
  */
-export function mainChatComputerFor(workspaceId: string): string | null {
-  const runOn = runOnFor(workspaceId);
-  if (!runOn || runOn.choices.some((c) => c.isHome)) return null;
-  const host = getHome()?.hostComputerId ?? null;
-  return runOn.defaultId && runOn.defaultId !== host ? runOn.defaultId : null;
+export function agentComputerFor(workspaceId: string): string | null {
+  const livesOn = runOnFor(workspaceId)?.livesOn;
+  return livesOn && !livesOn.isHome ? livesOn.computerId : null;
 }
 
 /**

@@ -39,7 +39,14 @@ export const WORKER_STREAM_PING_MS = 15_000;
 export const WORKER_REQUEST_TIMEOUT_MS = 15_000;
 
 /** Reads the home can ask a worker. Never persisted. */
-export type WorkerRequestKind = 'describe_harnesses' | 'read_execution' | 'write_execution' | 'list_history' | 'read_history';
+export type WorkerRequestKind =
+  | 'describe_harnesses'
+  | 'read_execution'
+  | 'write_execution'
+  | 'read_agent_folder'
+  | 'terminal'
+  | 'list_history'
+  | 'read_history';
 
 /**
  * Read an execution placed on the worker's computer. It names the execution,
@@ -65,6 +72,45 @@ export interface WriteExecutionRequest {
   workspace: { id: string; isGit: boolean; baseBranch: string | null; filesToCopy: string[] };
   baseSha: string | null;
   write: import('@/lib/workspaces/execution-writes').ExecutionWrite;
+}
+
+/**
+ * Read the folder an agent lives in on the worker's computer (P3.5): its
+ * tree or one file, for the agent view. Names the agent, never a path: the
+ * worker finds the folder from its own setup files.
+ */
+export interface ReadAgentFolderRequest {
+  agentId: string;
+  filesToCopy: string[];
+  read: import('@/lib/workspaces/agent-folder-reads').AgentFolderRead;
+}
+
+/**
+ * Whose shells a terminal request addresses (P3.5, spec §5.6): an
+ * execution's, in the worktree this computer prepared for the placement it
+ * holds, or an agent's, in the agent's folder from this computer's own setup
+ * files. Never a path the caller names.
+ */
+export type TerminalScope =
+  | { kind: 'execution'; executionId: string; generation: number }
+  | { kind: 'agent'; agentId: string };
+
+/** A terminal operation on a worker's computer. Answered as `{ status, body }`, like the file requests. */
+export type TerminalRequest =
+  | { op: 'list'; scope: TerminalScope }
+  | { op: 'create'; scope: TerminalScope; cols: number; rows: number }
+  | { op: 'get'; scope: TerminalScope; terminalId: string }
+  | { op: 'input'; scope: TerminalScope; terminalId: string; data: string }
+  | { op: 'resize'; scope: TerminalScope; terminalId: string; cols: number; rows: number }
+  | { op: 'close'; scope: TerminalScope; terminalId: string }
+  /** What a viewer hasn't seen: the output after `since`, or all of it held. */
+  | { op: 'replay'; scope: TerminalScope; terminalId: string; since?: number };
+
+/** A terminal's output as it happens, which a worker posts to its home in batches. */
+export interface TerminalOutputBatch {
+  /** `offset` is the terminal's character count including this chunk, as at home. */
+  chunks: Array<{ terminalId: string; data: string; offset: number }>;
+  exits: Array<{ terminalId: string; code: number | null; signal: number | null }>;
 }
 
 /** A command as the stream carries it (P2 protocol, Commands). */

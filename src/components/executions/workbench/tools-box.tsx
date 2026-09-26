@@ -80,7 +80,7 @@ export function ToolsList({
 
   // The process row: status in words, one labeled action, and it opens Run.
   const runAction =
-    status === 'not-configured' ? (
+    status === 'elsewhere' ? null : status === 'not-configured' ? (
       <ActionButton onClick={() => onShow('run')} title="Set the command that starts this app">Set up</ActionButton>
     ) : status === 'installing' ? (
       <Loader2 size={13} className="animate-spin text-muted-foreground" />
@@ -96,7 +96,9 @@ export function ToolsList({
       </ActionButton>
     );
   const runDetail =
-    status === 'not-configured'
+    status === 'elsewhere'
+      ? `on ${c.elsewhere?.computerName ?? 'another computer'}`
+      : status === 'not-configured'
       ? 'No start command yet'
       : status === 'running' && port
         ? `localhost:${port}`
@@ -110,7 +112,9 @@ export function ToolsList({
 
   // The interface row: opens Preview, and only starts anything when it says so.
   const previewRight =
-    status === 'not-configured' ? (
+    status === 'elsewhere' ? (
+      <span className="truncate">{c.url ? hostOf(c.url) : `On ${c.elsewhere?.computerName ?? 'another computer'}`}</span>
+    ) : status === 'not-configured' ? (
       <span>Needs a start command</span>
     ) : status === 'running' || c.url ? (
       <span className="truncate">{c.url ? hostOf(c.url) : `localhost:${port}`}</span>
@@ -266,7 +270,7 @@ export function ToolsBox(props: ToolsListProps) {
         <ToolsList {...props} />
       </div>
       <div className="absolute right-3 top-3 z-20 hidden flex-col gap-0.5 rounded-xl bg-card p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] @max-[1060px]/chat:flex dark:shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
-        {mini('run', <Play size={15} />, `Run · ${RUN_STATUS_LABEL[status]}`, status === 'not-configured' || status === 'stopped' ? undefined : runDotClass(status))}
+        {mini('run', <Play size={15} />, `Run · ${RUN_STATUS_LABEL[status]}`, status === 'not-configured' || status === 'stopped' || status === 'elsewhere' ? undefined : runDotClass(status))}
         {mini('preview', <AppWindow size={16} />, 'Preview')}
         {mini('changes', <GitCompareArrows size={16} />, diffStats?.files ? `Changes · ${filesLabel(diffStats.files)}` : 'Changes', diffStats?.files ? 'bg-amber-500' : undefined)}
         {mini('files', <FileText size={16} />, 'Files')}

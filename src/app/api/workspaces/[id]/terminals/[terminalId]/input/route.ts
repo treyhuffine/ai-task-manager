@@ -1,6 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { workspaceTerminalOwner } from '@/lib/terminal/owner';
-import { terminalInputResponse } from '@/lib/terminal/http';
+import { agentTerminalPlace, terminalInputAt } from '@/lib/terminal/place';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,7 +10,7 @@ export async function POST(
 ) {
   try {
     const { id, terminalId } = await params;
-    return await terminalInputResponse(request, workspaceTerminalOwner(id), terminalId);
+    return await terminalInputAt(request, agentTerminalPlace(id), terminalId);
   } catch (err) {
     console.error('[POST /api/workspaces/:id/terminals/:terminalId/input]', err);
     return Response.json({ error: String(err) }, { status: 500 });

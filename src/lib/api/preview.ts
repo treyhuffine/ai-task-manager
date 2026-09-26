@@ -39,6 +39,13 @@ export interface PreviewState {
    *  back); `failed` = setup errored (preview may be missing deps). */
   setupStatus: 'running' | 'failed' | null;
   setupError: string | null;
+  /**
+   * The execution runs on another computer (P3.5). Its app runs there, not
+   * here: nothing is started at home for it, and a local address there is
+   * never offered to another device. A URL pasted for it (the person's own
+   * tunnel) is still used for a viewer elsewhere.
+   */
+  elsewhere: { computerName: string; folder: string | null } | null;
 }
 
 export interface PreviewLogLine {

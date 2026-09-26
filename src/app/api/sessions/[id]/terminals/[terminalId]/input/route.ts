@@ -1,7 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { sessionTerminalOwner } from '@/lib/terminal/owner';
-import { terminalInputResponse } from '@/lib/terminal/http';
-import { touchSessionActivity } from '@/lib/db/queries';
+import { sessionTerminalPlace, terminalInputAt, touchTerminalActivity } from '@/lib/terminal/place';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,12 +10,7 @@ export async function POST(
 ) {
   try {
     const { id, terminalId } = await params;
-    return await terminalInputResponse(request, sessionTerminalOwner(id), terminalId, () => {
-      // Working in the terminal is working on the execution. Throttled because
-      // this route is one POST per keystroke and the rail's sort key does not
-      // need per-character resolution.
-      touchSessionActivity(id, 'terminal', { throttle: true });
-    });
+    return await terminalInputAt(request, sessionTerminalPlace(id), terminalId, () => touchTerminalActivity(id));
   } catch (err) {
     console.error('[POST /api/sessions/:id/terminals/:terminalId/input]', err);
     return Response.json({ error: String(err) }, { status: 500 });

@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { terminalsApi } from '@/lib/api/terminals';
+import { terminalsUnavailable } from '@/hooks/use-terminals';
 import { createInputQueue } from '@/lib/terminal/input-queue';
 import { detectIsMac, resolveTerminalKey } from '@/lib/terminal/keymap';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -62,6 +63,11 @@ export function ExecutionTerminalInstance({
   const onExitRef = useRef(onExit);
   /** Attaches the WebGL renderer once, on first activation. See the note where it is set. */
   const attachGpuRef = useRef<(() => void) | null>(null);
+  /**
+   * Why input is off: the shell's computer isn't connected (P3.5). Keys typed
+   * meanwhile are dropped, never kept to send when it's back (spec §5.6).
+   */
+  const [offline, setOffline] = useState<string | null>(null);
 
   // Keep the latest onExit without retriggering the main effect — that
   // would dispose and recreate the terminal, losing scrollback.
@@ -154,11 +160,28 @@ export function ExecutionTerminalInstance({
 
     const isMac = detectIsMac();
 
+    // Input is live only while the shell's computer is reachable.
+    let inputOff = false;
+    const goOffline = (message: string | null) => {
+      inputOff = message !== null;
+      setOffline(message);
+    };
+
     // stdin. Serialised and self-batching — see `input-queue.ts` for why
     // one-POST-per-keystroke both reorders bytes and drowns a tunnel.
-    const input = createInputQueue({
+    const queue = createInputQueue({
       send: (data) => terminalsApi.input(apiBaseRef.current, terminalId, data),
+      onError: (err) => {
+        const away = terminalsUnavailable(err);
+        if (away) goOffline(away);
+      },
     });
+    const input = {
+      push: (data: string) => {
+        if (!inputOff) queue.push(data);
+      },
+      dispose: () => queue.dispose(),
+    };
 
     // Mac-style shortcuts inside the terminal. Browser-reserved keys
     // (Cmd+T, Cmd+W, Cmd+N) we can't override — those still hit the
@@ -229,6 +252,7 @@ export function ExecutionTerminalInstance({
     // replaces the screen instead of being appended to a stale copy of
     // itself — appending is what made scrollback appear twice.
     const onReady = (ev: MessageEvent<string>) => {
+      goOffline(null);
       try {
         const { resumed } = JSON.parse(ev.data) as { resumed?: boolean };
         if (!resumed) term.reset();
@@ -243,6 +267,17 @@ export function ExecutionTerminalInstance({
       try { es.close(); } catch { /* */ }
       onExitRef.current?.();
     };
+    // Its computer dropped, or can't be reached now: the browser keeps
+    // reconnecting, and `ready` turns input back on.
+    const onUnavailable = (ev: MessageEvent<string>) => {
+      try {
+        const { message } = JSON.parse(ev.data) as { message?: string };
+        goOffline(message ?? 'Its computer is not connected.');
+      } catch {
+        goOffline('Its computer is not connected.');
+      }
+    };
+    es.addEventListener('unavailable', onUnavailable as EventListener);
     es.addEventListener('ready', onReady as EventListener);
     es.addEventListener('data', onData as EventListener);
     es.addEventListener('exit', onExitEvt as EventListener);
@@ -319,14 +354,22 @@ export function ExecutionTerminalInstance({
   }, [active]);
 
   return (
-    <div
-      ref={containerRef}
-      className={cn(
-        'h-full w-full overflow-hidden bg-[#0b0b0c] px-2 py-1',
-        !active && 'invisible pointer-events-none',
+    <div className={cn('relative h-full w-full', !active && 'invisible pointer-events-none')}>
+      <div
+        ref={containerRef}
+        className="h-full w-full overflow-hidden bg-[#0b0b0c] px-2 py-1"
+        // `invisible` on the wrapper keeps layout (so fit() works) while
+        // hiding visually. Stacked tabs all sit at inset-0; only the active
+        // one is visible.
+      />
+      {offline && (
+        <div
+          role="status"
+          className="absolute inset-x-0 top-0 border-b border-zinc-800 bg-zinc-900/95 px-3 py-1.5 text-[11px] text-zinc-300"
+        >
+          {offline} Typing is off until then.
+        </div>
       )}
-      // `invisible` keeps layout (so fit() works) while hiding visually.
-      // Stacked tabs all sit at inset-0; only the active one is visible.
-    />
+    </div>
   );
 }

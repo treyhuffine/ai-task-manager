@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
-import { useTerminals, useCreateTerminal, useKillTerminal } from '@/hooks/use-terminals';
+import { terminalsUnavailable, useTerminals, useCreateTerminal, useKillTerminal } from '@/hooks/use-terminals';
+import { useRunsOnSeveralComputers } from '@/hooks/use-computers';
+import type { TerminalDescriptor } from '@/lib/api/terminals';
 import { useFolderRoot, useFolderScope } from '@/hooks/use-folder';
 import { folderApiBase, type FolderSource } from '@/lib/folders/source';
 import { ExecutionTerminalInstance } from './execution-terminal-instance';
@@ -48,7 +50,10 @@ export function ExecutionTerminalPanel({
   collapseTitle,
   headerExtra,
 }: ExecutionTerminalPanelProps) {
-  const { data: terminals = [], isLoading } = useTerminals(source);
+  const { data: terminals = [], isLoading, error: listError } = useTerminals(source);
+  // Its computer isn't connected (P3.5): the shells are there, out of reach.
+  const unavailable = terminalsUnavailable(listError);
+  const severalComputers = useRunsOnSeveralComputers();
   const createTerminal = useCreateTerminal(source);
   const killTerminal = useKillTerminal(source);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -84,12 +89,14 @@ export function ExecutionTerminalPanel({
   // panel the user hasn't expanded yet. Skip when a previous attempt
   // errored — otherwise we'd hammer the API. The user can retry from
   // the error state.
+  // Never when the list couldn't be read: an away computer's shells are
+  // still there, and a new one would be a second shell (spec §5.6).
   useEffect(() => {
-    if (disabled || isLoading || collapsed) return;
+    if (disabled || isLoading || collapsed || listError) return;
     if (terminals.length > 0) return;
     if (createTerminal.isPending || createTerminal.isError) return;
     createTerminal.mutate({ cols: 80, rows: 24 });
-  }, [disabled, isLoading, collapsed, terminals.length, createTerminal]);
+  }, [disabled, isLoading, collapsed, listError, terminals.length, createTerminal]);
 
   // Keep the active tab pointing at something real.
   useEffect(() => {
@@ -135,7 +142,7 @@ export function ExecutionTerminalPanel({
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#0b0b0c]">
+    <div className="@container flex h-full flex-col bg-[#0b0b0c]">
       {/* tab strip — always visible. In collapsed mode this is the
           entire panel; clicking the chevron expands the content. */}
       <div className="flex items-center gap-0.5 border-y border-zinc-800 bg-zinc-900/60 px-1">
@@ -157,7 +164,7 @@ export function ExecutionTerminalPanel({
             <button
               type="button"
               onClick={handleNew}
-              disabled={createTerminal.isPending}
+              disabled={createTerminal.isPending || !!unavailable}
               className="ml-0.5 inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-50"
               title="New terminal"
               aria-label="New terminal"
@@ -166,6 +173,7 @@ export function ExecutionTerminalPanel({
             </button>
           )}
         </div>
+        <TerminalWhere terminal={terminals.find((t) => t.id === activeId) ?? null} showComputer={severalComputers} />
         {headerExtra}
         {onToggleCollapsed && (
           <button
@@ -200,7 +208,9 @@ export function ExecutionTerminalPanel({
         ))}
         {terminals.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[12px] text-zinc-500">
-            {createErrorMessage ? (
+            {unavailable ? (
+              <span className="max-w-md text-zinc-400">{unavailable}</span>
+            ) : createErrorMessage ? (
               <>
                 <span className="text-zinc-300">Couldn&apos;t start terminal</span>
                 <span className="max-w-md text-zinc-500">{createErrorMessage}</span>
@@ -221,6 +231,26 @@ export function ExecutionTerminalPanel({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Where the shell on screen runs (spec §5.6): its folder, and its computer
+ * when work here runs on more than one, or when it isn't the home.
+ */
+function TerminalWhere({ terminal, showComputer }: { terminal: TerminalDescriptor | null; showComputer: boolean }) {
+  if (!terminal) return null;
+  const folder = terminal.cwd.split('/').filter(Boolean).slice(-2).join('/');
+  const computer = terminal.computerName && (showComputer || !terminal.isHome) ? terminal.computerName : null;
+  return (
+    <span
+      className="hidden @md:block max-w-[40%] truncate px-2 text-[10px] text-zinc-500"
+      title={computer ? `${terminal.cwd} on ${computer}` : terminal.cwd}
+    >
+      {computer && <span className="text-zinc-400">{computer}</span>}
+      {computer && ' · '}
+      {folder}
+    </span>
   );
 }
 

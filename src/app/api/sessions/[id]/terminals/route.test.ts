@@ -19,11 +19,23 @@ const getChatSessionWithExecution = vi.fn();
 const getWorkspace = vi.fn();
 const createTerminal = vi.fn();
 const listTerminals = vi.fn(() => []);
+// Where the execution runs: null is the home (P3.5).
+const chatPlacement = vi.fn((): unknown => null);
+const requestWorker = vi.fn();
 
 vi.mock('@/lib/db/queries', () => ({
   getChatSessionWithExecution: (id: string) =>
     (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),
   getWorkspace: (id: string) => (getWorkspace as unknown as (id: string) => unknown)(id),
+  chatPlacement: () => chatPlacement(),
+  getHome: () => ({ hostComputerId: 'mini' }),
+  getComputer: (id: string) => ({ id, name: id === 'mini' ? 'Mac Mini' : 'MacBook' }),
+  touchSessionActivity: () => {},
+}));
+vi.mock('@/lib/workers/hub', () => ({
+  requestWorker: (...args: unknown[]) => requestWorker(...args),
+  WorkerUnavailableError: class WorkerUnavailableError extends Error {},
+  WorkerRequestError: class WorkerRequestError extends Error {},
 }));
 vi.mock('@/lib/terminal/pty-manager', () => ({
   createTerminal: (input: unknown) => (createTerminal as unknown as (input: unknown) => unknown)(input),
@@ -43,6 +55,9 @@ fs.mkdirSync(sourceCheckout, { recursive: true });
 afterAll(() => fs.rmSync(tmpBase, { recursive: true, force: true }));
 
 beforeEach(() => {
+  chatPlacement.mockReset();
+  chatPlacement.mockReturnValue(null);
+  requestWorker.mockReset();
   getChatSessionWithExecution.mockReset();
   getWorkspace.mockReset();
   listTerminals.mockClear();
@@ -61,7 +76,7 @@ beforeEach(() => {
 });
 
 function call(id = 's1') {
-  const req = { json: async () => ({ cols: 80, rows: 24 }) } as never;
+  const req = { json: async () => ({ cols: 80, rows: 24 }), clone() { return this; } } as never;
   return POST(req, { params: Promise.resolve({ id }) });
 }
 
@@ -112,6 +127,33 @@ describe('POST /api/sessions/:id/terminals — cwd resolution', () => {
     const res = await call();
     expect(res.status).toBe(201);
     expect(createTerminal).toHaveBeenCalledWith(expect.objectContaining({ cwd: sourceCheckout }));
+  });
+
+  it('says where the shell runs', async () => {
+    getChatSessionWithExecution.mockReturnValue({
+      id: 's1', executionId: 'e1', worktreePath: worktreeDir, workspaceId: 'ws1',
+    });
+    getWorkspace.mockReturnValue({ id: 'ws1', cwd: sourceCheckout, isGit: true });
+    const res = await call();
+    expect(await res.json()).toMatchObject({ id: 't1', computerName: 'Mac Mini', isHome: true });
+  });
+
+  it('an execution on another computer never gets a shell here, even with its folder on this disk (P3.5)', async () => {
+    // The laptop's path, which this disk happens to have too.
+    getChatSessionWithExecution.mockReturnValue({
+      id: 's1', executionId: 'e1', worktreePath: worktreeDir, workspaceId: 'ws2',
+    });
+    getWorkspace.mockReturnValue({ id: 'ws2', cwd: sourceCheckout, isGit: false });
+    chatPlacement.mockReturnValue({ computerId: 'laptop', isHome: false, executionId: 'e1', generation: 3, worktreePath: worktreeDir });
+    requestWorker.mockResolvedValue({ status: 201, body: { id: 'r1', cwd: '/Users/trey/code/ri', shell: '/bin/zsh' } });
+
+    const res = await call();
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ id: 'r1', computerName: 'MacBook', isHome: false });
+    expect(createTerminal).not.toHaveBeenCalled();
+    expect(requestWorker).toHaveBeenCalledWith('laptop', 'terminal', {
+      op: 'create', scope: { kind: 'execution', executionId: 'e1', generation: 3 }, cols: 80, rows: 24,
+    });
   });
 
   it('unknown session → 404', async () => {

@@ -12,9 +12,13 @@ export type RunStatus =
   | 'starting'
   | 'running'
   | 'running-no-port'
-  | 'crashed';
+  | 'crashed'
+  /** The execution runs on another computer, and its app with it (P3.5). */
+  | 'elsewhere';
 
 export function deriveRunStatus(state: PreviewState | null, command: string | null): RunStatus {
+  // Nothing here runs it, set up or not.
+  if (state?.elsewhere) return 'elsewhere';
   if (!command || !command.trim()) return 'not-configured';
   // Starting against a half-installed node_modules just crash-loops, so the
   // setup script's install gates everything else.
@@ -39,6 +43,7 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   running: 'Running',
   'running-no-port': 'Running, no port found',
   crashed: 'Failed',
+  elsewhere: 'Runs on another computer',
 };
 
 export type RunTone = 'green' | 'amber' | 'rose' | 'blue' | 'idle';
@@ -51,6 +56,7 @@ export const RUN_STATUS_TONE: Record<RunStatus, { tone: RunTone; pulse: boolean 
   running: { tone: 'green', pulse: false },
   'running-no-port': { tone: 'amber', pulse: false },
   crashed: { tone: 'rose', pulse: false },
+  elsewhere: { tone: 'idle', pulse: false },
 };
 
 /** Tailwind classes for the status dot. `idle` is a hollow ring so "off" never reads as a color. */

@@ -29,6 +29,9 @@ import {
   listPinnedPreviewTargetsForWorkspace,
   listPreviewTargetsForWorkspace,
   setExecutionPreviewUrls,
+  placementOf,
+  getHome,
+  getComputer,
 } from '@/lib/db/queries';
 import type { ExecutionRecord, WorkspaceRecord, PreviewTargetRecord, PreviewUrl } from '@/db/types';
 import { getSupervisor, type PreviewStatus, type PreviewProcessRecord } from './supervisor';
@@ -83,6 +86,13 @@ export interface PreviewState {
   setupStatus: 'running' | 'failed' | null;
   /** Tail of the setup script's output when `setupStatus === 'failed'`. */
   setupError: string | null;
+  /**
+   * The execution runs on another computer (P3.5). Its app runs there, not
+   * here: nothing is started at home for it, and a local address there is
+   * never offered to another device. A URL pasted for it (the person's own
+   * tunnel) is still used for a viewer elsewhere.
+   */
+  elsewhere: { computerName: string; folder: string | null } | null;
 }
 
 /**
@@ -103,6 +113,19 @@ interface WorktreeContext {
   workspace: WorkspaceRecord;
   cwd: string;
   worktreeName: string;
+  /** Set when the execution runs on another computer: see `PreviewState.elsewhere`. */
+  elsewhere: PreviewState['elsewhere'];
+}
+
+/**
+ * Where the execution runs, when that isn't here. Its folder is on that
+ * computer, and `execution.worktreePath` is null for it, so the fallback
+ * below would otherwise have previewed the agent's checkout at home.
+ */
+function elsewhereOf(executionId: string): PreviewState['elsewhere'] {
+  const placement = placementOf(executionId);
+  if (!placement?.placementId || placement.computerId === getHome()?.hostComputerId) return null;
+  return { computerName: getComputer(placement.computerId)?.name ?? 'another computer', folder: placement.worktreePath };
 }
 
 /** Resolve the execution + workspace + on-disk cwd, or throw a clean error. */
@@ -118,7 +141,41 @@ function loadContext(executionId: string): WorktreeContext {
   const worktreeName = execution.worktreePath
     ? path.basename(execution.worktreePath)
     : workspace.slug;
-  return { execution, workspace, cwd, worktreeName };
+  return { execution, workspace, cwd, worktreeName, elsewhere: elsewhereOf(executionId) };
+}
+
+/**
+ * The state of an execution that runs on another computer: never started
+ * here, with a pasted URL as its only address (P3.5).
+ */
+function elsewhereState(ctx: WorktreeContext, service: string | null, remoteUrl: string | null): PreviewState {
+  const target = getPreviewTarget(ctx.execution.id, service) ?? null;
+  const remote = activeRemoteProvider();
+  return {
+    executionId: ctx.execution.id,
+    service,
+    previewName: target?.previewName ?? buildPreviewName(ctx.worktreeName, service),
+    assignedPort: null,
+    serverStatus: 'idle',
+    port: null,
+    message: null,
+    localUrl: null,
+    pinned: target?.pinned ?? false,
+    activeRemoteProviderId: remote.id,
+    activeRemoteProviderLabel: remote.label,
+    remoteUrl,
+    remoteError: null,
+    manualUrls: ctx.execution.previewUrls ?? [],
+    setupStatus: null,
+    setupError: null,
+    elsewhere: ctx.elsewhere,
+  };
+}
+
+/** The URL pasted on the execution for this service, if any. */
+function pastedUrl(execution: ExecutionRecord, service: string | null): string | null {
+  const found = (execution.previewUrls ?? []).find((u) => (u.service ?? null) === service && !!u.url?.trim());
+  return found?.url?.trim() ?? null;
 }
 
 /**
@@ -249,6 +306,7 @@ export function getPreviewState(
   opts: { touch?: boolean } = {},
 ): PreviewState {
   const ctx = loadContext(executionId);
+  if (ctx.elsewhere) return elsewhereState(ctx, service, null);
   const target = getPreviewTarget(executionId, service) ?? null;
   const remote = activeRemoteProvider();
   const sup = getSupervisor();
@@ -282,6 +340,7 @@ export function getPreviewState(
     manualUrls: ctx.execution.previewUrls ?? [],
     setupStatus: gate.status,
     setupError: gate.error,
+    elsewhere: null,
   };
 }
 
@@ -302,6 +361,9 @@ export async function resolvePreview(
   const ctx = loadContext(executionId);
 
   const service = opts.service ?? null;
+  // Work on another computer is never started here. A viewer elsewhere gets
+  // the URL pasted for it, used as given: no port of this computer's goes in.
+  if (ctx.elsewhere) return elsewhereState(ctx, service, remote ? pastedUrl(ctx.execution, service) : null);
   const target = await getOrCreateTarget(ctx, service);
   touchPreviewTarget(target.id);
 
@@ -420,6 +482,7 @@ function snapshotFromRecord(
     manualUrls: ctx.execution.previewUrls ?? [],
     setupStatus: gate.status,
     setupError: gate.error,
+    elsewhere: null,
   };
 }
 
@@ -507,6 +570,11 @@ export async function restoreWorkspacePreviews(workspaceId: string): Promise<
   const results: Array<{ executionId: string; service: string | null; ok: boolean; error?: string }> = [];
   for (const t of targets) {
     try {
+      const elsewhere = elsewhereOf(t.executionId);
+      if (elsewhere) {
+        results.push({ executionId: t.executionId, service: t.service, ok: false, error: `It runs on ${elsewhere.computerName}.` });
+        continue;
+      }
       const state = await resolvePreview(t.executionId, { service: t.service, remote });
       const ok = remote ? !!state.remoteUrl : !!state.localUrl;
       results.push({ executionId: t.executionId, service: t.service, ok, error: state.remoteError?.message });

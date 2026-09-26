@@ -14,7 +14,8 @@ import { uuidv7 } from 'uuidv7';
 import type { WorkerCommandRecord } from '@/db/types';
 import { getAckedEventSeq, getHome, getWorkerEnrollment, staleQueuedCommands, takeCommandsForStream } from '@/lib/db/queries';
 import { inTransaction } from '@/lib/effects/after-commit';
-import { registerConnection } from '@/lib/workers/hub';
+import { isComputerConnected, registerConnection } from '@/lib/workers/hub';
+import { computerTerminalsGone } from '@/lib/terminal/remote';
 import { WORKER_PROTOCOL, WORKER_STREAM_PING_MS, type WorkerCommand, type WorkerStreamEvent } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
 import { settleUndelivered } from '@/lib/workers/undelivered';
@@ -107,6 +108,8 @@ export async function GET(request: NextRequest) {
         // dropped (P3.2).
         announceOpenSends(worker.computer.id);
         publishComputerUpdated(worker.computer.id);
+        // Its terminals can't be reached now: every viewer says so (P3.5).
+        if (!isComputerConnected(worker.computer.id)) computerTerminalsGone(worker.computer.id, worker.computer.name);
       };
       request.signal.addEventListener('abort', close);
       send({

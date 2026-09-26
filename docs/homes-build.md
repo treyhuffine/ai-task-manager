@@ -911,10 +911,10 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner.
 - [x] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
 - [x] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
-- [ ] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
-- [ ] 3.5c Terminals on a worker: create, list, input, output, resize, close through the worker, bounded replay, reconnect, input disabled while disconnected with no replay of unconfirmed keys, never a fallback shell at home. Agent-folder terminals on the agent's computer. Computer and folder shown.
+- [x] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
+- [x] 3.5c Terminals on a worker: create, list, input, output, resize, close through the worker, bounded replay, reconnect, input disabled while disconnected with no replay of unconfirmed keys, never a fallback shell at home. Agent-folder terminals on the agent's computer. Computer and folder shown.
 - [ ] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
-- [ ] 3.5e An agent that lives on another computer: its header shows its folder there, and its Files and Terminal open on that computer (found in P3.4's live check).
+- [x] 3.5e An agent that lives on another computer: its header shows its folder there, and its Files and Terminal open on that computer (found in P3.4's live check).
 - [ ] 3.6 Deck: one scheduler and daily generation at the home (tests).
 - [ ] 3.7 The whole flow at phone and laptop widths: keyboard, voice, pending-input controls.
 
@@ -970,7 +970,7 @@ Spec §7: the home schedules, and an agent's main chat has a fixed computer.
 
 ### An agent's main chat
 
-- **Pinned when it's created** (`mainChatComputerFor`): the home when the agent is set up there (or has no setup anywhere yet), otherwise its saved default, otherwise the first computer it's set up on. The chat's `computer_id` holds it. The app's own main chat is always the home's.
+- **Pinned when it's created** (`agentComputerFor`): the home when the agent is set up there (or has no setup anywhere yet), otherwise its saved default, otherwise the first computer it's set up on. The chat's `computer_id` holds it. The app's own main chat is always the home's.
 - **It keeps its computer.** Changing the default doesn't move it, its history stays readable while that computer is away, and a message waits for it rather than running at home. New chat applies the rule again.
 - **Said where it is.** The agent's main chat header reads "on MacBook", with "not connected" while it's away. At home it says nothing new.
 
@@ -993,10 +993,39 @@ Spec §5.6 and §6: everything the viewer does to an execution's folder happens 
 - **The home refuses to open another computer's folder.** `openSessionWorktree` returns 409 for an execution placed elsewhere, so no route, now or later, can fall through to a folder at home.
 - **The reason reaches the person.** The editor's save, the conflict view, the file tree and the work-in-progress banner showed the HTTP status or the error code ("Save failed: API 409 …"). They show the route's message now, and an unsaved edit stays in the editor.
 
-### Tests and live checks
+### Tests and live checks (3.5a)
 
 - `remote-start.test.ts` (+1, through the real routes with the worker in its own process): save, new file, new folder, rename, rename onto an existing file (409, `exists`), a path outside (400, nothing written), delete a file and a folder, a resolved conflict staged there, work in progress copied from the laptop's agent folder, a write from an earlier generation refused by the worker, `openSessionWorktree` refusing, and a save while the laptop is away refused with nothing written. Full suite: 2,650 passed.
 - Live on the dev home with the stand-in's worker: README.md in an execution on the stand-in, edited in the Files view and saved with ⌘S, changed on the stand-in's disk. With the worker stopped while the file was open, the next save said "Save failed: MacBook (stand-in) is not connected right now, so the change wasn't made.", the file was unchanged, and the edit stayed in the editor.
+
+### Terminals (3.5c)
+
+- **The bug it fixes.** An execution elsewhere has no worktree path at home, so a git agent's terminal said "Worktree is still being set up" forever, and a non-git agent's opened a shell in the agent's folder at home: the fallback shell the spec rules out.
+- **Where a shell runs** (`src/lib/terminal/place.ts`), resolved on every operation: an execution's on the computer it runs on, in its working folder, and an agent's own on the computer it lives on (`agentComputerFor`, now also what pins its main chat), in its folder there. At home nothing changed. An execution elsewhere never gets a shell at home.
+- **On the worker** (`src/lib/worker/terminals.ts`), the same PTY manager the home uses. The home asks for each operation as a `terminal` request: list, create, get, input, resize, close, and replay. The worker opens a shell only in the worktree it prepared for the placement it holds, or in the agent's folder from its own setup files, never a path the home names. Each execution shell remembers its placement generation, and a request for another generation doesn't reach it ("This execution no longer runs on this computer." for an older one). When the home releases the placement, the worker stops that execution's shells, and stopping the worker stops them all.
+- **Output** goes to the home as batches the worker posts (`POST /api/workers/me/terminals/output`), each chunk carrying its offset, as the home's own terminals do. Nothing is kept at home: the home relays each batch to whoever is watching (`src/lib/terminal/remote.ts`), and a viewer catches up from the worker's ring buffer. A new stream starts watching, asks for the replay, then splices on what arrived meanwhile by offset. Output it can't splice (a batch the worker dropped because the home didn't take it, or trimmed past the ring's size) ends the stream, and the browser's reconnect catches up from the worker with its last offset. A batch the home doesn't take is dropped, never queued.
+- **Disconnected.** When the worker's stream closes, every viewer of its terminals gets `unavailable` ("MacBook isn't connected. Its terminals are still there and come back when it reconnects.") and the browser keeps reconnecting. Input is refused rather than kept: a keystroke to an away computer gets a 409, and the terminal turns typing off with that notice until its stream is back, so nothing typed meanwhile is sent later. Listing and creating are refused the same way, and the panel shows the notice instead of opening a new shell, checking every 5 seconds until the computer is back.
+- **Shown.** Every terminal carries its computer and whether that's the home, and the panel's tab strip shows the folder, with the computer's name when work here runs on more than one computer or the shell isn't at home.
+
+### Previews (3.5b)
+
+- **The bug it fixes.** A preview of an execution elsewhere started the agent's start command at home, in the agent's checkout there, because the service fell back to `workspace.cwd` when the execution had no worktree path here. Nothing in the preview code knew where an execution runs.
+- **Never started here.** The preview service knows when an execution runs on another computer (`elsewhere`) and then starts nothing, creates no target, and restoring an agent's pinned previews skips it ("It runs on MacBook."). Its state says where it runs and in which folder.
+- **Honest in every place.** Run, Preview and the tools box say "Runs on MacBook" and offer no Start. Preview explains that its app runs there, that Ri doesn't start it from here, and that its local address isn't reachable from other devices, and gives the command to run there in its folder.
+- **The person's own tunnel still works.** A URL pasted for it is its one address, used as given, with no port of the home's in it, and opens in Preview on any screen.
+- **Decided, and recorded.** Previews served by the worker (a supervised dev server on the laptop, with its logs and a tunnel from there) aren't built. The spec keeps this release to safe existing preview support and truthful unavailable states, and puts a new preview tunneling platform out of scope, with repeated transfers made only for a missing preview as the signal to add it (§6, §11).
+
+### An agent that lives on another computer (3.5e)
+
+- **Where it lives** is part of the agent's Run on answer now (`livesOn`: the computer and its folder there), from the same rule as its main chat.
+- **Its header** shows its folder there and "on MacBook". It showed the home's path, which an agent set up only on the laptop doesn't have.
+- **Its Files** come from that computer (`read_agent_folder`, answered by the worker from its own setup files with the same shapes as at home, `src/lib/workspaces/agent-folder-reads.ts`), and its Terminal opens there (above). While that computer is away, both say so.
+
+### Tests and live checks (3.5b, 3.5c, 3.5e)
+
+- `remote-workbench.test.ts` (4, the worker in its own process running real shells): an execution's terminal in the laptop's worktree, typed into and read back through the home's routes, resized, and resumed after a reconnect with only the missed output. A request for an earlier placement refused there. Never a shell at home. The agent's own terminal in its folder on the laptop. The laptop stopping: the open stream says so and closes, input, listing and creating are refused, and reopening the stream says so again. The agent's tree and files from the laptop, the committed side, a path outside refused, and unavailable while away.
+- `terminal/remote.test.ts` (4): output that arrives during the replay spliced on after it, output that can't be spliced ending the stream, another computer's output ignored, a dropped computer said, and a shell that ended or is gone there. `worker/terminals.test.ts` (4): shells only where the worker may open them, output posted with contiguous offsets, placement generations, release stopping the shell, and a dropped batch showing as a gap. The terminal route test (+2): where the shell runs, and an execution elsewhere relayed with no shell here. `preview/elsewhere.test.ts` (3): nothing started for a local or remote viewer (the start command would have touched a file in the home's checkout), a pasted URL used as given, and restore skipping it. `run-status.test.ts` (+1). Full suite: 2,670 passed.
+- Live on the dev home with the stand-in's worker: the terminal of an execution on the stand-in printed the stand-in's worktree for `pwd`, labeled "MacBook (stand-in) · demo/demo-fc4311", and reopening the page reattached to the same shell with its scrollback. Its Preview said "Runs on MacBook (stand-in)" with no Start, and so did the tools box. The Sweeps agent, which lives on the stand-in, showed its stand-in folder in its header, listed a file that exists only there, and opened its terminal there. Stopping the stand-in's worker while that terminal was open showed "MacBook (stand-in) isn't connected. Its terminals are still there and come back when it reconnects. Typing is off until then."
 
 ## P0.3 Records and the runner boundary
 
