@@ -1,12 +1,14 @@
 # Ri desktop, headless service, and multi-device delivery plan
 
-Updated: 25 September 2026. This is the single desktop reference: what is built, how to run it, the research and audit evidence, the target architecture, and the remaining build and acceptance work. It consolidates and replaces the earlier desktop recommendation, demo guide, integration checklist, readiness review, final audit, and Home/worker addendum. The separate [One Ri specification](homes-spec.md) remains authoritative for Home, worker, and team semantics. This document supplies its desktop and service integration requirements.
+Updated: 26 September 2026. This is the single desktop reference: what is built, how to run it, the research and audit evidence, the target architecture, and the remaining build and acceptance work. It consolidates and replaces the earlier desktop recommendation, demo guide, integration checklist, readiness review, final audit, and Home/worker addendum. The separate [One Ri specification](homes-spec.md) remains authoritative for Home, worker, and team semantics. This document supplies its desktop and service integration requirements.
 
-Quick navigation: [Status](#status-and-landing-boundary), [Run the demo](#what-is-built-and-how-to-run-it), [Home and team architecture](#home-worker-service-and-team-architecture), [Open findings](#open-findings-and-implementation-requirements), [Audit coverage](#audit-verification-and-product-coverage), [Delivery plan](#delivery-sequence-and-effort), [Build checklist](#build-checklist-after-the-multi-deviceteams-work), [Acceptance](#combined-release-acceptance), [Landing checks](#landing-verification).
+Quick navigation: [Status](#status-and-landing-boundary), [Run the demo](#what-is-built-and-how-to-run-it), [Home and team architecture](#home-worker-service-and-team-architecture), [Updates and SQLite migrations](#application-updates-and-sqlite-migrations), [Open findings](#open-findings-and-implementation-requirements), [Audit coverage](#audit-verification-and-product-coverage), [Delivery plan](#delivery-sequence-and-effort), [Build checklist](#build-checklist-after-the-multi-deviceteams-work), [Acceptance](#combined-release-acceptance), [Landing checks](#landing-verification).
 
 ## Status and landing boundary
 
 **Land this as an opt-in developer demo and implementation foundation. Do not treat landing on main as a production desktop release or a migration of the current Home.** The standard web/CLI launch commands remain the default. Desktop starts only through explicit desktop commands or the packaged app. There is no new schema migration, service registration, automatic data adoption, public callback deployment, or production cutover in this change.
+
+The foundation landed on main as `3c5a95f`. The update/migration design added on 26 September is a build requirement, not an implemented updater. No live database migration was performed while writing it. Since the original multi-device review, P2.7, P2.8 and P2.9 have been committed on the Homes branch as `57d22b2`, `0000739` and `ad07376`. Those changes are not yet in the main checkout inspected for this update, which is at `48ccc69`. The older phase table below remains a dated review record.
 
 The demo is deliberately separate from the existing CLI data home. It is not yet the final shared-service design. Do not point `RI_DESKTOP_ROOT` at a production Home, enable it as the phone's dependable host, or distribute the unsigned bundle as a supported release. Immediate quit can lose pending edits, desktop-hosted remote OAuth is incomplete, and closing the GUI stops its backend. The full security and durability findings below remain open unless explicitly marked otherwise.
 
@@ -244,6 +246,123 @@ Use one initiation service for settings, reconnect, expired credentials, tool-ge
 
 Do not promise all existing flows already work. The current Claude login route launches a command expecting a browser on the server, and desktop callback selection is backend-wide. These need explicit headless and cross-device paths. Real provider consent, account switching, refresh, scope escalation, revocation, cancellation, simultaneous flows and restart recovery are release acceptance, not inferred from mock tests.
 
+## Application updates and SQLite migrations
+
+Design review: 26 September 2026. **Download ahead of time, install at an agreed safe point, and migrate the authoritative SQLite database before making the new service available.** The same update coordinator must serve Electron, the CLI and a headless Home. Closing a desktop window is not evidence that the Home is idle. A phone, scheduler, webhook, worker or another CLI can still be using it.
+
+### User experience and default policy
+
+Check for releases periodically with backoff and jitter, and expose Check for updates in Settings. Download and verify eligible updates in the background, subject to metered-network and disk-space settings. Downloads do not change running code or data. Offer **Update when idle**, **Restart and update**, and **Later**, with a short release summary and a visible waiting reason such as “Waiting for 2 executions to finish.” Remember the user's choice across GUI/service restarts.
+
+For the first supported release, background download is automatic, but activating a Home update requires a user-approved pending update or an explicitly enabled maintenance-window policy. A permanently open Mini therefore still updates without the user having to quit Electron. A Linux Home uses the same policy with proposed `ri update check`, `status`, `download`, `apply` and scheduling controls. These commands do not exist yet. Do not silently add a periodic restart merely because automatic checking was enabled.
+
+An update to a remote Home must name the computer and its impact: “Update Ri on Mini. Phone access will briefly reconnect.” Restarting a laptop's Electron UI must not restart its remote Home. A headless Home may be controlled from an authorized owner UI, but ordinary team membership, a session token, or worker enrollment cannot authorize software installation. A team host gets its own administrator-controlled maintenance policy and member notification.
+
+If work is continuously active, the update remains pending and offers a deliberate pause/stop choice. A critical security release can show a stronger notice or respect an administrator's preconfigured deadline, but must not invent permission to kill work. Maintenance windows account for the host's timezone and sleep/wake, and do not assume “night” means idle.
+
+### Separate installed components from the Home
+
+| Component | Update ownership and disruption |
+| --- | --- |
+| Electron shell | Local installation manager. Flush that viewer's drafts and restart its windows. A compatible shell-only update can leave the Home running |
+| Home runtime: Node, Next, CLI resources, native modules and migrations | One local coordinator per Home, independent of Electron. Drain the Home, back up, migrate, validate, then resume |
+| Connected worker runtime | That computer's local coordinator. Preserve enrollment, journals and native history, and wait for its executions to finish before changing runtime |
+| Browser or phone UI | Served by the Home. Detect build/API changes and reload only after pending edits are acknowledged or durably retained |
+| Speech helper and models | Explicit compatible versions. Reuse unchanged models, stage verified replacements, and wait for transcription to finish |
+
+One release manifest describes the compatible component set. It includes OS/architecture, artifact digests and sizes, trusted publisher identity, release/channel, minimum updater version, database history identity, supported source schemas, target schema, UI/API compatibility, worker protocol, and local journal/config formats. App version alone is insufficient. Prefer rolling compatibility for routine updates. A protocol-breaking release needs a tested staged order or a bridge release, not an assumption that every computer updates together. Offline workers keep their journals and receive an honest incompatibility state until upgraded. A blocked worker is not revoked and its work is not reassigned.
+
+The service must run from an immutable, versioned runtime directory outside the replaceable `.app` bundle, selected by a stable launcher. Both Electron installation and the headless installer stage that same runtime. Keep the prior compatible runtime until verification succeeds. Resolve installation/cache/data locations through shared path helpers. Do not replace Node, libraries or JavaScript files underneath a running service, and do not make a launchd job depend on a path that the Electron installer removes.
+
+A small local bootstrap/update controller and an atomically written, durable update record must survive Next stopping and schema failure. Record the requested release, prior/target runtime, backup location, phase and recovery decision outside the database being migrated. On boot the controller reconciles that record before starting any backend. Update the controller itself only through a tested installer handoff. Its authenticated control surface accepts eligible release identifiers, not arbitrary URLs, shell commands or migration scripts from a renderer.
+
+### Packaging and delivery choice
+
+Use a pinned, stable **electron-builder/electron-updater** pair for the eventual desktop distribution, replacing the prototype's packager integration when release packaging is implemented. This provides release metadata, progress and platform adapters. Its macOS distribution needs signed artifacts and the update ZIP in addition to the installer. Linux desktop support depends on the chosen target. A headless Linux service still needs its own distribution adapter, not an Electron process. [Stable updater guide](https://www.electron.build/v26/docs/features/auto-update/).
+
+Do not rely on Electron's normal quit hook to make an update safe. Its updater can close windows before emitting the usual quit event, and a staged Mac update can apply on relaunch. Complete Ri's save/drain handshake before invoking native installation, and account for installer behavior on ordinary quit, crash, logout and next launch. Keeping service runtimes separate makes a shell replacement independent of the active backend. [Electron updater lifecycle](https://www.electronjs.org/docs/latest/api/auto-updater).
+
+Pin and test the actual updater API. At this review, the unversioned electron-builder documentation describes an unreleased v27 and its changed automatic-install controls, while v26 is stable. Do not copy a preview API or assume a quit-policy option overrides Squirrel.Mac's behavior. [Versioned API reference](https://www.electron.build/v26/docs/api/electron-updater.class.appupdater/), [preview migration notes](https://www.electron.build/docs/migration/v27-breaking-changes/).
+
+For direct headless installations, publish a signed runtime payload that the local controller stages and activates. For package-manager-managed installations, the package manager owns installed binaries and the update flow coordinates service maintenance with that adapter. Never run two independent updaters against one installation. Do not run package installation as root inside the main app server. OS-level installation may use the platform's narrowly scoped privilege mechanism where required.
+
+Use HTTPS plus authenticated release metadata and artifact verification against a trusted publisher key. A hash fetched beside a binary detects corruption but does not establish publisher authenticity by itself. Verify before activation, retain a usable installed version when offline, support release withdrawal/staged rollout, and reject unintended downgrades. Do not embed a repository-wide GitHub token or signing key in shipped software. Select the public release endpoint and signing identity before distribution.
+
+### What counts as a safe time
+
+The backend's authoritative activity report, not keyboard inactivity, decides. Account for foreground harness turns, background tools/subagents, outstanding permission requests, ambiguous deliveries, schedules, pending saves, attachment transfers, transcription, imports, Git/setup operations and owned terminals/previews. An idle chat transcript may still own a running process. For unattended activation, an unreachable worker with unresolved active work is a blocker, not proof that it stopped.
+
+First acquire an update/maintenance lock and close admission for new work, then wait for admitted work to drain. Continue allowing the completions, saves and acknowledgements needed to reach the safe point. Give connected clients time to flush and durably retain drafts. After a bounded drain, either install or return to a clear waiting state and resume normal admission. Do not starve the user indefinitely behind a half-entered maintenance state.
+
+Before the final backup, stop all writers and background dispatch, including direct local CLI access and all schema-initializing entry points. That requires a shared maintenance/version guard for every DB opener. A non-cooperating legacy process blocks the update. New writes and webhooks during the actual outage receive a retriable response such as 503 with Retry-After, not success without durable storage. Worker events must remain journaled on the worker until genuinely persisted and acknowledged. Do not advance a scheduled slot merely because maintenance rejected dispatch.
+
+The first version uses conservative drain-and-restart semantics. Running a new backend while the old one continues scheduling, or moving an execution to another computer to hide maintenance, would require additional coordination and is outside this update feature. If the owner explicitly stops work to update, preserve its confirmed stop or uncertain outcome and never replay it as though nothing happened.
+
+### Upgrade transaction
+
+The phases below form a crash-recoverable state machine, not one database transaction:
+
+```text
+available -> downloading -> verified -> waiting for safe point
+          -> draining -> backed up -> migrating -> validating
+          -> activated -> serving
+```
+
+1. **Stage and preflight.** Verify signatures, OS/CPU/native ABI, supported upgrade path, available space, updater version and component compatibility while the old version continues serving. Keep downloads outside the installation and Home content. Partial downloads are resumable or safely discarded.
+2. **Drain and freeze.** Acquire the single coordinator lock, save/acknowledge edits, stop new work and wait for a known safe state. Persist the phase before stopping processes. Keep a small authenticated maintenance/status endpoint available independently of Next so the GUI and phone can explain the outage.
+3. **Create and verify the recovery point.** Reuse the Homes full-backup implementation once merged. Its DB snapshot uses SQLite's backup API, not a raw copy of a live WAL database. Freeze other content/config writers while capturing attachments and configuration, because a DB snapshot alone does not make the whole Home consistent. Verify the manifest before proceeding. [SQLite backup API](https://www.sqlite.org/backup.html).
+4. **Stop the old runtime and prepare data.** All its DB handles must close. Run the target release's migration/bootstrap helper under the maintenance lock, before ordinary server startup. Never invoke a new `getDb()` as a preflight step before the backup, since it currently migrates automatically. The helper must not start schedules, mirrors, harnesses, tunnels or external account actions.
+5. **Migrate and validate.** Apply pending migrations with the existing safe runner and complete all derived-schema/backfill steps. Verify integrity, relationships, expected migration identity and representative reads before enabling background work. A staged migration rehearsal on a consistent copy may catch failures early, but the final data must also be checked after writers have stopped. Budget disk space and measure large-Home duration.
+6. **Activate and reopen admission.** Switch the runtime selection atomically, start the new backend in a validation mode with public writes and external effects still disabled, and verify its version, Home identity, database readiness and health. Persist the successful activation before reopening writes and dispatch. Reconnect clients and workers, and reload version-stale screens through the save/draft guard.
+
+Keep schema/data initialization and service readiness explicit. An HTTP process accepting a socket is not enough to mark the update successful. Bound restart attempts so a failed migration cannot produce an endless crash/migrate loop.
+
+### SQLite migration contract
+
+**Already implemented:** [getDb/initDatabase](../src/lib/db/index.ts) applies pending migrations on database initialization using [runMigrations](../src/lib/db/migrate.ts). That runner disables foreign keys before its transaction, applies pending SQL and migration journal entries together, checks for newly introduced foreign-key violations before committing, rolls back on failure, and leaves foreign keys enabled. Ten existing regression tests cover this behavior, including the table-rebuild cascade failure it prevents. They passed again on 26 September 2026 using temporary databases. [SQLite's schema-change procedure](https://www.sqlite.org/lang_altertable.html).
+
+**Required for managed updates:**
+
+- Run migration once per authoritative data root under exclusive lifecycle ownership, using the target runtime and its shipped migration files. A connected viewer/worker must never create or migrate a personal Home DB. A team authority migrates its own DB, under its own administrator's update policy.
+- Add a compatibility preflight before any schema-changing boot. Validate the entire applied migration sequence and hashes against the release's expected history. The current runner selects pending files by latest timestamp and returns success when none are newer. It does **not** reject an ahead-of-binary database or verify all previously applied hashes. Never let an older CLI or service silently write a newer/unknown schema.
+- Publish forward, append-only migrations for supported released databases. Do not squash a published baseline into a normal unattended update. The existing `MigrationHistoryError` and rowid-preserving [rebuild script](../scripts/db-rebuild.ts) handle a development history collapse, but their current source-checkout command is not a packaged recovery UX. A necessary legacy conversion needs a shipped, versioned conversion path, backup, verification and an explicit supported source range. Otherwise offer the required intermediate release without touching the DB.
+- Use the application's runner, never `drizzle-kit migrate`, `db:push`, or destructive reset commands. Preserve rowids and validate FTS relationships when a table must be rebuilt. Existing policy-default and migration rules still apply.
+- Include everything in `initDatabase`, not just the numbered SQL: FTS tables/triggers, vector index conversion, seed rows and entity-link backfills. These currently execute in separate stages and are not one atomic transaction together. Make every stage safely repeatable and record/check completion. A failed initializer must close and discard partially initialized cached connections.
+- Report pre-existing integrity problems separately. The current runner permits foreign-key violations that predate an upgrade. That avoids mislabeling old damage as a new migration bug, but is not a clean bill of health. Define which preflight problems block unattended updates and preserve the original for repair.
+- Check disk space for the download, prior runtime, backup and migration working space. A failed backup, full disk, unreadable key/config file or unsupported history must leave the prior service/data usable or enter a truthful recovery state. Never delete user content to make an update fit.
+
+### Recovery and the point after which rollback is unsafe
+
+Before admitting new application writes or external effects, the controller may recover by restoring the verified pre-upgrade checkpoint and selecting the prior compatible runtime. Preserve the failed candidate and diagnostic evidence. All old/new DB handles must be closed during a swap, and WAL/SHM files must be handled with the stopped SQLite database, not reused from the failed candidate. Reconcile the durable phase after power loss instead of guessing which binary or schema is current.
+
+**Once the new version has accepted writes, acknowledged worker events, or dispatched external work, never silently restore the old backup.** That could erase tasks, forget acknowledgements and repeat an action already performed elsewhere. Prefer a forward repair. Restoring an earlier recovery point then requires an explicit recovery workflow that preserves newer data/journals and explains the consequences. A binary-only downgrade is allowed only if the old binary is explicitly compatible with the current schema, config, journal and browser-profile formats. Do not assume every migration has a safe reverse SQL script.
+
+The Homes portable backup deliberately excludes machine-local identity, worker journals and other local material. Reuse its verified content backup, but add an update-specific inventory and checkpoint for any local state the release changes. Preserve the current machine's identity/enrollment and unpublished work. Do not call portable restore as though updating meant moving to another computer. Browser profiles and speech caches have their own compatibility/retention policies, and recovery must not erase durable drafts or silently reset logins.
+
+### Update acceptance and implementation order
+
+| Test | Required result |
+| --- | --- |
+| GUI closes while the Home or worker is busy | Service continues on its current version, update waits with a reason |
+| New work races the idle check | Admission/ownership lock prevents work from starting between drain and migration |
+| Home update with connected phone, CLI and workers | Acknowledged edits survive, pending drafts remain, events retry from journals, exactly one scheduler returns |
+| Offline worker or protocol mismatch | No lost journal or reassignment, clear compatibility state, tested staged upgrade order |
+| Fresh DB, one-release-old and several-release-old DBs | All supported migrations run without user shell commands, relationships and search/vector indexes validate |
+| Older binary or changed/missing migration history | Refused before application writes, with a usable upgrade/recovery action |
+| Power loss at every persisted phase | One runtime/authority resumes, or recovery opens with the verified checkpoint preserved |
+| Migration, backfill or readiness failure | No normal traffic or external work starts, recovery follows the recorded phase and does not loop |
+| Failure after the new version served writes | No silent backup restore or duplicate external dispatch |
+| Invalid publisher/signature, corrupt download, disk full or offline feed | Running installation remains usable, error/progress and retry are clear |
+| GUI-only update while a compatible service is busy | Shell can restart safely, service binaries and running jobs remain intact |
+| User/team/worker credentials attempt an unauthorized update | Only the relevant installation owner/host administrator can activate it |
+
+- [ ] U1: Establish the service owner, stable launcher, versioned runtime layout, maintenance guard, save/draft handshake and activity report with the Home/worker integration.
+- [ ] U2: Add migration-history compatibility checks, exclusive migration/bootstrap mode, full update checkpoint/verification, and crash-safe recovery. Test this locally before enabling remote updates.
+- [ ] U3: Build signed release payloads/metadata and the platform installer adapters, then connect them to the shared durable coordinator. Verify installed-app behavior, not only a development mock.
+- [ ] U4: Expose in-app/headless update controls and opt-in maintenance scheduling, implement UI/worker compatibility handling, and pass the fault matrix before unattended activation is enabled.
+
+Planning allowance: approximately 5-9 engineer-days after the service/backup foundation is stable for the coordinator, migration/recovery hardening, UI and Mac/Linux update adapters, including focused failure tests. This overlaps D4/D6/D12 and the existing release estimate, so do not add the full amount again. Signing/account setup and support for additional installer formats can add elapsed time. This review defines the design and verifies the current migration runner, it does not implement the updater or run a migration against the user's Home.
+
 ## Open findings and implementation requirements
 
 The audit inventoried **252 API route files**, traced the desktop-sensitive subsystems, ran all three JavaScript test suites, checked both TypeScript projects, inspected packaging and upstream documentation, and exercised the real packaged application. This is broad architectural, code, and targeted runtime coverage. It is not a claim that every route, provider account, operating system, accessibility interaction, or failure condition has passed end-to-end certification. The coverage table below identifies those limits.
@@ -459,7 +578,7 @@ Unchecked items are requirements, not implemented features. The Homes spec contr
 - [ ] D9: Complete service environment/tool discovery, persistent configuration, local companion association, local folder/editor actions and remote preview/file routing. Reuse execution placement and permission checks. Do not infer local authority from hostname or a client header.
 - [ ] D10: If shipping managed voice, benchmark the engine, package signed helpers and optional verified model downloads, support real recording formats and explicit fallback, and implement install/repair/uninstall/readiness/resource limits. Keep helper endpoints private.
 - [ ] D11: Complete native permissions, camera/microphone descriptions, hotkeys, menus, downloads, notifications/clicks, accessibility, window restoration, multiple displays and phone home-screen installation. Do not confuse API presence with successful delivery or recording.
-- [ ] D12: Pin release dependencies/runtime, reduce the bundle, sign/notarize and build an update channel. Reuse full-Home verified backups, preserve unpublished work and machine-local exclusions, rehearse migration/recovery, redact logs and define uninstall retention. Add clean-machine CI/QA for supported Mac/Linux targets.
+- [ ] D12: Pin release dependencies/runtime, reduce the bundle, sign/notarize and build an update channel. Implement the [update and SQLite migration contract](#application-updates-and-sqlite-migrations), including U1-U4. Reuse full-Home verified backups, preserve unpublished work and machine-local exclusions, rehearse migration/recovery, redact logs and define uninstall retention. Add clean-machine CI/QA for supported Mac/Linux targets.
 - [ ] D13: Integrate personal/team connection identity, scoped credentials, no-AI team boundaries, retained conflict drafts, membership revocation and deliberate result publication. A remote/team page never inherits the local personal native bridge.
 - [ ] D14: Pass the combined acceptance matrix below and the Homes spec gates, with explicit evidence for every supported OS, provider and deployment mode. Convert the audit's successful vulnerability probes into passing prevention regressions.
 
