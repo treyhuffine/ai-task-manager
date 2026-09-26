@@ -402,8 +402,8 @@ export interface ExecutionChatHistoryEntry {
 }
 
 export const sessionsApi = {
-  get(id: string): Promise<ChatSessionWithExecution> {
-    return api.get<ChatSessionWithExecution>(`/sessions/${id}`);
+  get(id: string, opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution> {
+    return api.get<ChatSessionWithExecution>(`/sessions/${id}`, { signal: opts.signal });
   },
 
   update(
@@ -580,8 +580,8 @@ export const sessionsApi = {
     return api.post<AutoMergeResponse>(`/sessions/${id}/auto-merge`, body);
   },
 
-  needsReview(): Promise<ChatSessionWithExecution[]> {
-    return api.get<ChatSessionWithExecution[]>('/sessions/needs-review');
+  needsReview(opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution[]> {
+    return api.get<ChatSessionWithExecution[]>('/sessions/needs-review', { signal: opts.signal });
   },
 
   /**
@@ -611,8 +611,8 @@ export const sessionsApi = {
     return api.post<ChatSessionWithExecution>(`/sessions/${id}/unpin`);
   },
 
-  rail(): Promise<RailResponse> {
-    return api.get<RailResponse>('/sessions/rail');
+  rail(opts: { signal?: AbortSignal } = {}): Promise<RailResponse> {
+    return api.get<RailResponse>('/sessions/rail', { signal: opts.signal });
   },
 
   history(): Promise<HistoryResponse> {
@@ -743,8 +743,8 @@ export const sessionsApi = {
     });
   },
 
-  runtimeStatus(id: string): Promise<SessionRuntimeStatus> {
-    return api.get<SessionRuntimeStatus>(`/sessions/${id}/runtime-status`);
+  runtimeStatus(id: string, opts: { signal?: AbortSignal } = {}): Promise<SessionRuntimeStatus> {
+    return api.get<SessionRuntimeStatus>(`/sessions/${id}/runtime-status`, { signal: opts.signal });
   },
 
   interrupt(id: string): Promise<{ ok: true }> {

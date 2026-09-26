@@ -887,6 +887,45 @@ Checked, not changed: the rail and the phone list one row per agent, and setups 
 - `run-on.test.ts` (12): the choices and their reasons, the automatic and saved defaults, a saved default that stopped working, the start on the default and a one-off pick that doesn't change it, the refused start, `location` on the session and the rail, and the route. `location.test.ts` (2): the prepared folder wherever it is, and when a location is shown. Full suite: 2,625 passed, exit 0.
 - Live on the dev home (migration 0008 applied, snapshot first), screenshotted: the launcher showed "Mac Mini" with Demo's two choices, the stand-in marked not connected with the work waiting for it. Picking the stand-in and "Make MacBook (stand-in) the default" saved it, and a launch from the launcher ran there with real Claude answering. The stand-in's execution showed its name in the header on desktop and phone, and the phone's agent list named it on each laptop execution, with the home's own work unlabeled. None showed "Setting up" once prepared. Demo's default was put back to automatic afterwards.
 
+## P3 and P4 plan
+
+The working checklist for building through P4, in dependency order. Each item is checked when it's built, tested and checked live, with its notes in the section it gets below.
+
+### 0. Requests that stall (gate B finding, first)
+
+The dashboard mounts its phone, tablet and desktop layouts at once and hides two with CSS, and the execution view renders its chat twice, once per width. With an execution open that's two streams for it, a hidden main chat's stream, four composers each probing voice, and a pool of six HTTP/1.1 connections per host filled by streams. Superseded refetches don't abort their request, so rail requests pile up behind them.
+
+- [x] 0.1 Mount only the layout the viewport shows (`useViewportTier`, the CSS breakpoints by `matchMedia`). All three render only on the server and while hydrating, hidden by CSS as before, so the server's HTML doesn't change.
+- [x] 0.2 The execution view renders its chat body in the half the viewport shows, so one composer and one transcript, not two.
+- [x] 0.3 A superseded fetch aborts its request: the rail, needs review, agents, a session and its runtime status pass the query's AbortSignal.
+- [x] 0.4 One voice-status probe for every composer, reused for a minute (`fetchQuery`).
+- [x] 0.5 Rail invalidations coalesce across streams and bursts, one refetch per 250 ms (`invalidateRailSoon`).
+- [x] 0.6 Measured with an execution open and nothing touched for a minute, counting requests unanswered after 10 seconds: on the local address 32 before, 0 after. On the Beamd address about 16 of 90 still get no response headers in headless Chrome. The server answers the same requests in about 0.3 s through Beamd, and a direct HTTP/2 client over one connection, with three streams open, a burst of 60 requests, or 20 requests cancelled mid-flight first, never stalls. So what's left is between Chrome and the tunnel, not in the app, and is recorded for a browser network trace. The probes are in `personal/probes/` (`stalled-requests.mjs`, `h2-burst.mjs`, `h2-cancel.mjs`).
+
+### P3
+
+- [ ] 3.2a Delivery state per sent message (saved, waiting, sending, delivered, not delivered, uncertain), on events and pushed on the session stream as it changes.
+- [ ] 3.2b A message waiting for a computer doesn't read as working. The execution says "Waiting for MacBook", or "MacBook disconnected, last heard from…" when contact is lost mid-turn, and Asleep only when reported.
+- [ ] 3.2c Cancel before delivery, refused once it's on its way (stop the execution instead). Send again for a message not delivered or uncertain, as a new message.
+- [ ] 3.2d Home unreachable keeps the draft. Setup failed on a computer shows its output and Retry. A missing folder or reference says which, where.
+- [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner.
+- [ ] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
+- [ ] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
+- [ ] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
+- [ ] 3.5c Terminals on a worker: create, list, input, output, resize, close through the worker, bounded replay, reconnect, input disabled while disconnected with no replay of unconfirmed keys, never a fallback shell at home. Agent-folder terminals on the agent's computer. Computer and folder shown.
+- [ ] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
+- [ ] 3.6 Deck: one scheduler and daily generation at the home (tests).
+- [ ] 3.7 The whole flow at phone and laptop widths: keyboard, voice, pending-input controls.
+
+### P4
+
+- [ ] 4.1 Open code here: a review worktree of the execution's published commit on the viewer's computer, labeled with the commit and source computer. Refresh only when clean. Edits kept. No published commit offers commit and push on the source.
+- [ ] 4.2 Continue here: transfer record and lock (messages held), validate the destination, confirmed stop of the source (harness, background tasks, terminals, preview, scripts), events flushed and the conversation checkpoint recorded, Git checkpoint with explicit untracked files and no secrets, pushed without force, the destination fetches and verifies the exact commit.
+- [ ] 4.3 Handoff: a fresh session on the destination with a summary (deterministic when summarizing fails), binding history kept, "Continued on MacBook" once in the chat, the generation changes atomically, held messages delivered once, a fresh terminal there.
+- [ ] 4.4 Every failure stage leaves one owner and a safe retry or resume, with held messages, source artifacts and branches kept.
+- [ ] 4.5 Commit, PR, push, pull base, restart and archive route through the owner. The takeover paths Continue here replaces are retired.
+- [ ] 4.6 The failure matrix in tests, including the P2 re-review's placement probe.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

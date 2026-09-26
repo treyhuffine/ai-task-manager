@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateRailSoon } from '@/lib/query/invalidate-rail';
 
 /**
  * Refresh rail-facing state when any session changes lifecycle, including
@@ -12,17 +13,9 @@ export function useGlobalSessionStream(): void {
 
   useEffect(() => {
     const source = new EventSource('/api/sessions/stream');
-    const refresh = () => {
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'rail'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'needs-review'] });
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-      // Execution chat-tab strips read `['execution', <id>, 'chats']` for
-      // sibling unread/running dots. Sweep by key shape so any open strip
-      // refreshes regardless of which of its chats changed.
-      queryClient.invalidateQueries({
-        predicate: (q) => q.queryKey[0] === 'execution' && q.queryKey[2] === 'chats',
-      });
-    };
+    // Coalesced with every other stream's refresh (invalidateRailSoon).
+    // Chat-tab strips too: any open strip refreshes whichever chat changed.
+    const refresh = () => invalidateRailSoon(queryClient, { includeChatStrips: true });
 
     source.addEventListener('session_updated', refresh);
     source.addEventListener('ready', refresh);

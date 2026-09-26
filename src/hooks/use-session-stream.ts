@@ -7,6 +7,7 @@ import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 import { worktreeScopeFromCache } from '@/hooks/use-execution';
 import { hot } from '@/lib/_debug/hot-path';
+import { invalidateRailSoon } from '@/lib/query/invalidate-rail';
 import {
   withBackgroundTaskStatus,
   withRunningStatus,
@@ -73,11 +74,8 @@ export function useSessionStream(sessionId: string | null): void {
     // signal to re-fetch the rail. Cheaper than a global SSE channel
     // and snaps the rail's buckets to reality as soon as the viewed
     // session moves between them.
-    const invalidateRail = () => {
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'rail'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'needs-review'] });
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-    };
+    // Coalesced across streams and bursts (invalidateRailSoon).
+    const invalidateRail = () => invalidateRailSoon(queryClient);
 
     const handleChatEvent = (raw: MessageEvent) => {
       hot('sse chat_event');

@@ -31,7 +31,9 @@ const HISTORY_KEY = ['sessions', 'history'] as const;
 export function useWorkspaces(filter?: { status?: WorkspaceStatus }) {
   return useQuery({
     queryKey: [...WORKSPACES_KEY, filter],
-    queryFn: () => workspacesApi.list(filter),
+    // The signal aborts a request a newer refetch superseded, rather than
+    // leaving it queued behind the page's streams (gate B finding).
+    queryFn: ({ signal }) => workspacesApi.list(filter, { signal }),
   });
 }
 
@@ -85,7 +87,7 @@ export function useSetDefaultComputer(workspaceId: string | null) {
 export function useNeedsReviewSessions() {
   return useQuery({
     queryKey: NEEDS_REVIEW_KEY,
-    queryFn: () => sessionsApi.needsReview(),
+    queryFn: ({ signal }) => sessionsApi.needsReview({ signal }),
     refetchInterval: 5_000,
   });
 }
@@ -353,7 +355,7 @@ export function useUnpinSession() {
 export function useRailSessions() {
   return useQuery({
     queryKey: RAIL_KEY,
-    queryFn: () => sessionsApi.rail(),
+    queryFn: ({ signal }) => sessionsApi.rail({ signal }),
     refetchInterval: 15_000,
   });
 }

@@ -136,7 +136,7 @@ function byCreatedThenId(a: ChatEventDTO, b: ChatEventDTO): number {
 export function useSession(id: string | null) {
   return useQuery({
     queryKey: ['session', id],
-    queryFn: () => sessionsApi.get(id!),
+    queryFn: ({ signal }) => sessionsApi.get(id!, { signal }),
     enabled: !!id,
     retry: (failureCount, error) => {
       // `isLaunchPending` is the only stopping rule for this branch, on
@@ -1068,7 +1068,7 @@ function deriveSessionMeta(events: ChatEventDTO[]): SessionMeta {
 export function useRuntimeStatus(id: string | null) {
   return useQuery({
     queryKey: ['session', id, 'runtime-status'],
-    queryFn: () => sessionsApi.runtimeStatus(id!),
+    queryFn: ({ signal }) => sessionsApi.runtimeStatus(id!, { signal }),
     enabled: !!id,
     refetchInterval: (query) => hasRuntimeActivity(query.state.data) ? 5_000 : false,
   });

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { preparedFolder } from '@/lib/executions/location';
+import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
   useSession,
@@ -282,6 +283,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // parts mount only where the width is real.
   const [desktopRef, desktopWidth] = useElementWidth<HTMLDivElement>();
   const [mobileRef, mobileWidth] = useElementWidth<HTMLDivElement>();
+  // Which half the viewport shows, by the CSS breakpoint that hides the
+  // other (lg): true desktop, false phone and tablet, null until known.
+  // The chat body renders only in that half, so there's one composer and
+  // one transcript, not two.
+  const tier = useViewportTier();
+  const wide = tier === null ? null : tier === 'desktop';
   const desktopVisible = (desktopWidth ?? 0) > 0;
   const mobileVisible = (mobileWidth ?? 0) > 0;
   const desktopVisibleRef = useRef(desktopVisible);
@@ -709,8 +716,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
               <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
             </div>
           )}
-          {/* Phone: Enter inserts a newline; the send button submits. */}
-          {renderChatBody(false, false)}
+          {/* Phone: Enter inserts a newline; the send button submits. Only
+              where the viewport shows this half (useViewportTier). */}
+          {!wide && renderChatBody(false, false)}
         </div>
         {mobileVisible && mobileView && (
           <MobileDestination
@@ -783,7 +791,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             )}
             <div key="chat" className={cn('@container/chat relative flex min-h-0 min-w-0 flex-1 flex-col bg-background', maximized && 'hidden')}>
               {/* Desktop: Enter submits (Shift+Enter for a newline). */}
-              {renderChatBody(true, !panelOpen)}
+              {wide !== false && renderChatBody(true, !panelOpen)}
             </div>
             {panelOpen && desktopVisible && (
               <>

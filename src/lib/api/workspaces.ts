@@ -11,9 +11,10 @@ import type {
 } from '@/db/types';
 
 export const workspacesApi = {
-  list(filter?: { status?: WorkspaceStatus }): Promise<WorkspaceWithCounts[]> {
+  list(filter?: { status?: WorkspaceStatus }, opts: { signal?: AbortSignal } = {}): Promise<WorkspaceWithCounts[]> {
     return api.get<WorkspaceWithCounts[]>('/workspaces', {
       query: filter as Record<string, string>,
+      signal: opts.signal,
     });
   },
 

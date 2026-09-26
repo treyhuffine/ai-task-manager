@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getVoiceProvider, DEFAULT_VOICE_MODEL } from '@/constants/voice-models';
 import { useUserState } from '@/hooks/use-user-state';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api/client';
 
 type VoiceProvider = 'local' | 'groq' | 'web' | null;
@@ -62,7 +63,17 @@ export interface UseVoiceInputReturn {
   providerStatus: ProviderStatus | null;
 }
 
+/**
+ * One provider probe for every composer on the page, reused for a minute.
+ * Each composer probed on its own, twice as its voice model loaded, and on a
+ * plain-HTTP connection those probes queued behind the page's streams
+ * (gate B finding).
+ */
+const PROVIDERS_KEY = ['transcribe', 'providers'] as const;
+const PROVIDERS_FRESH_MS = 60_000;
+
 export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn {
+  const queryClient = useQueryClient();
   const { data: userState } = useUserState();
   const voiceModel = voiceModelOverride ?? userState?.voiceModel ?? DEFAULT_VOICE_MODEL;
 
@@ -175,7 +186,11 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     async function probe() {
       let status: ProviderStatus | null = null;
       try {
-        const data = await api.get<{ providers: ProviderStatus }>('/transcribe');
+        const data = await queryClient.fetchQuery({
+          queryKey: PROVIDERS_KEY,
+          queryFn: () => api.get<{ providers: ProviderStatus }>('/transcribe'),
+          staleTime: PROVIDERS_FRESH_MS,
+        });
         if (cancelled) return;
         status = data.providers;
         setProviderStatus(status);
@@ -192,7 +207,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
 
     probe();
     return () => { cancelled = true; };
-  }, [voiceModel]);
+  }, [voiceModel, queryClient]);
 
   // ─── Mic lifecycle helpers ──────────────────────────────────
   const stopMic = useCallback(() => {

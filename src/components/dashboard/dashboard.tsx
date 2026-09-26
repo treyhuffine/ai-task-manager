@@ -24,6 +24,7 @@ import { AuthRecoveryCard } from '@/components/auth/auth-recovery-card';
 import { useRailContextHydrate } from '@/hooks/use-rail-context-hydrate';
 import { useGlobalSessionStream } from '@/hooks/use-global-session-stream';
 import { cn } from '@/lib/utils';
+import { useViewportTier } from '@/hooks/use-viewport-tier';
 
 function DashboardShell() {
   const {
@@ -110,6 +111,7 @@ function DashboardShell() {
   }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed, toggleExecutionRailOpen, goHome, openExecution, isHome]);
 
   const hasHistory = slideoutStack.length > 1;
+  const tier = useViewportTier();
 
   return (
     <div className={cn(
@@ -121,27 +123,35 @@ function DashboardShell() {
           <TopHud />
         </div>
 
+        {/* One layout for the viewport (useViewportTier). All three render
+            only while the viewport isn't known yet, hidden by CSS. */}
         {/* Mobile layout: <md */}
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden md:hidden">
-          <MobileLayout />
-        </div>
+        {(tier === null || tier === 'phone') && (
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden md:hidden">
+            <MobileLayout />
+          </div>
+        )}
 
         {/* Tablet layout: md–lg */}
-        <div className="hidden md:flex lg:hidden flex-1 min-h-0 overflow-hidden">
-          <TabletLayout />
-        </div>
+        {(tier === null || tier === 'tablet') && (
+          <div className="hidden md:flex lg:hidden flex-1 min-h-0 overflow-hidden">
+            <TabletLayout />
+          </div>
+        )}
 
         {/* Desktop layout: ≥lg */}
-        <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
-          <PowerRail compact={isExecutionView} />
-          {activeView.kind === 'execution' ? (
-            <ExecutionView sessionId={activeView.id} />
-          ) : activeView.kind === 'agent' ? (
-            <AgentView workspaceId={activeView.id} tab={activeView.tab} />
-          ) : (
-            <PanelLayout />
-          )}
-        </div>
+        {(tier === null || tier === 'desktop') && (
+          <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
+            <PowerRail compact={isExecutionView} />
+            {activeView.kind === 'execution' ? (
+              <ExecutionView sessionId={activeView.id} />
+            ) : activeView.kind === 'agent' ? (
+              <AgentView workspaceId={activeView.id} tab={activeView.tab} />
+            ) : (
+              <PanelLayout />
+            )}
+          </div>
+        )}
 
         <FocusView />
         <SearchOverlay />
