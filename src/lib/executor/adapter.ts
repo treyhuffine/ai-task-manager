@@ -117,6 +117,7 @@ import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/harness/runti
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { redactHarnessRuntimeValue } from '@/lib/harness/redaction';
 import { harnessDefinition, isHarnessEnabled, type HarnessId } from '@/lib/harness/registry';
+import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 
 // ─── Public errors ────────────────────────────────────────────
 
@@ -643,6 +644,9 @@ export async function dispatch(
 ): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
+  // An import nobody has taken over has no session to resume. A send would
+  // start a blank one under a transcript it never saw, whoever is sending.
+  if (isImportMirror(session)) throw new ExecutorError('invalid_state', IMPORT_MIRROR_REFUSAL);
 
   const cwd = resolveCwd(session);
   if (!cwd) throw new ExecutorError('invalid_state', 'Session has no resolvable cwd');

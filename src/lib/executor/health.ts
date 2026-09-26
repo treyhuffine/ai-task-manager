@@ -41,6 +41,7 @@ import {
 } from './adapter';
 import { reconcileSession } from './reconcile';
 import { withSenderLabel } from '@/lib/sessions/sender';
+import { isImportMirror } from '@/lib/import/mirror';
 
 /**
  * - `healthy`   — session is in a state where the user can send and
@@ -190,8 +191,7 @@ export async function healthCheckSession(
     // shows — the exact silent fork the takeover gate exists to prevent, and
     // an automated trigger must not walk through that gate on the user's
     // behalf.
-    const isMirroredImport =
-      session.surfaceKind === 'imported_agent' && !session.externalSessionId;
+    const isMirroredImport = isImportMirror(session);
     const isRedispatchable =
       activity.orphan.role === 'user'
       && activity.orphan.source === 'user'

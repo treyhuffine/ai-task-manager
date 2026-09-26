@@ -58,6 +58,7 @@ import { ToolsBox } from './workbench/tools-box';
 import { ResizeHandle } from './workbench/resize-handle';
 import { MobileDestination, MobileToolsSheet } from './workbench/mobile-workbench';
 import type { WorkbenchViewContext } from './workbench/workbench-views';
+import { isImportMirror } from '@/lib/import/mirror';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -504,8 +505,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // An imported chat mirrors a session this app doesn't drive. Sending would
   // spawn an agent with none of the context shown above it, so the composer
   // stays locked until the user takes the chat over on purpose.
-  const isMirroredImport =
-    session.surfaceKind === 'imported_agent' && !session.externalSessionId;
+  const isMirroredImport = isImportMirror(session);
   const isResuming = session.status === 'archived';
   const composerDisabled = isResuming || isSettingUp || isMirroredImport;
   const composerDisabledReason = isResuming

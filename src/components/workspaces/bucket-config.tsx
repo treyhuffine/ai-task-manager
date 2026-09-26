@@ -102,3 +102,26 @@ export function classifySession(
 
   return 'waiting';
 }
+
+/**
+ * How many executions wait on the user and how many are working, for the
+ * phone's Agents tab. Counted over the rail's sessions, as the desktop pills
+ * are, so only executions count: a turn in the main chat, or an agent's main
+ * chat, shows where it happens and never reads as an agent at work. One
+ * waiting on the user counts once, as waiting.
+ */
+export function executionActivity(
+  sessions: readonly RailSession[],
+  pending: ReadonlySet<string>,
+  streaming: ReadonlySet<string>,
+): { pending: number; working: number } {
+  let waitingOnUser = 0;
+  let working = 0;
+  for (const s of sessions) {
+    if (s.status !== 'active') continue;
+    const bucket = classifySession(s, pending, streaming);
+    if (bucket === 'needsApproval') waitingOnUser += 1;
+    else if (bucket === 'working') working += 1;
+  }
+  return { pending: waitingOnUser, working };
+}

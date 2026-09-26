@@ -254,6 +254,26 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
     expect(endDispatchPreparation).toHaveBeenCalledWith(SESSION_ID, PREPARATION_REF);
   });
 
+  it('an import nobody took over → 409, and nothing is saved or sent', async () => {
+    getChatSessionWithExecution.mockReturnValue({
+      id: SESSION_ID,
+      status: 'active',
+      executionId: EXECUTION_ID,
+      harness: 'claude',
+      workspaceId: 'ws-1',
+      takeoverStartedAt: null,
+      surfaceKind: 'imported_agent',
+      externalSessionId: null,
+    });
+    getChatEventById.mockReturnValue(undefined);
+
+    const res = await POST(makeRequest({ content: 'Hello', id: CLIENT_ID }), makeParams());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'session_is_import' });
+    expect(insertChatEvent).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('fresh send + budget block → 402', async () => {
     getChatEventById.mockReturnValue(undefined);
     budgetGate.mockReturnValue('block');

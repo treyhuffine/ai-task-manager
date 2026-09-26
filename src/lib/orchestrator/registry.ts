@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import { z } from 'zod';
 import { uuidv7 } from 'uuidv7';
 import { defineAction, ActionError, type ActionContext } from './types';
+import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 import { browserActions } from './browser-actions';
 import {
   TASK_STATUSES,
@@ -1818,7 +1819,8 @@ const send_session_message_action = defineAction({
     'direction. Delivered through the app server: it lands in the agent\'s queue mid-turn or starts a ' +
     'new turn. Fire-and-forget. Poll get_session_messages for the response. The message is labeled with ' +
     'the chat it came from, in the transcript and for the receiving agent, so it is never mistaken for ' +
-    'the user typing. You cannot send to your own session.',
+    'the user typing. You cannot send to your own session, or to an imported terminal session the user ' +
+    'has not taken over in the app (it is read-only).',
   params: {
     sessionId: z.string().min(1),
     content: z.string().min(1),
@@ -1840,6 +1842,7 @@ const send_session_message_action = defineAction({
         'Session is archived. Resume it from the app before messaging it.',
       );
     }
+    if (isImportMirror(session)) throw new ActionError('conflict', IMPORT_MIRROR_REFUSAL);
 
     // Through the server, never executor.dispatch from here: the messages
     // route owns marker expansion, label derivation, health checks, and

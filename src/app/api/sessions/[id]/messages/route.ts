@@ -19,6 +19,7 @@ import { healthCheckSession } from '@/lib/executor/health';
 import type { Attachment } from '@/db/types';
 import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import { withSenderLabel } from '@/lib/sessions/sender';
+import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 
 interface PostBody {
   content?: string;
@@ -93,6 +94,10 @@ export async function POST(
         },
         { status: 409 },
       );
+    }
+    // Before the message is saved, so a refused send leaves nothing behind.
+    if (isImportMirror(session)) {
+      return Response.json({ error: 'session_is_import', message: IMPORT_MIRROR_REFUSAL }, { status: 409 });
     }
 
     // Skip pre-flight for retries (client re-POSTs the same body.id
