@@ -22,8 +22,15 @@ import type { InputFile, RunnerSignal, SessionSpec } from '@/lib/runner/types';
  */
 export const HOME_ADDRESS_SCHEME = 'ri-home:';
 
-/** The protocol this build speaks. A home refuses a worker on another one with 426. */
-export const WORKER_PROTOCOL = 1;
+/**
+ * The protocol this build speaks. A home refuses a worker on another one with
+ * 426, and the worker says to update Ri there.
+ *
+ * 2: a session elsewhere gets its reference folders as `agentFolders`, which
+ * the worker's runner resolves and wires at spawn (P2.7 to P2.9 review
+ * fixes). A worker on 1 would start those sessions without them.
+ */
+export const WORKER_PROTOCOL = 2;
 export const WORKER_PROTOCOL_HEADER = `x-${APP_SHORT_ID}-worker-protocol`;
 
 export const WORKER_HEARTBEAT_MS = 20_000;

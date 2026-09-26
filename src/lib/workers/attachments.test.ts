@@ -13,6 +13,7 @@ import type { Attachment } from '@/db/types';
 import type { WorkerTarget } from '@/lib/worker/client';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
+import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
 let server: HomeServer;
@@ -68,7 +69,7 @@ async function enrollComputer(name: string): Promise<{ computerId: string; targe
   const { workerKey } = await fetch(`${server.url}/api/workers/enroll`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: grant.code, name, protocol: 1, version: 'test' }),
+    body: JSON.stringify({ code: grant.code, name, protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>);
   return {
     computerId,
@@ -104,7 +105,7 @@ async function sentWith(files: Attachment[]) {
 async function get(key: string, fileName: string, commandId: string | null) {
   const query = commandId === null ? '' : `?command=${commandId}`;
   const res = await fetch(`${server.url}/api/workers/me/attachments/${fileName}${query}`, {
-    headers: { authorization: `Bearer ${key}`, 'x-ri-worker-protocol': '1' },
+    headers: { authorization: `Bearer ${key}`, 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
   });
   return { status: res.status, body: res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text() };
 }

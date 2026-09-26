@@ -16,6 +16,7 @@ import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import type { WorkerTarget } from '@/lib/worker/client';
 import type { CommandHandlers, CommandKindHandler } from '@/lib/worker/commands';
 import type { WorkerStatus } from '@/lib/worker/run';
+import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
 let server: HomeServer;
@@ -60,7 +61,7 @@ async function enroll(): Promise<WorkerTarget> {
   const enrolled = await fetch(`${server.url}/api/workers/enroll`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: grant.code, name: 'mac', protocol: 1, version: 'test' }),
+    body: JSON.stringify({ code: grant.code, name: 'mac', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>);
   return { homeUrl: server.url, homeId, homeName: 'My Ri', computerName: 'MacBook', workerKey: enrolled.workerKey };
 }

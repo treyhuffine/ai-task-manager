@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
+import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
 let server: HomeServer;
@@ -46,7 +47,7 @@ beforeEach(async () => {
   ({ workerKey } = await fetch(`${server.url}/api/workers/enroll`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: 1, version: 'test' }),
+    body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>));
 
   // An agent with an execution placed on the laptop, its worktree there.

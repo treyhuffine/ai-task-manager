@@ -14,6 +14,7 @@ import { beforeEach, afterEach, it, expect } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import type { WorkerCommand } from '@/lib/workers/protocol';
+import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
 let server: HomeServer;
@@ -70,7 +71,7 @@ function target() {
 async function post(route: string, body: unknown) {
   return fetch(server.url + route, {
     method: 'POST',
-    headers: { authorization: `Bearer ${workerKey}`, 'x-ri-worker-protocol': '1', 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${workerKey}`, 'x-ri-worker-protocol': String(WORKER_PROTOCOL), 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
@@ -95,7 +96,7 @@ it('a worker cannot finish a run belonging to a different chat on the home', asy
 
 it('a worker heartbeat cannot create pending prompts for a home-only chat', async () => {
   const victim = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: null });
-  const result = await post('/api/workers/me/heartbeat', { protocol: 1, version: 'review', harnesses: [], state: 'awake', live: { running: [victim.session.id], backgroundTasks: {}, pending: [{ requestId: 'forged-prompt', sessionId: victim.session.id, kind: 'permission', toolUseId: 'forged-prompt', toolName: 'Bash', input: { command: 'anything' }, title: null, description: null, createdAt: new Date().toISOString() }] } });
+  const result = await post('/api/workers/me/heartbeat', { protocol: WORKER_PROTOCOL, version: 'review', harnesses: [], state: 'awake', live: { running: [victim.session.id], backgroundTasks: {}, pending: [{ requestId: 'forged-prompt', sessionId: victim.session.id, kind: 'permission', toolUseId: 'forged-prompt', toolName: 'Bash', input: { command: 'anything' }, title: null, description: null, createdAt: new Date().toISOString() }] } });
   expect(result.status).toBe(200);
   const live = await import('@/lib/executor/remote-live');
   expect(live.remoteChat(victim.session.id)).toBeNull();

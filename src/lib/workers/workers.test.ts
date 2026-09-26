@@ -10,6 +10,7 @@ import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import type { WorkerTarget } from '@/lib/worker/client';
 import type { WorkerExit, WorkerStatus } from '@/lib/worker/run';
+import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
 let server: HomeServer;
@@ -70,7 +71,7 @@ async function call(path: string, init: { method?: string; bearer?: string; body
 async function enroll(opts: { code?: string; protocol?: number } = {}) {
   const code = opts.code ?? ((await call('/api/workers/grants', { bearer: laptopKey, body: {} })).json!.code as string);
   return call('/api/workers/enroll', {
-    body: { code, name: 'mac', platform: 'darwin', hostname: 'Mac.lan', protocol: opts.protocol ?? 1, version: 'test' },
+    body: { code, name: 'mac', platform: 'darwin', hostname: 'Mac.lan', protocol: opts.protocol ?? WORKER_PROTOCOL, version: 'test' },
   });
 }
 
@@ -128,7 +129,7 @@ describe('enrolling', () => {
     const { sendHeartbeat } = await import('@/lib/worker/run');
     await sendHeartbeat(target, 'test', 'awake', describeFake);
     expect(q.getComputer(laptopComputerId)).toMatchObject({
-      workerProtocol: 1,
+      workerProtocol: WORKER_PROTOCOL,
       workerVersion: 'test',
       reportedState: 'awake',
       harnesses: FAKE_HARNESSES,
@@ -186,8 +187,8 @@ describe('the boundary between viewing and worker keys', () => {
     await enrolledTarget();
     const res = await call('/api/workers/me/heartbeat', {
       bearer: laptopKey,
-      headers: { 'x-ri-api-key-scope': 'worker', 'x-ri-worker-computer-id': laptopComputerId, 'x-ri-worker-protocol': '1' },
-      body: { protocol: 1, version: 'x', harnesses: [], state: 'awake' },
+      headers: { 'x-ri-api-key-scope': 'worker', 'x-ri-worker-computer-id': laptopComputerId, 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
+      body: { protocol: WORKER_PROTOCOL, version: 'x', harnesses: [], state: 'awake' },
     });
     expect(res).toMatchObject({ status: 403, json: { error: 'not_a_worker' } });
   });
@@ -209,10 +210,10 @@ describe('the connection', () => {
 
     // The first heartbeat goes out as the stream opens, without waiting on it.
     const q = await import('@/lib/db/queries');
-    await until(() => q.getComputer(laptopComputerId)?.workerProtocol === 1, 'the first heartbeat');
+    await until(() => q.getComputer(laptopComputerId)?.workerProtocol === WORKER_PROTOCOL, 'the first heartbeat');
     const list = await call('/api/computers', { bearer: laptopKey });
     const laptop = (list.json as unknown as Array<{ id: string; worker: unknown }>).find((c) => c.id === laptopComputerId);
-    expect(laptop?.worker).toMatchObject({ enrolled: true, connected: true, protocol: 1, reportedState: 'awake' });
+    expect(laptop?.worker).toMatchObject({ enrolled: true, connected: true, protocol: WORKER_PROTOCOL, reportedState: 'awake' });
   });
 
   it("answers a request it doesn't know as unsupported", async () => {
@@ -247,13 +248,13 @@ describe('the connection', () => {
     const pending = hub.requestWorker(laptopComputerId, 'describe_harnesses', null, 2_000);
     const wrong = await call(`/api/workers/me/requests/${sent[0]!.id}/result`, {
       bearer: otherKey,
-      headers: { 'x-ri-worker-protocol': '1' },
+      headers: { 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
       body: { ok: true, value: 'not yours' },
     });
     expect(wrong.status).toBe(410);
     const right = await call(`/api/workers/me/requests/${sent[0]!.id}/result`, {
       bearer: target.workerKey,
-      headers: { 'x-ri-worker-protocol': '1' },
+      headers: { 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
       body: { ok: true, value: 'yours' },
     });
     expect(right.status).toBe(200);
@@ -297,7 +298,7 @@ describe('the connection', () => {
 
   it('turns itself off from its own computer', async () => {
     const target = await enrolledTarget();
-    const res = await call('/api/workers/me', { method: 'DELETE', bearer: target.workerKey, headers: { 'x-ri-worker-protocol': '1' } });
+    const res = await call('/api/workers/me', { method: 'DELETE', bearer: target.workerKey, headers: { 'x-ri-worker-protocol': String(WORKER_PROTOCOL) } });
     expect(res.status).toBe(204);
     const { sendHeartbeat } = await import('@/lib/worker/run');
     await expect(sendHeartbeat(target, 'test', 'awake', describeFake)).rejects.toMatchObject({ reason: 'revoked' });
@@ -312,7 +313,7 @@ describe('This Mac', () => {
     const issued = await call('/api/workers/me/associations', {
       method: 'POST',
       bearer: target.workerKey,
-      headers: { 'x-ri-worker-protocol': '1' },
+      headers: { 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
     });
     expect(issued.status).toBe(201);
     const code = issued.json!.code as string;

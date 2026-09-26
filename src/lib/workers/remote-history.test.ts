@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
+import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 const IN_AGENT = '11111111-1111-4111-8111-111111111111';
 const ELSEWHERE = '22222222-2222-4222-8222-222222222222';
@@ -89,7 +90,7 @@ beforeEach(async () => {
   ({ workerKey } = await fetch(`${server.url}/api/workers/enroll`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: 1, version: 'test' }),
+    body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>));
 
   // The Demo agent, set up in the demo folder on the laptop.

@@ -7,6 +7,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import type { FileCandidate, HistoryWindow } from '@/lib/import/history-source';
+import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
 let computerId: string;
@@ -243,7 +244,7 @@ describe('P2.8 retirement and process ownership', () => {
     const headers = new Headers({
       'x-ri-api-key-id': keyId, 'x-ri-api-key-type': 'computer',
       'x-ri-api-key-scope': 'worker', 'x-ri-worker-computer-id': computerId,
-      'x-ri-worker-protocol': '1',
+      'x-ri-worker-protocol': String(WORKER_PROTOCOL),
     });
     // The route's trusted headers are exactly those the real proxy supplies.
     const { POST } = await import('@/app/api/workers/me/heartbeat/route');
@@ -252,7 +253,7 @@ describe('P2.8 retirement and process ownership', () => {
     const pending = POST({ headers, json: () => json } as unknown as NextRequest);
     (await import('@/lib/workers/retire')).retireWorker(keyId, computerId, 'review revocation');
     expect(q.getWorkerEnrollment(keyId)).toBeNull();
-    release({ protocol: 1, version: 'review', harnesses: [], state: 'awake', live: {
+    release({ protocol: WORKER_PROTOCOL, version: 'review', harnesses: [], state: 'awake', live: {
       running: [chatId], pending: [], backgroundTasks: {}, generations: { [chatId]: 1 },
     } });
     const result = await pending;

@@ -780,6 +780,10 @@ A review of P2.7 to P2.9 at d0fff04 found seven reproducible failures, each with
 
 - **A worker's request is checked again once its body has arrived.** The heartbeat authenticated, awaited its body, and then wrote, so a retirement landing in between was undone. The heartbeat, event, acknowledgement and request-result routes now re-check the enrollment after the body arrives, and write without awaiting again (`requireWorkerWithBody`). The attachment download checks again after opening the file.
 
+### A protocol bump
+
+- **The worker protocol is 2.** A worker on 1 ignores `agentFolders`, so it would start sessions without their reference folders, quietly. The spec calls for an incompatible worker to be told to update instead, so a home on 2 refuses it with 426, and it stops saying to update Ri on that computer. The tests take the version from `WORKER_PROTOCOL` rather than a literal. On the dev home, the MacBook's worker, on the checkout from gate A, was refused as expected, and the stand-in's reconnected on 2.
+
 ### Found in the live check
 
 - **A home restart marked laptop executions as stuck setups.** The cold-start reaper takes an execution with no worktree path, set up more than five minutes ago, as a setup that died with the process. A laptop execution keeps its worktree on its placement, so every one was marked failed on the home's next restart, and its next message was refused. The reaper now skips executions placed on a connected computer, whose setup settles by its worker's recovery. Several of the stand-in's test executions still carry the false failure. Retry clears it.
