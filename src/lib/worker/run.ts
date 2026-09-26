@@ -43,7 +43,7 @@ import { CommandProcessor, type CommandHandlers } from './commands';
 import { EventJournal } from './event-journal';
 import { describeHarnesses } from './harnesses';
 import { EventPoster } from './poster';
-import { stopLeftoverHarnesses } from './leftovers';
+import { processRecorder, stopLeftovers } from './leftovers';
 import { createWorkerSink } from './sink';
 import { readEventStream } from './sse';
 
@@ -69,6 +69,8 @@ export interface WorkerRunOptions {
   handlers?: CommandHandlers | ((journal: CommandJournal) => CommandHandlers);
   /** The journals, when a test supplies its own. Otherwise this computer's, under its work folder. */
   journals?: { commands: CommandJournal; events: EventJournal };
+  /** Where this worker records the processes it starts. Defaults to its work directory. */
+  processRecordFile?: string;
   /** Receives the sink this worker's runner reports to. The CLI installs it for the local runner. */
   onSink?: (sink: RunnerSink) => void;
   /** How often to retry posting events the home hasn't taken. */
@@ -225,11 +227,15 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
     return builtIn(kind, payload);
   };
   const poster = new EventPoster(target, eventJournal);
+  // What this worker starts, written down so a successor can stop it after a
+  // crash (leftovers.ts): after each command, and on each heartbeat.
+  const recordProcesses = processRecorder(options.processRecordFile);
   const processor = new CommandProcessor({
     journal: commandJournal,
     handlers,
     target,
     onStopped: (err) => stop({ reason: err.reason, message: err.message }),
+    onHandled: () => void recordProcesses(),
   });
   options.onSink?.(
     createWorkerSink({
@@ -246,11 +252,13 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
   // process running them is gone. Taken before anything here can deliver.
   const cutOff = commandJournal.openTurns();
   // And a harness it left running after a crash is stopped, so a turn
-  // reported cut off doesn't go on working (P2.8).
-  const leftovers = await stopLeftoverHarnesses();
+  // reported cut off doesn't go on working (P2.8). Only processes it recorded
+  // starting, still the same processes. Then this worker's own record begins.
+  const leftovers = await stopLeftovers(options.processRecordFile);
   if (leftovers.length > 0) {
-    console.warn(`[worker] stopped ${leftovers.length} harness process(es) left running by an earlier worker: ${leftovers.join(', ')}`);
+    console.warn(`[worker] stopped ${leftovers.length} process(es) left running by an earlier worker: ${leftovers.join(', ')}`);
   }
+  await recordProcesses();
   const postRetry = setInterval(() => {
     if (eventJournal.pending(1).length > 0) void poster.kick();
   }, postRetryMs);
@@ -262,6 +270,7 @@ export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> 
   // longer gives this computer is fenced in the journal, so nothing older for
   // it runs even after a restart, and then its sessions stop.
   const heartbeat = async () => {
+    void recordProcesses();
     const live = liveSnapshot();
     const chats = new Set([...live.running, ...live.pending.map((p) => p.sessionId), ...Object.keys(live.backgroundTasks)]);
     live.generations = Object.fromEntries([...chats].map((chat) => [chat, commandJournal.chatGeneration(chat)]));

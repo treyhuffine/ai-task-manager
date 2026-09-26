@@ -60,6 +60,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return notFound(`${file.originalName} is no longer at home.`);
     throw err;
   }
+  // Checked again after opening: a worker turned off meanwhile gets nothing.
+  const still = requireWorker(request.headers);
+  if (still instanceof Response) {
+    stream.destroy();
+    return still;
+  }
   return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
     headers: {
       'content-type': 'application/octet-stream',

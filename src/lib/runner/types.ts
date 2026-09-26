@@ -14,7 +14,7 @@
 import type { McpServerConfig, RuntimeCommandInventory, UserInputResponse } from '@agentex/agent';
 import type { CreateChatEventInput, EffortLevel, PermissionMode, WorkerCommandActor } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
-import type { ExecutionEnvironment } from './environment';
+import type { ExecutionEnvironment, ExpectedAgentFolders } from './environment';
 import type { PendingInput } from './pending';
 
 /** Everything a runner needs to start or resume one chat's harness session. Plain JSON. */
@@ -57,6 +57,15 @@ export interface SessionSpec {
    * session instructions and adds it to them (P2.7).
    */
   environment?: ExecutionEnvironment | null;
+  /**
+   * For a session elsewhere: the agent's folder and reference folders as the
+   * home expects them. The runner resolves them on its computer when the
+   * session starts, and wires the reference folders from that one
+   * resolution: the prompt block, the read scope and the edit deny rules, the
+   * same paths the environment shows (P2.7 to P2.9 review fixes). Unset at
+   * home, where they're wired as the spec is built, on the computer running it.
+   */
+  agentFolders?: ExpectedAgentFolders | null;
   /** Whether the user's skill folders are attached. */
   attachUserSkills: boolean;
   /** Remove skill links a past build left in the working folder. */

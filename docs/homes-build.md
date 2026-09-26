@@ -572,7 +572,7 @@ P2.7 gives a session on a connected computer what a session at home has, without
 
 ### The home's servers, reached with a session token
 
-- **Session token.** For a session elsewhere, the home mints `ri_session_<chat>.<computer>.<generation>.<signature>`, signed with the home's key (HMAC, as the session credential is). It carries no authority of its own: the proxy accepts it only while that chat is placed on that computer at that generation and the computer's worker is enrolled. A move, a new generation, or turning off the computer's local execution ends every token for it, with nothing to revoke.
+- **Session token.** For a session elsewhere, the home mints `ri_session_<chat>.<computer>.<generation>.<signature>`, signed with the home's key (HMAC, as the session credential is). The signature also covers the worker enrollment it was issued to. It carries no authority of its own: the proxy accepts it only while that chat is active and placed on that computer at that generation, and while the enrollment it was issued to is that computer's current one. Archiving the chat, a move, a new generation, or turning off the computer's local execution ends every token for it, and enrolling the computer again doesn't bring one back, with nothing to revoke (the last three since the P2.7 to P2.9 review).
 - **Where it reaches.** Only the three servers a harness uses: the orchestrator MCP, the connectors MCP and the browser MCP, and on each only the session's own scope. An execution reaches connectors for its own agent's allowlist (`?ws=` its agent) and the browser in its own agent's profile (`?profile=ws-<agent>`). An agent's main chat also reaches the orchestrator MCP. Anything else is 403. The actor is the session, from the token, with location `elsewhere`, so path-taking actions refuse it as they refuse any caller elsewhere.
 - **Addressed through the worker.** The home doesn't know the address a computer reaches it by, and shouldn't guess. It sends each server as `ri-home:/api/...` with the token, and the worker puts its own home address in front before starting the harness. The token never touches argv: agentex stages MCP configs as a 0600 file.
 
@@ -617,7 +617,7 @@ P2.8 tests each fault the spec names, end to end where it matters, with the work
 
 - **Turning off a computer's local execution left its work hanging.** Revoking a worker key (from the computer, or the owner revoking the device) closed its stream and nothing else. Its queued commands waited forever, its sent ones stayed sent, and runs on it stayed running with no one left to report them. Now one path (`retireWorker`) does it all in a transaction: queued commands are cancelled, sent ones become uncertain, and runs still open there fail with the reason, their waiting turns settled. Its live state leaves the home's mirror.
 - **A worker that said it was stopping left its prompts at home.** The stopped heartbeat now clears that computer's mirror, since a stopping worker closes its sessions and their prompts with them. A computer that just goes quiet keeps its mirror: unknown is not stopped.
-- **A hard crash left the harness running its tool call.** A restarted worker now stops what its predecessor left, before recovering anything. It finds them by what's certain rather than a recorded pid (agentex doesn't expose the Claude process): an orphan whose command line names this worker's own session instructions folder, which every harness it starts is given. So another worker's harnesses, anything the user runs, and a reused pid never match. Their turns are then reported cut off, as before.
+- **A hard crash left the harness running its tool call.** A restarted worker now stops what its predecessor left, before recovering anything. Their turns are then reported cut off, as before. How it finds them changed in the P2.7 to P2.9 review: first by command line (an orphan naming the worker's instructions folder), which the review showed any process could match, now by what the predecessor recorded starting, checked by start time before each signal (see that section).
 
 ### The matrix
 
@@ -641,9 +641,9 @@ P2.8 tests each fault the spec names, end to end where it matters, with the work
 ### As built
 
 - `src/lib/workers/retire.ts` (`retireWorker`), used by `DELETE /api/workers/me` and `DELETE /api/devices/:id` for a worker key, with `retireComputerCommands` and `deliveredSendsWithOpenRuns` in queries, and `cancelled` among the undelivered states. `clearComputerMirror` in the live mirror, used for retirement and for a stopped heartbeat.
-- `src/lib/worker/leftovers.ts` (`findLeftovers`, `stopLeftoverHarnesses`), run at the start of `runWorker`. `finishWorker` in `run.ts`.
+- `src/lib/worker/leftovers.ts`, run at the start of `runWorker` (`stopLeftovers` since the review, `stopLeftoverHarnesses` before). `finishWorker` in `run.ts`.
 - Fixtures: `startHomeServer({ port })` restarts a home at its address, and the worker process has `kill()`, a `SLOW` turn, and runs as a direct child.
-- Tests: `faults.test.ts` (4): the home stops mid-turn and restarts on the same address, and the turn's output and completed run arrive. Turning off a crashed laptop's execution fails its turn under way and cancels its waiting message. A stopped worker's prompt leaves the home and can't be answered. A crashed worker's prompt is answered stale after it restarts, its turn reported cut off. `leftovers.test.ts` (1): real orphaned processes, only this worker's stopped.
+- Tests: `faults.test.ts` (4): the home stops mid-turn and restarts on the same address, and the turn's output and completed run arrive. Turning off a crashed laptop's execution fails its turn under way and cancels its waiting message. A stopped worker's prompt leaves the home and can't be answered. A crashed worker's prompt is answered stale after it restarts, its turn reported cut off. `leftovers.test.ts`: real orphaned processes, only this worker's stopped (4 since the review).
 - Live on the dev home: the stand-in's worker was killed with SIGKILL while real Claude ran a 60-second command. The Claude process stayed running, orphaned. On restart the worker logged `stopped 1 harness process(es) left running by an earlier worker`, the process was gone, and the run failed within four seconds with the restart message.
 
 ## P2.9 Terminal history from connected computers
@@ -750,6 +750,46 @@ The re-review of `183391a` (2026-09-25) confirmed the eleven fixes and found two
 ### Live check
 
 With real Claude on the stand-in laptop, a second message sent while the first message's turn was running a 20-second command was folded into that turn ("The command printed 111, and 6 × 7 = 42"). The turn's $0.080 went to the first message's run, and the second message's run completed at $0.
+
+## P2.7 to P2.9 review fixes
+
+A review of P2.7 to P2.9 at d0fff04 found seven reproducible failures, each with a failing probe. All seven are fixed, and the probes are kept as regressions in `src/test/regressions/homes-p27-p29-review.test.ts`. The live check afterwards found two more.
+
+### Session tokens
+
+- **Archiving a chat ended its token.** Verification checked the placement but not the chat, and archiving leaves the placement as it was. A token is now refused unless its chat is active. The token is a function of what it names, so a chat restored at the same placement is issued the same token again. That's the chat's own, held only by its session, not a revival.
+- **Enrolling a computer again doesn't bring back a revoked worker's tokens.** A token was bound to its computer and accepted under whichever enrollment was current. The signature now covers the enrollment it was issued to, which verification takes from the computer's current enrollment, so a token issued to a worker since turned off fails once a new one enrolls. The format is unchanged, with nothing stored. A token is only minted for a computer with an enrolled worker.
+- Sessions already running on a connected computer hold tokens minted before this change, which now fail. They get a new one when their session next starts.
+
+### Reference folders on the running computer
+
+- **The flags followed the manifest.** For a session elsewhere, the home built the reference prompt block, `--add-dir` and the edit deny rules from the computer's last report, and the runner resolved the current setup only for the environment manifest. A folder moved or left out on the laptop showed its new state in the manifest while the harness still read and guarded the old path. Now the home wires nothing for a session elsewhere. The spec carries the agent's folders as the home expects them (`agentFolders`), and the runner resolves them once when the session starts and builds the prompt block, the read scope, the deny rules and the manifest from that one result. The home's own sessions are wired as before, on the computer that runs them.
+- The same applied to an agent's main chat elsewhere, which had no manifest to show it. It's wired the same way.
+
+### Processes left by a crashed worker
+
+- **Only what the predecessor recorded starting is stopped.** Cleanup matched any orphan whose command line named the worker's instructions folder, which any process can do, and signalled it with no check that the pid still named the same process. A worker now records its own children (agentex runs each harness as one) with each one's start time and command line, and its own, after every command it handles and on every heartbeat (`worker-processes.json` in its work directory). At startup, a leftover is a recorded process that is still the same process, whose recorded worker is gone. It's checked again right before each signal. Nothing unrecorded is touched, and a process started and orphaned between two records is missed, the safe way to be wrong. This also covers Codex, whose instructions never appear on its command line.
+
+### Reading transcripts
+
+- **A window is certified against the file it was parsed from.** The provider's parser opens the transcript itself, and the hash that certified a window was taken by opening the path again. A transcript replaced mid-window left old events certified by the new file's hash, and later syncs trusted it. Now every read pins the transcript (`pinTranscript`): one handle for every hash, and after the parse and the hash, a check that the path still names that file with the size and modification time it was opened with. A window read while the file changed is refused and read again, up to three times, and nothing of it is committed.
+- **The home's own importer had the same hole**, on main too: it commits windows during one long read, hashing by reopening the path. It pins the transcript the same way, checked before each commit.
+- **A listed transcript is read as it was listed.** Listing never descends into links, but a read reopened the cached path and followed one. A read now opens without following a link, and on a worker, checks the transcript is still in the real folder it was listed in. An ordinary atomic rewrite in the same folder is just a changed transcript.
+
+### Heartbeats after retirement
+
+- **A worker's request is checked again once its body has arrived.** The heartbeat authenticated, awaited its body, and then wrote, so a retirement landing in between was undone. The heartbeat, event, acknowledgement and request-result routes now re-check the enrollment after the body arrives, and write without awaiting again (`requireWorkerWithBody`). The attachment download checks again after opening the file.
+
+### Found in the live check
+
+- **A home restart marked laptop executions as stuck setups.** The cold-start reaper takes an execution with no worktree path, set up more than five minutes ago, as a setup that died with the process. A laptop execution keeps its worktree on its placement, so every one was marked failed on the home's next restart, and its next message was refused. The reaper now skips executions placed on a connected computer, whose setup settles by its worker's recovery. Several of the stand-in's test executions still carry the false failure. Retry clears it.
+- **Retrying a laptop execution's setup built a worktree on the home.** Retry provisioned at home whatever the placement. It now sends the execution's own prepare command to its worker again, or, when the computer has already prepared it, just clears the failure. Retrying its setup script, a no-op for a laptop execution, sends its setup script command again. The one worktree the check built on the dev home was removed, with its branch, and the execution's path reset.
+
+### Tests and live checks
+
+- Probes: all ten of the review's, adapted where a fixed reader refuses what the probe first accepted (a window read while the file is replaced is read again from the replacement), plus a transcript that never stops changing, a listed folder relinked elsewhere, a main chat's references elsewhere, the reaper, and the retries. `leftovers.test.ts` (4): a crashed worker's recorded child is stopped and a process only naming its files isn't, nothing while the worker still runs, a recorded pid held by another process is never signalled, and the recorder. `external-agents.test.ts`: a real append during a read replaces a mocked fingerprint, and a transcript replaced mid-read leaves nothing of the old version.
+- Full suite: 2,591 passed, exit 0.
+- Live on the dev home, with real Claude on the stand-in laptop: the worker recorded the harness it started. Claude's `--add-dir` and edit deny rule, the reference prompt and the environment manifest all named the laptop's `agentex` folder, not the home's. The browser server answered the session's token (200). The worker was then killed with SIGKILL in the middle of a 90-second tool call, leaving Claude orphaned. On restart it logged `stopped 1 process(es) left running by an earlier worker` for exactly that pid, the tool call went with it, and the run failed with the restart message. The laptop's history listed 527 sessions with no transcript path, and a terminal session continued on the laptop synced its new exchange through the worker. Retry on a falsely failed laptop execution cleared the failure and sent nothing.
 
 ## Dogfood gate A: the real laptop and phone
 

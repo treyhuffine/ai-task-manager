@@ -25,7 +25,7 @@ import {
   type ChatPlacement,
 } from '@/lib/db/queries';
 import { APP_NAME } from '@/constants/app';
-import type { ExecutionEnvironment } from '@/lib/runner/environment';
+import type { ExecutionEnvironment, ExpectedAgentFolders } from '@/lib/runner/environment';
 import {
   browserMcpServer,
   connectorsMcpServer,
@@ -87,6 +87,29 @@ function referencesOn(workspaceId: string | null, computerId: string): ResolvedR
 }
 
 /**
+ * An agent's folder and connected folders as the home expects them where the
+ * session runs: its own, or the computer's last report. The runner resolves
+ * them against its computer's setup files when the session starts (P2.7).
+ */
+function expectedAgentFolders(workspace: WorkspaceRecord, target: SpecTarget, usable: ResolvedReferenceFolder[]): ExpectedAgentFolders {
+  const byAlias = new Map(usable.map((r) => [r.alias, r]));
+  return {
+    homeId: getHome()?.id ?? '',
+    agentId: workspace.id,
+    sourceFolder: target.isHome ? workspace.cwd : getAgentSetup(workspace.id, target.computerId)?.sourcePath ?? null,
+    references: listReferenceFoldersForWorkspace(workspace.id).map((ref) => {
+      const here = byAlias.get(ref.alias);
+      return {
+        alias: ref.alias,
+        description: ref.description ?? null,
+        path: here?.absolutePath ?? null,
+        state: here ? ('ready' as const) : ('missing' as const),
+      };
+    }),
+  };
+}
+
+/**
  * An execution's environment as the home expects it (P2.7, spec §4.3): the
  * agent, where it runs, its branch and base, its connected folders with
  * their descriptions, and its tools. Paths are the home's best knowledge
@@ -105,7 +128,7 @@ function expectedEnvironment(input: {
   const homeRow = getHome();
   const computer = getComputer(target.isHome ? homeRow?.hostComputerId ?? '' : target.computerId);
   const execution = getExecution(input.executionId);
-  const usable = new Map(input.usable.map((r) => [r.alias, r]));
+  const folders = expectedAgentFolders(workspace, target, input.usable);
   const urls = input.servers.map((s) => (s.type === 'http' ? s.url ?? '' : ''));
   return {
     homeId: homeRow?.id ?? '',
@@ -115,19 +138,11 @@ function expectedEnvironment(input: {
     executionId: input.executionId,
     isGit: workspace.isGit,
     cwd: args.cwd,
-    sourceFolder: target.isHome ? workspace.cwd : getAgentSetup(workspace.id, target.computerId)?.sourcePath ?? null,
+    sourceFolder: folders.sourceFolder,
     branch: execution?.branchName ?? null,
     baseBranch: workspace.baseBranch ?? null,
     baseSha: execution?.baseSha ?? null,
-    references: listReferenceFoldersForWorkspace(workspace.id).map((ref) => {
-      const here = usable.get(ref.alias);
-      return {
-        alias: ref.alias,
-        description: ref.description ?? null,
-        path: here?.absolutePath ?? null,
-        state: here ? ('ready' as const) : ('missing' as const),
-      };
-    }),
+    references: folders.references,
     tools: { connectors: urls.some((u) => u.includes('/api/connectors/')), browser: urls.some((u) => u.includes('/browser/')) },
     harness: args.harness,
     model: args.model,
@@ -222,10 +237,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       strictMcpIsolation: caps.strictMcpIsolation,
       appBrowserEnabled: isBrowserEnabled(),
       freshSession: !args.existingExternalSessionId,
-      ...(target.isHome
-        ? {}
-        : { elsewhere: { folder: args.cwd, references: referencesOn(args.workspaceId ?? null, target.computerId) } }),
+      ...(target.isHome ? {} : { elsewhere: { folder: args.cwd } }),
     });
+    if (!target.isHome) spec.agentFolders = expectedAgentFolders(agentMainChat, target, referencesOn(agentMainChat.id, target.computerId));
     applyProviderConfig(spec, spawn.config);
     if (!target.isHome) reachFromElsewhere();
     spec.extraArgs.push(...spawn.extraArgs);
@@ -327,34 +341,42 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // gated. Broken references are dropped upstream by
     // `listUsableReferenceFolders` — pointing an agent at a path that isn't
     // there is worse than saying nothing.
+    //
+    // Elsewhere, the paths here are only the computer's last report. The
+    // runner there wires them instead, from where they resolve when the
+    // session starts (`agentFolders`), so nothing here names a stale path.
     let refs: ResolvedReferenceFolder[] = [];
     try {
       refs = target.isHome
         ? await listUsableReferenceFolders(args.workspaceId ?? null, { consumerCwd: workspace?.cwd ?? null })
         : referencesOn(args.workspaceId ?? null, target.computerId);
-      const refConfig = buildReferenceFolderSessionConfig(refs);
-      if (refConfig.instructions) {
-        const wiring = referenceFolderProviderWiring(refConfig, providerType);
-        if (wiring.deliversInstructions) {
-          instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
-        }
-        spec.extraArgs.push(...wiring.extraArgs);
-        if (wiring.disallowedTools.length > 0) spec.disallowedTools.push(...wiring.disallowedTools);
-        if (wiring.delivery === 'prompt-only') {
-          console.warn(
-            `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
-              'announced in the prompt, but the read scope and edit deny rules are claude-only argv ' +
-              '(this provider is told about them without being fenced off).',
-          );
-        } else if (wiring.delivery === 'unsupported') {
-          // Not a partial degradation — a total one. This provider's session
-          // path drops `instructionsFile`, so the agent is never told the
-          // folders exist, which is the whole feature.
-          console.warn(
-            `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
-              'configured but NOT delivered — this harness ignores session-scoped instructions, ' +
-              'so the agent will not be told these folders exist. Use claude or codex for reference folders.',
-          );
+      if (!target.isHome) {
+        if (workspace) spec.agentFolders = expectedAgentFolders(workspace, target, refs);
+      } else {
+        const refConfig = buildReferenceFolderSessionConfig(refs);
+        if (refConfig.instructions) {
+          const wiring = referenceFolderProviderWiring(refConfig, providerType);
+          if (wiring.deliversInstructions) {
+            instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
+          }
+          spec.extraArgs.push(...wiring.extraArgs);
+          if (wiring.disallowedTools.length > 0) spec.disallowedTools.push(...wiring.disallowedTools);
+          if (wiring.delivery === 'prompt-only') {
+            console.warn(
+              `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
+                'announced in the prompt, but the read scope and edit deny rules are claude-only argv ' +
+                '(this provider is told about them without being fenced off).',
+            );
+          } else if (wiring.delivery === 'unsupported') {
+            // Not a partial degradation — a total one. This provider's session
+            // path drops `instructionsFile`, so the agent is never told the
+            // folders exist, which is the whole feature.
+            console.warn(
+              `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
+                'configured but NOT delivered — this harness ignores session-scoped instructions, ' +
+                'so the agent will not be told these folders exist. Use claude or codex for reference folders.',
+            );
+          }
         }
       }
     } catch (err) {

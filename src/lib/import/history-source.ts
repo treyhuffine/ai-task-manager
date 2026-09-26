@@ -13,7 +13,8 @@
 
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { open, stat } from 'node:fs/promises';
+import { constants as fsConstants, type BigIntStats } from 'node:fs';
+import { lstat, open, realpath, stat, type FileHandle } from 'node:fs/promises';
 import {
   getProvider,
   type LocalHistoryEvent,
@@ -112,47 +113,90 @@ export interface PrefixDigest {
 }
 
 /**
- * Rolling sha256 over the transcript bytes an import has consumed so far.
- * Every committed window has to leave the ledger describing a *prefix* of the
- * file, and re-hashing `[0, offset)` once per window would be quadratic on a
- * long transcript, so hash forward once and snapshot the digest at each
- * boundary.
+ * One transcript, opened once, for the length of a read (P2.7 to P2.9 review
+ * fixes). The provider's parser opens the path on its own, so what it parsed
+ * and what a window's hash certifies are the same bytes only if the path named
+ * this one file, unchanged, from before the parse to after the hash. Every
+ * hash is taken from this handle, never by opening the path again, and
+ * `assertUnchanged` checks the rest: the path still names this file, and its
+ * size and modification time are what they were when it was opened. A
+ * transcript rewritten in place or replaced, even mid-window, is refused, and
+ * nothing of that read is committed.
+ *
+ * It opens without following a link: a transcript replaced by a symlink is
+ * refused rather than followed to a file nobody selected. With `realDir`, the
+ * directory the transcript was listed in, one moved or relinked out of that
+ * directory is refused too. An ordinary atomic rewrite in place, in the same
+ * directory, is just a changed transcript.
  */
-export function createPrefixDigest(filePath: string): PrefixDigest {
-  const hash = createHash('sha256');
-  let hashedTo = 0;
-  return {
-    async at(offset: number): Promise<string> {
-      if (offset < hashedTo) {
-        throw codedError(
-          'source_changed_during_read',
-          'The provider transcript rewound while it was being synchronized.',
-        );
-      }
-      if (offset > hashedTo) {
-        const handle = await open(filePath, 'r');
-        const buffer = Buffer.allocUnsafe(64 * 1024);
-        try {
-          while (hashedTo < offset) {
-            const length = Math.min(buffer.length, offset - hashedTo);
-            const { bytesRead } = await handle.read(buffer, 0, length, hashedTo);
-            if (bytesRead === 0) {
-              throw codedError('source_changed_during_read', 'The provider transcript became shorter while it was read.');
-            }
-            hash.update(buffer.subarray(0, bytesRead));
-            hashedTo += bytesRead;
-          }
-        } finally {
-          await handle.close();
-        }
-      }
-      return hash.copy().digest('hex');
-    },
-  };
+export interface PinnedTranscript {
+  readonly size: number;
+  readonly modifiedAtNs: string;
+  /** A rolling sha256 over the pinned file: hash forward once, snapshot at each boundary. */
+  digest(): PrefixDigest;
+  /** Throws `source_changed_during_read` unless the path still names the pinned file, unchanged. */
+  assertUnchanged(): Promise<void>;
+  close(): Promise<void>;
 }
 
-export async function sha256Prefix(filePath: string, byteLength: number): Promise<string> {
-  return createPrefixDigest(filePath).at(byteLength);
+const changed = (message = 'The transcript changed while it was being read. Try again.') =>
+  codedError('source_changed_during_read', message);
+
+export async function pinTranscript(filePath: string, opts: { realDir?: string } = {}): Promise<PinnedTranscript> {
+  let handle: FileHandle;
+  try {
+    handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP' || code === 'EMLINK') throw codedError('not_a_transcript', "That session's transcript is no longer a plain file where it was found.");
+    if (code === 'ENOENT') throw codedError('source_missing', "That session's transcript is gone.");
+    throw err;
+  }
+  try {
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile()) throw codedError('not_a_transcript', "That session's transcript is no longer a plain file where it was found.");
+    if (opts.realDir !== undefined && (await realpath(path.dirname(filePath))) !== opts.realDir) {
+      throw codedError('not_a_transcript', "That session's transcript is no longer in the folder it was found in.");
+    }
+    return {
+      size: Number(opened.size),
+      modifiedAtNs: opened.mtimeNs.toString(),
+      digest() {
+        const hash = createHash('sha256');
+        let hashedTo = 0;
+        return {
+          async at(offset: number): Promise<string> {
+            if (offset < hashedTo) throw changed('The provider transcript rewound while it was being synchronized.');
+            const buffer = Buffer.allocUnsafe(64 * 1024);
+            while (hashedTo < offset) {
+              const length = Math.min(buffer.length, offset - hashedTo);
+              const { bytesRead } = await handle.read(buffer, 0, length, hashedTo);
+              if (bytesRead === 0) throw changed('The provider transcript became shorter while it was read.');
+              hash.update(buffer.subarray(0, bytesRead));
+              hashedTo += bytesRead;
+            }
+            return hash.copy().digest('hex');
+          },
+        };
+      },
+      async assertUnchanged() {
+        const now = await handle.stat({ bigint: true });
+        let named: BigIntStats;
+        try {
+          named = await lstat(filePath, { bigint: true });
+        } catch {
+          throw changed();
+        }
+        if (now.size !== opened.size || now.mtimeNs !== opened.mtimeNs || named.dev !== opened.dev || named.ino !== opened.ino) {
+          throw changed();
+        }
+      },
+      close: () => handle.close(),
+    };
+  } catch (err) {
+    await handle.close();
+    throw err;
+  }
 }
 
 export function baseCandidate(
@@ -422,56 +466,70 @@ export interface HistoryWindow {
  * first: a transcript that no longer starts with those bytes (rewritten,
  * truncated, replaced) is read from the beginning instead, and says so. The
  * same checks the home's own sync makes.
+ *
+ * The events and the hash that certifies them come from one pinned file
+ * (`pinTranscript`), checked unchanged after both, for every window, whether
+ * or not it reached the end. A transcript being written to while a window is
+ * read is read again, a few times, before giving up.
  */
 export async function readHistoryWindow(
   candidate: FileCandidate,
-  opts: { fromOffset: number; expect: HistoryPrefix | null; maxBytes: number },
+  opts: { fromOffset: number; expect: HistoryPrefix | null; maxBytes: number; realDir?: string },
 ): Promise<HistoryWindow> {
-  const transcriptPath = candidate.historySession.transcriptPath;
-  const before = await candidate.history.fingerprint(candidate.historySession, {});
-  let fromOffset = opts.fromOffset;
-  let replaced = false;
-  if (fromOffset > 0) {
-    const holds = opts.expect !== null
-      && opts.expect.size === fromOffset
-      && before.size >= opts.expect.size
-      && (await sha256Prefix(transcriptPath, opts.expect.size)) === opts.expect.sha256;
-    if (!holds) {
-      fromOffset = 0;
-      replaced = true;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await readPinnedWindow(candidate, opts);
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'source_changed_during_read' || attempt >= WINDOW_ATTEMPTS) throw err;
     }
   }
+}
 
-  const events: CreateChatEventInput[] = [];
-  let staged = 0;
-  let nextOffset = fromOffset;
-  let done = true;
-  for await (const yielded of candidate.history.read(candidate.historySession, { fromOffset })) {
-    if (staged >= opts.maxBytes && yielded.lineStartOffset >= nextOffset) {
-      done = false;
-      break;
+const WINDOW_ATTEMPTS = 3;
+
+async function readPinnedWindow(
+  candidate: FileCandidate,
+  opts: { fromOffset: number; expect: HistoryPrefix | null; maxBytes: number; realDir?: string },
+): Promise<HistoryWindow> {
+  const pinned = await pinTranscript(candidate.historySession.transcriptPath, { realDir: opts.realDir });
+  try {
+    let digest = pinned.digest();
+    let fromOffset = opts.fromOffset;
+    let replaced = false;
+    if (fromOffset > 0) {
+      const holds = opts.expect !== null
+        && opts.expect.size === fromOffset
+        && pinned.size >= opts.expect.size
+        && (await digest.at(opts.expect.size)) === opts.expect.sha256;
+      if (!holds) {
+        fromOffset = 0;
+        replaced = true;
+        digest = pinned.digest();
+      }
     }
-    nextOffset = yielded.nextOffset;
-    const input = historyEventInput(yielded.event, yielded.event.eventId, yielded.partIndex);
-    if (!input) continue;
-    events.push(input);
-    staged += Buffer.byteLength(JSON.stringify(input), 'utf8');
-  }
 
-  const after = await candidate.history.fingerprint(candidate.historySession, {});
-  if (done) {
-    if (after.size !== before.size || after.modifiedAtNs !== before.modifiedAtNs) {
-      throw codedError('source_changed_during_read', 'The transcript changed while it was being read. Try again.');
+    const events: CreateChatEventInput[] = [];
+    let staged = 0;
+    let nextOffset = fromOffset;
+    let done = true;
+    for await (const yielded of candidate.history.read(candidate.historySession, { fromOffset })) {
+      if (staged >= opts.maxBytes && yielded.lineStartOffset >= nextOffset) {
+        done = false;
+        break;
+      }
+      nextOffset = yielded.nextOffset;
+      const input = historyEventInput(yielded.event, yielded.event.eventId, yielded.partIndex);
+      if (!input) continue;
+      events.push(input);
+      staged += Buffer.byteLength(JSON.stringify(input), 'utf8');
     }
     // Records that normalize to no event still count as read.
-    nextOffset = Math.max(nextOffset, after.size);
+    if (done) nextOffset = Math.max(nextOffset, pinned.size);
+    const prefixSha256 = await digest.at(nextOffset);
+    // After the parse and the hash: both were of this file, as it was opened.
+    await pinned.assertUnchanged();
+    return { replaced, events, nextOffset, done, modifiedAtNs: pinned.modifiedAtNs, prefixSha256 };
+  } finally {
+    await pinned.close();
   }
-  return {
-    replaced,
-    events,
-    nextOffset,
-    done,
-    modifiedAtNs: after.modifiedAtNs,
-    prefixSha256: await sha256Prefix(transcriptPath, nextOffset),
-  };
 }

@@ -34,3 +34,19 @@ export function requireWorker(headers: Headers): WorkerCaller | Response {
   }
   return { apiKeyId: key.apiKeyId, computer: worker.computer, enrollment: worker.enrollment };
 }
+
+/**
+ * A worker's request with its JSON body, checked again once the body has
+ * arrived. Turning a worker off can land while its request is being read, and
+ * what the retirement cleared must stay cleared, so the check a route relies
+ * on is the one after its last await. A route calls this after awaiting
+ * anything else it needs, and writes without awaiting again (P2.7 to P2.9
+ * review fixes).
+ */
+export async function requireWorkerWithBody(request: Request): Promise<{ worker: WorkerCaller; json: unknown } | Response> {
+  const early = requireWorker(request.headers);
+  if (early instanceof Response) return early;
+  const json: unknown = await request.json().catch(() => ({}));
+  const worker = requireWorker(request.headers);
+  return worker instanceof Response ? worker : { worker, json };
+}

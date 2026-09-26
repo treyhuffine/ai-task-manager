@@ -13,12 +13,15 @@
 
 import type { ResolvedReferenceFolder } from '@/db/types';
 
+/** What the block says about a folder. A folder resolved on another computer has no Git summary. */
+export type PromptReferenceFolder = Pick<ResolvedReferenceFolder, 'alias' | 'absolutePath' | 'description' | 'git'>;
+
 /**
  * One-line git summary, or null when the folder isn't a repo. Drift is the
  * point: a reference sitting on a stale feature branch is the failure mode
  * this line exists to make visible.
  */
-export function renderGitLine(ref: ResolvedReferenceFolder): string | null {
+export function renderGitLine(ref: PromptReferenceFolder): string | null {
   if (!ref.git) return null;
   const parts: string[] = [ref.git.branch ?? 'detached HEAD'];
   parts.push(ref.git.dirty ? 'uncommitted changes' : 'clean');
@@ -27,7 +30,7 @@ export function renderGitLine(ref: ResolvedReferenceFolder): string | null {
   return `git: ${parts.join(', ')}`;
 }
 
-function renderEntry(ref: ResolvedReferenceFolder): string {
+function renderEntry(ref: PromptReferenceFolder): string {
   const lines = [`- ${ref.alias}  ->  ${ref.absolutePath}`];
   if (ref.description) lines.push(`  ${ref.description}`);
   const gitLine = renderGitLine(ref);
@@ -44,7 +47,7 @@ function renderEntry(ref: ResolvedReferenceFolder): string {
  * `listUsableReferenceFolders`) — a broken reference is dropped upstream
  * rather than described here.
  */
-export function renderReferenceFoldersPrompt(refs: ResolvedReferenceFolder[]): string {
+export function renderReferenceFoldersPrompt(refs: PromptReferenceFolder[]): string {
   if (refs.length === 0) return '';
 
   const entries = refs.map(renderEntry).join('\n');

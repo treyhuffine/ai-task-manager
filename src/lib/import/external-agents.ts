@@ -43,7 +43,6 @@ import type {
 import {
   EXTERNAL_AGENT_SOURCES,
   codedError,
-  createPrefixDigest,
   discoverCandidatesInternal,
   discoverProvider,
   errorCode,
@@ -54,8 +53,9 @@ import {
   providerLabel,
   safeError,
   sessionKey,
-  sha256Prefix,
+  pinTranscript,
   type FileCandidate,
+  type PinnedTranscript,
   type InternalCandidate,
   type ServiceCandidate,
 } from './history-source';
@@ -565,26 +565,38 @@ async function syncFileCandidate(
   candidate: FileCandidate,
   initialLedger: ExternalSessionImportRecord,
 ): Promise<number> {
-  const before = await candidate.history.fingerprint(candidate.historySession, { sha256: true });
+  // Every check, window and hash below is of this one opened file, checked
+  // unchanged before each commit, so a transcript replaced or rewritten
+  // mid-read can't leave old events certified by a new file's hash (P2.7 to
+  // P2.9 review fixes). What committed before a change stays valid: each
+  // window was checked when it committed.
+  const pinned = await pinTranscript(candidate.historySession.transcriptPath);
+  try {
+    return await syncPinned(candidate, initialLedger, pinned);
+  } finally {
+    await pinned.close();
+  }
+}
+
+async function syncPinned(
+  candidate: FileCandidate,
+  initialLedger: ExternalSessionImportRecord,
+  pinned: PinnedTranscript,
+): Promise<number> {
+  const size = pinned.size;
+  const wholeSha256 = await pinned.digest().at(size);
   const sourceMoved = Boolean(
     initialLedger.sourcePath
       && initialLedger.sourcePath !== candidate.historySession.transcriptPath,
   );
-  const sourceShrank = before.size < initialLedger.syncOffset;
-  const sameSizeChanged = before.size === initialLedger.syncOffset
-    && Boolean(
-      initialLedger.sourceContentSha256
-        && before.sha256
-        && initialLedger.sourceContentSha256 !== before.sha256,
-    );
+  const sourceShrank = size < initialLedger.syncOffset;
+  const sameSizeChanged = size === initialLedger.syncOffset
+    && Boolean(initialLedger.sourceContentSha256 && initialLedger.sourceContentSha256 !== wholeSha256);
   const prefixChanged = !sourceMoved
     && initialLedger.sourceSize !== null
     && initialLedger.sourceContentSha256 !== null
-    && before.size >= initialLedger.sourceSize
-    && await sha256Prefix(
-      candidate.historySession.transcriptPath,
-      initialLedger.sourceSize,
-    ) !== initialLedger.sourceContentSha256;
+    && size >= initialLedger.sourceSize
+    && await pinned.digest().at(initialLedger.sourceSize) !== initialLedger.sourceContentSha256;
   const unverifiedPrefix = initialLedger.syncOffset > 0
     && initialLedger.sourceContentSha256 === null;
   const replace = sourceMoved
@@ -598,7 +610,7 @@ async function syncFileCandidate(
     replace,
     sourceUpdatedAt: candidate.updatedAt,
   });
-  const digest = createPrefixDigest(transcriptPath);
+  const digest = pinned.digest();
   let pending: PendingHistoryEvent[] = [];
   let stagedBytes = 0;
   let lastNextOffset = fromOffset;
@@ -612,13 +624,15 @@ async function syncFileCandidate(
     // ledger would claim an offset whose remaining events were never committed
     // and the resumed read would skip them.
     if (stagedBytes >= HISTORY_WINDOW_BYTES && yielded.lineStartOffset >= lastNextOffset) {
+      const sourceContentSha256 = await digest.at(lastNextOffset);
+      await pinned.assertUnchanged();
       writer.commit(pending, {
         sourcePath: transcriptPath,
         // The committed prefix, not the whole file: the next scan sees a
         // shorter source than the transcript and offers the rest as an update.
         sourceSize: lastNextOffset,
-        sourceModifiedAtNs: before.modifiedAtNs,
-        sourceContentSha256: await digest.at(lastNextOffset),
+        sourceModifiedAtNs: pinned.modifiedAtNs,
+        sourceContentSha256,
         sourceUpdatedAt: candidate.updatedAt,
         syncOffset: lastNextOffset,
         historyCheckpoint: null,
@@ -633,10 +647,9 @@ async function syncFileCandidate(
     stagedBytes += Buffer.byteLength(JSON.stringify(input), 'utf8');
   }
 
-  const after = await candidate.history.fingerprint(candidate.historySession, { sha256: true });
-  if (after.size !== before.size
-    || after.modifiedAtNs !== before.modifiedAtNs
-    || (before.sha256 !== undefined && after.sha256 !== before.sha256)) {
+  try {
+    await pinned.assertUnchanged();
+  } catch {
     throw codedError(
       'source_changed_during_read',
       'The provider transcript changed while it was being synchronized. Retry to continue.',
@@ -644,14 +657,13 @@ async function syncFileCandidate(
   }
   writer.commit(pending, {
     sourcePath: transcriptPath,
-    sourceSize: after.size,
-    sourceModifiedAtNs: after.modifiedAtNs,
-    sourceContentSha256: after.sha256 ?? null,
+    sourceSize: size,
+    sourceModifiedAtNs: pinned.modifiedAtNs,
+    sourceContentSha256: wholeSha256,
     sourceUpdatedAt: candidate.updatedAt,
-    // Completion plus an unchanged strong fingerprint proves the reader
-    // reached this stable EOF, including provider records that normalize to
-    // no Flow event.
-    syncOffset: Math.max(lastNextOffset, after.size),
+    // Completion plus an unchanged pinned file proves the reader reached this
+    // stable EOF, including provider records that normalize to no Flow event.
+    syncOffset: Math.max(lastNextOffset, size),
     historyCheckpoint: null,
   });
   return writer.inserted;

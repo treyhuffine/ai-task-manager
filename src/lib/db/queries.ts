@@ -6272,6 +6272,7 @@ export function findChatSessionByTakeoverToken(token: string): ChatSessionWithEx
 export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord[] {
   const db = getDb();
   const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
+  const host = getHome()?.hostComputerId ?? null;
   return db
     .select()
     .from(executions)
@@ -6282,6 +6283,20 @@ export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord
         isNull(executions.worktreePath),
         isNull(executions.setupError),
         lte(executions.setupStartedAt, cutoff),
+        // Only the home's own. One placed on a connected computer keeps its
+        // worktree on the placement and is set up by that computer's worker,
+        // whose prepare command settles by its own recovery. Its empty
+        // `worktreePath` here says nothing about a stuck setup (found in the
+        // P2.7 to P2.9 review's live check).
+        notExists(
+          db.select({ one: sql`1` })
+            .from(executionPlacements)
+            .where(and(
+              eq(executionPlacements.executionId, executions.id),
+              isNull(executionPlacements.endedAt),
+              host ? sql`${executionPlacements.computerId} <> ${host}` : sql`1 = 1`,
+            )),
+        ),
       ),
     )
     .all();

@@ -250,6 +250,11 @@ describe('on a connected computer (P2.7)', () => {
   it("reaches the home's servers with its own token, at the address its worker gives", async () => {
     fs.writeFileSync(path.join(ROOT, 'USER.md'), 'Trey.\n');
     const seeded = await seed();
+    // A token is issued to the computer's enrolled worker, so there is one.
+    (await import('@/lib/home/identity')).ensureHomeIdentity();
+    const q = await import('@/lib/db/queries');
+    const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Laptop', createdByApiKeyId: null });
+    const laptop = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).computer.id;
     const { buildSessionSpec } = await import('./session-spec');
     const spec = await buildSessionSpec(
       {
@@ -267,11 +272,11 @@ describe('on a connected computer (P2.7)', () => {
         modelVariant: null,
         effort: null,
       },
-      { computerId: 'laptop-1', isHome: false, generation: null },
+      { computerId: laptop, isHome: false, generation: null },
     );
     const orchestrator = spec.mcpServers.find((s) => s.name === 'orchestrator') as { url: string; headers: Record<string, string> };
     expect(orchestrator.url).toBe('ri-home:/api/orchestrator/mcp');
-    expect(orchestrator.headers.Authorization).toMatch(new RegExp(`^Bearer ri_session_${seeded.chat.id}\\.laptop-1\\.n\\.`));
+    expect(orchestrator.headers.Authorization).toMatch(new RegExp(`^Bearer ri_session_${seeded.chat.id}\\.${laptop}\\.n\\.`));
     expect(orchestrator.headers['x-ri-session']).toBeUndefined();
     expect(spec.instructions).toContain('### USER.md\n\nTrey.');
     expect(spec.instructions).not.toContain(ROOT);

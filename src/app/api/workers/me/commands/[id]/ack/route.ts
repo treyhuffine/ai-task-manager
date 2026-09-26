@@ -26,7 +26,7 @@ import type { WorkerCommandRecord } from '@/db/types';
 import { wakeComputer } from '@/lib/workers/hub';
 import type { PreparePayload, PrepareResult, SetupScriptPayload } from '@/lib/worker/handlers';
 import { inTransaction } from '@/lib/effects/after-commit';
-import { requireWorker } from '@/lib/workers/route-auth';
+import { requireWorkerWithBody } from '@/lib/workers/route-auth';
 import { settleUndelivered } from '@/lib/workers/undelivered';
 
 const body = z.object({
@@ -80,10 +80,11 @@ function recordSetupScript(command: WorkerCommandRecord): void {
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const worker = requireWorker(request.headers);
-  if (worker instanceof Response) return worker;
   const { id } = await params;
-  const parsed = body.safeParse(await request.json().catch(() => ({})));
+  const caller = await requireWorkerWithBody(request);
+  if (caller instanceof Response) return caller;
+  const { worker } = caller;
+  const parsed = body.safeParse(caller.json);
   if (!parsed.success) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }

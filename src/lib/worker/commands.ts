@@ -44,6 +44,8 @@ export interface CommandProcessorOptions {
   target: WorkerTarget;
   /** The home said stop while acknowledging (revoked, another protocol). */
   onStopped?: (err: WorkerStoppedError) => void;
+  /** A command was carried out or recovered, and its outcome journaled. */
+  onHandled?: (command: WorkerCommand) => void;
 }
 
 export class CommandProcessor {
@@ -115,6 +117,7 @@ export class CommandProcessor {
       }
     }
     this.options.journal.finished(command.id, ack);
+    this.options.onHandled?.(command);
     await this.sendAck(command.id, ack);
   }
 
@@ -134,6 +137,7 @@ export class CommandProcessor {
       }
     }
     this.options.journal.finished(command.id, ack);
+    this.options.onHandled?.(command);
     await this.sendAck(command.id, ack);
   }
 

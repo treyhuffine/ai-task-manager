@@ -17,7 +17,7 @@
  */
 
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
-import type { ResolvedReferenceFolder, WorkspaceRecord } from '@/db/types';
+import type { WorkspaceRecord } from '@/db/types';
 import {
   browserMcpServer,
   connectorsMcpServer,
@@ -48,10 +48,11 @@ export interface AgentMainChatSpawnArgs {
   freshSession: boolean;
   /**
    * It runs on a connected computer, where none of the home's files are
-   * (P2.7): its folder there, and its reference folders as that computer
-   * resolved them.
+   * (P2.7): its folder there. Its reference folders are wired by the runner
+   * there, from where they resolve when the session starts (`agentFolders`
+   * on the spec), so none are wired here.
    */
-  elsewhere?: { folder: string; references: ResolvedReferenceFolder[] };
+  elsewhere?: { folder: string };
   port?: number;
 }
 
@@ -104,8 +105,8 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   }
 
   let referenceBlock = '';
-  try {
-    const refs = args.elsewhere?.references ?? (await listUsableReferenceFolders(ws.id, { consumerCwd: ws.cwd }));
+  if (!args.elsewhere) try {
+    const refs = await listUsableReferenceFolders(ws.id, { consumerCwd: ws.cwd });
     const refConfig = buildReferenceFolderSessionConfig(refs);
     const wiring = referenceFolderProviderWiring(refConfig, providerType);
     referenceBlock = refConfig.instructions;

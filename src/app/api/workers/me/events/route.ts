@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { getAckedEventSeq, setAckedEventSeq } from '@/lib/db/queries';
 import { applyWorkerEvents } from '@/lib/executor/apply';
 import type { WorkerEvent } from '@/lib/workers/protocol';
-import { requireWorker } from '@/lib/workers/route-auth';
+import { requireWorkerWithBody } from '@/lib/workers/route-auth';
 
 const envelope = z
   .object({
@@ -38,9 +38,10 @@ const body = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const worker = requireWorker(request.headers);
-  if (worker instanceof Response) return worker;
-  const parsed = body.safeParse(await request.json().catch(() => ({})));
+  const caller = await requireWorkerWithBody(request);
+  if (caller instanceof Response) return caller;
+  const { worker } = caller;
+  const parsed = body.safeParse(caller.json);
   if (!parsed.success) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }

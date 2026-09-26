@@ -12,7 +12,9 @@
  * Only chats this computer runs, at the generation it runs them, reach the
  * mirror: a worker can't show another computer's chat as running or give it
  * prompts, and a late heartbeat from before a move can't bring back the old
- * placement's state (P2 review fixes).
+ * placement's state (P2 review fixes). Nor can one still being read when
+ * the worker is turned off: the enrollment is checked again once the body is
+ * in (P2.7 to P2.9 review fixes).
  */
 
 import type { NextRequest } from 'next/server';
@@ -20,7 +22,7 @@ import { z } from 'zod';
 import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat } from '@/lib/db/queries';
 import { clearComputerMirror, replaceComputerMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
-import { requireWorker } from '@/lib/workers/route-auth';
+import { requireWorkerWithBody } from '@/lib/workers/route-auth';
 
 const harness = z
   .object({
@@ -73,9 +75,10 @@ function ownLive(computerId: string, live: z.infer<typeof body>['live'] & object
 }
 
 export async function POST(request: NextRequest) {
-  const worker = requireWorker(request.headers);
-  if (worker instanceof Response) return worker;
-  const parsed = body.safeParse(await request.json().catch(() => ({})));
+  const caller = await requireWorkerWithBody(request);
+  if (caller instanceof Response) return caller;
+  const { worker } = caller;
+  const parsed = body.safeParse(caller.json);
   if (!parsed.success) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }

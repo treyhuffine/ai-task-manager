@@ -42,7 +42,8 @@ import {
   writeSessionEnvironment,
   writeSessionInstructions,
 } from '@/lib/executor/session-instructions';
-import { renderEnvironment, resolveEnvironment } from './environment';
+import { renderEnvironment, resolveAgentFolders, resolveEnvironment, type EnvironmentReference } from './environment';
+import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
 import { resolveSkillDirsForSession } from '@/lib/executor/skills';
 import { decodeBackgroundTaskEvent, isActiveBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
@@ -540,6 +541,11 @@ function startSessionOnce(spec: SessionSpec): Promise<AgentSession> {
   return starting;
 }
 
+/** A reference folder as this computer resolved it, for the prompt block and the flags. */
+function asReferenceFolder(ref: EnvironmentReference) {
+  return { alias: ref.alias, absolutePath: ref.path!, description: ref.description, git: null };
+}
+
 /** Spawn the harness for a spec. The home decided what it needs; this adds what only this computer knows. */
 async function startSession(spec: SessionSpec): Promise<AgentSession> {
   const providerType = harnessDefinition(spec.harness).agentexProviderId;
@@ -574,13 +580,34 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   if (spec.effort && runtime.capabilities.reasoningEffort.supported) config.effort = spec.effort;
   if (spec.strictMcpConfig) config.strictMcpConfig = true;
   if (spec.mcpServers.length > 0) config.mcpServers = spec.mcpServers;
-  if (spec.disallowedTools.length > 0) config.disallowedTools = [...spec.disallowedTools];
+  const disallowedTools = [...spec.disallowedTools];
+  const referenceArgs: string[] = [];
+  let instructions = spec.instructions;
+  let firstTurnPreamble = spec.firstTurnPreamble;
+  // A session elsewhere: the agent's folders resolved here and now, once,
+  // and the reference folders wired from that resolution (P2.7 to P2.9
+  // review fixes). The environment below shows the same paths.
+  const agentFolders = spec.agentFolders ? resolveAgentFolders(spec.agentFolders) : null;
+  if (agentFolders) {
+    const refs = agentFolders.references.flatMap((ref) => (ref.state === 'ready' && ref.path ? [asReferenceFolder(ref)] : []));
+    const refConfig = buildReferenceFolderSessionConfig(refs);
+    if (refConfig.instructions) {
+      const wiring = referenceFolderProviderWiring(refConfig, providerType);
+      if (wiring.deliversInstructions) instructions = [instructions, refConfig.instructions].filter(Boolean).join('\n\n');
+      else if (firstTurnPreamble !== null) firstTurnPreamble = [firstTurnPreamble, refConfig.instructions].join('\n\n');
+      referenceArgs.push(...wiring.extraArgs);
+      disallowedTools.push(...wiring.disallowedTools);
+      if (wiring.delivery !== 'full') {
+        console.warn(`[runner] ${refs.length} reference folder(s) on provider "${providerType}": ${wiring.delivery === 'prompt-only' ? 'announced, not fenced off' : 'not delivered'}.`);
+      }
+    }
+  }
+  if (disallowedTools.length > 0) config.disallowedTools = disallowedTools;
   // An execution's environment, resolved here and now: written beside the
   // instructions, and added to them where the harness reads instructions.
-  let instructions = spec.instructions;
   if (spec.environment) {
     try {
-      const environment = await resolveEnvironment({ ...spec.environment, cwd: spec.cwd });
+      const environment = await resolveEnvironment({ ...spec.environment, cwd: spec.cwd }, new Date(), agentFolders ?? undefined);
       const file = writeSessionEnvironment(spec.chatSessionId, environment);
       if (providerDeliversSessionInstructions(providerType)) {
         instructions = [instructions, renderEnvironment(environment, file)].filter(Boolean).join('\n\n');
@@ -591,7 +618,7 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
     }
   }
   if (instructions) config.instructionsFile = writeSessionInstructions(spec.chatSessionId, instructions);
-  const extraArgs = [...perm.extraArgs, ...spec.extraArgs];
+  const extraArgs = [...perm.extraArgs, ...spec.extraArgs, ...referenceArgs];
   if (extraArgs.length > 0) config.extraArgs = extraArgs;
 
   // Shipped skills are discovered from the app root or the user's explicit
@@ -655,7 +682,7 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
     nativeSessionId: spec.nativeSessionId,
   });
   state.lastActivityAt.set(chatSessionId, Date.now());
-  if (spec.firstTurnPreamble) firstTurnPreambles.set(handle, spec.firstTurnPreamble);
+  if (firstTurnPreamble) firstTurnPreambles.set(handle, firstTurnPreamble);
 
   // Service-backed providers can assign their session id before emitting any
   // stream event. Report it immediately so a host crash during the first turn

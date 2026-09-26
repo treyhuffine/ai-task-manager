@@ -47,6 +47,9 @@ import {
   getAgentSetup,
   createPlacement,
   queueWorkerCommand,
+  clearExecutionSetupError,
+  getOpenPlacement,
+  listWorkerCommands,
 } from '@/lib/db/queries';
 import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
 import {
@@ -373,6 +376,9 @@ export async function retryProvisionWorktree(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return null;
+  if (session.executionId && retryElsewhere(session.executionId, 'prepare')) {
+    return getChatSessionWithExecution(sessionId);
+  }
   if (session.worktreePath) return session;
   if (!session.workspaceId || !session.executionId) return session;
   const ws = getWorkspace(session.workspaceId);
@@ -568,11 +574,61 @@ async function runBackgroundProvisioning(
  * 'running' synchronously, so the UI reflects it on the next refetch.
  */
 export function retrySetupScript(executionId: string): boolean {
+  if (getPlacementElsewhere(executionId)) return retryElsewhere(executionId, 'run_script');
   const exec = getExecution(executionId);
   if (!exec?.worktreePath || !exec.workspaceId) return false;
   const ws = getWorkspace(exec.workspaceId);
   if (!ws?.setupCommand?.trim() || exec.worktreePath === ws.cwd) return false;
   void runBackgroundProvisioning(executionId, ws, exec.worktreePath, exec.branchName ?? '');
+  return true;
+}
+
+/** An execution's open placement when it's on a connected computer, not the home's. */
+function getPlacementElsewhere(executionId: string) {
+  const open = getOpenPlacement(executionId);
+  return open && open.computerId !== getHome()?.hostComputerId ? open : null;
+}
+
+/**
+ * Retry a setup step of an execution placed on a connected computer (P2.4):
+ * the command it was given, sent to its worker again. Never the home's own
+ * provisioning, which built a worktree on the home for work that runs
+ * elsewhere, nor a no-op for a script that only exists there (found in the
+ * P2.7 to P2.9 review's live check). False when the execution runs at home,
+ * or when it has no setup script to run.
+ */
+function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script'): boolean {
+  const placement = getPlacementElsewhere(executionId);
+  if (!placement) return false;
+  if (kind === 'prepare' && placement.worktreePath) {
+    // Prepared there already: the failure was recorded against a setup that
+    // had finished. Nothing to redo.
+    clearExecutionSetupError(executionId);
+    return true;
+  }
+  const previous = listWorkerCommands(placement.computerId)
+    .filter((c) => c.executionId === executionId && c.kind === kind)
+    .at(-1);
+  if (!previous) {
+    if (kind === 'run_script') return false;
+    recordExecutionSetupError(executionId, "There's no setup to retry on that computer. Start a new execution there.");
+    return true;
+  }
+  // The agent as it is now, if its settings changed since.
+  const prepared = previous.payload as PreparePayload;
+  const payload = kind === 'prepare' ? { ...prepared, workspace: getWorkspace(prepared.workspace.id) ?? prepared.workspace } : previous.payload;
+  if (kind === 'prepare') markExecutionSetupStarted(executionId);
+  else setExecutionSetupScript(executionId, 'running', null);
+  queueWorkerCommand({
+    computerId: placement.computerId,
+    kind,
+    payload,
+    actor: { source: 'system' },
+    executionId,
+    chatSessionId: previous.chatSessionId,
+    generation: placement.generation,
+  });
+  wakeComputer(placement.computerId);
   return true;
 }
 

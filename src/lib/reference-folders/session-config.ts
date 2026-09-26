@@ -30,9 +30,8 @@
  *     must not promise more.
  */
 
-import { renderReferenceFoldersPrompt } from '@/lib/executor/prompts/reference-folders';
+import { renderReferenceFoldersPrompt, type PromptReferenceFolder } from '@/lib/executor/prompts/reference-folders';
 import { providerDeliversSessionInstructions } from '@/lib/executor/session-instructions';
-import type { ResolvedReferenceFolder } from '@/db/types';
 
 export interface ReferenceFolderSessionConfig {
   /** The prompt block. Empty string when there is nothing to say. */
@@ -52,7 +51,7 @@ export function editDenyRule(absolutePath: string): string {
 }
 
 export function buildReferenceFolderSessionConfig(
-  refs: ResolvedReferenceFolder[],
+  refs: PromptReferenceFolder[],
 ): ReferenceFolderSessionConfig {
   if (refs.length === 0) return { instructions: '', addDirs: [], disallowedTools: [] };
 

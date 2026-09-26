@@ -384,16 +384,16 @@ describe('external agent imports', () => {
       },
     })}\n`);
 
+    // The transcript is written to while the sync reads it: after the parse
+    // has passed the appended line, another lands.
     const agentex = await import('@agentex/agent');
     const history = agentex.getProvider('claude').localHistory!;
-    const fingerprint = history.fingerprint.bind(history);
-    let calls = 0;
-    vi.spyOn(history, 'fingerprint').mockImplementation(async (...args) => {
-      const value = await fingerprint(...args);
-      calls++;
-      return calls === 2
-        ? { ...value, modifiedAtNs: `${BigInt(value.modifiedAtNs) + BigInt(1)}` }
-        : value;
+    const read = history.read.bind(history);
+    vi.spyOn(history, 'read').mockImplementation(async function* (...args) {
+      for await (const item of read(...args)) {
+        yield item;
+        fs.appendFileSync(path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`), '\n');
+      }
     });
 
     const result = await importer.importExternalAgentSessions([claude.key]);
@@ -516,6 +516,50 @@ describe('external agent imports', () => {
     expect(q.listChatEvents(session.id, { limit: 5_000 })).toHaveLength(5 + BULK_RECORDS * 2);
     expect(q.getExternalSessionImportBySource('claude', CLAUDE_ID)?.syncOffset)
       .toBe(fs.statSync(transcriptPath).size);
+  }, 60_000);
+
+  it('never commits a window of a transcript replaced partway through a long read', async () => {
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions)
+      .find((candidate) => candidate.source === 'claude')!;
+    await importer.importExternalAgentSessions([claude.key]);
+
+    const q = await import('@/lib/db/queries');
+    const session = q.listChatSessions({ type: 'execution' })
+      .find((candidate) => candidate.surfaceRef === 'claude')!;
+    const transcriptPath = path.join(claudeHome, 'projects', '-project-one', `${CLAUDE_ID}.jsonl`);
+    const syncedOffset = q.getExternalSessionImportBySource('claude', CLAUDE_ID)!.syncOffset;
+    appendBulkRecords(transcriptPath, projectOne, 0, BULK_RECORDS);
+    // The harness rewrites it atomically, same size, before the first window
+    // commits: the parser holds the old file, a reopened path is the new one.
+    const rewritten = fs.readFileSync(transcriptPath, 'utf8').replace(/bulk /g, 'next ');
+
+    const agentex = await import('@agentex/agent');
+    const history = agentex.getProvider('claude').localHistory!;
+    const read = history.read.bind(history);
+    let replaced = false;
+    vi.spyOn(history, 'read').mockImplementation(async function* (...args) {
+      for await (const yielded of read(...args)) {
+        yield yielded;
+        if (!replaced && yielded.nextOffset > syncedOffset + 256 * 1024) {
+          replaced = true;
+          fs.writeFileSync(`${transcriptPath}.new`, rewritten);
+          fs.renameSync(`${transcriptPath}.new`, transcriptPath);
+        }
+      }
+    });
+
+    const failed = await importer.importExternalAgentSessions([claude.key]);
+    expect(replaced).toBe(true);
+    expect(failed.failures).toHaveLength(1);
+
+    vi.restoreAllMocks();
+    const resumed = await importer.importExternalAgentSessions([claude.key]);
+    expect(resumed.failures).toEqual([]);
+    const contents = q.listChatEvents(session.id, { limit: 5_000 }).map((event) => event.content ?? '');
+    expect(contents.filter((c) => c.includes('bulk '))).toEqual([]);
+    expect(contents.filter((c) => c.includes('next '))).toHaveLength(BULK_RECORDS);
   }, 60_000);
 
   it('cleans up a new workspace and skeleton when the first read fails', async () => {

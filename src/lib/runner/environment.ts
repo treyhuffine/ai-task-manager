@@ -48,6 +48,17 @@ export interface ExecutionEnvironment {
   permissionMode: string;
 }
 
+/**
+ * An agent's folder and references as the home expects them on a computer:
+ * what the running side resolves against its own setup files.
+ */
+export interface ExpectedAgentFolders {
+  homeId: string;
+  agentId: string;
+  sourceFolder: string | null;
+  references: EnvironmentReference[];
+}
+
 /** As the running side resolved it, when the session started. */
 export interface ResolvedEnvironment extends ExecutionEnvironment {
   /** A worktree of its own, the agent's folder itself (live), or a folder that isn't a repository. */
@@ -67,12 +78,13 @@ function stateOf(report: ReferenceReport): ReferenceState {
  * them. When this computer has no setup for the agent, the home's values
  * stand (a home agent from before setups, say).
  */
-function resolveLocally(env: ExecutionEnvironment): Pick<ExecutionEnvironment, 'sourceFolder' | 'references'> {
+export function resolveAgentFolders(expected: ExpectedAgentFolders): Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> {
+  const env = expected;
   const report = resolveSetups({
     homeId: env.homeId,
     registered: listRegisteredLocations().map((l) => l.dir),
-    expected: { [env.agent.id]: env.references.map((r) => ({ alias: r.alias })) },
-  }).find((r) => r.agentId === env.agent.id && r.status !== 'duplicate');
+    expected: { [env.agentId]: env.references.map((r) => ({ alias: r.alias })) },
+  }).find((r) => r.agentId === env.agentId && r.status !== 'duplicate');
   if (!report) return { sourceFolder: env.sourceFolder, references: env.references };
   return {
     sourceFolder: report.sourcePath,
@@ -91,8 +103,20 @@ async function git(cwd: string, args: string[]): Promise<string | null> {
   }
 }
 
-export async function resolveEnvironment(env: ExecutionEnvironment, now = new Date()): Promise<ResolvedEnvironment> {
-  const local = resolveLocally(env);
+/**
+ * `local` is the agent's folders as already resolved here, when the caller
+ * wires something else from the same resolution (the reference folders).
+ */
+export async function resolveEnvironment(
+  env: ExecutionEnvironment,
+  now = new Date(),
+  local: Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> = resolveAgentFolders({
+    homeId: env.homeId,
+    agentId: env.agent.id,
+    sourceFolder: env.sourceFolder,
+    references: env.references,
+  }),
+): Promise<ResolvedEnvironment> {
   const mode = !env.isGit ? 'folder' : local.sourceFolder && local.sourceFolder === env.cwd ? 'live' : 'worktree';
   const [branch, head] = env.isGit
     ? await Promise.all([git(env.cwd, ['branch', '--show-current']), git(env.cwd, ['rev-parse', 'HEAD'])])
