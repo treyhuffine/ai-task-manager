@@ -170,10 +170,10 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
         />
       )}
 
-      {session.worktreePath && (
+      {prepared && (
         <SetupRow
           icon={<Folder size={11} />}
-          text={<span className="font-mono text-muted-foreground/70 truncate">{session.worktreePath}</span>}
+          text={<span className="font-mono text-muted-foreground/70 truncate">{prepared}</span>}
         />
       )}
 

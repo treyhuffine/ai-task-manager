@@ -12,12 +12,12 @@ import { HOTKEYS } from '@/constants/commands';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { useDeliveries, useUpdateSession } from '@/hooks/use-execution';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
-import { useClientLocation } from '@/hooks/use-client-location';
+import { useOpener } from '@/hooks/use-opener';
+import { sessionFolder } from '@/lib/folders/source';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
-import { fsApi } from '@/lib/api/fs';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
@@ -310,9 +310,9 @@ export function ExecutionHeader({
     )
   ) : null;
 
-  const worktreeLinks = session.worktreePath ? (
-    <WorktreeDeepLinks worktreePath={session.worktreePath} />
-  ) : null;
+  // Its folder wherever it runs, opened on that computer for a browser there (P3.5).
+  const openFolder = preparedFolder(session);
+  const worktreeLinks = openFolder ? <WorktreeDeepLinks sessionId={session.id} worktreePath={openFolder} /> : null;
 
   const takeoverMenuItem = <TakeoverButton session={session} workspace={workspace} />;
 
@@ -327,7 +327,7 @@ export function ExecutionHeader({
   const providerResumeCommand = session.externalSessionId
     ? resumeCommandForHarness(session.harness, session.externalSessionId)
     : null;
-  const showGit = !!workspace?.isGit && (!!session.worktreePath || !!session.setupError);
+  const showGit = !!workspace?.isGit && (!!preparedFolder(session) || !!session.setupError);
 
   // One menu for passive details and meta actions, shared by both layouts.
   const menu = (align: 'start' | 'end', triggerClass: string, iconSize: number) => (
@@ -716,9 +716,9 @@ function LocationChip({ name }: { name: string }) {
  * worktree path doesn't exist on the user's laptop. Cross-machine work
  * goes through the takeover flow (separate UI surface).
  */
-function WorktreeDeepLinks({ worktreePath }: { worktreePath: string }) {
-  const location = useClientLocation();
-  const { label, openInEditor } = useOpenInPreferredEditor();
+function WorktreeDeepLinks({ sessionId, worktreePath }: { sessionId: string; worktreePath: string }) {
+  const { opener } = useOpener(sessionFolder(sessionId), worktreePath);
+  const { label, openInEditor } = useOpenInPreferredEditor(opener);
   const [revealing, setRevealing] = useState(false);
   const [opening, setOpening] = useState(false);
 
@@ -726,14 +726,15 @@ function WorktreeDeepLinks({ worktreePath }: { worktreePath: string }) {
     if (revealing) return;
     setRevealing(true);
     try {
-      const res = await fsApi.openIn(worktreePath, 'finder');
+      if (!opener) return;
+      const res = await opener.open(worktreePath, 'finder');
       if (!res.ok) toast.error(res.message ?? "Couldn't open the folder");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to open the folder');
     } finally {
       setRevealing(false);
     }
-  }, [worktreePath, revealing]);
+  }, [opener, worktreePath, revealing]);
 
   const handleOpenInEditor = useCallback(async () => {
     if (opening) return;
@@ -754,7 +755,7 @@ function WorktreeDeepLinks({ worktreePath }: { worktreePath: string }) {
     }
   }, [worktreePath, opening, openInEditor, label]);
 
-  if (location.kind !== 'host') return null;
+  if (!opener) return null;
 
   const platform = detectClientPlatform();
 

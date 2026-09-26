@@ -19,15 +19,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { fsApi, type OpenTarget, type InstalledApp } from '@/lib/api/fs';
+import { type OpenTarget, type InstalledApp } from '@/lib/api/fs';
 import { useEditorPreference } from '@/lib/client/editor-preference';
-import { useClientLocation } from '@/hooks/use-client-location';
+import { useOpener } from '@/hooks/use-opener';
+import type { FolderSource } from '@/lib/folders/source';
 import { isEditorTarget } from '@/lib/fs/known-apps';
 import { cn } from '@/lib/utils';
 
 interface OpenWorktreeButtonProps {
   /** Absolute path of the worktree to open. Component is a no-op when null. */
   path: string | null;
+  /**
+   * Whose folder it is, which says which computer it's on (P3.5). Without
+   * one the folder is taken to be the home's.
+   */
+  source?: FolderSource | null;
 }
 
 /** localStorage key for the user's last-used target — drives the main button. */
@@ -113,24 +119,24 @@ function writeLastTarget(target: OpenTarget): void {
  * real icon from the bundle), Linux/Windows probe the CLI command via
  * `which`/`where`. Apps that aren't installed don't appear.
  */
-export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
+export function OpenWorktreeButton({ path, source = null }: OpenWorktreeButtonProps) {
   const [busy, setBusy] = useState<OpenTarget | 'copy' | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [primaryTarget, setPrimaryTarget] = useState<OpenTarget>('finder');
-  // Use the same host detection as every other open surface (file viewer,
-  // header) so a claimed LAN/Tailscale hostname is treated consistently —
-  // not the old loopback-only check that left this button stuck in "Copy
-  // path" mode after the user claimed their host in Settings.
-  const isRemote = useClientLocation().kind !== 'host';
+  // Where the files are and whether this browser can open them (P3.5): the
+  // home's own browser for files at home, a browser linked to another
+  // computer for files there. Anywhere else it's Copy path.
+  const { opener, filesOn } = useOpener(source, path);
+  const isRemote = !opener;
   // Shared editor preference (settings + file-viewer use the same). The
   // split-button seeds its primary from it and writes it back when the user
   // opens with an editor, so the two surfaces never disagree.
   const { choice, setChoice } = useEditorPreference();
 
   const { data: installedData } = useQuery({
-    queryKey: ['fs', 'installed-apps'],
-    queryFn: () => fsApi.installedApps(),
+    queryKey: opener?.appsKey ?? ['fs', 'installed-apps', 'none'],
+    queryFn: () => opener!.apps(),
     staleTime: 5 * 60_000, // App install changes are rare.
     // No point detecting installed apps when we can't run them anyway.
     enabled: !isRemote,
@@ -155,11 +161,11 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
 
   const open = useCallback(
     async (target: OpenTarget, opts: { remember?: boolean } = { remember: true }) => {
-      if (!path) return;
+      if (!path || !opener) return;
       setError(null);
       setBusy(target);
       try {
-        const res = await fsApi.openIn(path, target);
+        const res = await opener.open(path, target);
         if (!res.ok) {
           const reasonMsg =
             res.reason === 'not_installed'
@@ -185,7 +191,7 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
         setBusy(null);
       }
     },
-    [path, setChoice],
+    [opener, path, setChoice],
   );
 
   const copyPath = useCallback(() => {
@@ -234,7 +240,11 @@ export function OpenWorktreeButton({ path }: OpenWorktreeButtonProps) {
         </button>
         <span
           className="flex items-center text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-help"
-          title="You're viewing this from a remote browser. Open this URL on the host machine to launch apps there."
+          title={
+            filesOn
+              ? `The files are on ${filesOn}. Open them from a browser on ${filesOn} to launch apps there.`
+              : "You're viewing this from a remote browser. Open this URL on the host machine to launch apps there."
+          }
           aria-label="Remote viewer notice"
         >
           <Info size={12} />

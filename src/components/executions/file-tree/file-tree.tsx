@@ -505,7 +505,7 @@ export function FileTree({
           </div>
           {worktreePath && (
             <div className="min-w-0 flex-shrink-0">
-              <OpenWorktreeButton path={worktreePath} />
+              <OpenWorktreeButton path={worktreePath} source={source} />
             </div>
           )}
         </div>

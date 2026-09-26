@@ -913,7 +913,7 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [x] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
 - [x] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
 - [x] 3.5c Terminals on a worker: create, list, input, output, resize, close through the worker, bounded replay, reconnect, input disabled while disconnected with no replay of unconfirmed keys, never a fallback shell at home. Agent-folder terminals on the agent's computer. Computer and folder shown.
-- [ ] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
+- [x] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
 - [x] 3.5e An agent that lives on another computer: its header shows its folder there, and its Files and Terminal open on that computer (found in P3.4's live check).
 - [ ] 3.6 Deck: one scheduler and daily generation at the home (tests).
 - [ ] 3.7 The whole flow at phone and laptop widths: keyboard, voice, pending-input controls.
@@ -1014,6 +1014,18 @@ Spec §5.6 and §6: everything the viewer does to an execution's folder happens 
 - **Honest in every place.** Run, Preview and the tools box say "Runs on MacBook" and offer no Start. Preview explains that its app runs there, that Ri doesn't start it from here, and that its local address isn't reachable from other devices, and gives the command to run there in its folder.
 - **The person's own tunnel still works.** A URL pasted for it is its one address, used as given, with no port of the home's in it, and opens in Preview on any screen.
 - **Decided, and recorded.** Previews served by the worker (a supervised dev server on the laptop, with its logs and a tunnel from there) aren't built. The spec keeps this release to safe existing preview support and truthful unavailable states, and puts a new preview tunneling platform out of scope, with repeated transfers made only for a missing preview as the signal to add it (§6, §11).
+
+### Opening in an app on your own computer (3.5d)
+
+- **Who can open what.** An app opens files on the computer they're on, for the person at that computer. Files at home open from the home's own browser through `/api/fs/open`, as before. Files on another computer open from a browser linked to that computer ("This Mac", P2.2: `ri worker open` links the browser's viewing key to it), through that computer's worker. Any other browser gets Copy path and "The files are on MacBook. Open them from a browser on MacBook to launch apps there." Before this, the home's browser offered Open for an execution elsewhere and ran it on the home, against a path that isn't there (or is a different folder).
+- **The request** (`open_here`, `src/lib/worker/open-here.ts`) names the folder, an execution's worktree for the placement the worker holds or an agent's folder from its setup files, and a path inside it. The worker resolves it inside that folder, symlinks included, and opens only a known app (Finder, Terminal, iTerm and the editors), with the folder as the project. Never a custom command: that stays the home's, and the editor preference says so rather than run it elsewhere. The home checks on every request that the caller's viewing key is linked to the computer the files are on (`src/lib/open/on-viewer.ts`, `POST /api/sessions/:id/open` and `/api/workspaces/:id/open`). The same request lists the apps installed there, so the menu offers that computer's apps with their icons (`listInstalledApps`, now shared with the home's route).
+- **One opener for every surface** (`useOpener`): the Files view's Open button, the file viewer's Reveal and Open in editor, and the execution header's links.
+- **An execution's folder wherever it runs.** The workbench, the rail's +/- counts, the diff stats, the git chip, links to files from the chat, the work-in-progress banner and the setup card read `session.worktreePath`, which is only ever a folder at home, so for an execution elsewhere they showed nothing (the Files view had no Open button at all, and the rail no counts). They use `preparedFolder` now, as P3.1 began, and `useFolderRoot` follows the agent's computer too.
+
+### Tests and live checks (3.5d)
+
+- `worker/open-here.test.ts` (2, the app launch stubbed): a file inside the worktree opened with the worktree as the project, the agent's folder, and refusals for a path outside, an absolute path, a symlink out, a missing file, a command, a placement that moved on and an agent not set up there, with nothing opened. `open/on-viewer.test.ts` (3, real keys and links): a browser linked to the laptop opens through the laptop's worker with the placement's generation and lists its apps. A browser linked to another computer, one not linked, one with no key and a home execution are refused, and a command is refused, with the worker never asked. Full suite: 2,676 passed.
+- Live on the dev home: a browser not linked to the stand-in showed Copy path with "The files are on MacBook (stand-in). Open them from a browser on MacBook (stand-in) to launch apps there." Linked the way `ri worker open` links it (an association grant from the stand-in's worker, redeemed by the page), the same Files view showed the Open button with the stand-in's installed apps (Finder, Terminal, iTerm, VS Code), and Reveal in Finder opened through the stand-in's worker without an error.
 
 ### An agent that lives on another computer (3.5e)
 

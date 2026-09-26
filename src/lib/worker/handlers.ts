@@ -21,13 +21,14 @@ import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import * as runner from '@/lib/runner/local-runner';
 import type { SessionSpec } from '@/lib/runner/types';
-import { HOME_ADDRESS_SCHEME, type ReadAgentFolderRequest, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
+import { HOME_ADDRESS_SCHEME, type OpenHereRequest, type ReadAgentFolderRequest, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
 import { readExecution, type ExecutionLocation } from '@/lib/workspaces/execution-reads';
 import { writeExecution } from '@/lib/workspaces/execution-writes';
 import { readAgentFolder } from '@/lib/workspaces/agent-folder-reads';
 import type { CommandJournal } from './command-journal';
 import type { CommandContext, CommandHandlers, CommandKindHandler } from './commands';
 import { agentFolderHere } from './agent-folder';
+import { openHere } from './open-here';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
 
@@ -207,6 +208,9 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       }
       const location = locate(request);
       return location ? writeExecution(location, request.write) : notPrepared;
+    }
+    if (kind === 'open_here') {
+      return openHere(payload as OpenHereRequest, { journal, agentFolder: (agentId) => agentFolderHere(homeId, agentId) });
     }
     if (kind === 'read_agent_folder') {
       const request = payload as ReadAgentFolderRequest;

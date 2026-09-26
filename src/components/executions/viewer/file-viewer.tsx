@@ -21,10 +21,9 @@ import { apiErrorText } from '@/lib/api/client';
 import { useWriteFile } from '@/hooks/use-execution';
 import { useFolderRoot, useFolderTree } from '@/hooks/use-folder';
 import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
-import { useClientLocation } from '@/hooks/use-client-location';
+import { useOpener } from '@/hooks/use-opener';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
-import { fsApi } from '@/lib/api/fs';
 import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import { FileIcon } from '@/components/file-icon';
@@ -377,7 +376,7 @@ function FileViewerHeader({
           )}
         </div>
       )}
-      <RevealButton root={root} path={path} />
+      <RevealButton source={source} root={root} path={path} />
       <FileHeaderMoreMenu
         relativePath={displayPath}
         worktreePath={root}
@@ -469,6 +468,8 @@ function FileHeaderMoreMenu({
 }
 
 interface RevealButtonProps {
+  /** Whose folder it is, which says which computer the file is on (P3.5). */
+  source: FolderSource;
   /** Absolute path of the folder the file lives in. */
   root: string | null;
   path: string;
@@ -480,9 +481,10 @@ interface RevealButtonProps {
  * on a remote client because the path in the URL doesn't exist on the
  * user's laptop.
  */
-function RevealButton({ root, path }: RevealButtonProps) {
-  const location = useClientLocation();
-  const { label, openInEditor } = useOpenInPreferredEditor();
+function RevealButton({ source, root, path }: RevealButtonProps) {
+  // Opens on the computer the file is on, for a browser there (P3.5).
+  const { opener } = useOpener(source, root);
+  const { label, openInEditor } = useOpenInPreferredEditor(opener);
   const worktreePath = root;
   const absolutePath = worktreePath ? `${worktreePath}/${path}` : null;
   const [revealing, setRevealing] = useState(false);
@@ -495,7 +497,8 @@ function RevealButton({ root, path }: RevealButtonProps) {
     // folder (open -R / explorer /select,) rather than launching it.
     setRevealing(true);
     try {
-      const res = await fsApi.openIn(absolutePath, 'finder', { reveal: true });
+      if (!opener) return;
+      const res = await opener.open(absolutePath, 'finder', { reveal: true });
       if (!res.ok) {
         toast.error(res.message ?? "Couldn't reveal the file");
       }
@@ -504,7 +507,7 @@ function RevealButton({ root, path }: RevealButtonProps) {
     } finally {
       setRevealing(false);
     }
-  }, [absolutePath, revealing]);
+  }, [absolutePath, opener, revealing]);
 
   const handleOpenInEditor = useCallback(async () => {
     if (!absolutePath || opening) return;
@@ -526,8 +529,7 @@ function RevealButton({ root, path }: RevealButtonProps) {
     }
   }, [absolutePath, opening, openInEditor, worktreePath, label]);
 
-  if (!absolutePath) return null;
-  if (location.kind !== 'host') return null;
+  if (!absolutePath || !opener) return null;
 
   const platform = detectClientPlatform();
 

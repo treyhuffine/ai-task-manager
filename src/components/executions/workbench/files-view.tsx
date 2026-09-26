@@ -132,7 +132,7 @@ export function FilesView({
       )}
       <FileHistoryMenu sessionId={sessionId} history={fileHistory} selectedPath={selectedPath} />
       <span className="flex-1" />
-      {worktreePath && <OpenWorktreeButton path={worktreePath} />}
+      {worktreePath && <OpenWorktreeButton path={worktreePath} source={sessionFolder(sessionId)} />}
     </div>
   );
 

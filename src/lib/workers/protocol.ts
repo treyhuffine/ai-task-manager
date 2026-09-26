@@ -45,6 +45,7 @@ export type WorkerRequestKind =
   | 'write_execution'
   | 'read_agent_folder'
   | 'terminal'
+  | 'open_here'
   | 'list_history'
   | 'read_history';
 
@@ -84,6 +85,25 @@ export interface ReadAgentFolderRequest {
   filesToCopy: string[];
   read: import('@/lib/workspaces/agent-folder-reads').AgentFolderRead;
 }
+
+/**
+ * Open an execution's worktree or an agent's folder in an app on the
+ * worker's computer (P3.5, spec §3.3), for a browser linked to that
+ * computer: an editor, a terminal app or the file manager. Names the folder,
+ * never a path outside it, and only known apps: never a command.
+ */
+export type OpenHereRequest =
+  | { op: 'apps' }
+  | {
+      op: 'open';
+      folder: { kind: 'execution'; executionId: string; generation: number } | { kind: 'agent'; agentId: string };
+      /** Inside the folder, or null for the folder itself. */
+      path: string | null;
+      target: import('@/lib/fs/open-target').OpenTarget;
+      line?: number;
+      column?: number;
+      reveal?: boolean;
+    };
 
 /**
  * Whose shells a terminal request addresses (P3.5, spec §5.6): an

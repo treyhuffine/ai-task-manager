@@ -256,10 +256,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // Worktree just landed (provisioning finished) → pull the file tree + diff
   // immediately. The tree was fetched empty while `worktreePath` was null, and
   // nothing else refetches it on this transition.
-  const prevWorktreeRef = useRef(!!session?.worktreePath);
+  // Its folder wherever it runs (P3.1): the worktree here, or the one its computer prepared.
+  const folder = session ? preparedFolder(session) : null;
+  const prevWorktreeRef = useRef(!!folder);
   useEffect(() => {
     hot('effect ExecutionView.worktree-edge');
-    const has = !!session?.worktreePath;
+    const has = !!folder;
     const justLanded = !prevWorktreeRef.current && has && !!sessionId && !!worktreeScope;
     prevWorktreeRef.current = has;
     if (!justLanded) return;
@@ -272,7 +274,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       2500,
     );
     return () => clearTimeout(t);
-  }, [session?.worktreePath, sessionId, worktreeScope, qc]);
+  }, [folder, sessionId, worktreeScope, qc]);
 
   // Voice-sent event ids tracked in client memory for this open session.
   // Lost on reload by design. The set only grows.
@@ -348,12 +350,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   useOpenFileListener(
     useCallback(
       (detail) => {
-        const rel = toWorktreeRelative(detail.path, session?.worktreePath ?? null);
+        const rel = toWorktreeRelative(detail.path, folder);
         if (!rel) return;
         selectFile(rel);
         openViewHere('files', 'jump');
       },
-      [session?.worktreePath, selectFile, openViewHere],
+      [folder, selectFile, openViewHere],
     ),
   );
 
@@ -390,7 +392,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   }, [controller, openViewHere]);
 
   // Status for the box, tabs and sheet.
-  const diffStats = useDiffStats(session?.worktreePath ? sessionId : null, executionId);
+  const diffStats = useDiffStats(folder ? sessionId : null, executionId);
   const references = useSessionReferences(sessionId, 'all');
   const linkedCount = references.data?.inChat.length ?? 0;
   const { data: scratch } = useScratchpad(sessionId);
@@ -525,7 +527,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         ? 'Continue here to reply'
         : undefined;
 
-  const isGitWorktree = !!workspace?.isGit && !!session.worktreePath;
+  const isGitWorktree = !!workspace?.isGit && !!folder;
   const chatLabel = session.label ?? 'this chat';
   const needsInput = pendingInputSessionIds.has(session.id);
   const openWorkspaceSettings = session.workspaceId ? () => openAgent(session.workspaceId!, 'setup') : undefined;
@@ -542,7 +544,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     sessionId: session.id,
     workspaceId: session.workspaceId ?? null,
     worktreeId,
-    worktreePath: session.worktreePath ?? null,
+    // Its folder wherever it runs: the Files view's paths and Open are on that computer (P3.5).
+    worktreePath: preparedFolder(session),
     baseBranch: workspace?.baseBranch ?? null,
     chatLabel,
     settingUp: isSettingUp ? { failed: !!session.setupError } : null,
@@ -594,12 +597,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       )}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {workspace?.isGit &&
-          !!session.worktreePath &&
-          session.worktreePath !== workspace.cwd && (
+          !!folder &&
+          folder !== workspace.cwd && (
             // Skip for Live / in-place sessions: their "worktree" IS the source
             // checkout, so no WIP ever "stayed behind".
             <div className={clearBox}>
-              <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
+              <WipHandoffBanner sessionId={session.id} worktreeReady={!!folder} />
             </div>
           )}
         {reconciling && (

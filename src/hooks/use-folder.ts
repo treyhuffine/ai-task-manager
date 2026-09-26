@@ -8,7 +8,8 @@ import {
   useSessionTree,
   useWorktreeScope,
 } from '@/hooks/use-execution';
-import { useWorkspace } from '@/hooks/use-workspaces';
+import { useRunOn, useWorkspace } from '@/hooks/use-workspaces';
+import { preparedFolder } from '@/lib/executions/location';
 
 /**
  * Folder reads for either source (`src/lib/folders/source.ts`). A session
@@ -70,10 +71,19 @@ export function useFolderBaseFile(source: FolderSource | null, path: string | nu
   return workspaceId ? workspaceFile : sessionFile;
 }
 
-/** Absolute path of the folder: the worktree, or the agent's folder. */
+/**
+ * Absolute path of the folder, on the computer it's on (P3.5): the
+ * execution's worktree wherever it runs, or the agent's folder on the
+ * computer it lives on.
+ */
 export function useFolderRoot(source: FolderSource | null): string | null {
   const { data: session } = useSession(source?.kind === 'session' ? source.sessionId : null);
-  const { data: workspace } = useWorkspace(source?.kind === 'workspace' ? source.workspaceId : null);
+  const workspaceId = source?.kind === 'workspace' ? source.workspaceId : null;
+  const { data: workspace } = useWorkspace(workspaceId);
+  const { data: runOn } = useRunOn(workspaceId);
   if (!source) return null;
-  return source.kind === 'workspace' ? workspace?.cwd ?? null : session?.worktreePath ?? null;
+  if (source.kind === 'session') return session ? preparedFolder(session) : null;
+  const livesOn = runOn?.livesOn;
+  if (livesOn && !livesOn.isHome) return livesOn.folder;
+  return workspace?.cwd ?? null;
 }

@@ -13,6 +13,7 @@ import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 import { useWorkspaceSelection } from './workspace-selection-context';
 import { executionView } from '@/lib/client/active-view';
+import { preparedFolder } from '@/lib/executions/location';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -69,7 +70,8 @@ export function SessionRow({
 }: SessionRowProps) {
   const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
-    session.worktreePath ? session.id : null,
+    // Its folder wherever it runs: an execution elsewhere has its +/- too (P3.5).
+    preparedFolder(session) ? session.id : null,
     session.executionId,
   );
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
