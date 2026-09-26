@@ -18,6 +18,8 @@ import { registerConnection } from '@/lib/workers/hub';
 import { WORKER_PROTOCOL, WORKER_STREAM_PING_MS, type WorkerCommand, type WorkerStreamEvent } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
 import { settleUndelivered } from '@/lib/workers/undelivered';
+import { announceDelivery, announceOpenSends } from '@/lib/workers/delivery';
+import { publishComputerUpdated } from '@/lib/realtime/bus';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -76,6 +78,8 @@ export async function GET(request: NextRequest) {
         for (const command of takeCommandsForStream(worker.computer.id, cursor)) {
           send({ type: 'command', command: toWire(command) });
           cursor = Math.max(cursor, command.seq ?? cursor);
+          // A message on its way to this computer (P3.2).
+          announceDelivery(command);
         }
       };
       const unregister = registerConnection({
@@ -86,6 +90,8 @@ export async function GET(request: NextRequest) {
         wake: pump,
         close,
       });
+      // Every screen showing this computer's work learns it connected (P3.2).
+      publishComputerUpdated(worker.computer.id);
       const ping = setInterval(() => {
         if (!getWorkerEnrollment(worker.apiKeyId)) {
           send({ type: 'revoked', message: `Local execution on ${worker.computer.name} was turned off.` });
@@ -97,6 +103,10 @@ export async function GET(request: NextRequest) {
       cleanup = () => {
         clearInterval(ping);
         unregister();
+        // Messages it hasn't confirmed now wait for it, and its work says it
+        // dropped (P3.2).
+        announceOpenSends(worker.computer.id);
+        publishComputerUpdated(worker.computer.id);
       };
       request.signal.addEventListener('abort', close);
       send({

@@ -41,6 +41,7 @@ import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { isHarnessEnabled } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
+import { announceDelivery } from '@/lib/workers/delivery';
 import {
   beginDispatchPreparation,
   endDispatchPreparation,
@@ -148,6 +149,15 @@ export interface DispatchOptions {
    * computer the chat runs on, which is known only here (P2.5).
    */
   attachments?: Attachment[];
+  /**
+   * Called once the message is saved in its computer's queue, for a chat
+   * elsewhere (P3.2). From then on what the chat is doing is its computer's
+   * to say: running when the worker reports its turn, and the message's
+   * delivery state until then. A caller holding the chat busy for the
+   * dispatch lets go here, so a message waiting for a computer that's away
+   * doesn't read as working.
+   */
+  onQueued?: () => void;
 }
 
 /**
@@ -416,6 +426,10 @@ async function deliver(
       if (sent.status === 'needs_spec') {
         throw new ExecutorError('invalid_state', 'The session could not be started.');
       }
+    }
+    if (sent.status === 'queued') {
+      announceDelivery(sent.commandId);
+      options.onQueued?.();
     }
   } catch (err) {
     forgetTurn(turnId);

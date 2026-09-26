@@ -10,6 +10,7 @@ import type { WorkerCommandRecord } from '@/db/types';
 import type { AfterCommit } from '@/lib/effects/after-commit';
 import { settleTurn } from '@/lib/executor/turns';
 import { finishRunInTransaction } from '@/lib/runs/finish';
+import { announceDelivery } from './delivery';
 
 const UNDELIVERED: Record<string, { code: string; message: string }> = {
   failed: { code: 'delivery_failed', message: "The message couldn't be delivered." },
@@ -25,4 +26,6 @@ export function settleUndelivered(command: WorkerCommandRecord, after: AfterComm
   const message = command.error ?? undelivered.message;
   if (payload.runId) finishRunInTransaction(payload.runId, { ok: false, errorCode: undelivered.code, errorMessage: message }, after);
   if (payload.turnId) after.tasks.push(() => settleTurn(payload.turnId!, message));
+  // Its message shows as not delivered, or uncertain, once this commits (P3.2).
+  after.tasks.push(() => announceDelivery(command.id));
 }

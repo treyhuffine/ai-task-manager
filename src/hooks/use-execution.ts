@@ -8,7 +8,8 @@ import {
   type WipApplyResult,
   type ExecutionChatHistoryEntry,
 } from '@/lib/api/sessions';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, apiErrorText } from '@/lib/api/client';
+import { toast } from 'sonner';
 import { isLaunchPending } from '@/lib/executions/pending-launch';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { PermissionMode, EffortLevel, Attachment } from '@/db/types';
@@ -20,6 +21,7 @@ import {
   withRunningStatus,
   type SessionRuntimeStatus,
 } from '@/lib/executor/runtime-status';
+import type { MessageDelivery } from '@/lib/workers/delivery';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
@@ -702,6 +704,30 @@ export interface SendMessageInput {
 interface InternalSendInput extends SendMessageInput {
   /** Client-minted row id, shared between optimistic UI and the POST. */
   eventId: string;
+}
+
+/**
+ * Where each message this chat sent to a computer elsewhere stands (P3.2),
+ * by chat event id. Kept current by the session stream's `delivery` frames.
+ */
+export function useDeliveries(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'deliveries'],
+    queryFn: ({ signal }) => sessionsApi.deliveries(sessionId!, { signal }),
+    enabled: !!sessionId,
+    staleTime: 60_000,
+  });
+}
+
+/** Withdraw a message still waiting in its computer's queue. */
+export function useCancelDelivery(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: string) => sessionsApi.cancelDelivery(sessionId, eventId),
+    onSuccess: (delivery, eventId) =>
+      qc.setQueryData<Record<string, MessageDelivery>>(['session', sessionId, 'deliveries'], (prev) => ({ ...(prev ?? {}), [eventId]: delivery })),
+    onError: (err) => toast.error("Couldn't withdraw that message", { description: apiErrorText(err) }),
+  });
 }
 
 export function useSendMessage(id: string) {

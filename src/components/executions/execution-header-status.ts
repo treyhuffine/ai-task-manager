@@ -3,6 +3,12 @@ export type ExecutionHeaderStatusKind =
   | 'setup-failed'
   | 'setting-up'
   | 'pending'
+  /** A message is saved at the home, waiting for its computer (P3.2). */
+  | 'waiting'
+  /** Its computer lost contact in the middle of a turn: unknown, not stopped. */
+  | 'disconnected'
+  /** Its computer said it's asleep. */
+  | 'asleep'
   | 'working'
   | 'background'
   | 'respond'
@@ -18,6 +24,11 @@ interface DeriveExecutionHeaderStatusInput {
   hasBackgroundTasks: boolean;
   lastOutcomeEventAt: string | null;
   lastViewedAt: string | null;
+  /**
+   * For an execution on another computer: whether its worker is connected,
+   * whether it said it's asleep, and whether a message is waiting for it.
+   */
+  elsewhere?: { connected: boolean; asleep: boolean; waiting: boolean } | null;
 }
 
 export function deriveExecutionHeaderStatus({
@@ -29,7 +40,11 @@ export function deriveExecutionHeaderStatus({
   hasBackgroundTasks,
   lastOutcomeEventAt,
   lastViewedAt,
+  elsewhere = null,
 }: DeriveExecutionHeaderStatusInput): ExecutionHeaderStatusKind {
+  // Away from its computer, a turn under way is only known to have been
+  // under way when contact was lost, and a message only waits.
+  const away = !!elsewhere && !elsewhere.connected;
   const needsResponse =
     !isRunning &&
     !hasBackgroundTasks &&
@@ -45,9 +60,13 @@ export function deriveExecutionHeaderStatus({
         ? 'setting-up'
         : isPending
           ? 'pending'
-          : isRunning
-            ? 'working'
-            : hasBackgroundTasks
+          : isRunning && away
+            ? elsewhere!.asleep ? 'asleep' : 'disconnected'
+            : isRunning
+              ? 'working'
+              : elsewhere?.waiting
+                ? away && elsewhere.asleep ? 'asleep' : 'waiting'
+                : hasBackgroundTasks
               ? 'background'
               : needsResponse
                 ? 'respond'
@@ -83,7 +102,12 @@ export function describeChatStatus(
   kind: ExecutionHeaderStatusKind,
   lastOutcomeEventAt: string | null,
   formatAgo: (iso: string | null) => string,
+  /** The computer an execution elsewhere runs on, for the states that name it. */
+  where: { name: string; lastSeenAt: string | null } | null = null,
 ): ChatStatusDescription {
+  const name = where?.name ?? 'Its computer';
+  const heard = where?.lastSeenAt ? formatAgo(where.lastSeenAt) : '';
+  const lastHeard = !heard ? undefined : heard === 'now' ? 'last heard from just now' : /^\d/.test(heard) ? `last heard from ${heard} ago` : `last heard from ${heard}`;
   const ago = lastOutcomeEventAt ? formatAgo(lastOutcomeEventAt) : '';
   const finished = !ago ? 'Finished' : ago === 'now' ? 'Finished just now' : /^\d/.test(ago) ? `Finished ${ago} ago` : `Finished ${ago}`;
   const turnNote = 'This chat finished its last turn. That is not the same as the task being done.';
@@ -99,6 +123,30 @@ export function describeChatStatus(
       return { label: 'Needs input', tone: 'amber', pulse: true, title: 'This chat is waiting on you. The question is above the message box.' };
     case 'working':
       return { label: 'Working', tone: 'green', pulse: true, title: 'This chat is working.' };
+    case 'waiting':
+      return {
+        label: `Waiting for ${name}`,
+        detail: 'your message is saved',
+        tone: 'amber',
+        pulse: false,
+        title: `${name} isn't connected. Your message is saved here and goes to it when it connects. You can cancel it from the message until then.`,
+      };
+    case 'disconnected':
+      return {
+        label: `${name} disconnected`,
+        detail: lastHeard,
+        tone: 'amber',
+        pulse: false,
+        title: `${name} lost contact while this chat was working. What it sent last is below. It may still be working, and whatever it does meanwhile arrives when it reconnects.`,
+      };
+    case 'asleep':
+      return {
+        label: `${name} is asleep`,
+        detail: lastHeard,
+        tone: 'muted',
+        pulse: false,
+        title: `${name} said it was going to sleep. Its work continues when it wakes, and a message sent meanwhile waits for it.`,
+      };
     case 'background':
       return {
         label: lastOutcomeEventAt ? finished : 'Turn finished',

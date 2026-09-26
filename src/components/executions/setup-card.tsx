@@ -57,6 +57,8 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   const isLive = isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   // Wherever it runs: on a laptop the folder is on its placement (P3.1).
   const prepared = preparedFolder(session);
+  // The computer it runs on, when that isn't the home: named where it fails.
+  const elsewhere = session.location && !session.location.isHome ? session.location.name : null;
   const hasError = isGit && !prepared && !!session.setupError;
   // Treat error state as terminal — drop the spinner row so the user
   // doesn't see "creating worktree…" next to a "setup failed" row.
@@ -206,6 +208,7 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
           sessionId={session.id}
           error={session.setupError ?? 'Unknown error'}
           prNumber={session.prNumber ?? null}
+          on={elsewhere}
         />
       )}
 
@@ -214,7 +217,7 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
           this is "couldn't reach the remote, so this started from your local
           branch." Silently working from stale code is the failure mode worth
           a row of its own. */}
-      {session.worktreePath && session.setupWarning && (
+      {prepared && session.setupWarning && (
         <SetupRow
           icon={<AlertCircle size={11} className="text-amber-500/80" />}
           text={
@@ -227,29 +230,31 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
 
       {/* Background setup script — runs after the worktree is ready, so the
           session is already chattable. Non-blocking; just a status row. */}
-      {session.worktreePath && session.setupScriptStatus === 'running' && (
+      {prepared && session.setupScriptStatus === 'running' && (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <ThinkingDots />
-          <span>Running setup script…</span>
+          <span>{elsewhere ? `Running the setup script on ${elsewhere}…` : 'Running setup script…'}</span>
         </div>
       )}
       {session.setupScriptStatus === 'failed' && (
         <SetupScriptErrorRow
           sessionId={session.id}
           error={session.setupScriptError ?? 'Setup script failed'}
+          on={elsewhere}
         />
       )}
     </div>
   );
 }
 
-function SetupScriptErrorRow({ sessionId, error }: { sessionId: string; error: string }) {
+/** `on`: the computer it ran on, for an execution away from the home (P3.2). */
+function SetupScriptErrorRow({ sessionId, error, on }: { sessionId: string; error: string; on: string | null }) {
   const retry = useRetrySetupScript(sessionId);
   return (
     <div className="flex items-start gap-2 text-[11px]">
       <AlertCircle size={11} className="text-amber-500 flex-shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0 space-y-1">
-        <div className="text-amber-600 dark:text-amber-400 font-medium">Setup script failed</div>
+        <div className="text-amber-600 dark:text-amber-400 font-medium">{on ? `Setup failed on ${on}` : 'Setup script failed'}</div>
         <div className="text-muted-foreground/80 font-mono text-[10.5px] break-all whitespace-pre-wrap">{error}</div>
         <button
           type="button"
@@ -269,10 +274,13 @@ function SetupErrorRow({
   sessionId,
   error,
   prNumber,
+  on,
 }: {
   sessionId: string;
   error: string;
   prNumber: number | null;
+  /** The computer it was being prepared on, for an execution away from the home (P3.2). */
+  on: string | null;
 }) {
   const retry = useRetrySetup(sessionId);
   const handleClick = () => {
@@ -289,9 +297,11 @@ function SetupErrorRow({
       <AlertCircle size={11} className="text-rose-500 flex-shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0 space-y-1">
         <div className="text-rose-600 dark:text-rose-400 font-medium">
-          {prNumber != null
-            ? `Couldn't fetch PR #${prNumber}`
-            : "Couldn't create worktree"}
+          {on
+            ? `Couldn't prepare it on ${on}`
+            : prNumber != null
+              ? `Couldn't fetch PR #${prNumber}`
+              : "Couldn't create worktree"}
         </div>
         <div className="text-muted-foreground/80 font-mono text-[10.5px] break-all">
           {error}

@@ -5002,6 +5002,29 @@ export function ackWorkerCommand(computerId: string, commandId: string, ack: Wor
   }, { behavior: 'immediate' });
 }
 
+/** A chat's sends, oldest first: one per message sent to a computer elsewhere (P3.2). */
+export function listSendsForChat(chatSessionId: string): WorkerCommandRecord[] {
+  return getDb()
+    .select()
+    .from(workerCommands)
+    .where(and(eq(workerCommands.chatSessionId, chatSessionId), eq(workerCommands.kind, 'send')))
+    .orderBy(asc(workerCommands.id))
+    .all();
+}
+
+/** A computer's sends not yet delivered or given up on: queued, or sent and unacknowledged. */
+export function listOpenSendsForComputer(computerId: string): WorkerCommandRecord[] {
+  return getDb()
+    .select()
+    .from(workerCommands)
+    .where(and(
+      eq(workerCommands.computerId, computerId),
+      eq(workerCommands.kind, 'send'),
+      inArray(workerCommands.state, ['queued', 'sent']),
+    ))
+    .all();
+}
+
 /** Withdraw a command that hasn't been streamed. A streamed one can't be: stop the execution instead. */
 export function cancelWorkerCommand(commandId: string): WorkerCommandRecord | null {
   const now = new Date().toISOString();

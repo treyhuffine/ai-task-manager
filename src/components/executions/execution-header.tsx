@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, MoreHorizontal, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff, Laptop } from 'lucide-react';
 import { locationLabel, preparedFolder } from '@/lib/executions/location';
-import { useRunsOnSeveralComputers } from '@/hooks/use-computers';
+import { useComputer, useRunsOnSeveralComputers } from '@/hooks/use-computers';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
-import { useUpdateSession } from '@/hooks/use-execution';
+import { useDeliveries, useUpdateSession } from '@/hooks/use-execution';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
@@ -173,6 +173,20 @@ export function ExecutionHeader({
   const where = locationLabel(session, severalComputers);
   const locationChip = where ? <LocationChip name={where} /> : null;
 
+  // Away from the home, what its computer is doing shapes the status: a
+  // message waiting for it, or a turn under way when it lost contact (P3.2).
+  const remote = session.location && !session.location.isHome ? session.location : null;
+  const computer = useComputer(remote?.computerId);
+  const { data: deliveries } = useDeliveries(remote ? session.id : null);
+  const elsewhere = remote
+    ? {
+        // Until the list loads, assume connected rather than claim it dropped.
+        connected: computer?.worker?.connected ?? true,
+        asleep: computer?.worker?.reportedState === 'asleep',
+        waiting: Object.values(deliveries ?? {}).some((d) => d.state === 'waiting'),
+      }
+    : null;
+
   const statusKind = deriveExecutionHeaderStatus({
     isArchived,
     isSetupFailed,
@@ -182,10 +196,16 @@ export function ExecutionHeader({
     hasBackgroundTasks,
     lastOutcomeEventAt: session.lastOutcomeEventAt,
     lastViewedAt: session.lastViewedAt,
+    elsewhere,
   });
   // The selected chat's status in words. Status is text with a dot: no
   // border, no hover, so it never reads as a button.
-  const chatStatus = describeChatStatus(statusKind, session.lastOutcomeEventAt, formatCompactRelative);
+  const chatStatus = describeChatStatus(
+    statusKind,
+    session.lastOutcomeEventAt,
+    formatCompactRelative,
+    remote ? { name: remote.name, lastSeenAt: computer?.lastSeenAt ?? null } : null,
+  );
   const statusEl = (
     <span
       title={chatStatus.title}

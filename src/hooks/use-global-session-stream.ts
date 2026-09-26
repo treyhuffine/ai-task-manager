@@ -18,6 +18,9 @@ export function useGlobalSessionStream(): void {
     const refresh = () => invalidateRailSoon(queryClient, { includeChatStrips: true });
 
     source.addEventListener('session_updated', refresh);
+    // A computer connected, dropped, or reported sleep (P3.2).
+    const refreshComputers = () => queryClient.invalidateQueries({ queryKey: ['computers'] });
+    source.addEventListener('computer_updated', refreshComputers);
     source.addEventListener('ready', refresh);
     source.onerror = (err) => {
       console.warn('[useGlobalSessionStream] stream error:', err);
@@ -25,6 +28,7 @@ export function useGlobalSessionStream(): void {
 
     return () => {
       source.removeEventListener('session_updated', refresh);
+      source.removeEventListener('computer_updated', refreshComputers);
       source.removeEventListener('ready', refresh);
       source.close();
     };

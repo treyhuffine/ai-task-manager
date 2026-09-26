@@ -23,6 +23,7 @@ import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat } from '@/lib/db
 import { clearComputerMirror, replaceComputerMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
 import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
+import { publishComputerUpdated } from '@/lib/realtime/bus';
 
 const harness = z
   .object({
@@ -87,6 +88,8 @@ export async function POST(request: NextRequest) {
   const { live, placements, ...report } = parsed.data;
   const computer = recordWorkerHeartbeat(worker.computer.id, report);
   if (!computer) return Response.json({ error: 'unauthorized' }, { status: 401 });
+  // Awake, asleep or stopping: what its work says about it changes (P3.2).
+  if (worker.computer.reportedState !== report.state) publishComputerUpdated(computer.id);
   if (live) replaceComputerMirror(computer.id, ownLive(computer.id, live));
   // A worker that's stopping closes its sessions, and their prompts with
   // them. One that just goes quiet keeps its mirror: unknown is not stopped.

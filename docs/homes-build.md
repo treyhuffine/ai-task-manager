@@ -904,10 +904,10 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 
 ### P3
 
-- [ ] 3.2a Delivery state per sent message (saved, waiting, sending, delivered, not delivered, uncertain), on events and pushed on the session stream as it changes.
-- [ ] 3.2b A message waiting for a computer doesn't read as working. The execution says "Waiting for MacBook", or "MacBook disconnected, last heard from…" when contact is lost mid-turn, and Asleep only when reported.
-- [ ] 3.2c Cancel before delivery, refused once it's on its way (stop the execution instead). Send again for a message not delivered or uncertain, as a new message.
-- [ ] 3.2d Home unreachable keeps the draft. Setup failed on a computer shows its output and Retry. A missing folder or reference says which, where.
+- [x] 3.2a Delivery state per sent message (waiting, sending, delivered, not delivered, uncertain), from its send command, announced on the session stream as it changes.
+- [x] 3.2b A message waiting for a computer doesn't read as working. The execution says "Waiting for MacBook", or "MacBook disconnected, last heard from…" when contact is lost mid-turn, and asleep only when reported.
+- [x] 3.2c Cancel before delivery, refused once it's on its way (stop the execution instead). Send again for a message not delivered or uncertain, as a new message.
+- [x] 3.2d Home unreachable keeps the draft (P1.6, verified). Setup failed on a computer says where, with its output and Retry. A missing folder or reference says which and where (P3.1's reasons).
 - [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner.
 - [ ] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
 - [ ] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
@@ -925,6 +925,30 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [ ] 4.4 Every failure stage leaves one owner and a safe retry or resume, with held messages, source artifacts and branches kept.
 - [ ] 4.5 Commit, PR, push, pull base, restart and archive route through the owner. The takeover paths Continue here replaces are retired.
 - [ ] 4.6 The failure matrix in tests, including the P2 re-review's placement probe.
+
+## P3.2 Saved, waiting, delivered
+
+Spec §3.5: saving a message at the home is not delivering it, and the states stay distinct.
+
+### Each message's state
+
+- **From its send command** (`src/lib/workers/delivery.ts`). A message to a chat elsewhere has one send, and its state is the message's: waiting (queued, its computer not connected), sending (queued while connected, or streamed and not yet acknowledged), delivered, not delivered (failed, withdrawn, or the execution moved first, with the reason), and uncertain (the worker couldn't tell from the native history). A chat at home has none: its messages reach the harness as they're sent.
+- **Announced as it changes**, on the chat's stream as a `delivery` frame, after the change commits: queued by dispatch, streamed to the worker, acknowledged, and every path through `settleUndelivered` (failed, stale, withdrawn, turned off, uncertain after re-enrollment). A worker connecting or dropping changes what its open sends say, so those are announced too, and every screen hears `computer_updated` on the global stream to refresh the computers list. `GET /api/sessions/:id/deliveries` gives them all at once.
+- **Under the message**: "Waiting for MacBook. Your message is saved." with Cancel, "Sending to MacBook…", "Not delivered to MacBook." with the reason and Send again, or "Delivery to MacBook couldn't be confirmed." with a note to check whether it answered before sending again. Nothing once delivered.
+- **Cancel** (`POST /api/sessions/:id/deliveries/:eventId/cancel`) withdraws only a message still in the home's queue, in one transaction with settling its run and turn. Once streamed to the worker it may be running, so it's refused: "It's already on its way to MacBook. Stop the execution to keep it from running."
+- **Send again** sends the same text and files as a new message. A message keeps its one send, and the old one stays, marked not delivered.
+
+### What the execution says
+
+- **A message waiting for a computer no longer reads as working.** The messages route held the chat busy until the dispatch settled, and a dispatch to a computer that's away settles only when it answers, so the rail and the header said "Working" for as long as the message waited. Dispatch now calls `onQueued` once the message is in its computer's queue, and the route lets go there. From then on the worker says whether a turn is running, and the message's state says the rest.
+- **The header** says "Waiting for MacBook, your message is saved" while a message waits, "MacBook disconnected, last heard from 4m ago" when contact was lost in the middle of a turn (unknown, not stopped), and "MacBook is asleep" only when it said so.
+- **Setup** on a computer says where it failed ("Setup failed on MacBook", "Couldn't prepare it on MacBook"), with its output and Retry, and the running-script and warning rows read the folder wherever it is (they looked at the home's path only).
+- Home unreachable was built in P1.6: the banner names the home's computer, unsent messages stay as failed with a retry, and drafts stay in the composer.
+
+### Tests and live checks
+
+- `delivery.test.ts` (4): waiting while the computer is away and not working meanwhile, withdrawn (not delivered, its run failed, its turn settled), refused once on its way, delivered and uncertain. `execution-header-status.test.ts` (+5): waiting, disconnected, asleep only when said, working while connected, and the words. Full suite: 2,634 passed, exit 0.
+- Live on the dev home, screenshotted, with the stand-in's worker off: a message to its execution showed "Waiting for MacBook (stand-in). Your message is saved. Cancel", and the header "Waiting for MacBook (stand-in), your message is saved". Cancel made it "Not delivered to MacBook (stand-in). It was withdrawn before it was delivered." with Send again, the command cancelled and its run failed as `delivery_cancelled`. With the worker started, Send again delivered a new message, which showed nothing under it, and real Claude answered.
 
 ## P0.3 Records and the runner boundary
 

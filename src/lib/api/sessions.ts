@@ -8,6 +8,7 @@ import type {
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { SessionRuntimeStatus } from '@/lib/executor/runtime-status';
+import type { MessageDelivery } from '@/lib/workers/delivery';
 
 // ─── Pending-input wire types ─────────────────────────────────
 //
@@ -578,6 +579,16 @@ export const sessionsApi = {
 
   setAutoMerge(id: string, body: AutoMergeRequestBody): Promise<AutoMergeResponse> {
     return api.post<AutoMergeResponse>(`/sessions/${id}/auto-merge`, body);
+  },
+
+  /** Where each message sent to a computer elsewhere stands, by chat event id (P3.2). */
+  deliveries(id: string, opts: { signal?: AbortSignal } = {}): Promise<Record<string, MessageDelivery>> {
+    return api.get<Record<string, MessageDelivery>>(`/sessions/${id}/deliveries`, { signal: opts.signal });
+  },
+
+  /** Withdraw a message still waiting in its computer's queue. */
+  cancelDelivery(id: string, eventId: string): Promise<MessageDelivery> {
+    return api.post<MessageDelivery>(`/sessions/${id}/deliveries/${eventId}/cancel`);
   },
 
   needsReview(opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution[]> {

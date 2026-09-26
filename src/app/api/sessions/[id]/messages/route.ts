@@ -258,6 +258,15 @@ export async function POST(
       // nested dispatch takes its own reference, so the runtime flag remains
       // true until both preparation and the actual root turn have settled.
       const preparationRef = executor.beginDispatchPreparation(id);
+      // Released once: when a message to a computer elsewhere is saved in its
+      // queue (from then on its delivery state and the worker say what the
+      // chat is doing), or when the dispatch settles.
+      let held = true;
+      const release = () => {
+        if (!held) return;
+        held = false;
+        executor.endDispatchPreparation(id, preparationRef);
+      };
       // Self-heal a missing worktree before dispatching. A git execution
       // can outlive its worktree directory (out-of-band `git worktree
       // remove`/`prune`, a multi-device home where `.work` wasn't synced,
@@ -284,9 +293,10 @@ export async function POST(
             sourceEventId: row.id,
             attachments,
             actor,
+            onQueued: release,
           });
         } finally {
-          executor.endDispatchPreparation(id, preparationRef);
+          release();
         }
       })().catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);

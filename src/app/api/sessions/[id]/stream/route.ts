@@ -89,7 +89,11 @@ export async function GET(
           case 'reconcile':
             enqueue(sse('reconcile', { status: message.status, replayed: message.replayed }));
             break;
+          case 'delivery':
+            enqueue(sse('delivery', { eventId: message.eventId, delivery: message.delivery }));
+            break;
           case 'session_updated': break;
+          case 'computer_updated': break;
         }
       });
 

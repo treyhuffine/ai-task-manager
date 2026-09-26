@@ -28,6 +28,7 @@ import type { PreparePayload, PrepareResult, SetupScriptPayload } from '@/lib/wo
 import { inTransaction } from '@/lib/effects/after-commit';
 import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
 import { settleUndelivered } from '@/lib/workers/undelivered';
+import { announceDelivery } from '@/lib/workers/delivery';
 
 const body = z.object({
   state: z.enum(['delivered', 'failed', 'stale', 'uncertain']),
@@ -101,5 +102,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return recorded;
   });
   if (!command) return Response.json({ error: 'not_found', message: 'This computer has no such command.' }, { status: 404 });
+  // A send's message shows as delivered (P3.2).
+  announceDelivery(command);
   return Response.json({ state: command.state });
 }

@@ -84,3 +84,28 @@ describe('describeChatStatus', () => {
     for (const k of kinds) expect(describeChatStatus(k, '2026-07-15T20:00:00.000Z', ago('1m')).label).not.toMatch(/ready/i);
   });
 });
+
+describe('an execution on another computer (P3.2)', () => {
+  const base = {
+    isArchived: false, isSetupFailed: false, isSettingUp: false, isPending: false,
+    hasBackgroundTasks: false, lastOutcomeEventAt: null, lastViewedAt: null,
+  };
+  it('waits for its computer, rather than working, while a message waits', () => {
+    expect(deriveExecutionHeaderStatus({ ...base, isRunning: false, elsewhere: { connected: false, asleep: false, waiting: true } })).toBe('waiting');
+  });
+  it('says its computer disconnected mid-turn, never that it stopped', () => {
+    expect(deriveExecutionHeaderStatus({ ...base, isRunning: true, elsewhere: { connected: false, asleep: false, waiting: false } })).toBe('disconnected');
+  });
+  it('says asleep only when the computer said so', () => {
+    expect(deriveExecutionHeaderStatus({ ...base, isRunning: true, elsewhere: { connected: false, asleep: true, waiting: false } })).toBe('asleep');
+    expect(deriveExecutionHeaderStatus({ ...base, isRunning: false, elsewhere: { connected: false, asleep: true, waiting: true } })).toBe('asleep');
+  });
+  it('works as usual while its computer is connected', () => {
+    expect(deriveExecutionHeaderStatus({ ...base, isRunning: true, elsewhere: { connected: true, asleep: false, waiting: false } })).toBe('working');
+  });
+  it('names the computer and when it was last heard from', () => {
+    const ago = () => '4m';
+    expect(describeChatStatus('waiting', null, ago, { name: 'MacBook', lastSeenAt: 'x' })).toMatchObject({ label: 'Waiting for MacBook', detail: 'your message is saved' });
+    expect(describeChatStatus('disconnected', null, ago, { name: 'MacBook', lastSeenAt: 'x' })).toMatchObject({ label: 'MacBook disconnected', detail: 'last heard from 4m ago' });
+  });
+});

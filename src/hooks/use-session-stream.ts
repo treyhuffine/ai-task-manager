@@ -13,6 +13,7 @@ import {
   withRunningStatus,
   type SessionRuntimeStatus,
 } from '@/lib/executor/runtime-status';
+import type { MessageDelivery } from '@/lib/workers/delivery';
 
 /**
  * Subscribes to the per-session SSE stream and folds every frame into
@@ -47,6 +48,7 @@ export function useSessionStream(sessionId: string | null): void {
 
     const source = new EventSource(`/api/sessions/${sessionId}/stream`);
     const eventsKey = ['session', sessionId, 'events'] as const;
+    const deliveriesKey = ['session', sessionId, 'deliveries'] as const;
     const runtimeKey = ['session', sessionId, 'runtime-status'] as const;
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
@@ -172,7 +174,18 @@ export function useSessionStream(sessionId: string | null): void {
       }
     };
 
+    // Where a message sent to a computer elsewhere stands (P3.2).
+    const handleDelivery = (raw: MessageEvent) => {
+      try {
+        const data = JSON.parse(raw.data) as { eventId: string; delivery: MessageDelivery };
+        queryClient.setQueryData<Record<string, MessageDelivery>>(deliveriesKey, (prev) => ({ ...(prev ?? {}), [data.eventId]: data.delivery }));
+      } catch (err) {
+        console.error('[useSessionStream] malformed delivery frame:', err);
+      }
+    };
+
     source.addEventListener('chat_event', handleChatEvent);
+    source.addEventListener('delivery', handleDelivery);
     source.addEventListener('runtime', handleRuntime);
     source.addEventListener('background_tasks', handleBackgroundTasks);
     source.addEventListener('pending_input', handlePendingInput);
@@ -190,6 +203,7 @@ export function useSessionStream(sessionId: string | null): void {
     source.addEventListener('open', () => {
       queryClient.invalidateQueries({ queryKey: eventsKey });
       queryClient.invalidateQueries({ queryKey: runtimeKey });
+      queryClient.invalidateQueries({ queryKey: deliveriesKey });
     });
 
     source.onerror = (err) => {
@@ -200,6 +214,7 @@ export function useSessionStream(sessionId: string | null): void {
 
     return () => {
       source.removeEventListener('chat_event', handleChatEvent);
+      source.removeEventListener('delivery', handleDelivery);
       source.removeEventListener('runtime', handleRuntime);
       source.removeEventListener('background_tasks', handleBackgroundTasks);
       source.removeEventListener('pending_input', handlePendingInput);
