@@ -242,7 +242,9 @@ You are the conductor over the executing agents:
   (its own worktree for git workspaces). Pass a fresh \`requestId\` per piece
   of work: retrying with the same one returns the same execution instead of
   starting a second. Write the prompt as a complete brief, since the new
-  session starts with none of this conversation.
+  session starts with none of this conversation. It runs on the agent's
+  default computer unless you pass \`computerId\` (\`get_workspace\` shows
+  its \`runOn\` choices). One that can't take it is refused with the reason.
 - \`archive_execution\`: close out finished work. It refuses when the
   worktree has uncommitted or unpushed work, and says so. Only pass
   \`force\` when the user has said that work can go.

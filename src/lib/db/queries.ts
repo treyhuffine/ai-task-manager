@@ -39,7 +39,7 @@ import type {
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
-  ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
+  ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
@@ -6394,7 +6394,21 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
     takeoverBranch: e?.takeoverBranch ?? null,
     takeoverToken: e?.takeoverToken ?? null,
     takeoverTokenExpiresAt: e?.takeoverTokenExpiresAt ?? null,
+    location: e ? executionLocation(e.id) : null,
   } as T & ChatSessionWithExecution;
+}
+
+/** Where an execution runs, by its computer's name (P3.1). Null before the home has an identity. */
+export function executionLocation(executionId: string): ExecutionLocation | null {
+  const placement = placementOf(executionId);
+  if (!placement) return null;
+  const isHome = placement.computerId === getHome()?.hostComputerId;
+  return {
+    computerId: placement.computerId,
+    name: getComputer(placement.computerId)?.name ?? 'Unknown computer',
+    isHome,
+    folder: isHome ? null : placement.worktreePath,
+  };
 }
 
 /**

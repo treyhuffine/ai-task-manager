@@ -1008,6 +1008,12 @@ export const workspaces = sqliteTable(
     // and to every execution it starts. Null means none. Capped in the query
     // layer.
     instructions: text(),
+    // The computer this agent's new executions run on, as the person chose
+    // with "Make this the default" (docs/homes-spec.md §3.3, P3.1). Null means
+    // never chosen: resolved at read time to the home when its setup is
+    // usable, otherwise the first computer set up for the agent. A one-off
+    // "Run on" choice never changes it.
+    defaultComputerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
     position: integer().notNull().default(0),
     collapsed: integer({ mode: 'boolean' }).notNull(),
     // When true, the Live-session explainer modal is skipped for this workspace

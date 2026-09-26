@@ -319,6 +319,12 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
               · {workspaceLabel}
             </span>
           )}
+          {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
+          {session.location && !session.location.isHome && (
+            <span className="text-[10px] text-muted-foreground/60 truncate">
+              · {session.location.name}
+            </span>
+          )}
         </span>
       </span>
       <span className="flex items-center gap-1.5 flex-shrink-0 text-[10px]">

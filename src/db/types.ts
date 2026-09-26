@@ -321,7 +321,25 @@ export type ChatSessionWithExecution = ChatSessionRecord & {
   takeoverBranch: string | null;
   takeoverToken: string | null;
   takeoverTokenExpiresAt: string | null;
+  /** Where the execution runs. Null for a chat with no execution. */
+  location: ExecutionLocation | null;
 };
+
+/**
+ * Where an execution runs (docs/homes-spec.md §3.3, P3.1): its placement's
+ * computer, or the home's own. Shown on the execution by its stable name.
+ */
+export interface ExecutionLocation {
+  computerId: string;
+  /** The computer's name, as the person named it: MacBook, Mac Mini. Never a hostname or address. */
+  name: string;
+  isHome: boolean;
+  /**
+   * Elsewhere, the folder its computer prepared for it, or null until it has.
+   * The execution's own `worktreePath` is only ever a folder on the home.
+   */
+  folder: string | null;
+}
 
 // ─── Chat Events ──────────────────────────────────────────────
 

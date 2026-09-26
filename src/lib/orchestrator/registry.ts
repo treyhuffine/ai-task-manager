@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { uuidv7 } from 'uuidv7';
 import { defineAction, ActionError, type ActionContext } from './types';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
+import { runOnFor } from '@/lib/setups/run-on';
 import { browserActions } from './browser-actions';
 import {
   TASK_STATUSES,
@@ -1354,13 +1355,14 @@ const get_workspace_action = defineAction({
   name: 'get_workspace',
   description:
     'Fetch a single workspace by id (the user calls it an agent), including its `purpose` and standing ' +
-    '`instructions`.',
+    '`instructions`, and `runOn`: the computers it can run on (each with whether it can take work now, ' +
+    'and why not) and `defaultId`, where a new execution runs when start_execution names no computer.',
   params: { id: z.string().min(1) },
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
     const ws = getWorkspace(id);
     if (!ws) throw new ActionError('not_found', `Workspace not found: ${id}`);
-    return ws;
+    return { ...ws, runOn: runOnFor(id) };
   },
 });
 
@@ -1428,7 +1430,9 @@ const update_workspace_action = defineAction({
   description:
     'Edit a workspace (the user calls it an agent): name, emoji, area, `purpose` (a sentence, 500 characters ' +
     'max), standing `instructions` (delivered to every execution it starts, 20,000 characters max), ' +
-    'connector access, and the agent browser. Pass null to clear purpose or instructions. Its folder, ' +
+    'connector access, the agent browser, and `defaultComputerId`, the computer its new executions run on ' +
+    '(one it is set up on, see get_workspace runOn, or null to go back to the automatic choice). ' +
+    'Pass null to clear purpose or instructions. Its folder, ' +
     'scripts and files-to-copy are not editable here: they run commands or move files on the machine, so ' +
     'they stay in the app. Connector access and the browser can only be changed from the app or the local ' +
     'CLI, not over MCP. Goes through the app server so live sessions pick the change up.',
@@ -1443,11 +1447,12 @@ const update_workspace_action = defineAction({
       .array(z.object({ toolkitId: z.string().min(1), account: z.string().nullable().optional() }))
       .optional(),
     browserEnabled: z.boolean().optional(),
+    defaultComputerId: z.string().nullable().optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
   handler: async (ctx, input) => {
-    const { id, connectorScopes, ...fields } = input;
+    const { id, connectorScopes, defaultComputerId, ...fields } = input;
     if (!getWorkspace(id)) throw new ActionError('not_found', `Workspace not found: ${id}`);
     // Granting connector access or the browser widens what this agent's
     // executions can reach. Over MCP the caller is a harness session that
@@ -1464,6 +1469,9 @@ const update_workspace_action = defineAction({
     try {
       if (Object.keys(fields).length > 0) {
         await serverFetch(`/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify(fields) });
+      }
+      if (defaultComputerId !== undefined) {
+        await serverFetch(`/workspaces/${id}/run-on`, { method: 'PUT', body: JSON.stringify({ defaultComputerId }) });
       }
       if (connectorScopes !== undefined) {
         await serverFetch(`/workspaces/${id}/connector-scopes`, {
@@ -2646,7 +2654,7 @@ const start_execution_action = defineAction({
       .string()
       .min(1)
       .optional()
-      .describe("The computer to run on (see list_computers). Omitted: the home's own. One that can't take it is refused with the reason, never replaced."),
+      .describe("The computer to run on (see get_workspace runOn). Omitted: the agent's default computer. One that can't take it is refused with the reason, never replaced."),
   },
   mutating: true,
   cli: { positional: ['workspaceId'] },

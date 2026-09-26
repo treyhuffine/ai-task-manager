@@ -853,6 +853,39 @@ Found while testing:
 - The phone's Agents tab showed agents working while only the main chat was. Its badge counted every running chat, where the desktop pills count only executions (the rail's sessions). It counts executions now, by the pills' own classifier (`executionActivity` in `bucket-config.tsx`), and a turn in the main chat or an agent's main chat no longer reads as an agent at work. Fixed on main too (48ccc69).
 - The main chat sent "Hello" into an imported terminal session, which is read-only until a person takes it over. Only the composer enforced that: the messages route, `send_session_message` and dispatch let it through. This import lived on the stand-in laptop, whose worker was off, so the message waited in its queue to start a blank session there, under a transcript it never saw. Every send path now refuses an import nobody has taken over (`isImportMirror`, `src/lib/import/mirror.ts`), and the orchestrator's brief says so. On main, the same hole forked a local import. Fixed there too (48ccc69), with a dispatch test on a real import. The one stray message on the dev home was withdrawn through the query layer (`cancelWorkerCommand` and `settleUndelivered`, snapshot first), and the dev home restarted.
 - Open: a message waiting for a computer that's asleep reads as "working", in the rail and to the orchestrator, which told Trey the session "started working on it". The messages route holds the chat busy until the far end answers, and nothing says "waiting for the MacBook". Where a message is belongs with P3.5's owner-computer views.
+- Open, found during P3.1: requests from the app stall. With an execution open and nothing else touched, 32 API requests on the local address and 41 over the Beamd address were still unanswered after 10 seconds within a minute (the rail, needs review, workspaces, a session's tree, picker, slash commands and PR list, the deck). The server answers each one it receives quickly, so they wait before reaching it, behind the app's long-lived streams: six connections per host on plain HTTP, and apparently a similar cap through the tunnel even though it speaks HTTP/2 to a client. A screen whose next fetch is stuck shows what it last had, so this is the likeliest cause of any stale screen in dogfooding. P3.1 surfaced it: a laptop execution whose first fetch came before its computer had prepared it could keep showing "Setting up" until a later fetch got through. Not yet checked on production, which serves a build rather than the dev server.
+
+## P3.1 Run on: saved defaults, where an execution runs, one agent in the rail
+
+P3.1 follows spec §3.3: a new execution runs on the agent's default computer unless the person picks another for that one execution, the computer is named on the execution, and an agent stays one agent however many computers have its folder.
+
+### Where new work runs
+
+- **The choices** (`src/lib/setups/run-on.ts`, `runOnFor`) are the computers the agent is set up on: the home first, then the others in the order they were set up. An agent from before setups, with no setup anywhere, runs at home. Each choice says whether it can take work now, and if not, why: not running agents there, or its folder there not ready. A computer that's set up and enrolled but not connected can still take work, which waits for it.
+- **The default** is what the person saved with "Make this the default" (`workspaces.default_computer_id`, migration 0008, a nullable column with no default, where null means never chosen). Until they save one, it's the home when its setup is usable, otherwise the first computer set up for the agent. A saved default that has stopped working stays the default and says why, so a start there is refused with the reason rather than moved somewhere else.
+- **A start that names no computer runs on the default** (`dispatchExecutionSession`). That's the launcher, the phone's quick start and the orchestrator's `start_execution`. Scheduled work still creates its executions at home, as spec §7 says. A start the default can't take is refused with the reason, and nothing is created.
+- **The launcher's Run on control** sits with the other "where" controls. With one computer it's just that computer's name. With a choice it's a chip that opens the choices, each with why it can't take work if it can't, and "Make <computer> the default for this agent" as its own item when the pick differs from the default. A pick affects that execution only, and the next launch starts from the default again. A computer that can't take work can't be picked, and one that is the default blocks Start with its reason. The control shows only on a home with more than one computer that can run agents.
+- API: `GET` and `PUT /api/workspaces/:id/run-on`. Orchestrator: `get_workspace` returns `runOn`, `update_workspace` takes `defaultComputerId`, and the brief and skill say where `start_execution` runs.
+
+### Where an execution runs, shown
+
+- The session carries `location`: its computer's id and name, whether it's the home, and, away from the home, the folder its computer prepared (`executionLocation` in queries, on every flattened session, the rail's included).
+- The execution header shows the computer's name as a chip, on the phone as well, and its details list it. Rail rows and the phone's agent list name the computer for work away from the home. The home's own work stays unlabeled there, and on a home with only one computer nothing new shows at all.
+- **Found and fixed: a laptop execution never left "Setting up".** The execution view, header and setup card took a missing `worktreePath` as still provisioning, but a laptop execution keeps its folder on its placement, and `worktreePath` is only ever a folder on the home. So every laptop execution in a Git agent showed "Setting up worktree…" and kept its composer disabled. They now read the folder wherever it is (`preparedFolder`).
+- Not built: "This Mac", the secondary label for the computer the viewer is on. It needs the companion's authenticated association (P5.4). Names alone never establish which computer the viewer is on.
+
+### One agent in the rail
+
+Checked, not changed: the rail and the phone list one row per agent, and setups never add rows (they're unique per agent and computer). Terminal sessions imported from another computer land in the agent already set up for their folder there. A local import still makes a new agent for a folder at a different path on the home, as before.
+
+### Also found and fixed
+
+- A setup problem already ending with a period was quoted with a second one ("...is gone.."), in the launcher and in a refused start. `notReady` ends the sentence once.
+
+### Tests and live checks
+
+- `run-on.test.ts` (12): the choices and their reasons, the automatic and saved defaults, a saved default that stopped working, the start on the default and a one-off pick that doesn't change it, the refused start, `location` on the session and the rail, and the route. `location.test.ts` (2): the prepared folder wherever it is, and when a location is shown. Full suite: 2,625 passed, exit 0.
+- Live on the dev home (migration 0008 applied, snapshot first), screenshotted: the launcher showed "Mac Mini" with Demo's two choices, the stand-in marked not connected with the work waiting for it. Picking the stand-in and "Make MacBook (stand-in) the default" saved it, and a launch from the launcher ran there with real Claude answering. The stand-in's execution showed its name in the header on desktop and phone, and the phone's agent list named it on each laptop execution, with the home's own work unlabeled. None showed "Setting up" once prepared. Demo's default was put back to automatic afterwards.
 
 ## P0.3 Records and the runner boundary
 

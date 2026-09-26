@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff, Laptop } from 'lucide-react';
+import { locationLabel, preparedFolder } from '@/lib/executions/location';
+import { useRunsOnSeveralComputers } from '@/hooks/use-computers';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -164,7 +166,12 @@ export function ExecutionHeader({
   // hasn't been provisioned yet. setupError wins (separate state) so
   // we don't render "setting up" forever on a failed provision.
   const isSettingUp =
-    !!workspace && workspace.isGit === true && !session.worktreePath && !isSetupFailed;
+    !!workspace && workspace.isGit === true && !preparedFolder(session) && !isSetupFailed;
+  // Which computer it runs on, by name (P3.1): always when it's not the
+  // home, and at home only when there are other computers to tell it from.
+  const severalComputers = useRunsOnSeveralComputers();
+  const where = locationLabel(session, severalComputers);
+  const locationChip = where ? <LocationChip name={where} /> : null;
 
   const statusKind = deriveExecutionHeaderStatus({
     isArchived,
@@ -354,6 +361,9 @@ export function ExecutionHeader({
           <div className="h-px bg-border" />
           <div className="p-3 space-y-2.5 text-[12px]">
             <DetailRow label="Agent" value={workspace?.name ?? '-'} valueClass="font-medium text-foreground" />
+            {session.location && (
+              <DetailRow label="Computer" value={session.location.name} valueClass="text-foreground" />
+            )}
             {workspace?.baseBranch && (
               <DetailRow label="Base" value={workspace.baseBranch} valueClass="font-mono text-foreground" />
             )}
@@ -380,8 +390,8 @@ export function ExecutionHeader({
                 )}
               </>
             )}
-            {session.worktreePath && (
-              <DetailRow label="Path" value={session.worktreePath} valueClass="font-mono text-[11px] text-foreground/80 break-all" />
+            {preparedFolder(session) && (
+              <DetailRow label="Path" value={preparedFolder(session)!} valueClass="font-mono text-[11px] text-foreground/80 break-all" />
             )}
             {session.startedAt && (
               <DetailRow label="Started" value={new Date(session.startedAt).toLocaleString()} valueClass="text-foreground/85" />
@@ -437,6 +447,7 @@ export function ExecutionHeader({
           <div className="flex items-center gap-1.5 min-w-0 pl-0.5">
             {statusEl}
             {liveBadge}
+            {locationChip}
           </div>
         </div>
 
@@ -490,6 +501,7 @@ export function ExecutionHeader({
 
         {statusEl}
         {liveBadge}
+        {locationChip}
         {menu('start', 'p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0', 14)}
 
         <span className="flex-1" />
@@ -662,6 +674,19 @@ function LiveBadge({ branch }: { branch: string | null }) {
         </div>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/** The computer an execution runs on, by the name the person gave it (P3.1). */
+function LocationChip({ name }: { name: string }) {
+  return (
+    <span
+      title={`Runs on ${name}`}
+      className="inline-flex min-w-0 flex-shrink items-center gap-1 rounded px-1.5 py-0.5 bg-muted/60 text-[10px] font-medium text-muted-foreground cursor-default"
+    >
+      <Laptop size={9} className="flex-shrink-0" />
+      <span className="truncate max-w-[9rem]">{name}</span>
+    </span>
   );
 }
 

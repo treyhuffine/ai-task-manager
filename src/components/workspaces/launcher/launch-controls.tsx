@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { GitBranch, Gauge, Loader2, RefreshCw, Search, Sparkles, Zap, Check, X } from 'lucide-react';
+import { GitBranch, Gauge, Laptop, Loader2, RefreshCw, Search, Sparkles, Zap, Check, X } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { workspacesApi } from '@/lib/api/workspaces';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/harness/options';
 import type { EffortLevel } from '@/db/types';
 import type { LaunchBase, LaunchMode } from '@/lib/executions/launch-draft';
+import type { RunOn } from '@/lib/setups/run-on';
 import { cn } from '@/lib/utils';
 
 const TRIGGER_CLASS =
@@ -137,6 +138,110 @@ export function LiveModeNotice() {
  * server-side from `refs/pull/N/head`, so there's no branch name to show
  * that would actually be correct. Clearing is still available.
  */
+/**
+ * Where the execution runs (docs/homes-spec.md §3.3, P3.1). Quiet by design:
+ * with one computer it's just that computer's name, and with a choice it's a
+ * chip that opens the choices. Picking one affects this execution only.
+ * "Make this the default" is its own explicit item, never a side effect of
+ * picking. A computer that can't take the work says why and can't be
+ * picked, and nothing is ever swapped in for it.
+ */
+export function RunOnControl({
+  runOn,
+  value,
+  onChange,
+  onMakeDefault,
+  savingDefault,
+  disabled,
+}: {
+  runOn: RunOn;
+  value: string | null;
+  onChange: (computerId: string) => void;
+  onMakeDefault: (computerId: string) => void;
+  savingDefault?: boolean;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = runOn.choices.find((c) => c.computerId === value) ?? null;
+  if (runOn.choices.length === 0 || !selected) return null;
+
+  if (runOn.choices.length === 1) {
+    return (
+      <span className={cn(TRIGGER_CLASS, 'pointer-events-none')} title="Where this execution runs">
+        <Laptop size={11} />
+        <span className="max-w-[9rem] truncate">{selected.name}</span>
+      </span>
+    );
+  }
+
+  const oneOff = value !== runOn.defaultId;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          title="Where this execution runs"
+          className={cn(TRIGGER_CLASS, oneOff && 'border-primary/40 text-foreground', !selected.ready && 'border-amber-500/40 text-amber-600 dark:text-amber-400')}
+        >
+          <Laptop size={11} />
+          <span className="max-w-[9rem] truncate">{selected.name}</span>
+        </button>
+      </PopoverTrigger>
+      <LauncherPopoverContent align="start" className="w-[280px] p-1">
+        <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Run on</div>
+        {runOn.choices.map((choice) => {
+          const isSelected = choice.computerId === value;
+          const hint = !choice.ready
+            ? choice.problem
+            : !choice.connected
+              ? 'Not connected right now. The work starts when it is.'
+              : null;
+          return (
+            <button
+              key={choice.computerId}
+              type="button"
+              disabled={!choice.ready}
+              onClick={() => { onChange(choice.computerId); setOpen(false); }}
+              className={cn(
+                'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed',
+                isSelected ? 'bg-muted' : 'hover:bg-muted/50',
+              )}
+            >
+              <Laptop size={11} className={cn('mt-0.5 flex-shrink-0', choice.ready ? 'text-primary/70' : 'text-muted-foreground/50')} />
+              <span className="min-w-0 flex-1">
+                <span className={cn('flex items-center gap-1.5 text-[12px]', choice.ready ? 'text-foreground' : 'text-muted-foreground')}>
+                  <span className="truncate">{choice.name}</span>
+                  {choice.computerId === runOn.defaultId && (
+                    <span className="text-[10px] text-muted-foreground/70">default</span>
+                  )}
+                </span>
+                {hint && (
+                  <span className={cn('block text-[10.5px] leading-snug', choice.ready ? 'text-muted-foreground/80' : 'text-amber-600 dark:text-amber-400')}>
+                    {hint}
+                  </span>
+                )}
+              </span>
+              {isSelected && <Check size={11} className="mt-0.5 flex-shrink-0 text-primary" />}
+            </button>
+          );
+        })}
+        {oneOff && selected.ready && (
+          <button
+            type="button"
+            disabled={savingDefault}
+            onClick={() => onMakeDefault(selected.computerId)}
+            className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-border/70 px-2 py-1.5 text-left text-[11.5px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+          >
+            {savingDefault ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} className="opacity-0" />}
+            Make {selected.name} the default for this agent
+          </button>
+        )}
+      </LauncherPopoverContent>
+    </Popover>
+  );
+}
+
 export function BaseControl({
   workspaceId,
   base,

@@ -52,6 +52,7 @@ function s(id: string, iso: string): RailSession {
     takeoverBranch: null,
     takeoverToken: null,
     takeoverTokenExpiresAt: null,
+    location: null,
     startedAt: iso,
     archivedAt: null,
     tabSortKey: null,

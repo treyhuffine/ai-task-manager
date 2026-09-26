@@ -53,7 +53,7 @@ export async function POST(
       prNumber?: number | null;
       liveMode?: boolean;
       taskId?: string | null;
-      /** Run on this computer. Omitted: the home's own. */
+      /** Run on this computer. Omitted: the agent's default (P3.1). */
       computerId?: string | null;
     } = await request.json().catch(() => ({}));
     if (!getWorkspace(id)) {

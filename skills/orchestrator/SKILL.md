@@ -99,7 +99,10 @@ is refused.
 
 Start new work with `start_execution` (workspace, a complete first prompt, and
 a fresh `requestId` per piece of work: retrying with the same one returns the
-same execution rather than starting a second). Close out finished work with
+same execution rather than starting a second). It runs on the agent's default
+computer unless you pass `computerId`: `get_workspace` shows its `runOn`
+choices, and `update_workspace` sets `defaultComputerId` when the user asks.
+Close out finished work with
 `archive_execution`. It refuses when the worktree holds uncommitted or unpushed
 work and says so. Only pass `force` when the user has said that work can go.
 `update_workspace` edits an agent's name, emoji, area, `purpose` and

@@ -228,6 +228,10 @@ export function SessionRow({
           {showWorkspaceLabel && (
             <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
           )}
+          {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
+          {session.location && !session.location.isHome && (
+            <span className="text-muted-foreground/60 truncate" title={`Runs on ${session.location.name}`}>· {session.location.name}</span>
+          )}
           <DiffStatsPair stats={diffStats} className="flex-shrink-0" />
         </div>
       </div>

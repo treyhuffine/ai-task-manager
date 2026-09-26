@@ -21,7 +21,8 @@ import {
   SquareCheckBig,
   X,
 } from 'lucide-react';
-import { useWorkspaces, useWorkspacePRs } from '@/hooks/use-workspaces';
+import { useRunOn, useSetDefaultComputer, useWorkspaces, useWorkspacePRs } from '@/hooks/use-workspaces';
+import { useRunsOnSeveralComputers } from '@/hooks/use-computers';
 import { useUserState } from '@/hooks/use-user-state';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -70,6 +71,7 @@ import {
   LiveModeNotice,
   ModeControl,
   ModelControl,
+  RunOnControl,
   type LaunchHarnessSelection,
 } from './launch-controls';
 import { useLaunchSuggestions } from './use-launch-sources';
@@ -127,6 +129,20 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
   );
   const workspace = workspaces?.find((w) => w.id === workspaceId) ?? null;
   const isGit = !!workspace?.isGit;
+
+  // Where it runs (P3.1): the agent's default, unless picked for this one
+  // execution. A pick never sticks: the next launch starts from the default
+  // again, and saving a new default is its own action.
+  const severalComputers = useRunsOnSeveralComputers();
+  const { data: runOn } = useRunOn(workspaceId);
+  const setDefaultComputer = useSetDefaultComputer(workspaceId);
+  const [runOnPick, setRunOnPick] = useState<{ workspaceId: string; computerId: string } | null>(null);
+  const runOnTarget =
+    (runOnPick && runOnPick.workspaceId === workspaceId ? runOnPick.computerId : null) ?? runOn?.defaultId ?? null;
+  const runOnChoice = runOn?.choices.find((c) => c.computerId === runOnTarget) ?? null;
+  // A computer that can't take the work blocks the start, with why. Never
+  // another computer in its place.
+  const runOnProblem = runOnChoice && !runOnChoice.ready ? runOnChoice.problem : null;
 
   // The editor owns its own document; we only mirror "is there anything to
   // send" for the Start button. Pulling the text out happens once, at launch.
@@ -480,6 +496,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
           effort,
           message: send ? { content, attachments: output.attachments } : null,
           taskId: seed?.taskId ?? null,
+          computerId: runOnTarget,
         });
         persistPrefs();
         clearComposerIfSent(send);
@@ -521,7 +538,8 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
   const ready =
     (hasContent || chips.some((c) => c.chipKind === 'context'))
     && !!workspaceId
-    && !pendingUploads;
+    && !pendingUploads
+    && !runOnProblem;
 
   // The editor owns Enter (submit), Shift+Enter (newline) and
   // Backspace-on-empty now. Only ⌥⏎ is ours, and it's caught in the capture
@@ -611,6 +629,16 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
                 workspaceId={workspaceId}
                 onChange={setWorkspaceId}
               />
+              {!continuation && severalComputers && runOn && workspaceId && (
+                <RunOnControl
+                  runOn={runOn}
+                  value={runOnTarget}
+                  onChange={(computerId) => setRunOnPick({ workspaceId, computerId })}
+                  onMakeDefault={(computerId) => setDefaultComputer.mutate(computerId, { onSuccess: () => setRunOnPick(null) })}
+                  savingDefault={setDefaultComputer.isPending}
+                  disabled={launching}
+                />
+              )}
               {!continuation && isGit && (
                 <ModeControl mode={mode} onChange={handleModeChange} disabled={launching} />
               )}
@@ -725,6 +753,12 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
 
               {isGit && mode === 'live' && !continuation && <LiveModeNotice />}
 
+              {!continuation && runOnProblem && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                  {runOnProblem}
+                </div>
+              )}
+
               {error && (
                 <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
                   {error}
@@ -772,7 +806,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
                 <button
                   type="button"
                   onClick={() => void launch({ send: false })}
-                  disabled={!workspaceId || launching}
+                  disabled={!workspaceId || launching || !!runOnProblem}
                   title="Create the session and open it without sending a message"
                   className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40"
                 >

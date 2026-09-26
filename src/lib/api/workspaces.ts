@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { RunOn } from '@/lib/setups/run-on';
 import type {
   WorkspaceRecord,
   WorkspaceWithCounts,
@@ -67,6 +68,8 @@ export const workspacesApi = {
       /** "Start with agent": the task this workstream is associated with. Server
        *  records the association and atomically Starts the task (Consider/Todo -> In progress). */
       taskId?: string | null;
+      /** Run on this computer. Omitted: the agent's default (P3.1). */
+      computerId?: string | null;
     } = {},
   ): Promise<ChatSessionWithExecution> {
     return api.post<ChatSessionWithExecution>(`/workspaces/${id}/sessions`, {
@@ -80,7 +83,18 @@ export const workspacesApi = {
       modelVariant: options.modelVariant ?? null,
       effort: options.effort ?? null,
       taskId: options.taskId ?? null,
+      computerId: options.computerId ?? undefined,
     });
+  },
+
+  /** Where the agent's new executions can run, and where they run by default (P3.1). */
+  runOn(id: string): Promise<RunOn> {
+    return api.get<RunOn>(`/workspaces/${id}/run-on`);
+  },
+
+  /** "Make this the default", or null to go back to the automatic choice. */
+  setDefaultComputer(id: string, computerId: string | null): Promise<RunOn> {
+    return api.put<RunOn>(`/workspaces/${id}/run-on`, { defaultComputerId: computerId });
   },
 
   listPRs(id: string): Promise<PRSummary[]> {

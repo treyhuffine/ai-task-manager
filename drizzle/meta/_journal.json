@@ -57,6 +57,13 @@
       "when": 1790376409907,
       "tag": "0007_real_thunderbolts",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790451845059,
+      "tag": "0008_fearless_red_hulk",
+      "breakpoints": true
     }
   ]
 }

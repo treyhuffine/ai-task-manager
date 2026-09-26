@@ -63,6 +63,25 @@ export function useWorkspaceSessions(
   });
 }
 
+/** Where the agent's new executions can run, and the default (P3.1). */
+export function useRunOn(workspaceId: string | null) {
+  return useQuery({
+    queryKey: [...WORKSPACES_KEY, workspaceId, 'run-on'],
+    queryFn: () => workspacesApi.runOn(workspaceId!),
+    enabled: !!workspaceId,
+    staleTime: 15_000,
+  });
+}
+
+/** "Make this the default" for an agent's new executions (P3.1). */
+export function useSetDefaultComputer(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (computerId: string | null) => workspacesApi.setDefaultComputer(workspaceId!, computerId),
+    onSuccess: (runOn) => qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'run-on'], runOn),
+  });
+}
+
 export function useNeedsReviewSessions() {
   return useQuery({
     queryKey: NEEDS_REVIEW_KEY,

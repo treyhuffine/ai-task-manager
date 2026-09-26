@@ -67,6 +67,7 @@ import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/ex
 import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
 import { wakeComputer } from '@/lib/workers/hub';
+import { notReady, runOnFor } from '@/lib/setups/run-on';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 
@@ -95,10 +96,10 @@ async function snapshotLiveBranchAndSha(cwd: string): Promise<{ branch: string |
 export interface DispatchExecutionSessionArgs {
   workspaceId: string;
   /**
-   * The computer to run on (docs/homes-spec.md §3.3, "Run on"). Omitted or
-   * the home's own computer: here, as always. A connected computer prepares
-   * the execution in its own copy of the agent's folder. One that can't take
-   * it is refused with the reason, never swapped for another.
+   * The computer to run on (docs/homes-spec.md §3.3, "Run on"). Omitted: the
+   * agent's default computer (`runOnFor`, P3.1). A connected computer
+   * prepares the execution in its own copy of the agent's folder. One that
+   * can't take it is refused with the reason, never swapped for another.
    */
   computerId?: string | null;
   /** Who is starting it, from the caller's credentials, for the command a connected computer gets (P2.6). */
@@ -237,10 +238,12 @@ export async function dispatchExecutionSession(
   const prNumber = normalizePrNumber(args.prNumber);
   const liveMode = !!args.liveMode && ws.isGit;
 
-  // Where it runs. A connected computer must be enrolled and have this agent
-  // set up, or the person hears why, rather than getting another computer.
+  // Where it runs: the computer the start names, or else the agent's default
+  // (P3.1). A connected computer must be enrolled and have this agent set up,
+  // or the person hears why, rather than getting another computer.
   const host = getHome()?.hostComputerId ?? null;
-  const elsewhere = args.computerId && args.computerId !== host ? args.computerId : null;
+  const target = args.computerId || runOnFor(ws.id)?.defaultId || host;
+  const elsewhere = target && target !== host ? target : null;
   if (elsewhere) {
     const computer = getComputer(elsewhere);
     if (!computer || computer.status !== 'active') throw new ComputerUnavailableForDispatch('That computer is no longer connected to this home.');
@@ -251,7 +254,7 @@ export async function dispatchExecutionSession(
     if (setup?.status !== 'ready') {
       throw new ComputerUnavailableForDispatch(
         setup
-          ? `${ws.name}'s folder on ${computer.name} isn't ready: ${setup.problem ?? setup.status}.`
+          ? notReady(`${ws.name}'s folder on ${computer.name}`, setup)
           : `${ws.name} isn't set up on ${computer.name}. Attach its folder there first.`,
       );
     }

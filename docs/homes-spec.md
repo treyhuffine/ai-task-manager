@@ -653,7 +653,7 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 
 ### P3. The everyday personal UX
 
-- [ ] P3.1 Implement saved agent defaults, quiet Run on controls with Make this the default, stable location labels, and one rail identity per agent.
+- [x] P3.1 Implement saved agent defaults, quiet Run on controls with Make this the default, stable location labels, and one rail identity per agent. A new execution runs on the agent's saved default, or until one is saved the home when its setup is usable, otherwise the first computer set up for it. The launcher's Run on chip picks for one execution, with "Make this the default" as its own item, and a computer that can't take work says why and is never swapped for another. Executions name their computer in the header on desktop and phone, and rail rows name it for work away from the home. A laptop execution no longer shows "Setting up" forever. "This Mac" waits for the companion (P5.4). See the [build notes](homes-build.md#p31-run-on-saved-defaults-where-an-execution-runs-one-agent-in-the-rail).
 - [ ] P3.2 Add saved/waiting/delivered/uncertain states and cancellation at the correct delivery boundary.
 - [ ] P3.3 Keep per-screen navigation independent and execution controls tied to the owner.
 - [ ] P3.4 Keep personal orchestration/scheduling on the home and pin agent main chats to their configured computer. Preserve the current overdue-trigger behavior and show when a laptop-hosted schedule can run.

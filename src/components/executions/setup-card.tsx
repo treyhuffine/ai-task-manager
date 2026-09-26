@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2, RotateCw, Zap } from 'lucide-react';
+import { preparedFolder } from '@/lib/executions/location';
 import { toast } from 'sonner';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
@@ -54,13 +55,15 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   // Same detection the execution header uses for its LIVE badge: a git
   // workspace whose session points at the workspace's own directory.
   const isLive = isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
-  const hasError = isGit && !session.worktreePath && !!session.setupError;
+  // Wherever it runs: on a laptop the folder is on its placement (P3.1).
+  const prepared = preparedFolder(session);
+  const hasError = isGit && !prepared && !!session.setupError;
   // Treat error state as terminal — drop the spinner row so the user
   // doesn't see "creating worktree…" next to a "setup failed" row.
   // An import is excluded outright: it has no worktree and never will, so the
   // bare `!worktreePath` test read it as provisioning and rendered a spinner
   // with a live elapsed counter that could never finish.
-  const isSettingUp = isGit && !session.worktreePath && !hasError && !isImported;
+  const isSettingUp = isGit && !prepared && !hasError && !isImported;
 
   if (isImported) {
     return (

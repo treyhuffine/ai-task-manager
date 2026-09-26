@@ -338,7 +338,8 @@ describe('P2.9 selected transcript reads', () => {
       const before = sqlite.prepare('SELECT rowid,* FROM external_session_imports').all();
       const events = sqlite.prepare('SELECT rowid,* FROM chat_events').all();
       const fts = sqlite.prepare("SELECT name,sql FROM sqlite_master WHERE name LIKE '%fts%' ORDER BY name").all();
-      expect(runMigrations(sqlite, path.resolve('drizzle')).applied).toBe(1);
+      // 0007 and every migration since.
+      expect(runMigrations(sqlite, path.resolve('drizzle')).applied).toBe(migrationTags().length - 7);
       const rows = sqlite.prepare('SELECT rowid,* FROM external_session_imports').all() as Array<Record<string, unknown>>;
       expect(rows.map(({ computer_id: computer, ...row }) => { expect(computer).toBeNull(); return row; })).toEqual(before);
       expect(sqlite.prepare('SELECT rowid,* FROM chat_events').all()).toEqual(events);

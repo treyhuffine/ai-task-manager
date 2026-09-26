@@ -4,6 +4,7 @@ import type { HarnessId } from '@/lib/harness/registry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
+import { preparedFolder } from '@/lib/executions/location';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
   useSession,
@@ -191,8 +192,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // worktree add` + fromSource apply). Until worktreePath lands on the
   // row the worktree views show a placeholder. The row gets updated by
   // the server, so we poll the session query.
+  // Wherever it runs: on a laptop the folder is on its placement (P3.1).
   const isSettingUp =
-    !!session && !!workspace && workspace.isGit === true && !session.worktreePath;
+    !!session && !!workspace && workspace.isGit === true && !preparedFolder(session);
 
   // Gate for the terminal's auto-spawn. Its cwd resolves to the session's
   // worktree, but `workspace` loads from a separate query than `session` —
