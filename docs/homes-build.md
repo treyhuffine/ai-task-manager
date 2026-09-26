@@ -738,7 +738,7 @@ The re-review of `183391a` (2026-09-25) confirmed the eleven fixes and found two
 
 ### P4 acceptance, recorded
 
-- A command the home streamed before a disconnect, for a placement that changed since, must not run when resent. Only P4's transfer changes a placement under a running worker today, and whether such a command becomes stale or uncertain (the worker may have received it) belongs to P4, with the transfer lock. The probe stays in the file, skipped, for P4 to turn on.
+- A command the home streamed before a disconnect, for a placement that changed since, must not run when resent. Only P4's transfer changes a placement under a running worker today, and whether such a command becomes stale or uncertain (the worker may have received it) belongs to P4, with the transfer lock. Turned on with P4's foundations: the home marks such a command stale as it streams, and never resends it (`homes-p2-recheck-extra.test.ts`).
 
 ### Also found and fixed
 
@@ -908,7 +908,7 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [x] 3.2b A message waiting for a computer doesn't read as working. The execution says "Waiting for MacBook", or "MacBook disconnected, last heard from…" when contact is lost mid-turn, and asleep only when reported.
 - [x] 3.2c Cancel before delivery, refused once it's on its way (stop the execution instead). Send again for a message not delivered or uncertain, as a new message.
 - [x] 3.2d Home unreachable keeps the draft (P1.6, verified). Setup failed on a computer says where, with its output and Retry. A missing folder or reference says which and where (P3.1's reasons).
-- [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner. Navigation done (see [P3.3](#p33-each-screen-its-own)). Controls close with 4.5.
+- [x] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner (see [P3.3](#p33-each-screen-its-own), closed with [4.5](#the-controls-follow-the-work-45)).
 - [x] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
 - [x] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
 - [x] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
@@ -920,12 +920,12 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 
 ### P4
 
-- [ ] 4.1 Open code here: a review worktree of the execution's published commit on the viewer's computer, labeled with the commit and source computer. Refresh only when clean. Edits kept. No published commit offers commit and push on the source.
-- [ ] 4.2 Continue here: transfer record and lock (messages held), validate the destination, confirmed stop of the source (harness, background tasks, terminals, preview, scripts), events flushed and the conversation checkpoint recorded, Git checkpoint with explicit untracked files and no secrets, pushed without force, the destination fetches and verifies the exact commit.
-- [ ] 4.3 Handoff: a fresh session on the destination with a summary (deterministic when summarizing fails), binding history kept, "Continued on MacBook" once in the chat, the generation changes atomically, held messages delivered once, a fresh terminal there.
-- [ ] 4.4 Every failure stage leaves one owner and a safe retry or resume, with held messages, source artifacts and branches kept.
-- [ ] 4.5 Commit, PR, push, pull base, restart and archive route through the owner. The takeover paths Continue here replaces are retired.
-- [ ] 4.6 The failure matrix in tests, including the P2 re-review's placement probe.
+- [x] 4.1 Open code here: a review worktree of the execution's published commit on the viewer's computer, labeled with the commit and source computer. Refresh only when clean. Edits kept. No published commit offers commit and push on the source.
+- [x] 4.2 Continue here: transfer record and lock (messages held), validate the destination, confirmed stop of the source (harness, background tasks, terminals, preview, scripts), events flushed and the conversation checkpoint recorded, Git checkpoint with explicit untracked files and no secrets, pushed without force, the destination fetches and verifies the exact commit.
+- [x] 4.3 Handoff: a fresh session on the destination with a summary (deterministic when summarizing fails), binding history kept, "Continued on MacBook" once in the chat, the generation changes atomically, held messages delivered once, a fresh terminal there.
+- [x] 4.4 Every failure stage leaves one owner and a safe retry or resume, with held messages, source artifacts and branches kept.
+- [x] 4.5 Commit, PR, push, pull base, restart and archive route through the owner. The takeover paths Continue here replaces are retired.
+- [x] 4.6 The failure matrix in tests, including the P2 re-review's placement probe.
 
 ## P3.2 Saved, waiting, delivered
 
@@ -964,7 +964,7 @@ Spec §12.2: the same work opened on another screen keeps its identity and histo
 
 - `active-view.test.ts` (+1): an execution or an agent belongs under the phone's Agents tab, and home to none.
 - Live on the dev home with two screens at once, a desktop and a phone: the desktop opened an execution on the stand-in while the phone opened the Sweeps agent. The desktop moved to another agent and the phone stayed on Sweeps. The phone then opened the same execution by its link and showed the same history, the desktop stayed where it was, and the execution's placement was unchanged. On the phone, tapping an execution's chip in the main chat opened it.
-- Execution controls tied to the owner are audited with P4.5, which routes the remaining ones.
+- Execution controls tied to the owner closed with P4.5 ([the controls follow the work](#the-controls-follow-the-work-45)). The P4 live check found the last one: the action bar of an execution on another computer didn't show at all.
 
 ## P3.4 One scheduler, fixed main chats
 
@@ -1084,6 +1084,96 @@ Spec §5.6 and §6: everything the viewer does to an execution's folder happens 
 - `remote-workbench.test.ts` (4, the worker in its own process running real shells): an execution's terminal in the laptop's worktree, typed into and read back through the home's routes, resized, and resumed after a reconnect with only the missed output. A request for an earlier placement refused there. Never a shell at home. The agent's own terminal in its folder on the laptop. The laptop stopping: the open stream says so and closes, input, listing and creating are refused, and reopening the stream says so again. The agent's tree and files from the laptop, the committed side, a path outside refused, and unavailable while away.
 - `terminal/remote.test.ts` (4): output that arrives during the replay spliced on after it, output that can't be spliced ending the stream, another computer's output ignored, a dropped computer said, and a shell that ended or is gone there. `worker/terminals.test.ts` (4): shells only where the worker may open them, output posted with contiguous offsets, placement generations, release stopping the shell, and a dropped batch showing as a gap. The terminal route test (+2): where the shell runs, and an execution elsewhere relayed with no shell here. `preview/elsewhere.test.ts` (3): nothing started for a local or remote viewer (the start command would have touched a file in the home's checkout), a pasted URL used as given, and restore skipping it. `run-status.test.ts` (+1). Full suite: 2,670 passed.
 - Live on the dev home with the stand-in's worker: the terminal of an execution on the stand-in printed the stand-in's worktree for `pwd`, labeled "MacBook (stand-in) · demo/demo-fc4311", and reopening the page reattached to the same shell with its scrollback. Its Preview said "Runs on MacBook (stand-in)" with no Start, and so did the tools box. The Sweeps agent, which lives on the stand-in, showed its stand-in folder in its header, listed a file that exists only there, and opened its terminal there. Stopping the stand-in's worker while that terminal was open showed "MacBook (stand-in) isn't connected. Its terminals are still there and come back when it reconnects. Typing is off until then."
+
+## P4 Reviewing locally and continuing elsewhere
+
+Spec §8. Git carries the code: a move commits and pushes the work, and the destination checks out that exact commit. The execution, its chat and its task links stay the same. What changes is the computer, the folder and the native session.
+
+### Open code here (4.1)
+
+- **From the location chip**, on a screen linked to a computer other than the one the work runs on (the home's own browser counts as the home). Not on a phone, which follows the work rather than runs it.
+- **The execution's latest published commit**, checked out detached in a folder of that computer's own (`<work dir>/reviews/<agent>-<execution>`), by the home directly or by that computer's worker (`review_checkout`). Labeled "Reviewing 3292e3f from Mac Mini here". The execution keeps running where it is.
+- **Refresh** brings the newest published commit only while the checkout is clean. Edits are kept and never published to the execution's branch. The bar then offers the two ways on (§8.1): Continue here, which moves the execution into a clean worktree of its own, or a branch of the person's own, as the plain Git command to copy (`git switch -c <branch>-mine`).
+- **Nothing published yet**: the error offers Commit and push on the source, the ordinary commit flow, which waits for a turn in flight rather than commit under it.
+- **Continue there**, when that computer already has a review checkout, says it stays as it is, apart from the work, and that nothing in it goes along.
+
+### Continue here (4.2)
+
+- **Offered from the location chip**: Continue here (the computer this screen is on) and Continue on the home (from any screen). Each says why when it can't happen yet: not Git, already moving, not set up there, not connected, or the source away. The dialog says what goes: tracked changes always, new files only when chosen, local setup and secrets never.
+- **One record and lock** (`execution_transfers`, one active row per execution). Its stages are the four a person sees: Preparing, Saving work, Setting up MacBook, Continuing.
+  1. **Stop the source and confirm it.** At a worker, a `quiesce` command closes the chats' sessions (and their prompts), background tasks, the execution's terminals, its preview and scripts, and flushes its last events to the home. At home, the same through close, the terminal manager and the preview supervisor. A setup script still running refuses the move.
+  2. **The conversation checkpoint**: the last event before the move.
+  3. **The Git checkpoint**: tracked changes and the chosen new files committed (never `filesToCopy` or ignored files), pushed without force, and verified on the remote.
+  4. **The destination** fetches and checks out that exact commit. It reuses the worktree it had for this execution when that fast-forwards, and refuses a divergent branch, one checked out elsewhere, or a dirty one, without touching it. Then its own local files and its setup script.
+  5. **The handoff** (4.3).
+  6. **Ownership changes in one transaction** (`continueOwnership`): the source's placement ends as transferred, the destination's opens at its generation, and the native sessions end as continued.
+  7. **"Continued on MacBook"** once in the chat, then held messages delivered once.
+- **Messages sent while it moves** are saved and held (`heldEventIds`), each saying so under it, and go once to wherever the work ends up.
+- **Generations.** Each attempt targets its own: one past the source's, and past every earlier attempt from it. A computer given a generation by an attempt that stopped lets go of it on its next heartbeat, and a let-go generation is never taken up again, so Try again never reuses one. While the destination prepares, its generation is reserved: its commands aren't stale, and its heartbeat isn't told to let go.
+
+### The handoff (4.3)
+
+- **A fresh native session** on the destination. Always the deterministic part: the task, the exact checkpoint and the files it took, the latest messages, the linked tasks and notes, where the earlier conversation is (`get_session_messages`), and that the destination's environment and tools are in its instructions (P2.7). A summary from the background harness on top when it can write one.
+- **It rides the next message**, held or new, as a `<continuation>` preamble. No turn starts on its own because the work moved.
+- **Native session history** is kept (`native_sessions`), and the destination's binding is recorded when its session starts.
+- **The terminal** opens fresh in the destination's worktree: every terminal request goes to the current owner, and the source's shells were stopped.
+
+### When a move stops (4.4)
+
+- **Before the destination owns the work**, the source keeps it, stopped, its folder and branch as they were. Try again (the same choice of files, carrying held messages) or Resume on the source (which delivers held messages there).
+- **After**, the destination has it, and Finish delivers what is still held.
+- **Never both resumed.** Nothing is stashed, reset, force-pushed or deleted, and branches and source worktrees are kept after success too.
+- **Held messages go only with Resume, Try again or the delivery where the work arrived.** Found in P4.5: opening a chat whose move had stopped ran a health check that re-fired the held message at the source.
+
+### The controls follow the work (4.5)
+
+- **Git** on the execution's worktree runs on the computer that has it, as a `git` command carried out in order with its other work: push, pull base, the checkpoint, and archive's worktree removal. At home, directly.
+- **GitHub** (the pull request, merge, auto-merge) needs only a clone: the agent's folder here, or through the worker where the agent lives only there (`github` request). While that computer is away the PR chip says nothing and a merge says it's away.
+- **Commit, Open PR and Resolve conflicts** read the diff where the worktree is, and send their prompt tied to its saved message, so it reaches the agent once wherever it runs and a move holds it. Restart, resync and interrupts were already placement-aware (P2.4).
+- **Archive elsewhere** stops the work there, then removes its worktree there, refusing uncommitted work as at home. A computer that's away does both when it's back, and leaves a worktree it then finds dirty as it is. **Reopen elsewhere** prepares the worktree there again on its branch.
+- **While a move runs**, file changes, push, pull base, merge, auto-merge and archive answer 409 `moving` ("It's moving to MacBook. Try again once it has arrived there."), and the action bar gives way to the move's progress.
+- **The action bar** reads the folder wherever the work is. Found in the live check: an execution on another computer had no action bar at all.
+- **Retired**: the takeover routes (`/api/sessions/:id/takeover`, `takeover-cancel`, `/api/takeover/:token/*`), `ri takeover` and `ri resume`, the takeover banner, button and modal, and the send gate. The `executions.takeover_*` columns stay, unused, until the next baseline squash, since SQLite can't drop a foreign-key column without rebuilding `executions`. The imported session's "Continue here" is a different flow and stays.
+
+Found and fixed on the way, at home too:
+
+- **The Push button failed on a branch never published.** A worktree starts from `origin/main` and tracks it, and a plain push refuses an upstream with another name. The first push now publishes the branch under its own name and tracks that (`src/lib/workspaces/branch-sync.ts`, here and on workers).
+- **Pull base fetched `origin origin/main`**, the recorded base taken as a branch name. It fetches the base's branch from its own remote now.
+- **A repository whose remote isn't on GitHub** answered 500 for its pull request and its PR list. One check serves both, and merge says it isn't on GitHub.
+
+### The failure matrix (4.6)
+
+| Spec P4.6 | Test (`continue.test.ts` unless named) |
+| --- | --- |
+| Unavailable source | won't start while the source is away, and changes nothing |
+| Push rejection | stops at Saving work when the push is rejected: the source keeps the work, its held message, and resumes. `git-checkpoint.test.ts` |
+| Untracked work | moves work from the home to the laptop, with its changes and the chosen file, and back. `git-checkpoint.test.ts` |
+| Divergent and stale branches | stops at Setting up on a branch with commits of its own there, and goes through once that is fixed (on a fresh generation). `git-checkpoint.test.ts`: divergent, checked out elsewhere, dirty target, moved remote |
+| Failed setup | stops at Setting up when the setup script fails there, keeping what it made |
+| Changed references | won't move to a computer whose setup is missing a reference |
+| Before and after the ownership change | carries held messages into Try again; after the destination took the work, finishing delivers what is still held there and nothing at the source; stops when the destination drops while it sets up, and can be tried again |
+| The P2 placement probe | `homes-p2-recheck-extra.test.ts`: an obsolete command streamed before a disconnect never runs |
+
+Also: the controls on the laptop and at home, the GitHub path through a worker and while it's away, archive refusing and reopening, archive while away, the move guard (6 in `continue.test.ts`), the held message and a health re-fire, the retry generation, and the action bar's state (`use-execution-actions.test.ts`). Each new fix has a test that fails without it. Full suite: 2,732 passed.
+
+### Decisions
+
+- **Previews after a move.** A destination preview starts only once its setup is ready (§8.2). Ri doesn't start previews on a worker yet (P3.5b), so after a move there Preview says where it runs and takes a pasted URL, and after a move to the home the person starts it. Starting it there belongs with worker previews.
+- **The handoff rides the next message** rather than starting a turn: an agent doesn't start working on its own because it moved.
+- **Stale, not uncertain**, for a command streamed before a disconnect for a placement that has moved on: it is never resent.
+- **A branch of one's own** is offered as the Git command rather than a Ri feature: Ri coordinates ordinary Git (§8.1).
+- **Archive while away** is queued rather than refused, and never forces what it finds.
+
+### Live check
+
+On the dev home with the stand-in's worker, real Claude on both:
+
+- **Continue here** from a browser linked to the stand-in: the dialog listed a changed file and two new ones, the move took `feature.ts` and left `scratch.txt`, and the card ran through its stages. A message typed mid-move said "Held while this moves to MacBook (stand-in)" and was answered on the stand-in from the handoff, naming the stand-in's worktree. "Continued on MacBook (stand-in)" once.
+- **Continue on Mac Mini** from the stand-in's browser, after a change and a new file there: the home reused its worktree and got both, and `scratch.txt` was still there.
+- **Open code here** on the stand-in for work at home: a detached checkout at 3292e3f in the stand-in's reviews folder, labeled. After an edit, Refresh kept it, the bar showed the edits, the branch command and Continue here, and that dialog said the review checkout stays apart.
+- **A rejected push**: someone else pushed to the branch, and the move stopped at Saving work, forcing nothing, and the remote kept their commit. Reloading the chat didn't send the held message. Resume on Mac Mini sent it once, answered at home.
+- **The controls on the stand-in**: Push from the action bar published a new branch there, Pull base brought main in, archive refused uncommitted work and then removed the worktree there, and reopen prepared it again on its branch at the saved commit.
+- **Found and fixed**: the missing action bar, the location menu saying "isn't set up" while it loaded, the PR list's 500 for a repository not on GitHub, a push rejection naming "this computer" to a browser on another one, and four copy slips (c9c2f29).
 
 ## P0.3 Records and the runner boundary
 
