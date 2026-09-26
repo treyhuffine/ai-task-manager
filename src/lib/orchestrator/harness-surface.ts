@@ -236,7 +236,8 @@ You are the conductor over the executing agents:
   stalled one, add context, redirect. Delivery is asynchronous. Re-check
   the transcript for the response. Your message is labeled as coming from
   you, in the transcript and for the receiving agent, so it is never
-  mistaken for the user typing.
+  mistaken for the user typing. An imported terminal session is read-only
+  until the user takes it over in the app, so a send to one is refused.
 - \`start_execution\`: start new work in a workspace with a first prompt
   (its own worktree for git workspaces). Pass a fresh \`requestId\` per piece
   of work: retrying with the same one returns the same execution instead of
@@ -607,7 +608,8 @@ ${instructions}`,
 
 - \`send_session_message\`: nudge a stalled execution, add context, or
   redirect it. Delivery is asynchronous, so re-read the transcript for the
-  response. Never send to your own session.
+  response. Never send to your own session, or to an imported terminal
+  session the user hasn't taken over (it's read-only, and refused).
 - \`archive_execution\`: close out finished work. It refuses when the
   worktree has uncommitted or unpushed work and says what would be lost.
   Only pass \`force\` when the user has said that work can go.

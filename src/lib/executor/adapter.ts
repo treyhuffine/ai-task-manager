@@ -40,6 +40,7 @@ import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { isHarnessEnabled } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
+import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 import {
   beginDispatchPreparation,
   endDispatchPreparation,
@@ -184,6 +185,10 @@ export async function dispatch(
       'Session is being worked on locally. Run `ri resume` or click Done in the takeover banner before sending more messages.',
     );
   }
+  // An import nobody has taken over has no session to resume. A send would
+  // start a blank one under a transcript it never saw, on whichever computer
+  // the import came from, whoever is sending.
+  if (isImportMirror(session)) throw new ExecutorError('invalid_state', IMPORT_MIRROR_REFUSAL);
 
   // Where the chat runs. A chat on a connected computer runs in its folder
   // there, which the home never looks for on its own disk (P2.4).

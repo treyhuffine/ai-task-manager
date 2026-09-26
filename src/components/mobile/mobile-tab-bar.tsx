@@ -1,8 +1,10 @@
 "use client";
 
 import { MessageSquare, Bot, Plus, Layers3, MoreHorizontal } from 'lucide-react';
+import { useMemo } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useNeedsReviewSessions } from '@/hooks/use-workspaces';
+import { useNeedsReviewSessions, useRailSessions } from '@/hooks/use-workspaces';
+import { executionActivity } from '@/components/workspaces/bucket-config';
 import { cn } from '@/lib/utils';
 import type { MobileTab } from '@/types/dashboard';
 import { HOME_VIEW } from '@/lib/client/active-view';
@@ -25,6 +27,7 @@ export function MobileTabBar() {
     pendingInputSessionIds,
   } = useDashboard();
   const { data: needsReview } = useNeedsReviewSessions();
+  const { data: rail } = useRailSessions();
 
   // Three signals worth surfacing on the Agents tab:
   //   - pending    → an execution is blocked on a user response
@@ -32,13 +35,12 @@ export function MobileTabBar() {
   //   - to review  → executions with output the user hasn't seen yet
   // Priority pending > working > review matches the header pill and
   // session row pip: an agent waiting on you outranks an agent
-  // working, which outranks output you haven't read yet.
-  const pendingCount = pendingInputSessionIds.size;
-  // Don't double-count: a streaming session that's also pending shows
-  // under "pending," not "working."
-  const workingCount = Array.from(streamingSessionIds).filter(
-    (id) => !pendingInputSessionIds.has(id),
-  ).length;
+  // working, which outranks output you haven't read yet. Only executions
+  // count, as on the desktop pills: the live sets also hold the main chat.
+  const { pending: pendingCount, working: workingCount } = useMemo(
+    () => executionActivity(rail?.sessions ?? [], pendingInputSessionIds, streamingSessionIds),
+    [rail?.sessions, pendingInputSessionIds, streamingSessionIds],
+  );
   const reviewCount = (needsReview ?? []).filter(
     (s) => pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id),
   ).length;

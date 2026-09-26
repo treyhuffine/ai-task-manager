@@ -93,7 +93,9 @@ execution in it receives. The oversight loop: `list_executions` (`running` /
 `send_session_message` (nudge, add context, redirect). Sends are
 asynchronous — re-check the transcript for the response. A message you send is
 labeled with the chat it came from, in the transcript and for the receiving
-agent, so it is never mistaken for the user typing.
+agent, so it is never mistaken for the user typing. An imported terminal
+session is read-only until the user takes it over in the app, so a send to one
+is refused.
 
 Start new work with `start_execution` (workspace, a complete first prompt, and
 a fresh `requestId` per piece of work: retrying with the same one returns the

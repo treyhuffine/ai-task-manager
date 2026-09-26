@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifySession } from './bucket-config';
+import { classifySession, executionActivity } from './bucket-config';
 import type { RailSession } from '@/lib/api/sessions';
 
 const NONE: ReadonlySet<string> = new Set();
@@ -83,5 +83,22 @@ describe('classifySession', () => {
       lastOutcomeEventAt: '2026-07-29T00:00:00.000Z',
       lastViewedAt: null,
     }), NONE, NONE)).toBe('unread');
+  });
+});
+
+describe('executionActivity', () => {
+  it("doesn't count the main chat, which is running but isn't an execution", () => {
+    const executions = [session({ id: 'exec' })];
+    expect(executionActivity(executions, NONE, new Set(['main-chat']))).toEqual({ pending: 0, working: 0 });
+    expect(executionActivity(executions, new Set(['main-chat']), NONE)).toEqual({ pending: 0, working: 0 });
+  });
+
+  it('counts executions working, and one waiting on the user once, as waiting', () => {
+    const executions = [session({ id: 'a' }), session({ id: 'b' }), session({ id: 'c' })];
+    expect(executionActivity(executions, new Set(['a']), new Set(['a', 'b', 'main-chat']))).toEqual({ pending: 1, working: 1 });
+  });
+
+  it('skips archived executions', () => {
+    expect(executionActivity([session({ id: 'a', status: 'archived' })], NONE, new Set(['a']))).toEqual({ pending: 0, working: 0 });
   });
 });

@@ -277,6 +277,15 @@ describe('execution oversight actions', () => {
       (async () => send.handler(ctx, { sessionId: session.id, content: 'hi' } as never))(),
     ).rejects.toMatchObject({ code: 'conflict' });
 
+    // An import nobody took over is read-only: refused here, before the
+    // server, with no message saved.
+    const { session: imported } = await seedExecutionSession();
+    q.updateChatSession(imported.id, { surfaceKind: 'imported_agent' });
+    await expect(
+      (async () => send.handler(ctx, { sessionId: imported.id, content: 'Hello' } as never))(),
+    ).rejects.toMatchObject({ code: 'conflict', message: expect.stringMatching(/can only be read here/) });
+    expect(q.listChatEvents(imported.id).some((e) => e.content === 'Hello')).toBe(false);
+
     const { session: active } = await seedExecutionSession();
     // No config.json in the isolated root → the server client refuses
     // before any network call.

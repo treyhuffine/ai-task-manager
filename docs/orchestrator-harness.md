@@ -91,9 +91,9 @@ picked a mode sent its main chat to the missing route and nothing happened.
 
 - Switching into a harness mode always starts a **new session** — the flags
   above are read at process spawn, so a fresh process is the clean cut.
-- Scheduled orchestrator fires are harness sessions regardless of the
-  dashboard toggle; when the toggle is `legacy` they default to the MCP
-  surface (`resolveOrchestratorMode` in `src/lib/executor/adapter.ts`).
+- Scheduled orchestrator fires are harness sessions like the chat, and
+  resolve the mode the same way: unset or `legacy` runs on the MCP surface
+  (`resolveOrchestratorMode` in `src/lib/orchestrator/mode.ts`).
 - Permission mode defaults to `bypass` (matches executions). The
   `--disallowed-tools` guard holds even in bypass.
 

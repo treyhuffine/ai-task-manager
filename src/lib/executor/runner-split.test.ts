@@ -488,6 +488,31 @@ describe('the P0.4 gaps closed with P2.4', () => {
     expect(q.listRuns({}).filter((r) => r.chatSessionId === session.id)).toHaveLength(0);
   });
 
+  it('refuses to send into an import nobody took over, from any path, here or on a computer elsewhere', async () => {
+    home = await createTestHome({ prefix: 'ri-runner-split-' });
+    fake = installFakeHarness('claude');
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Imported', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const { dispatch } = await import('./adapter');
+
+    const here = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'from a terminal' });
+    q.updateChatSession(here.session.id, { surfaceKind: 'imported_agent' });
+    await expect(dispatch(here.session.id, 'Hello')).rejects.toThrow(/can only be read here/);
+    expect(fake!.sessions).toHaveLength(0);
+
+    // The case found in use: an import from a laptop that's asleep. The send
+    // would have waited in its queue, then started a blank session there.
+    const key = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
+    const laptop = q.registerComputerForApiKey({ apiKeyId: key.key.id, name: 'Laptop', platform: 'darwin' }).computer;
+    const there = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'from the laptop' });
+    q.updateChatSession(there.session.id, { surfaceKind: 'imported_agent' });
+    q.createPlacement({ executionId: there.execution.id, computerId: laptop.id, startReason: 'adopted', worktreePath: '/elsewhere/demo' });
+    await expect(dispatch(there.session.id, 'Hello')).rejects.toThrow(/can only be read here/);
+    expect(q.listWorkerCommands(laptop.id)).toHaveLength(0);
+
+    expect(q.listRuns({}).filter((r) => r.chatSessionId === here.session.id || r.chatSessionId === there.session.id)).toHaveLength(0);
+  });
+
   it('clears the prompt a turn was waiting on when it is interrupted', async () => {
     const session = await chat({ permissionMode: 'ask' });
     const { dispatch, abort } = await import('./adapter');
