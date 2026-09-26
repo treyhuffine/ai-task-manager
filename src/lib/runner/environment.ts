@@ -19,7 +19,7 @@ import { resolveSetups, type ReferenceReport } from '@/lib/setups/resolve';
 
 const run = promisify(execFile);
 
-export type ReferenceState = 'ready' | 'omitted' | 'unconfigured' | 'missing';
+export type ReferenceState = 'ready' | 'omitted' | 'unconfigured' | 'missing' | 'unavailable';
 
 export interface EnvironmentReference {
   alias: string;
@@ -75,22 +75,38 @@ function stateOf(report: ReferenceReport): ReferenceState {
 
 /**
  * The agent's folder and references as this computer's setup files have
- * them. When this computer has no setup for the agent, the home's values
- * stand (a home agent from before setups, say).
+ * them, when exactly one valid setup here is for the agent.
+ *
+ * `whenUnresolved` says what stands when there isn't one (none, or two
+ * folders claiming the agent). `'expected'` keeps the home's values: a home
+ * agent from before setups, at home. `'unavailable'` is for a session
+ * elsewhere, where the home's values are only a cached report of this
+ * computer and never the authority for what a harness may read: no source
+ * folder, and every reference unavailable, with no path (P2.7 to P2.9
+ * re-check).
  */
-export function resolveAgentFolders(expected: ExpectedAgentFolders): Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> {
+export function resolveAgentFolders(
+  expected: ExpectedAgentFolders,
+  whenUnresolved: 'expected' | 'unavailable',
+): Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> {
   const env = expected;
-  const report = resolveSetups({
+  const reports = resolveSetups({
     homeId: env.homeId,
     registered: listRegisteredLocations().map((l) => l.dir),
     expected: { [env.agentId]: env.references.map((r) => ({ alias: r.alias })) },
-  }).find((r) => r.agentId === env.agentId && r.status !== 'duplicate');
-  if (!report) return { sourceFolder: env.sourceFolder, references: env.references };
+  }).filter((r) => r.agentId === env.agentId);
+  const report = reports.length === 1 && reports[0]!.status !== 'duplicate' ? reports[0]! : null;
+  const strict = whenUnresolved === 'unavailable';
+  if (!report) {
+    if (!strict) return { sourceFolder: env.sourceFolder, references: env.references };
+    return { sourceFolder: null, references: env.references.map((ref) => ({ ...ref, path: null, state: 'unavailable' as const })) };
+  }
   return {
     sourceFolder: report.sourcePath,
     references: env.references.map((ref) => {
       const here = report.references.find((r) => r.alias === ref.alias);
-      return here ? { ...ref, path: here.path, state: stateOf(here) } : ref;
+      if (here) return { ...ref, path: here.path, state: stateOf(here) };
+      return strict ? { ...ref, path: null, state: 'unconfigured' as const } : ref;
     }),
   };
 }
@@ -110,12 +126,10 @@ async function git(cwd: string, args: string[]): Promise<string | null> {
 export async function resolveEnvironment(
   env: ExecutionEnvironment,
   now = new Date(),
-  local: Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> = resolveAgentFolders({
-    homeId: env.homeId,
-    agentId: env.agent.id,
-    sourceFolder: env.sourceFolder,
-    references: env.references,
-  }),
+  local: Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> = resolveAgentFolders(
+    { homeId: env.homeId, agentId: env.agent.id, sourceFolder: env.sourceFolder, references: env.references },
+    'expected',
+  ),
 ): Promise<ResolvedEnvironment> {
   const mode = !env.isGit ? 'folder' : local.sourceFolder && local.sourceFolder === env.cwd ? 'live' : 'worktree';
   const [branch, head] = env.isGit
@@ -135,6 +149,7 @@ const REFERENCE_STATE = {
   omitted: 'left out on this computer',
   unconfigured: "not set up on this computer",
   missing: "set up, but the folder isn't there",
+  unavailable: 'unavailable, because this computer has no single setup for the agent (none, or more than one)',
 } as const;
 
 const short = (sha: string | null) => (sha ? sha.slice(0, 12) : null);

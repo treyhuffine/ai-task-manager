@@ -7,7 +7,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { settleRequest } from '@/lib/workers/hub';
-import { requireWorkerWithBody } from '@/lib/workers/route-auth';
+import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
 
 const body = z.union([
   z.object({ ok: z.literal(true), value: z.unknown() }),
@@ -16,10 +16,12 @@ const body = z.union([
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const caller = await requireWorkerWithBody(request);
-  if (caller instanceof Response) return caller;
-  const { worker } = caller;
-  const parsed = body.safeParse(caller.json);
+  const read = await readWorkerBody(request);
+  if (read instanceof Response) return read;
+  // After the last await, and nothing awaits from here to the writes.
+  const worker = requireWorker(request.headers);
+  if (worker instanceof Response) return worker;
+  const parsed = body.safeParse(read.json);
   if (!parsed.success) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }

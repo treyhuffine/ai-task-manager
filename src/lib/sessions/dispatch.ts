@@ -763,7 +763,12 @@ export async function continueExecutionSession(
   // place or not at all. `createImportSkeleton` sets `worktreePath` to the
   // workspace cwd so this is normally moot; the explicit test covers rows
   // imported before that was true.
-  if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent') {
+  //
+  // And so do executions placed on a connected computer: their worktree is
+  // there, and only its worker prepares one. Rebuilding it on the home would
+  // put work that runs elsewhere in a folder here (P2.7 to P2.9 re-check).
+  // Routing a continuation to its computer is P4.5.
+  if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent' || getPlacementElsewhere(session.executionId)) {
     if (session.status === 'archived') unarchiveExecution(session.executionId);
     return getChatSessionWithExecution(args.sessionId);
   }

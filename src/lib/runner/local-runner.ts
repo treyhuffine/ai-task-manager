@@ -587,7 +587,12 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   // A session elsewhere: the agent's folders resolved here and now, once,
   // and the reference folders wired from that resolution (P2.7 to P2.9
   // review fixes). The environment below shows the same paths.
-  const agentFolders = spec.agentFolders ? resolveAgentFolders(spec.agentFolders) : null;
+  // Only a single valid setup here counts. Without one, no reference is
+  // wired, whatever the home last saw (P2.7 to P2.9 re-check).
+  const agentFolders = spec.agentFolders ? resolveAgentFolders(spec.agentFolders, 'unavailable') : null;
+  if (agentFolders?.references.some((ref) => ref.state === 'unavailable')) {
+    console.warn(`[runner] agent ${spec.agentFolders!.agentId} has no single setup on this computer, so its reference folders aren't wired.`);
+  }
   if (agentFolders) {
     const refs = agentFolders.references.flatMap((ref) => (ref.state === 'ready' && ref.path ? [asReferenceFolder(ref)] : []));
     const refConfig = buildReferenceFolderSessionConfig(refs);

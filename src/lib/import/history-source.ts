@@ -13,7 +13,7 @@
 
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { constants as fsConstants, type BigIntStats } from 'node:fs';
+import { constants as fsConstants, realpathSync, type BigIntStats } from 'node:fs';
 import { lstat, open, realpath, stat, type FileHandle } from 'node:fs/promises';
 import {
   getProvider,
@@ -43,6 +43,13 @@ export interface FileCandidate extends CandidateBase {
   kind: 'file';
   history: LocalHistoryOps;
   historySession: LocalHistorySession;
+  /**
+   * The real folder the transcript was found in, taken when it was
+   * discovered. Every read checks it's still there (`pinTranscript`), so a
+   * folder relinked since can't hand over a file nobody chose. Local-runtime
+   * detail, never sent to a client.
+   */
+  realDir: string;
 }
 
 export interface ServiceCandidate extends CandidateBase {
@@ -124,10 +131,11 @@ export interface PrefixDigest {
  * nothing of that read is committed.
  *
  * It opens without following a link: a transcript replaced by a symlink is
- * refused rather than followed to a file nobody selected. With `realDir`, the
- * directory the transcript was listed in, one moved or relinked out of that
- * directory is refused too. An ordinary atomic rewrite in place, in the same
- * directory, is just a changed transcript.
+ * refused rather than followed to a file nobody selected. And `realDir`, the
+ * real folder the transcript was discovered in, must still be its folder, so
+ * one moved or relinked out of that folder is refused too (P2.7 to P2.9
+ * re-check: the parent is a link `O_NOFOLLOW` doesn't cover). An ordinary
+ * atomic rewrite in place, in the same folder, is just a changed transcript.
  */
 export interface PinnedTranscript {
   readonly size: number;
@@ -142,7 +150,7 @@ export interface PinnedTranscript {
 const changed = (message = 'The transcript changed while it was being read. Try again.') =>
   codedError('source_changed_during_read', message);
 
-export async function pinTranscript(filePath: string, opts: { realDir?: string } = {}): Promise<PinnedTranscript> {
+export async function pinTranscript(filePath: string, opts: { realDir: string }): Promise<PinnedTranscript> {
   let handle: FileHandle;
   try {
     handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -155,7 +163,7 @@ export async function pinTranscript(filePath: string, opts: { realDir?: string }
   try {
     const opened = await handle.stat({ bigint: true });
     if (!opened.isFile()) throw codedError('not_a_transcript', "That session's transcript is no longer a plain file where it was found.");
-    if (opts.realDir !== undefined && (await realpath(path.dirname(filePath))) !== opts.realDir) {
+    if ((await realpath(path.dirname(filePath))) !== opts.realDir) {
       throw codedError('not_a_transcript', "That session's transcript is no longer in the folder it was found in.");
     }
     return {
@@ -226,7 +234,14 @@ export function fileCandidate(
   historySession: LocalHistorySession,
 ): FileCandidate | null {
   const candidate = baseCandidate(source, historySession);
-  return candidate ? { ...candidate, kind: 'file', history, historySession } : null;
+  if (!candidate) return null;
+  let realDir: string;
+  try {
+    realDir = realpathSync(path.dirname(historySession.transcriptPath));
+  } catch {
+    return null;
+  }
+  return { ...candidate, kind: 'file', history, historySession, realDir };
 }
 
 export function serviceCandidate(
@@ -474,7 +489,7 @@ export interface HistoryWindow {
  */
 export async function readHistoryWindow(
   candidate: FileCandidate,
-  opts: { fromOffset: number; expect: HistoryPrefix | null; maxBytes: number; realDir?: string },
+  opts: { fromOffset: number; expect: HistoryPrefix | null; maxBytes: number },
 ): Promise<HistoryWindow> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -489,9 +504,9 @@ const WINDOW_ATTEMPTS = 3;
 
 async function readPinnedWindow(
   candidate: FileCandidate,
-  opts: { fromOffset: number; expect: HistoryPrefix | null; maxBytes: number; realDir?: string },
+  opts: { fromOffset: number; expect: HistoryPrefix | null; maxBytes: number },
 ): Promise<HistoryWindow> {
-  const pinned = await pinTranscript(candidate.historySession.transcriptPath, { realDir: opts.realDir });
+  const pinned = await pinTranscript(candidate.historySession.transcriptPath, { realDir: candidate.realDir });
   try {
     let digest = pinned.digest();
     let fromOffset = opts.fromOffset;

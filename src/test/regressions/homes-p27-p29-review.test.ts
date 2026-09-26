@@ -236,6 +236,19 @@ describe('found in the live check', () => {
     expect(scripts).toHaveLength(2);
     expect(scripts[1]!.payload).toEqual(script);
   });
+
+  it("continues an archived laptop execution without building its worktree on the home (re-check)", async () => {
+    const q = await import('@/lib/db/queries');
+    const { getDb } = await import('@/lib/db');
+    const { workspaces } = await import('@/lib/db/schema');
+    const { eq } = await import('drizzle-orm');
+    getDb().update(workspaces).set({ isGit: true }).where(eq(workspaces.id, agentId)).run();
+    q.archiveExecution(executionId);
+    const { continueExecutionSession } = await import('@/lib/sessions/dispatch');
+    const continued = await continueExecutionSession({ sessionId: chatId });
+    expect(continued?.status).toBe('active');
+    expect(q.getExecution(executionId)).toMatchObject({ status: 'active', worktreePath: null, setupStartedAt: null });
+  });
 });
 
 describe('P2.8 retirement and process ownership', () => {
@@ -303,7 +316,8 @@ async function historyCandidate(): Promise<FileCandidate> {
   const sessions = [];
   for await (const session of history.discover({ env: { CLAUDE_CONFIG_DIR: claudeRoot }, mainSessionsOnly: true, requireUserMessage: true })) sessions.push(session);
   expect(sessions).toHaveLength(1);
-  return { kind: 'file', history, historySession: sessions[0]!, key: `claude:${Buffer.from(nativeId).toString('base64url')}`,
+  // Discovery records the real folder the transcript was found in (fileCandidate).
+  return { kind: 'file', history, historySession: sessions[0]!, realDir: fs.realpathSync(path.dirname(sessions[0]!.transcriptPath)), key: `claude:${Buffer.from(nativeId).toString('base64url')}`,
     source: 'claude', externalSessionId: nativeId, cwd: home.root, label: 'Review', startedAt: '2026-09-20T10:00:00.000Z',
     updatedAt: '2026-09-20T10:00:01.000Z', branchName: null, imported: false, importStatus: 'not_imported',
   };

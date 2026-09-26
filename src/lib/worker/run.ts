@@ -44,10 +44,12 @@ import { EventJournal } from './event-journal';
 import { describeHarnesses } from './harnesses';
 import { EventPoster } from './poster';
 import { processRecorder, stopLeftovers } from './leftovers';
+import { acquireWorkerLock, WorkerLockedError } from './lock';
 import { createWorkerSink } from './sink';
 import { readEventStream } from './sse';
 
-export type WorkerExit = { reason: 'stopped' } | { reason: WorkerStopReason; message: string };
+/** `already_running`: another worker holds this root's lock, and this one never started. */
+export type WorkerExit = { reason: 'stopped' } | { reason: WorkerStopReason | 'already_running'; message: string };
 
 export type WorkerStatus =
   | { state: 'connecting'; attempt: number }
@@ -71,6 +73,8 @@ export interface WorkerRunOptions {
   journals?: { commands: CommandJournal; events: EventJournal };
   /** Where this worker records the processes it starts. Defaults to its work directory. */
   processRecordFile?: string;
+  /** This root's worker lock. Defaults to its work directory. */
+  lockFile?: string;
   /** Receives the sink this worker's runner reports to. The CLI installs it for the local runner. */
   onSink?: (sink: RunnerSink) => void;
   /** How often to retry posting events the home hasn't taken. */
@@ -187,7 +191,26 @@ async function answerRequest(
   });
 }
 
+/**
+ * One worker per root: the lock first, before anything of the root's is
+ * opened, held until this returns (lock.ts).
+ */
 export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> {
+  let lock;
+  try {
+    lock = await acquireWorkerLock(options.lockFile);
+  } catch (err) {
+    if (err instanceof WorkerLockedError) return { reason: 'already_running', message: err.message };
+    throw err;
+  }
+  try {
+    return await runLocked(options);
+  } finally {
+    lock.release();
+  }
+}
+
+async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   const {
     target,
     version,

@@ -570,7 +570,7 @@ async function syncFileCandidate(
   // mid-read can't leave old events certified by a new file's hash (P2.7 to
   // P2.9 review fixes). What committed before a change stays valid: each
   // window was checked when it committed.
-  const pinned = await pinTranscript(candidate.historySession.transcriptPath);
+  const pinned = await pinTranscript(candidate.historySession.transcriptPath, { realDir: candidate.realDir });
   try {
     return await syncPinned(candidate, initialLedger, pinned);
   } finally {
