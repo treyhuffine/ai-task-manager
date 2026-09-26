@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { readOnOwner } from '@/lib/executor/remote-reads';
+import { readOnOwner, writeOnOwner } from '@/lib/executor/owner-files';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { fileReadResponse } from '@/lib/workspaces/file-http';
@@ -76,6 +76,9 @@ export async function PUT(
       return Response.json({ error: 'Body must be { content: string }' }, { status: 400 });
     }
 
+    const owner = await writeOnOwner(id, { kind: 'write', path: relPath, content: body.content });
+    if (owner) return owner;
+
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
 
@@ -96,6 +99,9 @@ export async function DELETE(
     if (!relPath) {
       return Response.json({ error: 'Missing path parameter' }, { status: 400 });
     }
+
+    const owner = await writeOnOwner(id, { kind: 'delete', path: relPath });
+    if (owner) return owner;
 
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;

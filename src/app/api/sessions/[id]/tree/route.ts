@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { readOnOwner } from '@/lib/executor/remote-reads';
+import { readOnOwner } from '@/lib/executor/owner-files';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { listTree, type TreeEntry } from '@/lib/workspaces/list-tree';

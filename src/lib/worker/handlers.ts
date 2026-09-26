@@ -23,8 +23,9 @@ import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import * as runner from '@/lib/runner/local-runner';
 import type { SessionSpec } from '@/lib/runner/types';
-import { HOME_ADDRESS_SCHEME, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody } from '@/lib/workers/protocol';
-import { readExecution } from '@/lib/workspaces/execution-reads';
+import { HOME_ADDRESS_SCHEME, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
+import { readExecution, type ExecutionLocation } from '@/lib/workspaces/execution-reads';
+import { writeExecution } from '@/lib/workspaces/execution-writes';
 import type { CommandJournal } from './command-journal';
 import type { CommandContext, CommandHandlers, CommandKindHandler } from './commands';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
@@ -180,27 +181,43 @@ export async function findInClaudeHistory(spec: SessionSpec, message: string): P
 }
 
 /**
- * Answer the home's reads of executions placed here: only an execution this
- * computer prepared, in the worktree it prepared for it.
+ * Answer the home's reads and changes of executions placed here: only an
+ * execution this computer prepared, in the worktree it prepared for it. A
+ * change also has to be for the placement this computer still holds: once
+ * the home has moved the execution on, its files here are left alone.
  */
-export function executionReads(options: { journal: CommandJournal; homeId: string }): RequestHandler {
+export function executionRequests(options: { journal: CommandJournal; homeId: string }): RequestHandler {
+  const { journal, homeId } = options;
+  const locate = (request: ReadExecutionRequest | WriteExecutionRequest): ExecutionLocation | null => {
+    const worktreePath = journal.preparedWorktree(request.executionId);
+    if (!worktreePath) return null;
+    return {
+      worktreePath,
+      source: agentFolderHere(homeId, request.workspace.id) ?? worktreePath,
+      isGit: request.workspace.isGit,
+      baseBranch: request.workspace.baseBranch,
+      baseSha: request.baseSha,
+      filesToCopy: request.workspace.filesToCopy,
+    };
+  };
+  const notPrepared = { status: 404, body: { error: "This execution wasn't prepared on this computer." } };
   return async (kind, payload) => {
-    if (kind !== 'read_execution') throw new UnsupportedRequestError(kind);
-    const request = payload as ReadExecutionRequest;
-    const worktreePath = options.journal.preparedWorktree(request.executionId);
-    if (!worktreePath) return { status: 404, body: { error: "This execution wasn't prepared on this computer." } };
-    const source = agentFolderHere(options.homeId, request.workspace.id) ?? worktreePath;
-    return readExecution(
-      {
-        worktreePath,
-        source,
-        isGit: request.workspace.isGit,
-        baseBranch: request.workspace.baseBranch,
-        baseSha: request.baseSha,
-        filesToCopy: request.workspace.filesToCopy,
-      },
-      request.read,
-    );
+    if (kind === 'read_execution') {
+      const request = payload as ReadExecutionRequest;
+      const location = locate(request);
+      return location ? readExecution(location, request.read) : notPrepared;
+    }
+    if (kind === 'write_execution') {
+      const request = payload as WriteExecutionRequest;
+      const { executionId, generation } = request;
+      const newest = journal.highestGeneration(executionId);
+      if (journal.released(executionId, generation) || (newest !== null && generation < newest)) {
+        return { status: 409, body: { error: 'moved', message: 'This execution no longer runs on this computer.' } };
+      }
+      const location = locate(request);
+      return location ? writeExecution(location, request.write) : notPrepared;
+    }
+    throw new UnsupportedRequestError(kind);
   };
 }
 

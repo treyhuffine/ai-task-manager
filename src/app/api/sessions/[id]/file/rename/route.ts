@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { writeOnOwner } from '@/lib/executor/owner-files';
 import { renameWorkspacePath } from '@/lib/workspaces/write-file';
 import { openSessionWorktree, mapFileError } from '../../_helpers';
 
@@ -24,6 +25,8 @@ export async function POST(
       );
     }
 
+    const owner = await writeOnOwner(id, { kind: 'rename', from: body.from, to: body.to });
+    if (owner) return owner;
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
 

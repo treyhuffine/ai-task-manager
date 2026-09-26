@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   });
 
   const { installRunnerSink } = await import('@/lib/runner/sink');
-  const { executionHandlers, executionReads } = await import('@/lib/worker/handlers');
+  const { executionHandlers, executionRequests } = await import('@/lib/worker/handlers');
   const { runWorker } = await import('@/lib/worker/run');
   const controller = new AbortController();
   process.on('SIGTERM', () => controller.abort());
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     signal: controller.signal,
     onSink: installRunnerSink,
     handlers: (journal) => executionHandlers({ journal }),
-    requests: (journal) => executionReads({ journal, homeId }),
+    requests: (journal) => executionRequests({ journal, homeId }),
     describe: async () => [
       {
         harness: 'claude',

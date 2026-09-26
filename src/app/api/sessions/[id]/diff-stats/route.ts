@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { readOnOwner } from '@/lib/executor/remote-reads';
+import { readOnOwner } from '@/lib/executor/owner-files';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { readWorktreeDiffStats } from '@/lib/workspaces/diff-stats';
 import { withCompression } from '@/lib/api/compression';

@@ -17,6 +17,7 @@ import {
   Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiErrorText } from '@/lib/api/client';
 import { useWriteFile } from '@/hooks/use-execution';
 import { useFolderRoot, useFolderTree } from '@/hooks/use-folder';
 import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
@@ -159,8 +160,7 @@ export function FileViewer({
         setDirty(false);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Save failed';
-      toast.error(`Save failed: ${msg}`);
+      toast.error(`Save failed: ${apiErrorText(err)}`);
     }
   }, [selectedPath, writeFile]);
 

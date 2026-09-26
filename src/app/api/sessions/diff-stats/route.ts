@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { readAnswerOnOwner } from '@/lib/executor/remote-reads';
+import { readAnswerOnOwner } from '@/lib/executor/owner-files';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { mapWithConcurrency, readWorktreeDiffStats } from '@/lib/workspaces/diff-stats';
 

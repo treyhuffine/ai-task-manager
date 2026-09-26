@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { writeOnOwner } from '@/lib/executor/owner-files';
 import { resolveWorkspaceConflict } from '@/lib/workspaces/write-file';
 import { openSessionWorktree, mapFileError } from '../../_helpers';
 
@@ -29,6 +30,8 @@ export async function POST(
       return Response.json({ error: 'Body must include content string' }, { status: 400 });
     }
 
+    const owner = await writeOnOwner(id, { kind: 'resolve_conflict', path: body.path, content: body.content });
+    if (owner) return owner;
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
 

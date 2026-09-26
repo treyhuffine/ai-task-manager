@@ -158,7 +158,7 @@ async function run(): Promise<void> {
 
   console.log(`${pc.bold(target.computerName)} worker for ${target.homeName}, at ${target.homeUrl}. Ctrl-C to stop.`);
   const { installRunnerSink } = await import('@/lib/runner/sink');
-  const { executionHandlers, executionReads } = await import('@/lib/worker/handlers');
+  const { executionHandlers, executionRequests } = await import('@/lib/worker/handlers');
   const { closeIdleSessions } = await import('@/lib/runner/local-runner');
   // Sessions idle for 30 minutes close here as they do at home (P2.1).
   const sweep = setInterval(() => void closeIdleSessions().catch(() => {}), 60_000);
@@ -169,7 +169,7 @@ async function run(): Promise<void> {
     // This computer's runner reports to the worker's journal.
     onSink: installRunnerSink,
     handlers: (journal) => executionHandlers({ journal }),
-    requests: (journal) => executionReads({ journal, homeId: target.homeId }),
+    requests: (journal) => executionRequests({ journal, homeId: target.homeId }),
     onStatus: (status) => {
       const at = new Date().toLocaleTimeString();
       if (status.state === 'connected') console.log(`${pc.dim(at)} ${pc.green('connected')}`);

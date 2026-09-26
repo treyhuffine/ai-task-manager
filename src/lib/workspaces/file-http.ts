@@ -35,12 +35,24 @@ export async function fileReadResponse(handle: Workspace, relPath: string, wantB
  * — those are bugs, not user-correctable failures.
  */
 export function mapFileError(err: unknown, logTag: string): Response {
+  const answer = fileErrorAnswer(err);
+  if (answer) return Response.json(answer.body, { status: answer.status });
+  console.error(logTag, err);
+  return Response.json({ error: String(err) }, { status: 500 });
+}
+
+/**
+ * The status and body for a FileReadError or FileWriteError, as data, or
+ * null for anything else. Shared with a worker's answers for an execution
+ * elsewhere, so a refused change reads the same wherever it ran.
+ */
+export function fileErrorAnswer(err: unknown): { status: number; body: { error: string; code: string } } | null {
   if (err instanceof FileReadError) {
     const status =
       err.code === 'not_found' ? 404 :
       err.code === 'invalid_path' ? 400 :
       err.code === 'is_directory' ? 400 : 500;
-    return Response.json({ error: err.message, code: err.code }, { status });
+    return { status, body: { error: err.message, code: err.code } };
   }
   if (err instanceof FileWriteError) {
     const status =
@@ -50,8 +62,7 @@ export function mapFileError(err: unknown, logTag: string): Response {
       err.code === 'exists' ? 409 :
       err.code === 'too_large' ? 413 :
       err.code === 'not_found' ? 404 : 500;
-    return Response.json({ error: err.message, code: err.code }, { status });
+    return { status, body: { error: err.message, code: err.code } };
   }
-  console.error(logTag, err);
-  return Response.json({ error: String(err) }, { status: 500 });
+  return null;
 }

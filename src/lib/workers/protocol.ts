@@ -39,7 +39,7 @@ export const WORKER_STREAM_PING_MS = 15_000;
 export const WORKER_REQUEST_TIMEOUT_MS = 15_000;
 
 /** Reads the home can ask a worker. Never persisted. */
-export type WorkerRequestKind = 'describe_harnesses' | 'read_execution' | 'list_history' | 'read_history';
+export type WorkerRequestKind = 'describe_harnesses' | 'read_execution' | 'write_execution' | 'list_history' | 'read_history';
 
 /**
  * Read an execution placed on the worker's computer. It names the execution,
@@ -51,6 +51,20 @@ export interface ReadExecutionRequest {
   workspace: { id: string; isGit: boolean; baseBranch: string | null; filesToCopy: string[] };
   baseSha: string | null;
   read: import('@/lib/workspaces/execution-reads').ExecutionRead;
+}
+
+/**
+ * Change an execution placed on the worker's computer (P3.5): one of the
+ * defined file operations, inside the worktree it prepared. Carries the
+ * placement's generation, so a computer the execution has moved away from
+ * refuses it.
+ */
+export interface WriteExecutionRequest {
+  executionId: string;
+  generation: number;
+  workspace: { id: string; isGit: boolean; baseBranch: string | null; filesToCopy: string[] };
+  baseSha: string | null;
+  write: import('@/lib/workspaces/execution-writes').ExecutionWrite;
 }
 
 /** A command as the stream carries it (P2 protocol, Commands). */

@@ -603,7 +603,10 @@ export function FileTree({
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    const body = err.body as { error?: string; code?: string } | null;
+    // `message` first: a change refused on another computer says why there
+    // (not connected, unconfirmed) and keeps a code in `error`.
+    const body = err.body as { error?: string; message?: string; code?: string } | null;
+    if (body?.message) return body.message;
     if (body?.error) return body.error;
     if (body?.code === 'exists') return 'Already exists';
     return `HTTP ${err.status}`;

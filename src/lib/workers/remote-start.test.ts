@@ -191,6 +191,75 @@ describe('starting an execution on a connected computer', () => {
     expect(gone).toMatchObject({ status: 409, body: { error: 'unavailable', message: 'Laptop is not connected right now.' } });
   }, 90_000);
 
+  it("changes the laptop's worktree through the home's own routes, never a folder at home (P3.5)", async () => {
+    const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
+    const q = await import('@/lib/db/queries');
+    const { NextRequest } = await import('next/server');
+    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Edit there' });
+    await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree');
+    const worktree = q.getOpenPlacement(session.executionId!)!.worktreePath!;
+    const ctx = { params: Promise.resolve({ id: session.id }) };
+    type Handler = (req: InstanceType<typeof NextRequest>, c: typeof ctx) => Promise<Response>;
+    const call = async (route: string, method: 'PUT' | 'POST' | 'DELETE', query = '', body?: unknown) => {
+      const mod = (await import(`@/app/api/sessions/[id]/${route}/route`)) as Record<string, Handler>;
+      const req = new NextRequest(`http://127.0.0.1/api/sessions/${session.id}/${route}${query}`, {
+        method,
+        ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }),
+      });
+      const res = await mod[method](req, ctx);
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+    const there = (rel: string) => path.join(worktree, rel);
+
+    expect(await call('file', 'PUT', '?path=NOTES.md', { content: 'saved from the phone\n' })).toMatchObject({ status: 200, body: { ok: true, path: 'NOTES.md' } });
+    expect(fs.readFileSync(there('NOTES.md'), 'utf8')).toBe('saved from the phone\n');
+    expect(await call('file/create', 'POST', '', { path: 'src/new.ts' })).toMatchObject({ status: 200, body: { path: 'src/new.ts' } });
+    expect(fs.existsSync(there('src/new.ts'))).toBe(true);
+    expect(await call('dir', 'POST', '', { path: 'docs/guides' })).toMatchObject({ status: 200 });
+    expect(fs.statSync(there('docs/guides')).isDirectory()).toBe(true);
+    expect(await call('file/rename', 'POST', '', { from: 'src/new.ts', to: 'src/renamed.ts' })).toMatchObject({ status: 200, body: { to: 'src/renamed.ts' } });
+    expect(fs.existsSync(there('src/renamed.ts'))).toBe(true);
+    // Refusals read as they do at home.
+    expect(await call('file/rename', 'POST', '', { from: 'src/renamed.ts', to: 'NOTES.md' })).toMatchObject({ status: 409, body: { code: 'exists' } });
+    expect(await call('file', 'PUT', '?path=../outside.txt', { content: 'no' })).toMatchObject({ status: 400, body: { code: 'invalid_path' } });
+    expect(fs.existsSync(path.join(path.dirname(worktree), 'outside.txt'))).toBe(false);
+    expect(await call('file', 'DELETE', '?path=src/renamed.ts')).toMatchObject({ status: 200, body: { kind: 'file' } });
+    expect(fs.existsSync(there('src/renamed.ts'))).toBe(false);
+    expect(await call('dir', 'DELETE', '?path=docs')).toMatchObject({ status: 200, body: { kind: 'dir' } });
+    expect(fs.existsSync(there('docs'))).toBe(false);
+    // A resolved conflict is written and staged there.
+    expect(await call('file/resolve-conflict', 'POST', '', { path: 'README.md', content: '# demo, resolved\n' })).toMatchObject({ status: 200 });
+    expect(git(worktree, 'status', '--porcelain', '--', 'README.md')).toBe('M  README.md');
+    // Work in progress comes from the agent's folder on the laptop, not the one at home.
+    fs.writeFileSync(path.join(repo, 'TODO.md'), 'started on the laptop\n');
+    expect(await call('wip', 'POST', '', { action: 'copy' })).toMatchObject({ status: 200, body: { action: 'copy', copied: expect.arrayContaining(['TODO.md']) } });
+    expect(fs.readFileSync(there('TODO.md'), 'utf8')).toBe('started on the laptop\n');
+
+    // A change from an earlier placement is refused there.
+    const { requestWorker } = await import('@/lib/workers/hub');
+    const ws = q.getWorkspace(workspaceId)!;
+    expect(await requestWorker(computerId, 'write_execution', {
+      executionId: session.executionId, generation: 0, baseSha: null,
+      workspace: { id: ws.id, isGit: true, baseBranch: 'main', filesToCopy: [] },
+      write: { kind: 'write', path: 'NOTES.md', content: 'stale' },
+    })).toMatchObject({ status: 409, body: { error: 'moved' } });
+    expect(fs.readFileSync(there('NOTES.md'), 'utf8')).toBe('saved from the phone\n');
+
+    // The home never opens that path on its own disk.
+    const { openSessionWorktree } = await import('@/app/api/sessions/[id]/_helpers');
+    const refused = await openSessionWorktree(session.id);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.response.status).toBe(409);
+
+    await worker!.stop();
+    worker = null;
+    expect(await call('file', 'PUT', '?path=NOTES.md', { content: 'while away' })).toMatchObject({
+      status: 409,
+      body: { error: 'unavailable', message: "Laptop is not connected right now, so the change wasn't made." },
+    });
+    expect(fs.readFileSync(there('NOTES.md'), 'utf8')).toBe('saved from the phone\n');
+  }, 90_000);
+
   it('tells the agent there its environment, as the laptop resolved it, beside the instructions and in them', async () => {
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const { dispatch } = await import('@/lib/executor/adapter');

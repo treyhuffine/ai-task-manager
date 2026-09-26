@@ -481,7 +481,7 @@ A test could reach production. The home's self-calls fall back to port 4224 when
 
 ### As built
 
-- Home: `execution_placements` queries (`placementOf`, `createPlacement`, `markPlacementPrepared`, `chatPlacement`, `heldPlacement`), `remote-runner.ts`, `remote-live.ts`, `computers.ts` (capabilities and working folder per computer), `remote-reads.ts`, and the create route's and the ack route's new paths.
+- Home: `execution_placements` queries (`placementOf`, `createPlacement`, `markPlacementPrepared`, `chatPlacement`, `heldPlacement`), `remote-runner.ts`, `remote-live.ts`, `computers.ts` (capabilities and working folder per computer), `remote-reads.ts` (now `owner-files.ts`, which also makes changes since P3.5), and the create route's and the ack route's new paths.
 - Worker: `handlers.ts` (the kinds above, `executionReads`, `agentFolderHere`, `findInClaudeHistory`), and the journal's notes, generations, placements and prepared worktrees. `ri worker run` gives the worker its handlers and reads.
 - Tests:
   - `remote-execution.test.ts` (5) and `remote-start.test.ts` (3) run the worker in a process of its own (`src/test/fixtures/worker-process.ts`) against the home over real HTTP. They cover a turn run there, sending once, a prompt answered from home, an interrupt, a stale placement, preparing from its own repository with a message sent first and the setup script after, reads, a disconnected computer, and refusing a computer without the agent.
@@ -910,7 +910,7 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [x] 3.2d Home unreachable keeps the draft (P1.6, verified). Setup failed on a computer says where, with its output and Retry. A missing folder or reference says which and where (P3.1's reasons).
 - [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner.
 - [x] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
-- [ ] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
+- [x] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
 - [ ] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
 - [ ] 3.5c Terminals on a worker: create, list, input, output, resize, close through the worker, bounded replay, reconnect, input disabled while disconnected with no replay of unconfirmed keys, never a fallback shell at home. Agent-folder terminals on the agent's computer. Computer and folder shown.
 - [ ] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
@@ -979,6 +979,24 @@ Spec §7: the home schedules, and an agent's main chat has a fixed computer.
 - `dispatch-placement.test.ts` (5): a cron and an `at` fire start at home with the laptop saved as the default, and send nothing to it. An agent set up only on the laptop fails with the reason and starts nothing anywhere. An agent from before setups still runs. A fire into an execution on the away laptop waits there, shows waiting, stays running, and starts nothing at home. Five such waits leave all four leases free (fails without the fix). `main-chat-placement.test.ts` (7): home when set up there even with the laptop saved, the app's chat and a pre-setup agent at home, the saved default, the first set up, kept across a default change with New chat applying the rule again, a message waiting for the away laptop, and `homeCantRun`. `portable.test.ts` (2), `runner.test.ts` (+1 overdue). Full suite: 2,649 passed.
 - Live on the dev home: an agent "Sweeps" created at home, detached there and attached on the stand-in. Its new main chat was pinned to the stand-in and its header read "on MacBook (stand-in) · not connected". Run now on its daily trigger recorded a failed run with the reason, shown on the trigger's page, and created no execution. On the Mac Mini, which has no battery, no awake note shows. With the home's entry answered as a laptop, the list, the modal and the trigger's page showed "Schedules run when Mac Mini is awake." and "Runs when Mac Mini is awake.".
 - Found while checking: the agent's header, Files and Terminal use its folder at home, which an agent that lives on the laptop doesn't have. That goes with P3.5, which routes them to the agent's computer.
+
+## P3.5 Files, previews, terminals and editors where the work is
+
+Spec §5.6 and §6: everything the viewer does to an execution's folder happens on the computer the execution runs on, through that computer's worker, and never on a folder at home.
+
+### Changing files (3.5a)
+
+- **The bug it fixes.** The routes that change an execution's files (save, new file, new folder, rename, delete, resolve a conflict, bring work in progress over) opened the execution's folder on the home's own disk. For an execution elsewhere that failed with "Workspace has no worktree", and had the path been recorded at home it could have named a different folder there: two Macs often have the same `/Users/trey/code/ri`.
+- **Defined operations, answered where the files are.** `writeExecution` (`src/lib/workspaces/execution-writes.ts`) makes each change with the same functions and path checks as at home, from filesystem and git only, so a worker can run it. The home sends it as a `write_execution` request (`writeOnOwner` in `src/lib/executor/owner-files.ts`, which was `remote-reads.ts`), naming the execution and one of the operations, never a path outside its folder (spec §5). The worker finds the worktree it prepared, and for work in progress the agent's folder from its own setup files.
+- **Only for the placement it holds.** The request carries the placement's generation, and the worker refuses one it has released or an older one than it has seen ("This execution no longer runs on this computer."), so a change can't land after the execution moved on.
+- **Refusals read the same wherever they happen.** Invalid paths, existing targets and missing files give the same status and words (`fileErrorAnswer`, shared with `mapFileError`). A computer that isn't connected refuses the change ("MacBook is not connected right now, so the change wasn't made."), since editing is live work, not something to queue. One that doesn't answer in time may have made it, so it says so: "MacBook didn't confirm the change. Check the file before trying again." An older worker says to update Ri there.
+- **The home refuses to open another computer's folder.** `openSessionWorktree` returns 409 for an execution placed elsewhere, so no route, now or later, can fall through to a folder at home.
+- **The reason reaches the person.** The editor's save, the conflict view, the file tree and the work-in-progress banner showed the HTTP status or the error code ("Save failed: API 409 …"). They show the route's message now, and an unsaved edit stays in the editor.
+
+### Tests and live checks
+
+- `remote-start.test.ts` (+1, through the real routes with the worker in its own process): save, new file, new folder, rename, rename onto an existing file (409, `exists`), a path outside (400, nothing written), delete a file and a folder, a resolved conflict staged there, work in progress copied from the laptop's agent folder, a write from an earlier generation refused by the worker, `openSessionWorktree` refusing, and a save while the laptop is away refused with nothing written. Full suite: 2,650 passed.
+- Live on the dev home with the stand-in's worker: README.md in an execution on the stand-in, edited in the Files view and saved with ⌘S, changed on the stand-in's disk. With the worker stopped while the file was open, the next save said "Save failed: MacBook (stand-in) is not connected right now, so the change wasn't made.", the file was unchanged, and the edit stayed in the editor.
 
 ## P0.3 Records and the runner boundary
 

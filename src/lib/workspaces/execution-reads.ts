@@ -9,6 +9,7 @@
 import { openWorktreeHandle } from './index';
 import { listTree } from './list-tree';
 import { FileReadError, readBaseFile, readWorkspaceFile } from './read-file';
+import { fileErrorAnswer } from './file-http';
 import { readWorktreeDiffStats } from './diff-stats';
 import { detectSourceWip } from './wip';
 
@@ -39,11 +40,6 @@ export interface ReadAnswer {
 
 const ok = (body: unknown): ReadAnswer => ({ status: 200, body });
 
-function fileError(err: FileReadError): ReadAnswer {
-  const status = err.code === 'not_found' ? 404 : err.code === 'invalid_path' || err.code === 'is_directory' ? 400 : 500;
-  return { status, body: { error: err.message, code: err.code } };
-}
-
 export async function readExecution(location: ExecutionLocation, read: ExecutionRead): Promise<ReadAnswer> {
   const pointer = { worktreePath: location.worktreePath };
   switch (read.kind) {
@@ -62,7 +58,7 @@ export async function readExecution(location: ExecutionLocation, read: Execution
         }
         return ok(await readWorkspaceFile(handle, read.path));
       } catch (err) {
-        if (err instanceof FileReadError) return fileError(err);
+        if (err instanceof FileReadError) return fileErrorAnswer(err)!;
         throw err;
       }
     }

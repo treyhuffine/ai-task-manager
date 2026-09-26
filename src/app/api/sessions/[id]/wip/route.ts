@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { readOnOwner } from '@/lib/executor/remote-reads';
+import { readOnOwner, writeOnOwner } from '@/lib/executor/owner-files';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { withCompression } from '@/lib/api/compression';
 import {
@@ -77,6 +77,10 @@ export async function POST(
         { status: 400 },
       );
     }
+
+    // Elsewhere, the agent's folder and the worktree are both on that computer.
+    const owner = await writeOnOwner(id, { kind: 'bring_wip', action: body.action });
+    if (owner) return owner;
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });

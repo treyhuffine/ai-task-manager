@@ -3,6 +3,7 @@ import {
   createWorkspaceDir,
   deleteWorkspacePath,
 } from '@/lib/workspaces/write-file';
+import { writeOnOwner } from '@/lib/executor/owner-files';
 import { openSessionWorktree, mapFileError } from '../_helpers';
 
 /**
@@ -24,6 +25,9 @@ export async function POST(
       return Response.json({ error: 'Body must be { path: string }' }, { status: 400 });
     }
 
+    const owner = await writeOnOwner(id, { kind: 'create_dir', path: body.path });
+    if (owner) return owner;
+
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
 
@@ -44,6 +48,9 @@ export async function DELETE(
     if (!relPath) {
       return Response.json({ error: 'Missing path parameter' }, { status: 400 });
     }
+
+    const owner = await writeOnOwner(id, { kind: 'delete', path: relPath });
+    if (owner) return owner;
 
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
