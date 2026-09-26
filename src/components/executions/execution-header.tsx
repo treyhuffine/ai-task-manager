@@ -10,7 +10,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
-import { useDeliveries, useUpdateSession } from '@/hooks/use-execution';
+import { useDeliveries, useLastTurnEndedAt, useUpdateSession } from '@/hooks/use-execution';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
 import { useOpener } from '@/hooks/use-opener';
 import { sessionFolder } from '@/lib/folders/source';
@@ -25,6 +25,7 @@ import { TakeoverButton } from './takeover/takeover-button';
 import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
+import { useSteadyRunning } from './steady-running';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
@@ -159,6 +160,7 @@ export function ExecutionHeader({
     setDraft(displayLabel ?? '');
   };
 
+  const lastTurnEndedAt = useLastTurnEndedAt(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
   const isArchived = session.status === 'archived';
   const isSetupFailed = !!session.setupError;
@@ -187,14 +189,17 @@ export function ExecutionHeader({
       }
     : null;
 
+  // Whichever knows first that a turn ended: the session, or its transcript here.
+  const lastOutcomeEventAt = [session.lastOutcomeEventAt, lastTurnEndedAt].filter(Boolean).sort().at(-1) ?? null;
+  const steadyRunning = useSteadyRunning(isRunning, lastOutcomeEventAt);
   const statusKind = deriveExecutionHeaderStatus({
     isArchived,
     isSetupFailed,
     isSettingUp,
     isPending,
-    isRunning,
+    isRunning: steadyRunning,
     hasBackgroundTasks,
-    lastOutcomeEventAt: session.lastOutcomeEventAt,
+    lastOutcomeEventAt,
     lastViewedAt: session.lastViewedAt,
     elsewhere,
   });
@@ -202,7 +207,7 @@ export function ExecutionHeader({
   // border, no hover, so it never reads as a button.
   const chatStatus = describeChatStatus(
     statusKind,
-    session.lastOutcomeEventAt,
+    lastOutcomeEventAt,
     formatCompactRelative,
     remote ? { name: remote.name, lastSeenAt: computer?.lastSeenAt ?? null } : null,
   );

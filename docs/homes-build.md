@@ -916,7 +916,7 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [x] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
 - [x] 3.5e An agent that lives on another computer: its header shows its folder there, and its Files and Terminal open on that computer (found in P3.4's live check).
 - [x] 3.6 Deck: one scheduler and daily generation at the home (tests).
-- [ ] 3.7 The whole flow at phone and laptop widths: keyboard, voice, pending-input controls.
+- [x] 3.7 The whole flow at phone and laptop widths: keyboard, voice, pending-input controls.
 
 ### P4
 
@@ -994,6 +994,25 @@ Spec §7: the home schedules, and an agent's main chat has a fixed computer.
 - `dispatch-placement.test.ts` (5): a cron and an `at` fire start at home with the laptop saved as the default, and send nothing to it. An agent set up only on the laptop fails with the reason and starts nothing anywhere. An agent from before setups still runs. A fire into an execution on the away laptop waits there, shows waiting, stays running, and starts nothing at home. Five such waits leave all four leases free (fails without the fix). `main-chat-placement.test.ts` (7): home when set up there even with the laptop saved, the app's chat and a pre-setup agent at home, the saved default, the first set up, kept across a default change with New chat applying the rule again, a message waiting for the away laptop, and `homeCantRun`. `portable.test.ts` (2), `runner.test.ts` (+1 overdue). Full suite: 2,649 passed.
 - Live on the dev home: an agent "Sweeps" created at home, detached there and attached on the stand-in. Its new main chat was pinned to the stand-in and its header read "on MacBook (stand-in) · not connected". Run now on its daily trigger recorded a failed run with the reason, shown on the trigger's page, and created no execution. On the Mac Mini, which has no battery, no awake note shows. With the home's entry answered as a laptop, the list, the modal and the trigger's page showed "Schedules run when Mac Mini is awake." and "Runs when Mac Mini is awake.".
 - Found while checking: the agent's header, Files and Terminal use its folder at home, which an agent that lives on the laptop doesn't have. That goes with P3.5, which routes them to the agent's computer.
+
+## P3.7 The whole flow at phone and laptop widths
+
+Exercised live on the dev home, on an execution on the stand-in in Ask mode, with a laptop-width page (1440) and a phone-width page (390, touch) open on it at once:
+
+- **Keyboard.** On the laptop, typed into the composer and pressed Enter. The agent asked to run a Bash command.
+- **A permission, on the phone.** The phone showed "Permission requested · Bash" with the command, Deny and Allow. Allow ran it on the stand-in: the file it created is in the stand-in's worktree.
+- **A structured question, on the phone.** The phone showed the question with its options and Other. Choosing Blue and Submit answered it, and the agent replied with the answer.
+- **Typing and Send on the phone.** A message typed on the phone and sent with the Send button got its reply.
+- **Voice at both widths.** With Chromium's fake microphone and only the speech model stood in for, Voice input recorded (about 32 KB of audio each time), showed Stop recording, sent the audio for transcription, and the text went out as a message from the laptop and from the phone (voice sends on its own by default). Speech-to-text itself isn't available on the dev home: Parakeet runs in Docker, which isn't running on this Mac, and Groq isn't configured. It's the one part not exercised end to end here.
+
+### Found and fixed
+
+- **"Not started" in the middle of a turn.** A message sent while a turn waited on its permission prompt is folded into that turn by Claude. Right after the answer, for about 0.4 seconds, nothing counted as running while the harness went on: each message counts as in flight until its result settles, and the harness's own turn boundaries cover the rest, and at that fold both lapse together. With nothing pending either and no outcome yet, the header said "Not started". The header now holds a drop in running that brings no outcome for up to 1.5 seconds (`useSteadyRunning`), and a real end (an outcome, or running again) ends the hold at once. It also takes the latest turn's end from the transcript already on the page when the session record hasn't caught up (`useLastTurnEndedAt`, sharing the transcript's own query). Reproduced before and after on the phone, sampling the header every 300 ms: "Needs input", "Not started", "Working" became "Needs input", "Working". The flag itself is the runner's, shared by the home and workers, and the rail can still move the chat between buckets in that gap. That's recorded, not changed.
+- **P3.3's phone tab fix** was found here too: a link to an execution opened the main chat on the phone.
+
+### Tests
+
+- `steady-running.test.ts` (2): a drop with no outcome is held, and a real end, a new outcome, or a chat that wasn't running is not. Full suite: 2,702 passed.
 
 ## P3.6 One deck authority
 

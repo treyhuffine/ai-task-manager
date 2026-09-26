@@ -164,8 +164,17 @@ export function useSession(id: string | null) {
 
 export function useSessionEvents(id: string | null) {
   const qc = useQueryClient();
+  return useQuery(sessionEventsQuery(qc, id));
+}
+
+/**
+ * The transcript's query: key, fetch and merge. Shared by every observer of
+ * the transcript's cache, so whichever one a refetch runs through, it
+ * merges the same way.
+ */
+function sessionEventsQuery(qc: ReturnType<typeof useQueryClient>, id: string | null) {
   const queryKey = ['session', id, 'events'] as const;
-  return useQuery({
+  return {
     queryKey,
     queryFn: async () => {
       // Snapshot fetches only the most-recent page; older history is
@@ -188,7 +197,28 @@ export function useSessionEvents(id: string | null) {
     // No polling — `useSessionStream` pushes new rows into this same
     // cache as they're written. Snapshot still fires on mount + window
     // focus as a fallback if the stream is unavailable.
+  };
+}
+
+/**
+ * When the chat's latest turn ended, from the transcript on this page: its
+ * newest `result` event. The session record learns the same thing a moment
+ * later, so between two turns (a message queued while one ran) the header
+ * would otherwise think the chat never had one and say "Not started" (P3.7).
+ * Observes the transcript's own query, so it fetches nothing more, and
+ * re-renders only when that time changes.
+ */
+export function useLastTurnEndedAt(id: string | null): string | null {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    ...sessionEventsQuery(qc, id),
+    select: (events: ChatEventDTO[]) => {
+      let latest: string | null = null;
+      for (const e of events) if (e.source === 'result' && (!latest || e.createdAt > latest)) latest = e.createdAt;
+      return latest;
+    },
   });
+  return data ?? null;
 }
 
 /** Sentinel tracking whether the start of history has been reached. */
