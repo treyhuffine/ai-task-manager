@@ -12,7 +12,8 @@ import {
   GitMerge,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useSessionFile, useResolveFileConflict } from '@/hooks/use-execution';
+import { useFolderFile, useResolveFileConflict } from '@/hooks/use-folder';
+import type { FolderSource } from '@/lib/folders/source';
 import { FileSkeleton } from '../skeletons';
 import {
   parseConflicts,
@@ -24,7 +25,8 @@ import {
 import { cn } from '@/lib/utils';
 
 interface ConflictViewProps {
-  sessionId: string;
+  /** An execution's worktree, or an agent's own folder after a merge in the checkout. */
+  source: FolderSource;
   path: string;
 }
 
@@ -40,9 +42,9 @@ interface ConflictViewProps {
  * merged in. Resolutions are held locally until the user commits them
  * with the toolbar's Resolve button — nothing is written per-click.
  */
-export function ConflictView({ sessionId, path }: ConflictViewProps) {
-  const fileQuery = useSessionFile(sessionId, path);
-  const resolve = useResolveFileConflict(sessionId);
+export function ConflictView({ source, path }: ConflictViewProps) {
+  const fileQuery = useFolderFile(source, path);
+  const resolve = useResolveFileConflict(source);
 
   const content = fileQuery.data?.content ?? null;
   const parsed = useMemo(

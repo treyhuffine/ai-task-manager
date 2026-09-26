@@ -8,8 +8,13 @@
  * branch at HEAD as the base, so status flags mean uncommitted changes
  * (`openFolderHandle`). Non-git folders open as bare handles. A checkout on
  * a detached HEAD cannot be opened as a handle, so it gets a plain listing
- * without flags and direct reads. Read-only in this spec: nothing here
- * writes.
+ * without flags and direct reads.
+ *
+ * Writes (the Files tab's editor and tree) go straight to the folder by
+ * path, so they work for git, plain and detached-HEAD folders alike. They
+ * are for the person using the app. The agent's main chat still never
+ * writes here (docs/agents-view-spec.md Phase 6): its changes go through
+ * executions.
  */
 
 import type { Workspace } from '@agentex/workspace';
@@ -21,6 +26,7 @@ import { listTree } from '@/lib/workspaces/list-tree';
 import { readBaseFile, readWorkspaceFile } from '@/lib/workspaces/read-file';
 import { listReferenceTree } from '@/lib/reference-folders/tree';
 import { isExistingDir } from '@/lib/terminal/owner';
+import type { FolderRef } from '@/lib/workspaces/write-file';
 
 export interface AgentFolder {
   ws: WorkspaceRecord;
@@ -56,4 +62,28 @@ export async function readFolderFile({ ws, handle }: AgentFolder, relPath: strin
     return Response.json({ path: relPath, content, encoding: 'utf8', mime: 'text/plain', size: content.length, isBinary: false });
   }
   return Response.json(await readWorkspaceFile({ path: ws.cwd }, relPath));
+}
+
+export type WritableFolderResolution = { ok: true; folder: FolderRef } | { ok: false; response: Response };
+
+/**
+ * The agent's folder, ready to write. An archived agent is read-only, the
+ * same as its terminal and main chat (409), and a folder that's gone can't
+ * take a write (409).
+ */
+export function openWritableWorkspaceFolder(id: string): WritableFolderResolution {
+  const ws = getWorkspace(id);
+  if (!ws) {
+    return { ok: false, response: Response.json({ error: 'Workspace not found' }, { status: 404 }) };
+  }
+  if (ws.status === 'archived') {
+    return { ok: false, response: Response.json({ error: 'This agent is archived, so its files are read-only' }, { status: 409 }) };
+  }
+  if (!isExistingDir(ws.cwd)) {
+    return {
+      ok: false,
+      response: Response.json({ error: `The agent's folder does not exist: ${ws.cwd}` }, { status: 409 }),
+    };
+  }
+  return { ok: true, folder: { path: ws.cwd, kind: ws.isGit ? 'git' : 'bare' } };
 }

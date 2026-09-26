@@ -6,16 +6,16 @@ import { Plus, FilePlus, FolderPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
 import { copyText } from '@/lib/clipboard';
-import { useFolderTree } from '@/hooks/use-folder';
-import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
 import {
-  useCreateFile,
   useCreateDir,
-  useDeletePath,
+  useCreateFile,
   useDeleteDir,
+  useDeletePath,
+  useFolderTree,
   useRenamePath,
-  WRITE_FILE_MUTATION_KEY,
-} from '@/hooks/use-execution';
+  writeFileMutationKey,
+} from '@/hooks/use-folder';
+import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -163,8 +163,6 @@ export function FileTree({
   searchShortcut,
 }: FileTreeProps) {
   const writable = folderIsWritable(source);
-  // Mutations address a session. A read-only folder never calls them.
-  const sessionId = source.kind === 'session' ? source.sessionId : '';
   const { data: tree, isFetching } = useFolderTree(source);
   const entries = useMemo(() => tree?.entries ?? [], [tree?.entries]);
 
@@ -293,17 +291,17 @@ export function FileTree({
 
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
-  const createFile = useCreateFile(sessionId);
-  const createDir = useCreateDir(sessionId);
-  const deleteFile = useDeletePath(sessionId);
-  const deleteDir = useDeleteDir(sessionId);
-  const renamePath = useRenamePath(sessionId);
+  const createFile = useCreateFile(source);
+  const createDir = useCreateDir(source);
+  const deleteFile = useDeletePath(source);
+  const deleteDir = useDeleteDir(source);
+  const renamePath = useRenamePath(source);
 
   // Subscribe to in-flight write-file mutations so we can show a
   // per-row spinner while a file is being saved (autosave-on-blur fires
   // these from the file viewer).
   const savingPathList = useMutationState({
-    filters: { mutationKey: WRITE_FILE_MUTATION_KEY(sessionId), status: 'pending' },
+    filters: { mutationKey: writeFileMutationKey(source), status: 'pending' },
     select: (mutation) =>
       (mutation.state.variables as { path?: string } | undefined)?.path ?? null,
   });

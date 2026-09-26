@@ -516,64 +516,6 @@ export const sessionsApi = {
     );
   },
 
-  writeFile(id: string, path: string, content: string): Promise<{ ok: true; path: string; size: number }> {
-    return api.put<{ ok: true; path: string; size: number }>(
-      `/sessions/${id}/file`,
-      { content },
-      { query: { path } },
-    );
-  },
-
-  /** Write conflict-resolved content AND stage it (`git add`) so git
-   *  records the merge conflict as resolved. `content` must have no
-   *  remaining conflict markers. */
-  resolveFileConflict(
-    id: string,
-    path: string,
-    content: string,
-  ): Promise<{ ok: true; path: string; size: number }> {
-    return api.post<{ ok: true; path: string; size: number }>(
-      `/sessions/${id}/file/resolve-conflict`,
-      { path, content },
-    );
-  },
-
-  deleteFile(id: string, path: string): Promise<{ ok: true; path: string; kind: 'file' | 'dir' }> {
-    return api.delete<{ ok: true; path: string; kind: 'file' | 'dir' }>(
-      `/sessions/${id}/file`,
-      { query: { path } },
-    );
-  },
-
-  createFile(id: string, path: string): Promise<{ ok: true; path: string }> {
-    return api.post<{ ok: true; path: string }>(
-      `/sessions/${id}/file/create`,
-      { path },
-    );
-  },
-
-  renamePath(
-    id: string,
-    from: string,
-    to: string,
-  ): Promise<{ ok: true; from: string; to: string; kind: 'file' | 'dir' }> {
-    return api.post<{ ok: true; from: string; to: string; kind: 'file' | 'dir' }>(
-      `/sessions/${id}/file/rename`,
-      { from, to },
-    );
-  },
-
-  createDir(id: string, path: string): Promise<{ ok: true; path: string }> {
-    return api.post<{ ok: true; path: string }>(`/sessions/${id}/dir`, { path });
-  },
-
-  deleteDir(id: string, path: string): Promise<{ ok: true; path: string; kind: 'file' | 'dir' }> {
-    return api.delete<{ ok: true; path: string; kind: 'file' | 'dir' }>(
-      `/sessions/${id}/dir`,
-      { query: { path } },
-    );
-  },
-
   pr(id: string): Promise<PrResponse> {
     return api.get<PrResponse>(`/sessions/${id}/pr`);
   },

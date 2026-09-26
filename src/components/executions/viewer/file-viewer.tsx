@@ -17,8 +17,7 @@ import {
   Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useWriteFile } from '@/hooks/use-execution';
-import { useFolderRoot, useFolderTree } from '@/hooks/use-folder';
+import { useFolderRoot, useFolderTree, useWriteFile } from '@/hooks/use-folder';
 import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
@@ -42,7 +41,7 @@ import { ConflictView } from './conflict-view';
 import { MarkdownView } from './markdown-view';
 
 interface FileViewerProps {
-  /** The folder being viewed. An agent's own folder is read-only. */
+  /** The folder being viewed: an execution's worktree or an agent's own folder. */
   source: FolderSource;
   selectedPath: string | null;
   /** Dismiss the open file — viewer returns to the "No file open" state. */
@@ -135,8 +134,8 @@ export function FileViewer({
   const fileViewRef = useRef<FileViewHandle | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  // Only a writable (session) folder ever calls it. The hook still has to run.
-  const writeFile = useWriteFile(source.kind === 'session' ? source.sessionId : '');
+  // A read-only folder (an archived agent's) never calls it.
+  const writeFile = useWriteFile(source);
 
   // Snapshot path at call time. With autosave-on-blur the user can
   // navigate to a different file mid-flight; stamping the buffer clean
@@ -186,7 +185,7 @@ export function FileViewer({
     // sprouting a CTA. No faux header strip here: this resolves to the
     // headerless CTA, and a bar that appears then vanishes is the jump
     // the skeleton exists to prevent.
-    return treeLoading ? <FileSkeleton /> : <NoFileOpen writable={writable} />;
+    return treeLoading ? <FileSkeleton /> : <NoFileOpen kind={source.kind} writable={writable} />;
   }
 
   // Fall back to Current when the selected mode doesn't apply to this
@@ -225,7 +224,7 @@ export function FileViewer({
       />
       <div className="flex-1 min-h-0 overflow-hidden">
         {effectiveMode === 'conflict' && isConflict ? (
-          <ConflictView sessionId={source.kind === 'session' ? source.sessionId : ''} path={selectedPath} />
+          <ConflictView source={source} path={selectedPath} />
         ) : effectiveMode === 'diff' && entry?.status ? (
           <DiffView source={source} path={selectedPath} status={entry.status} />
         ) : effectiveMode === 'render' ? (
@@ -566,8 +565,9 @@ function RevealButton({ root, path }: RevealButtonProps) {
  * load", which is why it points at the two tree affordances (the
  * All / Changes toggle and search) instead of just saying "empty".
  */
-/** `writable` is false for an agent's own folder, which is read-only here. */
-function NoFileOpen({ writable }: { writable: boolean }) {
+/** `kind` picks the wording (a worktree the agent works in, or the agent's
+ *  own folder), `writable` whether editing is on offer. */
+function NoFileOpen({ kind, writable }: { kind: FolderSource['kind']; writable: boolean }) {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
       <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-muted/40">
@@ -586,12 +586,12 @@ function NoFileOpen({ writable }: { writable: boolean }) {
           <GitCompareArrows size={11} className="shrink-0" />
           <span>
             <span className="text-muted-foreground/85">Changes</span> narrows the tree to
-            {writable ? ' what the agent touched' : ' what is not committed yet'}
+            {kind === 'session' ? ' what the agent touched' : ' what is not committed yet'}
           </span>
         </span>
         <span className="flex items-center gap-1.5">
           <Search size={11} className="shrink-0" />
-          <span>Search the tree to jump anywhere in the {writable ? 'worktree' : 'folder'}</span>
+          <span>Search the tree to jump anywhere in the {kind === 'session' ? 'worktree' : 'folder'}</span>
         </span>
       </div>
     </div>

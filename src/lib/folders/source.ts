@@ -9,11 +9,16 @@
  */
 export type FolderSource =
   | { kind: 'session'; sessionId: string }
-  | { kind: 'workspace'; workspaceId: string };
+  /** `readOnly` for an archived agent, whose routes refuse writes (409). */
+  | { kind: 'workspace'; workspaceId: string; readOnly?: boolean };
 
 export const sessionFolder = (sessionId: string): FolderSource => ({ kind: 'session', sessionId });
 
-export const workspaceFolder = (workspaceId: string): FolderSource => ({ kind: 'workspace', workspaceId });
+export const workspaceFolder = (workspaceId: string, opts: { readOnly?: boolean } = {}): FolderSource => ({
+  kind: 'workspace',
+  workspaceId,
+  ...(opts.readOnly ? { readOnly: true } : {}),
+});
 
 /** Route prefix under `/api` for the source's folder routes. */
 export function folderApiBase(source: FolderSource): string {
@@ -22,11 +27,12 @@ export function folderApiBase(source: FolderSource): string {
 
 /**
  * Whether files can be created, edited, renamed or deleted from the app.
- * An agent's own folder is read-only here: a git agent's checkout changes
- * through executions, and editing from the agent view is out of scope.
+ * Both an execution's worktree and an agent's own folder can, except an
+ * archived agent's. Edits here are the person's: the agent's main chat
+ * still never writes to its folder (docs/agents-view-spec.md Phase 6).
  */
 export function folderIsWritable(source: FolderSource): boolean {
-  return source.kind === 'session';
+  return source.kind === 'session' || !source.readOnly;
 }
 
 /** Stable id for per-folder client state (expanded dirs, view mode). */
