@@ -7,9 +7,11 @@
 
 import { getHome, listComputers, listEnrolledComputerIds } from '@/lib/db/queries';
 import { isComputerConnected } from '@/lib/workers/hub';
+import { hostIsPortable } from '@/lib/home/portable';
 
 export async function GET() {
   const hostId = getHome()?.hostComputerId ?? null;
+  const portable = await hostIsPortable();
   const enrolled = listEnrolledComputerIds();
   const computers = listComputers().map((c) => ({
     id: c.id,
@@ -18,6 +20,8 @@ export async function GET() {
     hostname: c.hostname,
     status: c.status,
     isHome: c.id === hostId,
+    // The home on a laptop: its schedules run only while it's awake (P3.4).
+    portable: c.id === hostId ? portable : undefined,
     lastSeenAt: c.lastSeenAt,
     worker:
       c.id === hostId

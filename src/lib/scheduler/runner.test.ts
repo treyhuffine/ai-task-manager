@@ -113,4 +113,27 @@ describe('runTick — at-most-once for one-off triggers', () => {
     // nextRunAt should now be in the future.
     expect(new Date(triggers[0]!.nextRunAt!).getTime()).toBeGreaterThan(Date.now() - 1000);
   });
+
+  it('fires an overdue trigger once, not once per missed interval, when the home next ticks (P3.4)', async () => {
+    await seed();
+    const queries = await import('@/lib/db/queries');
+    const { runTick } = await import('./runner');
+
+    // Ten intervals missed while the home was asleep.
+    const trigger = queries.createTrigger({
+      name: 'every minute',
+      targetKind: 'orchestrator',
+      harness: 'claude',
+      prompt: 'X',
+      kind: 'every',
+      intervalSeconds: 60,
+      nextRunAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+    });
+
+    await runTick(new Date());
+    await runTick(new Date());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(queries.listRuns({}).filter((r) => r.triggerId === trigger.id)).toHaveLength(1);
+    expect(new Date(queries.getTrigger(trigger.id)!.nextRunAt!).getTime()).toBeGreaterThan(Date.now());
+  });
 });

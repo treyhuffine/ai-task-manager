@@ -51,6 +51,7 @@ import { runArtifactBucket } from './artifact-bucket';
 import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
+import { homeCantRun } from '@/lib/setups/run-on';
 
 export interface DispatchRunArgs {
   trigger: TriggerRecord;
@@ -101,7 +102,33 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
 
   // 1. Resolve the target execution (or null for orchestrator triggers)
   //    + the chat session this run will speak through.
-  const resolved = resolveTarget(trigger);
+  let resolved: ReturnType<typeof resolveTarget>;
+  try {
+    resolved = resolveTarget(trigger);
+  } catch (err) {
+    if (!(err instanceof NotRunnableHere)) throw err;
+    // New work starts on the home and nowhere else (spec §7): an agent
+    // with no folder here fails this fire, saying why, rather than run in
+    // the wrong place or start a second execution elsewhere.
+    const now = new Date().toISOString();
+    const failed = createRun({
+      triggerId: trigger.id,
+      workspaceId: trigger.workspaceId ?? null,
+      executionId: null,
+      chatSessionId: null,
+      harness: trigger.harness,
+      triggerKind,
+      triggerPayload,
+      scheduledFor,
+      status: 'failed',
+      errorCode: 'not_set_up_here',
+      errorMessage: err.message,
+      queuedAt: now,
+      completedAt: now,
+    });
+    setTriggerLastRun(trigger.id, failed.id, 'failed');
+    return { run: failed, chatSession: null };
+  }
 
   // 2. Concurrency gate per docs/executions-spec.md §5. Defer the new
   //    fire per the *firing* trigger's `concurrencyPolicy`, regardless
@@ -226,6 +253,15 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
  * provisioning happens inside `runUnderLease` (awaited so the agent
  * lands in the correct cwd, not the bare workspace).
  */
+/** New work for an agent the home can't run: see `homeCantRun`. */
+class NotRunnableHere extends Error {}
+
+/** Refuse a new execution the home can't run, before creating anything. */
+function assertHomeCanRun(workspaceId: string): void {
+  const problem = homeCantRun(workspaceId);
+  if (problem) throw new NotRunnableHere(problem);
+}
+
 function resolveTarget(trigger: TriggerRecord): {
   execution: ExecutionRecord | null;
   /** Pre-existing reusable chat — set only when we explicitly want to
@@ -245,6 +281,7 @@ function resolveTarget(trigger: TriggerRecord): {
     if (!trigger.workspaceId) {
       throw new Error(`Trigger ${trigger.id} targets workspace but has no workspace_id`);
     }
+    assertHomeCanRun(trigger.workspaceId);
     const ws = getWorkspace(trigger.workspaceId);
     const { execution, session } = createExecutionWithChat({
       workspaceId: trigger.workspaceId,
@@ -268,6 +305,7 @@ function resolveTarget(trigger: TriggerRecord): {
     if (existing && existing.status === 'active') execution = existing;
   }
   if (!execution) {
+    assertHomeCanRun(trigger.workspaceId);
     const ws = getWorkspace(trigger.workspaceId);
     const created = createExecutionWithChat({
       workspaceId: trigger.workspaceId,
@@ -455,7 +493,7 @@ async function runUnderLease(
       bumpSessionOutcome(chatSessionId);
       return;
     }
-    await withApiLease(async () => {
+    const send = async () => {
       const prompt = promptForTrigger(trigger, triggerPayload);
       // Persist a user chat_event mirroring the route layer's pattern
       // for normal sends. Without this, scheduled chats show only the
@@ -463,23 +501,32 @@ async function runUnderLease(
       // run history becomes ambiguous if the trigger's prompt later
       // changes. The agent's stream output still arrives via the
       // adapter's onEvent callback unchanged.
+      let sourceEventId: string | null = null;
       try {
-        insertChatEvent({
+        sourceEventId = insertChatEvent({
           sessionId: chatSessionId,
           role: 'user',
           source: 'user',
           content: prompt,
           createdAt: new Date().toISOString(),
-        });
+        })?.id ?? null;
       } catch (err) {
         console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
       }
       await runArtifactBucket.runWith(runId, chatSessionId, () =>
         runWithTimeout(chatSessionId, trigger, () =>
-          executorDispatch(chatSessionId, prompt, { internalCall: true, runId }),
+          // The prompt's event carries its delivery when the execution runs
+          // on another computer, so the chat shows it waiting (P3.2).
+          executorDispatch(chatSessionId, prompt, { internalCall: true, runId, sourceEventId }),
         ),
       );
-    });
+    };
+    // The lease caps provider sessions on this computer. An execution on
+    // another computer runs on that computer's harness, and can wait there
+    // for hours while it sleeps: holding a lease for that would starve the
+    // home's own scheduled work (P3.4).
+    if (runsElsewhere(execution)) await send();
+    else await withApiLease(send);
     finalizeRunSuccessIfPending(runId);
   } catch (err) {
     finalizeRunFailure(runId, err);
@@ -488,6 +535,13 @@ async function runUnderLease(
   // every assistant message — but a failure before any assistant turn
   // would leave the inbox quiet. Touch it so failed runs surface.
   bumpSessionOutcome(chatSessionId);
+}
+
+/** Whether an execution is placed on a computer other than the home. */
+function runsElsewhere(execution: ExecutionRecord | null): boolean {
+  if (!execution) return false;
+  const placement = placementOf(execution.id);
+  return !!placement?.placementId && placement.computerId !== getHome()?.hostComputerId;
 }
 
 /**
@@ -508,8 +562,7 @@ export async function ensureWorktreeReady(
   // here instead (P2.4). Nothing to wait for either: a send queued now runs
   // there after the prepare, since that computer carries out an execution's
   // commands in order. A preparation that failed is the one thing to say.
-  const placement = placementOf(execution.id);
-  if (placement && placement.placementId && placement.computerId !== getHome()?.hostComputerId) {
+  if (runsElsewhere(execution)) {
     return execution.setupError ? { ok: false, error: execution.setupError } : { ok: true };
   }
   const ws = getWorkspace(execution.workspaceId);

@@ -27,6 +27,7 @@ import { describeHeartbeat } from '@/lib/heartbeat/status';
 import type { HeartbeatConfig } from '@/lib/heartbeat/types';
 import { cn } from '@/lib/utils';
 import { APP_NAME } from '@/constants/app';
+import { AwakeNote } from '@/components/triggers/awake-note';
 
 function browserTimezone(): string {
   try {
@@ -123,6 +124,7 @@ function HeartbeatSettingsBody({
           <div className="min-w-0">
             <p className="text-sm font-medium text-foreground">Check in regularly</p>
             <p className="text-[11px] text-muted-foreground/85">{status.detail}</p>
+            {config.enabled && <AwakeNote lead="Checks in" />}
           </div>
           <Switch
             checked={config.enabled}

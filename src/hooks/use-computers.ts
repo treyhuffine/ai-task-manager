@@ -7,6 +7,8 @@ export interface HomeComputer {
   name: string;
   status: 'active' | 'revoked';
   isHome: boolean;
+  /** Set on the home's own computer: whether it's a laptop, so schedules run only while it's awake. */
+  portable?: boolean;
   /** When it was last heard from. */
   lastSeenAt: string | null;
   worker: {
@@ -40,4 +42,14 @@ export function useComputer(id: string | null | undefined): HomeComputer | null 
 export function useRunsOnSeveralComputers(): boolean {
   const { data } = useComputers();
   return (data ?? []).filter((c) => c.status === 'active' && (c.isHome || c.worker?.enrolled)).length > 1;
+}
+
+/**
+ * The home's computer when it's a laptop, else null. Schedules run on the
+ * home, so on a laptop they run only while it's awake, and the schedule
+ * screens say so (P3.4, spec §7).
+ */
+export function useLaptopHome(): HomeComputer | null {
+  const { data } = useComputers();
+  return data?.find((c) => c.isHome && c.portable) ?? null;
 }

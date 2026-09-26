@@ -3,7 +3,8 @@
 import { Loader2, Plus } from 'lucide-react';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
-import { useNewMainChat } from '@/hooks/use-main-chat';
+import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
+import { useComputer } from '@/hooks/use-computers';
 import type { WorkspaceRecord } from '@/db/types';
 
 /**
@@ -15,11 +16,27 @@ import type { WorkspaceRecord } from '@/db/types';
 export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
   const newChat = useNewMainChat(workspace.id);
   const archived = workspace.status === 'archived';
+  // Pinned to the computer the agent lives on when that isn't the home
+  // (P3.4). Its history stays here while that computer is away, and a
+  // message waits for it.
+  const { data: current } = useMainChat(workspace.id);
+  const computer = useComputer(current?.session.computerId);
+  const elsewhere = computer && !computer.isHome ? computer : null;
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-1 border-b border-border/50">
-        <span className="text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">Main chat</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">Main chat</span>
+          {elsewhere && (
+            <span
+              className="truncate text-[10px] text-muted-foreground/70"
+              title={elsewhere.worker?.connected ? `Runs on ${elsewhere.name}` : `Runs on ${elsewhere.name}, which isn't connected. Messages wait for it.`}
+            >
+              on {elsewhere.name}{elsewhere.worker?.connected ? '' : ' · not connected'}
+            </span>
+          )}
+        </span>
         <div className="flex items-center gap-1.5">
           <MainChatHistoryMenu scope={workspace.id} />
           {!archived && (

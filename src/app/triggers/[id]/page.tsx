@@ -39,6 +39,7 @@ import { RunActivityBadge } from '@/components/runs/run-activity-badge';
 import { isReservedTrigger, lockedFieldsFor, RESERVED_TRIGGER_IDS, type ReservedLockableField } from '@/lib/triggers/reserved';
 import { openSettings } from '@/components/settings/settings-store';
 import { TriggerRunsOn } from '@/components/triggers/trigger-runs-on';
+import { AwakeNote } from '@/components/triggers/awake-note';
 
 export default function TriggerDetailPage() {
   const params = useParams<{ id: string }>();
@@ -98,6 +99,7 @@ export default function TriggerDetailPage() {
             })}
             {trigger.enabled ? '' : ' · paused'}
           </p>
+          {trigger.kind !== 'manual' && <AwakeNote />}
         </div>
       </header>
 

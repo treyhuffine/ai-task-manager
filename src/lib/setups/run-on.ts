@@ -133,6 +133,37 @@ export function runOnFor(workspaceId: string): RunOn | null {
 }
 
 /**
+ * Why the home can't start new work for an agent, or null when it can (spec
+ * §7, P3.4). Scheduled work always starts on the home, the one scheduler: an
+ * agent set up only on other computers has no folder here to run it in, and
+ * the fire isn't sent to another computer instead. An agent from before
+ * setups runs in its folder here, and an imperfect setup here still runs.
+ */
+export function homeCantRun(workspaceId: string): string | null {
+  const ws = getWorkspace(workspaceId);
+  const host = getHome()?.hostComputerId ?? null;
+  if (!ws || !host) return null;
+  const setups = listAgentSetups({ workspaceId });
+  if (setups.length === 0 || setups.some((s) => s.computerId === host)) return null;
+  const name = getComputer(host)?.name ?? 'this home';
+  return `${ws.name} isn't set up on ${name}, where scheduled work runs. Attach its folder there to run this.`;
+}
+
+/**
+ * The computer an agent's new main chat is pinned to (spec §7, P3.4): the
+ * home when the agent is set up there, or has no setup anywhere yet, and
+ * otherwise its default computer. Null means the home. The chat keeps it:
+ * it's never cloned or moved, and its history stays readable while that
+ * computer is away. A new chat applies the rule again.
+ */
+export function mainChatComputerFor(workspaceId: string): string | null {
+  const runOn = runOnFor(workspaceId);
+  if (!runOn || runOn.choices.some((c) => c.isHome)) return null;
+  const host = getHome()?.hostComputerId ?? null;
+  return runOn.defaultId && runOn.defaultId !== host ? runOn.defaultId : null;
+}
+
+/**
  * Save or clear an agent's default computer ("Make this the default"). Only
  * a computer the agent can be pointed at: one it's set up on, or the home.
  */

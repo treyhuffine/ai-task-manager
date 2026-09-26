@@ -909,11 +909,12 @@ The dashboard mounts its phone, tablet and desktop layouts at once and hides two
 - [x] 3.2c Cancel before delivery, refused once it's on its way (stop the execution instead). Send again for a message not delivered or uncertain, as a new message.
 - [x] 3.2d Home unreachable keeps the draft (P1.6, verified). Setup failed on a computer says where, with its output and Retry. A missing folder or reference says which and where (P3.1's reasons).
 - [ ] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner.
-- [ ] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
+- [x] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
 - [ ] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
 - [ ] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
 - [ ] 3.5c Terminals on a worker: create, list, input, output, resize, close through the worker, bounded replay, reconnect, input disabled while disconnected with no replay of unconfirmed keys, never a fallback shell at home. Agent-folder terminals on the agent's computer. Computer and folder shown.
 - [ ] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
+- [ ] 3.5e An agent that lives on another computer: its header shows its folder there, and its Files and Terminal open on that computer (found in P3.4's live check).
 - [ ] 3.6 Deck: one scheduler and daily generation at the home (tests).
 - [ ] 3.7 The whole flow at phone and laptop widths: keyboard, voice, pending-input controls.
 
@@ -949,6 +950,35 @@ Spec §3.5: saving a message at the home is not delivering it, and the states st
 
 - `delivery.test.ts` (4): waiting while the computer is away and not working meanwhile, withdrawn (not delivered, its run failed, its turn settled), refused once on its way, delivered and uncertain. `execution-header-status.test.ts` (+5): waiting, disconnected, asleep only when said, working while connected, and the words. Full suite: 2,634 passed, exit 0.
 - Live on the dev home, screenshotted, with the stand-in's worker off: a message to its execution showed "Waiting for MacBook (stand-in). Your message is saved. Cancel", and the header "Waiting for MacBook (stand-in), your message is saved". Cancel made it "Not delivered to MacBook (stand-in). It was withdrawn before it was delivered." with Send again, the command cancelled and its run failed as `delivery_cancelled`. With the worker started, Send again delivered a new message, which showed nothing under it, and real Claude answered.
+
+## P3.4 One scheduler, fixed main chats
+
+Spec §7: the home schedules, and an agent's main chat has a fixed computer.
+
+### Scheduled work
+
+- **New scheduled work starts on the home.** A fire that creates an execution (`at`, `manual`, and the first fire of `cron` or `every`) creates it with no placement, so it runs at home, whatever the agent's default computer. The scheduler never picks a computer, and there is no second scheduler to pick one.
+- **An agent that lives only elsewhere fails the fire and says why.** It has no folder at home to run in, and the fire isn't sent to another computer instead. `homeCantRun` (`src/lib/setups/run-on.ts`) checks before anything is created: an agent set up only on other computers gets a failed run, `not_set_up_here`, "Sweeps isn't set up on Mac Mini, where scheduled work runs. Attach its folder there to run this." It counts toward the failure banner like any failed run. An agent from before setups still runs in its folder here, and an imperfect setup here still runs, as a start from the launcher does.
+- **A fire into an existing execution goes to that execution's computer.** A recurring trigger's owning execution may run on the laptop, and its prompt waits there while the laptop is away: the run stays running, the message shows "Waiting for MacBook", and the next fire meets the busy execution and is skipped or coalesced by the trigger's own policy. Nothing starts at home in its place.
+- **Two fixes found by the tests.** A scheduled prompt now carries its message's id into dispatch, so a prompt to an execution elsewhere shows its delivery like a typed one. And a run whose execution is elsewhere no longer takes one of the home's four API leases: the lease caps provider sessions on this computer, and a prompt waiting on a sleeping laptop held one for as long as it slept, so four of them would have stopped every scheduled run at home.
+- **Overdue triggers fire once.** When the home next ticks, an overdue trigger is considered once and advanced, not once per missed interval. This was already the scheduler's behavior, and a test now holds it.
+
+### Runs when MacBook is awake
+
+- **Only on a laptop home.** `hostIsPortable` (`src/lib/home/portable.ts`) asks once per process whether the home's computer has a battery: `pmset -g batt` lists an InternalBattery on a Mac, and Linux lists a `BAT` power supply. It can't tell, and says nothing, anywhere else. `GET /api/computers` marks the home's own entry `portable`.
+- **Where schedules are.** The schedules list (the modal and `/triggers`) says "Schedules run when MacBook is awake.", a scheduled trigger's page says "Runs when MacBook is awake." under its cadence (not for manual triggers), and the heartbeat says "Checks in when MacBook is awake." while it's on. Hovering says missed times run once when it wakes. It explains the one scheduler and changes nothing about it.
+
+### An agent's main chat
+
+- **Pinned when it's created** (`mainChatComputerFor`): the home when the agent is set up there (or has no setup anywhere yet), otherwise its saved default, otherwise the first computer it's set up on. The chat's `computer_id` holds it. The app's own main chat is always the home's.
+- **It keeps its computer.** Changing the default doesn't move it, its history stays readable while that computer is away, and a message waits for it rather than running at home. New chat applies the rule again.
+- **Said where it is.** The agent's main chat header reads "on MacBook", with "not connected" while it's away. At home it says nothing new.
+
+### Tests and live checks
+
+- `dispatch-placement.test.ts` (5): a cron and an `at` fire start at home with the laptop saved as the default, and send nothing to it. An agent set up only on the laptop fails with the reason and starts nothing anywhere. An agent from before setups still runs. A fire into an execution on the away laptop waits there, shows waiting, stays running, and starts nothing at home. Five such waits leave all four leases free (fails without the fix). `main-chat-placement.test.ts` (7): home when set up there even with the laptop saved, the app's chat and a pre-setup agent at home, the saved default, the first set up, kept across a default change with New chat applying the rule again, a message waiting for the away laptop, and `homeCantRun`. `portable.test.ts` (2), `runner.test.ts` (+1 overdue). Full suite: 2,649 passed.
+- Live on the dev home: an agent "Sweeps" created at home, detached there and attached on the stand-in. Its new main chat was pinned to the stand-in and its header read "on MacBook (stand-in) · not connected". Run now on its daily trigger recorded a failed run with the reason, shown on the trigger's page, and created no execution. On the Mac Mini, which has no battery, no awake note shows. With the home's entry answered as a laptop, the list, the modal and the trigger's page showed "Schedules run when Mac Mini is awake." and "Runs when Mac Mini is awake.".
+- Found while checking: the agent's header, Files and Terminal use its folder at home, which an agent that lives on the laptop doesn't have. That goes with P3.5, which routes them to the agent's computer.
 
 ## P0.3 Records and the runner boundary
 
