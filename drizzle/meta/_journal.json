@@ -64,6 +64,13 @@
       "when": 1790451845059,
       "tag": "0008_fearless_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790460228669,
+      "tag": "0009_lucky_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

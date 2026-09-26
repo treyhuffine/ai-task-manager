@@ -4,12 +4,12 @@
  * at boot, overlapping messages are charged to their own runs, and a turn's
  * result keeps its own send's generation.
  *
- * The first probe is a P4 acceptance check, skipped until P4: a command the
- * home streamed before a disconnect, for a placement that changed since,
- * must not run when resent. Only P4's transfer changes a placement under a
- * running worker today, and whether such a command becomes stale or
- * uncertain (the worker may have received it) is P4's to decide with the
- * transfer lock (docs/homes-build.md, P2 re-review).
+ * The first probe is a P4 acceptance check: a command the home streamed
+ * before a disconnect, for a placement that changed since, must not run when
+ * resent. The home marks it stale as it streams (`takeCommandsForStream`),
+ * so a worker that never journaled it never sees it. One the worker did
+ * journal is fenced there by generation (docs/homes-build.md, P2 re-review
+ * and P4).
  */
 
 import fs from 'node:fs';
@@ -73,7 +73,7 @@ async function until(check: () => boolean) {
   throw new Error('Timed out');
 }
 
-it.skip('P4 acceptance: does not execute an obsolete command streamed before disconnect but never received', async () => {
+it('P4 acceptance: does not execute an obsolete command streamed before disconnect but never received', async () => {
   const command = q.queueWorkerCommand({ computerId, kind: 'run_script', payload: { script: 'setup', workspaceId: workspace.id, command: 'printf executed > stale-command-ran.txt', worktreePath: home.root, branchName: null }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
   // Streamed, but the connection died before the worker could journal receipt.
   q.takeCommandsForStream(computerId, 0);

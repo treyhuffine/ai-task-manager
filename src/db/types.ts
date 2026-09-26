@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, agentSetups,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -176,6 +176,11 @@ export type WorkerCommandRecord = InferSelectModel<typeof workerCommands>;
 export type WorkerCommandKind = WorkerCommandRecord['kind'];
 export type WorkerCommandState = WorkerCommandRecord['state'];
 export type ExecutionPlacementRecord = InferSelectModel<typeof executionPlacements>;
+export type ExecutionTransferRecord = InferSelectModel<typeof executionTransfers>;
+export type TransferStage = ExecutionTransferRecord['stage'];
+export type TransferState = ExecutionTransferRecord['state'];
+export type NativeSessionRecord = InferSelectModel<typeof nativeSessions>;
+export type ReviewCheckoutRecord = InferSelectModel<typeof reviewCheckouts>;
 export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
 export type AgentSetupStatus = AgentSetupRecord['status'];
 

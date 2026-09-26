@@ -863,6 +863,118 @@ export const executionPlacements = sqliteTable(
   ],
 );
 
+// ─── Transfers ─────────────────────────────────────────────────
+// Continue here (docs/homes-spec.md §8.2, P4.2): moving an execution to
+// another computer. The row is the transfer's record and its lock: one
+// active transfer per execution, and messages sent meanwhile are held on it
+// (`held_event_ids`) and delivered once where the work ends up. Kept after it
+// finishes, whichever way.
+export const TRANSFER_STAGES = ['preparing', 'stopping', 'saving', 'setting_up', 'continuing', 'done'] as const;
+export const TRANSFER_STATES = ['active', 'succeeded', 'failed', 'cancelled'] as const;
+
+export const executionTransfers = sqliteTable(
+  'execution_transfers',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+    fromComputerId: text()
+      .notNull()
+      .references(() => computers.id),
+    toComputerId: text()
+      .notNull()
+      .references(() => computers.id),
+    // The placement it moves from. The destination's is set when ownership
+    // changes, and never before.
+    fromGeneration: integer().notNull(),
+    toGeneration: integer(),
+    stage: text({ enum: TRANSFER_STAGES }).notNull(),
+    state: text({ enum: TRANSFER_STATES }).notNull(),
+    // Untracked files the person chose to take along. Tracked changes always go.
+    includeUntracked: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+    // Messages sent while it ran, delivered once where the work ends up.
+    heldEventIds: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+    // The last chat event the source produced before it stopped.
+    conversationCheckpointEventId: text(),
+    // The Git checkpoint: the branch, the remote it's published on, the commit.
+    branch: text(),
+    remote: text(),
+    checkpointSha: text(),
+    // The destination's worktree, once prepared.
+    targetWorktreePath: text(),
+    // What the destination session starts from (§8.3).
+    handoff: text(),
+    failedStage: text({ enum: TRANSFER_STAGES }),
+    error: text(),
+    finishedAt: text(),
+    requestedByApiKeyId: text(),
+  },
+  (table) => [
+    index('idx_execution_transfers_execution').on(table.executionId),
+    uniqueIndex('uniq_execution_transfers_active')
+      .on(table.executionId)
+      .where(sql`${table.state} = 'active'`),
+  ],
+);
+
+// ─── Native sessions ──────────────────────────────────────────
+// The harness sessions behind a chat, over time (§5.1, P4.3).
+// `chat_sessions.external_session_id` is the current binding; this keeps
+// the earlier ones, with the computer and placement each ran under, when a
+// continuation starts a fresh session somewhere else.
+export const nativeSessions = sqliteTable(
+  'native_sessions',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    chatSessionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'cascade' }),
+    computerId: text().references(() => computers.id, { onDelete: 'set null' }),
+    placementId: text().references(() => executionPlacements.id, { onDelete: 'set null' }),
+    harness: text().notNull(),
+    nativeSessionId: text().notNull(),
+    startedAt: text().notNull(),
+    endedAt: text(),
+    endReason: text({ enum: ['replaced', 'continued', 'archived'] }),
+  },
+  (table) => [
+    index('idx_native_sessions_chat').on(table.chatSessionId),
+    uniqueIndex('uniq_native_sessions_open')
+      .on(table.chatSessionId)
+      .where(sql`${table.endedAt} IS NULL`),
+  ],
+);
+
+// ─── Review checkouts ─────────────────────────────────────────
+// Open code here (§8.1, P4.1): a published commit of an execution checked
+// out on another computer for review, in a folder of its own. The folder
+// and whatever the person edits in it belong to that computer. This is the
+// home's record of it, for the label ("abc1234 from MacBook") and Refresh.
+export const reviewCheckouts = sqliteTable(
+  'review_checkouts',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    // The computer the reviewed work runs on, when it was opened.
+    sourceComputerId: text().references(() => computers.id, { onDelete: 'set null' }),
+    path: text().notNull(),
+    branch: text().notNull(),
+    commitSha: text().notNull(),
+    // Last seen with local edits: refresh leaves it as it is.
+    dirty: integer({ mode: 'boolean' }).notNull(),
+  },
+  (table) => [uniqueIndex('uniq_review_checkouts_execution_computer').on(table.executionId, table.computerId)],
+);
+
 // One row per worker key. Its existence is what makes a key a worker key: a
 // viewing key never gets one, since only redeeming an enroll grant creates a
 // worker key, and it creates a new one.

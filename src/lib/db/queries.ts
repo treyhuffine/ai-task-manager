@@ -4884,20 +4884,25 @@ export function listWorkerCommands(computerId: string, options: { states?: Worke
  * streams can't number the same command twice.
  */
 /**
- * Mark stale, and return, the queued commands whose chat or execution no
- * longer runs on this computer at their generation (P2.6). Ownership is
- * checked before a command is sent, not only by the worker, which can't
- * fence a command for a placement it never saw replaced. A stale command
- * never gets a number.
+ * Mark stale, and return, the queued or unacknowledged commands whose chat
+ * or execution no longer runs on this computer at their generation (P2.6,
+ * P4). Ownership is checked before a command is sent or resent, not only by
+ * the worker, which can't fence a command for a placement it never saw
+ * replaced.
  */
 export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
   const db = getDb();
   const now = new Date().toISOString();
   const stale: WorkerCommandRecord[] = [];
+  // Queued, and streamed but not acknowledged (P4): a command sent before a
+  // disconnect is resent on reconnect, and one for a placement that has
+  // moved on since must not be. A transfer changes ownership only once the
+  // source's commands are acknowledged, and the worker fences by generation
+  // too, so what's left here was never received.
   const queued = db
     .select()
     .from(workerCommands)
-    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+    .where(and(eq(workerCommands.computerId, computerId), inArray(workerCommands.state, ['queued', 'sent'])))
     .all();
   for (const command of queued) {
     let current: boolean;
@@ -4918,7 +4923,7 @@ export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
         finishedAt: now,
         updatedAt: now,
       })
-      .where(and(eq(workerCommands.id, command.id), eq(workerCommands.state, 'queued')))
+      .where(and(eq(workerCommands.id, command.id), inArray(workerCommands.state, ['queued', 'sent'])))
       .returning()
       .get();
     if (row) stale.push(row);
